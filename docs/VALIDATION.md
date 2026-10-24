@@ -66,8 +66,9 @@ source/binary/image fingerprints for the matrix.
 | Wide, 1440×900 | Inspected: top-aligned hierarchy, bounded widths, intact title/controls and no stretched empty-state layout |
 | WM-maximized, 1920×1080 | Inspected: actual window-manager maximize atoms verified; header, controls and content remain intact |
 
-Tab and Shift+Tab produced visible focus, and Enter/Space activated the real
-silent GStreamer diagnostic to a visible EOS success result. Six Tab steps in
+Tab and Shift+Tab produced visible focus. The sequence exercised Enter and Space;
+Enter started the real silent GStreamer diagnostic and produced a visible EOS
+success result. Six Tab steps in
 compact diagnostics exposed the lower native-library card. The audio result
 survived resizing from 900×650 to 420×720; Ctrl+Q closed the process with exit
 code 0. Final images were checked for text, hierarchy, header/control clipping
