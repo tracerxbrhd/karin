@@ -56,6 +56,13 @@ The fix changes package metadata and build verification/documentation; Rust
 application sources and UI layout are unchanged. The existing inspected UI
 captures remain evidence for that layout, rather than a new Fedora acceptance.
 
+An independent push-triggered CI run exposed a capture-driver startup race:
+`xdotool windowactivate` ran before Openbox published EWMH activation support.
+The capture helper now waits for those capabilities with bounded failure
+diagnostics. A real cloud rerun with deliberately delayed Openbox startup passed
+and produced all 22 frames with exact size/maximize-state checks. This changes
+test orchestration, not application rendering or layout.
+
 CI now has separate current-stable and pinned 1.98.1 lanes. Both run formatting,
 Clippy, tests, build, license inventory, silent audio and GTK checks; 1.98.1 also
 builds the release profile offline and checks that binary's audio and GTK paths.

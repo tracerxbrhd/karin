@@ -39,6 +39,29 @@ cleanup() {
     kill "$wm_pid" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
+# Openbox starts asynchronously. A visible GTK window does not mean that the
+# root window's EWMH capabilities are ready for xdotool windowactivate yet.
+wm_failure() {
+    echo "$1" >&2
+    cat "$output_dir/openbox.log" >&2
+    xprop -root _NET_SUPPORTING_WM_CHECK _NET_SUPPORTED >&2 || true
+    exit 1
+}
+wm_ready=false
+attempt=0
+while [ "$attempt" -lt 80 ]; do
+    kill -0 "$wm_pid" 2>/dev/null || wm_failure 'Openbox exited before becoming ready'
+    wm_check=$(xprop -root _NET_SUPPORTING_WM_CHECK 2>/dev/null | sed -n 's/.*window id # \(0x[0-9a-fA-F]*\).*/\1/p')
+    wm_supported=$(xprop -root _NET_SUPPORTED 2>/dev/null || true)
+    if [ -n "$wm_check" ]; then
+        case "$wm_supported" in
+            *'_NET_ACTIVE_WINDOW'*) wm_ready=true; break ;;
+        esac
+    fi
+    attempt=$((attempt + 1))
+    sleep 0.1
+done
+[ "$wm_ready" = true ] || wm_failure 'Openbox did not publish EWMH activation support within 8 seconds'
 "$binary" > "$output_dir/application.log" 2>&1 &
 app_pid=$!
 window=
