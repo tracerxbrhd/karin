@@ -83,6 +83,13 @@ When a Rust workspace exists, run:
 - cargo test --workspace
 - cargo build --workspace
 
+Preserve the minimum Rust series declared in `Cargo.toml` (1.98). Run the pinned
+Rust 1.98.1 CI checks as well as stable when changing Rust code, dependencies or
+packaging; include Clippy, all tests and `cargo build --release --offline --locked`
+after fetching or vendoring the locked dependencies. Keep the MSRV CI lane aligned
+with the package metadata. Prove compatibility before lowering the declaration,
+and never use `--ignore-rust-version` to bypass a compiler requirement.
+
 Report executed checks, results, limitations, and remaining blockers.
 A successful build does not prove GTK runtime, audio, or Yandex API integration.
 

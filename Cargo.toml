@@ -3,7 +3,7 @@
 name = "karin"
 version = "0.0.0"
 edition = "2024"
-rust-version = "1.99"
+rust-version = "1.98"
 description = "An independent native Linux client for Yandex Music"
 repository = "https://github.com/tracerxbrhd/karin"
 license = "GPL-3.0-or-later"

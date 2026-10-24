@@ -23,7 +23,8 @@ search/metadata probes returned HTTP 451. See [API feasibility](docs/API_FEASIBI
 
 ## Build and run
 
-Install stable Rust and the native development packages described in
+Install stable Rust (minimum supported series: 1.98; compatibility checks use
+1.98.1) and the native development packages described in
 [BUILDING.md](docs/BUILDING.md), then:
 
 ```sh
@@ -46,6 +47,9 @@ cargo build --workspace --locked
 ./target/debug/karin --audio-self-test
 GTK_A11Y=none GSK_RENDERER=cairo dbus-run-session -- xvfb-run -a ./target/debug/karin --smoke-test
 ```
+
+CI also checks Rust 1.98.1, including an offline release build matching Flatpak's
+Cargo command. See [BUILDING.md](docs/BUILDING.md) for the pinned-toolchain commands.
 
 `--audio-self-test` is silent and requires no sound device. `--smoke-test` checks
 the real window and navigation without contacting the API. The separate optional

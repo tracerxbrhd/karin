@@ -17,12 +17,23 @@ concurrency:
 
 jobs:
   verify:
+    name: Rust ${{ matrix.toolchain }} (${{ matrix.lane }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lane: stable
+            toolchain: stable
+          - lane: msrv
+            toolchain: '1.98.1'
+            rust-version: '1.98'
     env:
       CARGO_TERM_COLOR: always
       CARGO_BUILD_JOBS: 2
       RUST_BACKTRACE: 1
+      RUSTUP_TOOLCHAIN: ${{ matrix.toolchain }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6, Node.js 24
       - name: Install native development dependencies
@@ -34,12 +45,25 @@ jobs:
             gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
             libssl-dev libdbus-1-dev libsecret-1-dev dbus-x11 xvfb xauth \
             librsvg2-common openbox imagemagick xdotool wmctrl x11-utils
-      - name: Install stable Rust
+      - name: Install selected Rust toolchain
         run: |
-          rustup toolchain install stable --profile minimal --component rustfmt --component clippy
-          rustup default stable
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
           rustc --version
           cargo --version
+      - name: Keep the MSRV lane aligned with Cargo metadata
+        if: matrix.lane == 'msrv'
+        env:
+          EXPECTED_RUST_VERSION: ${{ matrix.rust-version }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+
+          declared = tomllib.loads(Path("Cargo.toml").read_text())["package"]["rust-version"]
+          expected = os.environ["EXPECTED_RUST_VERSION"]
+          assert declared == expected, f"Cargo.toml declares {declared}; update the MSRV CI lane ({expected}) together"
+          PY
       - name: Formatting
         run: cargo fmt --all -- --check
       - name: Clippy
@@ -48,6 +72,12 @@ jobs:
         run: cargo test --workspace --locked
       - name: Build
         run: cargo build --workspace --locked
+      - name: Fetch locked dependencies for the offline release build
+        if: matrix.lane == 'msrv'
+        run: cargo fetch --locked
+      - name: Flatpak-style offline release build on MSRV
+        if: matrix.lane == 'msrv'
+        run: cargo build --release --offline --locked
       - name: Verify reviewed dependency license inventory
         run: |
           python3 packaging/license_inventory.py --output /tmp/karin-dependency-licenses.md
@@ -59,10 +89,20 @@ jobs:
           GTK_A11Y: none
           GSK_RENDERER: cairo
         run: dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' ./target/debug/karin --smoke-test
+      - name: Release GStreamer diagnostic through fakesink on MSRV
+        if: matrix.lane == 'msrv'
+        run: ./target/release/karin --audio-self-test
+      - name: Release GTK startup and shutdown under Xvfb on MSRV
+        if: matrix.lane == 'msrv'
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+        run: dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' ./target/release/karin --smoke-test
       - name: Capture real GTK visual review matrix
+        if: matrix.lane == 'stable'
         run: scripts/capture-ui.sh build/ui-captures
       - name: Retain visual review evidence
-        if: always()
+        if: always() && matrix.lane == 'stable'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6, Node.js 24
         with:
           name: karin-ui-${{ github.sha }}

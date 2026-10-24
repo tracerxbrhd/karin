@@ -2,8 +2,10 @@
 
 # Building and running Karin
 
-Karin is a single Rust package. The supported development baseline is Rust
-stable (currently 1.99.1), GTK >= 4.14, Libadwaita >= 1.5 and GStreamer >= 1.20.
+Karin is a single Rust package. Its minimum Rust series is 1.98
+(`rust-version = "1.98"`); compatibility checks pin Rust 1.98.1, including the
+Flatpak release profile. Current stable Rust remains the development default.
+Native baselines are GTK >= 4.14, Libadwaita >= 1.5 and GStreamer >= 1.20.
 `Cargo.lock` fixes Rust dependency versions. The primary manual acceptance target
 is Fedora 44, KDE Plasma, Wayland and PipeWire; cloud checks use Debian 13.
 
@@ -56,6 +58,20 @@ instructions if the Docker image needs restoring. Cloud tasks are already
 isolated; use the existing checkout instead of creating another worktree unless
 explicitly requested.
 
+For the pinned compatibility toolchain, install it alongside stable and select it
+per command; the wrapper does not change the default toolchain:
+
+```sh
+/workspace/karin-environment/run rustup toolchain install 1.98.1 --profile minimal \
+  --component rustfmt --component clippy
+/workspace/karin-environment/run cargo +1.98.1 build --workspace --locked
+/workspace/karin-environment/run env RUSTUP_TOOLCHAIN=1.98.1 \
+  python3 packaging/flatpak/prepare-source.py
+```
+
+`RUSTUP_TOOLCHAIN` also selects the Cargo subprocesses used by source preparation
+and the dependency-license inventory.
+
 ## Verification
 
 Run from the repository root (through the wrapper in the prepared cloud):
@@ -76,6 +92,28 @@ checking its window lifecycle. Automated tests must not depend on the public
 Yandex API or user credentials. CI runs these checks on Ubuntu 24.04 with its
 native development libraries; a CI definition alone is not evidence that a
 remote GitHub Actions run passed.
+
+CI runs both current stable and the pinned minimum-version toolchain. To reproduce
+the Rust 1.98.1 lane locally, install its Rustfmt and Clippy components, then run:
+
+```sh
+cargo +1.98.1 fmt --all -- --check
+cargo +1.98.1 clippy --workspace --all-targets --locked -- -D warnings
+cargo +1.98.1 test --workspace --locked
+cargo +1.98.1 build --workspace --locked
+cargo +1.98.1 fetch --locked
+cargo +1.98.1 build --release --offline --locked
+./target/release/karin --audio-self-test
+GTK_A11Y=none GSK_RENDERER=cairo dbus-run-session -- \
+  xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' ./target/release/karin --smoke-test
+```
+
+The release command matches the Cargo command in the Flatpak manifest. Fetching
+populates the local Cargo cache first; a generated Flatpak source snapshot instead
+uses its vendored sources. Neither check is a full SDK/sandbox package build.
+Keep `Cargo.toml`'s minimum version and the pinned CI lane aligned, and verify code
+and locked dependencies before raising that minimum. Never bypass Cargo's
+version check with `--ignore-rust-version`.
 
 The user has confirmed initial startup, anonymous API HTTP 200, audible test
 output, D-Bus and Secret Service on Fedora 44/KDE/Wayland/PipeWire. The original
@@ -105,6 +143,13 @@ keeps the GTK/Libadwaita runtime independent of the user's desktop environment.
 It has no host filesystem permission or Secret Service access grant. Network and
 audio permissions support only the currently explicit diagnostics.
 
+During Fedora acceptance, the GNOME 50 SDK with
+`org.freedesktop.Sdk.Extension.rust-stable//25.08` reported Rust 1.98.1. The earlier
+Karin requirement of 1.99 rejected that compiler before compilation. The minimum
+is now the 1.98 series, with exact 1.98.1 covered by CI; see the executed results in
+[VALIDATION.md](VALIDATION.md). Updating the Runtime or native library baselines
+is not needed for this metadata mismatch.
+
 Install Flatpak Builder, the SDK/runtime and the Rust extension from the trusted
 Flathub remote configured on your machine:
 
@@ -129,8 +174,10 @@ snapshot and preserves supplied third-party license/notice files in
 and `docs/LICENSING.md` under `/app/share/licenses/karin`. Review the inventory
 and component obligations before distribution; generated notices are not a
 complete review of the native runtime or final package.
-The SDK's Rust must meet `Cargo.toml`'s minimum version; update/install the matching
-stable SDK extension if it is too old. Karin's own code and original materials
+The SDK's Rust must meet `Cargo.toml`'s minimum version. If a future SDK/compiler
+combination falls below it, inspect the SDK's actual `rustc --version` and the
+supported extension before changing the minimum or Runtime. Do not suppress the
+version check. Karin's own code and original materials
 use GPL-3.0-or-later. A distributable package must include the GPL text, preserve
 third-party notices and meet corresponding-source and component-specific license
 obligations; see [LICENSING.md](LICENSING.md). Source preparation and a successful

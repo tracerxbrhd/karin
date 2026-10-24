@@ -2,9 +2,71 @@
 
 # v0.0 foundation validation
 
-This report separates initial cloud checks, user-reported Fedora acceptance and
-checks of the revised UI. A result for one environment or revision is not evidence
-that another has passed.
+This report separates initial cloud checks, user-reported Fedora acceptance,
+revised UI checks and compiler compatibility. A result for one environment or
+revision is not evidence that another has passed.
+
+## Rust 1.98.1 / Flatpak compiler compatibility
+
+During subsequent Fedora acceptance, the user reported that GNOME SDK 50 with
+`org.freedesktop.Sdk.Extension.rust-stable//25.08` provided Rust 1.98.1. Karin's
+previous `rust-version = "1.99"` prevented compilation. This exact rejection was
+reproduced in the cloud with Rust 1.98.1 before changing the package metadata.
+The minimum is now `1.98`; the compatibility check uses exact patch version 1.98.1.
+No compiler-version check is suppressed.
+
+The compatibility run uses Debian 13 x86_64, rustc 1.98.1
+(`48a229cea`, 2026-09-01), Cargo 1.98.1 (`797e8a9bc`), Rustfmt 1.9.0-stable and
+Clippy 0.1.98. Native libraries remain GTK 4.18.6, Libadwaita 1.7.6 and
+GStreamer 1.26.2. Current stable remains the development default; the pinned
+toolchain is installed alongside it in the prepared cloud environment.
+
+The source audit found no use requiring Rust 1.99. Locked metadata covers 197
+external packages; none declares a Rust minimum above 1.98 (the highest declared
+minimum is 1.96.0 for `kstring` 2.0.5). Some dependencies do not declare an MSRV;
+the actual Linux compilation and tests, rather than metadata alone, provide the
+compatibility evidence. Other target platforms were not compiled.
+
+`Cargo.lock` is unchanged, SHA256
+`dea4fadcad8782fae898905c9993d48864e809f9293ba08d4d0ba6b89da43462`.
+The Flatpak source snapshot contains the identical lockfile. Dependency versions,
+GTK/Libadwaita/GStreamer baselines and the GNOME 50 / Freedesktop 25.08 selection
+are unchanged.
+
+The following checks completed on 2026-10-25 with `RUSTUP_TOOLCHAIN=1.98.1`.
+The release command ran inside `build/flatpak-source`, using its generated Cargo
+source replacement configuration and vendored dependencies. It is the exact
+Cargo build command used by the existing Flatpak manifest.
+
+| Check on Rust 1.98.1 | Result |
+| --- | --- |
+| `cargo fmt --all -- --check` | Passed, exit 0 |
+| `cargo clippy --workspace --all-targets --locked -- -D warnings` | Passed, no warnings, exit 0 |
+| `cargo test --workspace --locked` | **23 passed, 0 failed, 0 ignored**; binary and documentation targets have 0 tests |
+| `cargo build --workspace --locked` | Passed, exit 0 |
+| Debug GStreamer diagnostic | Passed: 40 synthetic buffers through `fakesink`, exit 0 |
+| Debug GTK smoke test under Xvfb | Passed: both themes/pages, three sizes, header/text allocations, focus, navigation and widget cleanup, exit 0 |
+| Locked dependency-license inventory regeneration/comparison | Passed; identical to the reviewed inventory |
+| Flatpak source preparation, lockfile/inventory comparison and manifest parsing | Passed; source preparation selected Cargo 1.98.1 and preserved third-party notices |
+| Vendored `cargo build --release --offline --locked` | Passed, optimized release binary built without dependency downloads, exit 0 |
+| Release GStreamer diagnostic | Passed: 40 synthetic buffers through `fakesink`, exit 0 |
+| Release GTK smoke test under Xvfb | Passed: responsive layouts, themes/pages, header/text allocations, focus, navigation and widget cleanup, exit 0 |
+
+The fix changes package metadata and build verification/documentation; Rust
+application sources and UI layout are unchanged. The existing inspected UI
+captures remain evidence for that layout, rather than a new Fedora acceptance.
+
+CI now has separate current-stable and pinned 1.98.1 lanes. Both run formatting,
+Clippy, tests, build, license inventory, silent audio and GTK checks; 1.98.1 also
+builds the release profile offline and checks that binary's audio and GTK paths.
+A metadata guard prevents the pinned MSRV lane from silently drifting away from
+`Cargo.toml`. Inspect [PR #2 checks](https://github.com/tracerxbrhd/karin/pull/2/checks)
+for the hosted result for each commit.
+
+These native builds do not establish a complete GNOME SDK/sandbox Flatpak build.
+Bubblewrap namespace creation remains denied in this cloud container. Full
+Flatpak package/build/install acceptance must be repeated on Fedora after this
+update; the revised UI's manual Fedora acceptance also remains pending.
 
 ## User-reported Fedora acceptance of the original foundation
 

@@ -23,6 +23,10 @@ checks beyond a successful Rust build.
   remain local and require no user tokens.
 - Start Flatpak packaging with GNOME SDK/Platform 50 and its Freedesktop 25.08
   stable Rust SDK extension.
+- Keep the package minimum at the Rust 1.98 series and check exact Rust 1.98.1
+  alongside current stable in CI, including the offline release build. This
+  matches the compiler reported by the SDK during Fedora acceptance; code and
+  locked dependencies must pass the pinned checks before compatibility is claimed.
 - Prepare an ignored source snapshot with `cargo vendor --locked`, then perform
   the Flatpak Cargo build with `--offline --locked`. Keep generated Cargo source
   replacement configuration out of the development checkout.

@@ -10,6 +10,8 @@ Describe the concrete behavior and why it is needed.
 - [ ] `cargo clippy --workspace --all-targets --locked -- -D warnings`
 - [ ] `cargo test --workspace --locked`
 - [ ] `cargo build --workspace --locked`
+- [ ] Pinned Rust 1.98.1: formatting, Clippy without warnings, all tests and build
+- [ ] Rust 1.98.1 `cargo build --release --offline --locked` after fetch/vendor
 - [ ] GTK smoke test and normal window/resource cleanup
 - [ ] Synthetic GStreamer diagnostic through `fakesink`
 - [ ] GitHub Actions result inspected for this revision
