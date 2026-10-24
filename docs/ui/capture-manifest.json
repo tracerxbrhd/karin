@@ -1,0 +1,167 @@
+{
+  "capturedOn": "2026-10-24",
+  "environment": "Debian 13, Xvfb 21.1.16, Openbox 3.6.1, 1920x1080 at 96dpi",
+  "renderer": "cairo, GSK_DEBUG=full-redraw (capture-only)",
+  "sourceRevision": "UI/licensing correction working tree committed with this evidence",
+  "sourceFiles": {
+    "src/ui.rs": "696882b3db9c67ea7f4f0cea1ff432f1e197b15cb8a59367259892b2719c354b",
+    "src/main.rs": "adef65a9bde3db6210f5c8f6d8e646ce73ab7063c7539872ab3c1ce303b0736a"
+  },
+  "binarySha256": "5956b748d261ae5b384fa491c15eacafc2b624d7112c1a3cddb27ae277cff1fa",
+  "frames": [
+    {
+      "file": "light/compact-diagnostics-bottom.png",
+      "width": 420,
+      "height": 720,
+      "wmMaximized": false,
+      "sha256": "140fc7671ebec2d2ab31dfcad8b2ca3105e7be4590150253903daaf713e20190"
+    },
+    {
+      "file": "light/compact-diagnostics.png",
+      "width": 420,
+      "height": 720,
+      "wmMaximized": false,
+      "sha256": "cda6248ca7773c1b20537592daa7c4ac30124aacb944e54068fdc07cac276fbf"
+    },
+    {
+      "file": "light/compact-overview.png",
+      "width": 420,
+      "height": 720,
+      "wmMaximized": false,
+      "sha256": "0d3fb56b5adccbc419761e395a13456ed634fce74714c2bac05608aa9a5eb2db"
+    },
+    {
+      "file": "light/keyboard-activation.png",
+      "width": 900,
+      "height": 650,
+      "wmMaximized": false,
+      "sha256": "1276615caaf3b7a0349659ec52cfad076df9f7d74ace5e72e8a76634888231aa"
+    },
+    {
+      "file": "light/keyboard-focus-diagnostics.png",
+      "width": 900,
+      "height": 650,
+      "wmMaximized": false,
+      "sha256": "1276615caaf3b7a0349659ec52cfad076df9f7d74ace5e72e8a76634888231aa"
+    },
+    {
+      "file": "light/maximized-diagnostics.png",
+      "width": 1920,
+      "height": 1080,
+      "wmMaximized": true,
+      "sha256": "b94f46a10a9827377c80a8e926ba18c14dbfd4259a02c1dd662aa206df2375a8"
+    },
+    {
+      "file": "light/maximized-overview.png",
+      "width": 1920,
+      "height": 1080,
+      "wmMaximized": true,
+      "sha256": "5367bb41184540374ad6bf7773e4ec677535f10f7b6bd1d740ffa504f83d7ce2"
+    },
+    {
+      "file": "light/medium-diagnostics.png",
+      "width": 900,
+      "height": 650,
+      "wmMaximized": false,
+      "sha256": "69a693560b04cc567257ddc19a5720728d6f2912532c3c152edb3a7863f5c1e8"
+    },
+    {
+      "file": "light/medium-overview.png",
+      "width": 900,
+      "height": 650,
+      "wmMaximized": false,
+      "sha256": "b12221e99b48960a78ff512d9081ef0f49b89f03bc194d05fdd3a335f87a369b"
+    },
+    {
+      "file": "light/wide-diagnostics.png",
+      "width": 1440,
+      "height": 900,
+      "wmMaximized": false,
+      "sha256": "43384fd62949d1353350add521c6afda9e269a93ba60a778a0dcc5d437c1cab4"
+    },
+    {
+      "file": "light/wide-overview.png",
+      "width": 1440,
+      "height": 900,
+      "wmMaximized": false,
+      "sha256": "1ae7db0d7982364a30ab0e2f21df1ff2a223b37f6ec7374e1add131cd6d0823a"
+    },
+    {
+      "file": "dark/compact-diagnostics-bottom.png",
+      "width": 420,
+      "height": 720,
+      "wmMaximized": false,
+      "sha256": "8c9f1b10e36e87d11dda006c909f96653591c40b1c40b90bfa953ba028cecd92"
+    },
+    {
+      "file": "dark/compact-diagnostics.png",
+      "width": 420,
+      "height": 720,
+      "wmMaximized": false,
+      "sha256": "450a2116436bcb61c72888de56ec39df757045df56f1535b6e646ec7dc0e4289"
+    },
+    {
+      "file": "dark/compact-overview.png",
+      "width": 420,
+      "height": 720,
+      "wmMaximized": false,
+      "sha256": "172652ef37081e5f6e7ee222bbf84598ce9645c01ff9892dad6917c824fa439e"
+    },
+    {
+      "file": "dark/keyboard-activation.png",
+      "width": 900,
+      "height": 650,
+      "wmMaximized": false,
+      "sha256": "ba90d0d63a3b796d4ceb45b10e021e514a3a03601e328adbd079e0833746326e"
+    },
+    {
+      "file": "dark/keyboard-focus-diagnostics.png",
+      "width": 900,
+      "height": 650,
+      "wmMaximized": false,
+      "sha256": "ba90d0d63a3b796d4ceb45b10e021e514a3a03601e328adbd079e0833746326e"
+    },
+    {
+      "file": "dark/maximized-diagnostics.png",
+      "width": 1920,
+      "height": 1080,
+      "wmMaximized": true,
+      "sha256": "049e48bf74b976b598ac06e79ff7247673104fb38b9b65aabfdf24a11cb66524"
+    },
+    {
+      "file": "dark/maximized-overview.png",
+      "width": 1920,
+      "height": 1080,
+      "wmMaximized": true,
+      "sha256": "4247e471b13eda7018a22b00e5c8287293fce4327fa5071e0382211d09cbc9bb"
+    },
+    {
+      "file": "dark/medium-diagnostics.png",
+      "width": 900,
+      "height": 650,
+      "wmMaximized": false,
+      "sha256": "b7e7353d7b1e36ff7b6e3c9829ded1ab21948b019a747acbd8551f162fde1095"
+    },
+    {
+      "file": "dark/medium-overview.png",
+      "width": 900,
+      "height": 650,
+      "wmMaximized": false,
+      "sha256": "5f1e836f27c24160975a2eb406b576871e3009fccb352010d80a43b2e920c932"
+    },
+    {
+      "file": "dark/wide-diagnostics.png",
+      "width": 1440,
+      "height": 900,
+      "wmMaximized": false,
+      "sha256": "05bbf8e9f6468d4803b46a840cf60d9c5fe7cc4e490ad539168e8c7833bcba55"
+    },
+    {
+      "file": "dark/wide-overview.png",
+      "width": 1440,
+      "height": 900,
+      "wmMaximized": false,
+      "sha256": "64b4d0e35725a72b675ebfc8239142133f1117769c4dd5164b4bb9b5f33aa388"
+    }
+  ]
+}

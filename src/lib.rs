@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Karin's technical foundation. UI and external transports meet at application services.
 
 pub mod api;

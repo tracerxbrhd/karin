@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Independent, bounded diagnostics for the native audio stack.
 //!
 //! No service URLs, credentials or copyrighted audio enter this module. Run

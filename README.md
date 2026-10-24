@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+
 # Karin
 
 An independent native Linux client for Yandex Music, built with Rust, GTK4,
@@ -16,7 +18,7 @@ player.** Karin is not affiliated with Yandex.
 
 No tokens or passwords are requested, stored or logged. Authentication, library,
 search UI, My Wave, streaming playback and MPRIS publication are not implemented.
-The current cloud probe reports anonymous status with service availability false;
+The initial cloud probe reported anonymous status with service availability false;
 search/metadata probes returned HTTP 451. See [API feasibility](docs/API_FEASIBILITY.md).
 
 ## Build and run
@@ -30,7 +32,10 @@ cargo run --locked
 ```
 
 The primary manual acceptance platform is Fedora 44 / KDE Plasma / Wayland /
-PipeWire. Cloud validation uses Debian 13 / Xvfb. In the prepared Codex Cloud
+PipeWire. The user has confirmed launch, anonymous API diagnostics, audible test
+output, D-Bus and Secret Service on that platform. The original visual layout
+failed manual acceptance; the revised layout still requires repeat Fedora visual
+acceptance. Cloud validation uses Debian 13 / Xvfb. In the prepared Codex Cloud
 environment, prefix native build commands with `/workspace/karin-environment/run`.
 
 ```sh
@@ -53,7 +58,10 @@ the resulting domain report. Network access is never required by automated tests
 - [API feasibility and evidence](docs/API_FEASIBILITY.md)
 - [Fedora, cloud and Flatpak build instructions](docs/BUILDING.md)
 - [Validation and acceptance](docs/VALIDATION.md)
+- [UI quality gate](docs/UI_QUALITY_GATE.md)
+- [Inspected cloud UI screenshots](docs/ui/README.md)
 - [Known limitations](docs/LIMITATIONS.md)
+- [License scope and dependency review](docs/LICENSING.md)
 - [Roadmap](docs/ROADMAP.md) and [ADRs](docs/adr/)
 
 The initial Flatpak manifest and offline Cargo source preparation are in
@@ -62,5 +70,12 @@ container because Bubblewrap namespace creation is denied.
 
 ## License
 
-To be determined before the first public release. No third-party branding or
-copyrighted audio is distributed by this repository.
+Karin's own code and original materials are licensed under
+**GNU GPL-3.0-or-later**, unless a file states otherwise. See [LICENSE](LICENSE)
+for the standard GPLv3 text and [the licensing decision](docs/adr/0005-licensing.md)
+for scope and distribution considerations. Third-party components retain their
+own licenses and notices.
+
+GPL does not grant permission to use Yandex Music, its API, trademarks or content,
+and does not replace the service's terms. No copyrighted audio is distributed by
+this repository.

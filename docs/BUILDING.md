@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+
 # Building and running Karin
 
 Karin is a single Rust package. The supported development baseline is Rust
@@ -75,9 +77,24 @@ Yandex API or user credentials. CI runs these checks on Ubuntu 24.04 with its
 native development libraries; a CI definition alone is not evidence that a
 remote GitHub Actions run passed.
 
-Fedora manual acceptance must still check Wayland, HiDPI, keyboard navigation,
-accessibility, light/dark appearance, PipeWire output and clean shutdown. A headless
-check does not establish those properties.
+The user has confirmed initial startup, anonymous API HTTP 200, audible test
+output, D-Bus and Secret Service on Fedora 44/KDE/Wayland/PipeWire. The original
+visual layout failed acceptance. Repeat visual acceptance of the revised layout
+must check window/title controls, resize/maximize behavior, HiDPI, keyboard/focus,
+accessibility and both themes under [the UI quality gate](UI_QUALITY_GATE.md).
+A headless check does not establish those properties on Fedora.
+
+For a substantial UI change, also run the screenshot matrix and review it under
+[UI_QUALITY_GATE.md](UI_QUALITY_GATE.md). With the capture tools installed:
+
+```sh
+scripts/capture-ui.sh build/ui-captures
+```
+
+The prepared cloud visual image provides these tools through
+`/workspace/karin-environment/run-visual`. The script uses its own Xvfb/Openbox
+session and captures Karin only; it must not be pointed at a personal desktop.
+Inspection of the images remains required even when the script exits successfully.
 
 ## Flatpak foundation
 
@@ -106,9 +123,19 @@ environment files and build outputs. It vendors only the versions fixed by
 `Cargo.lock`; review the source snapshot before distribution. Cargo's generated
 source configuration exists only in that copy. The manifest builds with
 `--offline --locked`, with no dependency downloads inside the Flatpak build.
+The preparation also runs `packaging/license_inventory.py` in the generated
+snapshot and preserves supplied third-party license/notice files in
+`third-party-notices/`. The manifest installs these notices, Karin's `LICENSE`
+and `docs/LICENSING.md` under `/app/share/licenses/karin`. Review the inventory
+and component obligations before distribution; generated notices are not a
+complete review of the native runtime or final package.
 The SDK's Rust must meet `Cargo.toml`'s minimum version; update/install the matching
-stable SDK extension if it is too old. The current license remains unresolved,
-so this foundation is not a statement that the package is ready for public release.
+stable SDK extension if it is too old. Karin's own code and original materials
+use GPL-3.0-or-later. A distributable package must include the GPL text, preserve
+third-party notices and meet corresponding-source and component-specific license
+obligations; see [LICENSING.md](LICENSING.md). Source preparation and a successful
+build alone do not establish complete distribution compliance or release
+acceptance. GPL does not authorize Yandex Music API or content access.
 
 Full Flatpak builds are **not verified in the cloud environment**: Bubblewrap
 cannot create the required user namespace inside the nested container. Keep

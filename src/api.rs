@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Anonymous Yandex Music status probe. The API is unofficial and unstable.
 //!
 //! No OAuth credentials, cookies or account passwords are accepted or stored.

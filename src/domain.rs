@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Transport-independent connection state. A reachable API never implies authentication.
 
 use thiserror::Error;

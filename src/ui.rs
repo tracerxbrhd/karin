@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Native presentation layer. Network transport details never enter this module.
 
 use std::{cell::RefCell, rc::Rc};
@@ -16,30 +17,78 @@ use crate::{
 pub struct MainWindow {
     pub window: adw::ApplicationWindow,
     stack: adw::ViewStack,
+    header: adw::HeaderBar,
+    header_items: Vec<gtk::Widget>,
+    switcher: adw::ViewSwitcher,
+    navigation: adw::ViewSwitcherBar,
+    check: gtk::Button,
+    scrolls: Vec<gtk::ScrolledWindow>,
     lifetime_refs: Vec<glib::WeakRef<gtk::Widget>>,
 }
 
 impl MainWindow {
-    /// Verify the real widget tree and navigation without a network request.
+    /// Validate actual allocations as well as native responsive navigation.
     pub fn smoke_check(&self) -> bool {
         self.stack.set_visible_child_name("diagnostics");
-        self.window.is_visible()
-            && self.window.is_realized()
-            && self.stack.visible_child_name().as_deref() == Some("diagnostics")
+        self.window.is_visible() && self.window.is_realized() && self.verify_layout().is_ok()
     }
 
-    /// Close the actual window and return a deferred lifetime check. Checking
-    /// after the main loop processes closure avoids retaining signal cycles.
+    pub fn show_page(&self, name: &str) {
+        self.stack.set_visible_child_name(name);
+    }
+
+    pub fn visible_page(&self) -> Option<glib::GString> {
+        self.stack.visible_child_name()
+    }
+
+    pub fn focus_primary_action(&self) -> bool {
+        self.show_page("home");
+        self.check.grab_focus() && self.check.has_focus()
+    }
+
+    pub fn verify_layout(&self) -> Result<(), String> {
+        let width = self.window.width();
+        let header = self
+            .header
+            .compute_bounds(&self.window)
+            .ok_or("HeaderBar has no allocation")?;
+        if header.y() < 0.0 || header.height() < 48.0 {
+            return Err(format!("HeaderBar clipped or too short: {header:?}"));
+        }
+        for item in self.header_items.iter().filter(|item| item.is_visible()) {
+            let bounds = item
+                .compute_bounds(&self.window)
+                .ok_or("Header item missing allocation")?;
+            if !item.is_mapped()
+                || bounds.height() < 16.0
+                || bounds.y() < header.y()
+                || bounds.y() + bounds.height() > header.y() + header.height() + 1.0
+            {
+                return Err(format!(
+                    "Header item clipped: {} {bounds:?}",
+                    item.type_().name()
+                ));
+            }
+        }
+        let compact = width <= 600;
+        if self.switcher.is_visible() == compact || self.navigation.reveals() != compact {
+            return Err(format!("Navigation does not match width {width}"));
+        }
+        for scroll in &self.scrolls {
+            let adjustment = scroll.hadjustment();
+            if adjustment.upper() - adjustment.page_size() > 1.0 {
+                return Err("Horizontal scrolling would hide content".into());
+            }
+        }
+        check_widget_geometry(self.window.upcast_ref(), self.window.upcast_ref())
+    }
+
+    /// Consume every strong reference before observing deferred widget cleanup.
     pub fn close_for_smoke(self) -> impl FnOnce() -> bool {
-        let Self {
-            window,
-            stack,
-            lifetime_refs,
-        } = self;
-        window.close();
-        drop(window);
-        drop(stack);
-        move || lifetime_refs.iter().all(|weak| weak.upgrade().is_none())
+        let refs = self.lifetime_refs.clone();
+        self.window.close();
+        drop(self);
+        move || refs.iter().all(|weak| weak.upgrade().is_none())
     }
 }
 
@@ -47,101 +96,110 @@ pub fn build(app: &adw::Application, service: ConnectionService) -> MainWindow {
     let window = adw::ApplicationWindow::builder()
         .application(app)
         .title(config::APP_NAME)
-        .default_width(920)
-        .default_height(700)
+        .default_width(900)
+        .default_height(650)
         .width_request(360)
         .height_request(480)
         .build();
     let toolbar = adw::ToolbarView::new();
-    let header = adw::HeaderBar::new();
-    header.set_title_widget(Some(&adw::WindowTitle::new("Karin", "Яндекс Музыка")));
+    let header = adw::HeaderBar::builder().height_request(48).build();
+    let stack = adw::ViewStack::new();
+    let brand = gtk::Label::new(Some("Karin"));
+    brand.add_css_class("heading");
+    header.pack_start(&brand);
+    let compact_title = gtk::Label::builder().label("Karin").visible(false).build();
+    compact_title.add_css_class("heading");
+    let switcher = adw::ViewSwitcher::builder()
+        .stack(&stack)
+        .policy(adw::ViewSwitcherPolicy::Wide)
+        .build();
+    let header_title = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    header_title.append(&compact_title);
+    header_title.append(&switcher);
+    header.set_title_widget(Some(&header_title));
     let menu = gio::Menu::new();
     menu.append(Some("О Karin"), Some("app.about"));
     menu.append(Some("Выйти"), Some("app.quit"));
-    header.pack_end(
-        &gtk::MenuButton::builder()
-            .icon_name("open-menu-symbolic")
-            .tooltip_text("Меню приложения")
-            .menu_model(&menu)
-            .build(),
-    );
+    let menu_button = gtk::MenuButton::builder()
+        .icon_name("open-menu-symbolic")
+        .tooltip_text("Меню приложения")
+        .menu_model(&menu)
+        .build();
+    header.pack_end(&menu_button);
     toolbar.add_top_bar(&header);
-
-    let stack = adw::ViewStack::new();
     let navigation = adw::ViewSwitcherBar::builder()
         .stack(&stack)
-        .reveal(true)
+        .reveal(false)
         .build();
     toolbar.add_bottom_bar(&navigation);
     toolbar.set_content(Some(&stack));
     window.set_content(Some(&toolbar));
 
-    let home = gtk::Box::new(gtk::Orientation::Vertical, 12);
-    let status = adw::StatusPage::builder()
-        .icon_name("audio-x-generic-symbolic")
-        .vexpand(true)
-        .build();
-    let check = gtk::Button::with_label("Проверить доступность");
-    check.add_css_class("suggested-action");
-    check.set_halign(gtk::Align::Center);
-    let spinner = gtk::Spinner::builder()
-        .halign(gtk::Align::Center)
-        .visible(false)
-        .build();
-    let controls = gtk::Box::new(gtk::Orientation::Vertical, 12);
-    controls.append(&spinner);
-    controls.append(&check);
-    status.set_child(Some(&controls));
-    home.append(&status);
-    stack
-        .add_titled(&home, Some("home"), "Обзор")
-        .set_icon_name(Some("go-home-symbolic"));
-
-    let diagnostics = gtk::Box::new(gtk::Orientation::Vertical, 24);
-    diagnostics.set_margin_top(24);
-    diagnostics.set_margin_bottom(24);
-    diagnostics.set_margin_start(18);
-    diagnostics.set_margin_end(18);
-    let title = gtk::Label::new(Some("Диагностика"));
-    title.add_css_class("title-1");
-    title.set_halign(gtk::Align::Start);
-    diagnostics.append(&title);
-
+    let (diagnostics, diagnostics_heading) = page(
+        "Диагностика",
+        "Проверки работают независимо от авторизации.",
+    );
     let connection_group = adw::PreferencesGroup::builder()
         .title("Подключение к сервису")
-        .description("Проверка без входа в аккаунт. Токены и пароли не запрашиваются.")
         .build();
     let connection_row = row("Яндекс Музыка", "Доступность ещё не проверена");
+    let check_diagnostics = gtk::Button::builder()
+        .label("Проверить")
+        .valign(gtk::Align::Center)
+        .build();
+    connection_row.add_suffix(&check_diagnostics);
     connection_group.add(&connection_row);
     diagnostics.append(&connection_group);
 
+    let diagnostic_columns = gtk::Box::new(gtk::Orientation::Horizontal, 24);
+    diagnostic_columns.set_homogeneous(true);
+    diagnostic_columns.set_valign(gtk::Align::Start);
     let audio_group = adw::PreferencesGroup::builder()
-        .title("Проверка аудио")
-        .description("Короткий синтетический сигнал. Это не музыка из Яндекс Музыки.")
+        .title("Аудиодиагностика")
+        .description("Синтетический сигнал, не музыка из сервиса.")
+        .hexpand(true)
         .build();
-    let audio_row = row("Аудиодвижок", "Проверка ещё не выполнялась");
+    let audio_row = row("Результат", "Проверка ещё не выполнялась");
     audio_group.add(&audio_row);
-    let silent = gtk::Button::with_label("Проверить без звука");
-    let audible = gtk::Button::with_label("Прослушать тестовый сигнал");
-    // A vertical layout remains usable on narrow windows and with large text.
-    let audio_controls = gtk::Box::new(gtk::Orientation::Vertical, 8);
-    audio_controls.append(&silent);
-    audio_controls.append(&audible);
-    audio_group.add(&audio_controls);
-    diagnostics.append(&audio_group);
+    let silent = gtk::Button::builder()
+        .label("Проверить")
+        .valign(gtk::Align::Center)
+        .build();
+    let silent_row = row("Обработка аудио", "Без устройства вывода");
+    silent_row.add_suffix(&silent);
+    audio_group.add(&silent_row);
+    let audible = gtk::Button::builder()
+        .label("Прослушать")
+        .valign(gtk::Align::Center)
+        .build();
+    let audible_row = row("Тестовый сигнал", "Негромкий синтетический звук");
+    audible_row.add_suffix(&audible);
+    audio_group.add(&audible_row);
+    diagnostic_columns.append(&audio_group);
 
     let desktop_group = adw::PreferencesGroup::builder()
         .title("Рабочий стол")
-        .description("Хранилище токенов и управление MPRIS ещё не подключены.")
+        .description("Проверка без чтения сохранённых секретов.")
+        .hexpand(true)
         .build();
     let desktop_row = row("D-Bus и Secret Service", "Проверка ещё не выполнялась");
-    let inspect = gtk::Button::with_label("Проверить окружение");
+    let inspect = gtk::Button::builder()
+        .label("Проверить")
+        .valign(gtk::Align::Center)
+        .build();
+    desktop_row.add_suffix(&inspect);
     desktop_group.add(&desktop_row);
-    desktop_group.add(&inspect);
     desktop_group.add(&row(
+        "Интеграция",
+        "Хранение токенов и MPRIS ещё не подключены",
+    ));
+    diagnostic_columns.append(&desktop_group);
+    diagnostics.append(&diagnostic_columns);
+    let runtime_group = adw::PreferencesGroup::builder().title("Окружение").build();
+    runtime_group.add(&row(
         "Нативные библиотеки",
         &format!(
-            "GTK {}.{}.{} · Libadwaita {}.{}.{} · GStreamer {}",
+            "GTK {}.{}.{} · Libadwaita {}.{}.{} · {}",
             gtk::major_version(),
             gtk::minor_version(),
             gtk::micro_version(),
@@ -151,44 +209,173 @@ pub fn build(app: &adw::Application, service: ConnectionService) -> MainWindow {
             gstreamer::version_string()
         ),
     ));
-    diagnostics.append(&desktop_group);
-    let clamp = adw::Clamp::builder()
-        .maximum_size(720)
-        .child(&diagnostics)
+    diagnostics.append(&runtime_group);
+
+    let (home, home_heading) = page("Обзор", "Karin · технический прототип");
+    let overview_columns = gtk::Box::new(gtk::Orientation::Horizontal, 24);
+    overview_columns.set_valign(gtk::Align::Start);
+    let status = gtk::Box::new(gtk::Orientation::Vertical, 16);
+    status.add_css_class("card");
+    status.set_hexpand(true);
+    status.set_valign(gtk::Align::Start);
+    let status_content = gtk::Box::new(gtk::Orientation::Vertical, 16);
+    margins(&status_content, 24);
+    let status_eyebrow = label("Подключение к Яндекс Музыке", "heading");
+    let status_title = label("", "title-2");
+    let status_description = label("", "");
+    let check = gtk::Button::with_label("Проверить доступность");
+    check.add_css_class("suggested-action");
+    check.set_halign(gtk::Align::Start);
+    let spinner = gtk::Spinner::builder().visible(false).build();
+    let controls = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    controls.append(&check);
+    controls.append(&spinner);
+    status_content.append(&status_eyebrow);
+    status_content.append(&status_title);
+    status_content.append(&status_description);
+    status_content.append(&controls);
+    status.append(&status_content);
+    overview_columns.append(&status);
+    let shortcuts = adw::PreferencesGroup::builder()
+        .title("Доступно в прототипе")
+        .width_request(260)
         .build();
-    let scroll = gtk::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk::PolicyType::Never)
-        .child(&clamp)
-        .build();
+    shortcuts.add(&shortcut(
+        &stack,
+        &silent,
+        "Аудиодиагностика",
+        "Обработка звука и тестовый сигнал",
+    ));
+    shortcuts.add(&shortcut(
+        &stack,
+        &inspect,
+        "Рабочий стол",
+        "D-Bus и Secret Service",
+    ));
+    overview_columns.append(&shortcuts);
+    home.append(&overview_columns);
+    let note = label(
+        "Авторизация и воспроизведение музыки пока не подключены. Диагностика доступна без входа в аккаунт.",
+        "dim-label",
+    );
+    home.append(&note);
+    let home_scroll = scroll_page(&home);
+    let diagnostics_scroll = scroll_page(&diagnostics);
     stack
-        .add_titled(&scroll, Some("diagnostics"), "Диагностика")
+        .add_titled(&home_scroll, Some("home"), "Обзор")
+        .set_icon_name(Some("go-home-symbolic"));
+    stack
+        .add_titled(&diagnostics_scroll, Some("diagnostics"), "Диагностика")
         .set_icon_name(Some("applications-engineering-symbolic"));
 
+    let compact_navigation = adw::Breakpoint::new(
+        adw::BreakpointCondition::parse("max-width: 600sp").expect("constant breakpoint"),
+    );
+    compact_navigation.add_setter(&switcher, "visible", Some(&false.to_value()));
+    compact_navigation.add_setter(&compact_title, "visible", Some(&true.to_value()));
+    compact_navigation.add_setter(&brand, "visible", Some(&false.to_value()));
+    compact_navigation.add_setter(&navigation, "reveal", Some(&true.to_value()));
+    let compact_content = adw::Breakpoint::new(
+        adw::BreakpointCondition::parse("max-width: 850sp").expect("constant breakpoint"),
+    );
+    compact_content.add_setter(
+        &overview_columns,
+        "orientation",
+        Some(&gtk::Orientation::Vertical.to_value()),
+    );
+    compact_content.add_setter(
+        &diagnostic_columns,
+        "orientation",
+        Some(&gtk::Orientation::Vertical.to_value()),
+    );
+    compact_content.add_setter(&diagnostic_columns, "homogeneous", Some(&false.to_value()));
+    window.add_breakpoint(compact_content);
+    // Only the last matching breakpoint is active. Include content setters in
+    // the smallest range as well, then register it after the medium range.
+    compact_navigation.add_setter(
+        &overview_columns,
+        "orientation",
+        Some(&gtk::Orientation::Vertical.to_value()),
+    );
+    compact_navigation.add_setter(
+        &diagnostic_columns,
+        "orientation",
+        Some(&gtk::Orientation::Vertical.to_value()),
+    );
+    compact_navigation.add_setter(&diagnostic_columns, "homogeneous", Some(&false.to_value()));
+    window.add_breakpoint(compact_navigation);
+    for (name, page) in [("overview", "home"), ("diagnostics", "diagnostics")] {
+        let action = gio::SimpleAction::new(name, None);
+        let stack = stack.downgrade();
+        let target = if page == "home" { &check } else { &silent }.downgrade();
+        action.connect_activate(move |_, _| {
+            if let (Some(stack), Some(target)) = (stack.upgrade(), target.upgrade()) {
+                stack.set_visible_child_name(page);
+                target.grab_focus();
+            }
+        });
+        window.add_action(&action);
+    }
+    // Both real controls trigger the same state machine and bounded request.
+    check
+        .bind_property("sensitive", &check_diagnostics, "sensitive")
+        .sync_create()
+        .build();
+    let weak_check = check.downgrade();
+    check_diagnostics.connect_clicked(move |_| {
+        if let Some(check) = weak_check.upgrade() {
+            check.emit_clicked();
+        }
+    });
     let state = Rc::new(RefCell::new(ConnectionState::NotChecked));
-    render_connection(&state.borrow(), &status, &connection_row, &spinner, &check);
+    render_connection(
+        &state.borrow(),
+        &status_title,
+        &status_description,
+        &connection_row,
+        &spinner,
+        &check,
+    );
     {
         // Permanent signal handlers must not retain their own widget tree.
         // Workers may temporarily keep widgets alive until bounded cleanup.
         let app = app.downgrade();
-        let status = status.downgrade();
+        let status_title = status_title.downgrade();
+        let status_description = status_description.downgrade();
         let connection_row = connection_row.downgrade();
         let spinner = spinner.downgrade();
         check.connect_clicked(move |button| {
-            let (Some(app), Some(status), Some(connection_row), Some(spinner)) = (
+            let (
+                Some(app),
+                Some(status_title),
+                Some(status_description),
+                Some(connection_row),
+                Some(spinner),
+            ) = (
                 app.upgrade(),
-                status.upgrade(),
+                status_title.upgrade(),
+                status_description.upgrade(),
                 connection_row.upgrade(),
                 spinner.upgrade(),
-            ) else {
+            )
+            else {
                 return;
             };
             if !state.borrow_mut().begin_check() {
                 return;
             }
-            render_connection(&state.borrow(), &status, &connection_row, &spinner, button);
+            render_connection(
+                &state.borrow(),
+                &status_title,
+                &status_description,
+                &connection_row,
+                &spinner,
+                button,
+            );
             let service = service.clone();
             let state = state.clone();
-            let status = status.clone();
+            let status_title = status_title.clone();
+            let status_description = status_description.clone();
             let connection_row = connection_row.clone();
             let spinner = spinner.clone();
             let button = button.clone();
@@ -199,7 +386,14 @@ pub fn build(app: &adw::Application, service: ConnectionService) -> MainWindow {
                     .await
                     .unwrap_or(Err(ServiceError::Network));
                 state.borrow_mut().complete(result);
-                render_connection(&state.borrow(), &status, &connection_row, &spinner, &button);
+                render_connection(
+                    &state.borrow(),
+                    &status_title,
+                    &status_description,
+                    &connection_row,
+                    &spinner,
+                    &button,
+                );
             });
         });
     }
@@ -239,6 +433,7 @@ pub fn build(app: &adw::Application, service: ConnectionService) -> MainWindow {
             });
         });
     }
+
     let lifetime_refs = [
         window.upcast_ref::<gtk::Widget>(),
         stack.upcast_ref::<gtk::Widget>(),
@@ -247,23 +442,139 @@ pub fn build(app: &adw::Application, service: ConnectionService) -> MainWindow {
         silent.upcast_ref::<gtk::Widget>(),
         audible.upcast_ref::<gtk::Widget>(),
         inspect.upcast_ref::<gtk::Widget>(),
+        header.upcast_ref::<gtk::Widget>(),
     ]
     .into_iter()
     .map(|widget| widget.downgrade())
     .collect();
+    // Structural smoke validation also walks these critical heading labels.
+    home_heading.set_widget_name("overview-heading");
+    diagnostics_heading.set_widget_name("diagnostics-heading");
     MainWindow {
         window,
         stack,
+        header,
+        header_items: vec![
+            brand.upcast(),
+            compact_title.upcast(),
+            switcher.clone().upcast(),
+            menu_button.upcast(),
+        ],
+        switcher,
+        navigation,
+        check,
+        scrolls: vec![home_scroll, diagnostics_scroll],
         lifetime_refs,
     }
+}
+
+fn label(text: &str, css_class: &str) -> gtk::Label {
+    let label = gtk::Label::builder()
+        .label(text)
+        .xalign(0.0)
+        .wrap(true)
+        .selectable(false)
+        .build();
+    if !css_class.is_empty() {
+        label.add_css_class(css_class);
+    }
+    label
+}
+
+fn margins(widget: &impl IsA<gtk::Widget>, margin: i32) {
+    widget.set_margin_top(margin);
+    widget.set_margin_bottom(margin);
+    widget.set_margin_start(margin);
+    widget.set_margin_end(margin);
+}
+
+fn page(title: &str, subtitle: &str) -> (gtk::Box, gtk::Label) {
+    let content = gtk::Box::new(gtk::Orientation::Vertical, 24);
+    content.set_valign(gtk::Align::Start);
+    margins(&content, 24);
+    let heading = gtk::Box::new(gtk::Orientation::Vertical, 6);
+    let title = label(title, "title-1");
+    heading.append(&title);
+    heading.append(&label(subtitle, "dim-label"));
+    content.append(&heading);
+    (content, title)
+}
+
+fn scroll_page(content: &gtk::Box) -> gtk::ScrolledWindow {
+    let clamp = adw::Clamp::builder()
+        .maximum_size(1120)
+        .tightening_threshold(760)
+        .child(content)
+        .build();
+    gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .child(&clamp)
+        .build()
 }
 
 fn row(title: &str, subtitle: &str) -> adw::ActionRow {
     adw::ActionRow::builder()
         .title(title)
+        .title_lines(0)
         .subtitle(subtitle)
         .subtitle_lines(0)
         .build()
+}
+
+fn shortcut(
+    stack: &adw::ViewStack,
+    target: &gtk::Button,
+    title: &str,
+    subtitle: &str,
+) -> adw::ActionRow {
+    let row = row(title, subtitle);
+    row.set_activatable(true);
+    row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
+    let stack = stack.downgrade();
+    let target = target.downgrade();
+    row.connect_activated(move |_| {
+        if let (Some(stack), Some(target)) = (stack.upgrade(), target.upgrade()) {
+            stack.set_visible_child_name("diagnostics");
+            target.grab_focus();
+        }
+    });
+    row
+}
+
+/// Layout checks complement screenshots; intentional vertical scrolling is allowed.
+fn check_widget_geometry(widget: &gtk::Widget, window: &gtk::Widget) -> Result<(), String> {
+    if widget.is_mapped() {
+        if let Some(label) = widget.downcast_ref::<gtk::Label>() {
+            if label.layout().is_ellipsized() {
+                return Err(format!("Text was ellipsized: {}", label.text()));
+            }
+            // Text layout height must fit its own allocation. Viewport clipping
+            // below the fold is expected and does not count as text truncation.
+            if label.layout().pixel_size().1 > label.height() + 2 {
+                return Err(format!("Text allocation too short: {}", label.text()));
+            }
+        }
+        if widget.widget_name() == "overview-heading"
+            || widget.widget_name() == "diagnostics-heading"
+        {
+            let bounds = widget
+                .compute_bounds(window)
+                .ok_or("Heading allocation missing")?;
+            let at_top = widget
+                .ancestor(gtk::ScrolledWindow::static_type())
+                .and_then(|parent| parent.downcast::<gtk::ScrolledWindow>().ok())
+                .is_none_or(|scroll| scroll.vadjustment().value() < 1.0);
+            if at_top && bounds.y() < 48.0 {
+                return Err("Page heading overlaps HeaderBar".into());
+            }
+        }
+    }
+    let mut child = widget.first_child();
+    while let Some(current) = child {
+        check_widget_geometry(&current, window)?;
+        child = current.next_sibling();
+    }
+    Ok(())
 }
 
 fn connect_audio(
@@ -342,24 +653,39 @@ fn presentation(state: &ConnectionState) -> (&'static str, String) {
                 ),
             )
         }
-        ConnectionState::Failed(error) => (
-            "Не удалось проверить подключение",
-            format!("{error}. Можно повторить попытку."),
-        ),
+        ConnectionState::Failed(error) => {
+            let message = match error {
+                ServiceError::Network => "Сервис недоступен. Проверьте сетевое подключение.".into(),
+                ServiceError::Timeout => "Сервис не ответил вовремя.".into(),
+                ServiceError::Http(status) => format!("Сервис вернул HTTP {status}."),
+                ServiceError::InvalidResponse => "Сервис вернул неподдерживаемый ответ.".into(),
+                ServiceError::ResponseTooLarge => {
+                    "Ответ сервиса превышает допустимый размер.".into()
+                }
+                ServiceError::Configuration => {
+                    "Не удалось подготовить подключение к сервису.".into()
+                }
+            };
+            (
+                "Не удалось проверить подключение",
+                format!("{message} Можно повторить попытку."),
+            )
+        }
     }
 }
 
 fn render_connection(
     state: &ConnectionState,
-    status: &adw::StatusPage,
+    title: &gtk::Label,
+    description: &gtk::Label,
     row: &adw::ActionRow,
     spinner: &gtk::Spinner,
     button: &gtk::Button,
 ) {
-    let (title, description) = presentation(state);
-    status.set_title(title);
-    status.set_description(Some(&description));
-    row.set_subtitle(&format!("{title}. {description}"));
+    let (heading, text) = presentation(state);
+    title.set_label(heading);
+    description.set_label(&text);
+    row.set_subtitle(&format!("{heading}. {text}"));
     let loading = matches!(state, ConnectionState::Checking);
     spinner.set_visible(loading);
     spinner.set_spinning(loading);
@@ -385,6 +711,9 @@ mod tests {
 
     #[test]
     fn failure_offers_retry_and_loading_is_distinct() {
+        let error_text = presentation(&ConnectionState::Failed(ServiceError::Timeout)).1;
+        assert!(error_text.contains("Сервис не ответил вовремя."));
+        assert!(!error_text.contains(".."));
         assert!(
             presentation(&ConnectionState::Failed(ServiceError::Timeout))
                 .1

@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+
 # Karin — Codex Instructions
 
 ## Product
@@ -43,6 +45,27 @@ Do not introduce Electron or web-based application shells.
 - Support light/dark themes, HiDPI, keyboard navigation, and accessibility.
 - Design loading, empty, offline, unauthorized, and error states.
 - Prioritize responsiveness and clarity over decorative effects.
+- Every substantial UI change must pass the visual and structural checks in
+  [docs/UI_QUALITY_GATE.md](docs/UI_QUALITY_GATE.md) before being called ready.
+- Inspect actual application screenshots at approximately 420×720, 900×650,
+  1440×900 and maximized, in light and dark themes. Check navigation adaptation,
+  HeaderBar/title/window controls, spacing, text wrapping, scrolling and focus.
+- Exercise keyboard navigation and resize transitions. Screenshots supplement
+  GTK allocation, navigation and lifecycle checks; neither replaces the other.
+- Use Xvfb captures when available and state their environment. Xvfb does not
+  establish Fedora/KDE/Wayland visual acceptance. Record manual acceptance as
+  pending until someone actually performs it on the target desktop.
+- Never add user screenshots containing personal information or desktop elements
+  to a public repository without separate permission. Prefer clean cloud captures
+  of Karin only, with no account data or unrelated desktop content.
+
+## Licensing
+
+- Karin's own code and original materials use GPL-3.0-or-later unless a file says otherwise.
+- Add the corresponding SPDX identifier to new original source files and retain
+  existing third-party license notices. Do not relabel dependencies as Karin code.
+- Keep the standard GPLv3 text in LICENSE unchanged. GPL does not authorize
+  access to Yandex Music, its unofficial API or any service content.
 
 ## Development Workflow
 - Use master as the stable integration branch.

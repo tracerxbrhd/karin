@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 use std::{cell::Cell, rc::Rc, time::Duration};
 
 use adw::prelude::*;
@@ -79,6 +80,8 @@ fn main() -> glib::ExitCode {
     });
     app.add_action(&quit);
     app.set_accels_for_action("app.quit", &["<Primary>q"]);
+    app.set_accels_for_action("win.overview", &["<Alt>1"]);
+    app.set_accels_for_action("win.diagnostics", &["<Alt>2"]);
     let about = gio::SimpleAction::new("about", None);
     let weak_app = app.downgrade();
     about.connect_activate(move |_, _| {
@@ -88,6 +91,8 @@ fn main() -> glib::ExitCode {
                 .application_icon("audio-x-generic")
                 .developer_name("Karin contributors")
                 .version(config::VERSION)
+                .license_type(gtk::License::Gpl30)
+                .copyright("© 2026 Karin contributors")
                 .website("https://github.com/tracerxbrhd/karin")
                 .comments("Независимый нативный клиент Яндекс Музыки. Технический фундамент v0.0.")
                 .build();
@@ -106,21 +111,43 @@ fn main() -> glib::ExitCode {
         if smoke {
             let app = app.clone();
             let checked = checked.clone();
-            glib::timeout_add_local_once(Duration::from_millis(300), move || {
-                let navigation_passed = ui.smoke_check();
+            glib::spawn_future_local(async move {
                 let hold = app.hold();
+                let mut layout_passed = true;
+                for scheme in [adw::ColorScheme::ForceLight, adw::ColorScheme::ForceDark] {
+                    adw::StyleManager::default().set_color_scheme(scheme);
+                    for (width, height) in [(420, 720), (900, 650), (1440, 900)] {
+                        let selected_page = ui.visible_page();
+                        ui.window.set_default_size(width, height);
+                        glib::timeout_future(Duration::from_millis(160)).await;
+                        if ui.visible_page() != selected_page {
+                            eprintln!("GTK layout failure: resizing changed the selected page");
+                            layout_passed = false;
+                        }
+                        for page in ["home", "diagnostics"] {
+                            ui.show_page(page);
+                            glib::timeout_future(Duration::from_millis(60)).await;
+                            if let Err(error) = ui.verify_layout() {
+                                eprintln!("GTK layout failure at {width}×{height}/{page}: {error}");
+                                layout_passed = false;
+                            }
+                        }
+                    }
+                }
+                let navigation_passed = ui.smoke_check();
+                let focus_passed = ui.focus_primary_action();
                 let released = ui.close_for_smoke();
-                glib::timeout_add_local_once(Duration::from_millis(30), move || {
+                glib::timeout_add_local_once(Duration::from_millis(60), move || {
                     let _hold_until_cleanup = hold;
                     let cleanup_passed = released();
-                    checked.set(navigation_passed && cleanup_passed);
+                    checked.set(layout_passed && navigation_passed && focus_passed && cleanup_passed);
                     if checked.get() {
                         println!(
-                            "GTK smoke test passed: window realized, diagnostics navigation works, window and key widgets released."
+                            "GTK smoke test passed: responsive layouts in both themes, header/text allocations, focus, navigation and widget cleanup."
                         );
                     } else {
                         eprintln!(
-                            "GTK smoke test failed: navigation={navigation_passed}, widget cleanup={cleanup_passed}."
+                            "GTK smoke test failed: layout={layout_passed}, navigation={navigation_passed}, focus={focus_passed}, widget cleanup={cleanup_passed}."
                         );
                     }
                     app.quit();

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Non-secret application identity and defaults.
 
 pub const APP_ID: &str = "io.github.tracerxbrhd.Karin";

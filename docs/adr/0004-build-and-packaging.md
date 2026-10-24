@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+
 # ADR-0004: Native Cargo checks and a vendored Flatpak source snapshot
 
 Status: Accepted
@@ -33,10 +35,13 @@ checks beyond a successful Rust build.
 The lockfile fixes Rust source dependency versions. Stable compilers, SDK updates
 and host system libraries may still change, so this is reproducible dependency
 selection rather than a claim of bit-identical binaries. A prepared environment
-snapshot retains the exact tested compiler. Public distribution also needs a
-license decision, package metadata/release review and a successful sandboxed
-Flatpak build.
+snapshot retains the exact tested compiler. The license choice was subsequently
+resolved as GPL-3.0-or-later in [ADR-0005](0005-licensing.md); public distribution
+still needs the corresponding source/notices review, package metadata/release
+review and a successful sandboxed Flatpak build.
 
-The cloud can validate native library initialization and fakesink operation;
-Fedora/Wayland/PipeWire, physical sound, desktop accessibility and Flatpak
-packaging remain explicit manual acceptance checks.
+The cloud can validate native library initialization and fakesink operation. The
+user has since reported functional startup and audible synthetic output on
+Fedora/Wayland/PipeWire, recorded separately in [validation](../VALIDATION.md).
+Repeat visual acceptance of the revised layout on Fedora, desktop accessibility
+and full Flatpak packaging remain explicit manual acceptance checks.

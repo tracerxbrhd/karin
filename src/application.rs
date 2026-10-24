@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Application boundary: UI callers receive domain values, never HTTP responses.
 
 use std::sync::Arc;

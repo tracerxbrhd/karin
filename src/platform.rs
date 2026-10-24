@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Desktop capability inspection only. No credentials are read or stored.
 
 use glib::variant::ToVariant;
