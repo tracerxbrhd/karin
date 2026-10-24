@@ -90,7 +90,7 @@ are separate executions from the initial foundation baseline below.
 | Dependency-license inventory regeneration and comparison | Passed: regenerated reviewed inventory matches, exit 0; this is not final-package legal clearance |
 | Flatpak manifest parsing | Passed, exit 0; full sandboxed package build remains blocked |
 | Final Flatpak source preparation | Passed, exit 0, including locked source preparation and notice generation; not a package build |
-| GitHub Actions for the revised source | **Pending**; inspect the updated PR checks before declaring a hosted-runner result |
+| GitHub Actions for the revised source | The authoritative per-commit result is in [PR #2 checks](https://github.com/tracerxbrhd/karin/pull/2/checks); local results above do not imply a hosted-runner outcome |
 
 The native [About → Legal screenshot](ui/about-license.png) was inspected and
 shows **GNU General Public License, version 3 or later**. This agrees with GTK's
