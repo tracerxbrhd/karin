@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Karin
+Comment=Independent native client for Yandex Music
+Exec=karin
+Icon=io.github.tracerxbrhd.Karin
+Terminal=false
+Type=Application
+Categories=AudioVideo;Audio;Player;GTK;
+Keywords=Music;Yandex;Audio;
+StartupNotify=true
+DBusActivatable=false
