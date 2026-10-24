@@ -1,0 +1,8 @@
+/target/
+/.flatpak-builder/
+/builddir/
+/build/
+/.env
+/.env.*
+!/.env.example
+*.log
