@@ -84,6 +84,8 @@ jobs:
           diff -u docs/DEPENDENCY_LICENSES.md /tmp/karin-dependency-licenses.md
       - name: GStreamer diagnostic through fakesink
         run: ./target/debug/karin --audio-self-test
+      - name: Generated local media through the real playback controller
+        run: ./target/debug/karin --playback-self-test
       - name: GTK startup and shutdown under Xvfb
         env:
           GTK_A11Y: none
@@ -92,6 +94,9 @@ jobs:
       - name: Release GStreamer diagnostic through fakesink on MSRV
         if: matrix.lane == 'msrv'
         run: ./target/release/karin --audio-self-test
+      - name: Release playback controller on MSRV
+        if: matrix.lane == 'msrv'
+        run: ./target/release/karin --playback-self-test
       - name: Release GTK startup and shutdown under Xvfb on MSRV
         if: matrix.lane == 'msrv'
         env:

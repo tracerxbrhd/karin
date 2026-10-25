@@ -3,14 +3,14 @@ use std::{cell::Cell, rc::Rc, time::Duration};
 
 use adw::prelude::*;
 use gtk::{gio, glib};
-use karin::{api::YandexApi, application::ConnectionService, audio, config, ui};
+use karin::{api::YandexApi, application::ConnectionService, audio, config, playback, ui};
 
 fn main() -> glib::ExitCode {
     let args: Vec<_> = std::env::args().skip(1).collect();
     match args.as_slice() {
         [flag] if flag == "--help" || flag == "-h" => {
             println!(
-                "Karin\n\nUsage: karin [--smoke-test | --audio-self-test | --probe-service | --version]\n\n--smoke-test       Start GTK and verify navigation without network or audible output\n--audio-self-test  Process a synthetic signal through GStreamer fakesink\n--probe-service    Make an anonymous service availability request (network required)"
+                "Karin\n\nUsage: karin [--smoke-test | --audio-self-test | --playback-self-test | --probe-service | --version]\n\n--smoke-test          Verify GTK and local playback cleanup without network or sound\n--audio-self-test     Process a synthetic signal through GStreamer fakesink\n--playback-self-test  Decode a generated local WAV through playbin; test controls and cleanup\n--probe-service       Make an anonymous availability request (network required)"
             );
             return glib::ExitCode::SUCCESS;
         }
@@ -20,6 +20,18 @@ fn main() -> glib::ExitCode {
         }
         [flag] if flag == "--audio-self-test" => {
             return match audio::run_test_tone(audio::AudioOutput::Fakesink) {
+                Ok(report) => {
+                    println!("{report}");
+                    glib::ExitCode::SUCCESS
+                }
+                Err(error) => {
+                    eprintln!("{error}");
+                    glib::ExitCode::FAILURE
+                }
+            };
+        }
+        [flag] if flag == "--playback-self-test" => {
+            return match playback::run_self_test() {
                 Ok(report) => {
                     println!("{report}");
                     glib::ExitCode::SUCCESS
@@ -94,7 +106,7 @@ fn main() -> glib::ExitCode {
                 .license_type(gtk::License::Gpl30)
                 .copyright("© 2026 Karin contributors")
                 .website("https://github.com/tracerxbrhd/karin")
-                .comments("Независимый нативный клиент Яндекс Музыки. Технический фундамент v0.0.")
+                .comments("v0.1 Gate A: независимый локальный аудиодвижок. Вход и потоки Яндекс Музыки недоступны.")
                 .build();
             dialog.present(app.active_window().as_ref());
         }
@@ -135,23 +147,36 @@ fn main() -> glib::ExitCode {
                     }
                 }
                 let navigation_passed = ui.smoke_check();
+                let playback_passed = ui.exercise_playback_for_smoke().await;
+                for (width, height) in [(420, 720), (900, 650), (1440, 900)] {
+                    ui.window.set_default_size(width, height);
+                    glib::timeout_future(Duration::from_millis(160)).await;
+                    if let Err(error) = ui.verify_layout() {
+                        eprintln!("GTK playback layout failure at {width}×{height}: {error}");
+                        layout_passed = false;
+                    }
+                }
                 let focus_passed = ui.focus_primary_action();
                 let released = ui.close_for_smoke();
-                glib::timeout_add_local_once(Duration::from_millis(60), move || {
+                for _ in 0..120 {
+                    if released(false) { break; }
+                    glib::timeout_future(Duration::from_millis(50)).await;
+                }
+                {
                     let _hold_until_cleanup = hold;
-                    let cleanup_passed = released();
-                    checked.set(layout_passed && navigation_passed && focus_passed && cleanup_passed);
+                    let cleanup_passed = released(true);
+                    checked.set(layout_passed && navigation_passed && focus_passed && playback_passed && cleanup_passed);
                     if checked.get() {
                         println!(
-                            "GTK smoke test passed: responsive layouts in both themes, header/text allocations, focus, navigation and widget cleanup."
+                            "GTK smoke test passed: responsive layouts in both themes, header/text allocations, focus, navigation, actual local playback and window/worker cleanup."
                         );
                     } else {
                         eprintln!(
-                            "GTK smoke test failed: layout={layout_passed}, navigation={navigation_passed}, focus={focus_passed}, widget cleanup={cleanup_passed}."
+                            "GTK smoke test failed: layout={layout_passed}, navigation={navigation_passed}, focus={focus_passed}, playback={playback_passed}, cleanup={cleanup_passed}."
                         );
                     }
                     app.quit();
-                });
+                }
             });
         }
     });

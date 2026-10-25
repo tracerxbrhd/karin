@@ -4,7 +4,9 @@
 pub mod api;
 pub mod application;
 pub mod audio;
+pub mod capabilities;
 pub mod config;
 pub mod domain;
 pub mod platform;
+pub mod playback;
 pub mod ui;

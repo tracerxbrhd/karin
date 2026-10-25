@@ -14,6 +14,7 @@ Describe the concrete behavior and why it is needed.
 - [ ] Rust 1.98.1 `cargo build --release --offline --locked` after fetch/vendor
 - [ ] GTK smoke test and normal window/resource cleanup
 - [ ] Synthetic GStreamer diagnostic through `fakesink`
+- [ ] Generated local WAV through `--playback-self-test`, including transport and worker cleanup
 - [ ] GitHub Actions result inspected for this revision
 - [ ] Documentation distinguishes passed, failed, blocked and unrun checks
 
@@ -39,6 +40,7 @@ state that explicitly; do not mark unexecuted visual checks as passed.
 - [ ] Third-party licenses/notices and dependency distribution obligations preserved
 - [ ] GPL is not described as permission to access Yandex Music or its content
 - [ ] No credentials, account data or copyrighted music added
+- [ ] Music authorization/stream claims have permission and scoped evidence; unavailable capabilities remain explicit
 
 ## Evidence and remaining manual checks
 

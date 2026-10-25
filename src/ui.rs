@@ -6,9 +6,12 @@ use std::{cell::RefCell, rc::Rc};
 use adw::prelude::*;
 use gtk::{gio, glib};
 
+mod playback;
+
 use crate::{
     application::ConnectionService,
     audio::{self, AudioOutput},
+    capabilities::{AuthenticationCapability, AuthenticationUnavailable},
     config,
     domain::{AccountAccess, ConnectionState, ServiceError},
     platform,
@@ -24,6 +27,7 @@ pub struct MainWindow {
     check: gtk::Button,
     scrolls: Vec<gtk::ScrolledWindow>,
     lifetime_refs: Vec<glib::WeakRef<gtk::Widget>>,
+    player: playback::DeveloperPlayback,
 }
 
 impl MainWindow {
@@ -84,11 +88,68 @@ impl MainWindow {
     }
 
     /// Consume every strong reference before observing deferred widget cleanup.
-    pub fn close_for_smoke(self) -> impl FnOnce() -> bool {
-        let refs = self.lifetime_refs.clone();
+    pub fn close_for_smoke(self) -> impl Fn(bool) -> bool {
+        let mut refs = self.lifetime_refs.clone();
+        let mut ancestor = self.stack.parent();
+        while let Some(widget) = ancestor {
+            refs.push(widget.downgrade());
+            ancestor = widget.parent();
+        }
+        let player = self.player.cleanup_observer();
         self.window.close();
         drop(self);
-        move || refs.iter().all(|weak| weak.upgrade().is_none())
+        move |report| {
+            let remaining: Vec<_> = refs
+                .iter()
+                .filter_map(|weak| weak.upgrade())
+                .map(|widget| {
+                    format!(
+                        "{}:{} refs={} parent={:?}",
+                        widget.type_().name(),
+                        widget.widget_name(),
+                        widget.ref_count(),
+                        widget.parent().map(|p| p.type_().name().to_owned())
+                    )
+                })
+                .collect();
+            let worker_running = player.as_ref().is_some_and(|p| p.snapshot().worker_running);
+            if report && (!remaining.is_empty() || worker_running) {
+                eprintln!(
+                    "GTK cleanup detail: retained={remaining:?}, worker_running={worker_running}"
+                );
+            }
+            remaining.is_empty() && !worker_running
+        }
+    }
+
+    /// Exercise generated local media through the actual GTK diagnostics entry.
+    pub async fn exercise_playback_for_smoke(&self) -> bool {
+        use crate::playback::PlaybackState;
+        self.player.prepare_for_smoke();
+        for _ in 0..100 {
+            glib::timeout_future(std::time::Duration::from_millis(50)).await;
+            if self
+                .player
+                .snapshot()
+                .is_some_and(|s| s.state == PlaybackState::Ready)
+            {
+                if self.player.play_for_smoke().is_err() {
+                    return false;
+                }
+                for _ in 0..100 {
+                    glib::timeout_future(std::time::Duration::from_millis(50)).await;
+                    if self
+                        .player
+                        .snapshot()
+                        .is_some_and(|s| s.state == PlaybackState::Playing)
+                    {
+                        return true;
+                    }
+                }
+                return false;
+            }
+        }
+        false
     }
 }
 
@@ -102,6 +163,38 @@ pub fn build(app: &adw::Application, service: ConnectionService) -> MainWindow {
         .height_request(480)
         .build();
     let toolbar = adw::ToolbarView::new();
+    {
+        let saved_focus: Rc<RefCell<Option<glib::WeakRef<gtk::Widget>>>> = Rc::default();
+        let window_unmap = window.downgrade();
+        let focus_unmap = saved_focus.clone();
+        // GTK 4.14 can overwrite a pending focus-move reference when adaptive
+        // layout hides focused content repeatedly before the next paint.
+        // Clear focus to prevent that overwrite; restore a valid control on map.
+        toolbar.connect_unmap(move |toolbar| {
+            if let Some(window) = window_unmap.upgrade() {
+                let focus = gtk::prelude::GtkWindowExt::focus(&window).filter(|focus| {
+                    focus == toolbar.upcast_ref::<gtk::Widget>() || focus.is_ancestor(toolbar)
+                });
+                let had_focus = focus.is_some();
+                *focus_unmap.borrow_mut() = focus.map(|widget| widget.downgrade());
+                if had_focus {
+                    gtk::prelude::GtkWindowExt::set_focus(&window, None::<&gtk::Widget>);
+                }
+            }
+        });
+        let window = window.downgrade();
+        toolbar.connect_map(move |_| {
+            let focus = saved_focus.borrow_mut().take();
+            if let (Some(window), Some(focus)) = (window.upgrade(), focus)
+                && gtk::prelude::GtkWindowExt::focus(&window).is_none()
+                && let Some(focus) = focus.upgrade()
+                && focus.is_mapped()
+                && focus.is_sensitive()
+            {
+                focus.grab_focus();
+            }
+        });
+    }
     let header = adw::HeaderBar::builder().height_request(48).build();
     let stack = adw::ViewStack::new();
     let brand = gtk::Label::new(Some("Karin"));
@@ -149,7 +242,16 @@ pub fn build(app: &adw::Application, service: ConnectionService) -> MainWindow {
         .build();
     connection_row.add_suffix(&check_diagnostics);
     connection_group.add(&connection_row);
+    let AuthenticationCapability::AuthenticationUnavailable(
+        AuthenticationUnavailable::MusicGrantNotEstablished,
+    ) = service.capabilities().authentication;
+    connection_group.add(&row(
+        "Вход в Яндекс Музыку недоступен",
+        "Для Karin не подтверждены Music-права и разрешённый доступ к потокам. Вход через Яндекс ID сам по себе их не предоставляет.",
+    ));
     diagnostics.append(&connection_group);
+    let player = playback::DeveloperPlayback::new(app, &window);
+    diagnostics.append(&player.group);
 
     let diagnostic_columns = gtk::Box::new(gtk::Orientation::Horizontal, 24);
     diagnostic_columns.set_homogeneous(true);
@@ -211,7 +313,7 @@ pub fn build(app: &adw::Application, service: ConnectionService) -> MainWindow {
     ));
     diagnostics.append(&runtime_group);
 
-    let (home, home_heading) = page("Обзор", "Karin · технический прототип");
+    let (home, home_heading) = page("Обзор", "Karin · v0.1 Gate A");
     let overview_columns = gtk::Box::new(gtk::Orientation::Horizontal, 24);
     overview_columns.set_valign(gtk::Align::Start);
     let status = gtk::Box::new(gtk::Orientation::Vertical, 16);
@@ -242,6 +344,12 @@ pub fn build(app: &adw::Application, service: ConnectionService) -> MainWindow {
         .build();
     shortcuts.add(&shortcut(
         &stack,
+        &player.prepare,
+        "Локальный проигрыватель",
+        "Диагностика разработчика · тестовый WAV",
+    ));
+    shortcuts.add(&shortcut(
+        &stack,
         &silent,
         "Аудиодиагностика",
         "Обработка звука и тестовый сигнал",
@@ -255,7 +363,7 @@ pub fn build(app: &adw::Application, service: ConnectionService) -> MainWindow {
     overview_columns.append(&shortcuts);
     home.append(&overview_columns);
     let note = label(
-        "Авторизация и воспроизведение музыки пока не подключены. Диагностика доступна без входа в аккаунт.",
+        "Вход и потоки Яндекс Музыки недоступны: нужны подтверждённые Music-права для приложения Karin. Локальный плеер и диагностика работают независимо от сервиса.",
         "dim-label",
     );
     home.append(&note);
@@ -307,7 +415,12 @@ pub fn build(app: &adw::Application, service: ConnectionService) -> MainWindow {
     for (name, page) in [("overview", "home"), ("diagnostics", "diagnostics")] {
         let action = gio::SimpleAction::new(name, None);
         let stack = stack.downgrade();
-        let target = if page == "home" { &check } else { &silent }.downgrade();
+        let target = if page == "home" {
+            &check
+        } else {
+            &player.prepare
+        }
+        .downgrade();
         action.connect_activate(move |_, _| {
             if let (Some(stack), Some(target)) = (stack.upgrade(), target.upgrade()) {
                 stack.set_visible_child_name(page);
@@ -443,6 +556,8 @@ pub fn build(app: &adw::Application, service: ConnectionService) -> MainWindow {
         audible.upcast_ref::<gtk::Widget>(),
         inspect.upcast_ref::<gtk::Widget>(),
         header.upcast_ref::<gtk::Widget>(),
+        player.group.upcast_ref::<gtk::Widget>(),
+        player.prepare.upcast_ref::<gtk::Widget>(),
     ]
     .into_iter()
     .map(|widget| widget.downgrade())
@@ -465,6 +580,7 @@ pub fn build(app: &adw::Application, service: ConnectionService) -> MainWindow {
         check,
         scrolls: vec![home_scroll, diagnostics_scroll],
         lifetime_refs,
+        player,
     }
 }
 
@@ -544,6 +660,22 @@ fn shortcut(
 /// Layout checks complement screenshots; intentional vertical scrolling is allowed.
 fn check_widget_geometry(widget: &gtk::Widget, window: &gtk::Widget) -> Result<(), String> {
     if widget.is_mapped() {
+        // Inspect content and controls, not GtkWindow shadows or decorative
+        // CSS nodes such as an overlay scrollbar's overhanging trough.
+        let content = widget.is::<gtk::Button>()
+            || widget.is::<gtk::Label>()
+            || widget.is::<adw::PreferencesGroup>()
+            || widget.is::<adw::ToolbarView>();
+        if content
+            && let Some(bounds) = widget.compute_bounds(window)
+            && (bounds.x() < -2.0 || bounds.x() + bounds.width() > window.width() as f32 + 2.0)
+        {
+            return Err(format!(
+                "Widget exceeds window width: {} {bounds:?}, window={}",
+                widget.type_().name(),
+                window.width()
+            ));
+        }
         if let Some(label) = widget.downcast_ref::<gtk::Label>() {
             if label.layout().is_ellipsized() {
                 return Err(format!("Text was ellipsized: {}", label.text()));

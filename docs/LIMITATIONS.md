@@ -2,37 +2,56 @@
 
 # Known limitations
 
-- **No service login or music playback.** The anonymous status endpoint has been
-  probed, but this does not verify a user identity, subscription or streaming.
-  Search and metadata probes returned HTTP 451 from this cloud egress. See
-  [API_FEASIBILITY.md](API_FEASIBILITY.md) for feature-specific evidence.
-- **No permitted authentication mechanism is established for Karin.** No Yandex
-  client registration, client secrets, user tokens, DRM workaround or borrowed
-  OAuth identity is included. Legal/service permission remains unresolved.
-- **Audio is diagnostic only.** `fakesink` verifies processing to EOS; it cannot
-  prove audibility or codec support for service streams. The user has separately
-  confirmed an audible synthetic test signal on Fedora 44/KDE/Wayland/PipeWire;
-  this establishes that reported test, not Yandex Music playback.
-- **Revised visual acceptance remains manual.** The user confirmed functional
-  launch, anonymous API HTTP 200, audio diagnostics, D-Bus and Secret Service on
-  Fedora 44/KDE/Wayland/PipeWire, but rejected the original visual layout.
-  The revised layout must undergo repeat manual acceptance there. Debian/Xvfb
-  screenshots do not establish KDE window-decoration behavior, HiDPI,
-  screen-reader usability or a completed accessibility audit.
-- **Secret Service and MPRIS are boundaries, not completed integrations.** The
-  application can inspect session bus/keyring presence, but never reads secrets
-  and does not advertise a controllable music player.
-- **Normal shutdown waits for bounded work.** Active diagnostics hold the process
-  alive until cleanup, up to the network/audio timeout. Forceful termination can
-  interrupt that cleanup.
-- **Flatpak packaging is a foundation.** Manifest parsing and source preparation
-  can be checked here; a full sandboxed build is blocked by denied user namespaces
-  in the nested cloud container. No packaged application was validated.
-- **CI configuration is not a remote CI result.** Local commands are reported
-  separately in [VALIDATION.md](VALIDATION.md). GitHub's run is authoritative for
-  hosted-runner results.
+- **Yandex Music access remains blocked.** The anonymous status diagnostic does
+  not establish a user identity, subscription or stream entitlement. General
+  Yandex ID OAuth/PKCE documentation does not establish a Music-specific grant
+  for Karin's own application. The explicit `AuthenticationUnavailable`
+  capability keeps sign-in unavailable; no borrowed client identity, token-paste
+  login, passwords or service credentials are included. See the decision and
+  authorized next actions in [API_FEASIBILITY.md](API_FEASIBILITY.md).
+- **HTTP restrictions retain their scope.** Anonymous search and metadata
+  requests returned HTTP 451 from the cloud egress. That observation does not
+  determine authenticated behavior or the cause on Fedora. No alternate region,
+  identity, endpoint or delivery path is used to bypass the restriction.
+- **The player engine is not a service-stream implementation.** Gate A uses
+  real GStreamer `playbin` playback for local files. The developer entry point
+  generates temporary quiet WAV media; it is not a song catalog, playlist or
+  authenticated Music view. Service stream resolution, library/search/My Wave,
+  caching and offline service music remain unimplemented.
+  General local media must be trusted, since playlist/decoder plugins can refer
+  to other resources. The current GTK entry point and CI use only generated PCM
+  WAV; there is no arbitrary-file chooser or playlist import.
+- **Silent playback does not prove physical output or every codec.** `fakesink`
+  exercises real local-file decoding, transport and EOS without a sound device.
+  It does not establish PipeWire audibility, codec support for an unknown future
+  stream, or a permitted Yandex playback path. The user-reported v0.0 audible
+  diagnostic on Fedora is distinct from Gate A's pending system-output tests.
+- **Desktop acceptance remains manual.** Issue #3 reports that the v0.0 native
+  and Flatpak prototypes launch and diagnostic audio works on Fedora 44 / KDE
+  Plasma / Wayland / PipeWire. Gate A's controls, output, resize behavior,
+  keyboard/focus, HiDPI and accessibility need fresh acceptance there. The earlier
+  visual rejection remains historical evidence; startup reports and Debian/Xvfb
+  screenshots do not establish subsequent visual signoff.
+- **Shutdown is cooperative.** Playback commands and shutdown requests are
+  asynchronous. The worker observes cancellation and resets/drops its pipeline
+  before reporting completion; dropping a handle alone is not proof of cleanup.
+  Existing HTTP/finite diagnostics may hold the application until their bounded
+  work completes. Forceful process termination cannot guarantee cleanup.
+- **Secret Service and MPRIS are not completed integrations.** The application
+  inspects session bus/keyring presence without reading secrets. It does not
+  store credentials or publish a player on MPRIS. Those integrations remain
+  separate future work.
+- **Gate A packaging acceptance remains pending.** The v0.0 Flatpak startup
+  result is user-reported. Source preparation and manifest parsing in this cloud
+  do not establish a fresh sandboxed build/install of Gate A; Bubblewrap user
+  namespaces are denied in the nested container. GNOME 50, the Freedesktop 25.08
+  Rust extension and the existing permissions are retained.
+- **Verification reports are environment-specific.** Executed local checks and
+  remaining manual gates are recorded in [VALIDATION.md](VALIDATION.md). The
+  actual GitHub Actions run is authoritative for hosted-runner outcomes; adding
+  a workflow step alone does not establish that it passed.
 - **Licensing does not grant service access.** Karin's own code and original
   materials use GPL-3.0-or-later; third-party components retain their terms.
-  Distribution still requires the corresponding source/notices and any
-  component-specific obligations. GPL does not override Yandex Music terms,
-  provide an API permission or authorize redistribution of service content.
+  Distribution still requires corresponding source/notices and applicable
+  component obligations. GPL does not override Yandex Music terms or authorize
+  API use or redistribution of service content.
