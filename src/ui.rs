@@ -88,14 +88,37 @@ impl MainWindow {
     }
 
     /// Consume every strong reference before observing deferred widget cleanup.
-    pub fn close_for_smoke(self) -> impl Fn() -> bool {
-        let refs = self.lifetime_refs.clone();
+    pub fn close_for_smoke(self) -> impl Fn(bool) -> bool {
+        let mut refs = self.lifetime_refs.clone();
+        let mut ancestor = self.stack.parent();
+        while let Some(widget) = ancestor {
+            refs.push(widget.downgrade());
+            ancestor = widget.parent();
+        }
         let player = self.player.cleanup_observer();
         self.window.close();
         drop(self);
-        move || {
-            refs.iter().all(|weak| weak.upgrade().is_none())
-                && player.as_ref().is_none_or(|p| !p.snapshot().worker_running)
+        move |report| {
+            let remaining: Vec<_> = refs
+                .iter()
+                .filter_map(|weak| weak.upgrade())
+                .map(|widget| {
+                    format!(
+                        "{}:{} refs={} parent={:?}",
+                        widget.type_().name(),
+                        widget.widget_name(),
+                        widget.ref_count(),
+                        widget.parent().map(|p| p.type_().name().to_owned())
+                    )
+                })
+                .collect();
+            let worker_running = player.as_ref().is_some_and(|p| p.snapshot().worker_running);
+            if report && (!remaining.is_empty() || worker_running) {
+                eprintln!(
+                    "GTK cleanup detail: retained={remaining:?}, worker_running={worker_running}"
+                );
+            }
+            remaining.is_empty() && !worker_running
         }
     }
 
@@ -140,6 +163,38 @@ pub fn build(app: &adw::Application, service: ConnectionService) -> MainWindow {
         .height_request(480)
         .build();
     let toolbar = adw::ToolbarView::new();
+    {
+        let saved_focus: Rc<RefCell<Option<glib::WeakRef<gtk::Widget>>>> = Rc::default();
+        let window_unmap = window.downgrade();
+        let focus_unmap = saved_focus.clone();
+        // GTK 4.14 can overwrite a pending focus-move reference when adaptive
+        // layout hides focused content repeatedly before the next paint.
+        // Clear focus to prevent that overwrite; restore a valid control on map.
+        toolbar.connect_unmap(move |toolbar| {
+            if let Some(window) = window_unmap.upgrade() {
+                let focus = gtk::prelude::GtkWindowExt::focus(&window).filter(|focus| {
+                    focus == toolbar.upcast_ref::<gtk::Widget>() || focus.is_ancestor(toolbar)
+                });
+                let had_focus = focus.is_some();
+                *focus_unmap.borrow_mut() = focus.map(|widget| widget.downgrade());
+                if had_focus {
+                    gtk::prelude::GtkWindowExt::set_focus(&window, None::<&gtk::Widget>);
+                }
+            }
+        });
+        let window = window.downgrade();
+        toolbar.connect_map(move |_| {
+            let focus = saved_focus.borrow_mut().take();
+            if let (Some(window), Some(focus)) = (window.upgrade(), focus)
+                && gtk::prelude::GtkWindowExt::focus(&window).is_none()
+                && let Some(focus) = focus.upgrade()
+                && focus.is_mapped()
+                && focus.is_sensitive()
+            {
+                focus.grab_focus();
+            }
+        });
+    }
     let header = adw::HeaderBar::builder().height_request(48).build();
     let stack = adw::ViewStack::new();
     let brand = gtk::Label::new(Some("Karin"));

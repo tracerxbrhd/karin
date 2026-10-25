@@ -89,6 +89,23 @@ controls, text wrapping, contrast, navigation and the actual playback states
 were inspected in the PNGs. Keyboard transport and focus are checked separately
 from scrolling to expose the final read-only native-library information.
 
+The first hosted run exposed retained GTK content on Ubuntu 24.04
+(GTK 4.14.5 / Libadwaita 1.5.0), despite successful player cleanup. The same
+failure was reproduced locally with those libraries. A native reference trace
+identified GTK's pending focus-move reference being overwritten when adaptive
+layout repeatedly hides the focused root. Clearing window focus when the owned
+ToolbarView unmaps fixes the reproduced failure. The full widget/ancestor and
+worker cleanup assertions remain enabled, with detailed failure diagnostics.
+The previously focused control is restored after remapping when it is still
+mapped/sensitive and no new focus was selected. Full Rust 1.98.1 checks were
+repeated on both Debian and a locally reproduced Ubuntu 24.04 environment
+(GTK 4.14.5, Libadwaita 1.5.0, GStreamer 1.24.2): Clippy, all 38 tests, debug
+build, finite/player diagnostics and the GTK cleanup test passed. The updated
+vendored release binary also passed both audio paths and GTK smoke on Debian.
+This describes the observed GTK/Libadwaita combination; it does not claim that
+every newer GTK version changed that native function. The temporary tracer and
+logs remain outside the repository.
+
 CI checks both stable and exact 1.98.1, including the new player diagnostic;
 the MSRV lane also checks the optimized player and GTK lifecycle. The exact
 hosted result must be read from the Gate A PR checks, not inferred from local

@@ -89,6 +89,12 @@ resize() {
     timeout 5 xdotool windowsize --sync "$window" "$1" "$2"
     timeout 5 xdotool windowmove --sync "$window" 48 48
 }
+scroll_to_top() {
+    # Keyboard focus can reveal an entire preferences group after resizing.
+    # Keep initial-page matrix frames at the top; transport frames stay natural.
+    xdotool mousemove --window "$window" 350 200
+    xdotool click --repeat 8 --delay 40 4
+}
 for shape in compact medium wide; do
     case "$shape" in
         compact) resize 420 720 ;;
@@ -98,18 +104,23 @@ for shape in compact medium wide; do
     xdotool key --clearmodifiers alt+1
     capture "$shape-overview"
     xdotool key --clearmodifiers alt+2
+    scroll_to_top
     capture "$shape-diagnostics"
 done
 wmctrl -ir "$window" -b add,maximized_vert,maximized_horz
 xdotool key --clearmodifiers alt+1
 capture maximized-overview
 xdotool key --clearmodifiers alt+2
+scroll_to_top
 capture maximized-diagnostics
 # Keyboard activation uses only the generated WAV and the default fakesink.
 resize 900 650
 xdotool key --clearmodifiers alt+2
 xdotool key --clearmodifiers Return
 sleep 1
+# Preparation temporarily disables its button, so GTK may move keyboard focus.
+# Re-enter the diagnostics action before tabbing to the now-ready Play control.
+xdotool key --clearmodifiers alt+2
 xdotool key --clearmodifiers Tab
 xdotool key --clearmodifiers shift+Tab Tab
 capture keyboard-focus-diagnostics

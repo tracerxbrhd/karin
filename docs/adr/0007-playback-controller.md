@@ -47,6 +47,12 @@ completion. Last-handle drop must not join a worker on GTK's main thread. A call
 requiring verified cleanup must observe completion with a bounded deadline;
 forced process termination still cannot provide that guarantee.
 
+Clear window focus when the owned ToolbarView unmaps during adaptive layout or
+closing. On the GTK 4.14 / Libadwaita 1.5 baseline, repeated hides can overwrite a
+pending native focus reference and retain the content tree. This public-API
+lifecycle cleanup uses a weak window capture and preserves the strict weak-ref
+and playback-worker shutdown checks; it does not force GObject disposal.
+
 ## Consequences
 
 The engine can be tested without network, accounts, service music or an audio

@@ -34,7 +34,8 @@ does not hide window chrome or remove implemented actions.
 ## Real transport and focus
 
 Alt+1/Alt+2 select the actual pages. Enter prepares a temporary eight-second WAV
-with silent output. Tab/Shift+Tab move focus; Enter starts the same `playbin`
+with silent output. Because preparation temporarily disables its action, Alt+2
+refocuses that action after readiness. Tab/Shift+Tab move focus; Enter starts the same `playbin`
 controller used by tests; Space pauses it; Tab/Enter stops it. The images show
 the actual status, transport labels, seek position and enabled/disabled controls.
 

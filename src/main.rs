@@ -159,12 +159,12 @@ fn main() -> glib::ExitCode {
                 let focus_passed = ui.focus_primary_action();
                 let released = ui.close_for_smoke();
                 for _ in 0..120 {
-                    if released() { break; }
+                    if released(false) { break; }
                     glib::timeout_future(Duration::from_millis(50)).await;
                 }
                 {
                     let _hold_until_cleanup = hold;
-                    let cleanup_passed = released();
+                    let cleanup_passed = released(true);
                     checked.set(layout_passed && navigation_passed && focus_passed && playback_passed && cleanup_passed);
                     if checked.get() {
                         println!(
