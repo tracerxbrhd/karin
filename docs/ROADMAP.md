@@ -21,6 +21,13 @@ integration evidence and explicit unresolved blockers.
 
 Acceptance: working end-to-end features verified on Fedora.
 
+Gate A is the preliminary authorization/playback-feasibility gate: an independent
+local-media GStreamer engine and an evidence-backed Music integration decision.
+The current [authorization decision](adr/0006-music-authorization-feasibility.md)
+keeps Music sign-in and stream resolution blocked pending confirmed grants and
+permission. The [playback foundation](adr/0007-playback-controller.md) does not
+complete the end-to-end v0.1 acceptance above.
+
 ## Later Releases
 UX polish, richer library features, lyrics, settings,
 and experimentally validated integrations.

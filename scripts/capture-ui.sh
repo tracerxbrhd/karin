@@ -14,7 +14,8 @@ if [ "${1-}" != --session ]; then
         git -C "$repository" status --short
         printf '\nRendered binary and UI sources:\n'
         sha256sum "$binary"
-        sha256sum "$repository/src/ui.rs" "$repository/src/main.rs"
+        sha256sum "$repository/src/ui.rs" "$repository/src/ui/playback.rs" \
+            "$repository/src/main.rs" "$repository/src/playback.rs" "$repository/src/capabilities.rs"
         if command -v dpkg-query >/dev/null 2>&1; then
             dpkg-query -W xvfb openbox imagemagick xdotool librsvg2-common
         fi
@@ -104,19 +105,29 @@ xdotool key --clearmodifiers alt+1
 capture maximized-overview
 xdotool key --clearmodifiers alt+2
 capture maximized-diagnostics
-# Keyboard activation is deliberately restricted to the silent diagnostic.
+# Keyboard activation uses only the generated WAV and the default fakesink.
 resize 900 650
 xdotool key --clearmodifiers alt+2
 xdotool key --clearmodifiers Return
-sleep 0.4
+sleep 1
+xdotool key --clearmodifiers Tab
 xdotool key --clearmodifiers shift+Tab Tab
 capture keyboard-focus-diagnostics
-xdotool key --clearmodifiers space
+xdotool key --clearmodifiers Return
 sleep 0.4
 capture keyboard-activation
+xdotool key --clearmodifiers space
+capture playback-paused
+xdotool key --clearmodifiers Tab Return
+capture playback-stopped
 resize 420 720
 xdotool key --clearmodifiers alt+2
-xdotool key --clearmodifiers Tab Tab Tab Tab Tab Tab
+xdotool key --clearmodifiers Tab Tab Tab Tab Tab Tab Tab
+xdotool key --clearmodifiers ctrl+End
+# Read-only native-library text follows the last interactive row. Scroll to
+# expose it as well; keyboard focus/activation is captured separately above.
+xdotool mousemove --window "$window" 350 560
+xdotool click --repeat 8 --delay 60 5
 capture compact-diagnostics-bottom
 xdotool key --clearmodifiers ctrl+q
 attempt=0

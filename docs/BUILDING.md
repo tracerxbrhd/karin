@@ -35,8 +35,9 @@ cargo run --locked
 ```
 
 No Yandex account, token, OAuth client secret or subscription is required to build
-and run the technical foundation. The explicit connection probe is anonymous.
-Authentication and playback of Yandex Music streams are not implemented.
+and run Gate A. The explicit connection probe is anonymous. The developer player
+uses generated local media; authentication and playback of Yandex Music streams
+are not implemented.
 
 ## Codex Cloud / Debian 13
 
@@ -82,16 +83,19 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 cargo build --workspace --locked
 ./target/debug/karin --audio-self-test
+./target/debug/karin --playback-self-test
 GTK_A11Y=none GSK_RENDERER=cairo dbus-run-session -- \
   xvfb-run -a ./target/debug/karin --smoke-test
 ```
 
-The audio self-test uses a synthetic signal and `fakesink`, not music or physical
-audio output. The GTK smoke mode starts the actual application and exits after
-checking its window lifecycle. Automated tests must not depend on the public
-Yandex API or user credentials. CI runs these checks on Ubuntu 24.04 with its
-native development libraries; a CI definition alone is not evidence that a
-remote GitHub Actions run passed.
+`--audio-self-test` checks a finite synthetic pipeline through `fakesink`.
+`--playback-self-test` instead generates a temporary WAV and exercises the real
+`playbin` controller, including transport, volume, seeking, EOS and cleanup.
+Both run without music, physical audio output, accounts or network access.
+The GTK smoke mode starts the actual application and checks its lifecycle and
+responsive layout. CI runs the checks on Ubuntu 24.04 with its native development
+libraries; a CI definition alone is not evidence that a remote run passed. Read
+the executed results in [VALIDATION.md](VALIDATION.md).
 
 CI runs both current stable and the pinned minimum-version toolchain. To reproduce
 the Rust 1.98.1 lane locally, install its Rustfmt and Clippy components, then run:
@@ -104,6 +108,7 @@ cargo +1.98.1 build --workspace --locked
 cargo +1.98.1 fetch --locked
 cargo +1.98.1 build --release --offline --locked
 ./target/release/karin --audio-self-test
+./target/release/karin --playback-self-test
 GTK_A11Y=none GSK_RENDERER=cairo dbus-run-session -- \
   xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' ./target/release/karin --smoke-test
 ```
@@ -115,12 +120,30 @@ Keep `Cargo.toml`'s minimum version and the pinned CI lane aligned, and verify c
 and locked dependencies before raising that minimum. Never bypass Cargo's
 version check with `--ignore-rust-version`.
 
-The user has confirmed initial startup, anonymous API HTTP 200, audible test
-output, D-Bus and Secret Service on Fedora 44/KDE/Wayland/PipeWire. The original
-visual layout failed acceptance. Repeat visual acceptance of the revised layout
-must check window/title controls, resize/maximize behavior, HiDPI, keyboard/focus,
+The user has confirmed the v0.0 functional checks on Fedora 44/KDE/Wayland/PipeWire,
+and Issue #3 reports native and Flatpak prototype startup with diagnostic audio.
+This is baseline evidence, not acceptance of Gate A's new player. Repeat manual
+checks must cover real system-output playback, pause/resume, seeking, volume,
+EOS/error recovery and closing during playback. Visual acceptance must check
+window/title controls, resize/maximize behavior, HiDPI, keyboard/focus,
 accessibility and both themes under [the UI quality gate](UI_QUALITY_GATE.md).
 A headless check does not establish those properties on Fedora.
+
+## Developer playback diagnostics
+
+Open the developer playback section on the Diagnostics page. It creates a quiet
+synthetic WAV in a temporary file and uses the same controller as the playback
+self-test. Choose silent `fakesink` output for device-independent checks, or
+explicitly choose system output when testing audibility on a desktop. Prepare
+the source, then exercise play, pause/resume, stop, volume and seeking when the
+source reports it is seekable. The controls do not select or resolve Yandex Music
+content, and the temporary media is not shipped in the repository.
+
+Inspect asynchronous state, position, duration and errors as well as listening.
+`fakesink` success proves decoding and lifecycle behavior for the generated WAV;
+it does not prove PipeWire output, support for other codecs or service streams.
+The Music authentication blocker and next authorized action are documented in
+[API_FEASIBILITY.md](API_FEASIBILITY.md).
 
 For a substantial UI change, also run the screenshot matrix and review it under
 [UI_QUALITY_GATE.md](UI_QUALITY_GATE.md). With the capture tools installed:
@@ -140,8 +163,10 @@ The initial manifest is
 [`packaging/flatpak/io.github.tracerxbrhd.Karin.json`](../packaging/flatpak/io.github.tracerxbrhd.Karin.json).
 It targets GNOME 50 and the matching Freedesktop 25.08 Rust SDK extension. This
 keeps the GTK/Libadwaita runtime independent of the user's desktop environment.
-It has no host filesystem permission or Secret Service access grant. Network and
-audio permissions support only the currently explicit diagnostics.
+It has no host filesystem permission or Secret Service access grant. The existing
+network and audio permissions support the explicit diagnostics; Gate A adds no
+sandbox grants. Generated media is created within the application's own temporary
+directory, so the player requires no access to the user's music files.
 
 During Fedora acceptance, the GNOME 50 SDK with
 `org.freedesktop.Sdk.Extension.rust-stable//25.08` reported Rust 1.98.1. The earlier
@@ -185,8 +210,10 @@ build alone do not establish complete distribution compliance or release
 acceptance. GPL does not authorize Yandex Music API or content access.
 
 Full Flatpak builds are **not verified in the cloud environment**: Bubblewrap
-cannot create the required user namespace inside the nested container. Keep
-sandboxing enabled and perform packaging acceptance on Fedora or suitable CI.
+cannot create the required user namespace inside the nested container. The user
+reports that the v0.0 Flatpak prototype launches on Fedora; Gate A still needs a
+fresh package/build/install and audio/UI acceptance there. Keep sandboxing enabled
+and perform packaging acceptance on Fedora or suitable CI.
 
 GNOME 50's Freedesktop SDK base is documented in the upstream
 [gnome-build-meta junction](https://gitlab.gnome.org/GNOME/gnome-build-meta/-/blob/gnome-50/elements/freedesktop-sdk.bst).

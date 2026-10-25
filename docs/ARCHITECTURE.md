@@ -1,7 +1,9 @@
-# Technical foundation architecture
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 
-Karin starts with one Cargo package and internal modules. There is no reason yet
-to introduce multiple crates or a separate backend process.
+# Karin foundation and Gate A architecture
+
+Karin remains one Cargo package with internal modules. The service integration
+and the independently usable playback engine have separate responsibilities.
 
 ```mermaid
 flowchart LR
@@ -9,63 +11,114 @@ flowchart LR
   Service --> Boundary[MusicApi trait]
   Boundary --> API[reqwest / serde adapter]
   API --> Remote[Yandex anonymous account status]
-  API --> Domain[ConnectionReport / ServiceError]
-  Domain --> UI
-  UI --> Audio[Independent audio diagnostic]
-  Audio --> GST[GStreamer synthetic signal]
+  UI --> Capability[Music authorization capability]
+  UI --> Player[PlaybackController]
+  Player --> Worker[Dedicated playback worker]
+  Worker --> Playbin[GStreamer playbin / local media]
+  UI --> Audio[Finite synthetic diagnostic]
+  Audio --> GST[GStreamer synthetic pipeline]
   UI --> Platform[D-Bus capability inspection]
 ```
 
-## Modules
+## Modules and boundaries
 
 | Module | Responsibility |
 | --- | --- |
-| `domain` | Transport-independent account access, availability, errors and connection state transitions |
+| `domain` | Transport-independent account access, availability, errors and connection transitions |
 | `application` | Cloneable connection service over the `MusicApi` boundary |
 | `api` | Bounded anonymous HTTPS request, wire format parsing and sanitized errors |
-| `audio` | Finite low-volume synthetic pipeline, EOS/error/timeout handling and resource cleanup |
+| `capabilities` | Explicit unavailable Music authentication and a typed future permitted-stream boundary |
+| `playback` | Reusable controller, worker-owned `playbin`, typed playback state, local media sources and developer self-test |
+| `audio` | Existing finite synthetic pipeline, EOS/error/timeout handling and resource cleanup |
 | `platform` | Session D-Bus/Secret Service presence diagnostics; reserved future MPRIS identity |
 | `config` | Non-secret application identity and version |
-| `ui` | Native navigation, status presentation, user actions and main-thread updates |
-| `main` | Concrete service composition, application lifecycle and diagnostic CLI modes |
+| `ui` | Native navigation, capability/blocker presentation, developer controls and main-thread updates |
+| `main` | Concrete composition, application lifecycle and explicit diagnostic CLI modes |
 
-UI depends on the application service and domain values, not reqwest, endpoints or
-JSON schemas. The production adapter makes no authenticated requests. It does not
-accept tokens, cookies or account passwords. Unknown response schemas fail visibly
-rather than being replaced with invented account data.
+UI consumes domain/application values and controller snapshots, not HTTP
+responses, transport URLs or JSON schemas. The current Yandex adapter accepts no
+tokens, cookies or passwords and makes no authenticated requests. Unknown
+response schemas fail visibly rather than becoming invented account data.
 
-## Concurrency and lifecycle
+`AuthenticationUnavailable` is independent of a successful anonymous HTTP
+response and of generic Yandex ID login support. A typed permitted-stream resolver
+boundary reserves the future integration point; no production resolver or remote
+stream source is enabled. Its implementation requires the evidence and owner
+actions in [API feasibility](API_FEASIBILITY.md) and
+[ADR-0006](adr/0006-music-authorization-feasibility.md).
 
-GTK objects live only on the main thread. User actions dispatch bounded blocking
-operations with `gio::spawn_blocking`; `glib::spawn_future_local` awaits results and
-updates widgets on that thread. No worker receives a GTK object. This uses the GIO
-worker pool rather than managing another application-wide async runtime; reqwest's
-blocking client manages its own internal HTTP runtime.
+## Playback controller
 
-Only one connection check and one audio diagnostic can run per window at once.
-Loading is visible and duplicate action buttons are disabled. Errors remain
-visible with a retry action. Closing the window during work releases widgets once
-the bounded worker completes: an application hold keeps the main context alive
-until the worker has returned and cleaned up. Normal shutdown may therefore wait
-for the outstanding request (12-second HTTP timeout) or audio diagnostic
-(5-second bus timeout). Forceful process termination has no cleanup guarantee.
+`PlaybackController` sends commands to a dedicated worker through a bounded
+32-entry queue. GTK never waits for media preroll, state changes or bus messages.
+Enqueue failure is explicit, including a full queue or a stopped worker. The
+worker processes bounded command batches while observing GStreamer bus events
+and a five-second deadline for asynchronous state completion. This deadline
+cannot preempt a blocked call inside a native plugin.
 
-Every diagnostic GStreamer exit path resets the pipeline to `Null` through RAII,
-including timeout and error. There is no retained player, background stream or
-queue. Physical output is requested only by the explicitly labelled test button.
+The controller exposes Idle, Loading, Ready, Playing, Paused, Stopped, Ended and
+Error states. Snapshots include position, duration, seekability, volume, a safe
+error category and worker completion status. Prepare, play, pause/resume, stop,
+volume and seek all use the same real `playbin` path. EOS and errors update
+state explicitly; seeking is permitted only when the source reports support.
+
+The current source type accepts regular local files. It validates/canonicalizes
+the path and keeps it out of displayable errors and debug output. There is no
+arbitrary network-URI entry point. The engine therefore has no dependency on
+Yandex endpoints, tokens, subscriptions or stream signing.
+General local files must be trusted: a container or playlist can refer to other
+resources through a decoder plugin. Gate A's GTK diagnostics and automated tests
+accept only their own generated PCM WAV and contain no external references;
+there is no general file chooser or untrusted-playlist feature.
+
+Developer diagnostics generate a temporary low-volume PCM WAV and feed it into
+that same source path; they do not replace playback with a fake state machine.
+The generated file is owned by a session guard and removed when that guard is
+dropped. No audio fixture is distributed in the repository. A clocked `fakesink`
+permits real decoding, timing, transport and EOS checks without physical sound;
+system audio is an explicit alternative for desktop acceptance.
+
+Shutdown signals cancellation independently of queue capacity. The worker resets
+the pipeline to `Null`, releases it and only then reports `worker_running=false`.
+The last handle's destructor requests shutdown without joining a worker on the
+GTK thread. Callers that need to verify cleanup observe worker completion with a
+bounded deadline. See [ADR-0007](adr/0007-playback-controller.md).
+The GTK panel requests shutdown immediately on close and retains an application
+hold while a GIO worker observes completion, up to a six-second deadline. Media
+guards survive that cleanup wait. UI polling captures widgets weakly; normal
+window teardown is checked while actual local playback is active.
+
+## Other work and application lifecycle
+
+GTK objects remain on the main thread. Bounded HTTP, finite audio and platform
+operations use `gio::spawn_blocking`; `glib::spawn_future_local` awaits results and
+updates widgets on that thread. Worker functions do not receive GTK objects.
+The reqwest blocking client manages its own internal HTTP runtime; no additional
+application-wide async runtime is introduced.
+
+Only one connection check and one finite audio diagnostic run per window at once.
+Loading is visible, duplicate requests are disabled, and errors permit retry.
+These finite jobs retain an application hold until they return and clean up.
+Normal close can wait for the existing HTTP timeout (12 seconds) or finite audio
+timeout (5 seconds); forceful process termination cannot guarantee cleanup.
+
+Every existing finite diagnostic exit path resets its pipeline to `Null` through
+RAII. Long-lived playback belongs to the new controller instead of extending that
+blocking diagnostic into a player.
 
 ## Security and future integration
 
-Requests retain TLS verification, refuse redirects, limit responses to 64 KiB and
-exclude raw bodies/URLs from displayable network errors. Offline HTTP fixtures
-exist only inside `#[cfg(test)]`; production always uses the real adapter.
+HTTP requests keep TLS verification, refuse redirects, limit response bodies to
+64 KiB and exclude raw bodies/URLs from displayable errors. Offline HTTP fixtures
+exist only under `#[cfg(test)]`; production uses the real anonymous adapter.
 
-The platform boundary queries whether Secret Service is running without
-activating it or reading any item. Token storage must be implemented through
-Secret Service only after an authorized client flow is established. No `.env`
-loading, token input or file-based credential store exists.
+The platform module queries whether Secret Service is running without activating
+it or reading an item. Token lifecycle/storage belongs behind Secret Service only
+after an authorized Music client flow is established. There is no `.env` loading,
+token input or file credential store.
 
-`org.mpris.MediaPlayer2.Karin` is reserved but not exported: there is no real music
-player to control yet. Implement MPRIS against future application playback state,
-not directly against widgets or transport endpoints. Flatpak permissions currently
-omit Secret Service and MPRIS ownership because those capabilities are not used.
+`org.mpris.MediaPlayer2.Karin` remains reserved and unexported. Gate A does not
+implement MPRIS, catalog/search/library, My Wave or a service playback queue.
+Flatpak permissions omit Secret Service and MPRIS ownership because neither is
+used. The existing sandbox grants suffice for generated local media and explicit
+system-output diagnostics; the Runtime/SDK selection is unchanged.

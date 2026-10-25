@@ -1,10 +1,113 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 
-# v0.0 foundation validation
+# Karin validation evidence
 
 This report separates initial cloud checks, user-reported Fedora acceptance,
 revised UI checks and compiler compatibility. A result for one environment or
 revision is not evidence that another has passed.
+
+## v0.1 Gate A (2026-10-25)
+
+Gate A was developed on `feature/v0.1-auth-playback-feasibility` from current
+`master` (`8b060aa`, merged PR #2). Issue #3 reports that the v0.0 native and
+Flatpak prototypes launch on Fedora 44/KDE/Wayland/PipeWire and diagnostic audio
+works there. That user-reported baseline does not validate the new player,
+controls, visual layout or Gate A Flatpak artifact.
+
+### Music integration decision
+
+The [official-document review and scoped live observations](API_FEASIBILITY.md)
+record eleven official document GETs and their URLs/dates. General Yandex ID
+authorization-code/S256 PKCE is documented, including a secretless initial code
+exchange. Music-specific permissions, integration/distribution permission and
+permitted stream delivery for Karin's own public Linux client remain
+**Blocked / not established**. Public-client callback and token lifecycle details
+also remain unverified. No client registration, account login, OAuth/device/token
+request or service stream retrieval was performed.
+
+The application exposes `AuthenticationUnavailable / MusicGrantNotEstablished`.
+No ineffective sign-in button, token input or signed-in/catalog view is enabled.
+The future resolver is a typed boundary with no live implementation or
+constructible service stream. See [ADR-0006](adr/0006-music-authorization-feasibility.md).
+
+Five anonymous rechecks from the same cloud egress on 2026-10-25 returned HTTP
+200 for status (no identity, `serviceAvailable=false`) and HTTP 451 for the same
+search/track/album/artist routes used in the baseline. No authorization, cookies,
+redirect following, retry, alternate identity/region or bypass was used. These
+responses do not determine the restriction's exact cause or authenticated/Fedora
+metadata behavior. No account payloads, tokens, stream URLs or service audio are
+published.
+
+### Executed cloud checks
+
+Debian 13 x86_64; Rust/Cargo **1.98.1**, Rustfmt and Clippy from that toolchain;
+GTK **4.18.6**, Libadwaita **1.7.6**, GStreamer **1.26.2**. `Cargo.toml` remains at
+minimum Rust 1.98; GNOME 50 / Freedesktop Rust extension 25.08 and Flatpak
+permissions are unchanged. No dependency was added or updated; `Cargo.lock`
+retains SHA256 `dea4fadcad8782fae898905c9993d48864e809f9293ba08d4d0ba6b89da43462`.
+
+| Rust 1.98.1 check | Result |
+| --- | --- |
+| Formatting | `cargo fmt --all -- --check` passed |
+| Clippy, workspace/all targets/locked | Passed with `-D warnings`, no warnings |
+| Unit and local integration tests | **38 passed, 0 failed, 0 ignored**; binary/doc targets have 0 tests |
+| Debug build | `cargo build --workspace --locked` passed |
+| Finite GStreamer diagnostic | Passed: 40 synthetic buffers through `fakesink` |
+| New `--playback-self-test` | Passed through actual generated-WAV → `playbin` → synchronized `fakesink`: prepare, play, pause/resume, volume, seek, stop/restart, EOS and worker cleanup |
+| GTK smoke test | Passed: both pages/themes and three sizes; header/text/control bounds, adaptive navigation, focus, resize selection; actual GTK preparation/play action and close while playing; widgets and worker released |
+| Locked dependency-license inventory | Regenerated and compared identically with the reviewed inventory |
+| Flatpak source preparation and manifest parsing | Passed, including identical lockfile/inventory and original third-party notices |
+| Vendored release build | `cargo build --release --offline --locked` passed inside `build/flatpak-source`, with no dependency downloads |
+| Release finite audio/player self-tests and GTK smoke | All passed with the optimized binary |
+
+The nine new playback tests use real GStreamer decoding and resources. They
+check clocked progression and stable pause, seek/EOS, actual volume property,
+invalid commands/volume, sanitized decoder failure and retry, preservation of
+fatal errors during rapid commands, stop/restart/source replacement, queue
+backpressure, final-handle shutdown, weak-reference release, private temporary
+file ownership and an expired transition's cleanup. Test-only expired-deadline
+injection exercises a real `playbin` without waiting five seconds. Two added
+wire tests preserve HTTP 451 without retries/alternate routes and prevent
+identity/permission fields in HTTP 200 from implying Music authentication.
+Existing redirect tests now use the production client policy.
+
+### Visual and keyboard review
+
+Fresh [Gate A screenshots](ui/gate-a/README.md) cover both pages/themes at
+420×720, 900×650, 1440×900 and real WM-maximized 1920×1080. The 26 raw frames
+also show native keyboard focus, actual Playing/Paused/Stopped states, and the
+lower compact diagnostics. Captures use isolated Xvfb/Openbox, Cairo/full-redraw
+and generated local WAV through `fakesink`; no public API or physical audio is
+used. Source/binary/image fingerprints and dimensions accompany the gallery.
+
+An initial visual run caught compact horizontal overflow in the output selector
+row. It was corrected; the smoke test now checks meaningful content/control
+bounds against the client width, including after playback starts and resizes.
+Window shadows and decorative scrollbar paint are excluded from that content
+check. The final structural run has no width warning. Header/title/window
+controls, text wrapping, contrast, navigation and the actual playback states
+were inspected in the PNGs. Keyboard transport and focus are checked separately
+from scrolling to expose the final read-only native-library information.
+
+CI checks both stable and exact 1.98.1, including the new player diagnostic;
+the MSRV lane also checks the optimized player and GTK lifecycle. The exact
+hosted result must be read from the Gate A PR checks, not inferred from local
+success. A successful full SDK/sandbox Flatpak build remains unavailable in the
+nested cloud environment; no namespace/sandbox bypass was attempted.
+
+### Remaining target-desktop acceptance
+
+Repeat Gate A native and Flatpak build/install/launch on Fedora 44/KDE/Wayland/
+PipeWire. Exercise explicit system output with the generated WAV, pause/resume,
+volume, seek, stop/EOS/restart, rapid actions and closing during preparation or
+playback. Check both themes, all sizes/maximize/restore, keyboard/focus, top-edge
+window controls, HiDPI and accessibility. Cloud `fakesink` and Xvfb do not pass
+those manual gates or prove Yandex Music playback.
+
+The Music blocker requires official owner/provider clarification, followed only
+if permitted by an approved Karin registration and separately consented account,
+Music entitlement and stream-delivery tests. It is not resolved by the local
+player, GPL licensing or a generic Yandex ID token.
 
 ## Rust 1.98.1 / Flatpak compiler compatibility
 

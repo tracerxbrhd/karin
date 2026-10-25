@@ -1,7 +1,13 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
-# Revised UI — clean cloud evidence
+# Cloud UI evidence
 
-Captured on 2026-10-24 from the UI/licensing correction in this PR. These are real,
+Current **v0.1 Gate A** screenshots and playback states are in
+[the Gate A gallery](gate-a/README.md). They replace the following historical
+images as evidence for the current application.
+
+## v0.0 UI/licensing baseline
+
+Captured on 2026-10-24 from the UI/licensing correction in PR #2. These are real,
 unretouched application-window screenshots in isolated Xvfb/Openbox sessions,
 not user desktop captures. No account, token, public API request or physical
 audio output was used in the capture matrix.

@@ -7,7 +7,7 @@
 use std::io::Read;
 use std::time::Duration;
 
-use reqwest::blocking::{Client, Response};
+use reqwest::blocking::{Client, ClientBuilder, Response};
 use reqwest::redirect::Policy;
 use serde::Deserialize;
 
@@ -27,11 +27,7 @@ pub struct YandexApi {
 
 impl YandexApi {
     pub fn new() -> Result<Self, ServiceError> {
-        let client = Client::builder()
-            .user_agent(concat!("Karin/", env!("CARGO_PKG_VERSION")))
-            .connect_timeout(Duration::from_secs(5))
-            .timeout(REQUEST_TIMEOUT)
-            .redirect(Policy::none())
+        let client = status_client_builder()
             .build()
             .map_err(|_| ServiceError::Configuration)?;
         Ok(Self {
@@ -40,6 +36,16 @@ impl YandexApi {
             request_timeout: REQUEST_TIMEOUT,
         })
     }
+}
+
+// Keep the anonymous request policy shared with loopback wire tests. Tests may
+// disable inherited proxies and shorten deadlines without replacing this policy.
+fn status_client_builder() -> ClientBuilder {
+    Client::builder()
+        .user_agent(concat!("Karin/", env!("CARGO_PKG_VERSION")))
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(REQUEST_TIMEOUT)
+        .redirect(Policy::none())
 }
 
 impl MusicApi for YandexApi {
@@ -136,10 +142,26 @@ fn parse_status_response(mut response: Response) -> Result<ConnectionReport, Ser
 #[cfg(test)]
 mod tests {
     use std::io::{Read, Write};
-    use std::net::TcpListener;
+    use std::net::{TcpListener, TcpStream};
     use std::thread::{self, JoinHandle};
 
     use super::*;
+
+    fn read_anonymous_status_request(stream: &mut TcpStream) {
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let mut request = Vec::new();
+        let mut byte = [0_u8; 1];
+        while !request.ends_with(b"\r\n\r\n") {
+            assert_eq!(stream.read(&mut byte).unwrap(), 1);
+            request.extend_from_slice(&byte);
+        }
+        let request = String::from_utf8(request).unwrap();
+        assert!(request.starts_with("GET /account/status HTTP/1.1\r\n"));
+        assert!(!request.to_ascii_lowercase().contains("authorization:"));
+        assert!(!request.to_ascii_lowercase().contains("cookie:"));
+    }
 
     /// A local wire-level server; tests never contact Yandex or use real tokens.
     fn local_api(
@@ -151,26 +173,13 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
-            stream
-                .set_read_timeout(Some(Duration::from_secs(2)))
-                .unwrap();
-            let mut request = Vec::new();
-            let mut byte = [0_u8; 1];
-            while !request.ends_with(b"\r\n\r\n") {
-                assert_eq!(stream.read(&mut byte).unwrap(), 1);
-                request.extend_from_slice(&byte);
-            }
-            let request = String::from_utf8(request).unwrap();
-            assert!(request.starts_with("GET /account/status HTTP/1.1\r\n"));
-            assert!(!request.to_ascii_lowercase().contains("authorization:"));
-            assert!(!request.to_ascii_lowercase().contains("cookie:"));
+            read_anonymous_status_request(&mut stream);
             thread::sleep(delay);
             // The timeout test intentionally closes its client before this write.
             let _ = stream.write_all(response.as_bytes());
         });
-        let client = Client::builder()
+        let client = status_client_builder()
             .no_proxy()
-            .redirect(Policy::none())
             .timeout(timeout)
             .build()
             .unwrap();
@@ -215,6 +224,21 @@ mod tests {
     }
 
     #[test]
+    fn identity_and_permission_fields_never_establish_music_authorization() {
+        // These are synthetic fixture markers, not account data or service grants.
+        let report = request(
+            200,
+            r#"{"result":{"account":{"uid":"fixture-private-id","login":"fixture-private-login","displayName":"fixture-private-name","serviceAvailable":true},"permissions":{"values":["fixture-id-profile","fixture-music-permission"]}}}"#,
+        )
+        .unwrap();
+        assert_eq!(report.access, AccountAccess::Anonymous);
+        assert_eq!(report.service_available, Some(true));
+        assert_eq!(report.http_status, 200);
+        let visible_report = format!("{report:?}");
+        assert!(!visible_report.contains("fixture-"));
+    }
+
+    #[test]
     fn authorization_and_forbidden_responses_remain_distinct() {
         assert_eq!(
             request(401, "not JSON").unwrap().access,
@@ -230,6 +254,57 @@ mod tests {
     fn legal_restrictions_and_server_errors_are_not_successes() {
         assert_eq!(request(451, "restricted"), Err(ServiceError::Http(451)));
         assert_eq!(request(503, "unavailable"), Err(ServiceError::Http(503)));
+    }
+
+    #[test]
+    fn legal_restriction_never_retries_or_follows_an_alternate_route() {
+        // Both listeners are loopback fixtures. No live endpoint, alternate
+        // service host, real cookie or access restriction is exercised here.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let alternate = TcpListener::bind("127.0.0.1:0").unwrap();
+        let alternate_address = alternate.local_addr().unwrap();
+        let server_listener = listener.try_clone().unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = server_listener.accept().unwrap();
+            read_anonymous_status_request(&mut stream);
+            let body = "fixture-private-response";
+            write!(
+                stream,
+                "HTTP/1.1 451 Unavailable For Legal Reasons\r\n\
+                 Retry-After: 0\r\nLocation: http://{alternate_address}/alternate\r\n\
+                 Set-Cookie: fixture-session=fixture-private-cookie\r\n\
+                 Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .unwrap();
+        });
+        let timeout = Duration::from_millis(500);
+        let api = YandexApi {
+            client: status_client_builder()
+                .no_proxy()
+                .timeout(timeout)
+                .build()
+                .unwrap(),
+            status_url: format!("http://{address}/account/status"),
+            request_timeout: timeout,
+        };
+        let error = api.check_connection().unwrap_err();
+        server.join().unwrap();
+        assert_eq!(error, ServiceError::Http(451));
+        assert!(!format!("{error:?} {error}").contains("fixture-"));
+        listener.set_nonblocking(true).unwrap();
+        alternate.set_nonblocking(true).unwrap();
+        assert_eq!(
+            listener.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock,
+            "the restricted endpoint must not be retried"
+        );
+        assert_eq!(
+            alternate.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock,
+            "a 451 response must not trigger an alternate request"
+        );
     }
 
     #[test]
@@ -294,15 +369,7 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
-            stream
-                .set_read_timeout(Some(Duration::from_secs(2)))
-                .unwrap();
-            let mut request = Vec::new();
-            let mut byte = [0_u8; 1];
-            while !request.ends_with(b"\r\n\r\n") {
-                assert_eq!(stream.read(&mut byte).unwrap(), 1);
-                request.extend_from_slice(&byte);
-            }
+            read_anonymous_status_request(&mut stream);
             let body = r#"{"result":{"account":{"serviceAvailable":false}}}"#;
             write!(
                 stream,
@@ -320,7 +387,7 @@ mod tests {
             }
         });
         let api = YandexApi {
-            client: Client::builder()
+            client: status_client_builder()
                 .no_proxy()
                 .timeout(Duration::from_secs(2))
                 .build()
