@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+
 # Karin — Codex Instructions
 
 ## Product
@@ -43,6 +45,27 @@ Do not introduce Electron or web-based application shells.
 - Support light/dark themes, HiDPI, keyboard navigation, and accessibility.
 - Design loading, empty, offline, unauthorized, and error states.
 - Prioritize responsiveness and clarity over decorative effects.
+- Every substantial UI change must pass the visual and structural checks in
+  [docs/UI_QUALITY_GATE.md](docs/UI_QUALITY_GATE.md) before being called ready.
+- Inspect actual application screenshots at approximately 420×720, 900×650,
+  1440×900 and maximized, in light and dark themes. Check navigation adaptation,
+  HeaderBar/title/window controls, spacing, text wrapping, scrolling and focus.
+- Exercise keyboard navigation and resize transitions. Screenshots supplement
+  GTK allocation, navigation and lifecycle checks; neither replaces the other.
+- Use Xvfb captures when available and state their environment. Xvfb does not
+  establish Fedora/KDE/Wayland visual acceptance. Record manual acceptance as
+  pending until someone actually performs it on the target desktop.
+- Never add user screenshots containing personal information or desktop elements
+  to a public repository without separate permission. Prefer clean cloud captures
+  of Karin only, with no account data or unrelated desktop content.
+
+## Licensing
+
+- Karin's own code and original materials use GPL-3.0-or-later unless a file says otherwise.
+- Add the corresponding SPDX identifier to new original source files and retain
+  existing third-party license notices. Do not relabel dependencies as Karin code.
+- Keep the standard GPLv3 text in LICENSE unchanged. GPL does not authorize
+  access to Yandex Music, its unofficial API or any service content.
 
 ## Development Workflow
 - Use master as the stable integration branch.
@@ -59,6 +82,13 @@ When a Rust workspace exists, run:
 - cargo clippy --workspace --all-targets -- -D warnings
 - cargo test --workspace
 - cargo build --workspace
+
+Preserve the minimum Rust series declared in `Cargo.toml` (1.98). Run the pinned
+Rust 1.98.1 CI checks as well as stable when changing Rust code, dependencies or
+packaging; include Clippy, all tests and `cargo build --release --offline --locked`
+after fetching or vendoring the locked dependencies. Keep the MSRV CI lane aligned
+with the package metadata. Prove compatibility before lowering the declaration,
+and never use `--ignore-rust-version` to bypass a compiler requirement.
 
 Report executed checks, results, limitations, and remaining blockers.
 A successful build does not prove GTK runtime, audio, or Yandex API integration.

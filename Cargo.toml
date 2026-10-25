@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[package]
+name = "karin"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.98"
+description = "An independent native Linux client for Yandex Music"
+repository = "https://github.com/tracerxbrhd/karin"
+license = "GPL-3.0-or-later"
+publish = false
+
+[dependencies]
+adw = { package = "libadwaita", version = "0.8", features = ["v1_5"] }
+gtk = { package = "gtk4", version = "0.10", features = ["v4_14"] }
+gstreamer = "0.24"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls-native-roots"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+[profile.dev]
+debug = 0
+
+[profile.test]
+debug = 0
