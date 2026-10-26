@@ -2,13 +2,23 @@
 
 # Known limitations
 
-- **Yandex Music access remains blocked.** The anonymous status diagnostic does
-  not establish a user identity, subscription or stream entitlement. General
-  Yandex ID OAuth/PKCE documentation does not establish a Music-specific grant
-  for Karin's own application. The explicit `AuthenticationUnavailable`
-  capability keeps sign-in unavailable; no borrowed client identity, token-paste
-  login, passwords or service credentials are included. See the decision and
-  authorized next actions in [API_FEASIBILITY.md](API_FEASIBILITY.md).
+- **Yandex Music authorization remains unverified.** On 2026-10-26 the owner
+  confirmed Karin's own user-authorization registration with two Music scopes
+  and two ID scopes. This resolves the registration uncertainty, not token
+  issuance, endpoint rights, account entitlement or stream delivery. Gate B1's
+  opt-in local OAuth experiment has not been exercised with an account on Fedora.
+  The GUI keeps `AuthenticationUnavailable`; no borrowed client, pasted-token
+  login, password collection or service stream is included. See
+  [API_FEASIBILITY.md](API_FEASIBILITY.md) and [ADR-0008](adr/0008-local-oauth-pkce-diagnostic.md).
+- **The OAuth diagnostic is not a production login/session.** Its documented
+  verification-code page is for manual developer testing. With code-only entry,
+  no returned state is available for an honest callback-state comparison; the
+  tool sends random state and relies on S256 PKCE for code binding, reporting
+  that limitation. The initial exchange is secretless, but public native Linux
+  callback, refresh/revocation and secure permanent storage remain unverified.
+  Optional token-scope metadata is not independent Music entitlement evidence.
+  Tokens are memory-only, no stream is requested and account tests must remain
+  local to the consenting owner.
 - **HTTP restrictions retain their scope.** Anonymous search and metadata
   requests returned HTTP 451 from the cloud egress. That observation does not
   determine authenticated behavior or the cause on Fedora. No alternate region,

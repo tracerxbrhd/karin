@@ -7,6 +7,7 @@ pub mod audio;
 pub mod capabilities;
 pub mod config;
 pub mod domain;
+pub mod oauth;
 pub mod platform;
 pub mod playback;
 pub mod ui;

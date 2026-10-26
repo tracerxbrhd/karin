@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 
-# Karin foundation and Gate A architecture
+# Karin foundation, playback and local OAuth diagnostics
 
 Karin remains one Cargo package with internal modules. The service integration
 and the independently usable playback engine have separate responsibilities.
@@ -18,6 +18,10 @@ flowchart LR
   UI --> Audio[Finite synthetic diagnostic]
   Audio --> GST[GStreamer synthetic pipeline]
   UI --> Platform[D-Bus capability inspection]
+  CLI[Opt-in local OAuth CLI] --> OAuth[Isolated OAuth diagnostic]
+  OAuth --> Browser[System browser / S256 PKCE]
+  OAuth --> ID[Yandex ID client-binding check]
+  OAuth --> Music[Read-only Music status / catalog]
 ```
 
 ## Modules and boundaries
@@ -27,6 +31,8 @@ flowchart LR
 | `domain` | Transport-independent account access, availability, errors and connection transitions |
 | `application` | Cloneable connection service over the `MusicApi` boundary |
 | `api` | Bounded anonymous HTTPS request, wire format parsing and sanitized errors |
+| `oauth` | Separate opt-in code/PKCE experiment, bounded token exchange, ID-client binding and read-only Music probes with sanitized reports |
+| `oauth_cli` | Binary-private local terminal input and system-browser launch; no credential arguments or GUI session |
 | `capabilities` | Explicit unavailable Music authentication and a typed future permitted-stream boundary |
 | `playback` | Reusable controller, worker-owned `playbin`, typed playback state, local media sources and developer self-test |
 | `audio` | Existing finite synthetic pipeline, EOS/error/timeout handling and resource cleanup |
@@ -37,7 +43,8 @@ flowchart LR
 
 UI consumes domain/application values and controller snapshots, not HTTP
 responses, transport URLs or JSON schemas. The current Yandex adapter accepts no
-tokens, cookies or passwords and makes no authenticated requests. Unknown
+tokens, cookies or passwords and makes no authenticated requests. The separate
+Gate B1 OAuth diagnostic does not inject credentials into this adapter. Unknown
 response schemas fail visibly rather than becoming invented account data.
 
 `AuthenticationUnavailable` is independent of a successful anonymous HTTP
@@ -45,7 +52,8 @@ response and of generic Yandex ID login support. A typed permitted-stream resolv
 boundary reserves the future integration point; no production resolver or remote
 stream source is enabled. Its implementation requires the evidence and owner
 actions in [API feasibility](API_FEASIBILITY.md) and
-[ADR-0006](adr/0006-music-authorization-feasibility.md).
+[ADR-0006](adr/0006-music-authorization-feasibility.md), updated by the separate
+local experiment in [ADR-0008](adr/0008-local-oauth-pkce-diagnostic.md).
 
 ## Playback controller
 
@@ -108,14 +116,28 @@ blocking diagnostic into a player.
 
 ## Security and future integration
 
-HTTP requests keep TLS verification, refuse redirects, limit response bodies to
-64 KiB and exclude raw bodies/URLs from displayable errors. Offline HTTP fixtures
-exist only under `#[cfg(test)]`; production uses the real anonymous adapter.
+The anonymous adapter keeps TLS verification, refuses redirects, limits response
+bodies to 64 KiB and excludes raw bodies/URLs from displayable errors. The separate
+OAuth experiment uses the same no-redirect/TLS/error policy with a 1 MiB response
+ceiling. Offline HTTP fixtures exist only under `#[cfg(test)]`; production uses
+fixed real service endpoints.
 
 The platform module queries whether Secret Service is running without activating
-it or reading an item. Token lifecycle/storage belongs behind Secret Service only
-after an authorized Music client flow is established. There is no `.env` loading,
-token input or file credential store.
+it or reading an item. Permanent token lifecycle/storage belongs behind a
+separately validated Secret Service integration. There is no `.env` loading,
+pasted-token login or file credential store.
+
+The opt-in local OAuth CLI is a separate experiment, not a GUI login path. It
+accepts a local Client ID and one-time authorization code from a hidden terminal
+prompt, creates random S256 PKCE/state, and launches the system browser through
+GIO. The initial exchange uses no Client secret. Tokens remain inside this
+process and are not passed to the anonymous service, playback engine or UI.
+ID identity/client binding, Music account access and catalog response remain
+separate facts; errors and restrictions fail closed before later probes.
+Manual code entry cannot establish a returned state when the provider's code
+page supplies no documented state roundtrip. This limitation and the lack of a
+production Linux callback prevent reuse as application sign-in. See ADR-0008.
+Automated OAuth fixtures use loopback only and require no account or browser.
 
 `org.mpris.MediaPlayer2.Karin` remains reserved and unexported. Gate A does not
 implement MPRIS, catalog/search/library, My Wave or a service playback queue.

@@ -6,7 +6,93 @@ This report separates initial cloud checks, user-reported Fedora acceptance,
 revised UI checks and compiler compatibility. A result for one environment or
 revision is not evidence that another has passed.
 
-## v0.1 Gate A (2026-10-25)
+## v0.1 Gate B1 (2026-10-26)
+
+The owner-confirmed Karin user-authorization registration and four selected
+scopes are recorded in [Issue #5](https://github.com/tracerxbrhd/karin/issues/5#issuecomment-6411056234).
+This is registration/consent-preview evidence supplied by the owner. It is not
+an observed authorization-code issuance, secretless token exchange, ID-client
+binding result, Music authenticated status or catalog response.
+
+Gate B1 adds a separate opt-in local OAuth diagnostic. Automated checks use only
+local HTTP fixtures with synthetic credentials; no real Client ID, authorization
+code, verifier, access/refresh token, private account JSON or OAuth session was
+supplied to Codex Cloud, CI or GitHub. No real authorization or token endpoint was exercised. The existing
+GUI login capability remains unavailable and the playback engine is independent.
+
+### Executed cloud checks
+
+The following Gate B1 checks passed on 2026-10-26 in the prepared Debian 13
+x86_64 environment, with GTK 4.18.6, Libadwaita 1.7.6 and GStreamer 1.26.2.
+The native library baselines, GNOME 50 / Freedesktop 25.08 SDK selection and
+Flatpak permissions are unchanged. Compiler checks used both current stable
+**Rust/Cargo 1.99.1** and exact minimum compatibility toolchain **1.98.1**.
+
+| Check | Stable 1.99.1 | Rust 1.98.1 |
+| --- | --- | --- |
+| `cargo fmt --all -- --check` | Passed | Passed |
+| `cargo clippy --workspace --all-targets --locked -- -D warnings` | Passed, no warnings | Passed, no warnings |
+| `cargo test --workspace --locked` | **57 passed, 0 failed, 0 ignored** (54 library + 3 binary) | **57 passed, 0 failed, 0 ignored** (54 library + 3 binary) |
+| `cargo build --workspace --locked` | Passed | Passed |
+| `python3 scripts/test-oauth-terminal.py` | Seven terminal-input cases and missing-controlling-TTY rejection passed | Seven terminal-input cases and missing-controlling-TTY rejection passed |
+| `--audio-self-test` | Passed, silent finite `fakesink` pipeline | Passed, silent finite `fakesink` pipeline |
+| `--playback-self-test` | Passed, real generated-WAV `playbin`/`fakesink` lifecycle | Passed, real generated-WAV `playbin`/`fakesink` lifecycle |
+| GTK smoke under Xvfb | Passed: both pages/themes, resize, actual local playback and window/worker cleanup | Passed: both pages/themes, resize, actual local playback and window/worker cleanup |
+
+OAuth tests cover the RFC 7636 S256 vector; fresh verifier/state; secretless form
+exchange; verifier mismatch, missing/mismatched returned state and provider denial;
+local/code/token expiry; missing scopes; exact ID client binding; anonymous Music
+accounts; and a sequential read-only catalog probe. Fixture requests also verify
+that redirects are not followed, credentials are not forwarded, automatic retries
+are disabled, errors are redacted, malformed/oversized bodies fail, and the total
+deadline stops continuously streaming responses. These are loopback fixtures,
+not observations of Yandex accepting Karin credentials.
+
+Terminal tests exercise Ctrl-C, Ctrl-D, Escape, empty input, invalid control data,
+bounded overflow and invalid Client ID, checking no echo, exact terminal-setting
+restoration and sanitized outcomes. A separate missing-TTY case exits before
+credential input. These checks use synthetic invalid input and stop before browser
+launch or provider requests. Their isolated XDG configuration installs a harmless
+local URI handler, so even a parser regression cannot open a real browser. An
+independent offline GIO check verified that guard without contacting a provider.
+
+The regenerated dependency-license inventory was byte-compared with the updated
+reviewed inventory: **200 external crates**, **171** in the Linux target graph.
+This is dependency evidence, not a final-package license or service-access grant.
+The GUI layout and playback implementation are unchanged; existing Gate A visual
+evidence remains scoped to that layout, with Fedora manual acceptance separate.
+
+Rust 1.98.1 `cargo build --release --offline --locked` passed after fetching the
+locked dependencies. The optimized binary also passed the terminal checks, both
+silent GStreamer diagnostics and GTK smoke. Hosted GitHub Actions outcomes must
+be read from this PR's checks; a workflow definition alone is not a passed run.
+Flatpak source preparation passed with the same Rust sources, lockfile and
+terminal script, the reviewed inventory and the new dependencies' original
+notices. The manifest still selects GNOME 50 and the existing Rust extension.
+Full Flatpak SDK/sandbox
+packaging remains a separate Fedora check because the cloud container denies
+Bubblewrap user namespaces; no bypass is used.
+
+### Pending local Fedora acceptance
+
+Run `karin --oauth-diagnostic` only on the consenting owner's Fedora desktop with
+Karin's own Client ID. Record only the tool's sanitized result. Independently
+verify code issuance; initial secretless S256 token exchange; matching ID
+`client_id` and identity presence; effective-scope metadata; Music account
+identity/service availability; and the one read-only catalog result. Do not mark
+Music authorization working from ID success, selected scope names, fixtures or
+an HTTP 200 without authenticated Music account evidence. Do not publish browser
+screenshots, raw responses or credentials. No streams, DRM bypass or subscription
+playback test is part of Gate B1.
+
+The manual verification page's code-only entry does not provide an observed
+state roundtrip; that limitation is reported explicitly and must be resolved by
+a separately supported production callback. Public-client refresh/revocation,
+Secret Service lifecycle and GUI sign-in remain future acceptance gates. The
+executed cloud checks above do not establish these local/provider results.
+Historical Gate A results do not imply a Gate B1 OAuth pass.
+
+## Historical v0.1 Gate A (2026-10-25)
 
 Gate A was developed on `feature/v0.1-auth-playback-feasibility` from current
 `master` (`8b060aa`, merged PR #2). Issue #3 reports that the v0.0 native and

@@ -41,6 +41,8 @@ state that explicitly; do not mark unexecuted visual checks as passed.
 - [ ] GPL is not described as permission to access Yandex Music or its content
 - [ ] No credentials, account data or copyrighted music added
 - [ ] Music authorization/stream claims have permission and scoped evidence; unavailable capabilities remain explicit
+- [ ] OAuth changes use local fixtures and hidden-input checks; no real account/credentials in Cloud or CI
+- [ ] Registration, token issuance, ID-client binding and Music access are reported separately; manual-code state limits remain explicit
 
 ## Evidence and remaining manual checks
 

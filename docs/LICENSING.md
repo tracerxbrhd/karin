@@ -1,7 +1,8 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 # Licensing and dependency review
 
-Reviewed on **2026-10-24** against the committed Cargo.lock and the Debian 13
+Reviewed on **2026-10-24**, with the Gate B1 additions reviewed **2026-10-26**,
+against the committed Cargo.lock and the Debian 13
 development environment. Karin's own code and original materials are
 **GPL-3.0-or-later**, unless an individual material states otherwise. The full
 standard GPLv3 text is in [LICENSE](../LICENSE); [ADR-0005](adr/0005-licensing.md)
@@ -27,8 +28,8 @@ No third-party source or license text is overwritten with a Karin SPDX header.
 
 ## Locked Rust dependencies
 
-[`DEPENDENCY_LICENSES.md`](DEPENDENCY_LICENSES.md) records **197 external crates**
-across the resolved lockfile and **168** in Cargo's
+[`DEPENDENCY_LICENSES.md`](DEPENDENCY_LICENSES.md) records **200 external crates**
+across the resolved lockfile and **171** in Cargo's
 `x86_64-unknown-linux-gnu` graph, including build dependencies. This includes
 platform alternatives/build tools and is not a claim that every resolved package
 is linked into the Linux executable. No crate is missing a declared license or
@@ -54,6 +55,7 @@ dependency versions and their source-level notices.
 | `Apache-2.0 WITH LLVM-exception` in `target-lexicon` | Reviewed the supplied Apache license and LLVM exceptions. The additional permission does not prevent GPLv3 combination; retain the entire supplied text. WASI's target-only alternative also permits plain MIT/Apache. |
 | `ring 0.17.14`: `Apache-2.0 AND ISC` | Inspected `LICENSE`, `LICENSE-BoringSSL`, `LICENSE-other-bits`, nested once_cell licenses and `third_party/fiat/LICENSE`. Both Apache and ISC obligations apply, with nested notices preserved. This version does **not** declare the older `OpenSSL` license expression; no blanket OpenSSL exception is being added to Karin. |
 | `r-efi` offers `MIT OR Apache-2.0 OR LGPL-2.1-or-later` | A compatible permissive option is available; this crate is not in the inspected Linux target graph. |
+| Gate B1: `rustix 1.1.5`, `linux-raw-sys 0.12.1`, `errno 0.3.14` | Reviewed supplied COPYRIGHT/license files. The first two offer MIT, Apache-2.0 or Apache-2.0 with LLVM exception; `errno` offers MIT/Apache-2.0. A compatible permissive choice exists and original notices are retained. These support bounded, no-echo local terminal input. `base64`, `ring`, `subtle` and `zeroize` become direct dependencies at their already reviewed locked versions. |
 
 No incompatible license requirement was identified in the reviewed declarations
 and uncommon source notices. This is a scoped engineering review, not legal

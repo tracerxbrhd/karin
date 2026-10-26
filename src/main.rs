@@ -5,18 +5,30 @@ use adw::prelude::*;
 use gtk::{gio, glib};
 use karin::{api::YandexApi, application::ConnectionService, audio, config, playback, ui};
 
+mod oauth_cli;
+
 fn main() -> glib::ExitCode {
     let args: Vec<_> = std::env::args().skip(1).collect();
     match args.as_slice() {
         [flag] if flag == "--help" || flag == "-h" => {
             println!(
-                "Karin\n\nUsage: karin [--smoke-test | --audio-self-test | --playback-self-test | --probe-service | --version]\n\n--smoke-test          Verify GTK and local playback cleanup without network or sound\n--audio-self-test     Process a synthetic signal through GStreamer fakesink\n--playback-self-test  Decode a generated local WAV through playbin; test controls and cleanup\n--probe-service       Make an anonymous availability request (network required)"
+                "Karin\n\nUsage: karin [--smoke-test | --audio-self-test | --playback-self-test | --probe-service | --oauth-diagnostic | --version]\n\n--smoke-test          Verify GTK and local playback cleanup without network or sound\n--audio-self-test     Process a synthetic signal through GStreamer fakesink\n--playback-self-test  Decode a generated local WAV through playbin; test controls and cleanup\n--probe-service       Make an anonymous availability request (network required)\n--oauth-diagnostic    Opt-in local PKCE experiment; private terminal and system browser required"
             );
             return glib::ExitCode::SUCCESS;
         }
         [flag] if flag == "--version" => {
             println!("Karin {}", config::VERSION);
             return glib::ExitCode::SUCCESS;
+        }
+        [flag] if flag == "--oauth-diagnostic" => {
+            return match oauth_cli::run() {
+                Ok(true) => glib::ExitCode::SUCCESS,
+                Ok(false) => glib::ExitCode::FAILURE,
+                Err(error) => {
+                    eprintln!("OAuth diagnostic: {error}");
+                    glib::ExitCode::FAILURE
+                }
+            };
         }
         [flag] if flag == "--audio-self-test" => {
             return match audio::run_test_tone(audio::AudioOutput::Fakesink) {

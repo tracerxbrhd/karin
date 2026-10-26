@@ -1,5 +1,8 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+
 # Yandex Music API feasibility
 
+Gate B1 owner evidence and document recheck: **2026-10-26**.
 Gate A official-document review: **2026-10-25**. Initial anonymous cloud probes:
 **2026-10-24**, approximately **11:40 UTC**; retained below with their original scope.
 
@@ -8,9 +11,82 @@ only the behavior observed for that request, from this cloud environment, at thi
 time. It does not establish authenticated access, a playback entitlement, a stable
 API contract, or permission to distribute a third-party music client.
 
-## Gate A decision: Music authorization is blocked, not simulated
+## Gate B1: own multiuser registration confirmed; token and Music access untested
 
-**Blocked:** no Music-specific grant, catalog/library/playback permission or
+On **2026-10-26**, the owner confirmed registration of a Karin-owned application
+of type **«Для авторизации пользователей»**, with these selected scopes:
+
+- `music:api-public`
+- `music:major-public-api`
+- `login:info`
+- `login:avatar`
+
+The development redirect is `https://oauth.yandex.ru/verification_code`.
+The [owner's Issue #5 update][owner-registration] supersedes the earlier hypothesis
+that a new Karin-owned multiuser registration could not offer Music scopes.
+The earlier same-day developer/API-only registration is a separate application;
+it must not be confused with this user-authorization client. Neither Client ID,
+Client secret nor private console screenshots belong in this repository.
+
+| Evidence stage | Current verdict | What it establishes |
+| --- | --- | --- |
+| Karin-owned multiuser registration and four selectable scopes | Owner-confirmed, 2026-10-26 | Registration and consent-preview labels; not a token grant |
+| Code issuance and secretless S256 PKCE exchange | Implemented diagnostic; real run pending | Local fixtures can verify protocol handling, not provider acceptance |
+| Token belongs to the locally supplied Karin Client ID | Real run pending | Requires successful `login.yandex.ru/info` with matching `client_id`; a token merely accepted by ID is insufficient |
+| Token's effective scope and Music account access | Real run pending | Requires the token grant and independent authenticated Music status result |
+| Read-only Music catalog response | Real run pending | A successful status probe alone does not establish catalog access |
+| Subscription/library/streams and public distribution rights | Not established | Neither registration nor catalog success licenses stream retrieval or distribution |
+
+### Local experiment and its boundary
+
+The separate opt-in `karin --oauth-diagnostic` uses the owner's locally entered
+Client ID, authorization code + S256 PKCE and the system browser. It exchanges
+only a one-time code through official Yandex OAuth, without `client_secret`.
+The development verification page is a manual-code experiment, not a production
+Linux callback design. Tokens live only in diagnostic process memory; the GUI,
+anonymous adapter and independent playback engine do not receive them.
+See [Fedora instructions](BUILDING.md#local-oauth-diagnostic-gate-b1) and
+[ADR-0008](adr/0008-local-oauth-pkce-diagnostic.md) for exact checks and limits.
+
+The diagnostic separately checks ID client binding and identity, Music account
+status and one read-only catalog request. Requests have a five-second connection
+limit, fifteen-second total deadline and 1 MiB response ceiling; redirects and
+automatic retries are disabled. Output is restricted to status codes,
+boolean/unknown facts and fixed error categories. It publishes no identity,
+profile/avatar, token, authorization code, verifier, response body or catalog
+content. There is no refresh, persistent storage, stream request, DRM workaround,
+UI sign-in or borrowed OAuth identity. The configured `login:avatar` scope does
+not cause an avatar request.
+
+### Official documentation rechecked on 2026-10-26
+
+The listed public documents returned HTTP 200 with ordinary TLS verification.
+No authorization, token or authenticated API request was made in the cloud.
+
+| Official source | Finding and limit |
+| --- | --- |
+| [User-authorization registration][register-auth] | Appropriate owner-registered app category; actual Karin registration is owner evidence, not inferred from the guide |
+| [Manual authorization-code flow][manual-code] | The verification page displays an authorization code; code lifetime is ten minutes. It accepts `state` and S256 parameters but does not promise a displayed/returned state in this manual-code presentation |
+| [Authorization request and code exchange][oauth-code] | S256, `state`, registered redirect and secretless initial exchange with `code_verifier`; generic callbacks return `code`/`error` and `state` |
+| [ID user-information API][id-info] | JSON `client_id` identifies the issuing OAuth client; `id` indicates identity. Use an `Authorization: OAuth …` header rather than a credential-bearing query string |
+| [Debug-token documentation][debug-token] | Describes an implicit-token debug route; Gate B1 deliberately does not implement or accept that route |
+| [Refresh][refresh] and [token invalidation][invalidate] | App authentication remains documented without the initial-code S256 exemption. Gate B1 implements neither refresh nor remote revocation; dropping memory does not revoke the server grant |
+
+The token response's `scope` field is optional in the documented exchange and is
+returned when fewer permissions were granted than requested. A present subset
+can identify missing permissions; absence is not independently observed scope
+introspection. The user-info API does not replace a Music-specific access test.
+Manual-code state handling and public-client refresh/revocation remain separate
+from production callback/lifecycle acceptance. Do not turn local fixture success
+into a claim of real Yandex Music authorization.
+
+## Historical Gate A decision (2026-10-25)
+
+The following decision and table record the evidence available at Gate A. Their
+registration prerequisite is superseded by the owner evidence above; the absence
+of a tested Music token, delivery contract and production integration remains.
+
+**Blocked at Gate A:** no Music-specific grant, catalog/library/playback permission or
 permitted stream-delivery contract has been established for a Karin-owned client.
 The official Yandex ID code flow does document PKCE and a secretless initial
 exchange; that finding must not be described as a lack of general OAuth support.
@@ -215,7 +291,7 @@ Run any live check deliberately; it is not an automated test dependency. Inspect
 the status and schema rather than assuming a previous result will recur. Do not
 add tokens to this command or publish future authenticated response bodies.
 
-## Source quality and unresolved prerequisites
+## Historical foundation source quality and unresolved prerequisites
 
 The community library explicitly calls itself unofficial and reverse engineered.
 The inspected source revision is pinned below so its claims remain auditable.
@@ -277,3 +353,7 @@ commit `9ca132e5c18a72aab779c1fc68c169380a9357d0`; official documents may change
 [refresh]: https://yandex.ru/dev/id/doc/ru/tokens/refresh-client
 [id-info]: https://yandex.ru/dev/id/doc/ru/user-information
 [id-requirements]: https://yandex.ru/dev/id/doc/ru/requirements
+
+[owner-registration]: https://github.com/tracerxbrhd/karin/issues/5#issuecomment-6411056234
+[manual-code]: https://yandex.ru/dev/id/doc/ru/codes/screen-code
+[debug-token]: https://yandex.ru/dev/id/doc/ru/tokens/debug-token

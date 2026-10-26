@@ -3,9 +3,9 @@
 # Karin
 
 An independent native Linux client for Yandex Music, built with Rust, GTK4,
-Libadwaita and GStreamer. **v0.1 Gate A adds a real playback engine, but Karin
-cannot yet sign in to or play content from Yandex Music.** Karin is not affiliated
-with Yandex.
+Libadwaita and GStreamer. **Gate B1 adds an opt-in local OAuth experiment;
+Yandex Music authorization and playback remain unverified.** Karin is not
+affiliated with Yandex.
 
 ## What works
 
@@ -18,15 +18,22 @@ with Yandex.
   stop, volume, supported seeking, EOS and error handling. The developer playback
   section exercises it with a generated local WAV, separately from service access.
 - D-Bus and Secret Service presence inspection, without reading credentials.
+- A separate `--oauth-diagnostic` for locally testing Karin's own OAuth client
+  with authorization code + S256 PKCE, in-memory credentials and read-only probes.
+  It is not the application's sign-in feature and has not been accepted on Fedora.
 - Offline tests, headless GTK startup checks and a GitHub Actions workflow.
 
-No tokens or passwords are requested, stored or logged. Yandex Music sign-in,
-library, search UI, My Wave, service stream resolution and MPRIS publication are
-not implemented. General Yandex ID OAuth support does not establish the Music
-permissions needed by Karin's own client. The application reports an explicit
-authentication-unavailable capability instead of offering an ineffective login.
-See [API feasibility](docs/API_FEASIBILITY.md) and the
-[Gate A authorization decision](docs/adr/0006-music-authorization-feasibility.md).
+Normal application operation requests no credentials. The opt-in diagnostic
+accepts a locally entered Client ID and one-time authorization code; it never
+requests a password, Client secret or pasted OAuth token, and never persists
+credentials. Yandex Music sign-in, library, search UI, My Wave, service stream
+resolution and MPRIS publication are not implemented. The owner confirmed a
+Karin-owned user-authorization registration with two Music scopes on 2026-10-26;
+this supersedes the earlier registration uncertainty but does not prove token
+issuance or Music API access. The application keeps its unavailable capability.
+See [API feasibility](docs/API_FEASIBILITY.md), the
+[Gate B1 decision](docs/adr/0008-local-oauth-pkce-diagnostic.md) and
+[local Fedora instructions](docs/BUILDING.md#local-oauth-diagnostic-gate-b1).
 
 The developer controls operate on temporary, quiet synthetic media, not a song,
 playlist or Yandex Music stream. Silent output is the default; physical output

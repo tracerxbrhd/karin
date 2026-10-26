@@ -72,12 +72,17 @@ jobs:
         run: cargo test --workspace --locked
       - name: Build
         run: cargo build --workspace --locked
+      - name: Local OAuth terminal boundaries (synthetic input, no browser or network)
+        run: python3 scripts/test-oauth-terminal.py ./target/debug/karin
       - name: Fetch locked dependencies for the offline release build
         if: matrix.lane == 'msrv'
         run: cargo fetch --locked
       - name: Flatpak-style offline release build on MSRV
         if: matrix.lane == 'msrv'
         run: cargo build --release --offline --locked
+      - name: Release OAuth terminal boundaries on MSRV
+        if: matrix.lane == 'msrv'
+        run: python3 scripts/test-oauth-terminal.py ./target/release/karin
       - name: Verify reviewed dependency license inventory
         run: |
           python3 packaging/license_inventory.py --output /tmp/karin-dependency-licenses.md

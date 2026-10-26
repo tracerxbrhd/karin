@@ -5,6 +5,12 @@
 Status: Accepted
 Date: 2026-10-25
 
+Update, 2026-10-26: the registration uncertainty in this dated decision is
+partially superseded by [ADR-0008](0008-local-oauth-pkce-diagnostic.md). The owner
+confirmed a Karin-owned multiuser application with two Music scopes. That fact
+does not establish code/token issuance, Music API access, stream delivery or
+distribution permission; those distinctions and the unavailable GUI remain.
+
 ## Context
 
 Karin needs authorization for Yandex Music catalog, personal library and audio

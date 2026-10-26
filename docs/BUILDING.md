@@ -35,9 +35,93 @@ cargo run --locked
 ```
 
 No Yandex account, token, OAuth client secret or subscription is required to build
-and run Gate A. The explicit connection probe is anonymous. The developer player
-uses generated local media; authentication and playback of Yandex Music streams
-are not implemented.
+and run Karin, its automated tests or its local player. The ordinary connection
+probe is anonymous. Gate B1's separate opt-in OAuth diagnostic is intended only
+for a consented local desktop experiment; it is not application sign-in or
+Yandex Music stream playback.
+
+## Local OAuth diagnostic (Gate B1)
+
+Run this experiment **on the owner's local Fedora desktop**, from a trusted,
+interactive terminal. Do not run it in Codex Cloud, CI, a remote support session,
+a terminal recorder or a shared/logged console. Build the binary first:
+
+```sh
+cargo build --workspace --locked
+ulimit -c 0
+./target/debug/karin --oauth-diagnostic
+```
+
+The command takes no credential arguments and reads no credential environment
+variables or configuration files. Supply only Karin's own **Client ID** when
+prompted locally; input is hidden. Never supply a Client secret, account password,
+OAuth access/refresh token or credentials of another application. The four scopes
+requested are `music:api-public`, `music:major-public-api`, `login:info` and
+`login:avatar`; they must be assigned to this exact user-authorization app.
+Its registered test redirect must be exactly
+`https://oauth.yandex.ru/verification_code`.
+
+The tool creates a fresh cryptographically random verifier and state, uses S256,
+and opens the authorization request through GIO's Linux default-browser handler.
+It does not print the authorization URL or embed a browser. Check that Yandex's
+consent screen names **Karin** and the expected permissions. Complete consent in
+the system browser, then enter **only the seven-digit one-time authorization
+code** displayed by Yandex into the local hidden prompt. A pasted token or implicit-flow URL is
+not an alternative. Blank input, Escape, Ctrl-C or Ctrl-D cancels; each hidden
+prompt has a five-minute input deadline. If the browser
+fails to launch, rerun after correcting the desktop default browser rather than
+copying credentials into another tool. An interactive controlling terminal is
+required; stdin, including any pipe or redirection, is never read for credentials.
+Without a controlling terminal it refuses before browser/network activity. Handled
+cancellation restores terminal settings. External termination/suspension can
+interrupt cleanup; recover the terminal with `stty sane` if needed.
+
+The manual verification page does not document a returned `state` value in its
+code-only presentation. The tool sends state, but cannot claim to have validated
+a returned state from that single code. It explicitly reports this limitation;
+S256 PKCE binds the exchanged code to this process's verifier. This experiment
+must not be promoted into a production callback/login flow. A production
+redirect must return and validate state and needs its own provider-supported
+Linux callback design. Code expiry and failed/denied consent require a fresh
+run, not a different OAuth identity or bypass.
+
+After a secretless initial code exchange, the tool performs these separate checks:
+
+1. `GET https://login.yandex.ru/info?format=json`: require the returned `client_id`
+   to match the locally entered Client ID and observe whether identity is present.
+   Profile fields and avatar are neither displayed nor fetched separately.
+2. `GET https://api.music.yandex.net/account/status`: observe authenticated-account
+   presence and `serviceAvailable` independently of ID success.
+3. `GET /search?text=Beethoven&type=track&page=0&nocorrect=true` on the same
+   Music host, only after prior checks permit it. It reports HTTP status and a
+   recognized result-object shape without printing catalog or account content.
+   `serviceAvailable=false` remains visible; it does not prevent this read-only
+   catalog diagnostic once an authenticated Music account is present.
+
+Only sanitized HTTP statuses, boolean/unknown facts and fixed error categories
+are printed. A missing, restricted or malformed result remains visible; the tool
+does not retry with another client, region or endpoint. A token's optional `scope`
+response can reveal a smaller grant, but its omission is not an independent scope
+introspection result. No stream URL, audio bytes or protected content is requested.
+
+Tokens are kept only in process memory until the diagnostic ends. Owned sensitive
+buffers are zeroized on release; this does not guarantee erasure of transient
+HTTP/TLS-library or operating-system copies. `ulimit -c 0` disables core dumps
+for the invocation; it does not disable swapping or external process inspection.
+There is no
+refresh, token file, keyring write, automatic account login or GUI session.
+Secret Service presence detection alone is not a verified credential lifecycle.
+Closing the process drops local token state; it does not revoke Yandex's server
+consent. If appropriate, remove the grant through the account's own Yandex
+application-permission settings. The browser has its own history/session storage;
+do not publish its URL, screenshots, code page or account data.
+
+A successful local run must distinguish code issuance, token issuance/client
+binding, actual Music account access and catalog access. Registration alone or
+Yandex ID success does not establish the latter two. Share only the sanitized
+report, never codes, tokens, verifier, Client secret, private JSON or screenshots.
+No real Fedora OAuth run has yet been recorded; see
+[API feasibility](API_FEASIBILITY.md) and [validation](VALIDATION.md).
 
 ## Codex Cloud / Debian 13
 

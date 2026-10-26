@@ -29,7 +29,7 @@ impl AuthenticationUnavailable {
     pub const fn next_action(self) -> &'static str {
         match self {
             Self::MusicGrantNotEstablished => {
-                "Obtain official confirmation of Music permissions and integration/playback rights for a Karin-owned public Linux client before registering its approved authorization flow."
+                "Validate the owner-registered Karin-owned public Linux client with the opt-in local PKCE diagnostic; confirm Music API acceptance and integration/playback rights separately."
             }
         }
     }
