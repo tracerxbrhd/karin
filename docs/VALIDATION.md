@@ -75,9 +75,13 @@ byte-compared: **200 external crates**, **171** in the Linux target graph.
 An initial headless GTK allocation check returned zero width; a focused repeat
 and the final complete matrix passed with unchanged UI sources.
 
-Hosted GitHub Actions for the correction remain pending until the updated
-revision runs. Token exchange and Music API acceptance remain pending the next
-fresh local Fedora flow; none of these cloud fixtures supplies that evidence.
+Hosted GitHub Actions for the corrected implementation `9f29e2b` passed both
+stable and Rust 1.98.1, including offline release, terminal, audio and GTK checks:
+[PR run](https://github.com/tracerxbrhd/karin/actions/runs/40339573169) and
+[push run](https://github.com/tracerxbrhd/karin/actions/runs/40339561523).
+These are results for that revision; use PR #6's checks for later heads.
+Token exchange and Music API acceptance remain pending the next fresh local
+Fedora flow; none of these cloud fixtures supplies that evidence.
 
 ### Initial Gate B1 cloud checks (superseded revision `9f6a914`)
 
