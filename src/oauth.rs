@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Owner-only OAuth experiment. Nothing here establishes production Music login.
 //!
-//! The verification-code page gives a manually entered code, not an observable
-//! callback. The report explicitly keeps that state's round trip unverified.
+//! The owner pastes the complete verification-page URL into a hidden local
+//! prompt. Its state is checked before code exchange; this is not an automatic
+//! production callback or proof that Music API access works.
 //! Credentials never occur in public reports or errors. Owned sensitive buffers
 //! are zeroized; HTTP/TLS libraries and the OS can still hold transient copies.
 
@@ -36,6 +37,7 @@ const CATALOG_URL: &str =
     "https://api.music.yandex.net/search?text=Beethoven&type=track&page=0&nocorrect=true";
 const MAX_BODY: usize = 1024 * 1024;
 const MAX_INPUT: usize = 4096;
+const MAX_CODE_BYTES: usize = 2048;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 const CODE_LIFETIME: Duration = Duration::from_secs(10 * 60);
 
@@ -109,9 +111,8 @@ impl ProbeResult {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReturnedState {
-    /// Manual entry does not observe the browser callback. PKCE binds the code;
-    /// sending a generated state does not prove its return was checked.
-    NotObservedManualCode,
+    /// No redirect was parsed, for example after local cancellation.
+    NotObserved,
     ValidatedRedirect,
     RejectedRedirect,
 }
@@ -158,7 +159,8 @@ impl DiagnosticReport {
     /// authorization, a playback entitlement or stream-delivery approval.
     /// Service availability remains an independent reported flag.
     pub fn passed(&self) -> bool {
-        self.token.error.is_none()
+        self.returned_state == ReturnedState::ValidatedRedirect
+            && self.token.error.is_none()
             && [self.identity, self.music_account, self.catalog]
                 .into_iter()
                 .all(|stage| stage.is_some_and(|value| value.error.is_none()))
@@ -209,12 +211,14 @@ impl fmt::Display for DiagnosticReport {
 
 /// Sensitive input, intentionally redacted even under Debug.
 pub enum AuthorizationResponse {
-    /// The only input offered by the developer CLI. A blank input cancels.
-    ManualCode(Zeroizing<String>),
-    /// Protocol-level support for a complete documented debug return. The CLI
-    /// does not solicit a URL or claim the verification page returns it.
+    /// The complete URL pasted into the hidden local diagnostic prompt.
     ReturnedRedirect(Zeroizing<String>),
     Cancelled,
+}
+
+enum ValidatedAuthorization {
+    Code(Zeroizing<String>),
+    ProviderError(ErrorCategory),
 }
 impl fmt::Debug for AuthorizationResponse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -279,7 +283,7 @@ impl AuthorizationAttempt {
             Ok(client) => client,
             Err(error) => {
                 return DiagnosticReport::new(
-                    ReturnedState::NotObservedManualCode,
+                    ReturnedState::NotObserved,
                     ProbeResult::failure(None, error),
                 );
             }
@@ -292,21 +296,23 @@ impl AuthorizationAttempt {
         response: AuthorizationResponse,
         client: &DiagnosticClient,
     ) -> DiagnosticReport {
-        let observed = match &response {
+        let rejected_state = match &response {
             AuthorizationResponse::ReturnedRedirect(_) => ReturnedState::RejectedRedirect,
-            _ => ReturnedState::NotObservedManualCode,
+            AuthorizationResponse::Cancelled => ReturnedState::NotObserved,
         };
-        let code = match self.authorization_code(response) {
-            Ok(code) => code,
+        let code = match self.validated_authorization(response) {
+            Ok(ValidatedAuthorization::Code(code)) => code,
+            Ok(ValidatedAuthorization::ProviderError(error)) => {
+                return DiagnosticReport::new(
+                    ReturnedState::ValidatedRedirect,
+                    ProbeResult::failure(None, error),
+                );
+            }
             Err(error) => {
-                return DiagnosticReport::new(observed, ProbeResult::failure(None, error));
+                return DiagnosticReport::new(rejected_state, ProbeResult::failure(None, error));
             }
         };
-        let observed = if observed == ReturnedState::RejectedRedirect {
-            ReturnedState::ValidatedRedirect
-        } else {
-            observed
-        };
+        let observed = ReturnedState::ValidatedRedirect;
         let token = match client.exchange(&self, &code) {
             Ok(token) => token,
             Err(result) => return DiagnosticReport::new(observed, result),
@@ -317,70 +323,117 @@ impl AuthorizationAttempt {
         report
     }
 
-    fn authorization_code(
+    fn validated_authorization(
         &self,
         response: AuthorizationResponse,
-    ) -> Result<Zeroizing<String>, ErrorCategory> {
+    ) -> Result<ValidatedAuthorization, ErrorCategory> {
         if self.created.elapsed() >= CODE_LIFETIME {
             return Err(ErrorCategory::AttemptExpired);
         }
-        let code = match response {
+        let url = match response {
             AuthorizationResponse::Cancelled => return Err(ErrorCategory::Cancelled),
-            AuthorizationResponse::ManualCode(code) => code,
-            AuthorizationResponse::ReturnedRedirect(url) => {
-                if url.len() > MAX_INPUT {
-                    return Err(ErrorCategory::InvalidReturn);
-                }
-                let url = reqwest::Url::parse(&url).map_err(|_| ErrorCategory::InvalidReturn)?;
-                if url.scheme() != "https"
-                    || url.host_str() != Some("oauth.yandex.ru")
-                    || url.port().is_some()
-                    || url.path() != "/verification_code"
-                    || !url.username().is_empty()
-                    || url.password().is_some()
-                    || url.fragment().is_some()
-                {
-                    return Err(ErrorCategory::InvalidReturn);
-                }
-                let mut state = None;
-                let mut code = None;
-                let mut error = None;
-                for (key, value) in url.query_pairs() {
-                    match key.as_ref() {
-                        "state" if state.is_none() => {
-                            state = Some(Zeroizing::new(value.into_owned()))
-                        }
-                        "code" if code.is_none() => code = Some(Zeroizing::new(value.into_owned())),
-                        "error" if error.is_none() => {
-                            error = Some(Zeroizing::new(value.into_owned()))
-                        }
-                        "state" | "code" | "error" => return Err(ErrorCategory::InvalidReturn),
-                        // Provider descriptions are neither retained nor displayed.
-                        _ => {}
-                    }
-                }
-                let state = state.ok_or(ErrorCategory::StateMismatch)?;
-                if !states_equal(&self.state, &state) {
-                    return Err(ErrorCategory::StateMismatch);
-                }
-                if let Some(error) = error {
-                    if code.is_some() {
+            AuthorizationResponse::ReturnedRedirect(url) => url,
+        };
+        // Inspect the original bytes before a URL library can normalize control
+        // characters, whitespace, backslashes or dot-segment paths away.
+        if url.is_empty()
+            || url.len() > MAX_INPUT
+            || url
+                .chars()
+                .any(|character| character.is_control() || character.is_whitespace())
+            || url.contains(['\\', '#'])
+        {
+            return Err(ErrorCategory::InvalidReturn);
+        }
+        let query = url
+            .strip_prefix(VERIFICATION_REDIRECT)
+            .and_then(|suffix| suffix.strip_prefix('?'))
+            .filter(|query| !query.is_empty())
+            .ok_or(ErrorCategory::InvalidReturn)?;
+        let mut state = None;
+        let mut code = None;
+        let mut error = None;
+        let mut descriptions = [false; 3];
+        for pair in query.split('&') {
+            let (key, value) = pair.split_once('=').ok_or(ErrorCategory::InvalidReturn)?;
+            let key = decode_query_component(key)?;
+            let value = decode_query_component(value)?;
+            match key.as_str() {
+                "state" if state.is_none() => state = Some(value),
+                "code" if code.is_none() => code = Some(value),
+                "error" if error.is_none() => error = Some(value),
+                // Only known optional fields are tolerated, once each. None is
+                // used to select a client, endpoint or user-visible message.
+                "cid" | "error_description" | "error_uri" => {
+                    let index = match key.as_str() {
+                        "cid" => 0,
+                        "error_description" => 1,
+                        _ => 2,
+                    };
+                    if descriptions[index] {
                         return Err(ErrorCategory::InvalidReturn);
                     }
-                    return Err(oauth_error(&error));
+                    descriptions[index] = true;
                 }
-                code.ok_or(ErrorCategory::InvalidReturn)?
+                _ => return Err(ErrorCategory::InvalidReturn),
             }
-        };
-        if code.is_empty() {
-            return Err(ErrorCategory::Cancelled);
         }
-        // Yandex documents a seven-digit verification code (bad_verification_code).
-        // Fail closed if that format changes; never accept a pasted OAuth token.
-        if code.len() != 7 || !code.bytes().all(|byte| byte.is_ascii_digit()) {
+        let state = state.ok_or(ErrorCategory::StateMismatch)?;
+        if !states_equal(&self.state, &state) {
+            return Err(ErrorCategory::StateMismatch);
+        }
+        if let Some(error) = error {
+            if code.is_some() || error.is_empty() {
+                return Err(ErrorCategory::InvalidReturn);
+            }
+            return Ok(ValidatedAuthorization::ProviderError(oauth_error(&error)));
+        }
+        if descriptions[1] || descriptions[2] {
+            return Err(ErrorCategory::InvalidReturn);
+        }
+        let code = code.ok_or(ErrorCategory::InvalidReturn)?;
+        // Authorization codes are opaque. The observed provider code is longer
+        // and alphanumeric; reserved characters must survive form encoding too.
+        if code.is_empty() || code.len() > MAX_CODE_BYTES || code.chars().any(char::is_control) {
             return Err(ErrorCategory::InvalidInput);
         }
-        Ok(code)
+        Ok(ValidatedAuthorization::Code(code))
+    }
+}
+
+fn decode_query_component(value: &str) -> Result<Zeroizing<String>, ErrorCategory> {
+    let mut decoded = Zeroizing::new(Vec::with_capacity(value.len()));
+    let mut bytes = value.bytes();
+    while let Some(byte) = bytes.next() {
+        match byte {
+            b'+' => decoded.push(b' '),
+            b'%' => {
+                let high = bytes
+                    .next()
+                    .and_then(hex_value)
+                    .ok_or(ErrorCategory::InvalidReturn)?;
+                let low = bytes
+                    .next()
+                    .and_then(hex_value)
+                    .ok_or(ErrorCategory::InvalidReturn)?;
+                decoded.push((high << 4) | low);
+            }
+            byte => decoded.push(byte),
+        }
+    }
+    let value = std::str::from_utf8(&decoded).map_err(|_| ErrorCategory::InvalidReturn)?;
+    if value.chars().any(char::is_control) {
+        return Err(ErrorCategory::InvalidReturn);
+    }
+    Ok(Zeroizing::new(value.to_owned()))
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
     }
 }
 
@@ -456,9 +509,9 @@ impl DiagnosticClient {
         })
     }
     fn exchange(&self, attempt: &AuthorizationAttempt, code: &str) -> Result<Token, ProbeResult> {
-        // Bounds on the Client ID, seven-digit code and verifier fit within
-        // this buffer, including form escaping, without reallocating secrets.
-        let mut form = Zeroizing::new(String::with_capacity(1024));
+        // Reserve worst-case escaping for every opaque code byte plus the
+        // bounded Client ID, verifier and fixed fields without secret copies.
+        let mut form = Zeroizing::new(String::with_capacity(MAX_CODE_BYTES * 3 + 1024));
         append_form(
             &mut form,
             &[

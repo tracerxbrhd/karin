@@ -65,10 +65,17 @@ The tool creates a fresh cryptographically random verifier and state, uses S256,
 and opens the authorization request through GIO's Linux default-browser handler.
 It does not print the authorization URL or embed a browser. Check that Yandex's
 consent screen names **Karin** and the expected permissions. Complete consent in
-the system browser, then enter **only the seven-digit one-time authorization
-code** displayed by Yandex into the local hidden prompt. A pasted token or implicit-flow URL is
-not an alternative. Blank input, Escape, Ctrl-C or Ctrl-D cancels; each hidden
-prompt has a five-minute input deadline. If the browser
+the system browser. Once it reaches the registered verification page, copy the
+**complete URL from the browser's address bar directly into Karin's hidden local
+redirect prompt**. Keep it out of the shell, chat, support logs and files: it
+contains the one-time code and returned state. The diagnostic expects the exact
+`https://oauth.yandex.ru/verification_code` origin/path, extracts the opaque code
+and validates `state` against this attempt before exchanging it. The observed
+provider-added `cid` is accepted without assigning it a meaning. Missing or
+duplicate response fields, unexpected parameters, fragments, wrong origin/path
+and invalid state are rejected locally. A code-only paste, OAuth token or
+implicit-flow URL is not an alternative. Blank input, Escape, Ctrl-C or Ctrl-D
+cancels; each hidden prompt has a five-minute input deadline. If the browser
 fails to launch, rerun after correcting the desktop default browser rather than
 copying credentials into another tool. An interactive controlling terminal is
 required; stdin, including any pipe or redirection, is never read for credentials.
@@ -76,14 +83,21 @@ Without a controlling terminal it refuses before browser/network activity. Handl
 cancellation restores terminal settings. External termination/suspension can
 interrupt cleanup; recover the terminal with `stty sane` if needed.
 
-The manual verification page does not document a returned `state` value in its
-code-only presentation. The tool sends state, but cannot claim to have validated
-a returned state from that single code. It explicitly reports this limitation;
-S256 PKCE binds the exchanged code to this process's verifier. This experiment
-must not be promoted into a production callback/login flow. A production
-redirect must return and validate state and needs its own provider-supported
-Linux callback design. Code expiry and failed/denied consent require a fresh
-run, not a different OAuth identity or bypass.
+The owner observed an alphanumeric code and echoed `state` in this browser
+redirect on Fedora. Authorization codes are bounded, nonempty opaque values;
+there is no digit-count or numeric-format assumption, and the tool does not trim
+or normalize a decoded code. The full pasted URL is limited to 4096 bytes and
+the decoded code to 2048 bytes; control characters are rejected. Successful
+returned-state validation is reported as `Returned state: ValidatedRedirect`.
+S256 PKCE also binds the exchanged code to this process's verifier.
+
+This is **manual URL transfer**, not an automatic callback listener, production
+application sign-in or persistent account session. A production Linux callback
+still needs a separately supported design and acceptance. The initial tool's
+seven-digit validation rejected the owner's code before any token exchange;
+discard that previous/exposed/expired code and start a fresh local run with the
+corrected binary. Code expiry, state mismatch and failed/denied consent require
+a new flow, not a different OAuth identity or bypass.
 
 After a secretless initial code exchange, the tool performs these separate checks:
 
@@ -120,7 +134,9 @@ A successful local run must distinguish code issuance, token issuance/client
 binding, actual Music account access and catalog access. Registration alone or
 Yandex ID success does not establish the latter two. Share only the sanitized
 report, never codes, tokens, verifier, Client secret, private JSON or screenshots.
-No real Fedora OAuth run has yet been recorded; see
+The owner-observed browser consent/code return did not reach a token request.
+The corrected tool's token exchange and Music API probes still require the next
+local Fedora test; see
 [API feasibility](API_FEASIBILITY.md) and [validation](VALIDATION.md).
 
 ## Codex Cloud / Debian 13

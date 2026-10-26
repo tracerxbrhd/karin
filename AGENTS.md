@@ -41,8 +41,10 @@ Do not introduce Electron or web-based application shells.
 - Gate B1's `--oauth-diagnostic` is a consenting owner's local-only experiment.
   Never supply real OAuth inputs in Cloud/CI/GitHub or add a token-paste shortcut.
   Automated OAuth checks use loopback fixtures and synthetic terminal input only.
-  The manual verification-code redirect does not observe returned state; never
-  describe it as a validated production callback or infer Music access from ID.
+  Paste the full browser redirect only into the hidden local prompt; validate
+  its exact origin/path and returned state before a token request. Treat the
+  authorization code as opaque. Manual URL transfer is not an automatic
+  production callback, and ID success does not establish Music access.
 
 ## User Experience
 - Cassette by Rirusha is an aesthetic reference, not a source to copy.

@@ -24,13 +24,17 @@ affiliated with Yandex.
 - Offline tests, headless GTK startup checks and a GitHub Actions workflow.
 
 Normal application operation requests no credentials. The opt-in diagnostic
-accepts a locally entered Client ID and one-time authorization code; it never
-requests a password, Client secret or pasted OAuth token, and never persists
+accepts a locally entered Client ID and full browser redirect URL through hidden
+terminal prompts, validates returned `state` and extracts the opaque one-time
+authorization code; it never requests a password, Client secret or pasted OAuth
+token, and never persists
 credentials. Yandex Music sign-in, library, search UI, My Wave, service stream
 resolution and MPRIS publication are not implemented. The owner confirmed a
 Karin-owned user-authorization registration with two Music scopes on 2026-10-26;
-this supersedes the earlier registration uncertainty but does not prove token
-issuance or Music API access. The application keeps its unavailable capability.
+this supersedes the earlier registration uncertainty. The owner subsequently
+observed Karin consent and code/state return on Fedora, but the initial tool
+rejected the code before exchange. Token issuance and Music API access remain
+unverified. The application keeps its unavailable capability.
 See [API feasibility](docs/API_FEASIBILITY.md), the
 [Gate B1 decision](docs/adr/0008-local-oauth-pkce-diagnostic.md) and
 [local Fedora instructions](docs/BUILDING.md#local-oauth-diagnostic-gate-b1).

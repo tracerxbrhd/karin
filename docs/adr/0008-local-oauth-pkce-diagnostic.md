@@ -15,8 +15,8 @@ names Karin and includes both Music permissions. The development redirect is
 `https://oauth.yandex.ru/verification_code`. This
 [owner evidence](https://github.com/tracerxbrhd/karin/issues/5#issuecomment-6411056234)
 resolves the prior uncertainty about selecting Music scopes for a new multiuser
-application. It does not prove code issuance, token exchange, endpoint acceptance,
-subscription entitlement or permitted stream delivery.
+application. Registration alone does not prove code issuance, token exchange,
+endpoint acceptance, subscription entitlement or permitted stream delivery.
 
 The official [manual code flow](https://yandex.ru/dev/id/doc/ru/codes/screen-code)
 and [authorization/code exchange](https://yandex.ru/dev/id/doc/ru/codes/code-url)
@@ -24,17 +24,23 @@ document S256 PKCE and a secretless initial exchange with `code_verifier`.
 They support an owner-local experiment without borrowing an application's
 identity or putting a confidential Client secret into a native binary.
 
-The verification page displays a code for manual entry, but its documentation
-does not promise a displayed/returned state in that presentation. Generic callback
-responses document code/error plus state. Consequently code-only entry cannot
-honestly establish a successful state roundtrip. A production callback remains
-a separate design and acceptance requirement.
+The [owner's subsequent Fedora report](https://github.com/tracerxbrhd/karin/pull/6#issuecomment-6417990070)
+confirms that Yandex displayed Karin consent and redirected to the registered
+verification page with an opaque alphanumeric code, echoed `state` and an
+additional `cid`. The initial diagnostic wrongly required seven digits and
+rejected the code locally before any token POST. This is a Karin validation bug;
+the observed browser flow does not establish token or Music API acceptance.
+
+This evidence corrects the initial code-only design and its assumption that
+returned state could not be observed. Transfer the full browser redirect through
+hidden terminal input and verify it. An automatic production callback remains a
+separate design and acceptance requirement.
 
 ## Decision
 
 Implement `karin --oauth-diagnostic` as an explicit local terminal experiment,
 separate from the GUI, anonymous status service and independent GStreamer player.
-Read Karin's own Client ID and the one-time authorization code only through
+Read Karin's own Client ID and the full returned browser URL only through
 bounded, hidden controlling-terminal input. Never consume credentials from
 stdin, a pipe or redirection; refuse a missing controlling terminal before
 browser or network use. Never request a Client secret, password, pasted OAuth token,
@@ -44,10 +50,21 @@ arguments, `.env` files or persistent token stores.
 Generate fresh cryptographically strong verifier/state values for each run and
 use only S256. Launch the authorization URL through the Linux system-browser
 handler, without WebKit or printing the URL. Use the exact registered development
-verification redirect. State is sent; the code-only mode reports that returned
-state is not observed rather than comparing state to itself or claiming callback
-validation. PKCE binds the exchanged code to the diagnostic's verifier. This
-limited experiment must not be exposed as application sign-in.
+verification redirect. The user copies the complete browser address-bar URL into
+the local hidden redirect prompt. Validate its exact HTTPS origin/path and the
+returned state against this attempt before exchanging the extracted code.
+Reject ambiguous duplicates, missing response fields, unwanted parameters,
+fragments and URL credentials. Accept the observed `cid` without interpreting
+it. There is no code-only fallback or other state-validation bypass.
+
+Treat the decoded code as a bounded, nonempty opaque value, rejecting control
+characters and oversize without assuming a digit count or alphanumeric format.
+Preserve it exactly and form-encode it safely for exchange. The full URL is
+bounded to 4096 bytes and the decoded code to 2048 bytes. Neither the URL, code,
+state nor verifier is printed, stored, logged or accepted through arguments or
+environment variables. Report `ValidatedRedirect` only after a valid returned
+state. PKCE independently binds the code to the diagnostic's verifier. Manual
+URL transfer is not an automatic callback or application sign-in.
 
 Exchange the one-time code at official Yandex OAuth without `client_secret`.
 Keep access/refresh tokens only in memory for this process. Bound HTTP work and
@@ -74,19 +91,22 @@ catalog response would not establish subscriber entitlements or stream rights.
 
 Automated tests use local HTTP fixtures and synthetic credentials only. They
 exercise successful and negative protocol, parsing and redaction paths without
-a real account, browser consent or provider requests. A protocol-level parser
-checks a complete returned redirect and rejects missing/mismatched state and
-provider denial. That tested parser does not establish that the manual page
-actually returns state, and the CLI does not ask the user to paste a URL. Do not send real local
-credentials to Codex Cloud, CI, GitHub or support logs.
+a real account, browser consent or provider requests. Exercise opaque codes,
+full-URL/state success, missing/mismatched state, duplicates, unwanted parameters,
+the uninterpreted `cid`, expiry and provider denial. Hidden-input checks verify
+that the local URL is not echoed and terminal settings are restored. Do not send
+real local credentials to Codex Cloud, CI, GitHub or support logs.
 
 ## Consequences
 
 The owner can conduct the next authorized experiment locally without a token
 paste shortcut, Client secret distribution, fake signed-in UI or stream request.
 Executed evidence must distinguish registration, code/token issuance, ID-client
-binding, Music identity and catalog response. Until the owner runs the diagnostic
-on Fedora, none of the latter results is claimed as working.
+binding, Music identity and catalog response. Browser consent and code/state
+return are owner-observed; secretless exchange and the subsequent ID/Music probes
+remain unverified until the corrected diagnostic is tested locally on Fedora.
+The owner must discard the previous code and start a fresh PKCE attempt rather
+than reusing an exposed, expired or differently bound return.
 
 The GUI retains its unavailable Music-authentication capability. There is no
 refresh, remote revocation, Secret Service write, persistent account session,
@@ -94,7 +114,7 @@ stream retrieval, DRM workaround or expanded Flatpak permission. Dropping tokens
 at process exit does not revoke Yandex's server grant. Browser storage/history
 belongs to the external browser and must not be published.
 
-A production Linux callback, validated returned state, public-client token
+A production Linux callback, public-client token
 lifecycle, verified Secret Service integration, service-policy/distribution
 clarification and independent stream entitlement remain future gates. GPL and
 scope selection do not override Yandex Music terms. Current Rust 1.98.1 and native

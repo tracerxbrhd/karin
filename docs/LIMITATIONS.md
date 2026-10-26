@@ -5,17 +5,20 @@
 - **Yandex Music authorization remains unverified.** On 2026-10-26 the owner
   confirmed Karin's own user-authorization registration with two Music scopes
   and two ID scopes. This resolves the registration uncertainty, not token
-  issuance, endpoint rights, account entitlement or stream delivery. Gate B1's
-  opt-in local OAuth experiment has not been exercised with an account on Fedora.
+  issuance, endpoint rights, account entitlement or stream delivery. The owner
+  subsequently observed Karin's browser consent and an opaque code with returned
+  state on Fedora. The initial tool rejected that code locally before token
+  exchange; the corrected diagnostic requires a fresh local acceptance run.
   The GUI keeps `AuthenticationUnavailable`; no borrowed client, pasted-token
   login, password collection or service stream is included. See
   [API_FEASIBILITY.md](API_FEASIBILITY.md) and [ADR-0008](adr/0008-local-oauth-pkce-diagnostic.md).
 - **The OAuth diagnostic is not a production login/session.** Its documented
-  verification-code page is for manual developer testing. With code-only entry,
-  no returned state is available for an honest callback-state comparison; the
-  tool sends random state and relies on S256 PKCE for code binding, reporting
-  that limitation. The initial exchange is secretless, but public native Linux
-  callback, refresh/revocation and secure permanent storage remain unverified.
+  verification-code page is for manual developer testing. The hidden prompt
+  accepts the full returned browser URL and validates state before extracting
+  the opaque code; a code-only fallback is not offered. This manual transfer is
+  not an automatic callback or production Linux login. The initial exchange is
+  secretless, but public native Linux callback, refresh/revocation and secure
+  permanent storage remain unverified.
   Optional token-scope metadata is not independent Music entitlement evidence.
   Tokens are memory-only, no stream is requested and account tests must remain
   local to the consenting owner.

@@ -7,7 +7,7 @@ use std::thread::{self, JoinHandle};
 use super::*;
 
 const CLIENT_ID: &str = "fixture-karin-owned-client";
-const CODE: &str = "7654321";
+const CODE: &str = "fixtureOpaqueCode2026LongerThanSevenDigits";
 const TOKEN: &str = "fixture-private-access-token";
 const FULL_TOKEN: &str = r#"{"access_token":"fixture-private-access-token","refresh_token":"fixture-private-refresh-token","token_type":"bearer","expires_in":3600,"scope":"music:api-public music:major-public-api login:info login:avatar"}"#;
 const IDENTITY: &str = r#"{"client_id":"fixture-karin-owned-client","id":"1234","login":"fixture-private-login","display_name":"fixture-private-person"}"#;
@@ -106,15 +106,40 @@ fn fixture(responses: Vec<Fixture>) -> (DiagnosticClient, JoinHandle<Vec<String>
         retained,
     )
 }
-fn manual() -> AuthorizationResponse {
-    AuthorizationResponse::ManualCode(Zeroizing::new(CODE.to_owned()))
+fn returned(current: &AuthorizationAttempt) -> AuthorizationResponse {
+    returned_code(current, CODE)
+}
+fn returned_code(current: &AuthorizationAttempt, code: &str) -> AuthorizationResponse {
+    let mut query = Zeroizing::new(String::with_capacity(MAX_INPUT));
+    query.push_str(VERIFICATION_REDIRECT);
+    query.push('?');
+    append_form(
+        &mut query,
+        &[
+            ("code", code),
+            ("state", &current.state),
+            ("cid", "fixture-uninterpreted-provider-value"),
+        ],
+    );
+    AuthorizationResponse::ReturnedRedirect(query)
+}
+fn parse_code(
+    current: &AuthorizationAttempt,
+    response: AuthorizationResponse,
+) -> Result<Zeroizing<String>, ErrorCategory> {
+    match current.validated_authorization(response)? {
+        ValidatedAuthorization::Code(code) => Ok(code),
+        ValidatedAuthorization::ProviderError(error) => Err(error),
+    }
 }
 fn attempt() -> AuthorizationAttempt {
     AuthorizationAttempt::new(CLIENT_ID).unwrap()
 }
 fn finish(responses: Vec<Fixture>) -> (DiagnosticReport, Vec<String>) {
     let (client, handle, retained) = fixture(responses);
-    let report = attempt().complete_with(manual(), &client);
+    let current = attempt();
+    let response = returned(&current);
+    let report = current.complete_with(response, &client);
     let requests = handle.join().unwrap();
     retained.set_nonblocking(true).unwrap();
     assert_eq!(
@@ -181,7 +206,7 @@ fn full_diagnostic_is_client_bound_sequential_and_secretless() {
         (200, CATALOG),
     ]);
     assert!(report.passed());
-    assert_eq!(report.returned_state, ReturnedState::NotObservedManualCode);
+    assert_eq!(report.returned_state, ReturnedState::ValidatedRedirect);
     assert_eq!(report.scopes, Some(ScopeEvidence::ReturnedRequiredScopes));
     assert_eq!(report.client_matches, Some(true));
     assert_eq!(report.identity_account_present, Some(true));
@@ -252,14 +277,22 @@ fn one_response(status: u16, body: String) -> DiagnosticReport {
     let server = thread::spawn(move || {
         let (mut stream, _) = listener.accept().unwrap();
         request(&mut stream);
-        stream
-            .write_all(response(status, &body).as_bytes())
-            .unwrap();
+        if let Err(error) = stream.write_all(response(status, &body).as_bytes()) {
+            // Oversized responses are rejected from their headers. A client
+            // that correctly closes early need not accept the fixture's body.
+            // The caller still asserts the exact diagnostic error category.
+            assert!(matches!(
+                error.kind(),
+                std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset
+            ));
+        }
     });
     let mut client = isolated_client();
     client.client = client_builder().no_proxy().build().unwrap();
     client.token_url = format!("http://{address}/token");
-    let report = attempt().complete_with(manual(), &client);
+    let current = attempt();
+    let response = returned(&current);
+    let report = current.complete_with(response, &client);
     server.join().unwrap();
     report
 }
@@ -353,7 +386,8 @@ fn wrong_verifier_is_rejected_by_fixture_without_fallback() {
     let mut client = isolated_client();
     client.client = client_builder().no_proxy().build().unwrap();
     client.token_url = format!("http://{address}/token");
-    let report = tampered.complete_with(manual(), &client);
+    let response = returned(&tampered);
+    let report = tampered.complete_with(response, &client);
     server.join().unwrap();
     assert_eq!(
         report.token.error,
@@ -363,102 +397,192 @@ fn wrong_verifier_is_rejected_by_fixture_without_fallback() {
 }
 
 #[test]
-fn state_is_validated_only_for_observed_return_and_denial_is_distinct() {
+fn full_redirect_requires_matching_state_and_reports_validated_denial() {
     let current = attempt();
     for state in ["", "wrong-state"] {
-        let url = Zeroizing::new(format!("{VERIFICATION_REDIRECT}?code={CODE}&state={state}"));
+        let response = AuthorizationResponse::ReturnedRedirect(Zeroizing::new(format!(
+            "{VERIFICATION_REDIRECT}?code={CODE}&state={state}"
+        )));
         assert_eq!(
-            current
-                .authorization_code(AuthorizationResponse::ReturnedRedirect(url))
-                .unwrap_err(),
+            parse_code(&current, response).unwrap_err(),
             ErrorCategory::StateMismatch
         );
     }
-    for url in [
-        format!("{VERIFICATION_REDIRECT}?code={CODE}"),
-        format!(
-            "{VERIFICATION_REDIRECT}?code={CODE}&state={}&state={}",
-            *current.state, *current.state
-        ),
+    assert_eq!(&*parse_code(&current, returned(&current)).unwrap(), CODE);
+    let denied = AuthorizationResponse::ReturnedRedirect(Zeroizing::new(format!(
+        "{VERIFICATION_REDIRECT}?error=access_denied&error_description=fixture-private-person&error_uri=https%3A%2F%2Fexample.invalid%2Fnever-follow&state={}",
+        *current.state
+    )));
+    let report = current.complete_with(denied, &isolated_client());
+    assert_eq!(report.returned_state, ReturnedState::ValidatedRedirect);
+    assert_eq!(report.token.error, Some(ErrorCategory::AccessDenied));
+    assert!(report.token.http_status.is_none());
+    assert!(report.identity.is_none());
+    no_sensitive_report(&report);
+}
+
+#[test]
+fn missing_duplicate_or_unwanted_parameters_stop_before_transport() {
+    for query in [
+        format!("code={CODE}"),
+        "state={state}".to_owned(),
+        format!("code={CODE}&state={{state}}&code={CODE}"),
+        format!("code={CODE}&state={{state}}&state={{state}}"),
+        format!("code={CODE}&state={{state}}&%73tate={{state}}"),
+        format!("code={CODE}&state={{state}}&cid=one&cid=two"),
+        "error=access_denied&state={state}&error=access_denied".to_owned(),
+        format!("code={CODE}&state={{state}}&error=access_denied"),
+        format!("code={CODE}&state={{state}}&error_description=unexpected"),
+        format!("code={CODE}&state={{state}}&error_uri=https%3A%2F%2Fexample.invalid"),
+        format!("code={CODE}&state={{state}}&access_token=fixture-private-access-token"),
+        format!("code={CODE}&state={{state}}&refresh_token=fixture-private-refresh-token"),
+        format!("code={CODE}&state={{state}}&token_type=bearer"),
+        format!("code={CODE}&state={{state}}&client_secret=fixture-private-secret"),
+        format!("code={CODE}&state={{state}}&unexpected=value"),
+        format!("code={CODE}&state={{state}}&"),
     ] {
-        assert!(
-            current
-                .authorization_code(AuthorizationResponse::ReturnedRedirect(Zeroizing::new(url)))
-                .is_err()
+        let current = attempt();
+        let query = query.replace("{state}", &current.state);
+        let response = AuthorizationResponse::ReturnedRedirect(Zeroizing::new(format!(
+            "{VERIFICATION_REDIRECT}?{query}"
+        )));
+        let report = current.complete_with(response, &isolated_client());
+        assert_eq!(report.returned_state, ReturnedState::RejectedRedirect);
+        assert!(report.token.error.is_some());
+        assert!(report.token.http_status.is_none());
+        assert!(report.identity.is_none());
+        no_sensitive_report(&report);
+    }
+}
+
+#[test]
+fn strict_origin_path_and_query_decoding_reject_normalization_tricks() {
+    let current = attempt();
+    for base in [
+        "http://oauth.yandex.ru/verification_code",
+        "https://other.invalid/verification_code",
+        "https://oauth.yandex.ru.evil.invalid/verification_code",
+        "https://oauth.yandex.ru@other.invalid/verification_code",
+        "https://user@oauth.yandex.ru/verification_code",
+        "https://oauth.yandex.ru:444/verification_code",
+        "https://oauth.yandex.ru/verification_code/extra",
+        "https://oauth.yandex.ru/other/../verification_code",
+        "https://oauth.yandex.ru/%76erification_code",
+        "https://oauth.yandex.ru/verification_code/..",
+        "https://oauth.yandex.ru\\verification_code",
+        " https://oauth.yandex.ru/verification_code",
+        "https://oauth.yandex.ru/verification_code\n",
+    ] {
+        let response = AuthorizationResponse::ReturnedRedirect(Zeroizing::new(format!(
+            "{base}?code={CODE}&state={}",
+            *current.state
+        )));
+        assert_eq!(
+            parse_code(&current, response).unwrap_err(),
+            ErrorCategory::InvalidReturn
         );
     }
-    let denied = Zeroizing::new(format!(
-        "{VERIFICATION_REDIRECT}?error=access_denied&state={}",
-        *current.state
-    ));
-    assert_eq!(
-        current
-            .authorization_code(AuthorizationResponse::ReturnedRedirect(denied))
-            .unwrap_err(),
-        ErrorCategory::AccessDenied
-    );
-    let valid = Zeroizing::new(format!(
-        "{VERIFICATION_REDIRECT}?code={CODE}&state={}",
-        *current.state
-    ));
-    assert_eq!(
-        &*current
-            .authorization_code(AuthorizationResponse::ReturnedRedirect(valid))
-            .unwrap(),
-        CODE
-    );
-    let evil = Zeroizing::new(format!(
-        "https://other.invalid/verification_code?code={CODE}&state={}",
-        *current.state
-    ));
-    assert_eq!(
-        current
-            .authorization_code(AuthorizationResponse::ReturnedRedirect(evil))
-            .unwrap_err(),
-        ErrorCategory::InvalidReturn
-    );
-    // Manual code is session-bound by verifier, with no claimed state roundtrip.
-    assert_eq!(&*current.authorization_code(manual()).unwrap(), CODE);
+    for code in [
+        "%", "%0", "%GG", "%FF", "%C0%AF", "%00", "%0A", "%7F", "%C2%85",
+    ] {
+        let response = AuthorizationResponse::ReturnedRedirect(Zeroizing::new(format!(
+            "{VERIFICATION_REDIRECT}?code={code}&state={}",
+            *current.state
+        )));
+        assert_eq!(
+            parse_code(&current, response).unwrap_err(),
+            ErrorCategory::InvalidReturn
+        );
+    }
+    for suffix in [
+        "#fragment",
+        "#access_token=fixture-private-access-token",
+        "\t",
+    ] {
+        let response = AuthorizationResponse::ReturnedRedirect(Zeroizing::new(format!(
+            "{VERIFICATION_REDIRECT}?code={CODE}&state={}{suffix}",
+            *current.state
+        )));
+        assert_eq!(
+            parse_code(&current, response).unwrap_err(),
+            ErrorCategory::InvalidReturn
+        );
+    }
 }
 
 #[test]
 fn expired_cancelled_and_invalid_input_stop_before_transport() {
     let mut expired = attempt();
     expired.created = Instant::now() - CODE_LIFETIME;
-    assert_eq!(
-        expired.authorization_code(manual()).unwrap_err(),
-        ErrorCategory::AttemptExpired
-    );
-    assert_eq!(
-        attempt()
-            .authorization_code(AuthorizationResponse::Cancelled)
-            .unwrap_err(),
-        ErrorCategory::Cancelled
-    );
-    assert_eq!(
-        attempt()
-            .authorization_code(AuthorizationResponse::ManualCode(Zeroizing::new(
-                String::new()
-            )))
-            .unwrap_err(),
-        ErrorCategory::Cancelled
-    );
-    for code in [
-        "https://fixture.invalid/#access_token=fixture-secret".to_owned(),
-        "two values".to_owned(),
-        "x".repeat(MAX_INPUT + 1),
-    ] {
+    let response = returned(&expired);
+    let report = expired.complete_with(response, &isolated_client());
+    assert_eq!(report.token.error, Some(ErrorCategory::AttemptExpired));
+    assert!(report.token.http_status.is_none());
+    let report = attempt().complete_with(AuthorizationResponse::Cancelled, &isolated_client());
+    assert_eq!(report.token.error, Some(ErrorCategory::Cancelled));
+    assert_eq!(report.returned_state, ReturnedState::NotObserved);
+    for code in [String::new(), "x".repeat(MAX_CODE_BYTES + 1)] {
+        let current = attempt();
         assert_eq!(
-            attempt()
-                .authorization_code(AuthorizationResponse::ManualCode(Zeroizing::new(code)))
-                .unwrap_err(),
+            parse_code(&current, returned_code(&current, &code)).unwrap_err(),
             ErrorCategory::InvalidInput
         );
     }
+    let current = attempt();
+    let response =
+        AuthorizationResponse::ReturnedRedirect(Zeroizing::new("x".repeat(MAX_INPUT + 1)));
+    assert_eq!(
+        parse_code(&current, response).unwrap_err(),
+        ErrorCategory::InvalidReturn
+    );
     for id in ["", "a b", "https://fixture.invalid"] {
         assert_eq!(
             AuthorizationAttempt::new(id).unwrap_err(),
             ErrorCategory::InvalidInput
+        );
+    }
+}
+
+#[test]
+fn opaque_codes_and_reserved_characters_survive_the_secretless_form() {
+    for code in [
+        CODE,
+        "short",
+        "0123456",
+        "opaque+/%&=?: spaced \u{00FC}@._~",
+    ] {
+        let current = attempt();
+        let response = returned_code(&current, code);
+        let (client, handle, retained) = fixture(vec![
+            (200, FULL_TOKEN),
+            (200, IDENTITY),
+            (200, ACCOUNT),
+            (200, CATALOG),
+        ]);
+        let report = current.complete_with(response, &client);
+        assert!(report.passed());
+        assert!(
+            report
+                .to_string()
+                .contains("Returned state: ValidatedRedirect")
+        );
+        let requests = handle.join().unwrap();
+        let form = requests[0].split("\r\n\r\n").nth(1).unwrap();
+        let parsed = reqwest::Url::parse(&format!("http://fixture/?{form}")).unwrap();
+        let code_sent = parsed
+            .query_pairs()
+            .find(|(key, _)| key == "code")
+            .unwrap()
+            .1
+            .into_owned();
+        assert_eq!(code_sent, code);
+        assert!(!requests[0].contains("client_secret"));
+        assert!(!report.to_string().contains(code));
+        no_sensitive_report(&report);
+        retained.set_nonblocking(true).unwrap();
+        assert_eq!(
+            retained.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
         );
     }
 }
@@ -489,15 +613,18 @@ fn service_http_categories_never_follow_redirects_retry_or_claim_scope_cause() {
 
 #[test]
 fn malformed_oversized_and_error_envelopes_never_pass() {
-    for body in [
-        "not json".to_owned(),
-        "{}".to_owned(),
-        "x".repeat(MAX_BODY + 1),
-        r#"{"access_token":"fixture-private-access-token","token_type":"bearer","expires_in":0}"#
-            .to_owned(),
+    for (body, expected) in [
+        ("not json".to_owned(), ErrorCategory::InvalidResponse),
+        ("{}".to_owned(), ErrorCategory::InvalidResponse),
+        ("x".repeat(MAX_BODY + 1), ErrorCategory::ResponseTooLarge),
+        (
+            r#"{"access_token":"fixture-private-access-token","token_type":"bearer","expires_in":0}"#
+                .to_owned(),
+            ErrorCategory::InvalidResponse,
+        ),
     ] {
         let report = one_response(200, body);
-        assert!(report.token.error.is_some());
+        assert_eq!(report.token.error, Some(expected));
         assert!(report.identity.is_none());
         no_sensitive_report(&report);
     }
@@ -540,7 +667,9 @@ fn disconnect_timeout_and_sensitive_headers_remain_safe() {
             Duration::from_secs(2)
         };
         client.token_url = format!("http://{address}/token");
-        let report = attempt().complete_with(manual(), &client);
+        let current = attempt();
+        let response = returned(&current);
+        let report = current.complete_with(response, &client);
         server.join().unwrap();
         assert_eq!(
             report.token.error,
@@ -583,7 +712,9 @@ fn actual_location_is_not_followed_and_token_is_never_forwarded() {
     client.client = client_builder().no_proxy().build().unwrap();
     client.token_url = format!("http://{address}/token");
     client.identity_url = format!("http://{address}/info");
-    let report = attempt().complete_with(manual(), &client);
+    let current = attempt();
+    let response = returned(&current);
+    let report = current.complete_with(response, &client);
     server.join().unwrap();
     assert_eq!(
         report.identity.unwrap(),
@@ -641,7 +772,9 @@ fn total_deadline_bounds_a_continuously_streaming_response() {
     client.client = client_builder().no_proxy().build().unwrap();
     client.timeout = Duration::from_millis(500);
     client.token_url = format!("http://{address}/token");
-    let report = attempt().complete_with(manual(), &client);
+    let current = attempt();
+    let response = returned(&current);
+    let report = current.complete_with(response, &client);
     server.join().unwrap();
     assert_eq!(
         report.token,

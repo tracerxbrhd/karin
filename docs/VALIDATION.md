@@ -10,19 +10,78 @@ revision is not evidence that another has passed.
 
 The owner-confirmed Karin user-authorization registration and four selected
 scopes are recorded in [Issue #5](https://github.com/tracerxbrhd/karin/issues/5#issuecomment-6411056234).
-This is registration/consent-preview evidence supplied by the owner. It is not
-an observed authorization-code issuance, secretless token exchange, ID-client
-binding result, Music authenticated status or catalog response.
+This is registration/consent-preview evidence supplied by the owner. Registration
+alone is not a token exchange, ID-client binding result, Music authenticated
+status or catalog response. The subsequent browser observation below is a
+separate evidence stage.
 
 Gate B1 adds a separate opt-in local OAuth diagnostic. Automated checks use only
 local HTTP fixtures with synthetic credentials; no real Client ID, authorization
 code, verifier, access/refresh token, private account JSON or OAuth session was
-supplied to Codex Cloud, CI or GitHub. No real authorization or token endpoint was exercised. The existing
+supplied to Codex Cloud, CI or GitHub. No real authorization or token endpoint was
+exercised by the cloud/automated checks. The existing
 GUI login capability remains unavailable and the playback engine is independent.
 
-### Executed cloud checks
+### Owner-observed Fedora browser flow and redirect correction
 
-The following Gate B1 checks passed on 2026-10-26 in the prepared Debian 13
+On 2026-10-26 the owner [reported in PR #6](https://github.com/tracerxbrhd/karin/pull/6#issuecomment-6417990070)
+that the actual Yandex browser flow displayed Karin's consent screen and reached
+the registered verification page with `state`, `code` and an additional `cid`.
+The code was opaque alphanumeric text, longer than seven digits. The initial
+diagnostic rejected it as invalid local input; **no token POST occurred**.
+This is a Karin input-validation failure, not an OAuth-provider or Music API
+rejection. No private screenshot, URL, Client ID, code or state is published.
+
+The correction accepts a full browser redirect URL through hidden local input,
+validates origin/path and returned state before exchange, and treats the code
+as bounded opaque text. The observed `cid` is uninterpreted. There is no code-only
+fallback. A valid transfer reports `Returned state: ValidatedRedirect`; this is
+manual URL transfer, not an automatic production callback.
+
+### Executed redirect-correction checks
+
+The corrected parser and hidden full-URL path were checked on 2026-10-26 in the
+same prepared Debian 13 environment (GTK 4.18.6, Libadwaita 1.7.6, GStreamer
+1.26.2). Rust/native dependency versions, SDK selection and Flatpak permissions
+are unchanged. These results supersede the initial 57-test matrix below.
+
+| Check | Stable 1.99.1 | Rust 1.98.1 |
+| --- | --- | --- |
+| Formatting and all-target Clippy with `-D warnings` | Passed, no warnings | Passed, no warnings |
+| All workspace tests | **61 passed, 0 failed, 0 ignored** (57 library + 4 binary) | **61 passed, 0 failed, 0 ignored** (57 library + 4 binary) |
+| Locked debug build | Passed | Passed |
+| Hidden terminal checks | 14 PTY cases and missing-TTY rejection passed | 14 PTY cases and missing-TTY rejection passed |
+| Finite and generated-WAV GStreamer diagnostics | Passed through silent `fakesink` paths | Passed through silent `fakesink` paths |
+| GTK smoke | Passed: both themes/pages, resizing, actual local playback and window/worker cleanup | Passed: both themes/pages, resizing, actual local playback and window/worker cleanup |
+
+Protocol fixtures exercise opaque alphanumeric codes and safely encoded reserved
+characters, successful full-URL/state validation, absent/mismatched/duplicate
+code/state, extra response parameters including the tolerated `cid`, expiry,
+provider denial and secretless PKCE exchange. A valid synthetic return reports
+`Returned state: ValidatedRedirect`. All endpoints remain loopback, including
+unexpected fallback paths. The oversized-response fixture tolerates the expected
+client disconnect while still requiring the exact `ResponseTooLarge` result.
+
+The terminal suite adds hidden redirect-prompt checks for wrong/missing state,
+wrong origin, code-only paste rejection, cancellation, control data and overflow.
+It verifies no echo, exact terminal restoration and no HTTP request. Its harmless
+local URI handler and loopback proxy trap prevent real browser/provider access
+even if a validation regression occurs.
+
+The Rust 1.98.1 offline optimized release build passed with `--offline --locked`.
+The optimized binary passed the same terminal suite, both silent audio
+diagnostics and GTK smoke. The license inventory was regenerated and
+byte-compared: **200 external crates**, **171** in the Linux target graph.
+An initial headless GTK allocation check returned zero width; a focused repeat
+and the final complete matrix passed with unchanged UI sources.
+
+Hosted GitHub Actions for the correction remain pending until the updated
+revision runs. Token exchange and Music API acceptance remain pending the next
+fresh local Fedora flow; none of these cloud fixtures supplies that evidence.
+
+### Initial Gate B1 cloud checks (superseded revision `9f6a914`)
+
+The following initial Gate B1 checks passed on 2026-10-26 in the prepared Debian 13
 x86_64 environment, with GTK 4.18.6, Libadwaita 1.7.6 and GStreamer 1.26.2.
 The native library baselines, GNOME 50 / Freedesktop 25.08 SDK selection and
 Flatpak permissions are unchanged. Compiler checks used both current stable
@@ -85,9 +144,11 @@ an HTTP 200 without authenticated Music account evidence. Do not publish browser
 screenshots, raw responses or credentials. No streams, DRM bypass or subscription
 playback test is part of Gate B1.
 
-The manual verification page's code-only entry does not provide an observed
-state roundtrip; that limitation is reported explicitly and must be resolved by
-a separately supported production callback. Public-client refresh/revocation,
+Discard the previous/exposed/expired code and begin a new browser flow with the
+corrected binary. Paste the full returned URL only into its hidden local prompt
+and check the sanitized `ValidatedRedirect` outcome. The earlier code-only
+limitation is superseded by this full-URL transfer; an automatic production
+callback still requires separate acceptance. Public-client refresh/revocation,
 Secret Service lifecycle and GUI sign-in remain future acceptance gates. The
 executed cloud checks above do not establish these local/provider results.
 Historical Gate A results do not imply a Gate B1 OAuth pass.

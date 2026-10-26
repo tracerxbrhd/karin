@@ -31,7 +31,8 @@ Client secret nor private console screenshots belong in this repository.
 | Evidence stage | Current verdict | What it establishes |
 | --- | --- | --- |
 | Karin-owned multiuser registration and four selectable scopes | Owner-confirmed, 2026-10-26 | Registration and consent-preview labels; not a token grant |
-| Code issuance and secretless S256 PKCE exchange | Implemented diagnostic; real run pending | Local fixtures can verify protocol handling, not provider acceptance |
+| Karin consent and authorization-code redirect | Owner-observed on Fedora, 2026-10-26 | Browser returned an opaque alphanumeric code, echoed `state` and an additional `cid`; no private values are retained here |
+| Secretless S256 PKCE token exchange | Real run pending | The initial tool rejected the code locally before any token POST; corrected parsing and local fixtures do not establish provider acceptance |
 | Token belongs to the locally supplied Karin Client ID | Real run pending | Requires successful `login.yandex.ru/info` with matching `client_id`; a token merely accepted by ID is insufficient |
 | Token's effective scope and Music account access | Real run pending | Requires the token grant and independent authenticated Music status result |
 | Read-only Music catalog response | Real run pending | A successful status probe alone does not establish catalog access |
@@ -42,9 +43,15 @@ Client secret nor private console screenshots belong in this repository.
 The separate opt-in `karin --oauth-diagnostic` uses the owner's locally entered
 Client ID, authorization code + S256 PKCE and the system browser. It exchanges
 only a one-time code through official Yandex OAuth, without `client_secret`.
-The development verification page is a manual-code experiment, not a production
-Linux callback design. Tokens live only in diagnostic process memory; the GUI,
-anonymous adapter and independent playback engine do not receive them.
+The hidden local prompt accepts the **full returned browser URL**, validates its
+exact origin/path and echoed `state` against the current attempt, then extracts
+the bounded, nonempty opaque code. A code is not restricted to seven digits.
+The observed `cid` is tolerated without interpreting it; unwanted parameters,
+missing/duplicate response fields and invalid state fail before token exchange.
+There is no code-only fallback. Manual URL transfer is a developer experiment,
+not an automatic production Linux callback. Tokens live only in diagnostic
+process memory; the GUI, anonymous adapter and independent playback engine do
+not receive them.
 See [Fedora instructions](BUILDING.md#local-oauth-diagnostic-gate-b1) and
 [ADR-0008](adr/0008-local-oauth-pkce-diagnostic.md) for exact checks and limits.
 
@@ -58,6 +65,22 @@ content. There is no refresh, persistent storage, stream request, DRM workaround
 UI sign-in or borrowed OAuth identity. The configured `login:avatar` scope does
 not cause an avatar request.
 
+### Fedora browser evidence and corrected input assumption
+
+The [owner's PR #6 report][owner-redirect] records that Yandex displayed Karin's
+consent screen and reached the registered verification redirect with `state`,
+`code` and an additional `cid`. The displayed code was alphanumeric and longer
+than seven digits. Karin's initial numeric restriction rejected it as local
+input, so **no POST to the token endpoint occurred**. This was a Karin parser
+bug, not an observed OAuth-provider rejection or Music API result.
+
+This evidence supersedes the initial assumption that the manual verification
+page could not provide a state return observable by the diagnostic. The full URL
+can be transferred through the hidden prompt and checked against the same fresh
+PKCE attempt. Neither the owner's private screenshot nor any actual URL, Client
+ID, code or state is included here. Discard the previous code and start a fresh
+local flow after the correction; share only the sanitized diagnostic outcome.
+
 ### Official documentation rechecked on 2026-10-26
 
 The listed public documents returned HTTP 200 with ordinary TLS verification.
@@ -66,7 +89,7 @@ No authorization, token or authenticated API request was made in the cloud.
 | Official source | Finding and limit |
 | --- | --- |
 | [User-authorization registration][register-auth] | Appropriate owner-registered app category; actual Karin registration is owner evidence, not inferred from the guide |
-| [Manual authorization-code flow][manual-code] | The verification page displays an authorization code; code lifetime is ten minutes. It accepts `state` and S256 parameters but does not promise a displayed/returned state in this manual-code presentation |
+| [Manual authorization-code flow][manual-code] | The verification page displays an authorization code; code lifetime is ten minutes. A seven-digit error-description example must not restrict the opaque code format. The owner's actual browser redirect with code/state is recorded separately above |
 | [Authorization request and code exchange][oauth-code] | S256, `state`, registered redirect and secretless initial exchange with `code_verifier`; generic callbacks return `code`/`error` and `state` |
 | [ID user-information API][id-info] | JSON `client_id` identifies the issuing OAuth client; `id` indicates identity. Use an `Authorization: OAuth …` header rather than a credential-bearing query string |
 | [Debug-token documentation][debug-token] | Describes an implicit-token debug route; Gate B1 deliberately does not implement or accept that route |
@@ -76,9 +99,9 @@ The token response's `scope` field is optional in the documented exchange and is
 returned when fewer permissions were granted than requested. A present subset
 can identify missing permissions; absence is not independently observed scope
 introspection. The user-info API does not replace a Music-specific access test.
-Manual-code state handling and public-client refresh/revocation remain separate
-from production callback/lifecycle acceptance. Do not turn local fixture success
-into a claim of real Yandex Music authorization.
+Hidden full-URL state validation and public-client refresh/revocation remain
+separate from automatic production callback/lifecycle acceptance. Do not turn
+local fixture success into a claim of real Yandex Music authorization.
 
 ## Historical Gate A decision (2026-10-25)
 
@@ -357,3 +380,4 @@ commit `9ca132e5c18a72aab779c1fc68c169380a9357d0`; official documents may change
 [owner-registration]: https://github.com/tracerxbrhd/karin/issues/5#issuecomment-6411056234
 [manual-code]: https://yandex.ru/dev/id/doc/ru/codes/screen-code
 [debug-token]: https://yandex.ru/dev/id/doc/ru/tokens/debug-token
+[owner-redirect]: https://github.com/tracerxbrhd/karin/pull/6#issuecomment-6417990070

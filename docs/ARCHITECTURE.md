@@ -128,15 +128,21 @@ separately validated Secret Service integration. There is no `.env` loading,
 pasted-token login or file credential store.
 
 The opt-in local OAuth CLI is a separate experiment, not a GUI login path. It
-accepts a local Client ID and one-time authorization code from a hidden terminal
-prompt, creates random S256 PKCE/state, and launches the system browser through
-GIO. The initial exchange uses no Client secret. Tokens remain inside this
-process and are not passed to the anonymous service, playback engine or UI.
+accepts a local Client ID and the full returned browser URL from hidden terminal
+prompts, creates random S256 PKCE/state, and launches the system browser through
+GIO. The parser checks the exact registered origin/path, rejects ambiguous or
+unexpected response parameters, and validates the returned state before a token
+request. It extracts a bounded, nonempty opaque code without numeric-format
+assumptions; the observed provider-added `cid` has no interpreted meaning.
+There is no code-only bypass. The initial exchange uses no Client secret. Tokens
+remain inside this process and are not passed to the anonymous service, playback
+engine or UI.
 ID identity/client binding, Music account access and catalog response remain
 separate facts; errors and restrictions fail closed before later probes.
-Manual code entry cannot establish a returned state when the provider's code
-page supplies no documented state roundtrip. This limitation and the lack of a
-production Linux callback prevent reuse as application sign-in. See ADR-0008.
+The owner observed code/state in the actual verification-page redirect on Fedora;
+manual full-URL transfer now makes that return observable to the diagnostic.
+This is not an automatic callback listener or a tested production Linux sign-in
+flow. Actual token/Music acceptance remains pending a fresh local run. See ADR-0008.
 Automated OAuth fixtures use loopback only and require no account or browser.
 
 `org.mpris.MediaPlayer2.Karin` remains reserved and unexported. Gate A does not

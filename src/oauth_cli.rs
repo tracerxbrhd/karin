@@ -30,9 +30,7 @@ pub enum CliError {
     Cancelled,
     #[error("Local input timed out; no authorization code was exchanged.")]
     InputTimeout,
-    #[error(
-        "Invalid local input; enter only the Client ID or one-time authorization code requested."
-    )]
+    #[error("Invalid local input; enter only the Client ID or complete redirect URL requested.")]
     InvalidInput,
     #[error("Cannot initialize the OAuth diagnostic. Check the local Karin Client ID.")]
     Configuration,
@@ -55,10 +53,10 @@ pub fn run() -> Result<bool, CliError> {
         tty,
         "Karin: local opt-in OAuth diagnostic.\n\
          Use only your own Karin user-authorization application's Client ID.\n\
-         Never enter a client secret, password, OAuth token or browser URL.\n\
+         Never enter a client secret, password or OAuth token.\n\
          Tokens remain in memory for this run. No music streams are requested.\n\
-         The debug code page does not return observable state to this tool;\n\
-         returned state will be reported as unverified. PKCE binds the code exchange.\n\
+         Paste the complete returned verification URL only at the redirect prompt;\n\
+         its state must match this attempt before the PKCE code exchange.\n\
          Input is hidden. Empty input, Ctrl-C, Ctrl-D or Escape cancels."
     )
     .map_err(|_| CliError::Terminal)?;
@@ -77,13 +75,15 @@ pub fn run() -> Result<bool, CliError> {
     writeln!(
         tty,
         "Continue in the system browser. If you decline consent, cancel here.\n\
-         Enter only the seven-digit one-time authorization code from Yandex's verification page."
+         Copy the complete returned URL from the browser's address bar.\n\
+         It must be the verification_code redirect with state and code (or an OAuth error).\n\
+         Do not paste just the displayed code or an implicit-flow token URL."
     )
     .map_err(|_| CliError::Terminal)?;
-    let code = prompt_hidden(&mut tty, "One-time authorization code (7 digits): ")?;
+    let redirect = prompt_hidden(&mut tty, "Full redirect URL: ")?;
     // Restore the terminal before any network operation. No raw transport error
     // or native browser error is printed; only the backend's sanitized report.
-    let report = attempt.complete(AuthorizationResponse::ManualCode(code));
+    let report = attempt.complete(AuthorizationResponse::ReturnedRedirect(redirect));
     let passed = report.passed();
     writeln!(std::io::stdout().lock(), "{report}").map_err(|_| CliError::Output)?;
     Ok(passed)
@@ -267,5 +267,17 @@ mod tests {
         }
         assert_eq!(input.bytes.capacity(), original_capacity);
         assert_eq!(input.push(b'2'), Err(CliError::InvalidInput));
+    }
+
+    #[test]
+    fn hidden_input_preserves_a_complete_opaque_redirect_without_normalizing_it() {
+        // A synthetic URL; no real browser, identity or authorization grant.
+        let redirect = "https://oauth.yandex.ru/verification_code?state=fixture-state&code=OpaqueAlpha9%2B%2F%3D%26&cid=fixture-cid";
+        let mut input = HiddenInput::new();
+        for byte in redirect.bytes() {
+            assert!(!input.push(byte).unwrap());
+        }
+        assert!(input.push(b'\r').unwrap());
+        assert_eq!(input.finish().unwrap().as_str(), redirect);
     }
 }
