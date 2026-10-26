@@ -612,6 +612,208 @@ fn service_http_categories_never_follow_redirects_retry_or_claim_scope_cause() {
 }
 
 #[test]
+fn music_403_known_identifiers_are_closed_and_account_facts_stay_unknown() {
+    for body in [
+        r#"{"error":"missing-required-scopes"}"#,
+        r#"{"error":{"name":"missing-required-scopes"}}"#,
+        r#"{"error":{"name":"missing\u002drequired-scopes"}}"#,
+        r#"{"error":{"name":"missing-required-scopes","message":"fixture-private-person fixture-private-access-token","description":"fixture-private-login","code":"fixture-private-account"},"result":{"account":{"uid":1234,"serviceAvailable":true,"login":"fixture-private-login"}},"invocationInfo":{"requestId":"fixture-private-request-id"},"headers":{"Authorization":"fixture-private-access-token"},"url":"https://fixture-private.invalid/secret"}"#,
+    ] {
+        let (report, requests) = finish(vec![(200, FULL_TOKEN), (200, IDENTITY), (403, body)]);
+        assert_eq!(
+            report.music_account,
+            Some(ProbeResult::failure(
+                Some(403),
+                ErrorCategory::MusicMissingRequiredScopes
+            ))
+        );
+        assert_eq!(report.music_account_present, None);
+        assert_eq!(report.service_available, None);
+        assert!(report.catalog.is_none());
+        assert!(!report.passed());
+        assert_eq!(requests.len(), 3);
+        let visible = format!("{report:?}\n{report}");
+        assert!(
+            visible.contains("Music API reports missing required scopes (missing-required-scopes)")
+        );
+        assert!(visible.contains("Music account present: unknown; service available: unknown"));
+        for private in [
+            "fixture-private-request-id",
+            "https://fixture-private.invalid/secret",
+        ] {
+            assert!(!visible.contains(private));
+        }
+        no_sensitive_report(&report);
+    }
+}
+
+#[test]
+fn music_403_unknown_malformed_and_ambiguous_envelopes_remain_forbidden() {
+    for body in [
+        "not JSON: fixture-private-person missing-required-scopes",
+        "<html>missing-required-scopes fixture-private-person</html>",
+        r#"{}"#,
+        r#"{"error":"fixture-private-person missing-required-scopes"}"#,
+        r#"{"error":"MISSING-REQUIRED-SCOPES"}"#,
+        r#"{"error":" missing-required-scopes"}"#,
+        r#"{"error":"API access restricted"}"#,
+        r#"{"error":"api-access-restricted"}"#,
+        r#"{"error":{"name":"Forbidden","message":"missing-required-scopes","description":"API access restricted"}}"#,
+        r#"{"error_description":"missing-required-scopes"}"#,
+        r#"{"error":{"message":"missing-required-scopes"}}"#,
+        r#"{"error":{"code":"missing-required-scopes"}}"#,
+        r#"{"code":"missing-required-scopes"}"#,
+        r#"{"name":"missing-required-scopes"}"#,
+        r#"{"result":{"error":{"name":"missing-required-scopes"}}}"#,
+        r#"{"error":null}"#,
+        r#"{"error":403}"#,
+        r#"{"error":["missing-required-scopes"]}"#,
+        r#"{"error":{"name":null}}"#,
+        r#"{"error":{"name":{"missing-required-scopes":null}}}"#,
+        r#"{"error":{"name":["missing-required-scopes"]}}"#,
+        r#"{"error":{"name":"missing-required-scopes","name":"Forbidden"}}"#,
+        r#"{"error":{"name":"Forbidden","name":"missing-required-scopes"}}"#,
+        r#"{"error":{"name":"missing-required-scopes","na\u006de":"Forbidden"}}"#,
+        r#"{"error":"missing-required-scopes","error":"Forbidden"}"#,
+        r#"{"error":"Forbidden","\u0065rror":"missing-required-scopes"}"#,
+        r#"{"error":"missing-required-scopes"} trailing-data"#,
+    ] {
+        let (report, requests) = finish(vec![(200, FULL_TOKEN), (200, IDENTITY), (403, body)]);
+        assert_eq!(
+            report.music_account,
+            Some(ProbeResult::failure(Some(403), ErrorCategory::Forbidden))
+        );
+        assert_eq!(report.music_account_present, None);
+        assert_eq!(report.service_available, None);
+        assert!(report.catalog.is_none());
+        assert_eq!(requests.len(), 3);
+        assert!(
+            report
+                .to_string()
+                .contains("Music account present: unknown; service available: unknown")
+        );
+        no_sensitive_report(&report);
+    }
+}
+
+#[test]
+fn music_error_codes_do_not_change_other_status_or_identity_oauth_semantics() {
+    let body = r#"{"error":"missing-required-scopes"}"#;
+    let (report, requests) = finish(vec![(200, FULL_TOKEN), (403, body)]);
+    assert_eq!(
+        report.identity,
+        Some(ProbeResult::failure(Some(403), ErrorCategory::Forbidden))
+    );
+    assert_eq!(requests.len(), 2);
+    assert!(report.music_account.is_none());
+    let (report, requests) = finish(vec![(403, body)]);
+    assert_eq!(
+        report.token,
+        ProbeResult::failure(Some(403), ErrorCategory::OAuthRequestRejected)
+    );
+    assert_eq!(requests.len(), 1);
+    for (status, category) in [
+        (401, ErrorCategory::AccessDenied),
+        (451, ErrorCategory::Http),
+        (500, ErrorCategory::Http),
+    ] {
+        let (report, requests) = finish(vec![(200, FULL_TOKEN), (200, IDENTITY), (status, body)]);
+        assert_eq!(
+            report.music_account,
+            Some(ProbeResult::failure(Some(status), category))
+        );
+        assert_eq!(requests.len(), 3);
+        assert!(report.catalog.is_none());
+    }
+}
+
+#[test]
+fn catalog_403_classification_preserves_preceding_known_account_facts() {
+    let (report, requests) = finish(vec![
+        (200, FULL_TOKEN),
+        (200, IDENTITY),
+        (200, ACCOUNT),
+        (
+            403,
+            r#"{"error":{"name":"missing-required-scopes","message":"fixture-private-person"}}"#,
+        ),
+    ]);
+    assert_eq!(
+        report.catalog,
+        Some(ProbeResult::failure(
+            Some(403),
+            ErrorCategory::MusicMissingRequiredScopes
+        ))
+    );
+    assert_eq!(report.music_account, Some(ProbeResult::success(200)));
+    assert_eq!(report.music_account_present, Some(true));
+    assert_eq!(report.service_available, Some(true));
+    assert!(
+        report
+            .to_string()
+            .contains("Music account present: yes; service available: yes")
+    );
+    assert_eq!(requests.len(), 4);
+    assert!(!report.passed());
+    no_sensitive_report(&report);
+}
+
+fn music_403_wire(response: String, pause_before_body: Duration) -> ProbeResult {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let retained = listener.try_clone().unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        request(&mut stream);
+        let (headers, body) = response.split_once("\r\n\r\n").unwrap();
+        write!(stream, "{headers}\r\n\r\n").unwrap();
+        thread::sleep(pause_before_body);
+        if let Err(error) = stream.write_all(body.as_bytes()) {
+            assert!(matches!(
+                error.kind(),
+                std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset
+            ));
+        }
+    });
+    let mut client = isolated_client();
+    client.timeout = Duration::from_millis(500);
+    let token = Token {
+        access: Zeroizing::new(TOKEN.to_owned()),
+        expires_at: Instant::now() + Duration::from_secs(30),
+        scopes: ScopeEvidence::ReturnedRequiredScopes,
+        http_status: 200,
+    };
+    let result = client
+        .authorized_get(
+            &format!("http://{address}/account/status"),
+            &token,
+            RemoteService::Music,
+        )
+        .err()
+        .unwrap();
+    server.join().unwrap();
+    retained.set_nonblocking(true).unwrap();
+    assert_eq!(
+        retained.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+    result
+}
+
+#[test]
+fn music_403_body_limits_read_failure_and_timeout_keep_the_known_refusal() {
+    let known = r#"{"error":"missing-required-scopes"}"#;
+    for (wire, delay) in [
+        (format!("HTTP/1.1 403 Forbidden\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", MAX_BODY + 1), Duration::ZERO),
+        (format!("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n{}", "x".repeat(MAX_BODY + 1)), Duration::ZERO),
+        ("HTTP/1.1 403 Forbidden\r\nContent-Length: 1024\r\nConnection: close\r\n\r\nfixture-private-person".to_owned(), Duration::ZERO),
+        (response(403, known), Duration::from_secs(1)),
+    ] {
+        assert_eq!(music_403_wire(wire, delay), ProbeResult::failure(Some(403), ErrorCategory::Forbidden));
+    }
+}
+
+#[test]
 fn malformed_oversized_and_error_envelopes_never_pass() {
     for (body, expected) in [
         ("not json".to_owned(), ErrorCategory::InvalidResponse),
@@ -742,7 +944,11 @@ fn expired_memory_token_cannot_start_an_http_request() {
     };
     assert_eq!(
         client
-            .authorized_get("http://127.0.0.1:1/not-contacted", &token)
+            .authorized_get(
+                "http://127.0.0.1:1/not-contacted",
+                &token,
+                RemoteService::Identity
+            )
             .err(),
         Some(ProbeResult::failure(None, ErrorCategory::TokenExpired))
     );

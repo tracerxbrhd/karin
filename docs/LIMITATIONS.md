@@ -2,13 +2,17 @@
 
 # Known limitations
 
-- **Yandex Music authorization remains unverified.** On 2026-10-26 the owner
+- **Yandex Music access remains forbidden in the tested flow.** On 2026-10-26
+  the owner
   confirmed Karin's own user-authorization registration with two Music scopes
-  and two ID scopes. This resolves the registration uncertainty, not token
-  issuance, endpoint rights, account entitlement or stream delivery. The owner
+  and two ID scopes. Registration alone establishes neither endpoint rights,
+  account entitlement nor stream delivery. The owner
   subsequently observed Karin's browser consent and an opaque code with returned
-  state on Fedora. The initial tool rejected that code locally before token
-  exchange; the corrected diagnostic requires a fresh local acceptance run.
+  state on Fedora. After the initial code-format correction, a fresh local run
+  validated state, received a token and verified the Karin client through
+  Yandex ID (both HTTP 200). Authenticated Music status returned HTTP 403 again
+  in the DIRECT-path control; account/service facts remain unknown and the
+  catalog query is skipped. Anonymous curl status HTTP 200 does not change that.
   The GUI keeps `AuthenticationUnavailable`; no borrowed client, pasted-token
   login, password collection or service stream is included. See
   [API_FEASIBILITY.md](API_FEASIBILITY.md) and [ADR-0008](adr/0008-local-oauth-pkce-diagnostic.md).
@@ -24,7 +28,14 @@
   local to the consenting owner.
 - **HTTP restrictions retain their scope.** Anonymous search and metadata
   requests returned HTTP 451 from the cloud egress. That observation does not
-  determine authenticated behavior or the cause on Fedora. No alternate region,
+  determine authenticated behavior or the cause on Fedora. The later Fedora
+  DIRECT-path and anonymous controls weaken a simple proxy/TUN explanation but
+  do not prove identical egress or identify the reason for Music HTTP 403.
+  Only exact `missing-required-scopes` in a string `error` or nested `error.name`
+  is classified; the actual Fedora response's provider identifier has not been
+  observed here. Unknown identifiers and unsupported bodies remain `Forbidden`.
+  Raw messages and
+  private response data are never exposed. No alternate route, region,
   identity, endpoint or delivery path is used to bypass the restriction.
 - **The player engine is not a service-stream implementation.** Gate A uses
   real GStreamer `playbin` playback for local files. The developer entry point

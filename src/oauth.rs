@@ -75,6 +75,8 @@ pub enum ErrorCategory {
     Http,
     #[error("access forbidden by service")]
     Forbidden,
+    #[error("Music API reports missing required scopes (missing-required-scopes)")]
+    MusicMissingRequiredScopes,
     #[error("unsupported response")]
     InvalidResponse,
     #[error("response too large")]
@@ -200,10 +202,16 @@ impl fmt::Display for DiagnosticReport {
             self.client_matches, self.identity_account_present
         )?;
         stage(f, "Music account", self.music_account)?;
+        let boolean_fact = |value: Option<bool>| match value {
+            Some(true) => "yes",
+            Some(false) => "no",
+            None => "unknown",
+        };
         writeln!(
             f,
-            "Music account present: {:?}; service available: {:?}",
-            self.music_account_present, self.service_available
+            "Music account present: {}; service available: {}",
+            boolean_fact(self.music_account_present),
+            boolean_fact(self.service_available)
         )?;
         stage(f, "Read-only catalog", self.catalog)
     }
@@ -475,6 +483,12 @@ fn encode_form(target: &mut String, value: &str) {
     }
 }
 
+#[derive(Clone, Copy)]
+enum RemoteService {
+    Identity,
+    Music,
+}
+
 struct DiagnosticClient {
     client: Client,
     token_url: String,
@@ -591,6 +605,7 @@ impl DiagnosticClient {
         &self,
         url: &str,
         token: &Token,
+        service: RemoteService,
     ) -> Result<(u16, Zeroizing<Vec<u8>>), ProbeResult> {
         if Instant::now() >= token.expires_at {
             return Err(ProbeResult::failure(None, ErrorCategory::TokenExpired));
@@ -608,6 +623,15 @@ impl DiagnosticClient {
             .send()
             .map_err(network_failure)?;
         let status = response.status().as_u16();
+        if status == 403 && matches!(service, RemoteService::Music) {
+            // The refusal is already established. Body inspection is optional:
+            // preserve HTTP 403/Forbidden on malformed, oversized, unreadable or
+            // slow bodies instead of inventing a reason or exposing diagnostics.
+            let category = read_body(response)
+                .map(|body| music_forbidden_category(&body))
+                .unwrap_or(ErrorCategory::Forbidden);
+            return Err(ProbeResult::failure(Some(status), category));
+        }
         if status != 200 {
             return Err(ProbeResult::failure(
                 Some(status),
@@ -623,13 +647,14 @@ impl DiagnosticClient {
             .map_err(|error| ProbeResult::failure(Some(status), error))
     }
     fn probe(&self, client_id: &str, token: Token, report: &mut DiagnosticReport) {
-        let (status, body) = match self.authorized_get(&self.identity_url, &token) {
-            Ok(value) => value,
-            Err(result) => {
-                report.identity = Some(result);
-                return;
-            }
-        };
+        let (status, body) =
+            match self.authorized_get(&self.identity_url, &token, RemoteService::Identity) {
+                Ok(value) => value,
+                Err(result) => {
+                    report.identity = Some(result);
+                    return;
+                }
+            };
         let identity: IdentityResponse<'_> = match serde_json::from_slice(&body) {
             Ok(value) => value,
             Err(_) => {
@@ -655,13 +680,14 @@ impl DiagnosticClient {
         }
         // Drop raw identity JSON before further probes; no avatar/profile query.
         drop(body);
-        let (status, body) = match self.authorized_get(&self.status_url, &token) {
-            Ok(value) => value,
-            Err(result) => {
-                report.music_account = Some(result);
-                return;
-            }
-        };
+        let (status, body) =
+            match self.authorized_get(&self.status_url, &token, RemoteService::Music) {
+                Ok(value) => value,
+                Err(result) => {
+                    report.music_account = Some(result);
+                    return;
+                }
+            };
         let envelope: AccountEnvelope = match serde_json::from_slice(&body) {
             Ok(value) => value,
             Err(_) => {
@@ -684,13 +710,14 @@ impl DiagnosticClient {
         if !present {
             return;
         }
-        let (status, body) = match self.authorized_get(&self.catalog_url, &token) {
-            Ok(value) => value,
-            Err(result) => {
-                report.catalog = Some(result);
-                return;
-            }
-        };
+        let (status, body) =
+            match self.authorized_get(&self.catalog_url, &token, RemoteService::Music) {
+                Ok(value) => value,
+                Err(result) => {
+                    report.catalog = Some(result);
+                    return;
+                }
+            };
         // Require a track-search result collection while discarding its contents.
         // HTTP200 and arbitrary JSON objects never establish catalog success.
         report.catalog = Some(match serde_json::from_slice::<CatalogEnvelope>(&body) {
@@ -814,6 +841,81 @@ impl<'de> Deserialize<'de> for IgnoredArray {
             }
         }
         deserializer.deserialize_seq(ArrayVisitor)
+    }
+}
+
+// Only a closed provider identifier is retained. Arbitrary messages, descriptions
+// and other fields are skipped, including personal data on an error response.
+#[derive(Deserialize)]
+struct MusicForbiddenEnvelope {
+    error: MusicForbiddenIdentifier,
+}
+
+enum MusicForbiddenIdentifier {
+    MissingRequiredScopes,
+    Unknown,
+}
+impl MusicForbiddenIdentifier {
+    fn from_name(name: &str) -> Self {
+        match name {
+            "missing-required-scopes" => Self::MissingRequiredScopes,
+            _ => Self::Unknown,
+        }
+    }
+}
+impl<'de> Deserialize<'de> for MusicForbiddenIdentifier {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(field_identifier)]
+        enum Field {
+            #[serde(rename = "name")]
+            Name,
+            #[serde(other)]
+            Other,
+        }
+        struct ErrorVisitor;
+        impl<'de> serde::de::Visitor<'de> for ErrorVisitor {
+            type Value = MusicForbiddenIdentifier;
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("Music error identifier or named error object")
+            }
+            fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Self::Value, E> {
+                Ok(MusicForbiddenIdentifier::from_name(value))
+            }
+            fn visit_map<M: serde::de::MapAccess<'de>>(
+                self,
+                mut map: M,
+            ) -> Result<Self::Value, M::Error> {
+                let mut name = None;
+                while let Some(field) = map.next_key::<Field>()? {
+                    match field {
+                        Field::Name => {
+                            if name.is_some() {
+                                return Err(serde::de::Error::duplicate_field("name"));
+                            }
+                            // A name must be a string, never a code-bearing
+                            // object/array. Zeroize unrecognized owned values.
+                            let value = Zeroizing::new(map.next_value::<String>()?);
+                            name = Some(MusicForbiddenIdentifier::from_name(&value));
+                        }
+                        Field::Other => {
+                            map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                name.ok_or_else(|| serde::de::Error::missing_field("name"))
+            }
+        }
+        deserializer.deserialize_any(ErrorVisitor)
+    }
+}
+
+fn music_forbidden_category(body: &[u8]) -> ErrorCategory {
+    match serde_json::from_slice::<MusicForbiddenEnvelope>(body) {
+        Ok(MusicForbiddenEnvelope {
+            error: MusicForbiddenIdentifier::MissingRequiredScopes,
+        }) => ErrorCategory::MusicMissingRequiredScopes,
+        _ => ErrorCategory::Forbidden,
     }
 }
 

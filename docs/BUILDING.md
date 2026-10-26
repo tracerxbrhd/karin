@@ -118,6 +118,16 @@ does not retry with another client, region or endpoint. A token's optional `scop
 response can reveal a smaller grant, but its omission is not an independent scope
 introspection result. No stream URL, audio bytes or protected content is requested.
 
+For Music HTTP 403, only the exact allowlisted identifier `missing-required-scopes`
+in a top-level string `error` or nested `error.name` selects the fixed Music
+scope-error category. The tool does not classify free-form messages such as
+`API access restricted`, even when they resemble a known condition. Unknown or
+malformed responses remain `Forbidden`;
+the tool never prints raw JSON, error messages/descriptions, personal fields,
+request IDs, headers or URLs. Forbidden Music status leaves account presence and
+service availability `unknown` and skips the catalog query. This classification
+uses the response already received and adds no request or retry.
+
 Tokens are kept only in process memory until the diagnostic ends. Owned sensitive
 buffers are zeroized on release; this does not guarantee erasure of transient
 HTTP/TLS-library or operating-system copies. `ulimit -c 0` disables core dumps
@@ -134,9 +144,13 @@ A successful local run must distinguish code issuance, token issuance/client
 binding, actual Music account access and catalog access. Registration alone or
 Yandex ID success does not establish the latter two. Share only the sanitized
 report, never codes, tokens, verifier, Client secret, private JSON or screenshots.
-The owner-observed browser consent/code return did not reach a token request.
-The corrected tool's token exchange and Music API probes still require the next
-local Fedora test; see
+The owner has since confirmed fresh state validation, token HTTP 200 and Yandex
+ID HTTP 200 with a matching Karin client on Fedora. Music status still returned
+HTTP 403 in the DIRECT-path repeat; a separate anonymous curl control returned
+HTTP 200. These are distinct request contexts, not proof of identical egress or
+Music authorization. Do not repeat OAuth solely to recheck VPN, change routes,
+region or application identity, or publish raw responses. Safe classification
+does not bypass the denial. See
 [API feasibility](API_FEASIBILITY.md) and [validation](VALIDATION.md).
 
 ## Codex Cloud / Debian 13

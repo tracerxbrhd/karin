@@ -22,6 +22,66 @@ supplied to Codex Cloud, CI or GitHub. No real authorization or token endpoint w
 exercised by the cloud/automated checks. The existing
 GUI login capability remains unavailable and the playback engine is independent.
 
+### Owner-reported DIRECT repeat and anonymous control
+
+The owner's [26 October DIRECT-path report](https://github.com/tracerxbrhd/karin/pull/6#issuecomment-6424867774)
+supersedes the earlier uncertainty about initial token exchange and ID-client
+binding. A fresh local flow returned `ValidatedRedirect`, token HTTP 200 and
+Yandex ID HTTP 200, with a matching Karin client and an existing ID account.
+Authenticated Music `/account/status` again returned HTTP 403. Music account
+presence and `serviceAvailable` were unknown; the catalog query was correctly
+skipped. These are owner-reported Fedora results, not a cloud account test.
+
+The route lookup selected an ordinary Ethernet/LAN path, and conventional
+uppercase/lowercase HTTP(S)/ALL proxy variables were absent in that run. This
+weakens the proxy/TUN hypothesis; it does not establish public egress or rule out
+policy routing and other host/network effects. The owner's separate [anonymous
+curl control](https://github.com/tracerxbrhd/karin/pull/6#issuecomment-6424928210)
+returned HTTP 200. Anonymous reachability and authenticated HTTP 403 are distinct
+contexts; curl and reqwest do not independently prove identical egress. Neither
+result establishes subscriptions, catalog access or playable content.
+
+The diagnostic now interprets only an allowlisted Music error identifier from
+the already-returned HTTP 403 response, preserving the response-size/deadline
+bounds and generic `Forbidden` fallback. Unknown remains unknown: no raw JSON,
+messages/descriptions, personal fields, request IDs, headers, URLs or secrets are
+printed. No additional login, region/route/identity change, retry or alternate
+endpoint is part of this change. The actual Fedora 403 identifier remains
+unobserved; no root cause is claimed from community code or fixture results.
+
+### Music HTTP 403 classifier verification
+
+The Music classifier was checked on 2026-10-26 in the prepared Debian 13
+environment, with GTK 4.18.6, Libadwaita 1.7.6 and GStreamer 1.26.2. Rust/native
+dependency versions, SDK/runtime selection and Flatpak permissions are unchanged.
+
+| Check | Stable 1.99.1 | Rust 1.98.1 |
+| --- | --- | --- |
+| Formatting and all-target Clippy with `-D warnings` | Passed, no warnings | Passed, no warnings |
+| All workspace tests | **66 passed, 0 failed, 0 ignored** (62 library + 4 binary) | **66 passed, 0 failed, 0 ignored** (62 library + 4 binary) |
+| Locked debug build | Passed | Passed |
+| Hidden input, audio and GTK diagnostics | 14 PTY cases plus missing-TTY rejection, both silent GStreamer paths and GTK smoke passed | Same checks passed |
+
+The 24 OAuth protocol tests include five new classifier tests: exact allowlisted
+identifiers; unknown/malformed/ambiguous envelopes; unchanged ID/OAuth and other
+HTTP-status behavior; catalog errors after a known Music account; and bounded,
+unreadable or timed-out 403 bodies. They assert redaction, generic fallback,
+unknown account/service facts after forbidden status and skipped catalog access.
+All HTTP fixtures remain on loopback; the terminal suite isolates browser
+handling and traps any network attempt. No real account or provider request was
+used by these checks.
+
+Rust 1.98.1 `cargo build --release --offline --locked` also passed. The optimized
+binary passed the same terminal suite, both silent audio diagnostics and GTK
+smoke, including both themes/pages, resize, actual local playback and window/
+worker cleanup. The reviewed license inventory was regenerated and byte-compared:
+**200 external crates**, **171** in the Linux target graph.
+
+Exact-revision hosted CI outcomes are linked from [PR #6's checks](https://github.com/tracerxbrhd/karin/pull/6/checks).
+The earlier redirect-correction and initial Gate B1 matrices below describe their
+stated revisions. Neither those results nor these fixtures establish Music access
+or identify the error code in the owner's actual 403.
+
 ### Owner-observed Fedora browser flow and redirect correction
 
 On 2026-10-26 the owner [reported in PR #6](https://github.com/tracerxbrhd/karin/pull/6#issuecomment-6417990070)
@@ -38,7 +98,7 @@ as bounded opaque text. The observed `cid` is uninterpreted. There is no code-on
 fallback. A valid transfer reports `Returned state: ValidatedRedirect`; this is
 manual URL transfer, not an automatic production callback.
 
-### Executed redirect-correction checks
+### Executed redirect-correction checks (revision `9f29e2b`)
 
 The corrected parser and hidden full-URL path were checked on 2026-10-26 in the
 same prepared Debian 13 environment (GTK 4.18.6, Libadwaita 1.7.6, GStreamer
@@ -80,8 +140,9 @@ stable and Rust 1.98.1, including offline release, terminal, audio and GTK check
 [PR run](https://github.com/tracerxbrhd/karin/actions/runs/40339573169) and
 [push run](https://github.com/tracerxbrhd/karin/actions/runs/40339561523).
 These are results for that revision; use PR #6's checks for later heads.
-Token exchange and Music API acceptance remain pending the next fresh local
-Fedora flow; none of these cloud fixtures supplies that evidence.
+At that revision token exchange and Music API acceptance still awaited a local
+run. The subsequent owner-reported token/ID success and Music 403 are recorded
+above; none of these cloud fixtures supplies real-provider evidence.
 
 ### Initial Gate B1 cloud checks (superseded revision `9f6a914`)
 
@@ -136,23 +197,22 @@ Full Flatpak SDK/sandbox
 packaging remains a separate Fedora check because the cloud container denies
 Bubblewrap user namespaces; no bypass is used.
 
-### Pending local Fedora acceptance
+### Remaining Music API and desktop acceptance
 
-Run `karin --oauth-diagnostic` only on the consenting owner's Fedora desktop with
-Karin's own Client ID. Record only the tool's sanitized result. Independently
-verify code issuance; initial secretless S256 token exchange; matching ID
-`client_id` and identity presence; effective-scope metadata; Music account
-identity/service availability; and the one read-only catalog result. Do not mark
+Karin's code/state return, initial secretless token exchange and ID-client
+binding are now owner-reported successes. The effective Music rights, Music
+account/service availability and read-only catalog response remain unestablished
+after HTTP 403. Do not mark
 Music authorization working from ID success, selected scope names, fixtures or
 an HTTP 200 without authenticated Music account evidence. Do not publish browser
 screenshots, raw responses or credentials. No streams, DRM bypass or subscription
 playback test is part of Gate B1.
 
-Discard the previous/exposed/expired code and begin a new browser flow with the
-corrected binary. Paste the full returned URL only into its hidden local prompt
-and check the sanitized `ValidatedRedirect` outcome. The earlier code-only
-limitation is superseded by this full-URL transfer; an automatic production
-callback still requires separate acceptance. Public-client refresh/revocation,
+Do not repeat account login solely to recheck VPN, or change routes, region,
+identity or OAuth mechanism to bypass this denial. Any separately consented
+future local test must keep credentials on the owner's machine and share only
+the sanitized category/status/unknown facts. The full-URL transfer is not an
+automatic production callback. Public-client refresh/revocation,
 Secret Service lifecycle and GUI sign-in remain future acceptance gates. The
 executed cloud checks above do not establish these local/provider results.
 Historical Gate A results do not imply a Gate B1 OAuth pass.

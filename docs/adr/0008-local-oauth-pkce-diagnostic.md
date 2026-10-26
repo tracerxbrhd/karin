@@ -36,6 +36,16 @@ returned state could not be observed. Transfer the full browser redirect through
 hidden terminal input and verify it. An automatic production callback remains a
 separate design and acceptance requirement.
 
+The owner's later [DIRECT-path repeat](https://github.com/tracerxbrhd/karin/pull/6#issuecomment-6424867774)
+confirmed fresh state validation, token HTTP 200 and Yandex ID HTTP 200 with the
+matching Karin client and an ID account. Music `/account/status` still returned
+HTTP 403; account presence and service availability remained unknown and the
+catalog was skipped. An [anonymous curl control](https://github.com/tracerxbrhd/karin/pull/6#issuecomment-6424928210)
+returned HTTP 200. Ethernet routing and absent conventional proxy variables
+weaken a proxy/TUN explanation but do not prove identical public egress or the
+reason for the authenticated denial. OAuth/ID success does not establish Music
+access, and no raw error identifier from the actual 403 has been supplied.
+
 ## Decision
 
 Implement `karin --oauth-diagnostic` as an explicit local terminal experiment,
@@ -89,6 +99,23 @@ its absence is not an independently introspected list of effective permissions.
 Neither ID success nor scope labels establish Music authorization. A successful
 catalog response would not establish subscriber entitlements or stream rights.
 
+Classify Music HTTP 403 using the response already received, within the existing
+1 MiB body bound and request deadline. Recognize only closed, non-private provider
+identifiers in their expected field: currently exact `missing-required-scopes`
+in a top-level string `error` or nested `error.name`. Emit a fixed Music-specific
+category, never the original string value or surrounding JSON. Do not infer this code from
+messages/descriptions, substrings, case variants or unrelated fields. The phrase
+`API access restricted` is not an independently established provider identifier.
+Unknown, malformed, oversized or unreadable error bodies remain generic
+`Forbidden` with HTTP 403. Do not change the Yandex ID error path or promote any
+403 to account/service facts. Those facts remain unknown, and catalog probing
+stops after a forbidden Music status.
+
+Do not repeat OAuth solely to investigate VPN, change region, route, OAuth
+mechanism or application identity, retry, or select an alternate API endpoint.
+The classification narrows a diagnostic category; it does not grant access or
+establish the actual cause of the owner's 403 without a recognized result.
+
 Automated tests use local HTTP fixtures and synthetic credentials only. They
 exercise successful and negative protocol, parsing and redaction paths without
 a real account, browser consent or provider requests. Exercise opaque codes,
@@ -102,11 +129,11 @@ real local credentials to Codex Cloud, CI, GitHub or support logs.
 The owner can conduct the next authorized experiment locally without a token
 paste shortcut, Client secret distribution, fake signed-in UI or stream request.
 Executed evidence must distinguish registration, code/token issuance, ID-client
-binding, Music identity and catalog response. Browser consent and code/state
-return are owner-observed; secretless exchange and the subsequent ID/Music probes
-remain unverified until the corrected diagnostic is tested locally on Fedora.
-The owner must discard the previous code and start a fresh PKCE attempt rather
-than reusing an exposed, expired or differently bound return.
+binding, Music identity and catalog response. Browser consent, code/state return,
+secretless exchange and ID-client binding are now owner-observed on Fedora.
+Music account access remains forbidden in the tested context, with its detailed
+provider reason unknown. The diagnostics use local fixtures in Cloud/CI; they
+do not reproduce an account login or establish Music permissions.
 
 The GUI retains its unavailable Music-authentication capability. There is no
 refresh, remote revocation, Secret Service write, persistent account session,

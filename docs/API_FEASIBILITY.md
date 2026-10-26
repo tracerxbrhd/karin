@@ -11,7 +11,7 @@ only the behavior observed for that request, from this cloud environment, at thi
 time. It does not establish authenticated access, a playback entitlement, a stable
 API contract, or permission to distribute a third-party music client.
 
-## Gate B1: own multiuser registration confirmed; token and Music access untested
+## Gate B1: own-client OAuth verified locally; Music status forbidden
 
 On **2026-10-26**, the owner confirmed registration of a Karin-owned application
 of type **«Для авторизации пользователей»**, with these selected scopes:
@@ -32,10 +32,10 @@ Client secret nor private console screenshots belong in this repository.
 | --- | --- | --- |
 | Karin-owned multiuser registration and four selectable scopes | Owner-confirmed, 2026-10-26 | Registration and consent-preview labels; not a token grant |
 | Karin consent and authorization-code redirect | Owner-observed on Fedora, 2026-10-26 | Browser returned an opaque alphanumeric code, echoed `state` and an additional `cid`; no private values are retained here |
-| Secretless S256 PKCE token exchange | Real run pending | The initial tool rejected the code locally before any token POST; corrected parsing and local fixtures do not establish provider acceptance |
-| Token belongs to the locally supplied Karin Client ID | Real run pending | Requires successful `login.yandex.ru/info` with matching `client_id`; a token merely accepted by ID is insufficient |
-| Token's effective scope and Music account access | Real run pending | Requires the token grant and independent authenticated Music status result |
-| Read-only Music catalog response | Real run pending | A successful status probe alone does not establish catalog access |
+| Secretless S256 PKCE token exchange | Owner-observed on Fedora, 2026-10-26 | Fresh `ValidatedRedirect` and token HTTP 200; this supersedes the initial local input rejection |
+| Token belongs to the locally supplied Karin Client ID | Owner-observed on Fedora, 2026-10-26 | Yandex ID HTTP 200, matching Karin client and an existing ID account; not Music account access |
+| Token's effective scope and Music account access | Blocked at Music status | Authenticated `/account/status` returned HTTP 403 again in the DIRECT-path control; Music account presence and `serviceAvailable` remain unknown |
+| Read-only Music catalog response | Not run | Correctly skipped after forbidden Music status; no catalog or playback acceptance follows |
 | Subscription/library/streams and public distribution rights | Not established | Neither registration nor catalog success licenses stream retrieval or distribution |
 
 ### Local experiment and its boundary
@@ -79,7 +79,46 @@ page could not provide a state return observable by the diagnostic. The full URL
 can be transferred through the hidden prompt and checked against the same fresh
 PKCE attempt. Neither the owner's private screenshot nor any actual URL, Client
 ID, code or state is included here. Discard the previous code and start a fresh
-local flow after the correction; share only the sanitized diagnostic outcome.
+local flow after an expired or invalid attempt; share only the sanitized outcome.
+
+### Fedora DIRECT-path repeat and anonymous control
+
+The owner's [DIRECT-path repeat][owner-direct] used a fresh PKCE flow on Fedora
+44. It reported `ValidatedRedirect`, token HTTP 200, Yandex ID HTTP 200, a
+matching Karin client and an ID account. Authenticated Music `/account/status`
+again returned **HTTP 403**. Music account presence and `serviceAvailable` were
+unknown, and catalog probing stopped. These are owner-reported local results;
+no private OAuth input or response body was supplied to Cloud or GitHub.
+
+The route lookup selected an ordinary Ethernet/LAN route, and conventional
+uppercase/lowercase HTTP(S)/ALL proxy variables were absent for that run.
+This weakens the proxy/TUN explanation but does not establish identical public
+egress, exclude policy routing or determine the provider's reason for denial.
+A subsequent [anonymous curl control][owner-anonymous-control] returned **HTTP
+200** from the same Music host. Curl and reqwest do not independently prove
+identical egress. Anonymous reachability and authenticated HTTP 403 can coexist;
+neither response establishes subscription, library, catalog or stream rights.
+
+The diagnostic classifies the Music HTTP 403 response already received, without
+an additional request. Its closed allowlist currently recognizes only the exact
+identifier `missing-required-scopes` in a top-level string `error` or nested
+`error.name`, producing a fixed category.
+The identifier is an [external implementation clue][music-error-clue], not an
+identifier observed in Karin's actual Fedora response. The pinned community
+[response model][music-error-schema] distinguishes an error code from its
+description; it supplies field-location evidence, not an official API contract.
+`API access restricted` is not promoted from a free-form message into a known
+code. Unknown identifiers, unsupported/malformed bodies and ordinary messages
+remain `Forbidden`; raw JSON, messages/descriptions, personal fields,
+request IDs, headers, URLs and tokens are never returned. The 1 MiB bound,
+request deadlines and no-redirect/no-retry policy remain in force. A failed Music
+status still leaves account/service facts unknown and skips catalog access.
+
+The owner has not supplied an allowlisted provider error identifier for the
+actual 403, so its specific cause remains unresolved. External implementation
+clues and local fixtures do not establish that cause. Do not repeat login solely
+to test VPN, change OAuth/identity/region/routes, try alternate endpoints or infer
+Music access from the successful ID grant.
 
 ### Official documentation rechecked on 2026-10-26
 
@@ -381,3 +420,7 @@ commit `9ca132e5c18a72aab779c1fc68c169380a9357d0`; official documents may change
 [manual-code]: https://yandex.ru/dev/id/doc/ru/codes/screen-code
 [debug-token]: https://yandex.ru/dev/id/doc/ru/tokens/debug-token
 [owner-redirect]: https://github.com/tracerxbrhd/karin/pull/6#issuecomment-6417990070
+[owner-direct]: https://github.com/tracerxbrhd/karin/pull/6#issuecomment-6424867774
+[owner-anonymous-control]: https://github.com/tracerxbrhd/karin/pull/6#issuecomment-6424928210
+[music-error-clue]: https://github.com/fakingpescobar-ctrl/opencode-mobile/blob/2d7c0f5d15bd9c0236f10762ce9568ec01e9a096/app/src/main/assets/mcp/ynison.js#L1297-L1304
+[music-error-schema]: https://github.com/MarshalX/yandex-music-api/blob/9ca132e5c18a72aab779c1fc68c169380a9357d0/yandex_music/utils/response.py#L24-L42
