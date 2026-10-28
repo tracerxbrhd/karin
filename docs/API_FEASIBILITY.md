@@ -35,7 +35,8 @@ Client secret nor private console screenshots belong in this repository.
 | Secretless S256 PKCE token exchange | Owner-observed on Fedora, 2026-10-26 | Fresh `ValidatedRedirect` and token HTTP 200; this supersedes the initial local input rejection |
 | Token belongs to the locally supplied Karin Client ID | Owner-observed on Fedora, 2026-10-26 | Yandex ID HTTP 200, matching Karin client and an existing ID account; not Music account access |
 | Token's effective scope and Music account access | Blocked at Music status | Authenticated `/account/status` returned HTTP 403 again in the DIRECT-path control; Music account presence and `serviceAvailable` remain unknown |
-| Read-only Music catalog response | Not run | Correctly skipped after forbidden Music status; no catalog or playback acceptance follows |
+| Independent read-only Music `/account/about` response | Awaiting local verification | Implemented as a separate same-token probe after successful ID checks, including when status is forbidden; no live provider result or personal-field schema is claimed |
+| Read-only Music catalog response | Not run | Correctly skipped after forbidden Music status; about success cannot change this prerequisite and no catalog or playback acceptance follows |
 | Subscription/library/streams and public distribution rights | Not established | Neither registration nor catalog success licenses stream retrieval or distribution |
 
 ### Local experiment and its boundary
@@ -55,10 +56,22 @@ not receive them.
 See [Fedora instructions](BUILDING.md#local-oauth-diagnostic-gate-b1) and
 [ADR-0008](adr/0008-local-oauth-pkce-diagnostic.md) for exact checks and limits.
 
-The diagnostic separately checks ID client binding and identity, Music account
-status and one read-only catalog request. Requests have a five-second connection
-limit, fifteen-second total deadline and 1 MiB response ceiling; redirects and
-automatic retries are disabled. Output is restricted to status codes,
+The diagnostic separately checks ID client binding and identity, then the same
+token at Music `/account/status` and `/account/about`. The about probe runs after
+successful ID binding/account checks even if status returns HTTP 403, fails on
+the network, has an unsupported body or reports no account. Each method has its
+own HTTP/error result. About HTTP 200 is accepted only for a JSON object with an
+object `result` and no top-level `error`; the tool discards its fields without
+retaining identifiers or personal data. This checks a minimal envelope, not a
+verified about field schema or Music account presence. A successful about result
+cannot supply missing status/service facts or authorize catalog access. A failed
+about result does not suppress the existing catalog probe when status already
+establishes an authenticated account. Overall diagnostic success conservatively
+requires all planned stages, including about, to succeed.
+
+One fixed read-only catalog request remains gated by authenticated status.
+Requests have a five-second connection limit, fifteen-second total deadline and
+1 MiB response ceiling; redirects and automatic retries are disabled. Output is restricted to status codes,
 boolean/unknown facts and fixed error categories. It publishes no identity,
 profile/avatar, token, authorization code, verifier, response body or catalog
 content. There is no refresh, persistent storage, stream request, DRM workaround,
@@ -112,13 +125,30 @@ code. Unknown identifiers, unsupported/malformed bodies and ordinary messages
 remain `Forbidden`; raw JSON, messages/descriptions, personal fields,
 request IDs, headers, URLs and tokens are never returned. The 1 MiB bound,
 request deadlines and no-redirect/no-retry policy remain in force. A failed Music
-status still leaves account/service facts unknown and skips catalog access.
+status still leaves account/service facts unknown and skips catalog access,
+while about retains its separate outcome. The classifier applies independently
+to both Music methods; it never interprets an about result as successful status.
+
+### Independent about probe: evidence still pending
+
+The explicitly added `/account/about` request is a bounded, read-only diagnostic
+on the same host using the same Karin token. It is part of the fixed probe plan
+after verified ID binding, not a retry, alternate identity or fallback intended
+to obtain refused status data. No live about response has been obtained in Cloud
+or reported by the owner. Local fixtures establish control flow and redaction,
+not provider acceptance or the actual cause of the status denial. A future
+consented Fedora run can report the two sanitized HTTP/error lines independently;
+account/service facts and catalog eligibility still come only from valid status.
 
 The owner has not supplied an allowlisted provider error identifier for the
 actual 403, so its specific cause remains unresolved. External implementation
 clues and local fixtures do not establish that cause. Do not repeat login solely
-to test VPN, change OAuth/identity/region/routes, try alternate endpoints or infer
-Music access from the successful ID grant.
+to test VPN, change OAuth/identity/region/routes, retry refused requests through
+other endpoints or infer Music access from the successful ID grant. The fixed
+about probe does not change these restrictions.
+
+The separate [Rust API-client review](RUST_API_CLIENT_REVIEW.md) evaluates reuse;
+no library is added and no API architecture or stream delivery is changed here.
 
 ### Official documentation rechecked on 2026-10-26
 

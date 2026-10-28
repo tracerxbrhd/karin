@@ -32,6 +32,7 @@ const AUTHORIZE_URL: &str = "https://oauth.yandex.ru/authorize";
 const TOKEN_URL: &str = "https://oauth.yandex.ru/token";
 const IDENTITY_URL: &str = "https://login.yandex.ru/info?format=json";
 const STATUS_URL: &str = "https://api.music.yandex.net/account/status";
+const ABOUT_URL: &str = "https://api.music.yandex.net/account/about";
 // One fixed, non-personal, read-only query. Never follows returned content URLs.
 const CATALOG_URL: &str =
     "https://api.music.yandex.net/search?text=Beethoven&type=track&page=0&nocorrect=true";
@@ -135,6 +136,7 @@ pub struct DiagnosticReport {
     pub client_matches: Option<bool>,
     pub identity_account_present: Option<bool>,
     pub music_account: Option<ProbeResult>,
+    pub music_about: Option<ProbeResult>,
     pub music_account_present: Option<bool>,
     pub service_available: Option<bool>,
     pub catalog: Option<ProbeResult>,
@@ -149,6 +151,7 @@ impl DiagnosticReport {
             client_matches: None,
             identity_account_present: None,
             music_account: None,
+            music_about: None,
             music_account_present: None,
             service_available: None,
             catalog: None,
@@ -163,9 +166,14 @@ impl DiagnosticReport {
     pub fn passed(&self) -> bool {
         self.returned_state == ReturnedState::ValidatedRedirect
             && self.token.error.is_none()
-            && [self.identity, self.music_account, self.catalog]
-                .into_iter()
-                .all(|stage| stage.is_some_and(|value| value.error.is_none()))
+            && [
+                self.identity,
+                self.music_account,
+                self.music_about,
+                self.catalog,
+            ]
+            .into_iter()
+            .all(|stage| stage.is_some_and(|value| value.error.is_none()))
             && self.client_matches == Some(true)
             && self.music_account_present == Some(true)
     }
@@ -201,7 +209,8 @@ impl fmt::Display for DiagnosticReport {
             "Karin client matches: {:?}; ID account present: {:?}",
             self.client_matches, self.identity_account_present
         )?;
-        stage(f, "Music account", self.music_account)?;
+        stage(f, "Music /account/status", self.music_account)?;
+        stage(f, "Music /account/about", self.music_about)?;
         let boolean_fact = |value: Option<bool>| match value {
             Some(true) => "yes",
             Some(false) => "no",
@@ -494,6 +503,7 @@ struct DiagnosticClient {
     token_url: String,
     identity_url: String,
     status_url: String,
+    about_url: String,
     catalog_url: String,
     timeout: Duration,
 }
@@ -518,6 +528,7 @@ impl DiagnosticClient {
             token_url: TOKEN_URL.into(),
             identity_url: IDENTITY_URL.into(),
             status_url: STATUS_URL.into(),
+            about_url: ABOUT_URL.into(),
             catalog_url: CATALOG_URL.into(),
             timeout: REQUEST_TIMEOUT,
         })
@@ -680,8 +691,45 @@ impl DiagnosticClient {
         }
         // Drop raw identity JSON before further probes; no avatar/profile query.
         drop(body);
+        self.probe_music_status(&token, report);
+        // This is an independent read-only observation, never a fallback for a
+        // denied status request. Keep the same token, identity and transport.
+        report.music_about = Some(
+            match self.authorized_get(&self.about_url, &token, RemoteService::Music) {
+                Ok((status, body)) => match serde_json::from_slice::<AboutEnvelope>(&body) {
+                    Ok(_) => ProbeResult::success(status),
+                    Err(_) => ProbeResult::failure(Some(status), ErrorCategory::InvalidResponse),
+                },
+                Err(result) => result,
+            },
+        );
+        // About cannot establish account presence/service availability or grant
+        // catalog access. Its own failure also cannot erase successful status.
+        if report
+            .music_account
+            .is_none_or(|result| result.error.is_some())
+            || report.music_account_present != Some(true)
+        {
+            return;
+        }
         let (status, body) =
-            match self.authorized_get(&self.status_url, &token, RemoteService::Music) {
+            match self.authorized_get(&self.catalog_url, &token, RemoteService::Music) {
+                Ok(value) => value,
+                Err(result) => {
+                    report.catalog = Some(result);
+                    return;
+                }
+            };
+        // Require a track-search result collection while discarding its contents.
+        // HTTP200 and arbitrary JSON objects never establish catalog success.
+        report.catalog = Some(match serde_json::from_slice::<CatalogEnvelope>(&body) {
+            Ok(_) => ProbeResult::success(status),
+            _ => ProbeResult::failure(Some(status), ErrorCategory::InvalidResponse),
+        });
+    }
+    fn probe_music_status(&self, token: &Token, report: &mut DiagnosticReport) {
+        let (status, body) =
+            match self.authorized_get(&self.status_url, token, RemoteService::Music) {
                 Ok(value) => value,
                 Err(result) => {
                     report.music_account = Some(result);
@@ -705,24 +753,6 @@ impl DiagnosticClient {
             ProbeResult::success(status)
         } else {
             ProbeResult::failure(Some(status), ErrorCategory::AccountAbsent)
-        });
-        drop(body);
-        if !present {
-            return;
-        }
-        let (status, body) =
-            match self.authorized_get(&self.catalog_url, &token, RemoteService::Music) {
-                Ok(value) => value,
-                Err(result) => {
-                    report.catalog = Some(result);
-                    return;
-                }
-            };
-        // Require a track-search result collection while discarding its contents.
-        // HTTP200 and arbitrary JSON objects never establish catalog success.
-        report.catalog = Some(match serde_json::from_slice::<CatalogEnvelope>(&body) {
-            Ok(_) => ProbeResult::success(status),
-            _ => ProbeResult::failure(Some(status), ErrorCategory::InvalidResponse),
         });
     }
 }
@@ -804,6 +834,44 @@ impl<'de> Deserialize<'de> for PresentIdentifier {
             }
         }
         deserializer.deserialize_any(IdentifierVisitor)
+    }
+}
+// Only the envelope is checked. No account/about field contract or authenticated
+// account/service claim is inferred from this experimental endpoint. Private
+// values are traversed and discarded without retaining them in a typed report.
+#[derive(Deserialize)]
+struct AboutEnvelope {
+    #[serde(rename = "result")]
+    _result: IgnoredObject,
+    #[serde(default, rename = "error", deserialize_with = "reject_about_error")]
+    _error: (),
+}
+fn reject_about_error<'de, D: serde::Deserializer<'de>>(_: D) -> Result<(), D::Error> {
+    Err(serde::de::Error::custom(
+        "error envelope is not a diagnostic result",
+    ))
+}
+struct IgnoredObject;
+impl<'de> Deserialize<'de> for IgnoredObject {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct ObjectVisitor;
+        impl<'de> serde::de::Visitor<'de> for ObjectVisitor {
+            type Value = IgnoredObject;
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("result object")
+            }
+            fn visit_map<M: serde::de::MapAccess<'de>>(
+                self,
+                mut map: M,
+            ) -> Result<Self::Value, M::Error> {
+                while map
+                    .next_entry::<serde::de::IgnoredAny, serde::de::IgnoredAny>()?
+                    .is_some()
+                {}
+                Ok(IgnoredObject)
+            }
+        }
+        deserializer.deserialize_map(ObjectVisitor)
     }
 }
 #[derive(Deserialize)]

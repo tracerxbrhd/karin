@@ -22,6 +22,52 @@ supplied to Codex Cloud, CI or GitHub. No real authorization or token endpoint w
 exercised by the cloud/automated checks. The existing
 GUI login capability remains unavailable and the playback engine is independent.
 
+### Independent status/about diagnostic: current revision
+
+The diagnostic now plans separate same-token `GET /account/status` and
+`GET /account/about` requests after successful ID-client/account verification.
+About runs even after status HTTP 403, network/schema failure or absent account;
+it has its own HTTP/error result and cannot supply status facts or unlock the
+catalog. About failure does not suppress catalog access after valid authenticated
+status. HTTP 200 about accepts only an object `result` without a top-level error;
+all fields are discarded. Both methods retain bounded bodies/deadlines, the same
+closed error-code allowlist and no retries/redirects.
+
+The prepared Debian 13 environment (GTK 4.18.6, Libadwaita 1.7.6, GStreamer
+1.26.2) passed the following checks. Native versions, SDK/runtime and permissions
+are unchanged.
+
+| Check | Stable 1.99.1 | Rust 1.98.1 |
+| --- | --- | --- |
+| Formatting and all-target Clippy with `-D warnings` | Passed, no warnings | Passed, no warnings |
+| All workspace tests | **71 passed, 0 failed, 0 ignored** (67 library + 4 binary) | **71 passed, 0 failed, 0 ignored** (67 library + 4 binary) |
+| Locked debug build | Passed | Passed |
+| Hidden terminal input | 14 PTY cases plus missing-TTY rejection passed | Same checks passed |
+| Silent GStreamer and generated-WAV player diagnostics | Passed | Passed |
+| GTK smoke: both themes/pages, resize, local playback and cleanup | Passed | Passed |
+
+The 29 OAuth protocol tests include five new groups for independent status/about
+outcomes, same-token/no-borrowed-identity requests, fail-closed envelope handling,
+private-field redaction, status network failure/timeout and bounded about reads.
+Malformed, oversized, incomplete or timed-out Music 403 bodies retain HTTP 403
+and generic `Forbidden`. All requests, including unexpected paths, stay on
+loopback. New fixture connection waits are bounded so regressions fail promptly.
+
+Exact Rust 1.98.1 `cargo build --release --offline --locked` passed, followed by
+optimized terminal, audio/player and GTK smoke checks. The dependency-license
+inventory was regenerated and byte-compared: 200 external / 171 Linux graph,
+unchanged. Hosted results for the final revision are linked from
+[PR #6's checks](https://github.com/tracerxbrhd/karin/pull/6/checks). Historical
+matrices below remain evidence for their stated revisions only.
+
+No live `/account/about` result has been supplied. Its independent local Fedora
+check, the actual status-403 identifier/cause and Music service acceptance remain
+unverified. Local fixture success cannot establish any of those outcomes. No real
+OAuth inputs or account response were supplied to Cloud/CI, and no API-client
+dependency was added. Public library sources were inspected without executing
+them; see the [Rust-client review](RUST_API_CLIENT_REVIEW.md). OAuth/PKCE, routes,
+region and application identity remain unchanged.
+
 ### Owner-reported DIRECT repeat and anonymous control
 
 The owner's [26 October DIRECT-path report](https://github.com/tracerxbrhd/karin/pull/6#issuecomment-6424867774)
@@ -45,11 +91,12 @@ The diagnostic now interprets only an allowlisted Music error identifier from
 the already-returned HTTP 403 response, preserving the response-size/deadline
 bounds and generic `Forbidden` fallback. Unknown remains unknown: no raw JSON,
 messages/descriptions, personal fields, request IDs, headers, URLs or secrets are
-printed. No additional login, region/route/identity change, retry or alternate
-endpoint is part of this change. The actual Fedora 403 identifier remains
-unobserved; no root cause is claimed from community code or fixture results.
+printed. The original classifier change added no request; the current independent
+about probe is described above and is not a fallback for the denied status.
+No region/route/identity change or retry is part of either change. The actual
+Fedora 403 identifier remains unobserved; no root cause is claimed from community code or fixture results.
 
-### Music HTTP 403 classifier verification
+### Music HTTP 403 classifier verification (revision `d6363b2`)
 
 The Music classifier was checked on 2026-10-26 in the prepared Debian 13
 environment, with GTK 4.18.6, Libadwaita 1.7.6 and GStreamer 1.26.2. Rust/native

@@ -91,7 +91,23 @@ prerequisites are not established:
    an identity. Neither returned ID nor profile/avatar data is displayed.
 3. The Music account/status endpoint recognizes an authenticated account, with
    service availability reported independently.
-4. One fixed read-only catalog request returns its own HTTP/result category.
+4. The separate fixed `GET https://api.music.yandex.net/account/about` returns
+   its own HTTP/error result using the same Karin token. Run it after successful
+   ID binding/account verification regardless of status refusal, malformed body,
+   network failure or absent account. Accept HTTP 200 only for a JSON object with
+   an object `result` and no top-level `error`; discard all fields. This minimal
+   envelope does not claim a verified about schema or authenticated Music account.
+5. One fixed read-only catalog request returns its own HTTP/result category,
+   gated only by valid status with an authenticated Music account. About success
+   cannot unlock it after failed status; about failure cannot suppress it after
+   valid status.
+
+Status and about retain separate results, labeled `Music /account/status` and
+`Music /account/about`. About cannot alter status account/service facts. Preserve
+the same five-second connect limit, fifteen-second total deadline, 1 MiB body
+ceiling and no-redirect/no-retry policy for both methods. Overall diagnostic
+success conservatively requires every planned stage, including about, to pass;
+it is still not production authorization or stream-delivery approval.
 
 A present token-response scope subset can identify missing requested grants.
 The documented `scope` field is optional and is returned for a smaller grant;
@@ -109,10 +125,14 @@ messages/descriptions, substrings, case variants or unrelated fields. The phrase
 Unknown, malformed, oversized or unreadable error bodies remain generic
 `Forbidden` with HTTP 403. Do not change the Yandex ID error path or promote any
 403 to account/service facts. Those facts remain unknown, and catalog probing
-stops after a forbidden Music status.
+stops after a forbidden Music status. Apply the same classification independently
+to about; its planned probe still runs after failed status. Classification itself
+never issues a follow-up request.
 
 Do not repeat OAuth solely to investigate VPN, change region, route, OAuth
-mechanism or application identity, retry, or select an alternate API endpoint.
+mechanism or application identity, retry a refusal or use another endpoint as an
+access workaround. The fixed, independently reported about probe is diagnostic,
+not a fallback or permission to reuse refused status data.
 The classification narrows a diagnostic category; it does not grant access or
 establish the actual cause of the owner's 403 without a recognized result.
 
@@ -129,11 +149,12 @@ real local credentials to Codex Cloud, CI, GitHub or support logs.
 The owner can conduct the next authorized experiment locally without a token
 paste shortcut, Client secret distribution, fake signed-in UI or stream request.
 Executed evidence must distinguish registration, code/token issuance, ID-client
-binding, Music identity and catalog response. Browser consent, code/state return,
-secretless exchange and ID-client binding are now owner-observed on Fedora.
+binding, Music status, the independent about response and catalog response.
+Browser consent, code/state return, secretless exchange and ID-client binding are now owner-observed on Fedora.
 Music account access remains forbidden in the tested context, with its detailed
-provider reason unknown. The diagnostics use local fixtures in Cloud/CI; they
-do not reproduce an account login or establish Music permissions.
+provider reason unknown. No live about result has been observed; its result must
+remain separate from the owner's historical status denial. The diagnostics use
+local fixtures in Cloud/CI; they do not reproduce an account login or establish Music permissions.
 
 The GUI retains its unavailable Music-authentication capability. There is no
 refresh, remote revocation, Secret Service write, persistent account session,

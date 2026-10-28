@@ -20,8 +20,11 @@ affiliated with Yandex.
 - D-Bus and Secret Service presence inspection, without reading credentials.
 - A separate `--oauth-diagnostic` for locally testing Karin's own OAuth client
   with authorization code + S256 PKCE, in-memory credentials and read-only probes.
+  After successful ID-client binding, `/account/status` and `/account/about`
+  have separate results; an unsuccessful status does not suppress about.
   The owner verified token issuance and ID-client binding on Fedora; Music status
-  still returns HTTP 403. It is not the application's sign-in feature.
+  still returns HTTP 403, and about awaits local verification. This is not the
+  application's sign-in feature.
 - Offline tests, headless GTK startup checks and a GitHub Actions workflow.
 
 Normal application operation requests no credentials. The opt-in diagnostic
@@ -37,8 +40,11 @@ validated returned state, exchanged the code successfully and verified the Karin
 client through Yandex ID. Authenticated Music status returned HTTP 403, including
 the owner's DIRECT-path control, while a separate anonymous curl request returned
 HTTP 200. Music account/service availability and catalog access remain unknown.
-The diagnostic classifies only allowlisted Music error identifiers, never raw
-responses or private messages. The application keeps its unavailable capability.
+The independent `/account/about` probe reports only its own HTTP/error outcome;
+it cannot establish account/service facts or unlock catalog access after a
+failed status. The diagnostic classifies only allowlisted Music error identifiers,
+never raw responses or private messages. The application keeps its unavailable
+capability.
 See [API feasibility](docs/API_FEASIBILITY.md), the
 [Gate B1 decision](docs/adr/0008-local-oauth-pkce-diagnostic.md) and
 [local Fedora instructions](docs/BUILDING.md#local-oauth-diagnostic-gate-b1).

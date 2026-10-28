@@ -13,6 +13,9 @@
   Yandex ID (both HTTP 200). Authenticated Music status returned HTTP 403 again
   in the DIRECT-path control; account/service facts remain unknown and the
   catalog query is skipped. Anonymous curl status HTTP 200 does not change that.
+  The new independent `/account/about` probe has no live local result yet. Its
+  success would not establish status account/service facts or unlock the catalog;
+  its failure does not suppress catalog access after valid authenticated status.
   The GUI keeps `AuthenticationUnavailable`; no borrowed client, pasted-token
   login, password collection or service stream is included. See
   [API_FEASIBILITY.md](API_FEASIBILITY.md) and [ADR-0008](adr/0008-local-oauth-pkce-diagnostic.md).
@@ -25,7 +28,10 @@
   permanent storage remain unverified.
   Optional token-scope metadata is not independent Music entitlement evidence.
   Tokens are memory-only, no stream is requested and account tests must remain
-  local to the consenting owner.
+  local to the consenting owner. After successful ID-client/account verification,
+  status and about run independently with separate sanitized HTTP/error results.
+  About validates only a bounded JSON object `result`, without top-level `error`,
+  and discards all fields; it is not an established personal-account model.
 - **HTTP restrictions retain their scope.** Anonymous search and metadata
   requests returned HTTP 451 from the cloud egress. That observation does not
   determine authenticated behavior or the cause on Fedora. The later Fedora
@@ -36,7 +42,8 @@
   observed here. Unknown identifiers and unsupported bodies remain `Forbidden`.
   Raw messages and
   private response data are never exposed. No alternate route, region,
-  identity, endpoint or delivery path is used to bypass the restriction.
+  identity or delivery path is used to bypass the restriction. The separately
+  planned same-token about probe is not a fallback for refused status data.
 - **The player engine is not a service-stream implementation.** Gate A uses
   real GStreamer `playbin` playback for local files. The developer entry point
   generates temporary quiet WAV media; it is not a song catalog, playlist or

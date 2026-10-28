@@ -12,6 +12,7 @@ const TOKEN: &str = "fixture-private-access-token";
 const FULL_TOKEN: &str = r#"{"access_token":"fixture-private-access-token","refresh_token":"fixture-private-refresh-token","token_type":"bearer","expires_in":3600,"scope":"music:api-public music:major-public-api login:info login:avatar"}"#;
 const IDENTITY: &str = r#"{"client_id":"fixture-karin-owned-client","id":"1234","login":"fixture-private-login","display_name":"fixture-private-person"}"#;
 const ACCOUNT: &str = r#"{"result":{"account":{"uid":1234,"login":"fixture-private-login","serviceAvailable":true}}}"#;
+const ABOUT: &str = r#"{"result":{"uid":1234,"login":"fixture-private-login","name":"fixture-private-person","nested":{"access_token":"fixture-private-access-token"}}}"#;
 const CATALOG: &str = r#"{"result":{"text":"Beethoven","tracks":{"total":1,"results":[{"title":"fixture-private-title"}]}}}"#;
 
 type Fixture = (u16, &'static str);
@@ -25,6 +26,7 @@ fn isolated_client() -> DiagnosticClient {
         token_url: "http://127.0.0.1:1/token".to_owned(),
         identity_url: "http://127.0.0.1:1/info?format=json".to_owned(),
         status_url: "http://127.0.0.1:1/account/status".to_owned(),
+        about_url: "http://127.0.0.1:1/account/about".to_owned(),
         catalog_url: "http://127.0.0.1:1/search".to_owned(),
         timeout: Duration::from_secs(2),
     }
@@ -97,6 +99,7 @@ fn fixture(responses: Vec<Fixture>) -> (DiagnosticClient, JoinHandle<Vec<String>
             token_url: format!("http://{address}/token"),
             identity_url: format!("http://{address}/info?format=json"),
             status_url: format!("http://{address}/account/status"),
+            about_url: format!("http://{address}/account/about"),
             catalog_url: format!(
                 "http://{address}/search?text=Beethoven&type=track&page=0&nocorrect=true"
             ),
@@ -203,6 +206,7 @@ fn full_diagnostic_is_client_bound_sequential_and_secretless() {
         (200, FULL_TOKEN),
         (200, IDENTITY),
         (200, ACCOUNT),
+        (200, ABOUT),
         (200, CATALOG),
     ]);
     assert!(report.passed());
@@ -230,8 +234,11 @@ fn full_diagnostic_is_client_bound_sequential_and_secretless() {
     assert!(!requests[0].to_ascii_lowercase().contains("authorization:"));
     assert!(requests[1].starts_with("GET /info?format=json HTTP/1.1"));
     assert!(requests[2].starts_with("GET /account/status HTTP/1.1"));
+    assert!(requests[3].starts_with("GET /account/about HTTP/1.1"));
+    assert_eq!(requests.len(), 5);
+    assert_eq!(report.music_about, Some(ProbeResult::success(200)));
     assert!(
-        requests[3]
+        requests[4]
             .starts_with("GET /search?text=Beethoven&type=track&page=0&nocorrect=true HTTP/1.1")
     );
     for request in &requests[1..] {
@@ -249,6 +256,7 @@ fn omitted_scope_uses_documented_provider_semantics_but_subset_stops() {
         (200, omitted),
         (200, IDENTITY),
         (200, ACCOUNT),
+        (200, ABOUT),
         (200, CATALOG),
     ]);
     assert!(report.passed());
@@ -308,6 +316,7 @@ fn identity_client_mismatch_or_absence_prevents_music_requests() {
         let (report, requests) = finish(vec![(200, FULL_TOKEN), (200, body)]);
         assert!(!report.passed());
         assert!(report.music_account.is_none());
+        assert!(report.music_about.is_none());
         assert!(report.catalog.is_none());
         assert_eq!(requests.len(), 2);
         no_sensitive_report(&report);
@@ -320,6 +329,7 @@ fn anonymous_music_account_never_becomes_signed_in_and_stops_catalog() {
         (200, FULL_TOKEN),
         (200, IDENTITY),
         (200, r#"{"result":{"account":{"serviceAvailable":false}}}"#),
+        (200, ABOUT),
     ]);
     assert_eq!(report.music_account_present, Some(false));
     assert_eq!(report.service_available, Some(false));
@@ -327,7 +337,7 @@ fn anonymous_music_account_never_becomes_signed_in_and_stops_catalog() {
         report.music_account.unwrap().error,
         Some(ErrorCategory::AccountAbsent)
     );
-    assert_eq!(requests.len(), 3);
+    assert_eq!(requests.len(), 4);
     assert!(report.catalog.is_none());
 }
 
@@ -557,6 +567,7 @@ fn opaque_codes_and_reserved_characters_survive_the_secretless_form() {
             (200, FULL_TOKEN),
             (200, IDENTITY),
             (200, ACCOUNT),
+            (200, ABOUT),
             (200, CATALOG),
         ]);
         let report = current.complete_with(response, &client);
@@ -600,12 +611,13 @@ fn service_http_categories_never_follow_redirects_retry_or_claim_scope_cause() {
             (200, FULL_TOKEN),
             (200, IDENTITY),
             (status, "fixture-private-person"),
+            (200, ABOUT),
         ]);
         assert_eq!(
             report.music_account.unwrap(),
             ProbeResult::failure(Some(status), error)
         );
-        assert_eq!(requests.len(), 3);
+        assert_eq!(requests.len(), 4);
         assert!(report.catalog.is_none());
         no_sensitive_report(&report);
     }
@@ -619,7 +631,12 @@ fn music_403_known_identifiers_are_closed_and_account_facts_stay_unknown() {
         r#"{"error":{"name":"missing\u002drequired-scopes"}}"#,
         r#"{"error":{"name":"missing-required-scopes","message":"fixture-private-person fixture-private-access-token","description":"fixture-private-login","code":"fixture-private-account"},"result":{"account":{"uid":1234,"serviceAvailable":true,"login":"fixture-private-login"}},"invocationInfo":{"requestId":"fixture-private-request-id"},"headers":{"Authorization":"fixture-private-access-token"},"url":"https://fixture-private.invalid/secret"}"#,
     ] {
-        let (report, requests) = finish(vec![(200, FULL_TOKEN), (200, IDENTITY), (403, body)]);
+        let (report, requests) = finish(vec![
+            (200, FULL_TOKEN),
+            (200, IDENTITY),
+            (403, body),
+            (200, ABOUT),
+        ]);
         assert_eq!(
             report.music_account,
             Some(ProbeResult::failure(
@@ -631,7 +648,7 @@ fn music_403_known_identifiers_are_closed_and_account_facts_stay_unknown() {
         assert_eq!(report.service_available, None);
         assert!(report.catalog.is_none());
         assert!(!report.passed());
-        assert_eq!(requests.len(), 3);
+        assert_eq!(requests.len(), 4);
         let visible = format!("{report:?}\n{report}");
         assert!(
             visible.contains("Music API reports missing required scopes (missing-required-scopes)")
@@ -678,7 +695,12 @@ fn music_403_unknown_malformed_and_ambiguous_envelopes_remain_forbidden() {
         r#"{"error":"Forbidden","\u0065rror":"missing-required-scopes"}"#,
         r#"{"error":"missing-required-scopes"} trailing-data"#,
     ] {
-        let (report, requests) = finish(vec![(200, FULL_TOKEN), (200, IDENTITY), (403, body)]);
+        let (report, requests) = finish(vec![
+            (200, FULL_TOKEN),
+            (200, IDENTITY),
+            (403, body),
+            (200, ABOUT),
+        ]);
         assert_eq!(
             report.music_account,
             Some(ProbeResult::failure(Some(403), ErrorCategory::Forbidden))
@@ -686,7 +708,7 @@ fn music_403_unknown_malformed_and_ambiguous_envelopes_remain_forbidden() {
         assert_eq!(report.music_account_present, None);
         assert_eq!(report.service_available, None);
         assert!(report.catalog.is_none());
-        assert_eq!(requests.len(), 3);
+        assert_eq!(requests.len(), 4);
         assert!(
             report
                 .to_string()
@@ -706,6 +728,7 @@ fn music_error_codes_do_not_change_other_status_or_identity_oauth_semantics() {
     );
     assert_eq!(requests.len(), 2);
     assert!(report.music_account.is_none());
+    assert!(report.music_about.is_none());
     let (report, requests) = finish(vec![(403, body)]);
     assert_eq!(
         report.token,
@@ -717,12 +740,17 @@ fn music_error_codes_do_not_change_other_status_or_identity_oauth_semantics() {
         (451, ErrorCategory::Http),
         (500, ErrorCategory::Http),
     ] {
-        let (report, requests) = finish(vec![(200, FULL_TOKEN), (200, IDENTITY), (status, body)]);
+        let (report, requests) = finish(vec![
+            (200, FULL_TOKEN),
+            (200, IDENTITY),
+            (status, body),
+            (200, ABOUT),
+        ]);
         assert_eq!(
             report.music_account,
             Some(ProbeResult::failure(Some(status), category))
         );
-        assert_eq!(requests.len(), 3);
+        assert_eq!(requests.len(), 4);
         assert!(report.catalog.is_none());
     }
 }
@@ -733,6 +761,7 @@ fn catalog_403_classification_preserves_preceding_known_account_facts() {
         (200, FULL_TOKEN),
         (200, IDENTITY),
         (200, ACCOUNT),
+        (200, ABOUT),
         (
             403,
             r#"{"error":{"name":"missing-required-scopes","message":"fixture-private-person"}}"#,
@@ -753,7 +782,7 @@ fn catalog_403_classification_preserves_preceding_known_account_facts() {
             .to_string()
             .contains("Music account present: yes; service available: yes")
     );
-    assert_eq!(requests.len(), 4);
+    assert_eq!(requests.len(), 5);
     assert!(!report.passed());
     no_sensitive_report(&report);
 }
@@ -814,6 +843,392 @@ fn music_403_body_limits_read_failure_and_timeout_keep_the_known_refusal() {
 }
 
 #[test]
+fn music_status_and_about_are_independent_and_only_status_gates_catalog() {
+    let known =
+        r#"{"error":{"name":"missing-required-scopes","message":"fixture-private-person"}}"#;
+    for (status_response, about_response, status_error, about_error, catalog_runs) in [
+        (
+            (403, known),
+            (200, ABOUT),
+            Some(ErrorCategory::MusicMissingRequiredScopes),
+            None,
+            false,
+        ),
+        (
+            (403, "fixture-private-person"),
+            (403, known),
+            Some(ErrorCategory::Forbidden),
+            Some(ErrorCategory::MusicMissingRequiredScopes),
+            false,
+        ),
+        (
+            (200, ACCOUNT),
+            (403, known),
+            None,
+            Some(ErrorCategory::MusicMissingRequiredScopes),
+            true,
+        ),
+        (
+            (200, ACCOUNT),
+            (401, known),
+            None,
+            Some(ErrorCategory::AccessDenied),
+            true,
+        ),
+        (
+            (200, "not JSON fixture-private-person"),
+            (200, ABOUT),
+            Some(ErrorCategory::InvalidResponse),
+            None,
+            false,
+        ),
+        (
+            (
+                200,
+                r#"{"result":{"account":{"uid":null,"serviceAvailable":false}}}"#,
+            ),
+            (200, ABOUT),
+            Some(ErrorCategory::AccountAbsent),
+            None,
+            false,
+        ),
+    ] {
+        let mut responses = vec![
+            (200, FULL_TOKEN),
+            (200, IDENTITY),
+            status_response,
+            about_response,
+        ];
+        if catalog_runs {
+            responses.push((200, CATALOG));
+        }
+        let (report, requests) = finish(responses);
+        assert_eq!(
+            report.music_account,
+            Some(ProbeResult {
+                http_status: Some(status_response.0),
+                error: status_error
+            })
+        );
+        assert_eq!(
+            report.music_about,
+            Some(ProbeResult {
+                http_status: Some(about_response.0),
+                error: about_error
+            })
+        );
+        assert_eq!(requests.len(), if catalog_runs { 5 } else { 4 });
+        assert!(requests[2].starts_with("GET /account/status HTTP/1.1"));
+        assert!(requests[3].starts_with("GET /account/about HTTP/1.1"));
+        for request in &requests[1..] {
+            assert!(request.contains(&format!("authorization: OAuth {TOKEN}\r\n")));
+            assert!(!request.contains("x-yandex-music-client:"));
+            assert!(!request.contains("client_secret"));
+        }
+        assert_eq!(report.catalog.is_some(), catalog_runs);
+        assert!(!report.passed());
+        if catalog_runs {
+            assert_eq!(report.music_account_present, Some(true));
+            assert_eq!(report.service_available, Some(true));
+            assert_eq!(report.catalog, Some(ProbeResult::success(200)));
+        } else if status_response.0 == 403 {
+            assert_eq!(report.music_account_present, None);
+            assert_eq!(report.service_available, None);
+        }
+        let visible = report.to_string();
+        assert!(visible.contains(&format!(
+            "Music /account/status: HTTP {}",
+            status_response.0
+        )));
+        assert!(visible.contains(&format!("Music /account/about: HTTP {}", about_response.0)));
+        no_sensitive_report(&report);
+    }
+}
+
+#[test]
+fn about_checks_only_an_object_envelope_and_never_infers_status_facts() {
+    for (body, accepted) in [
+        (ABOUT, true),
+        (
+            r#"{"result":{},"invocationInfo":{"requestId":"fixture-private-request-id"}}"#,
+            true,
+        ),
+        (r#"{"result":{"serviceAvailable":true,"uid":1234}}"#, true),
+        ("not JSON fixture-private-person", false),
+        ("<html>fixture-private-person</html>", false),
+        (r#"{}"#, false),
+        (r#"{"result":null}"#, false),
+        (r#"{"result":[]}"#, false),
+        (r#"{"result":"fixture-private-person"}"#, false),
+        (r#"{"result":1234}"#, false),
+        (r#"{"result":true}"#, false),
+        (r#"{"error":"missing-required-scopes"}"#, false),
+        (r#"{"result":{},"error":"missing-required-scopes"}"#, false),
+        (r#"{"result":{},"error":null}"#, false),
+        (
+            r#"{"result":{},"\u0065rror":{"message":"fixture-private-person"}}"#,
+            false,
+        ),
+        (r#"{"result":{},"result":{"uid":1234}}"#, false),
+        (r#"{"result":{},"res\u0075lt":{}}"#, false),
+        (r#"{"result":{}} trailing data"#, false),
+    ] {
+        let (report, requests) = finish(vec![
+            (200, FULL_TOKEN),
+            (200, IDENTITY),
+            (403, "{}"),
+            (200, body),
+        ]);
+        assert_eq!(
+            report.music_about,
+            Some(if accepted {
+                ProbeResult::success(200)
+            } else {
+                ProbeResult::failure(Some(200), ErrorCategory::InvalidResponse)
+            })
+        );
+        assert_eq!(
+            report.music_account,
+            Some(ProbeResult::failure(Some(403), ErrorCategory::Forbidden))
+        );
+        assert_eq!(report.music_account_present, None);
+        assert_eq!(report.service_available, None);
+        assert!(report.catalog.is_none());
+        assert!(!report.passed());
+        assert_eq!(requests.len(), 4);
+        no_sensitive_report(&report);
+        assert!(!format!("{report:?}\n{report}").contains("fixture-private-request-id"));
+    }
+}
+
+#[test]
+fn about_reuses_the_closed_music_error_classifier_and_status_categories() {
+    for (status, body, category) in [
+        (
+            403,
+            r#"{"error":"missing-required-scopes"}"#,
+            ErrorCategory::MusicMissingRequiredScopes,
+        ),
+        (
+            403,
+            r#"{"error":{"name":"missing-required-scopes","message":"fixture-private-person","requestId":"fixture-private-request-id"}}"#,
+            ErrorCategory::MusicMissingRequiredScopes,
+        ),
+        (
+            403,
+            r#"{"error":{"message":"missing-required-scopes"}}"#,
+            ErrorCategory::Forbidden,
+        ),
+        (
+            403,
+            r#"{"error":"API access restricted"}"#,
+            ErrorCategory::Forbidden,
+        ),
+        (
+            403,
+            r#"{"error":"missing-required-scopes","error":"fixture-private-person"}"#,
+            ErrorCategory::Forbidden,
+        ),
+        (
+            403,
+            "<html>fixture-private-person</html>",
+            ErrorCategory::Forbidden,
+        ),
+        (
+            401,
+            r#"{"error":"missing-required-scopes"}"#,
+            ErrorCategory::AccessDenied,
+        ),
+        (
+            302,
+            r#"{"error":"missing-required-scopes"}"#,
+            ErrorCategory::Http,
+        ),
+        (
+            451,
+            r#"{"error":"missing-required-scopes"}"#,
+            ErrorCategory::Http,
+        ),
+        (
+            500,
+            r#"{"error":"missing-required-scopes"}"#,
+            ErrorCategory::Http,
+        ),
+    ] {
+        let (report, requests) = finish(vec![
+            (200, FULL_TOKEN),
+            (200, IDENTITY),
+            (403, "{}"),
+            (status, body),
+        ]);
+        assert_eq!(
+            report.music_about,
+            Some(ProbeResult::failure(Some(status), category))
+        );
+        assert_eq!(requests.len(), 4);
+        assert_eq!(report.music_account_present, None);
+        assert_eq!(report.service_available, None);
+        assert!(report.catalog.is_none());
+        assert!(!report.passed());
+        no_sensitive_report(&report);
+        assert!(!format!("{report:?}\n{report}").contains("fixture-private-request-id"));
+    }
+}
+
+fn accept_before_deadline(listener: &TcpListener) -> TcpStream {
+    listener.set_nonblocking(true).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        match listener.accept() {
+            Ok((stream, _)) => return stream,
+            Err(error)
+                if error.kind() == std::io::ErrorKind::WouldBlock && Instant::now() < deadline =>
+            {
+                thread::sleep(Duration::from_millis(5));
+            }
+            Err(error) => panic!("expected bounded fixture request: {error}"),
+        }
+    }
+}
+
+#[test]
+fn failed_status_transport_cannot_suppress_the_independent_about_request() {
+    for timeout_case in [false, true] {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let retained = listener.try_clone().unwrap();
+        let server = thread::spawn(move || {
+            let mut requests = Vec::new();
+            for body in [FULL_TOKEN, IDENTITY] {
+                let mut stream = accept_before_deadline(&listener);
+                requests.push(request(&mut stream));
+                stream.write_all(response(200, body).as_bytes()).unwrap();
+            }
+            let mut status_stream = accept_before_deadline(&listener);
+            requests.push(request(&mut status_stream));
+            let pending = if timeout_case {
+                Some(thread::spawn(move || {
+                    thread::sleep(Duration::from_millis(600));
+                    drop(status_stream);
+                }))
+            } else {
+                drop(status_stream);
+                None
+            };
+            let mut stream = accept_before_deadline(&listener);
+            requests.push(request(&mut stream));
+            stream.write_all(response(200, ABOUT).as_bytes()).unwrap();
+            if let Some(pending) = pending {
+                pending.join().unwrap();
+            }
+            requests
+        });
+        let mut client = isolated_client();
+        client.timeout = Duration::from_millis(250);
+        client.token_url = format!("http://{address}/token");
+        client.identity_url = format!("http://{address}/info");
+        client.status_url = format!("http://{address}/account/status");
+        client.about_url = format!("http://{address}/account/about");
+        client.catalog_url = format!("http://{address}/search");
+        let current = attempt();
+        let authorization = returned(&current);
+        let report = current.complete_with(authorization, &client);
+        let requests = server.join().unwrap();
+        assert_eq!(
+            report.music_account,
+            Some(ProbeResult::failure(
+                None,
+                if timeout_case {
+                    ErrorCategory::Timeout
+                } else {
+                    ErrorCategory::Network
+                }
+            ))
+        );
+        assert_eq!(report.music_about, Some(ProbeResult::success(200)));
+        assert_eq!(report.music_account_present, None);
+        assert_eq!(report.service_available, None);
+        assert!(report.catalog.is_none());
+        assert_eq!(requests.len(), 4);
+        assert!(requests[3].starts_with("GET /account/about HTTP/1.1"));
+        retained.set_nonblocking(true).unwrap();
+        assert_eq!(
+            retained.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+        no_sensitive_report(&report);
+    }
+}
+
+fn about_wire(wire: String, pause_before_body: Duration) -> DiagnosticReport {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let retained = listener.try_clone().unwrap();
+    let server = thread::spawn(move || {
+        for (expected, status, body) in [
+            ("POST /token ", 200, FULL_TOKEN),
+            ("GET /info ", 200, IDENTITY),
+            ("GET /account/status ", 403, "{}"),
+        ] {
+            let mut stream = accept_before_deadline(&listener);
+            assert!(request(&mut stream).starts_with(expected));
+            stream.write_all(response(status, body).as_bytes()).unwrap();
+        }
+        let mut stream = accept_before_deadline(&listener);
+        assert!(request(&mut stream).starts_with("GET /account/about HTTP/1.1"));
+        let (headers, body) = wire.split_once("\r\n\r\n").unwrap();
+        write!(stream, "{headers}\r\n\r\n").unwrap();
+        thread::sleep(pause_before_body);
+        if let Err(error) = stream.write_all(body.as_bytes()) {
+            assert!(matches!(
+                error.kind(),
+                std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset
+            ));
+        }
+    });
+    let mut client = isolated_client();
+    client.timeout = Duration::from_millis(500);
+    client.token_url = format!("http://{address}/token");
+    client.identity_url = format!("http://{address}/info");
+    client.status_url = format!("http://{address}/account/status");
+    client.about_url = format!("http://{address}/account/about");
+    client.catalog_url = format!("http://{address}/search");
+    let current = attempt();
+    let authorization = returned(&current);
+    let report = current.complete_with(authorization, &client);
+    server.join().unwrap();
+    retained.set_nonblocking(true).unwrap();
+    assert_eq!(
+        retained.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+    assert_eq!(
+        report.music_account,
+        Some(ProbeResult::failure(Some(403), ErrorCategory::Forbidden))
+    );
+    assert_eq!(report.music_account_present, None);
+    assert_eq!(report.service_available, None);
+    assert!(report.catalog.is_none());
+    no_sensitive_report(&report);
+    report
+}
+
+#[test]
+fn about_body_limits_read_failures_and_deadlines_remain_bounded() {
+    for (wire, delay, expected) in [
+        (format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", MAX_BODY + 1), Duration::ZERO, ProbeResult::failure(Some(200), ErrorCategory::ResponseTooLarge)),
+        (format!("HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n{}", "x".repeat(MAX_BODY + 1)), Duration::ZERO, ProbeResult::failure(Some(200), ErrorCategory::ResponseTooLarge)),
+        ("HTTP/1.1 200 OK\r\nContent-Length: 1024\r\nConnection: close\r\n\r\nfixture-private-person".to_owned(), Duration::ZERO, ProbeResult::failure(Some(200), ErrorCategory::Network)),
+        (response(200, ABOUT), Duration::from_secs(1), ProbeResult::failure(Some(200), ErrorCategory::Timeout)),
+        (format!("HTTP/1.1 403 Forbidden\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", MAX_BODY + 1), Duration::ZERO, ProbeResult::failure(Some(403), ErrorCategory::Forbidden)),
+        ("HTTP/1.1 403 Forbidden\r\nContent-Length: 1024\r\nConnection: close\r\n\r\nfixture-private-person".to_owned(), Duration::ZERO, ProbeResult::failure(Some(403), ErrorCategory::Forbidden)),
+        (response(403, r#"{"error":"missing-required-scopes"}"#), Duration::from_secs(1), ProbeResult::failure(Some(403), ErrorCategory::Forbidden)),
+    ] {
+        assert_eq!(about_wire(wire, delay).music_about, Some(expected));
+    }
+}
+
+#[test]
 fn malformed_oversized_and_error_envelopes_never_pass() {
     for (body, expected) in [
         ("not json".to_owned(), ErrorCategory::InvalidResponse),
@@ -839,6 +1254,7 @@ fn malformed_oversized_and_error_envelopes_never_pass() {
             (200, FULL_TOKEN),
             (200, IDENTITY),
             (200, ACCOUNT),
+            (200, ABOUT),
             (200, body),
         ]);
         assert_eq!(
@@ -923,6 +1339,7 @@ fn actual_location_is_not_followed_and_token_is_never_forwarded() {
         ProbeResult::failure(Some(302), ErrorCategory::Http)
     );
     assert!(report.music_account.is_none());
+    assert!(report.music_about.is_none());
     for listener in [retained, alternate] {
         listener.set_nonblocking(true).unwrap();
         assert_eq!(

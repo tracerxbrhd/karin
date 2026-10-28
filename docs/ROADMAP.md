@@ -25,9 +25,13 @@ Gate A is the preliminary authorization/playback-feasibility gate: an independen
 local-media GStreamer engine and an evidence-backed Music integration decision.
 The Gate A [authorization decision](adr/0006-music-authorization-feasibility.md)
 recorded the initial Music authorization blocker. Gate B1 now uses the
-owner-confirmed multiuser registration for an isolated local S256 PKCE diagnostic;
-actual token issuance, Music account/catalog access and production callback/session
-acceptance remain pending. See [ADR-0008](adr/0008-local-oauth-pkce-diagnostic.md).
+owner-confirmed multiuser registration for an isolated local S256 PKCE diagnostic.
+The owner verified token issuance and ID-client binding on Fedora; authenticated
+Music status returned HTTP 403. The independent same-token `/account/about`
+probe awaits a local result. Music account/catalog access and production
+callback/session acceptance remain pending. See
+[ADR-0008](adr/0008-local-oauth-pkce-diagnostic.md) and the source-only
+[Rust API client review](RUST_API_CLIENT_REVIEW.md); no library adoption is made.
 Music sign-in and stream resolution remain unavailable in the application. The
 [playback foundation](adr/0007-playback-controller.md) does not complete the end-to-end v0.1 acceptance above.
 

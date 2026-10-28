@@ -106,11 +106,27 @@ After a secretless initial code exchange, the tool performs these separate check
    Profile fields and avatar are neither displayed nor fetched separately.
 2. `GET https://api.music.yandex.net/account/status`: observe authenticated-account
    presence and `serviceAvailable` independently of ID success.
-3. `GET /search?text=Beethoven&type=track&page=0&nocorrect=true` on the same
-   Music host, only after prior checks permit it. It reports HTTP status and a
-   recognized result-object shape without printing catalog or account content.
-   `serviceAvailable=false` remains visible; it does not prevent this read-only
-   catalog diagnostic once an authenticated Music account is present.
+3. `GET https://api.music.yandex.net/account/about`: make one independent read-only
+   request with the same Karin token after successful ID-client/account checks,
+   even if status returned HTTP 403, failed on the network or had an unsupported
+   response. Report its HTTP status and fixed error category separately as
+   `Music /account/about`. HTTP 200 is accepted only for a bounded JSON object
+   containing an object `result`, without a top-level `error`; no personal fields
+   are retained or interpreted. This is a minimal diagnostic envelope check,
+   not a verified about schema or evidence of an authenticated Music account.
+4. `GET /search?text=Beethoven&type=track&page=0&nocorrect=true` on the same
+   Music host, only after status establishes an authenticated Music account.
+   About success cannot unlock the catalog after failed status; about failure
+   does not suppress the catalog after valid status. The query reports HTTP
+   status and a recognized result-object shape without printing catalog or
+   account content. `serviceAvailable=false` remains visible; it does not
+   prevent this read-only catalog diagnostic once an account is present.
+
+The status line is labeled `Music /account/status`. Neither Music method runs
+if ID binding/account checks fail. Each method keeps its own outcome; about never
+changes the account/service facts obtained from status. The overall diagnostic
+passes only when every planned stage, including about, succeeds. Even that result
+would not establish production sign-in or stream rights.
 
 Only sanitized HTTP statuses, boolean/unknown facts and fixed error categories
 are printed. A missing, restricted or malformed result remains visible; the tool
@@ -125,8 +141,12 @@ scope-error category. The tool does not classify free-form messages such as
 malformed responses remain `Forbidden`;
 the tool never prints raw JSON, error messages/descriptions, personal fields,
 request IDs, headers or URLs. Forbidden Music status leaves account presence and
-service availability `unknown` and skips the catalog query. This classification
-uses the response already received and adds no request or retry.
+service availability `unknown` and skips the catalog query, while the independent
+about probe still runs. Both Music methods and the catalog share this safe error
+classification. Classification uses each response already received and adds no
+retry or fallback request; about is a separately planned probe, not a way around
+status refusal. Both methods retain the five-second connect limit, fifteen-second
+total deadline and 1 MiB body ceiling; redirects and retries remain disabled.
 
 Tokens are kept only in process memory until the diagnostic ends. Owned sensitive
 buffers are zeroized on release; this does not guarantee erasure of transient
@@ -148,8 +168,11 @@ The owner has since confirmed fresh state validation, token HTTP 200 and Yandex
 ID HTTP 200 with a matching Karin client on Fedora. Music status still returned
 HTTP 403 in the DIRECT-path repeat; a separate anonymous curl control returned
 HTTP 200. These are distinct request contexts, not proof of identical egress or
-Music authorization. Do not repeat OAuth solely to recheck VPN, change routes,
-region or application identity, or publish raw responses. Safe classification
+Music authorization. No live `/account/about` result has been observed. A future
+consented local run should share only its separate sanitized status/about lines;
+do not publish the body or infer the reason for 403 from an about success.
+Do not repeat OAuth solely to recheck VPN, change routes, region or application
+identity, or publish raw responses. Safe classification
 does not bypass the denial. See
 [API feasibility](API_FEASIBILITY.md) and [validation](VALIDATION.md).
 
