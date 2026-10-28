@@ -1,36 +1,15 @@
 Base commit (working-tree changes may follow):
-5dbb554a99551f9a1930e100191c456066f575c1
- M .github/workflows/ci.yml
- M AGENTS.md
- M Cargo.toml
- M README.md
- M docs/API_FEASIBILITY.md
- M docs/ARCHITECTURE.md
- M docs/BUILDING.md
- M docs/LICENSING.md
- M docs/LIMITATIONS.md
- M docs/ROADMAP.md
- M docs/UI_QUALITY_GATE.md
+90a9799711c6f9e48a901b82f8a38b2e98fa635b
  M docs/VALIDATION.md
- M packaging/flatpak/io.github.tracerxbrhd.Karin.json
- M scripts/capture-ui.sh
- M src/lib.rs
- M src/main.rs
- M src/ui.rs
-?? docs/STREAM_DELIVERY_REVIEW.md
-?? docs/adr/0009-music-vertical-slice.md
-?? src/music.rs
-?? src/music/
-?? src/queue.rs
-?? src/session.rs
-?? src/session/
-?? src/ui/music.rs
+ M docs/ui/v0.1-music/README.md
+ M src/session/device/tests.rs
+ M src/ui/music.rs
 
 Rendered binary and UI sources:
-5a64773d892fc40b4c20e53628c9effa09d564e7479c8aec0b95cfb2e5977499  /workspace/karin/target/debug/karin
+f0492354bde8aecf86c153ffeb5c6296f759e1e3ad85fcb542cd9c1895c14f8b  /workspace/karin/target/debug/karin
 f66155cb2b50f033204cab9500a3c445559eebf264d49027b3ea857917da8ac8  /workspace/karin/src/ui.rs
 b2af80a0146f616085ffe040c9ae806f6ee2cc031bf1f38b22a6b1d895326e42  /workspace/karin/src/ui/playback.rs
-280e48ef4af25200993f5c83f9927349a73beb8b9bbe5c2aafe12a5d80dec4c1  /workspace/karin/src/ui/music.rs
+514755e2df96ad3515333bc7a4d98397c163c5146e9f9789be174e0b9eab61f5  /workspace/karin/src/ui/music.rs
 16ddb7e8250ed0db88e4e364e746b7b1ae08c7969fe365ac89946f759d5ddaf8  /workspace/karin/src/music.rs
 d5c0746b4a2c9839a98e45c1ad13ddff5bff1caae7b2c73ca1706143222a3325  /workspace/karin/src/session.rs
 801a3fe1062fa5839120bd87990bbd7395a8b1cae6a1be4351eb273a3b534d95  /workspace/karin/src/session/device.rs

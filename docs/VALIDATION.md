@@ -57,13 +57,25 @@ HiDPI (`GDK_SCALE=2`, Xvfb 3840×2160) passed the public GTK smoke separately.
 Structural checks wait a bounded time for resize/breakpoint allocation to settle
 and retain every clipping/navigation/resource assertion.
 
+The initial hosted run exposed a real GTK 4.14 layout regression: a horizontally
+homogeneous `GtkStack` measured hidden wrapped pages at their minimum height,
+forcing a 746 px content minimum into a 420 px window. Measuring the visible page
+fixes this without changing native baselines or weakening geometry checks. The
+Ubuntu 24.04 reproduction (GTK 4.14.5, Libadwaita 1.5.0, GStreamer 1.24.2) passed
+Rust 1.98.1 all-feature Clippy/tests, the explicit native HTTP-fixture test and
+both public and experimental GTK smokes after the fix. The total-timeout fixture
+also no longer assumes a client can finish writing before its deadline; it holds
+the accepted connection without responding and still checks the fixed timeout
+category.
+
 The dependency-license inventory was regenerated and byte-compared: **200 external
 crates / 171 Linux graph**, unchanged. Public Cargo/Flatpak feature and permission
 policy checks passed. `prepare-source.py` vendored the locked dependencies and
 preserved notices; its snapshot matched all current Rust sources and Cargo files.
 An independent native `cargo +1.98.1 build --release --offline --locked
---no-default-features` from that vendored snapshot passed in 2m59s. This is a
-source/build check, **not a full sandboxed Flatpak build**: Flatpak Builder 1.4.4
+--no-default-features` from that vendored snapshot passed, including a repeat
+after the compatibility fix. This is a source/build check, **not a full sandboxed
+Flatpak build**: Flatpak Builder 1.4.4
 is available, but Bubblewrap reported that namespace creation is not permitted.
 No privilege or sandbox workaround was attempted.
 
@@ -80,7 +92,8 @@ label; viewport scrolling is distinguished from text clipping.
 
 [Selected screenshots and reproduction](ui/v0.1-music/README.md) retain six clean
 frames and the source/binary hashes. Capture metadata identifies the reviewed
-working tree over base `5dbb554`, rather than mislabeling that base as this code.
+working tree over `90a9799`, including the GTK compatibility fix, rather than
+mislabeling that base as the rendered code.
 Hosted CI captures the exact PR head again and uploads the complete matrix;
 exact-revision results are linked in the stacked PR description. Earlier matrices
 below remain evidence only for their stated revisions. Xvfb/Openbox and integer

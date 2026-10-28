@@ -156,7 +156,10 @@ impl MusicPane {
         widget.append(&progress);
 
         let stack = gtk::Stack::new();
-        stack.set_hhomogeneous(true);
+        // Measure the visible page. GTK 4.14 otherwise measures hidden wrapped
+        // pages at their minimum height, forcing their natural width on the
+        // entire window even when the visible page fits a compact allocation.
+        stack.set_hhomogeneous(false);
         stack.set_vhomogeneous(false);
         stack.set_widget_name("music-sections");
         // Native linked toggles avoid StackSwitcher's equal-width tabs imposing

@@ -426,8 +426,10 @@ fn response_bound_and_transport_failures_are_fixed_errors() {
     client.begin_url = format!("http://{address}/device/code");
     client.timeout = Duration::from_millis(150);
     let server = thread::spawn(move || {
-        let mut stream = accept(&listener);
-        request(&mut stream);
+        // Hold the connection without a response. The total request deadline
+        // may also expire during writing under load, so a complete request is
+        // not a prerequisite for this timeout assertion.
+        let _stream = accept(&listener);
         thread::sleep(Duration::from_millis(400));
     });
     assert_eq!(client.begin().unwrap_err(), SessionError::Timeout);

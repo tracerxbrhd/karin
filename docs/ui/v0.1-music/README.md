@@ -29,9 +29,10 @@ contain neither these data nor a way to paste a token. The generated WAV remains
 in its separate developer diagnostics, never a substitute for a service track.
 
 [Capture metadata](capture-info.txt) records the binary/source hashes and the
-dirty working tree over base `5dbb554`. It does not misidentify the unchanged
-base commit as this implementation. The source hashes identify the reviewed UI;
-CI captures the exact PR head again and uploads the full matrix as an artifact.
+dirty working tree over `90a9799`, including the GTK 4.14 stack-width fix. It does
+not misidentify that base commit as the rendered code. The source hashes identify
+the reviewed UI. CI captures the exact PR head again and uploads the full matrix
+as an artifact.
 Only these selected, inspected frames are retained in source control.
 
 Reproduce the public matrix using `scripts/capture-ui.sh build/ui-captures` after
