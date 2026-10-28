@@ -45,6 +45,18 @@ Do not introduce Electron or web-based application shells.
   its exact origin/path and returned state before a token request. Treat the
   authorization code as opaque. Manual URL transfer is not an automatic
   production callback, and ID success does not establish Music access.
+- Issue #7's Device Flow is a separate development-only experiment. Require both
+  `experimental-device-auth` and `--experimental-music`; keep it out of public
+  default/Flatpak builds. Never bundle official/borrowed OAuth credentials or
+  add official-client headers. Application credentials are entered locally in
+  memory only, not through files, environment, command arguments or Cloud/CI.
+- Session and account/catalog acceptance are independent. Never turn metadata
+  into playback entitlement. The inspected protected/signing delivery code is
+  not an approved source; keep music playback unavailable until separately
+  established. No raw provider messages, personal models or credentials in logs.
+- Logout/close clears local data and invalidates stale UI work. No plaintext
+  credential store, persistent token or refresh/revocation claim before a
+  verified Secret Service lifecycle. Keep PKCE and developer audio independent.
 
 ## User Experience
 - Cassette by Rirusha is an aesthetic reference, not a source to copy.
@@ -89,6 +101,11 @@ When a Rust workspace exists, run:
 - cargo clippy --workspace --all-targets -- -D warnings
 - cargo test --workspace
 - cargo build --workspace
+
+Also check `--all-features` Clippy/tests and build the opted-in experimental
+configuration, then restore `--no-default-features` before public artifacts and
+captures. Check feature/runtime gating and the public Flatpak policy; neither
+real account access nor provider credentials belongs in automated checks.
 
 Preserve the minimum Rust series declared in `Cargo.toml` (1.98). Run the pinned
 Rust 1.98.1 CI checks as well as stable when changing Rust code, dependencies or

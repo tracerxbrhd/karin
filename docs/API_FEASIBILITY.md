@@ -11,7 +11,54 @@ only the behavior observed for that request, from this cloud environment, at thi
 time. It does not establish authenticated access, a playback entitlement, a stable
 API contract, or permission to distribute a third-party music client.
 
-## Gate B1: own-client OAuth verified locally; Music status forbidden
+## Current v0.1 vertical slice and 28 October owner evidence
+
+The owner completed the independent PR #6 comparison on Fedora 44:
+[own-client results](https://github.com/tracerxbrhd/karin/issues/5#issuecomment-6470853664).
+Fresh own-client PKCE/state/token and ID-client/account binding passed; **both**
+Music status and about returned generic `403 / Forbidden`, with TUN on and off.
+The provider's cause remains unknown. This supersedes the older pending-about
+entry below; it does not establish missing subscription or a particular scope
+failure.
+
+A separate [unmodified yamu Device Flow experiment](https://github.com/tracerxbrhd/karin/issues/5#issuecomment-6471162750)
+accessed authenticated account, search (20 first-page tracks), track and album
+metadata. The owner's [same-token A/B](https://github.com/tracerxbrhd/karin/issues/5#issuecomment-6471631991)
+then accepted status with and without `X-Yandex-Music-Client`. That header was
+unnecessary for that endpoint/token; the test does not distinguish flow from
+OAuth app registration/grant, certify other endpoints, or authorize distributing
+an official application's identity. No real tokens, credentials or response bodies
+were supplied to the cloud.
+
+The new code uses a thin typed, identity-neutral `MusicService`, retaining the
+approved reqwest/serde stack. Endpoint/model knowledge was reviewed in pinned
+[yamu source](RUST_API_CLIENT_REVIEW.md); no library, OAuth defaults, signing
+material or protected delivery code is imported. Requests remain bounded with
+five-second connection and fifteen-second normal request limits, 1 MiB bodies,
+no redirects/retries and fixed redacted errors. The UI consumes typed account,
+library, playlist, search and detail results, with explicit loading/error/empty
+states and bounded paging. The new Karin path is implemented, but owner-local
+service acceptance remains pending; source/fixture coverage is not live evidence.
+
+Device Flow is compiled only with `experimental-device-auth` and activated only
+with `--experimental-music`. A local native dialog accepts application credentials
+in memory, with no embedded identity, file/environment input or default secret.
+Use only credentials the owner is entitled to test. No public-client approval is
+inferred, and no extraction or redistribution of another application's credentials
+is proposed. The default/public Flatpak excludes this flow. Own-client PKCE is
+unchanged and remains a separately verified diagnostic. Session tokens are memory
+only; permanent credentials require a verified Secret Service lifecycle.
+
+The queue contains actual selected metadata, but Music playback remains visibly
+unavailable. The [stream review](STREAM_DELIVERY_REVIEW.md) found no confirmed
+permitted unsigned delivery contract; the inspected source negotiates through
+extracted signing material and another application's identity. No stream request,
+decryption, media download, mutation, likes/unlikes, My Wave or MPRIS service is
+added. See [ADR-0009](adr/0009-music-vertical-slice.md) for the scoped decision and
+[Fedora acceptance](BUILDING.md#experimental-music-session-and-fedora-acceptance).
+
+## Gate B1 diagnostic evidence (historical PR #6)
+
 
 On **2026-10-26**, the owner confirmed registration of a Karin-owned application
 of type **«Для авторизации пользователей»**, with these selected scopes:
@@ -35,7 +82,7 @@ Client secret nor private console screenshots belong in this repository.
 | Secretless S256 PKCE token exchange | Owner-observed on Fedora, 2026-10-26 | Fresh `ValidatedRedirect` and token HTTP 200; this supersedes the initial local input rejection |
 | Token belongs to the locally supplied Karin Client ID | Owner-observed on Fedora, 2026-10-26 | Yandex ID HTTP 200, matching Karin client and an existing ID account; not Music account access |
 | Token's effective scope and Music account access | Blocked at Music status | Authenticated `/account/status` returned HTTP 403 again in the DIRECT-path control; Music account presence and `serviceAvailable` remain unknown |
-| Independent read-only Music `/account/about` response | Awaiting local verification | Implemented as a separate same-token probe after successful ID checks, including when status is forbidden; no live provider result or personal-field schema is claimed |
+| Independent read-only Music `/account/about` response | Owner-reported HTTP 403, 2026-10-28 | Separate same-token probe returned generic Forbidden with TUN on/off; no personal-field schema or exact refusal cause established |
 | Read-only Music catalog response | Not run | Correctly skipped after forbidden Music status; about success cannot change this prerequisite and no catalog or playback acceptance follows |
 | Subscription/library/streams and public distribution rights | Not established | Neither registration nor catalog success licenses stream retrieval or distribution |
 
@@ -129,26 +176,21 @@ status still leaves account/service facts unknown and skips catalog access,
 while about retains its separate outcome. The classifier applies independently
 to both Music methods; it never interprets an about result as successful status.
 
-### Independent about probe: evidence still pending
+### Independent about probe: owner result received
 
-The explicitly added `/account/about` request is a bounded, read-only diagnostic
-on the same host using the same Karin token. It is part of the fixed probe plan
-after verified ID binding, not a retry, alternate identity or fallback intended
-to obtain refused status data. No live about response has been obtained in Cloud
-or reported by the owner. Local fixtures establish control flow and redaction,
-not provider acceptance or the actual cause of the status denial. A future
-consented Fedora run can report the two sanitized HTTP/error lines independently;
-account/service facts and catalog eligibility still come only from valid status.
+The fixed same-token about probe is diagnostic rather than a fallback for refused
+status data. Its owner-local result on 2026-10-28 was HTTP 403 / `Forbidden` in
+both network modes, recorded in the current evidence section above. No live
+account response was supplied to the cloud. Account/service facts remain unknown;
+fixtures establish control flow and redaction, not service acceptance or cause.
 
-The owner has not supplied an allowlisted provider error identifier for the
-actual 403, so its specific cause remains unresolved. External implementation
-clues and local fixtures do not establish that cause. Do not repeat login solely
-to test VPN, change OAuth/identity/region/routes, retry refused requests through
-other endpoints or infer Music access from the successful ID grant. The fixed
-about probe does not change these restrictions.
-
-The separate [Rust API-client review](RUST_API_CLIENT_REVIEW.md) evaluates reuse;
-no library is added and no API architecture or stream delivery is changed here.
+The owner has not supplied an allowlisted provider identifier for either actual
+403. Do not repeat login solely to test VPN, retry through other endpoints or infer
+Music access from ID success. The separate experimental integration introduced by
+Issue #7 is a new opted-in development boundary, not a change to PKCE or a claim
+that an official identity may be distributed. The earlier
+[Rust-client review](RUST_API_CLIENT_REVIEW.md) remains source-specific evidence;
+the new thin-adapter decision is in ADR-0009.
 
 ### Official documentation rechecked on 2026-10-26
 

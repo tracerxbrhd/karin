@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 
-# Karin foundation, playback and local OAuth diagnostics
+# Karin music interface, playback and local OAuth experiments
 
 Karin remains one Cargo package with internal modules. The service integration
 and the independently usable playback engine have separate responsibilities.
@@ -18,6 +18,12 @@ flowchart LR
   UI --> Audio[Finite synthetic diagnostic]
   Audio --> GST[GStreamer synthetic pipeline]
   UI --> Platform[D-Bus capability inspection]
+  UI --> MusicService[Typed read-only MusicService]
+  MusicService --> MusicHTTP[Identity-neutral bounded HTTPS]
+  MusicHTTP --> MusicREST[Music account / library / search / details]
+  UI --> Session[Opt-in memory-only development session]
+  Session --> Device[Device Flow / system browser]
+  UI --> Queue[Bounded metadata queue]
   CLI[Opt-in local OAuth CLI] --> OAuth[Isolated OAuth diagnostic]
   OAuth --> Browser[System browser / S256 PKCE]
   OAuth --> ID[Yandex ID client-binding check]
@@ -33,18 +39,23 @@ flowchart LR
 | `api` | Bounded anonymous HTTPS request, wire format parsing and sanitized errors |
 | `oauth` | Separate opt-in code/PKCE experiment, bounded token exchange, ID-client binding and read-only Music probes with sanitized reports |
 | `oauth_cli` | Binary-private local terminal input and system-browser launch; no credential arguments or GUI session |
+| `music` | Application-facing typed read-only service, reduced models, bounded transport and token-bound account cache |
+| `session` | Zeroizing ephemeral tokens; feature-gated Device Flow without bundled application credentials |
+| `queue` | Bounded selection/order of real track metadata, independent of unavailable service audio |
 | `capabilities` | Explicit unavailable Music authentication and a typed future permitted-stream boundary |
 | `playback` | Reusable controller, worker-owned `playbin`, typed playback state, local media sources and developer self-test |
 | `audio` | Existing finite synthetic pipeline, EOS/error/timeout handling and resource cleanup |
 | `platform` | Session D-Bus/Secret Service presence diagnostics; reserved future MPRIS identity |
 | `config` | Non-secret application identity and version |
-| `ui` | Native navigation, capability/blocker presentation, developer controls and main-thread updates |
+| `ui` / `ui::music` | Native library/search/details/queue, opt-in session controls, diagnostics and main-thread updates |
 | `main` | Concrete composition, application lifecycle and explicit diagnostic CLI modes |
 
 UI consumes domain/application values and controller snapshots, not HTTP
-responses, transport URLs or JSON schemas. The current Yandex adapter accepts no
+responses, transport URLs or JSON schemas. The anonymous `YandexApi` accepts no
 tokens, cookies or passwords and makes no authenticated requests. The separate
-Gate B1 OAuth diagnostic does not inject credentials into this adapter. Unknown
+Gate B1 OAuth diagnostic does not inject credentials into this adapter or the
+music interface. `MusicService` receives an ephemeral session token per call and
+never impersonates an official client. Unknown
 response schemas fail visibly rather than becoming invented account data.
 
 `AuthenticationUnavailable` is independent of a successful anonymous HTTP
@@ -54,6 +65,39 @@ stream source is enabled. Its implementation requires the evidence and owner
 actions in [API feasibility](API_FEASIBILITY.md) and
 [ADR-0006](adr/0006-music-authorization-feasibility.md), updated by the separate
 local experiment in [ADR-0008](adr/0008-local-oauth-pkce-diagnostic.md).
+The scoped development-session and read-only interface decision is recorded in
+[ADR-0009](adr/0009-music-vertical-slice.md); it does not enable a remote source.
+
+## Read-only music and session lifecycle
+
+The native Music pane consumes typed account, track, artist, album and playlist
+values. Library references are expanded in batches of at most 50 distinct IDs;
+duplicate playlist positions remain intact. Responses are bounded to 1 MiB, with
+five-second connect and fifteen-second total request deadlines, no redirects or
+automatic retries. A page can make at most two requests. No arbitrary returned
+resource URL is fetched. Request IDs, personal response bodies, headers, URLs and
+provider messages never enter displayable errors or Debug output.
+
+Default builds have no Device Flow provider. Both `experimental-device-auth` and
+`--experimental-music` are required for the local native experiment. Application
+credentials are entered in memory and cleared from the controls before the
+worker begins; no default identity, file/environment input or token-paste path
+exists. The provider code screen uses a system browser, bounded polling,
+countdown and cancellation. Music account validation is independent of token
+issuance. There is no persistent store, refresh or remote revocation claim.
+
+GTK jobs capture session/view generations and discard late results. Search text
+can change while the previous bounded job finishes. Logout/close invalidates all
+worker token clones locally, drops account/queue state and clears the service
+cache. A cache epoch prevents an old in-flight validation from restoring facts
+or overwriting a new session; an invalidated queued token cannot start another
+validation. An active HTTP call may retain its temporary credential until its
+deadline, without blocking GTK. Local invalidation is not server-side revocation.
+
+The ordinary application retains its window/controller through close; signal
+handlers reference controllers weakly. Queue editing selects metadata only.
+No permitted audio resource is resolved and the player bar reports this blocker.
+The existing generated-WAV diagnostic remains a separate developer tool.
 
 ## Playback controller
 
@@ -142,11 +186,13 @@ separate facts; errors and restrictions fail closed before later probes.
 The owner observed code/state in the actual verification-page redirect on Fedora;
 manual full-URL transfer now makes that return observable to the diagnostic.
 This is not an automatic callback listener or a tested production Linux sign-in
-flow. Actual token/Music acceptance remains pending a fresh local run. See ADR-0008.
+flow. The owner verified token/ID binding; both Music account methods returned
+403. See ADR-0008 and the dated [API evidence](API_FEASIBILITY.md).
 Automated OAuth fixtures use loopback only and require no account or browser.
 
 `org.mpris.MediaPlayer2.Karin` remains reserved and unexported. Gate A does not
-implement MPRIS, catalog/search/library, My Wave or a service playback queue.
+implement MPRIS or My Wave. The new music interface provides catalog/library
+reads and a metadata queue, with service playback still blocked.
 Flatpak permissions omit Secret Service and MPRIS ownership because neither is
 used. The existing sandbox grants suffice for generated local media and explicit
 system-output diagnostics; the Runtime/SDK selection is unchanged.

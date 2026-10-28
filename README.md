@@ -3,56 +3,48 @@
 # Karin
 
 An independent native Linux client for Yandex Music, built with Rust, GTK4,
-Libadwaita and GStreamer. **Gate B1 adds an opt-in local OAuth experiment;
-Yandex Music authorization and playback remain unverified.** Karin is not
-affiliated with Yandex.
+Libadwaita and GStreamer. **v0.1 provides a read-only music interface and an
+opt-in development session; service-stream playback remains blocked.** Karin
+is not affiliated with Yandex.
 
-## What works
+## Implemented slice
 
-- Native window with overview, connection states and a diagnostics section.
-- An explicit, anonymous availability request through a separate API adapter.
-  An HTTP response does not establish login, subscription or playback support.
-- Independent synthetic audio diagnostics, silently through `fakesink` or through
-  a system output selected by GStreamer. The UI labels this as a test signal.
-- A reusable GStreamer `playbin` controller with prepare, play, pause/resume,
-  stop, volume, supported seeking, EOS and error handling. The developer playback
-  section exercises it with a generated local WAV, separately from service access.
-- D-Bus and Secret Service presence inspection, without reading credentials.
-- A separate `--oauth-diagnostic` for locally testing Karin's own OAuth client
-  with authorization code + S256 PKCE, in-memory credentials and read-only probes.
-  After successful ID-client binding, `/account/status` and `/account/about`
-  have separate results; an unsuccessful status does not suppress about.
-  The owner verified token issuance and ID-client binding on Fedora; Music status
-  still returns HTTP 403, and about awaits local verification. This is not the
-  application's sign-in feature.
-- Offline tests, headless GTK startup checks and a GitHub Actions workflow.
+- A typed `MusicService` for authenticated account status, liked tracks, personal
+  playlists and their contents, track/album details, and paged search for tracks,
+  albums and artists. Its identity-neutral transport has bounded responses,
+  deadlines, fixed errors and no automatic retries or redirects.
+- A native music interface with loading/error/empty/session states, library and
+  search results, detail navigation and a bounded metadata queue. Only returned
+  service data is displayed; no demonstration catalog is shipped.
+- A cancelable native Device Flow experiment behind **both** the
+  `experimental-device-auth` build feature and `--experimental-music` runtime
+  flag. The owner supplies application credentials locally in memory. No client
+  identity/secret is bundled, and no passwords or pasted OAuth tokens are accepted.
+- The independent own-client `--oauth-diagnostic` remains unchanged: hidden full
+  redirect input, returned-state validation, S256 PKCE, secretless initial
+  exchange and separate sanitized status/about outcomes.
+- The existing GStreamer local-media controller and explicitly synthetic developer
+  diagnostics remain available. They are not substitutes for Music playback.
+- Offline protocol/model tests, native GTK/GStreamer smoke checks, public and
+  experimental build checks, and Rust stable / exact 1.98.1 CI lanes.
 
-Normal application operation requests no credentials. The opt-in diagnostic
-accepts a locally entered Client ID and full browser redirect URL through hidden
-terminal prompts, validates returned `state` and extracts the opaque one-time
-authorization code; it never requests a password, Client secret or pasted OAuth
-token, and never persists
-credentials. Yandex Music sign-in, library, search UI, My Wave, service stream
-resolution and MPRIS publication are not implemented. The owner confirmed a
-Karin-owned user-authorization registration with two Music scopes on 2026-10-26;
-this supersedes the earlier registration uncertainty. A subsequent Fedora run
-validated returned state, exchanged the code successfully and verified the Karin
-client through Yandex ID. Authenticated Music status returned HTTP 403, including
-the owner's DIRECT-path control, while a separate anonymous curl request returned
-HTTP 200. Music account/service availability and catalog access remain unknown.
-The independent `/account/about` probe reports only its own HTTP/error outcome;
-it cannot establish account/service facts or unlock catalog access after a
-failed status. The diagnostic classifies only allowlisted Music error identifiers,
-never raw responses or private messages. The application keeps its unavailable
-capability.
-See [API feasibility](docs/API_FEASIBILITY.md), the
-[Gate B1 decision](docs/adr/0008-local-oauth-pkce-diagnostic.md) and
-[local Fedora instructions](docs/BUILDING.md#local-oauth-diagnostic-gate-b1).
+The owner verified own-client PKCE and Yandex ID on Fedora; **both Music account
+endpoints returned HTTP 403**, with TUN on and off. A separate unmodified yamu
+Device Flow accessed account/search/track/album data. The same yamu-issued token
+worked at status without the Android-client header. These facts do not authorize
+shipping the official application's OAuth identity or establish stream rights.
+The new Karin session/UI path itself still requires owner-local acceptance.
 
-The developer controls operate on temporary, quiet synthetic media, not a song,
-playlist or Yandex Music stream. Silent output is the default; physical output
-requires an explicit choice. This validates a player engine rather than the full
-v0.1 music-client experience.
+The public/default build and Flatpak exclude Device Flow. Experimental sessions
+are memory-only; logout clears local session/data and does not revoke the server
+grant. Persistent sessions require a separately verified Secret Service lifecycle.
+No playlist mutations, likes/unlikes, My Wave, service-stream resolver or MPRIS
+player is enabled. Playback controls visibly state the missing permitted-source
+contract rather than playing generated WAV as music.
+
+See [the integration decision](docs/adr/0009-music-vertical-slice.md),
+[API evidence](docs/API_FEASIBILITY.md), [stream-delivery review](docs/STREAM_DELIVERY_REVIEW.md)
+and [local Fedora acceptance](docs/BUILDING.md#experimental-music-session-and-fedora-acceptance).
 
 ## Build and run
 
@@ -68,15 +60,16 @@ cargo run --locked
 The primary manual acceptance platform is Fedora 44 / KDE Plasma / Wayland /
 PipeWire. [Issue #3](https://github.com/tracerxbrhd/karin/issues/3) reports that
 the v0.0 native and Flatpak prototypes launch and diagnostic audio works there.
-Gate A's playback controls and revised layout require fresh manual acceptance;
+The new music/session interface and existing playback controls require fresh manual acceptance;
 startup alone is not visual signoff. Cloud validation uses Debian 13 / Xvfb.
 In the prepared Codex Cloud environment, prefix native build commands with
 `/workspace/karin-environment/run`.
 
 ```sh
 cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo test --workspace --locked
+cargo test --workspace --all-features --locked
 cargo build --workspace --locked
 ./target/debug/karin --audio-self-test
 ./target/debug/karin --playback-self-test
@@ -109,7 +102,8 @@ required by automated tests. Executed results and pending manual checks are in
 
 The Flatpak manifest and offline Cargo source preparation are in `packaging/`.
 GNOME 50 and the Freedesktop 25.08 Rust extension are retained, with no additional
-sandbox permissions for Gate A. Full sandboxed builds remain unavailable in this
+sandbox permissions for the music slice. The manifest explicitly builds without
+experimental features. Full sandboxed builds remain unavailable in this
 cloud container because Bubblewrap namespace creation is denied; the new revision
 must be packaged and accepted on Fedora independently of the reported v0.0 result.
 

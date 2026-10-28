@@ -2,87 +2,59 @@
 
 # Known limitations
 
-- **Yandex Music access remains forbidden in the tested flow.** On 2026-10-26
-  the owner
-  confirmed Karin's own user-authorization registration with two Music scopes
-  and two ID scopes. Registration alone establishes neither endpoint rights,
-  account entitlement nor stream delivery. The owner
-  subsequently observed Karin's browser consent and an opaque code with returned
-  state on Fedora. After the initial code-format correction, a fresh local run
-  validated state, received a token and verified the Karin client through
-  Yandex ID (both HTTP 200). Authenticated Music status returned HTTP 403 again
-  in the DIRECT-path control; account/service facts remain unknown and the
-  catalog query is skipped. Anonymous curl status HTTP 200 does not change that.
-  The new independent `/account/about` probe has no live local result yet. Its
-  success would not establish status account/service facts or unlock the catalog;
-  its failure does not suppress catalog access after valid authenticated status.
-  The GUI keeps `AuthenticationUnavailable`; no borrowed client, pasted-token
-  login, password collection or service stream is included. See
-  [API_FEASIBILITY.md](API_FEASIBILITY.md) and [ADR-0008](adr/0008-local-oauth-pkce-diagnostic.md).
-- **The OAuth diagnostic is not a production login/session.** Its documented
-  verification-code page is for manual developer testing. The hidden prompt
-  accepts the full returned browser URL and validates state before extracting
-  the opaque code; a code-only fallback is not offered. This manual transfer is
-  not an automatic callback or production Linux login. The initial exchange is
-  secretless, but public native Linux callback, refresh/revocation and secure
-  permanent storage remain unverified.
-  Optional token-scope metadata is not independent Music entitlement evidence.
-  Tokens are memory-only, no stream is requested and account tests must remain
-  local to the consenting owner. After successful ID-client/account verification,
-  status and about run independently with separate sanitized HTTP/error results.
-  About validates only a bounded JSON object `result`, without top-level `error`,
-  and discards all fields; it is not an established personal-account model.
-- **HTTP restrictions retain their scope.** Anonymous search and metadata
-  requests returned HTTP 451 from the cloud egress. That observation does not
-  determine authenticated behavior or the cause on Fedora. The later Fedora
-  DIRECT-path and anonymous controls weaken a simple proxy/TUN explanation but
-  do not prove identical egress or identify the reason for Music HTTP 403.
-  Only exact `missing-required-scopes` in a string `error` or nested `error.name`
-  is classified; the actual Fedora response's provider identifier has not been
-  observed here. Unknown identifiers and unsupported bodies remain `Forbidden`.
-  Raw messages and
-  private response data are never exposed. No alternate route, region,
-  identity or delivery path is used to bypass the restriction. The separately
-  planned same-token about probe is not a fallback for refused status data.
-- **The player engine is not a service-stream implementation.** Gate A uses
-  real GStreamer `playbin` playback for local files. The developer entry point
-  generates temporary quiet WAV media; it is not a song catalog, playlist or
-  authenticated Music view. Service stream resolution, library/search/My Wave,
-  caching and offline service music remain unimplemented.
-  General local media must be trusted, since playlist/decoder plugins can refer
-  to other resources. The current GTK entry point and CI use only generated PCM
-  WAV; there is no arbitrary-file chooser or playlist import.
-- **Silent playback does not prove physical output or every codec.** `fakesink`
-  exercises real local-file decoding, transport and EOS without a sound device.
-  It does not establish PipeWire audibility, codec support for an unknown future
-  stream, or a permitted Yandex playback path. The user-reported v0.0 audible
-  diagnostic on Fedora is distinct from Gate A's pending system-output tests.
-- **Desktop acceptance remains manual.** Issue #3 reports that the v0.0 native
-  and Flatpak prototypes launch and diagnostic audio works on Fedora 44 / KDE
-  Plasma / Wayland / PipeWire. Gate A's controls, output, resize behavior,
-  keyboard/focus, HiDPI and accessibility need fresh acceptance there. The earlier
-  visual rejection remains historical evidence; startup reports and Debian/Xvfb
-  screenshots do not establish subsequent visual signoff.
-- **Shutdown is cooperative.** Playback commands and shutdown requests are
-  asynchronous. The worker observes cancellation and resets/drops its pipeline
-  before reporting completion; dropping a handle alone is not proof of cleanup.
-  Existing HTTP/finite diagnostics may hold the application until their bounded
-  work completes. Forceful process termination cannot guarantee cleanup.
-- **Secret Service and MPRIS are not completed integrations.** The application
-  inspects session bus/keyring presence without reading secrets. It does not
-  store credentials or publish a player on MPRIS. Those integrations remain
-  separate future work.
-- **Gate A packaging acceptance remains pending.** The v0.0 Flatpak startup
-  result is user-reported. Source preparation and manifest parsing in this cloud
-  do not establish a fresh sandboxed build/install of Gate A; Bubblewrap user
-  namespaces are denied in the nested container. GNOME 50, the Freedesktop 25.08
-  Rust extension and the existing permissions are retained.
-- **Verification reports are environment-specific.** Executed local checks and
-  remaining manual gates are recorded in [VALIDATION.md](VALIDATION.md). The
-  actual GitHub Actions run is authoritative for hosted-runner outcomes; adding
-  a workflow step alone does not establish that it passed.
-- **Licensing does not grant service access.** Karin's own code and original
-  materials use GPL-3.0-or-later; third-party components retain their terms.
-  Distribution still requires corresponding source/notices and applicable
-  component obligations. GPL does not override Yandex Music terms or authorize
-  API use or redistribution of service content.
+- **Public Music sign-in is not established.** The owner verified Karin-owned
+  PKCE/token issuance and Yandex ID, but both Music `/account/status` and
+  `/account/about` returned generic HTTP 403 with TUN on and off. Their exact
+  cause remains unknown; selected scopes, ID success and anonymous HTTP 200 do
+  not establish Music entitlement. See [API evidence](API_FEASIBILITY.md).
+- **Experimental Device Flow is local and opt-in.** It requires the build feature
+  and runtime flag, and locally entered application credentials the owner is
+  entitled to test. No official-app defaults or credentials are bundled. The
+  successful unmodified yamu experiment does not authorize Karin distribution
+  under another application's identity. The default/public Flatpak excludes
+  this flow. No password, cookie scraping or token-paste fallback is provided.
+- **Sessions do not survive restart.** Tokens and locally entered application
+  credentials remain in memory; no plaintext credential file, environment input
+  or token store is used. Logout/close clears local session state, but does not
+  revoke Yandex's server grant. Refresh, remote revocation and a verified Secret
+  Service lifecycle remain future gates. Keyring presence detection alone does
+  not complete them.
+- **Music data acceptance is endpoint-specific.** The new adapter and UI implement
+  read-only account/library/playlist/search/details requests and paging, but must
+  be checked on Fedora with an authorized test session. Prior owner evidence
+  covers yamu account/search/track/album, not every Karin endpoint or schema.
+  Writes, like/unlike, playlist editing, recommendations and My Wave are excluded
+  until their methods and permissions are independently validated.
+- **Real Music audio is blocked.** The reviewed yamu delivery path requires
+  extracted official-client signing material and non-Karin request identity;
+  a permitted unsigned, identity-neutral source contract has not been established.
+  No signing key, protected-stream decryption, audio URL resolver or service
+  download is implemented. The metadata queue can be edited, but does not pretend
+  to play tracks. See [delivery evidence](STREAM_DELIVERY_REVIEW.md).
+- **The GStreamer engine remains independent.** Local-file playback and clearly
+  labeled generated-WAV diagnostics exercise decoding, transport, seeking, EOS
+  and cleanup. They do not establish service playback, every future codec or
+  physical PipeWire output. MPRIS remains deferred until a real service source
+  and truthful playback state exist.
+- **Cloud results are limited.** Synthetic loopback fixtures and Xvfb/Openbox
+  captures establish only their stated protocol/UI behavior. They cannot certify
+  Fedora/KDE/Wayland decorations, HiDPI, accessibility, account rights, audible
+  music or the exact Flatpak artifact. Fresh owner acceptance remains required.
+- **Shutdown is cooperative.** Cancel/logout discards stale work and local
+  presentation state; a bounded in-flight HTTP call can retain a temporary token
+  clone until it completes. Forceful process termination cannot guarantee native
+  cleanup or erase all HTTP/TLS/OS copies. No raw provider diagnostics or personal
+  data should be published from local tests.
+- **Flatpak acceptance is pending for this revision.** GNOME 50, Freedesktop
+  25.08 Rust extension and existing permissions are preserved. No host filesystem
+  or Secret Service grant is added. Source preparation and offline Cargo checks
+  do not establish a full sandboxed build; Bubblewrap namespaces are denied in
+  the cloud environment.
+- **Code licenses do not grant service access.** GPL-3.0-or-later and compatible
+  dependency licenses require their notices/source obligations and grant no
+  Yandex API, content, application-identity or trademark rights. The thin adapter
+  uses schema knowledge from pinned yamu source without importing its OAuth,
+  official-client identity or delivery implementation.
+
+Executed checks and outstanding acceptance are recorded in
+[VALIDATION.md](VALIDATION.md). A workflow definition is not a passed run.

@@ -21,19 +21,19 @@ integration evidence and explicit unresolved blockers.
 
 Acceptance: working end-to-end features verified on Fedora.
 
-Gate A is the preliminary authorization/playback-feasibility gate: an independent
-local-media GStreamer engine and an evidence-backed Music integration decision.
-The Gate A [authorization decision](adr/0006-music-authorization-feasibility.md)
-recorded the initial Music authorization blocker. Gate B1 now uses the
-owner-confirmed multiuser registration for an isolated local S256 PKCE diagnostic.
-The owner verified token issuance and ID-client binding on Fedora; authenticated
-Music status returned HTTP 403. The independent same-token `/account/about`
-probe awaits a local result. Music account/catalog access and production
-callback/session acceptance remain pending. See
-[ADR-0008](adr/0008-local-oauth-pkce-diagnostic.md) and the source-only
-[Rust API client review](RUST_API_CLIENT_REVIEW.md); no library adoption is made.
-Music sign-in and stream resolution remain unavailable in the application. The
-[playback foundation](adr/0007-playback-controller.md) does not complete the end-to-end v0.1 acceptance above.
+Gate A established an independent GStreamer engine. Gate B1's own-client PKCE
+and Yandex ID checks passed on the owner's Fedora desktop; Music status/about
+both returned HTTP 403. An isolated unmodified yamu experiment accessed account,
+search and metadata, but did not establish permission to redistribute its OAuth
+identity or a permitted Music stream.
+
+The current [vertical slice](adr/0009-music-vertical-slice.md) adds a clean typed
+MusicService, read-only library/search/details UI, metadata queue and explicitly
+opted-in development Device Flow. This code requires new owner-local acceptance.
+The default/public build has no Device Flow or persistent session. A permitted
+source, audible service playback, verified credential lifecycle, write methods,
+MPRIS and My Wave remain separate gates. The [delivery review](STREAM_DELIVERY_REVIEW.md)
+records the concrete audio blocker; generated media does not complete v0.1.
 
 ## Later Releases
 UX polish, richer library features, lyrics, settings,

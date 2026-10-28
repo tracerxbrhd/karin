@@ -9,8 +9,11 @@ fictional music catalogs, recommendations or player controls.
 
 ## Required matrix
 
-Inspect both overview and diagnostics at each size below, in **light and dark
-themes**. Use actual allocated dimensions; distinguish requested size from the
+Inspect the music interface and diagnostics at each size below, in **light and
+dark themes**. Cover signed-out library/search/queue navigation and the opted-in
+development login entry without real credentials. Account/search/detail states
+may use synthetic fixtures only in explicitly identified tests, never a release
+catalog. Use actual allocated dimensions; distinguish requested size from the
 size achieved under the window manager.
 
 | Window state | Approximate size | Main checks |
@@ -32,6 +35,9 @@ For each theme and relevant page:
   control may be clipped, including when maximized.
 - Check heading levels, margins, group spacing and reasonable row/button widths.
   Long status and error text must wrap without pushing actions off-screen.
+  The persistent player's single-line track title may use native ellipsis only
+  when its complete text is available through a tooltip and accessible label;
+  this exception does not apply to headings, errors, status text or action labels.
 - Use Tab and Shift+Tab through navigation, menu and action buttons. Verify a
   visible focus indicator, logical focus order, Enter/Space activation and
   keyboard access to every implemented action. Check Ctrl+Q shutdown.
@@ -43,6 +49,13 @@ For each theme and relevant page:
   working production integration.
 - Keep audio tests clearly labelled as synthetic. Do not make a screenshot run
   play physical sound or contact an account without an explicit action.
+- Check music detail/back navigation, result paging and stale-search handling,
+  session cancel/logout, empty and unavailable-item text, queue editing and the
+  visible permitted-source blocker. Disabled player controls must not suggest
+  successful service playback. Default builds must not expose Device Flow.
+- Never capture real application credentials, verification codes, auth/browser
+  pages or account/library data for public evidence. Cloud capture should use
+  clean signed-out states; authenticated fixture coverage must be explicit.
 
 ## GTK structure and behavior
 

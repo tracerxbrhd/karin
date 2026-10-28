@@ -8,6 +8,13 @@ development environment. Karin's own code and original materials are
 standard GPLv3 text is in [LICENSE](../LICENSE); [ADR-0005](adr/0005-licensing.md)
 records the approved decision. Third-party files retain their original licenses.
 
+The Issue #7 slice was reviewed on **2026-10-28** without adding a crate or
+changing `Cargo.lock`. The thin Music adapter uses endpoint/schema knowledge
+from the pinned yamu review, with original implementations and GPL SPDX notices;
+no upstream OAuth identity, secret, signing/decryption code or media is imported.
+The locked dependency inventory and supplied notices remain applicable. Clean UI
+captures use only signed-out states or explicitly synthetic test metadata.
+
 ## License text and scope
 
 `LICENSE` is copied byte-for-byte from the Debian base image's standard

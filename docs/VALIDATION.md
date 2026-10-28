@@ -6,7 +6,109 @@ This report separates initial cloud checks, user-reported Fedora acceptance,
 revised UI checks and compiler compatibility. A result for one environment or
 revision is not evidence that another has passed.
 
-## v0.1 Gate B1 (2026-10-26)
+## v0.1 music vertical slice — current revision
+
+Issue #7 adds the identity-neutral read-only MusicService, native library/search/
+detail views, a metadata queue and local experimental Device Flow. Both the build
+feature and runtime flag are required; no application credentials are embedded,
+no real account/token is supplied to Cloud/CI and no session is persisted.
+Own-client PKCE remains independent and unchanged. No permitted service-stream
+source has been established, so service playback and MPRIS remain unavailable.
+
+### Executed cloud checks
+
+The prepared Debian 13 environment retained GTK 4.18.6, Libadwaita 1.7.6,
+GStreamer 1.26.2 and the approved SDK/runtime selection. No crate was added and
+`Cargo.lock` is unchanged.
+
+| Check | Stable 1.99.1 | Exact Rust 1.98.1 |
+| --- | --- | --- |
+| Formatting; default and all-feature all-target Clippy with `-D warnings` | Passed, no warnings | Passed, no warnings |
+| Public workspace tests | **86 passed**, 0 failed; 1 GTK test separately selected | **86 passed**, 0 failed; 1 GTK test separately selected |
+| Experimental workspace tests | **94 passed**, 0 failed; 1 GTK test separately selected | **94 passed**, 0 failed; 1 GTK test separately selected |
+| Explicit native Music HTTP-fixture test under Xvfb | **1 passed**, 0 failed | **1 passed**, 0 failed |
+| Locked public and experimental debug builds | Passed | Passed |
+| Public/experimental GTK layout, navigation and cleanup smoke | Passed | Passed |
+| Public hidden-terminal and both silent GStreamer diagnostics | Passed | Passed |
+
+The public totals are 82 library + 4 binary tests, and experimental totals are
+90 library + 4 binary tests. The native test is normally marked ignored because
+it needs an isolated display; it was explicitly run and passed on both toolchains.
+It exercises native application-credential cancellation without a provider call,
+Music account validation, liked-track pagination, playlists, search, track/album
+details, 50-row album pages, queue editing and an in-flight result after logout.
+Every HTTP endpoint remains loopback, and all account/credential/media data is
+synthetic. Test fixtures/capture hooks are under `cfg(test)`, not release content.
+
+The 11 Music protocol groups include deterministic account-cache regressions:
+logout during validation, overlapping old/new accounts and an invalidated queued
+worker. Cache epochs and shared local token invalidation prevent stale account
+facts from restoring or displacing a new session. Eight Device Flow protocol
+groups check pending/slowdown, expiry/denial, cancellation including an in-flight
+grant, bounded responses, trusted verification URLs and secret-safe errors.
+The unchanged own-client PKCE suite and 14 PTY cases plus missing-TTY rejection
+also passed; no real browser, token or provider account was used.
+
+Both public and opted-in Rust 1.98.1 release builds passed with `--offline
+--locked`; optimized GTK checks passed for both, and the public binary passed
+terminal and silent audio/player checks. The public artifact was restored after
+the experimental build. Default builds reject `--experimental-music`. Integer
+HiDPI (`GDK_SCALE=2`, Xvfb 3840×2160) passed the public GTK smoke separately.
+Structural checks wait a bounded time for resize/breakpoint allocation to settle
+and retain every clipping/navigation/resource assertion.
+
+The dependency-license inventory was regenerated and byte-compared: **200 external
+crates / 171 Linux graph**, unchanged. Public Cargo/Flatpak feature and permission
+policy checks passed. `prepare-source.py` vendored the locked dependencies and
+preserved notices; its snapshot matched all current Rust sources and Cargo files.
+An independent native `cargo +1.98.1 build --release --offline --locked
+--no-default-features` from that vendored snapshot passed in 2m59s. This is a
+source/build check, **not a full sandboxed Flatpak build**: Flatpak Builder 1.4.4
+is available, but Bubblewrap reported that namespace creation is not permitted.
+No privilege or sandbox workaround was attempted.
+
+### Visual evidence and hosted checks
+
+All **50 real GTK PNGs** were inspected: 42 public application frames and eight
+explicitly synthetic native HTTP-fixture frames, split evenly between light and
+dark themes. The application matrix covers library/search/queue/diagnostics at
+420×720, 900×650, 1440×900 and actual WM maximize 1920×1080, with geometry/EWMH
+records, keyboard focus/activation and diagnostic playback states. Header/text/
+spacing/scrolling checks found no blocking defect. The persistent player's
+intentional one-line metadata ellipsis requires a full tooltip/accessibility
+label; viewport scrolling is distinguished from text clipping.
+
+[Selected screenshots and reproduction](ui/v0.1-music/README.md) retain six clean
+frames and the source/binary hashes. Capture metadata identifies the reviewed
+working tree over base `5dbb554`, rather than mislabeling that base as this code.
+Hosted CI captures the exact PR head again and uploads the complete matrix;
+exact-revision results are linked in the stacked PR description. Earlier matrices
+below remain evidence only for their stated revisions. Xvfb/Openbox and integer
+GDK scaling do not establish Fedora/KDE/Wayland or fractional-HiDPI acceptance.
+
+### Owner facts received on 2026-10-28
+
+- [Own-client status/about comparison](https://github.com/tracerxbrhd/karin/issues/5#issuecomment-6470853664):
+  state/token/ID succeeded; both Music endpoints returned generic HTTP 403 with
+  TUN on and off. No conclusion about the exact refusal cause or subscription.
+- [Unmodified yamu experiment](https://github.com/tracerxbrhd/karin/issues/5#issuecomment-6471162750):
+  Device Flow, account, search, track and album reads worked on Fedora. This is
+  not a new Karin UI/adapter acceptance result or a stream test.
+- [Same-token header A/B](https://github.com/tracerxbrhd/karin/issues/5#issuecomment-6471631991):
+  status succeeded with and without the Android client header. The result is
+  limited to that token/endpoint and grants no redistribution permission.
+
+Pending owner acceptance includes the new in-memory Device Flow, actual Karin
+library/playlist/search/details and paging, cancel/logout/late-response behavior,
+keyboard/HiDPI/themes and the exact public Flatpak artifact. The owner must share
+only coarse outcomes and safe categories; no codes, credentials, personal rows,
+raw responses, URLs with parameters or screenshots of account/auth pages.
+See [the checklist](BUILDING.md#experimental-music-session-and-fedora-acceptance),
+[ADR-0009](adr/0009-music-vertical-slice.md) and
+[delivery evidence](STREAM_DELIVERY_REVIEW.md).
+
+## Historical v0.1 Gate B1 (2026-10-26)
+
 
 The owner-confirmed Karin user-authorization registration and four selected
 scopes are recorded in [Issue #5](https://github.com/tracerxbrhd/karin/issues/5#issuecomment-6411056234).
@@ -22,7 +124,7 @@ supplied to Codex Cloud, CI or GitHub. No real authorization or token endpoint w
 exercised by the cloud/automated checks. The existing
 GUI login capability remains unavailable and the playback engine is independent.
 
-### Independent status/about diagnostic: current revision
+### Independent status/about diagnostic (revision `5dbb554`)
 
 The diagnostic now plans separate same-token `GET /account/status` and
 `GET /account/about` requests after successful ID-client/account verification.
@@ -60,9 +162,9 @@ unchanged. Hosted results for the final revision are linked from
 [PR #6's checks](https://github.com/tracerxbrhd/karin/pull/6/checks). Historical
 matrices below remain evidence for their stated revisions only.
 
-No live `/account/about` result has been supplied. Its independent local Fedora
-check, the actual status-403 identifier/cause and Music service acceptance remain
-unverified. Local fixture success cannot establish any of those outcomes. No real
+At this revision, no live `/account/about` result had been supplied. The later
+owner-reported HTTP 403 is recorded above; the exact refusal cause and Music
+service acceptance remain unverified. Local fixture success cannot establish any of those outcomes. No real
 OAuth inputs or account response were supplied to Cloud/CI, and no API-client
 dependency was added. Public library sources were inspected without executing
 them; see the [Rust-client review](RUST_API_CLIENT_REVIEW.md). OAuth/PKCE, routes,
@@ -244,7 +346,7 @@ Full Flatpak SDK/sandbox
 packaging remains a separate Fedora check because the cloud container denies
 Bubblewrap user namespaces; no bypass is used.
 
-### Remaining Music API and desktop acceptance
+### Gate B1 remaining Music API and desktop acceptance (historical scope)
 
 Karin's code/state return, initial secretless token exchange and ID-client
 binding are now owner-reported successes. The effective Music rights, Music
