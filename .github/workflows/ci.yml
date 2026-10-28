@@ -5,7 +5,7 @@ on:
   push:
     branches: [master, 'feature/**', 'fix/**', 'chore/**']
   pull_request:
-    branches: [master]
+    branches: [master, 'feature/v0.1-oauth-pkce-diagnostic']
   workflow_dispatch:
 
 permissions:
@@ -66,12 +66,57 @@ jobs:
           PY
       - name: Formatting
         run: cargo fmt --all -- --check
+      - name: Verify public build policy
+        run: |
+          python3 - <<'PY'
+          import json
+          import tomllib
+          from pathlib import Path
+
+          cargo = tomllib.loads(Path("Cargo.toml").read_text())
+          features = cargo.get("features", {})
+          pending = list(features.get("default", []))
+          seen = set()
+          while pending:
+              feature = pending.pop()
+              if feature not in seen:
+                  seen.add(feature)
+                  pending.extend(features.get(feature, []))
+          assert "experimental-device-auth" not in seen, "Experimental OAuth must remain opt-in"
+          manifest = json.loads(Path("packaging/flatpak/io.github.tracerxbrhd.Karin.json").read_text())
+          commands = manifest["modules"][0]["build-commands"]
+          assert "cargo build --release --offline --locked --no-default-features" in commands
+          assert all("--all-features" not in command and "--features" not in command for command in commands)
+          assert all("--experimental-music" not in command for command in commands)
+          assert not any(arg.startswith("--filesystem=") or "org.freedesktop.secrets" in arg for arg in manifest["finish-args"])
+          PY
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Experimental feature Clippy
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
       - name: Unit and local integration tests
         run: cargo test --workspace --locked
-      - name: Build
-        run: cargo build --workspace --locked
+      - name: Experimental feature tests (synthetic local HTTP only)
+        run: cargo test --workspace --all-features --locked
+      - name: Native Music session and catalog against loopback fixtures
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+          GSK_DEBUG: full-redraw
+        run: |
+          if [ '${{ matrix.lane }}' = stable ]; then
+            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
+          fi
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_music_session_catalog_queue_and_logout -- --ignored --test-threads=1
+      - name: Build opted-in experimental client
+        run: cargo build --workspace --features experimental-device-auth --locked
+      - name: Experimental GTK startup and cleanup under Xvfb
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+        run: dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' ./target/debug/karin --experimental-music --smoke-test
+      - name: Build public client without experimental authentication
+        run: cargo build --workspace --no-default-features --locked
       - name: Local OAuth terminal boundaries (synthetic input, no browser or network)
         run: python3 scripts/test-oauth-terminal.py ./target/debug/karin
       - name: Fetch locked dependencies for the offline release build
@@ -79,7 +124,7 @@ jobs:
         run: cargo fetch --locked
       - name: Flatpak-style offline release build on MSRV
         if: matrix.lane == 'msrv'
-        run: cargo build --release --offline --locked
+        run: cargo build --release --offline --locked --no-default-features
       - name: Release OAuth terminal boundaries on MSRV
         if: matrix.lane == 'msrv'
         run: python3 scripts/test-oauth-terminal.py ./target/release/karin
@@ -108,6 +153,18 @@ jobs:
           GTK_A11Y: none
           GSK_RENDERER: cairo
         run: dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' ./target/release/karin --smoke-test
+      - name: Opted-in offline release build on MSRV
+        if: matrix.lane == 'msrv'
+        run: cargo build --release --offline --locked --features experimental-device-auth
+      - name: Experimental release GTK startup and cleanup on MSRV
+        if: matrix.lane == 'msrv'
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+        run: dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' ./target/release/karin --experimental-music --smoke-test
+      - name: Restore public release artifact on MSRV
+        if: matrix.lane == 'msrv'
+        run: cargo build --release --offline --locked --no-default-features
       - name: Capture real GTK visual review matrix
         if: matrix.lane == 'stable'
         run: scripts/capture-ui.sh build/ui-captures

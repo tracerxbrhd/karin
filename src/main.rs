@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::{cell::Cell, rc::Rc, time::Duration};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+    time::Duration,
+};
 
 use adw::prelude::*;
 use gtk::{gio, glib};
@@ -8,12 +12,32 @@ use karin::{api::YandexApi, application::ConnectionService, audio, config, playb
 mod oauth_cli;
 
 fn main() -> glib::ExitCode {
-    let args: Vec<_> = std::env::args().skip(1).collect();
+    let mut args: Vec<_> = std::env::args().skip(1).collect();
+    let experimental = args.iter().any(|arg| arg == "--experimental-music");
+    if experimental && !cfg!(feature = "experimental-device-auth") {
+        eprintln!("Experimental Music login is absent from this public build.");
+        return glib::ExitCode::from(2);
+    }
+    if args
+        .iter()
+        .filter(|arg| *arg == "--experimental-music")
+        .count()
+        > 1
+    {
+        eprintln!("Duplicate experimental option.");
+        return glib::ExitCode::from(2);
+    }
+    args.retain(|arg| arg != "--experimental-music");
     match args.as_slice() {
         [flag] if flag == "--help" || flag == "-h" => {
             println!(
                 "Karin\n\nUsage: karin [--smoke-test | --audio-self-test | --playback-self-test | --probe-service | --oauth-diagnostic | --version]\n\n--smoke-test          Verify GTK and local playback cleanup without network or sound\n--audio-self-test     Process a synthetic signal through GStreamer fakesink\n--playback-self-test  Decode a generated local WAV through playbin; test controls and cleanup\n--probe-service       Make an anonymous availability request (network required)\n--oauth-diagnostic    Opt-in local PKCE experiment; private terminal and system browser required"
             );
+            if cfg!(feature = "experimental-device-auth") {
+                println!(
+                    "--experimental-music  Enable the local development-only Music session UI (no bundled OAuth identity)"
+                );
+            }
             return glib::ExitCode::SUCCESS;
         }
         [flag] if flag == "--version" => {
@@ -118,19 +142,22 @@ fn main() -> glib::ExitCode {
                 .license_type(gtk::License::Gpl30)
                 .copyright("© 2026 Karin contributors")
                 .website("https://github.com/tracerxbrhd/karin")
-                .comments("v0.1 Gate A: независимый локальный аудиодвижок. Вход и потоки Яндекс Музыки недоступны.")
+                .comments("v0.1: библиотека и поиск через отдельный MusicService. Экспериментальный вход не включён в публичную сборку. Источник аудио Яндекс Музыки не подтверждён.")
                 .build();
             dialog.present(app.active_window().as_ref());
         }
     });
     app.add_action(&about);
     let checked = smoke_passed.clone();
+    // Music signal handlers keep weak controller references. Retain the normal
+    // window/controller until close, just as the smoke future retains its UI.
+    let normal_window = Rc::new(RefCell::new(None::<ui::MainWindow>));
     app.connect_activate(move |app| {
         if let Some(window) = app.active_window() {
             window.present();
             return;
         }
-        let ui = ui::build(app, service.clone());
+        let ui = ui::build_with_options(app, service.clone(), experimental);
         ui.window.present();
         if smoke {
             let app = app.clone();
@@ -148,10 +175,10 @@ fn main() -> glib::ExitCode {
                             eprintln!("GTK layout failure: resizing changed the selected page");
                             layout_passed = false;
                         }
-                        for page in ["home", "diagnostics"] {
+                        for page in ["music-library", "music-search", "music-queue", "diagnostics"] {
                             ui.show_page(page);
                             glib::timeout_future(Duration::from_millis(60)).await;
-                            if let Err(error) = ui.verify_layout() {
+                            if let Err(error) = ui.wait_for_layout().await {
                                 eprintln!("GTK layout failure at {width}×{height}/{page}: {error}");
                                 layout_passed = false;
                             }
@@ -163,7 +190,7 @@ fn main() -> glib::ExitCode {
                 for (width, height) in [(420, 720), (900, 650), (1440, 900)] {
                     ui.window.set_default_size(width, height);
                     glib::timeout_future(Duration::from_millis(160)).await;
-                    if let Err(error) = ui.verify_layout() {
+                    if let Err(error) = ui.wait_for_layout().await {
                         eprintln!("GTK playback layout failure at {width}×{height}: {error}");
                         layout_passed = false;
                     }
@@ -190,6 +217,17 @@ fn main() -> glib::ExitCode {
                     app.quit();
                 }
             });
+        } else {
+            let retained = Rc::downgrade(&normal_window);
+            ui.window.connect_close_request(move |_| {
+                if let Some(retained) = retained.upgrade() {
+                    glib::idle_add_local_once(move || {
+                        retained.borrow_mut().take();
+                    });
+                }
+                glib::Propagation::Proceed
+            });
+            *normal_window.borrow_mut() = Some(ui);
         }
     });
     let code = app.run_with_args(&["karin"]);

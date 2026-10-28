@@ -9,6 +9,11 @@ repository = "https://github.com/tracerxbrhd/karin"
 license = "GPL-3.0-or-later"
 publish = false
 
+[features]
+default = []
+# Local owner experiments only; default builds contain no Device Flow provider.
+experimental-device-auth = []
+
 [dependencies]
 base64 = "0.22"
 adw = { package = "libadwaita", version = "0.8", features = ["v1_5"] }

@@ -15,7 +15,11 @@ if [ "${1-}" != --session ]; then
         printf '\nRendered binary and UI sources:\n'
         sha256sum "$binary"
         sha256sum "$repository/src/ui.rs" "$repository/src/ui/playback.rs" \
-            "$repository/src/main.rs" "$repository/src/playback.rs" "$repository/src/capabilities.rs"
+            "$repository/src/ui/music.rs" "$repository/src/music.rs" \
+            "$repository/src/session.rs" "$repository/src/session/device.rs" \
+            "$repository/src/queue.rs" "$repository/src/main.rs" \
+            "$repository/src/playback.rs" "$repository/src/capabilities.rs"
+        printf '\nExperimental UI requested: %s\n' "${KARIN_CAPTURE_EXPERIMENTAL:-0}"
         if command -v dpkg-query >/dev/null 2>&1; then
             dpkg-query -W xvfb openbox imagemagick xdotool librsvg2-common
         fi
@@ -63,7 +67,11 @@ while [ "$attempt" -lt 80 ]; do
     sleep 0.1
 done
 [ "$wm_ready" = true ] || wm_failure 'Openbox did not publish EWMH activation support within 8 seconds'
-"$binary" > "$output_dir/application.log" 2>&1 &
+if [ "${KARIN_CAPTURE_EXPERIMENTAL:-0}" = 1 ]; then
+    "$binary" --experimental-music > "$output_dir/application.log" 2>&1 &
+else
+    "$binary" > "$output_dir/application.log" 2>&1 &
+fi
 app_pid=$!
 window=
 attempt=0
@@ -102,14 +110,26 @@ for shape in compact medium wide; do
         wide) resize 1440 900 ;;
     esac
     xdotool key --clearmodifiers alt+1
+    xdotool key --clearmodifiers ctrl+l
     capture "$shape-overview"
+    xdotool key --clearmodifiers ctrl+f
+    capture "$shape-search"
+    xdotool key --clearmodifiers ctrl+j
+    capture "$shape-queue"
+    xdotool key --clearmodifiers ctrl+l
     xdotool key --clearmodifiers alt+2
     scroll_to_top
     capture "$shape-diagnostics"
 done
 wmctrl -ir "$window" -b add,maximized_vert,maximized_horz
 xdotool key --clearmodifiers alt+1
+xdotool key --clearmodifiers ctrl+l
 capture maximized-overview
+xdotool key --clearmodifiers ctrl+f
+capture maximized-search
+xdotool key --clearmodifiers ctrl+j
+capture maximized-queue
+xdotool key --clearmodifiers ctrl+l
 xdotool key --clearmodifiers alt+2
 scroll_to_top
 capture maximized-diagnostics

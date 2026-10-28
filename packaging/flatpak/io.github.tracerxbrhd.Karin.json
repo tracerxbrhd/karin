@@ -24,7 +24,7 @@
       "name": "karin",
       "buildsystem": "simple",
       "build-commands": [
-        "cargo build --release --offline --locked",
+        "cargo build --release --offline --locked --no-default-features",
         "install -Dm755 target/release/karin /app/bin/karin",
         "install -Dm644 packaging/io.github.tracerxbrhd.Karin.desktop /app/share/applications/io.github.tracerxbrhd.Karin.desktop",
         "install -Dm644 packaging/icons/io.github.tracerxbrhd.Karin.svg /app/share/icons/hicolor/scalable/apps/io.github.tracerxbrhd.Karin.svg",

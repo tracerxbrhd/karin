@@ -6,6 +6,7 @@ use std::{cell::RefCell, rc::Rc};
 use adw::prelude::*;
 use gtk::{gio, glib};
 
+mod music;
 mod playback;
 
 use crate::{
@@ -24,10 +25,10 @@ pub struct MainWindow {
     header_items: Vec<gtk::Widget>,
     switcher: adw::ViewSwitcher,
     navigation: adw::ViewSwitcherBar,
-    check: gtk::Button,
     scrolls: Vec<gtk::ScrolledWindow>,
     lifetime_refs: Vec<glib::WeakRef<gtk::Widget>>,
     player: playback::DeveloperPlayback,
+    music: music::MusicPane,
 }
 
 impl MainWindow {
@@ -38,7 +39,17 @@ impl MainWindow {
     }
 
     pub fn show_page(&self, name: &str) {
-        self.stack.set_visible_child_name(name);
+        match name {
+            "music-search" | "music-queue" | "music-library" => {
+                self.stack.set_visible_child_name("home");
+                let _ = gtk::prelude::WidgetExt::activate_action(
+                    &self.window,
+                    &format!("win.{name}"),
+                    None,
+                );
+            }
+            _ => self.stack.set_visible_child_name(name),
+        }
     }
 
     pub fn visible_page(&self) -> Option<glib::GString> {
@@ -47,7 +58,8 @@ impl MainWindow {
 
     pub fn focus_primary_action(&self) -> bool {
         self.show_page("home");
-        self.check.grab_focus() && self.check.has_focus()
+        let primary = self.music.primary_action();
+        primary.grab_focus() && primary.has_focus()
     }
 
     pub fn verify_layout(&self) -> Result<(), String> {
@@ -84,7 +96,24 @@ impl MainWindow {
                 return Err("Horizontal scrolling would hide content".into());
             }
         }
+        if self.visible_page().as_deref() == Some("home") {
+            self.music.verify_layout()?;
+        }
         check_widget_geometry(self.window.upcast_ref(), self.window.upcast_ref())
+    }
+
+    /// Breakpoints can expose a widget before its next frame allocates it.
+    /// Keep every structural assertion, but wait a bounded time for GTK layout.
+    pub async fn wait_for_layout(&self) -> Result<(), String> {
+        let mut last = Err("GTK layout did not settle".into());
+        for _ in 0..20 {
+            glib::timeout_future(std::time::Duration::from_millis(25)).await;
+            last = self.verify_layout();
+            if last.is_ok() {
+                return last;
+            }
+        }
+        last
     }
 
     /// Consume every strong reference before observing deferred widget cleanup.
@@ -96,6 +125,7 @@ impl MainWindow {
             ancestor = widget.parent();
         }
         let player = self.player.cleanup_observer();
+        self.music.close();
         self.window.close();
         drop(self);
         move |report| {
@@ -154,6 +184,14 @@ impl MainWindow {
 }
 
 pub fn build(app: &adw::Application, service: ConnectionService) -> MainWindow {
+    build_with_options(app, service, false)
+}
+
+pub fn build_with_options(
+    app: &adw::Application,
+    service: ConnectionService,
+    experimental: bool,
+) -> MainWindow {
     let window = adw::ApplicationWindow::builder()
         .application(app)
         .title(config::APP_NAME)
@@ -224,7 +262,6 @@ pub fn build(app: &adw::Application, service: ConnectionService) -> MainWindow {
         .stack(&stack)
         .reveal(false)
         .build();
-    toolbar.add_bottom_bar(&navigation);
     toolbar.set_content(Some(&stack));
     window.set_content(Some(&toolbar));
 
@@ -246,8 +283,8 @@ pub fn build(app: &adw::Application, service: ConnectionService) -> MainWindow {
         AuthenticationUnavailable::MusicGrantNotEstablished,
     ) = service.capabilities().authentication;
     connection_group.add(&row(
-        "Вход в Яндекс Музыку недоступен",
-        "Для Karin не подтверждены Music-права и разрешённый доступ к потокам. Вход через Яндекс ID сам по себе их не предоставляет.",
+        "Публичный вход не включён",
+        "Собственный PKCE проверяется отдельно. Экспериментальный сеанс доступен только в специальной локальной сборке; публичная интеграция и источник аудио ещё не подтверждены.",
     ));
     diagnostics.append(&connection_group);
     let player = playback::DeveloperPlayback::new(app, &window);
@@ -313,64 +350,28 @@ pub fn build(app: &adw::Application, service: ConnectionService) -> MainWindow {
     ));
     diagnostics.append(&runtime_group);
 
-    let (home, home_heading) = page("Обзор", "Karin · v0.1 Gate A");
-    let overview_columns = gtk::Box::new(gtk::Orientation::Horizontal, 24);
-    overview_columns.set_valign(gtk::Align::Start);
-    let status = gtk::Box::new(gtk::Orientation::Vertical, 16);
-    status.add_css_class("card");
-    status.set_hexpand(true);
-    status.set_valign(gtk::Align::Start);
-    let status_content = gtk::Box::new(gtk::Orientation::Vertical, 16);
-    margins(&status_content, 24);
-    let status_eyebrow = label("Подключение к Яндекс Музыке", "heading");
-    let status_title = label("", "title-2");
+    let (home, home_heading) = page("Музыка", "Библиотека, поиск и плейлисты");
+    let music = music::MusicPane::new(app, &window, experimental);
+    home.append(&music.widget);
+    toolbar.add_bottom_bar(&music.player_bar);
+    toolbar.add_bottom_bar(&navigation);
+
+    // Keep the anonymous availability request in the technical diagnostics.
+    let status = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    let status_title = label("", "heading");
     let status_description = label("", "");
     let check = gtk::Button::with_label("Проверить доступность");
-    check.add_css_class("suggested-action");
     check.set_halign(gtk::Align::Start);
     let spinner = gtk::Spinner::builder().visible(false).build();
-    let controls = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-    controls.append(&check);
-    controls.append(&spinner);
-    status_content.append(&status_eyebrow);
-    status_content.append(&status_title);
-    status_content.append(&status_description);
-    status_content.append(&controls);
-    status.append(&status_content);
-    overview_columns.append(&status);
-    let shortcuts = adw::PreferencesGroup::builder()
-        .title("Доступно в прототипе")
-        .width_request(260)
-        .build();
-    shortcuts.add(&shortcut(
-        &stack,
-        &player.prepare,
-        "Локальный проигрыватель",
-        "Диагностика разработчика · тестовый WAV",
-    ));
-    shortcuts.add(&shortcut(
-        &stack,
-        &silent,
-        "Аудиодиагностика",
-        "Обработка звука и тестовый сигнал",
-    ));
-    shortcuts.add(&shortcut(
-        &stack,
-        &inspect,
-        "Рабочий стол",
-        "D-Bus и Secret Service",
-    ));
-    overview_columns.append(&shortcuts);
-    home.append(&overview_columns);
-    let note = label(
-        "Вход и потоки Яндекс Музыки недоступны: нужны подтверждённые Music-права для приложения Karin. Локальный плеер и диагностика работают независимо от сервиса.",
-        "dim-label",
-    );
-    home.append(&note);
+    status.append(&status_title);
+    status.append(&status_description);
+    status.append(&check);
+    status.append(&spinner);
+    diagnostics.append(&status);
     let home_scroll = scroll_page(&home);
     let diagnostics_scroll = scroll_page(&diagnostics);
     stack
-        .add_titled(&home_scroll, Some("home"), "Обзор")
+        .add_titled(&home_scroll, Some("home"), "Музыка")
         .set_icon_name(Some("go-home-symbolic"));
     stack
         .add_titled(&diagnostics_scroll, Some("diagnostics"), "Диагностика")
@@ -387,11 +388,6 @@ pub fn build(app: &adw::Application, service: ConnectionService) -> MainWindow {
         adw::BreakpointCondition::parse("max-width: 850sp").expect("constant breakpoint"),
     );
     compact_content.add_setter(
-        &overview_columns,
-        "orientation",
-        Some(&gtk::Orientation::Vertical.to_value()),
-    );
-    compact_content.add_setter(
         &diagnostic_columns,
         "orientation",
         Some(&gtk::Orientation::Vertical.to_value()),
@@ -400,11 +396,6 @@ pub fn build(app: &adw::Application, service: ConnectionService) -> MainWindow {
     window.add_breakpoint(compact_content);
     // Only the last matching breakpoint is active. Include content setters in
     // the smallest range as well, then register it after the medium range.
-    compact_navigation.add_setter(
-        &overview_columns,
-        "orientation",
-        Some(&gtk::Orientation::Vertical.to_value()),
-    );
     compact_navigation.add_setter(
         &diagnostic_columns,
         "orientation",
@@ -416,9 +407,9 @@ pub fn build(app: &adw::Application, service: ConnectionService) -> MainWindow {
         let action = gio::SimpleAction::new(name, None);
         let stack = stack.downgrade();
         let target = if page == "home" {
-            &check
+            music.primary_action()
         } else {
-            &player.prepare
+            player.prepare.clone()
         }
         .downgrade();
         action.connect_activate(move |_, _| {
@@ -577,10 +568,10 @@ pub fn build(app: &adw::Application, service: ConnectionService) -> MainWindow {
         ],
         switcher,
         navigation,
-        check,
         scrolls: vec![home_scroll, diagnostics_scroll],
         lifetime_refs,
         player,
+        music,
     }
 }
 
@@ -637,26 +628,6 @@ fn row(title: &str, subtitle: &str) -> adw::ActionRow {
         .build()
 }
 
-fn shortcut(
-    stack: &adw::ViewStack,
-    target: &gtk::Button,
-    title: &str,
-    subtitle: &str,
-) -> adw::ActionRow {
-    let row = row(title, subtitle);
-    row.set_activatable(true);
-    row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
-    let stack = stack.downgrade();
-    let target = target.downgrade();
-    row.connect_activated(move |_| {
-        if let (Some(stack), Some(target)) = (stack.upgrade(), target.upgrade()) {
-            stack.set_visible_child_name("diagnostics");
-            target.grab_focus();
-        }
-    });
-    row
-}
-
 /// Layout checks complement screenshots; intentional vertical scrolling is allowed.
 fn check_widget_geometry(widget: &gtk::Widget, window: &gtk::Widget) -> Result<(), String> {
     if widget.is_mapped() {
@@ -677,7 +648,12 @@ fn check_widget_geometry(widget: &gtk::Widget, window: &gtk::Widget) -> Result<(
             ));
         }
         if let Some(label) = widget.downcast_ref::<gtk::Label>() {
-            if label.layout().is_ellipsized() {
+            // Track titles in a fixed-height player bar use native ellipsis;
+            // the full metadata must remain available as a tooltip/accessibility
+            // label. Headings, status text and actions still must fit in full.
+            let complete_metadata = label.widget_name() == "music-current-title"
+                && label.tooltip_text().as_deref() == Some(label.text().as_str());
+            if label.layout().is_ellipsized() && !complete_metadata {
                 return Err(format!("Text was ellipsized: {}", label.text()));
             }
             // Text layout height must fit its own allocation. Viewport clipping
