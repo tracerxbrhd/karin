@@ -18,7 +18,9 @@ if [ "${1-}" != --session ]; then
             "$repository/src/ui/music.rs" "$repository/src/music.rs" \
             "$repository/src/session.rs" "$repository/src/session/device.rs" \
             "$repository/src/queue.rs" "$repository/src/main.rs" \
-            "$repository/src/playback.rs" "$repository/src/capabilities.rs"
+            "$repository/src/playback.rs" "$repository/src/capabilities.rs" \
+            "$repository/src/auth.rs" "$repository/src/ui/auth.rs" \
+            "$repository/src/ui/auth/webkit.rs"
         printf '\nExperimental UI requested: %s\n' "${KARIN_CAPTURE_EXPERIMENTAL:-0}"
         if command -v dpkg-query >/dev/null 2>&1; then
             dpkg-query -W xvfb openbox imagemagick xdotool librsvg2-common
@@ -112,6 +114,11 @@ for shape in compact medium wide; do
     xdotool key --clearmodifiers alt+1
     xdotool key --clearmodifiers ctrl+l
     capture "$shape-overview"
+    # Alt+1 focuses the real Login action; no credentials or provider request.
+    xdotool key --clearmodifiers alt+1 Return
+    capture "$shape-login"
+    xdotool key --clearmodifiers Escape
+    sleep 0.4
     xdotool key --clearmodifiers ctrl+f
     capture "$shape-search"
     xdotool key --clearmodifiers ctrl+j
@@ -125,6 +132,10 @@ wmctrl -ir "$window" -b add,maximized_vert,maximized_horz
 xdotool key --clearmodifiers alt+1
 xdotool key --clearmodifiers ctrl+l
 capture maximized-overview
+xdotool key --clearmodifiers alt+1 Return
+capture maximized-login
+xdotool key --clearmodifiers Escape
+sleep 0.4
 xdotool key --clearmodifiers ctrl+f
 capture maximized-search
 xdotool key --clearmodifiers ctrl+j

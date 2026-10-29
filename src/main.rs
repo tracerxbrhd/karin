@@ -35,7 +35,7 @@ fn main() -> glib::ExitCode {
             );
             if cfg!(feature = "experimental-device-auth") {
                 println!(
-                    "--experimental-music  Enable the local development-only Music session UI (no bundled OAuth identity)"
+                    "--experimental-music  Development compatibility flag; sign-in still requires a permitted Music provider"
                 );
             }
             return glib::ExitCode::SUCCESS;
@@ -142,7 +142,7 @@ fn main() -> glib::ExitCode {
                 .license_type(gtk::License::Gpl30)
                 .copyright("© 2026 Karin contributors")
                 .website("https://github.com/tracerxbrhd/karin")
-                .comments("v0.1: библиотека и поиск через отдельный MusicService. Экспериментальный вход не включён в публичную сборку. Источник аудио Яндекс Музыки не подтверждён.")
+                .comments("v0.1: библиотека и поиск через отдельный MusicService. Вход ожидает подтверждения разрешённого доступа Karin к Music API. Источник аудио Яндекс Музыки не подтверждён.")
                 .build();
             dialog.present(app.active_window().as_ref());
         }
@@ -182,6 +182,10 @@ fn main() -> glib::ExitCode {
                                 eprintln!("GTK layout failure at {width}×{height}/{page}: {error}");
                                 layout_passed = false;
                             }
+                        }
+                        if let Err(error) = ui.exercise_login_for_smoke().await {
+                            eprintln!("GTK login dialog failure at {width}×{height}: {error}");
+                            layout_passed = false;
                         }
                     }
                 }

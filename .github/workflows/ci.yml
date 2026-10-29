@@ -43,7 +43,7 @@ jobs:
             build-essential pkg-config libgtk-4-dev libadwaita-1-dev \
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
             gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
-            libssl-dev libdbus-1-dev libsecret-1-dev dbus-x11 xvfb xauth \
+            libssl-dev libdbus-1-dev libsecret-1-dev libwebkitgtk-6.0-dev dbus-x11 xvfb xauth \
             librsvg2-common openbox imagemagick xdotool wmctrl x11-utils
       - name: Install selected Rust toolchain
         run: |
@@ -83,6 +83,7 @@ jobs:
                   seen.add(feature)
                   pending.extend(features.get(feature, []))
           assert "experimental-device-auth" not in seen, "Experimental OAuth must remain opt-in"
+          assert "auth-webkit" not in seen, "The unactivated WebKit component must remain optional"
           manifest = json.loads(Path("packaging/flatpak/io.github.tracerxbrhd.Karin.json").read_text())
           commands = manifest["modules"][0]["build-commands"]
           assert "cargo build --release --offline --locked --no-default-features" in commands
@@ -108,8 +109,18 @@ jobs:
             export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
           fi
           dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_music_session_catalog_queue_and_logout -- --ignored --test-threads=1
-      - name: Build opted-in experimental client
-        run: cargo build --workspace --features experimental-device-auth --locked
+      - name: Build all optional authentication components
+        run: cargo build --workspace --all-features --locked
+      - name: Isolated WebKit construction and cancellation
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+        run: dbus-run-session -- xvfb-run -a cargo test --lib --all-features --locked webkit_auth_construction_and_shutdown_without_navigation -- --ignored --test-threads=1
+      - name: WebKit local navigation, callback, cookie isolation and late cancellation
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+        run: dbus-run-session -- xvfb-run -a cargo test --lib --all-features --locked webkit_auth_local_startup_cookie_isolation_and_cancel -- --ignored --test-threads=1
       - name: Experimental GTK startup and cleanup under Xvfb
         env:
           GTK_A11Y: none
@@ -155,7 +166,7 @@ jobs:
         run: dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' ./target/release/karin --smoke-test
       - name: Opted-in offline release build on MSRV
         if: matrix.lane == 'msrv'
-        run: cargo build --release --offline --locked --features experimental-device-auth
+        run: cargo build --release --offline --locked --all-features
       - name: Experimental release GTK startup and cleanup on MSRV
         if: matrix.lane == 'msrv'
         env:

@@ -6,6 +6,7 @@ use std::{cell::RefCell, rc::Rc};
 use adw::prelude::*;
 use gtk::{gio, glib};
 
+mod auth;
 mod music;
 mod playback;
 
@@ -60,6 +61,11 @@ impl MainWindow {
         self.show_page("home");
         let primary = self.music.primary_action();
         primary.grab_focus() && primary.has_focus()
+    }
+
+    pub async fn exercise_login_for_smoke(&self) -> Result<(), String> {
+        self.show_page("music-library");
+        self.music.exercise_login_for_smoke().await
     }
 
     pub fn verify_layout(&self) -> Result<(), String> {
@@ -283,8 +289,8 @@ pub fn build_with_options(
         AuthenticationUnavailable::MusicGrantNotEstablished,
     ) = service.capabilities().authentication;
     connection_group.add(&row(
-        "Публичный вход не включён",
-        "Собственный PKCE проверяется отдельно. Экспериментальный сеанс доступен только в специальной локальной сборке; публичная интеграция и источник аудио ещё не подтверждены.",
+        "Вход в Музыку пока недоступен",
+        "Для Karin ещё не подтверждён разрешённый способ авторизации в Яндекс Музыке. Источник музыкального аудио проверяется отдельно.",
     ));
     diagnostics.append(&connection_group);
     let player = playback::DeveloperPlayback::new(app, &window);

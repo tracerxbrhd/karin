@@ -1,20 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Native account/catalog presentation. Only typed application results reach GTK.
 
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 use adw::prelude::*;
 use gtk::{gio, glib};
 
+use super::auth::LoginDialog;
+use crate::auth::AuthorizationCode;
 use crate::{
-    music::{Album, Artist, MusicError, MusicService, Playlist, SearchKind, Track},
+    auth::{AuthAttempt, AuthError, AuthProvider, BrowserMode},
+    music::{Album, Artist, MusicError, MusicService, Page, Playlist, SearchKind, Track},
     queue::MusicQueue,
     session::AccessToken,
 };
-
-#[cfg(feature = "experimental-device-auth")]
-use crate::session::{DeviceAuthClient, DeviceChallenge, DevicePoll};
-
 pub(super) struct MusicPane {
     pub widget: gtk::Box,
     pub player_bar: gtk::Box,
@@ -31,8 +30,9 @@ struct Model {
     library_page: u32,
     search_page: u32,
     queue: MusicQueue,
-    #[cfg(feature = "experimental-device-auth")]
-    challenge: Option<DeviceChallenge>,
+    attempt: Option<Arc<AuthAttempt>>,
+    liked: Option<Result<Page<Track>, MusicError>>,
+    playlists: Option<Result<Page<Playlist>, MusicError>>,
 }
 
 #[derive(Clone)]
@@ -42,7 +42,7 @@ struct Widgets {
     login: gtk::Button,
     logout: gtk::Button,
     spinner: gtk::Spinner,
-    status: gtk::Label,
+    status: adw::ActionRow,
     stack: gtk::Stack,
     library_mode: gtk::DropDown,
     library_refresh: gtk::Button,
@@ -62,30 +62,15 @@ struct Widgets {
     previous: gtk::Button,
     next: gtk::Button,
     clear_queue: gtk::Button,
-    #[cfg(feature = "experimental-device-auth")]
-    auth: AuthWidgets,
-}
-
-#[cfg(feature = "experimental-device-auth")]
-#[derive(Clone)]
-struct AuthWidgets {
-    revealer: gtk::Revealer,
-    configuration: gtk::Box,
-    client_id: gtk::Entry,
-    client_secret: gtk::PasswordEntry,
-    begin: gtk::Button,
-    progress: gtk::Box,
-    code: gtk::Label,
-    remaining: gtk::Label,
-    open: gtk::Button,
-    copy: gtk::Button,
-    cancel: gtk::Button,
 }
 
 struct Controller {
     app: glib::WeakRef<adw::Application>,
     service: Option<MusicService>,
-    experimental: bool,
+    provider: Arc<dyn AuthProvider>,
+    launch_browser: fn(&str) -> Result<(), AuthError>,
+    window: glib::WeakRef<adw::ApplicationWindow>,
+    login_dialog: RefCell<Option<LoginDialog>>,
     model: RefCell<Model>,
     widgets: Widgets,
 }
@@ -102,10 +87,25 @@ impl MusicPane {
     fn with_service(
         app: &adw::Application,
         window: &adw::ApplicationWindow,
-        experimental: bool,
+        _experimental: bool,
         service: Option<MusicService>,
     ) -> Self {
-        let experimental = experimental && cfg!(feature = "experimental-device-auth");
+        Self::with_provider(
+            app,
+            window,
+            service,
+            crate::auth::public_provider(),
+            launch_system_browser,
+        )
+    }
+
+    fn with_provider(
+        app: &adw::Application,
+        window: &adw::ApplicationWindow,
+        service: Option<MusicService>,
+        provider: Arc<dyn AuthProvider>,
+        launch_browser: fn(&str) -> Result<(), AuthError>,
+    ) -> Self {
         let widget = gtk::Box::new(gtk::Orientation::Vertical, 18);
         widget.set_widget_name("music-pane");
         let account_card = gtk::Box::new(gtk::Orientation::Vertical, 12);
@@ -116,16 +116,9 @@ impl MusicPane {
         account.set_widget_name("music-account");
         let notice = text(public_notice(), "dim-label");
         let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-        let login = gtk::Button::with_label(if experimental {
-            "Войти"
-        } else {
-            "О входе"
-        });
+        let login = gtk::Button::with_label("Войти");
         login.set_widget_name("music-login");
-        if experimental {
-            login.add_css_class("suggested-action");
-            notice.set_text("Локальный эксперимент. Токен остаётся в памяти до выхода; использование OAuth-приложения и доступ к Music проверяются отдельно.");
-        }
+        login.add_css_class("suggested-action");
         let logout = gtk::Button::with_label("Выйти");
         logout.set_tooltip_text(Some("Закрыть локальный сеанс и удалить токен из памяти"));
         logout.set_sensitive(false);
@@ -137,22 +130,17 @@ impl MusicPane {
         account_card.append(&account_content);
         widget.append(&account_card);
 
-        #[cfg(feature = "experimental-device-auth")]
-        let auth = {
-            let auth = auth_widgets();
-            widget.append(&auth.revealer);
-            auth
-        };
-
-        let progress = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-        let spinner = gtk::Spinner::new();
-        let status = text(
-            "Откройте сеанс для доступа к библиотеке и поиску.",
-            "dim-label",
-        );
+        let progress = adw::PreferencesGroup::new();
+        let status = adw::ActionRow::builder()
+            .title("Выполните вход для доступа к библиотеке и поиску.")
+            .title_lines(0)
+            .subtitle_lines(0)
+            .build();
         status.set_widget_name("music-status");
-        progress.append(&spinner);
-        progress.append(&status);
+        let spinner = gtk::Spinner::new();
+        spinner.set_valign(gtk::Align::Center);
+        status.add_suffix(&spinner);
+        progress.add(&status);
         widget.append(&progress);
 
         let stack = gtk::Stack::new();
@@ -327,13 +315,14 @@ impl MusicPane {
             previous,
             next,
             clear_queue,
-            #[cfg(feature = "experimental-device-auth")]
-            auth,
         };
         let controller = Rc::new(Controller {
             app: app.downgrade(),
+            window: window.downgrade(),
             service,
-            experimental,
+            provider,
+            launch_browser,
+            login_dialog: RefCell::new(None),
             model: RefCell::new(Model {
                 token: None,
                 account_valid: false,
@@ -344,8 +333,9 @@ impl MusicPane {
                 library_page: 0,
                 search_page: 0,
                 queue: MusicQueue::new(),
-                #[cfg(feature = "experimental-device-auth")]
-                challenge: None,
+                attempt: None,
+                liked: None,
+                playlists: None,
             }),
             widgets,
         });
@@ -367,6 +357,45 @@ impl MusicPane {
         self.controller.close();
     }
 
+    pub async fn exercise_login_for_smoke(&self) -> Result<(), String> {
+        self.controller.open_login();
+        let mut result = Err("Login dialog did not settle".to_owned());
+        for _ in 0..40 {
+            glib::timeout_future(std::time::Duration::from_millis(25)).await;
+            if self.controller.model.borrow().busy {
+                continue;
+            }
+            let dialog = self.controller.login_dialog.borrow().as_ref().cloned();
+            let Some(dialog) = dialog else {
+                break;
+            };
+            let Some(window) = self.controller.window.upgrade() else {
+                break;
+            };
+            if !dialog.dialog.is_mapped() || !dialog.cancel.is_sensitive() {
+                continue;
+            }
+            result = super::check_widget_geometry(dialog.dialog.upcast_ref(), window.upcast_ref());
+            if result.is_ok() {
+                break;
+            }
+        }
+        self.controller.cancel_login();
+        if self.controller.model.borrow().account_valid
+            || self.controller.model.borrow().token.is_some()
+            || self.controller.login_dialog.borrow().is_some()
+            || !self
+                .controller
+                .widgets
+                .status
+                .subtitle()
+                .is_none_or(|value| value.is_empty())
+        {
+            return Err("Blocked login/cancellation retained session state".into());
+        }
+        result
+    }
+
     pub fn verify_layout(&self) -> Result<(), String> {
         if self.widget.is_mapped() && self.widget.width() <= 0 {
             return Err("Music page has no width".into());
@@ -385,6 +414,363 @@ impl Drop for MusicPane {
 }
 
 impl Controller {
+    fn open_login(self: &Rc<Self>) {
+        if self.model.borrow().closed || self.model.borrow().account_valid {
+            return;
+        }
+        if let Some(dialog) = self.login_dialog.borrow().as_ref() {
+            if let Some(window) = self.window.upgrade() {
+                dialog.dialog.present(Some(&window));
+            }
+            return;
+        }
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        let dialog = LoginDialog::new();
+        let weak = Rc::downgrade(self);
+        dialog.dialog.connect_closed(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.cancel_login();
+            }
+        });
+        let weak = Rc::downgrade(self);
+        dialog.cancel.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.cancel_login();
+            }
+        });
+        let weak = Rc::downgrade(self);
+        dialog.retry.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.start_login();
+            }
+        });
+        *self.login_dialog.borrow_mut() = Some(dialog.clone());
+        dialog.dialog.present(Some(&window));
+        dialog.cancel.grab_focus();
+        self.start_login();
+    }
+
+    fn dismiss_login(&self) {
+        let dialog = self.login_dialog.borrow_mut().take();
+        if let Some(dialog) = dialog {
+            dialog.shutdown();
+            dialog.dialog.force_close();
+        }
+    }
+
+    fn cancel_login(&self) {
+        if self.login_dialog.borrow().is_none() {
+            return;
+        }
+        {
+            let mut model = self.model.borrow_mut();
+            model.generation += 1;
+            model.view_generation += 1;
+            model.busy = false;
+            if let Some(attempt) = model.attempt.take() {
+                attempt.cancel();
+            }
+            if let Some(token) = model.token.take() {
+                token.invalidate();
+            }
+            model.account_valid = false;
+        }
+        if let Some(service) = &self.service {
+            service.clear_session();
+        }
+        self.dismiss_login();
+        self.reset_status();
+        self.render_controls();
+        self.widgets.login.grab_focus();
+    }
+
+    fn reset_status(&self) {
+        self.widgets
+            .status
+            .set_title("Выполните вход для доступа к библиотеке и поиску.");
+        self.widgets.status.set_subtitle("");
+    }
+
+    fn start_login(self: &Rc<Self>) {
+        if self.login_dialog.borrow().is_none() {
+            return;
+        }
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let generation = {
+            let mut model = self.model.borrow_mut();
+            if model.closed {
+                return;
+            }
+            if let Some(attempt) = model.attempt.take() {
+                attempt.cancel();
+            }
+            if let Some(token) = model.token.take() {
+                token.invalidate();
+            }
+            model.generation += 1;
+            model.view_generation += 1;
+            model.account_valid = false;
+            model.busy = true;
+            model.generation
+        };
+        if let Some(service) = &self.service {
+            service.clear_session();
+        }
+        self.reset_status();
+        if let Some(dialog) = self.login_dialog.borrow().as_ref() {
+            dialog.shutdown();
+            dialog.loading("Подготовка входа…");
+        }
+        self.render_controls();
+        let provider = self.provider.clone();
+        let weak = Rc::downgrade(self);
+        let hold = app.hold();
+        glib::spawn_future_local(async move {
+            let _hold = hold;
+            let result = gio::spawn_blocking(move || provider.begin()).await;
+            let Some(this) = weak.upgrade() else {
+                if let Ok(Ok(attempt)) = result {
+                    attempt.cancel();
+                }
+                return;
+            };
+            if !this.current_attempt(generation) {
+                if let Ok(Ok(attempt)) = result {
+                    attempt.cancel();
+                }
+                return;
+            }
+            match result {
+                Ok(Ok(attempt)) => this.present_attempt(attempt, generation),
+                Ok(Err(error)) => this.auth_failed(error),
+                Err(_) => this.auth_failed(AuthError::Configuration),
+            }
+        });
+    }
+
+    fn current_attempt(&self, generation: u64) -> bool {
+        let model = self.model.borrow();
+        !model.closed && model.generation == generation && self.login_dialog.borrow().is_some()
+    }
+
+    fn present_attempt(self: &Rc<Self>, attempt: Arc<AuthAttempt>, generation: u64) {
+        self.model.borrow_mut().attempt = Some(attempt.clone());
+        let url = attempt.authorization_url();
+        match attempt.browser_mode() {
+            BrowserMode::System => {
+                if (self.launch_browser)(&url).is_err() {
+                    self.auth_failed(AuthError::BrowserLoad);
+                    return;
+                }
+                if let Some(dialog) = self.login_dialog.borrow().as_ref() {
+                    dialog.system_browser();
+                }
+                self.wait_for_callback(attempt, generation);
+            }
+            BrowserMode::Embedded => {
+                #[cfg(feature = "auth-webkit")]
+                self.present_embedded(attempt, generation, &url);
+                #[cfg(not(feature = "auth-webkit"))]
+                self.auth_failed(AuthError::Configuration);
+            }
+        }
+    }
+
+    #[cfg(feature = "auth-webkit")]
+    fn present_embedded(self: &Rc<Self>, attempt: Arc<AuthAttempt>, generation: u64, url: &str) {
+        let expiry_attempt = Arc::downgrade(&attempt);
+        let weak = Rc::downgrade(self);
+        let callback_attempt = attempt.clone();
+        let on_redirect = Rc::new(move |code| {
+            if let Some(this) = weak.upgrade()
+                && this.current_attempt(generation)
+            {
+                this.exchange_code(callback_attempt.clone(), code, generation);
+            }
+        });
+        let weak = Rc::downgrade(self);
+        let on_error = Rc::new(move |error| {
+            if let Some(this) = weak.upgrade()
+                && this.current_attempt(generation)
+            {
+                this.auth_failed(error);
+            }
+        });
+        let weak = Rc::downgrade(self);
+        let on_loading = Rc::new(move |loading| {
+            if let Some(this) = weak.upgrade()
+                && this.current_attempt(generation)
+                && let Some(dialog) = this.login_dialog.borrow().as_ref()
+            {
+                dialog.loading(if loading {
+                    "Загрузка страницы Яндекса…"
+                } else {
+                    "Выполните вход на странице Яндекса"
+                });
+            }
+        });
+        let weak = Rc::downgrade(self);
+        let on_origin = Rc::new(move |origin: &str| {
+            if let Some(this) = weak.upgrade()
+                && this.current_attempt(generation)
+                && let Some(dialog) = this.login_dialog.borrow().as_ref()
+            {
+                dialog.set_origin(origin);
+            }
+        });
+        let webview = super::auth::webkit::AuthWebView::new(
+            attempt,
+            on_redirect,
+            on_error,
+            on_loading,
+            on_origin,
+        );
+        webview.load(url);
+        if self.current_attempt(generation) {
+            if let Some(dialog) = self.login_dialog.borrow().as_ref() {
+                dialog.set_webview(webview);
+            }
+        } else {
+            webview.shutdown();
+        }
+        let weak = Rc::downgrade(self);
+        glib::spawn_future_local(async move {
+            loop {
+                let delay = {
+                    let Some(attempt) = expiry_attempt.upgrade() else {
+                        return;
+                    };
+                    if attempt.is_cancelled() {
+                        return;
+                    }
+                    attempt
+                        .time_remaining()
+                        .min(std::time::Duration::from_secs(1))
+                };
+                // Do not retain PKCE material or the callback listener during
+                // the timer wait after cancellation, failure or dialog closure.
+                glib::timeout_future(delay).await;
+                let Some(this) = weak.upgrade() else {
+                    return;
+                };
+                if !this.current_attempt(generation) {
+                    return;
+                }
+                let Some(attempt) = expiry_attempt.upgrade() else {
+                    return;
+                };
+                if attempt.is_cancelled() {
+                    return;
+                }
+                if attempt.expired() {
+                    this.auth_failed(AuthError::Expired);
+                    return;
+                }
+            }
+        });
+    }
+
+    fn wait_for_callback(self: &Rc<Self>, attempt: Arc<AuthAttempt>, generation: u64) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let hold = app.hold();
+        let weak = Rc::downgrade(self);
+        let waiting = attempt.clone();
+        glib::spawn_future_local(async move {
+            let _hold = hold;
+            let result = gio::spawn_blocking(move || waiting.receive_callback()).await;
+            let Some(this) = weak.upgrade() else {
+                return;
+            };
+            if !this.current_attempt(generation) {
+                return;
+            }
+            match result {
+                Ok(Ok(code)) => this.exchange_code(attempt, code, generation),
+                Ok(Err(error)) => this.auth_failed(error),
+                Err(_) => this.auth_failed(AuthError::Configuration),
+            }
+        });
+    }
+
+    fn exchange_code(
+        self: &Rc<Self>,
+        attempt: Arc<AuthAttempt>,
+        code: AuthorizationCode,
+        generation: u64,
+    ) {
+        if let Some(window) = self.window.upgrade() {
+            window.present();
+        }
+        if let Some(dialog) = self.login_dialog.borrow().as_ref() {
+            dialog.set_origin("");
+            dialog.loading("Проверка разрешения приложения…");
+        }
+        let provider = self.provider.clone();
+        self.run_auth_worker(generation, move || provider.exchange(&attempt, code));
+    }
+
+    fn run_auth_worker(
+        self: &Rc<Self>,
+        generation: u64,
+        work: impl FnOnce() -> Result<AccessToken, AuthError> + Send + 'static,
+    ) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let hold = app.hold();
+        let weak = Rc::downgrade(self);
+        glib::spawn_future_local(async move {
+            let _hold = hold;
+            let result = gio::spawn_blocking(work).await;
+            let Some(this) = weak.upgrade() else {
+                if let Ok(Ok(token)) = result {
+                    token.invalidate();
+                }
+                return;
+            };
+            if !this.current_attempt(generation) {
+                if let Ok(Ok(token)) = result {
+                    token.invalidate();
+                }
+                return;
+            }
+            match result {
+                Ok(Ok(token)) => this.authenticate(token),
+                Ok(Err(error)) => this.auth_failed(error),
+                Err(_) => this.auth_failed(AuthError::Configuration),
+            }
+        });
+    }
+
+    fn auth_failed(&self, error: AuthError) {
+        {
+            let mut model = self.model.borrow_mut();
+            model.generation += 1;
+            if let Some(attempt) = model.attempt.take() {
+                attempt.cancel();
+            }
+            if let Some(token) = model.token.take() {
+                token.invalidate();
+            }
+            model.account_valid = false;
+            model.busy = false;
+        }
+        if let Some(service) = &self.service {
+            service.clear_session();
+        }
+        self.reset_status();
+        if let Some(dialog) = self.login_dialog.borrow().as_ref() {
+            dialog.unavailable("Вход пока недоступен", error.user_message());
+        }
+        self.render_controls();
+    }
+
     fn clear_text_focus(&self) {
         if let Some(root) = self.widgets.stack.root()
             && let Ok(window) = root.downcast::<gtk::Window>()
@@ -404,15 +790,7 @@ impl Controller {
         let weak = Rc::downgrade(self);
         self.widgets.login.connect_clicked(move |_| {
             if let Some(this) = weak.upgrade() {
-                #[cfg(feature = "experimental-device-auth")]
-                if this.experimental {
-                    this.widgets.auth.revealer.set_reveal_child(true);
-                    this.widgets.auth.configuration.set_visible(true);
-                    this.widgets.auth.progress.set_visible(false);
-                    this.widgets.auth.client_id.grab_focus();
-                    return;
-                }
-                this.widgets.notice.set_text(public_notice());
+                this.open_login();
             }
         });
         let weak = Rc::downgrade(self);
@@ -424,7 +802,7 @@ impl Controller {
         let weak = Rc::downgrade(self);
         self.widgets.library_mode.connect_selected_notify(move |_| {
             if let Some(this) = weak.upgrade() {
-                this.load_library(0);
+                this.show_library();
             }
         });
         let weak = Rc::downgrade(self);
@@ -538,8 +916,6 @@ impl Controller {
                 app.set_accels_for_action(&format!("win.{name}"), &[accelerator]);
             }
         }
-        #[cfg(feature = "experimental-device-auth")]
-        self.connect_auth();
     }
 
     fn render_controls(&self) {
@@ -560,20 +936,12 @@ impl Controller {
         self.widgets.library_previous.set_sensitive(ready);
         self.widgets.search_next.set_sensitive(ready);
         self.widgets.search_previous.set_sensitive(ready);
-        #[cfg(feature = "experimental-device-auth")]
-        let auth_pending = model.challenge.is_some();
-        #[cfg(not(feature = "experimental-device-auth"))]
-        let auth_pending = false;
         self.widgets
             .login
-            .set_sensitive(!model.account_valid && !model.busy && !model.closed && !auth_pending);
+            .set_sensitive(!model.account_valid && !model.busy && !model.closed);
         self.widgets
             .login
-            .set_tooltip_text(Some(if self.experimental {
-                "Экспериментальный локальный вход"
-            } else {
-                "Почему публичный вход пока недоступен"
-            }));
+            .set_tooltip_text(Some("Войти в Яндекс Музыку"));
         self.widgets.login.set_visible(!model.account_valid);
         self.widgets
             .logout
@@ -594,18 +962,15 @@ impl Controller {
             token.invalidate();
         }
         model.queue.clear();
-        #[cfg(feature = "experimental-device-auth")]
-        if let Some(challenge) = model.challenge.take() {
-            challenge.cancel();
+        model.liked = None;
+        model.playlists = None;
+        if let Some(attempt) = model.attempt.take() {
+            attempt.cancel();
         }
+        drop(model);
+        self.dismiss_login();
         if let Some(service) = &self.service {
             service.clear_session();
-        }
-        #[cfg(feature = "experimental-device-auth")]
-        {
-            self.widgets.auth.client_id.set_text("");
-            self.widgets.auth.client_secret.set_text("");
-            self.widgets.auth.code.set_text("");
         }
     }
 
@@ -621,11 +986,15 @@ impl Controller {
             model.account_valid = false;
             model.busy = false;
             model.queue.clear();
-            #[cfg(feature = "experimental-device-auth")]
-            if let Some(challenge) = model.challenge.take() {
-                challenge.cancel();
+            model.liked = None;
+            model.playlists = None;
+            model.library_page = 0;
+            model.search_page = 0;
+            if let Some(attempt) = model.attempt.take() {
+                attempt.cancel();
             }
         }
+        self.dismiss_login();
         if let Some(service) = &self.service {
             service.clear_session();
         }
@@ -633,9 +1002,7 @@ impl Controller {
         self.widgets.notice.set_text(
             "Сеанс закрыт, локальный токен удалён. Это не отзывает разрешение на сервере Яндекса.",
         );
-        self.widgets
-            .status
-            .set_text("Откройте сеанс для доступа к библиотеке и поиску.");
+        self.reset_status();
         self.widgets.search.set_text("");
         set_empty(
             &self.widgets.library_rows,
@@ -648,13 +1015,7 @@ impl Controller {
         self.widgets.search_next.set_visible(false);
         self.widgets.search_previous.set_visible(false);
         self.widgets.stack.set_visible_child_name("library");
-        #[cfg(feature = "experimental-device-auth")]
-        {
-            self.widgets.auth.revealer.set_reveal_child(false);
-            self.widgets.auth.client_id.set_text("");
-            self.widgets.auth.client_secret.set_text("");
-            self.widgets.auth.code.set_text("");
-        }
+        self.widgets.library_mode.set_selected(0);
         self.render_controls();
         self.render_queue();
     }
@@ -664,8 +1025,17 @@ impl Controller {
         work: impl FnOnce(MusicService, AccessToken) -> Result<R, MusicError> + Send + 'static,
         done: impl FnOnce(&Rc<Self>, Result<R, MusicError>) + 'static,
     ) {
+        self.run_with_view(true, work, done);
+    }
+
+    fn run_with_view<R: Send + 'static>(
+        self: &Rc<Self>,
+        observe_view: bool,
+        work: impl FnOnce(MusicService, AccessToken) -> Result<R, MusicError> + Send + 'static,
+        done: impl FnOnce(&Rc<Self>, Result<R, MusicError>) + 'static,
+    ) {
         let (Some(app), Some(service)) = (self.app.upgrade(), self.service.clone()) else {
-            self.widgets.status.set_text("Сетевой клиент недоступен.");
+            self.widgets.status.set_title("Сетевой клиент недоступен.");
             return;
         };
         let (token, generation, view_generation, view_matters) = {
@@ -674,7 +1044,7 @@ impl Controller {
                 return;
             }
             let Some(token) = model.token.clone() else {
-                self.widgets.status.set_text("Сначала откройте сеанс.");
+                self.widgets.status.set_title("Сначала откройте сеанс.");
                 return;
             };
             if token.is_expired() {
@@ -682,7 +1052,7 @@ impl Controller {
                 self.logout();
                 self.widgets
                     .status
-                    .set_text("Срок действия сеанса истёк. Войдите снова.");
+                    .set_title("Срок действия сеанса истёк. Войдите снова.");
                 return;
             }
             model.busy = true;
@@ -690,10 +1060,11 @@ impl Controller {
                 token,
                 model.generation,
                 model.view_generation,
-                model.account_valid,
+                model.account_valid && observe_view,
             )
         };
-        self.widgets.status.set_text("Загрузка…");
+        self.widgets.status.set_title("Загрузка…");
+        self.widgets.status.set_subtitle("");
         self.render_controls();
         let hold = app.hold();
         let weak = Rc::downgrade(self);
@@ -716,7 +1087,15 @@ impl Controller {
             if !current {
                 let model = this.model.borrow();
                 if !model.closed && model.generation == generation {
-                    this.widgets.status.set_text(
+                    if matches!(
+                        &result,
+                        Ok(Err(MusicError::AccessDenied | MusicError::Unauthenticated))
+                    ) {
+                        drop(model);
+                        this.show_error(MusicError::AccessDenied);
+                        return;
+                    }
+                    this.widgets.status.set_title(
                         "Запрос завершён; раздел изменён. При необходимости обновите данные.",
                     );
                 }
@@ -724,10 +1103,15 @@ impl Controller {
             }
             match result {
                 Ok(result) => done(&this, result),
-                Err(_) => this
-                    .widgets
-                    .status
-                    .set_text("Не удалось завершить операцию."),
+                Err(_) => {
+                    if this.login_dialog.borrow().is_some() && !this.model.borrow().account_valid {
+                        this.auth_failed(AuthError::Configuration);
+                    } else {
+                        this.widgets
+                            .status
+                            .set_title("Не удалось завершить операцию.");
+                    }
+                }
             }
         });
     }
@@ -739,11 +1123,118 @@ impl Controller {
         ) {
             self.logout();
         }
-        let status = error
-            .http_status()
-            .map(|s| format!(" · HTTP {s}"))
-            .unwrap_or_default();
-        self.widgets.status.set_text(&format!("{error}{status}"));
+        let (title, message) = music_error_message(error);
+        self.widgets.status.set_title(title);
+        self.widgets.status.set_subtitle(message);
+    }
+
+    fn show_library(self: &Rc<Self>) {
+        if !self.model.borrow().account_valid {
+            return;
+        }
+        let playlists = self.widgets.library_mode.selected() == 1;
+        if playlists {
+            let cached = self.model.borrow().playlists.clone();
+            if let Some(result) = cached {
+                self.render_playlists(result, 0);
+                return;
+            }
+        } else {
+            let cached = self.model.borrow().liked.clone();
+            if let Some(result) = cached {
+                self.render_liked(result, 0);
+                return;
+            }
+        }
+        self.load_library(0);
+    }
+
+    fn render_playlists(self: &Rc<Self>, result: Result<Page<Playlist>, MusicError>, page: u32) {
+        match result {
+            Ok(result) => {
+                self.model.borrow_mut().library_page = page;
+                clear_list(&self.widgets.library_rows);
+                for playlist in result.items {
+                    self.playlist_row(&self.widgets.library_rows, playlist);
+                }
+                self.widgets.library_next.set_visible(result.has_more);
+                self.widgets.library_previous.set_visible(page > 0);
+                if self.widgets.library_rows.first_child().is_none() {
+                    set_empty(&self.widgets.library_rows, "Плейлистов пока нет.");
+                }
+                self.widgets
+                    .status
+                    .set_title(&format!("Мои плейлисты · страница {}", page + 1));
+                self.widgets.status.set_subtitle("");
+            }
+            Err(error) => {
+                set_empty(
+                    &self.widgets.library_rows,
+                    "Не удалось загрузить плейлисты. Повторите обновление.",
+                );
+                self.show_error(error);
+            }
+        }
+    }
+
+    fn render_liked(self: &Rc<Self>, result: Result<Page<Track>, MusicError>, page: u32) {
+        match result {
+            Ok(result) => {
+                self.model.borrow_mut().library_page = page;
+                self.tracks(&self.widgets.library_rows, result.items);
+                self.widgets.library_next.set_visible(result.has_more);
+                self.widgets.library_previous.set_visible(page > 0);
+                self.widgets
+                    .status
+                    .set_title(&format!("Понравившиеся треки · страница {}", page + 1));
+                self.widgets.status.set_subtitle("");
+            }
+            Err(error) => {
+                set_empty(
+                    &self.widgets.library_rows,
+                    "Не удалось загрузить треки. Повторите обновление.",
+                );
+                self.show_error(error);
+            }
+        }
+    }
+
+    fn load_initial_library(self: &Rc<Self>) {
+        self.run_with_view(
+            false,
+            |service, token| {
+                // A failure in one section must not suppress the other request.
+                let liked = service.liked_tracks(&token, 0);
+                let playlists = service.playlists(&token, 0);
+                Ok((liked, playlists))
+            },
+            |this, result| match result {
+                Ok((liked, playlists)) => {
+                    if liked
+                        .as_ref()
+                        .err()
+                        .into_iter()
+                        .chain(playlists.as_ref().err())
+                        .any(|error| {
+                            matches!(
+                                error,
+                                MusicError::AccessDenied | MusicError::Unauthenticated
+                            )
+                        })
+                    {
+                        this.logout();
+                        this.show_error(MusicError::AccessDenied);
+                        return;
+                    }
+                    let mut model = this.model.borrow_mut();
+                    model.liked = Some(liked);
+                    model.playlists = Some(playlists);
+                    drop(model);
+                    this.show_library();
+                }
+                Err(error) => this.show_error(error),
+            },
+        );
     }
 
     fn load_library(self: &Rc<Self>, page: u32) {
@@ -760,51 +1251,21 @@ impl Controller {
         if playlists {
             self.run(
                 move |service, token| service.playlists(&token, page),
-                move |this, result| match result {
-                    Ok(result) => {
-                        this.model.borrow_mut().library_page = page;
-                        clear_list(&this.widgets.library_rows);
-                        for playlist in result.items {
-                            this.playlist_row(&this.widgets.library_rows, playlist);
-                        }
-                        this.widgets.library_next.set_visible(result.has_more);
-                        this.widgets.library_previous.set_visible(page > 0);
-                        if this.widgets.library_rows.first_child().is_none() {
-                            set_empty(&this.widgets.library_rows, "Плейлистов пока нет.");
-                        }
-                        this.widgets
-                            .status
-                            .set_text(&format!("Мои плейлисты · страница {}", page + 1));
+                move |this, result| {
+                    if page == 0 {
+                        this.model.borrow_mut().playlists = Some(result.clone());
                     }
-                    Err(error) => {
-                        set_empty(
-                            &this.widgets.library_rows,
-                            "Не удалось загрузить плейлисты. Повторите обновление.",
-                        );
-                        this.show_error(error);
-                    }
+                    this.render_playlists(result, page);
                 },
             );
         } else {
             self.run(
                 move |service, token| service.liked_tracks(&token, page),
-                move |this, result| match result {
-                    Ok(result) => {
-                        this.model.borrow_mut().library_page = page;
-                        this.tracks(&this.widgets.library_rows, result.items);
-                        this.widgets.library_next.set_visible(result.has_more);
-                        this.widgets.library_previous.set_visible(page > 0);
-                        this.widgets
-                            .status
-                            .set_text(&format!("Понравившиеся треки · страница {}", page + 1));
+                move |this, result| {
+                    if page == 0 {
+                        this.model.borrow_mut().liked = Some(result.clone());
                     }
-                    Err(error) => {
-                        set_empty(
-                            &this.widgets.library_rows,
-                            "Не удалось загрузить треки. Повторите обновление.",
-                        );
-                        this.show_error(error);
-                    }
+                    this.render_liked(result, page);
                 },
             );
         }
@@ -819,7 +1280,7 @@ impl Controller {
         }
         let query = self.widgets.search.text().trim().to_owned();
         if query.is_empty() {
-            self.widgets.status.set_text("Введите поисковый запрос.");
+            self.widgets.status.set_title("Введите поисковый запрос.");
             return;
         }
         set_empty(&self.widgets.search_rows, "Поиск…");
@@ -855,7 +1316,7 @@ impl Controller {
                     this.widgets.search_previous.set_visible(page > 0);
                     this.widgets
                         .status
-                        .set_text(&format!("Результаты поиска · страница {}", page + 1));
+                        .set_title(&format!("Результаты поиска · страница {}", page + 1));
                 }
                 Err(error) => {
                     set_empty(
@@ -1000,7 +1461,7 @@ impl Controller {
                     }
                     this.widgets
                         .status
-                        .set_text("Сведения о треке получены. Доступ к аудио не подтверждён.");
+                        .set_title("Сведения о треке получены. Доступ к аудио не подтверждён.");
                 }
                 Err(error) => this.show_error(error),
             },
@@ -1013,7 +1474,7 @@ impl Controller {
             move |this, result| match result {
                 Ok(album) => {
                     this.render_album(Rc::new(album), 0);
-                    this.widgets.status.set_text("Альбом получен.");
+                    this.widgets.status.set_title("Альбом получен.");
                 }
                 Err(error) => this.show_error(error),
             },
@@ -1085,7 +1546,7 @@ impl Controller {
                         });
                         this.widgets.detail.append(&next);
                     }
-                    this.widgets.status.set_text("Плейлист получен.");
+                    this.widgets.status.set_title("Плейлист получен.");
                 }
                 Err(error) => this.show_error(error),
             },
@@ -1095,14 +1556,13 @@ impl Controller {
     fn enqueue(self: &Rc<Self>, track: Track) {
         let result = self.model.borrow_mut().queue.append(track);
         match result {
-            Ok(_) => self
-                .widgets
-                .status
-                .set_text("Трек добавлен в очередь. Звук не запускается: источник не подтверждён."),
+            Ok(_) => self.widgets.status.set_title(
+                "Трек добавлен в очередь. Звук не запускается: источник не подтверждён.",
+            ),
             Err(_) => self
                 .widgets
                 .status
-                .set_text("Очередь заполнена. Удалите ненужные треки."),
+                .set_title("Очередь заполнена. Удалите ненужные треки."),
         }
         self.render_queue();
     }
@@ -1166,7 +1626,7 @@ impl Controller {
 }
 
 fn public_notice() -> &'static str {
-    "Вход в этой версии пока недоступен: разрешённый доступ к Яндекс Музыке ещё проверяется. Экспериментальный сеанс доступен в отдельной локальной сборке для разработки."
+    "Войдите, чтобы открыть свою библиотеку и поиск. Доступ Karin к Яндекс Музыке требует отдельного разрешения сервиса."
 }
 fn text(value: &str, class: &str) -> gtk::Label {
     let label = gtk::Label::new(Some(value));
@@ -1224,365 +1684,103 @@ fn item(title: &str, subtitle: &str) -> (gtk::ListBoxRow, gtk::Box) {
     (row, body)
 }
 
-#[cfg(feature = "experimental-device-auth")]
-fn auth_widgets() -> AuthWidgets {
-    let revealer = gtk::Revealer::new();
-    let card = gtk::Box::new(gtk::Orientation::Vertical, 12);
-    card.add_css_class("card");
-    let content = gtk::Box::new(gtk::Orientation::Vertical, 12);
-    super::margins(&content, 18);
-    content.append(&text("Экспериментальный Device Flow", "heading"));
-    content.append(&text("Только локальная разработка. Укажите данные OAuth-приложения, которое вы вправе использовать. Это не пароль аккаунта и не OAuth-токен. Karin не содержит предустановленной чужой идентичности; разрешение на публичное распространение этого способа не подтверждено.", "dim-label"));
-    let configuration = gtk::Box::new(gtk::Orientation::Vertical, 8);
-    configuration.append(&text("Client ID приложения", ""));
-    let client_id = gtk::Entry::new();
-    client_id.set_max_length(128);
-    client_id.update_property(&[gtk::accessible::Property::Label(
-        "Client ID OAuth-приложения для локального теста",
-    )]);
-    configuration.append(&client_id);
-    configuration.append(&text("Client secret приложения", ""));
-    let client_secret = gtk::PasswordEntry::new();
-    client_secret.set_show_peek_icon(false);
-    client_secret.update_property(&[gtk::accessible::Property::Label(
-        "Client secret OAuth-приложения, не пароль аккаунта",
-    )]);
-    configuration.append(&client_secret);
-    let begin = gtk::Button::with_label("Начать авторизацию");
-    begin.add_css_class("suggested-action");
-    begin.set_halign(gtk::Align::Start);
-    configuration.append(&begin);
-    content.append(&configuration);
-    let progress = gtk::Box::new(gtk::Orientation::Vertical, 12);
-    progress.set_visible(false);
-    progress.append(&text(
-        "Откройте страницу Яндекса в системном браузере и введите этот одноразовый код:",
-        "",
-    ));
-    let code = text("", "title-1");
-    code.set_halign(gtk::Align::Center);
-    progress.append(&code);
-    let remaining = text("", "dim-label");
-    progress.append(&remaining);
-    let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    let open = gtk::Button::with_label("Браузер");
-    let copy = gtk::Button::with_label("Копировать код");
-    actions.append(&open);
-    actions.append(&copy);
-    progress.append(&actions);
-    content.append(&progress);
-    let cancel = gtk::Button::with_label("Отменить вход");
-    cancel.set_halign(gtk::Align::Start);
-    content.append(&cancel);
-    card.append(&content);
-    revealer.set_child(Some(&card));
-    AuthWidgets {
-        revealer,
-        configuration,
-        client_id,
-        client_secret,
-        begin,
-        progress,
-        code,
-        remaining,
-        open,
-        copy,
-        cancel,
-    }
-}
-
-#[cfg(feature = "experimental-device-auth")]
-impl Controller {
-    fn connect_auth(self: &Rc<Self>) {
-        let weak = Rc::downgrade(self);
-        self.widgets.auth.begin.connect_clicked(move |_| {
-            if let Some(this) = weak.upgrade() {
-                this.begin_auth();
-            }
-        });
-        let weak = Rc::downgrade(self);
-        self.widgets.auth.cancel.connect_clicked(move |_| {
-            if let Some(this) = weak.upgrade() {
-                this.cancel_auth();
-            }
-        });
-        let weak = Rc::downgrade(self);
-        self.widgets.auth.open.connect_clicked(move |_| {
-            if let Some(this) = weak.upgrade() {
-                let model = this.model.borrow();
-                if let Some(challenge) = &model.challenge
-                    && gio::AppInfo::launch_default_for_uri(
-                        challenge.verification_url(),
-                        None::<&gio::AppLaunchContext>,
-                    )
-                    .is_err()
-                {
-                    this.widgets.status.set_text(
-                        "Не удалось открыть браузер. Проверьте системный обработчик HTTPS.",
-                    );
-                }
-            }
-        });
-        let weak = Rc::downgrade(self);
-        self.widgets.auth.copy.connect_clicked(move |_| {
-            if let Some(this) = weak.upgrade()
-                && let Some(challenge) = &this.model.borrow().challenge
-            {
-                this.widgets
-                    .auth
-                    .code
-                    .clipboard()
-                    .set_text(challenge.user_code());
-                this.widgets
-                    .status
-                    .set_text("Одноразовый код скопирован в буфер обмена. Не публикуйте его.");
-            }
-        });
-    }
-
-    fn cancel_auth(&self) {
-        self.clear_text_focus();
-        let mut model = self.model.borrow_mut();
-        model.generation += 1;
-        model.busy = false;
-        if let Some(challenge) = model.challenge.take() {
-            challenge.cancel();
-        }
-        drop(model);
-        self.widgets.auth.client_id.set_text("");
-        self.widgets.auth.client_secret.set_text("");
-        self.widgets.auth.code.set_text("");
-        self.widgets.auth.revealer.set_reveal_child(false);
-        self.widgets
-            .status
-            .set_text("Вход отменён. Локальные данные попытки удалены.");
-        self.render_controls();
-    }
-
-    fn begin_auth(self: &Rc<Self>) {
-        if !self.experimental {
-            return;
-        }
-        let Some(app) = self.app.upgrade() else {
-            return;
-        };
-        let mut model = self.model.borrow_mut();
-        if model.closed || model.busy || model.challenge.is_some() {
-            return;
-        }
-        model.generation += 1;
-        let generation = model.generation;
-        model.busy = true;
-        drop(model);
-        let client_id = zeroize::Zeroizing::new(self.widgets.auth.client_id.text().to_string());
-        let client_secret =
-            zeroize::Zeroizing::new(self.widgets.auth.client_secret.text().to_string());
-        // Remove the native-entry copies before any request. Owned worker buffers
-        // zeroize on drop; GTK/HTTP libraries may retain transient copies.
-        self.widgets.auth.client_id.set_text("");
-        self.widgets.auth.client_secret.set_text("");
-        self.widgets.auth.begin.set_sensitive(false);
-        self.widgets.status.set_text("Подготовка авторизации…");
-        self.render_controls();
-        let hold = app.hold();
-        let weak = Rc::downgrade(self);
-        glib::spawn_future_local(async move {
-            let _hold = hold;
-            let result = gio::spawn_blocking(move || {
-                let client = DeviceAuthClient::new(client_id, client_secret)?;
-                let challenge = client.begin()?;
-                Ok::<_, crate::session::SessionError>((client, challenge))
-            })
-            .await;
-            let Some(this) = weak.upgrade() else {
-                return;
-            };
-            let current = {
-                let mut model = this.model.borrow_mut();
-                if model.generation == generation {
-                    model.busy = false;
-                }
-                !model.closed && model.generation == generation
-            };
-            this.widgets.auth.begin.set_sensitive(true);
-            this.render_controls();
-            if !current {
-                if let Ok(Ok((_, challenge))) = result {
-                    challenge.cancel();
-                }
-                return;
-            }
-            match result {
-                Ok(Ok((client, challenge))) => {
-                    this.clear_text_focus();
-                    this.widgets.auth.code.set_text(challenge.user_code());
-                    this.widgets.auth.configuration.set_visible(false);
-                    this.widgets.auth.progress.set_visible(true);
-                    this.widgets
-                        .status
-                        .set_text("Ожидание подтверждения в браузере…");
-                    this.model.borrow_mut().challenge = Some(challenge.clone());
-                    this.render_controls();
-                    this.widgets.auth.open.emit_clicked();
-                    this.poll_auth(client, challenge, generation);
-                }
-                Ok(Err(error)) => this
-                    .widgets
-                    .status
-                    .set_text(&format!("Не удалось начать вход: {error}")),
-                Err(_) => this
-                    .widgets
-                    .status
-                    .set_text("Не удалось подготовить авторизацию."),
-            }
-        });
-    }
-
-    fn poll_auth(
-        self: &Rc<Self>,
-        client: DeviceAuthClient,
-        challenge: DeviceChallenge,
-        generation: u64,
-    ) {
-        let weak = Rc::downgrade(self);
-        glib::spawn_future_local(async move {
-            let expires_at = std::time::Instant::now() + challenge.expires_in();
-            let mut next_poll = std::time::Instant::now() + challenge.interval();
-            loop {
-                {
-                    let Some(this) = weak.upgrade() else {
-                        challenge.cancel();
-                        return;
-                    };
-                    let model = this.model.borrow();
-                    if model.closed || model.generation != generation {
-                        challenge.cancel();
-                        return;
-                    }
-                    let remaining = expires_at
-                        .saturating_duration_since(std::time::Instant::now())
-                        .as_secs();
-                    this.widgets.auth.remaining.set_text(&format!(
-                        "Осталось {} мин {:02} с",
-                        remaining / 60,
-                        remaining % 60
-                    ));
-                    if std::time::Instant::now() >= expires_at {
-                        drop(model);
-                        challenge.cancel();
-                        this.finish_auth("Срок действия кода истёк. Начните новую попытку.");
-                        return;
-                    }
-                }
-                // Wake for cancellation/expiry/countdown without polling the
-                // provider early or retaining a canceled attempt for minutes.
-                if std::time::Instant::now() < next_poll {
-                    glib::timeout_future(
-                        next_poll
-                            .saturating_duration_since(std::time::Instant::now())
-                            .min(expires_at.saturating_duration_since(std::time::Instant::now()))
-                            .min(std::time::Duration::from_secs(1)),
-                    )
-                    .await;
-                    continue;
-                }
-                let hold = {
-                    let Some(this) = weak.upgrade() else {
-                        challenge.cancel();
-                        return;
-                    };
-                    let model = this.model.borrow();
-                    if model.closed || model.generation != generation {
-                        challenge.cancel();
-                        return;
-                    }
-                    this.app.upgrade().map(|app| app.hold())
-                };
-                let poll_client = client.clone();
-                let poll_challenge = challenge.clone();
-                let result = gio::spawn_blocking(move || poll_client.poll(&poll_challenge)).await;
-                next_poll = std::time::Instant::now() + challenge.interval();
-                drop(hold);
-                let Some(this) = weak.upgrade() else {
-                    challenge.cancel();
-                    return;
-                };
-                {
-                    let model = this.model.borrow();
-                    if model.closed || model.generation != generation {
-                        challenge.cancel();
-                        return;
-                    }
-                }
-                match result {
-                    Ok(Ok(DevicePoll::Pending)) => this
-                        .widgets
-                        .status
-                        .set_text("Ожидание подтверждения в браузере…"),
-                    Ok(Ok(DevicePoll::SlowDown)) => this
-                        .widgets
-                        .status
-                        .set_text("Яндекс просит подождать. Интервал проверки увеличен."),
-                    Ok(Ok(DevicePoll::Authorized(token))) => {
-                        this.clear_text_focus();
-                        this.model.borrow_mut().challenge = None;
-                        this.widgets.auth.code.set_text("");
-                        this.widgets.auth.revealer.set_reveal_child(false);
-                        this.authenticate(token);
-                        return;
-                    }
-                    Ok(Ok(DevicePoll::Denied)) => {
-                        this.finish_auth("Авторизация отклонена в Яндексе.");
-                        return;
-                    }
-                    Ok(Ok(DevicePoll::Expired)) => {
-                        this.finish_auth("Срок действия кода истёк. Начните новую попытку.");
-                        return;
-                    }
-                    Ok(Err(error)) => {
-                        this.finish_auth(&format!("Ошибка авторизации: {error}"));
-                        return;
-                    }
-                    Err(_) => {
-                        this.finish_auth("Не удалось проверить подтверждение.");
-                        return;
-                    }
-                }
-            }
-        });
-    }
-
-    fn finish_auth(&self, message: &str) {
-        self.clear_text_focus();
-        if let Some(challenge) = self.model.borrow_mut().challenge.take() {
-            challenge.cancel();
-        }
-        self.widgets.auth.code.set_text("");
-        self.widgets.auth.revealer.set_reveal_child(false);
-        self.widgets.status.set_text(message);
-        self.render_controls();
-    }
-}
-
-#[cfg(any(test, feature = "experimental-device-auth"))]
 impl Controller {
     fn authenticate(self: &Rc<Self>, token: AccessToken) {
-        if let Some(previous) = self.model.borrow_mut().token.replace(token) {
-            previous.invalidate();
+        {
+            let mut model = self.model.borrow_mut();
+            if model.closed {
+                token.invalidate();
+                return;
+            }
+            if let Some(previous) = model.token.replace(token) {
+                previous.invalidate();
+            }
+            model.account_valid = false;
+            model.busy = false;
+        }
+        if self.service.is_none() {
+            self.auth_failed(AuthError::Configuration);
+            return;
+        }
+        if let Some(dialog) = self.login_dialog.borrow().as_ref() {
+            dialog.loading("Проверка доступа к Яндекс Музыке…");
         }
         self.run(|service, token| service.account(&token), |this, result| match result {
             Ok(account) => {
-                this.model.borrow_mut().account_valid = true;
+                {
+                    let mut model = this.model.borrow_mut();
+                    model.generation += 1;
+                    model.account_valid = true;
+                    if let Some(attempt) = model.attempt.take() { attempt.cancel(); }
+                }
                 this.widgets.account.set_text(&account.display_name);
-                this.widgets.notice.set_text("Экспериментальный сеанс Music API. Данные получены из сервиса; доступ к аудио и разрешение на распространение не подтверждены. Токен только в памяти.");
+                this.widgets.notice.set_text("Аккаунт Яндекс Музыки проверен. Доступ к библиотеке и поиску проверяется отдельно; токен хранится только в памяти.");
+                this.dismiss_login();
                 this.render_controls();
-                this.load_library(0);
+                this.load_initial_library();
             }
             Err(error) => {
-                this.logout();
-                this.show_error(error);
+                let (title, message) = music_error_message(error);
+                {
+                    let mut model = this.model.borrow_mut();
+                    model.generation += 1;
+                    if let Some(token) = model.token.take() { token.invalidate(); }
+                    if let Some(attempt) = model.attempt.take() { attempt.cancel(); }
+                    model.account_valid = false;
+                    model.busy = false;
+                }
+                if let Some(service) = &this.service { service.clear_session(); }
+                this.reset_status();
+                if let Some(dialog) = this.login_dialog.borrow().as_ref() {
+                    dialog.unavailable(title, message);
+                }
+                this.render_controls();
             }
         });
+    }
+}
+
+fn launch_system_browser(url: &str) -> Result<(), AuthError> {
+    gio::AppInfo::launch_default_for_uri(url, None::<&gio::AppLaunchContext>)
+        .map_err(|_| AuthError::BrowserLoad)
+}
+
+fn music_error_message(error: MusicError) -> (&'static str, &'static str) {
+    match error {
+        MusicError::Forbidden | MusicError::MissingScopes => (
+            "Доступ Karin к Музыке не разрешён",
+            "Яндекс Музыка не приняла разрешения приложения. Это не означает, что вы ввели неверный пароль Яндекса.",
+        ),
+        MusicError::AccessDenied | MusicError::Unauthenticated => (
+            "Сеанс больше не действует",
+            "Выполните вход снова, чтобы проверить доступ к Музыке.",
+        ),
+        MusicError::Restricted => (
+            "Доступ ограничен сервисом",
+            "Яндекс Музыка ограничила доступ к этим данным.",
+        ),
+        MusicError::RateLimited => (
+            "Слишком много запросов",
+            "Подождите и повторите запрос вручную.",
+        ),
+        MusicError::Network => (
+            "Нет соединения с Музыкой",
+            "Проверьте подключение к сети и повторите запрос.",
+        ),
+        MusicError::Timeout => ("Сервис не ответил вовремя", "Повторите запрос позже."),
+        MusicError::Configuration => (
+            "Сетевой клиент недоступен",
+            "Не удалось подготовить подключение к Яндекс Музыке.",
+        ),
+        MusicError::ResponseTooLarge | MusicError::InvalidResponse => (
+            "Ответ сервиса не поддерживается",
+            "Не удалось безопасно прочитать данные Яндекс Музыки.",
+        ),
+        MusicError::InvalidInput => ("Проверьте запрос", "Измените запрос и повторите действие."),
+        MusicError::Http(_) => (
+            "Запрос не выполнен",
+            "Яндекс Музыка отклонила запрос. Повторите позже.",
+        ),
     }
 }
 
@@ -1605,9 +1803,6 @@ mod tests {
         let context = glib::MainContext::default();
         let deadline = Instant::now() + Duration::from_secs(8);
         loop {
-            while context.pending() {
-                context.iteration(false);
-            }
             if condition() {
                 break;
             }
@@ -1615,7 +1810,11 @@ mod tests {
                 Instant::now() < deadline,
                 "native fixture operation timed out"
             );
-            thread::sleep(Duration::from_millis(5));
+            if context.pending() {
+                context.iteration(false);
+            } else {
+                thread::sleep(Duration::from_millis(5));
+            }
         }
     }
 
@@ -1693,6 +1892,246 @@ mod tests {
             .emit_by_name::<()>("activate", &[]);
     }
 
+    struct FixtureProvider {
+        blocked: Arc<AtomicBool>,
+    }
+
+    impl AuthProvider for FixtureProvider {
+        fn begin(&self) -> Result<Arc<AuthAttempt>, AuthError> {
+            if self.blocked.load(Ordering::Acquire) {
+                return Err(AuthError::MusicPermissionUnavailable);
+            }
+            AuthAttempt::for_test("http://127.0.0.1:1/authorize", BrowserMode::System)
+        }
+
+        fn exchange(
+            &self,
+            attempt: &AuthAttempt,
+            code: crate::auth::AuthorizationCode,
+        ) -> Result<AccessToken, AuthError> {
+            if attempt.is_cancelled() {
+                return Err(AuthError::Cancelled);
+            }
+            assert_eq!(code.expose(), "synthetic-ui-code");
+            Ok(AccessToken::for_test(
+                "synthetic-ui-token",
+                Duration::from_secs(60),
+            ))
+        }
+    }
+
+    // Replaces only the system-browser launch in an explicit test window. The
+    // real callback listener validates state and consumes the opaque code.
+    fn launch_fixture_callback(authorization: &str) -> Result<(), AuthError> {
+        let authorization = reqwest::Url::parse(authorization).unwrap();
+        let value = |key| {
+            authorization
+                .query_pairs()
+                .find(|(name, _)| name == key)
+                .unwrap()
+                .1
+                .into_owned()
+        };
+        let mut callback = reqwest::Url::parse(&value("redirect_uri")).unwrap();
+        callback
+            .query_pairs_mut()
+            .append_pair("state", &value("state"))
+            .append_pair("code", "synthetic-ui-code");
+        assert_eq!(callback.host_str(), Some("127.0.0.1"));
+        thread::spawn(move || {
+            let response = reqwest::blocking::Client::builder()
+                .no_proxy()
+                .timeout(Duration::from_secs(4))
+                .build()
+                .unwrap()
+                .get(callback)
+                .send()
+                .unwrap();
+            assert!(response.status().is_success());
+        });
+        Ok(())
+    }
+
+    fn assert_no_credential_fields(widget: &gtk::Widget) {
+        assert!(!widget.is::<gtk::Entry>());
+        assert!(!widget.is::<gtk::PasswordEntry>());
+        let mut child = widget.first_child();
+        while let Some(current) = child {
+            assert_no_credential_fields(&current);
+            child = current.next_sibling();
+        }
+    }
+
+    fn validation_failure_cancel_and_retry(app: &adw::Application) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let requested = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let server_requested = requested.clone();
+        let finished = Arc::new(AtomicBool::new(false));
+        let server_finished = finished.clone();
+        let (release_validation, wait_for_release) = std::sync::mpsc::channel();
+        let account =
+            json!({"result":{"account":{"uid":1234,"displayName":"Synthetic retry account"}}})
+                .to_string();
+        let playlists = json!({"result":[{"kind":3,"title":"Synthetic independent playlist","trackCount":0,"owner":{"uid":1234}}]}).to_string();
+        let responses = vec![
+            ("GET /account/status", 200, account.clone(), true),
+            (
+                "GET /account/status",
+                403,
+                "synthetic-private-provider-message".to_owned(),
+                false,
+            ),
+            ("GET /account/status", 200, account.clone(), false),
+            (
+                "GET /users/1234/likes/tracks",
+                403,
+                "synthetic-private-provider-message".to_owned(),
+                false,
+            ),
+            ("GET /users/1234/playlists/list", 200, playlists, false),
+            ("GET /account/status", 200, account, true),
+        ];
+        let server = thread::spawn(move || {
+            for (index, (prefix, status, body, delayed)) in responses.into_iter().enumerate() {
+                let deadline = Instant::now() + Duration::from_secs(8);
+                let mut stream = loop {
+                    match listener.accept() {
+                        Ok((stream, _)) => break stream,
+                        Err(error)
+                            if error.kind() == std::io::ErrorKind::WouldBlock
+                                && Instant::now() < deadline =>
+                        {
+                            thread::sleep(Duration::from_millis(5))
+                        }
+                        Err(error) => panic!("validation fixture request missing: {error}"),
+                    }
+                };
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(2)))
+                    .unwrap();
+                let mut request = Vec::new();
+                let mut byte = [0];
+                while !request.ends_with(b"\r\n\r\n") {
+                    assert_eq!(stream.read(&mut byte).unwrap(), 1);
+                    request.push(byte[0]);
+                    assert!(request.len() < 32 * 1024);
+                }
+                assert!(String::from_utf8(request).unwrap().starts_with(prefix));
+                server_requested.store(index + 1, Ordering::Release);
+                if delayed {
+                    wait_for_release
+                        .recv_timeout(Duration::from_secs(8))
+                        .unwrap();
+                }
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 {status} Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+            }
+            server_finished.store(true, Ordering::Release);
+        });
+        let window = adw::ApplicationWindow::builder()
+            .application(app)
+            .title("Karin synthetic HTTP fixture")
+            .default_width(900)
+            .default_height(650)
+            .build();
+        let blocked = Arc::new(AtomicBool::new(false));
+        let pane = MusicPane::with_provider(
+            app,
+            &window,
+            Some(MusicService::for_test(&format!("http://{address}/"))),
+            Arc::new(FixtureProvider {
+                blocked: blocked.clone(),
+            }),
+            launch_fixture_callback,
+        );
+        let toolbar = adw::ToolbarView::new();
+        let header = adw::HeaderBar::new();
+        header.set_title_widget(Some(&gtk::Label::new(Some(
+            "Синтетические HTTP-фикстуры · проверка отказа",
+        ))));
+        toolbar.add_top_bar(&header);
+        toolbar.add_bottom_bar(&pane.player_bar);
+        toolbar.set_content(Some(&super::super::scroll_page(&pane.widget)));
+        window.set_content(Some(&toolbar));
+        window.present();
+        let this = &pane.controller;
+        this.widgets.login.emit_clicked();
+        pump_until(|| requested.load(Ordering::Acquire) == 1);
+        assert!(!this.model.borrow().account_valid);
+        assert!(
+            this.login_dialog.borrow().is_some(),
+            "Music validation keeps its dialog open"
+        );
+        let cancel = this.login_dialog.borrow().as_ref().unwrap().cancel.clone();
+        cancel.emit_clicked();
+        assert!(this.model.borrow().token.is_none());
+        release_validation.send(()).unwrap();
+        this.widgets.login.emit_clicked();
+        pump_until(|| requested.load(Ordering::Acquire) == 2 && !this.model.borrow().busy);
+        assert!(!this.model.borrow().account_valid);
+        assert!(this.model.borrow().token.is_none());
+        let dialog = this.login_dialog.borrow().as_ref().unwrap().clone();
+        assert!(contains_text(dialog.dialog.upcast_ref(), "не разрешён"));
+        assert!(!contains_text(pane.widget.upcast_ref(), "HTTP 403"));
+        assert!(!contains_text(
+            window.upcast_ref(),
+            "synthetic-private-provider-message"
+        ));
+        assert!(
+            this.widgets
+                .status
+                .subtitle()
+                .is_none_or(|value| value.is_empty())
+        );
+        capture_native("login-music-permission-denied");
+        dialog.retry.emit_clicked();
+        pump_until(|| this.model.borrow().account_valid && !this.model.borrow().busy);
+        assert!(this.login_dialog.borrow().is_none());
+        assert!(contains_text(pane.widget.upcast_ref(), "не разрешён"));
+        this.widgets.library_mode.set_selected(1);
+        assert!(contains_text(
+            this.widgets.library_rows.upcast_ref(),
+            "Synthetic independent playlist"
+        ));
+        this.logout();
+        assert!(
+            this.widgets
+                .status
+                .subtitle()
+                .is_none_or(|value| value.is_empty())
+        );
+        assert!(!contains_text(pane.widget.upcast_ref(), "не разрешён"));
+        blocked.store(true, Ordering::Release);
+        this.widgets.login.emit_clicked();
+        pump_until(|| !this.model.borrow().busy);
+        assert!(
+            this.widgets
+                .status
+                .subtitle()
+                .is_none_or(|value| value.is_empty())
+        );
+        this.cancel_login();
+        blocked.store(false, Ordering::Release);
+        this.widgets.login.emit_clicked();
+        pump_until(|| requested.load(Ordering::Acquire) == 6);
+        let weak = Rc::downgrade(&pane.controller);
+        pane.close();
+        assert!(this.model.borrow().token.is_none());
+        assert!(this.login_dialog.borrow().is_none());
+        window.close();
+        drop(pane);
+        drop(window);
+        release_validation.send(()).unwrap();
+        pump_until(|| finished.load(Ordering::Acquire));
+        server.join().unwrap();
+        pump_until(|| weak.upgrade().is_none());
+    }
+
     #[test]
     #[ignore = "requires an isolated GTK display; run explicitly under Xvfb"]
     fn native_music_session_catalog_queue_and_logout() {
@@ -1712,11 +2151,11 @@ mod tests {
             ("GET /account/status", account, false),
             ("GET /users/1234/likes/tracks", liked.clone(), false),
             ("POST /tracks", tracks.clone(), false),
+            ("GET /users/1234/playlists/list", playlists, false),
             ("GET /users/1234/likes/tracks", liked.clone(), false),
             ("POST /tracks", tracks.clone(), false),
             ("GET /users/1234/likes/tracks", liked, false),
             ("POST /tracks", tracks.clone(), false),
-            ("GET /users/1234/playlists/list", playlists, false),
             ("GET /users/1234/playlists/3", playlist, false),
             ("POST /tracks", tracks.clone(), false),
             ("GET /search", search.clone(), false),
@@ -1731,6 +2170,7 @@ mod tests {
         let server_done = served.clone();
         let late_started = Arc::new(AtomicBool::new(false));
         let server_late_started = late_started.clone();
+        let (release_search, wait_for_release) = std::sync::mpsc::channel();
         let server = thread::spawn(move || {
             for (prefix, response, delayed) in responses {
                 let deadline = Instant::now() + Duration::from_secs(8);
@@ -1776,7 +2216,9 @@ mod tests {
                 stream.read_exact(&mut vec![0; length]).unwrap();
                 if delayed {
                     server_late_started.store(true, Ordering::Release);
-                    thread::sleep(Duration::from_millis(400));
+                    wait_for_release
+                        .recv_timeout(Duration::from_secs(8))
+                        .unwrap();
                 }
                 let body = response.to_string();
                 write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
@@ -1794,11 +2236,15 @@ mod tests {
             .default_width(900)
             .default_height(650)
             .build();
-        let pane = MusicPane::with_service(
+        let blocked = Arc::new(AtomicBool::new(true));
+        let pane = MusicPane::with_provider(
             &app,
             &window,
-            cfg!(feature = "experimental-device-auth"),
             Some(MusicService::for_test(&format!("http://{address}/"))),
+            Arc::new(FixtureProvider {
+                blocked: blocked.clone(),
+            }),
+            launch_fixture_callback,
         );
         let toolbar = adw::ToolbarView::new();
         let header = adw::HeaderBar::new();
@@ -1811,26 +2257,29 @@ mod tests {
         window.set_content(Some(&toolbar));
         window.present();
         let this = &pane.controller;
-        #[cfg(feature = "experimental-device-auth")]
-        {
-            this.widgets.login.emit_clicked();
-            assert!(this.widgets.auth.revealer.reveals_child());
-            this.widgets.auth.client_id.set_text("synthetic-ui-client");
+        assert_eq!(this.widgets.login.label().as_deref(), Some("Войти"));
+        this.widgets.login.emit_clicked();
+        pump_until(|| !this.model.borrow().busy);
+        let dialog = this.login_dialog.borrow().as_ref().unwrap().clone();
+        assert_no_credential_fields(dialog.dialog.upcast_ref());
+        assert!(contains_text(dialog.dialog.upcast_ref(), "не подтверждён"));
+        assert!(!this.widgets.search.is_sensitive());
+        assert!(this.model.borrow().token.is_none());
+        capture_native("login-blocked");
+        dialog.retry.emit_clicked();
+        pump_until(|| !this.model.borrow().busy);
+        dialog.cancel.emit_clicked();
+        assert!(this.login_dialog.borrow().is_none());
+        assert!(
             this.widgets
-                .auth
-                .client_secret
-                .set_text("synthetic-ui-application-secret");
-            this.widgets.auth.cancel.emit_clicked();
-            assert!(this.widgets.auth.client_id.text().is_empty());
-            assert!(this.widgets.auth.client_secret.text().is_empty());
-            assert!(!this.widgets.auth.revealer.reveals_child());
-            assert!(this.model.borrow().token.is_none());
-        }
-        this.authenticate(AccessToken::for_test(
-            "synthetic-ui-token",
-            Duration::from_secs(60),
-        ));
+                .status
+                .subtitle()
+                .is_none_or(|value| value.is_empty())
+        );
+        blocked.store(false, Ordering::Release);
+        this.widgets.login.emit_clicked();
         pump_until(|| this.model.borrow().account_valid && !this.model.borrow().busy);
+        assert!(this.login_dialog.borrow().is_none());
         assert_eq!(this.widgets.account.text(), "Synthetic UI account");
         assert_eq!(rows(&this.widgets.library_rows), 50);
         assert!(this.widgets.library_next.is_visible());
@@ -1946,6 +2395,7 @@ mod tests {
         // correctly suppressed by the shared token invalidation on logout.
         pump_until(|| late_started.load(Ordering::Acquire));
         this.logout();
+        release_search.send(()).unwrap();
         pump_until(|| served.load(Ordering::Acquire));
         server.join().unwrap();
         let settle = Instant::now() + Duration::from_millis(100);
@@ -1967,5 +2417,6 @@ mod tests {
         drop(pane);
         drop(window);
         pump_until(|| weak.upgrade().is_none());
+        validation_failure_cancel_and_retry(&app);
     }
 }
