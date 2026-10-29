@@ -11,6 +11,63 @@ application values are attributed in the implementation, not repeated here;
 user secrets and stream-signing material are never published. Source licensing,
 provider permission, technical interoperability and live acceptance are separate.
 
+## Fedora navigation regression after `77a1a27`
+
+The owner confirms that this revision opens the real Yandex page on Fedora. Karin
+then aborts with `UntrustedNavigation` after roughly five phone-input digits or
+in the QR path. The concrete rejected event has not been captured; neither an
+iframe nor a fragment nor a missing provider origin is established as the
+observed Yandex cause. This failure is inside Karin's browser policy, not evidence
+of Music API 403, wrong account credentials, VPN failure or denied service rights.
+
+Source inspection nevertheless identifies defects worth correcting independently:
+ordinary trusted URLs with a fragment are rejected by both URL/origin checks,
+and an unknown-frame navigation rejection unconditionally terminates the entire
+attempt. Those rules are inappropriate for an interactive provider page. Ordinary
+navigation must remain separate from strict callback processing. OAuth-response
+fragments are not ordinary page hashes, and callback detection must not consume
+state or start token work until the main document is confirmed.
+
+The WebKit UI API provides distinct evidence:
+
+- [`NavigationAction.get_frame_name`](https://webkitgtk.org/reference/webkitgtk/stable/method.NavigationAction.get_frame_name.html)
+  does not provide a reliable main-frame flag. An absent name is not main-frame
+  proof. A rejected action with unknown context stays blocked, without treating
+  that event alone as a fatal error for the whole session.
+- [`WebView.get_uri`](https://webkitgtk.org/reference/webkitgtk/stable/method.WebView.get_uri.html)
+  describes the main document, including provisional URI changes. It can establish
+  main-document context; it does not turn an untrusted address into an approved
+  page or an OAuth session into Music authorization.
+- [`ResponsePolicyDecision.is_main_frame_main_resource`](https://webkitgtk.org/reference/webkitgtk/stable/method.ResponsePolicyDecision.is_main_frame_main_resource.html)
+  returning true proves the main-frame main resource. False alone does **not**
+  prove a subframe, because it may describe another resource of the main frame.
+- The inspected WebKit [2.52.6](https://github.com/WebKit/WebKit/blob/webkitgtk-2.52.6/Source/WebKit/UIProcess/API/glib/WebKitNavigationClient.cpp#L64)
+  and [2.54.0](https://github.com/WebKit/WebKit/blob/webkitgtk-2.54.0/Source/WebKit/UIProcess/API/glib/WebKitNavigationClient.cpp#L64)
+  `NavigationClient.cpp` paths suppress subframe `load_failed` forwarding with an explicit `frameInfo.isMainFrame`
+  guard. Cancelled loads caused by policy decisions or application stop must
+  still be handled separately, without overwriting the earlier rejection/cause.
+
+The finite approved origin list is retained. A new origin requires concrete
+provider evidence; the reported failure does not justify wildcard domains,
+substring matching, arbitrary internet navigation or disabling TLS/sandbox/state.
+Service documents such as `about:blank` are not authenticated provider origins
+and cannot complete authorization.
+
+The first rejected event per attempt is reduced to a one-shot safe diagnostic:
+fixed event, reason and confirmed main/subframe/unknown context, with canonical
+scheme/host/port and fragment presence only for recognized public origins.
+Malformed, credential-bearing, OAuth-result and unknown-host addresses produce
+fixed redacted categories instead. No full address, path, query/fragment value,
+phone/QR data, input fields, cookies, token or state is retained in that value.
+It is not a full network log. See [the filtered Fedora procedure](BUILDING.md#one-fedora-navigation-retest-after-77a1a27)
+and [revision-scoped validation](VALIDATION.md).
+
+The interactive loopback test reproduces synthetic input/hash/frame behavior,
+not Yandex's live phone or QR implementation. Actual token issuance, Music
+account acceptance and personal library/search remain unverified until the
+consenting local test. This correction does not change the Cassette-compatible
+grant or route the user back to the refused Karin-owned registration.
+
 ## What Cassette actually does
 
 The inspected revisions are Cassette **v0.2.4**,

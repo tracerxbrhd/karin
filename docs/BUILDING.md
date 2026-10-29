@@ -70,6 +70,46 @@ binary is a test artifact, not a Flatpak or production release; Fedora ABI/start
 is unverified. If unavailable or incompatible, use the canonical local source
 build above. Select the matching successful PR revision, not an older artifact.
 
+### One Fedora navigation retest after `77a1a27`
+
+The owner confirmed that `77a1a27` opens the real Yandex page on Fedora, then
+Karin reports `UntrustedNavigation` after roughly five phone-input digits or
+when using QR sign-in. The rejected browser event has not been captured. This
+is not evidence of Music API 403, a wrong password, VPN trouble or missing rights.
+
+Use the new matching successful `karin-fedora-prototype-1.98.1` artifact from
+[PR #8](https://github.com/tracerxbrhd/karin/pull/8), verify its `SHA256SUMS`, and
+enter the extracted directory. Run once from a private local terminal with this
+output filter, which creates no full log file:
+
+```sh
+ulimit -c 0
+./karin 2>&1 | sed -n '/^Karin auth navigation: /p'
+```
+
+Click `Войти`, use your own account and reproduce the phone-entry interaction.
+If it still fails, copy **only the first line beginning `Karin auth navigation: `**
+from that attempt, the build revision and the coarse native UI outcome. For the
+QR path, cancel/close the current attempt, reopen `Войти` and repeat the ordinary
+Yandex QR interaction; report its first line separately if one appears. Do not
+record the terminal, use `tee`, save unfiltered stderr or enable full browser,
+JavaScript or network logging. Do not send entered digits, QR contents, browser
+URLs, screenshots of login/account data, cookies, tokens or state.
+
+The line records only fixed event/rejection/frame categories and, for a safe
+known public origin, normalized scheme/host/port and fragment presence. Malformed,
+userinfo-bearing, OAuth-result and unknown-host addresses become fixed redacted
+categories; their address text is not retained. `frame=Unknown` is deliberately
+not described as main-frame or iframe evidence. A blocked auxiliary transition
+does not by itself mean the sign-in attempt failed. Absence of a line means no
+rejection was recorded, not that authorization or Music access succeeded.
+
+If the page now continues, complete the same attempt and continue with Music
+account/library/search acceptance below. Do not switch OAuth identity, region,
+mechanism or network settings to hide a refusal. The actual Yandex phone and QR
+flows still require this local check; the interactive loopback fixture is not
+their live acceptance.
+
 Run **without** `--ui-fixture`, `--smoke-test` or the separate
 `--oauth-diagnostic`; those are not the real sign-in journey. No secrets belong
 in command arguments, environment variables, files, chat or GitHub. The consent
@@ -159,8 +199,19 @@ until wmctrl -m >/dev/null 2>&1; do
 done
 cargo test --lib --locked --all-features \
   webkit_auth_local_startup_cookie_isolation_and_cancel -- --ignored --test-threads=1
+cargo test --lib --locked --all-features \
+  webkit_auth_interactive_navigation_frames_and_first_rejection -- --ignored --test-threads=1
 SH
 ```
+
+The second invocation is a separate GTK/WebKit process. Its loopback page reacts
+to actual synthetic keyboard input and a QR-like test button by changing its hash
+and creating/redirecting child frames. It checks ordinary fragments, blocked
+auxiliary and top-level transitions, iframe callback isolation, strict returned
+state, cancellation/retry/late events and diagnostic redaction. It never uses a
+real phone, QR payload, Yandex account or Music API. Keep the WebKit sandbox
+enabled; if namespace creation is unavailable, report the test as blocked rather
+than disabling the sandbox or treating a startup-only test as a passed flow.
 
 `--smoke-test` and the capture helper's explicit `--ui-fixture` mode inject an
 offline provider. They exercise dialog/layout/lifecycle without contacting Yandex;

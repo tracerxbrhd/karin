@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Short-lived authorization browser. Only this attempt's OAuth-endpoint cookies
-//! may cross the session boundary; provider DOM, passwords and other profiles are
-//! never inspected. Navigation policy does not identify the top frame, so the
-//! session-return flow confirms WebView's main-document URI before consumption.
+//! may cross the session boundary. NavigationAction has no reliable frame flag:
+//! rejecting an auxiliary navigation must not destroy the main login document.
+//! OAuth completion is consumed only from the actual WebView main URI.
 
 use std::{
     cell::{Cell, RefCell},
@@ -11,10 +11,14 @@ use std::{
     sync::Arc,
 };
 
+use std::io::Write as _;
+
 use webkit6::prelude::*;
 
-use crate::auth::{AuthAttempt, AuthError, AuthorizationCode, NavigationDecision, SessionCookies};
-use zeroize::Zeroizing;
+use crate::auth::{
+    AuthAttempt, AuthError, AuthorizationCode, FrameContext, NavigationDecision, NavigationEvent,
+    RejectionReason, SafeNavigationDiagnostic, SessionCookies,
+};
 
 pub(in crate::ui) struct AuthWebView {
     inner: Rc<Browser>,
@@ -26,7 +30,10 @@ struct Browser {
     attempt: Arc<AuthAttempt>,
     closed: Cell<bool>,
     collecting: Cell<bool>,
-    pending_return: RefCell<Option<Zeroizing<String>>>,
+    first_error: Cell<Option<AuthError>>,
+    first_rejection: RefCell<Option<SafeNavigationDiagnostic>>,
+    #[cfg(test)]
+    callback_candidates: Cell<u32>,
     cookie_cancellable: gtk::gio::Cancellable,
     on_redirect: Rc<dyn Fn(AuthorizationCode)>,
     on_session: Rc<dyn Fn(SessionCookies)>,
@@ -65,7 +72,10 @@ impl AuthWebView {
             attempt,
             closed: Cell::new(false),
             collecting: Cell::new(false),
-            pending_return: RefCell::new(None),
+            first_error: Cell::new(None),
+            first_rejection: RefCell::new(None),
+            #[cfg(test)]
+            callback_candidates: Cell::new(0),
             cookie_cancellable: gtk::gio::Cancellable::new(),
             on_redirect,
             on_session,
@@ -82,15 +92,23 @@ impl AuthWebView {
     }
 
     pub(in crate::ui) fn load(&self, authorization_url: &str) {
-        if self.inner.closed.get() {
+        if !self.inner.live() {
             return;
         }
         match self.inner.attempt.navigation(authorization_url) {
             NavigationDecision::AllowTrusted => self.inner.view.load_uri(authorization_url),
-            NavigationDecision::Callback(_) | NavigationDecision::SessionReturn => {
+            NavigationDecision::CodeReturn | NavigationDecision::SessionReturn => {
                 self.inner.fail(AuthError::InvalidCallback)
             }
-            NavigationDecision::Reject(error) => self.inner.fail(error),
+            NavigationDecision::Reject(error) => {
+                self.inner.record_rejection(
+                    NavigationEvent::MainUri,
+                    self.inner.reason(authorization_url),
+                    FrameContext::Main,
+                    Some(authorization_url),
+                );
+                self.inner.fail(error);
+            }
         }
     }
 
@@ -108,16 +126,23 @@ impl AuthWebView {
                     decision.ignore();
                     return true;
                 };
-                if browser.closed.get()
-                    || browser.collecting.get()
-                    || browser.attempt.is_cancelled()
-                {
+                if !browser.live() {
                     decision.ignore();
                     return true;
                 }
                 match kind {
                     webkit6::PolicyDecisionType::NewWindowAction => {
-                        // Popups and external protocol handlers never escape this dialog.
+                        browser.record_rejection(
+                            NavigationEvent::PolicyNewWindow,
+                            RejectionReason::Popup,
+                            FrameContext::Unknown,
+                            decision
+                                .downcast_ref::<webkit6::NavigationPolicyDecision>()
+                                .and_then(|navigation| navigation.navigation_action())
+                                .and_then(|mut action| action.request())
+                                .and_then(|request| request.uri())
+                                .as_deref(),
+                        );
                         decision.ignore();
                         true
                     }
@@ -128,14 +153,20 @@ impl AuthWebView {
                             .and_then(|mut action| action.request())
                             .and_then(|request| request.uri());
                         let Some(uri) = uri else {
+                            browser.record_rejection(
+                                NavigationEvent::PolicyNavigation,
+                                RejectionReason::MissingAddress,
+                                FrameContext::Unknown,
+                                None,
+                            );
                             decision.ignore();
-                            browser.fail(AuthError::UntrustedNavigation);
                             return true;
                         };
-                        // Provider pages legitimately create empty child frames.
-                        // This exception cannot authorize a top-level blank page:
-                        // notify::uri below still rejects that main document.
-                        if uri.as_str() == "about:blank"
+                        // Empty child documents are normal for interactive login.
+                        // This is not evidence that the target is a subframe. If
+                        // one becomes the actual main URI, the main handler below
+                        // rejects it before it can replace a trusted login page.
+                        if service_document(uri.as_str())
                             && view
                                 .uri()
                                 .and_then(|current| {
@@ -148,39 +179,122 @@ impl AuthWebView {
                         }
                         match browser.attempt.navigation(uri.as_str()) {
                             NavigationDecision::AllowTrusted => decision.use_(),
-                            NavigationDecision::Callback(code) => {
-                                // Never send the code to the callback URL or render it.
-                                decision.ignore();
-                                browser.stop();
-                                (browser.on_redirect)(code);
-                            }
-                            NavigationDecision::SessionReturn => {
-                                // A navigation decision may describe a subframe. It
-                                // is only a candidate until WebView's main URI agrees.
-                                *browser.pending_return.borrow_mut() =
-                                    Some(Zeroizing::new(uri.to_string()));
+                            NavigationDecision::CodeReturn | NavigationDecision::SessionReturn => {
+                                #[cfg(test)]
+                                browser
+                                    .callback_candidates
+                                    .set(browser.callback_candidates.get() + 1);
+                                // Exact expected callback candidates are not proof
+                                // of top-frame navigation. In particular, never
+                                // consume state or acquire cookies for an iframe.
                                 decision.use_();
                             }
-                            NavigationDecision::Reject(error) => {
+                            NavigationDecision::Reject(_) => {
+                                browser.record_rejection(
+                                    NavigationEvent::PolicyNavigation,
+                                    browser.reason(uri.as_str()),
+                                    FrameContext::Unknown,
+                                    Some(uri.as_str()),
+                                );
+                                // This blocks the request even when it would be a
+                                // top-level navigation. Unknown frame context must
+                                // not turn an optional denied frame into logout.
                                 decision.ignore();
-                                browser.fail(error);
                             }
                         }
                         true
                     }
                     webkit6::PolicyDecisionType::Response => {
-                        let Some(response_policy) =
+                        let Some(policy) =
                             decision.downcast_ref::<webkit6::ResponsePolicyDecision>()
                         else {
+                            browser.record_rejection(
+                                NavigationEvent::PolicyResponse,
+                                RejectionReason::MissingAddress,
+                                FrameContext::Unknown,
+                                None,
+                            );
                             decision.ignore();
-                            browser.fail(AuthError::BrowserLoad);
                             return true;
                         };
-                        let Some(response) = response_policy.response() else {
+                        let main_resource = policy.is_main_frame_main_resource();
+                        // FALSE is not proof of a subframe: WebKit also tests the
+                        // requester's main-resource status in this compound API.
+                        let context = if main_resource {
+                            FrameContext::Main
+                        } else {
+                            FrameContext::Unknown
+                        };
+                        let Some(response) = policy.response() else {
+                            browser.record_rejection(
+                                NavigationEvent::PolicyResponse,
+                                RejectionReason::MissingAddress,
+                                context,
+                                None,
+                            );
+                            if main_resource {
+                                browser.fail(AuthError::BrowserLoad);
+                            }
                             decision.ignore();
-                            browser.fail(AuthError::BrowserLoad);
                             return true;
                         };
+                        let uri = policy
+                            .request()
+                            .and_then(|request| request.uri())
+                            .or_else(|| response.uri());
+                        let Some(uri) = uri else {
+                            browser.record_rejection(
+                                NavigationEvent::PolicyResponse,
+                                RejectionReason::MissingAddress,
+                                context,
+                                None,
+                            );
+                            if main_resource {
+                                browser.fail(AuthError::BrowserLoad);
+                            }
+                            decision.ignore();
+                            return true;
+                        };
+                        match browser.attempt.navigation(uri.as_str()) {
+                            NavigationDecision::AllowTrusted => {}
+                            NavigationDecision::CodeReturn | NavigationDecision::SessionReturn => {
+                                if !main_resource {
+                                    browser.record_rejection(
+                                        NavigationEvent::PolicyResponse,
+                                        RejectionReason::UnconfirmedMainDocument,
+                                        context,
+                                        Some(uri.as_str()),
+                                    );
+                                    decision.ignore();
+                                    return true;
+                                }
+                                // Main-resource proof does not authorize copying a
+                                // fragment from a previous unknown-frame candidate.
+                                // Use only WebView's actual main URI. If its update
+                                // is deferred, COMMITTED/notify::uri validates that
+                                // actual URI before completing authentication.
+                                Browser::handle_main_uri(&browser);
+                                if !browser.live() {
+                                    decision.ignore();
+                                    return true;
+                                }
+                            }
+                            NavigationDecision::Reject(error) => {
+                                if !(service_document(uri.as_str()) && !main_resource) {
+                                    browser.record_rejection(
+                                        NavigationEvent::PolicyResponse,
+                                        browser.reason(uri.as_str()),
+                                        context,
+                                        Some(uri.as_str()),
+                                    );
+                                    if main_resource {
+                                        browser.fail(error);
+                                    }
+                                    decision.ignore();
+                                    return true;
+                                }
+                            }
+                        }
                         let attachment = response
                             .http_headers()
                             .and_then(|headers| headers.one("Content-Disposition"))
@@ -189,29 +303,24 @@ impl AuthWebView {
                                     kind.trim().eq_ignore_ascii_case("attachment")
                                 })
                             });
-                        let main_resource = response_policy.is_main_frame_main_resource();
-                        if main_resource && browser.attempt.is_session_based() {
-                            let active = browser.view.uri();
-                            let returned = browser.pending_return.borrow().as_ref().cloned();
-                            if let (Some(active), Some(returned)) = (active, returned)
-                                && active.as_str() == returned.as_str()
-                            {
-                                // Do not render the Music website (or its implicit
-                                // fragment). Cookies are read only after top-frame
-                                // confirmation and state validation below.
-                                decision.ignore();
-                                Browser::collect_session(&browser, &returned);
-                                return true;
-                            }
-                        }
                         if attachment
-                            || !response_policy.is_mime_type_supported()
+                            || !policy.is_mime_type_supported()
                             || (main_resource && response.status_code() >= 400)
                         {
-                            decision.ignore();
+                            browser.record_rejection(
+                                NavigationEvent::PolicyResponse,
+                                if attachment {
+                                    RejectionReason::Download
+                                } else {
+                                    RejectionReason::LoadFailure
+                                },
+                                context,
+                                Some(uri.as_str()),
+                            );
                             if main_resource {
                                 browser.fail(AuthError::BrowserLoad);
                             }
+                            decision.ignore();
                         } else {
                             decision.use_();
                         }
@@ -222,59 +331,22 @@ impl AuthWebView {
             });
 
         let weak = Rc::downgrade(inner);
-        inner.view.connect_uri_notify(move |view| {
-            let Some(browser) = weak.upgrade() else {
-                return;
-            };
-            if !browser.closed.get()
-                && !browser.collecting.get()
-                && view.uri().is_some_and(|uri| uri.as_str() == "about:blank")
-            {
-                browser.fail(AuthError::UntrustedNavigation);
-                return;
-            }
-            let origin = if browser.closed.get() || browser.attempt.is_cancelled() {
-                None
-            } else {
-                // WebView's URI describes the main document. Subframe policy
-                // decisions must never change the displayed provider domain.
-                view.uri()
-                    .and_then(|uri| browser.attempt.display_origin(uri.as_str()))
-            };
-            (browser.on_origin)(origin.as_deref().unwrap_or(""));
-            if browser.attempt.is_session_based()
-                && let Some(uri) = view.uri()
-                && matches!(
-                    browser.attempt.navigation(uri.as_str()),
-                    NavigationDecision::SessionReturn
-                )
-            {
-                // URI notification is explicitly the main document, unlike a
-                // potentially hidden iframe's NavigationAction.
-                Browser::collect_session(&browser, uri.as_str());
+        inner.view.connect_uri_notify(move |_| {
+            if let Some(browser) = weak.upgrade() {
+                Browser::handle_main_uri(&browser);
             }
         });
 
         let weak = Rc::downgrade(inner);
-        inner.view.connect_load_changed(move |view, event| {
+        inner.view.connect_load_changed(move |_, event| {
             let Some(browser) = weak.upgrade() else {
                 return;
             };
-            if browser.closed.get() || browser.collecting.get() || browser.attempt.is_cancelled() {
+            if !browser.live() {
                 return;
             }
-            if browser.attempt.is_session_based()
-                && matches!(
-                    event,
-                    webkit6::LoadEvent::Committed | webkit6::LoadEvent::Finished
-                )
-                && let Some(uri) = view.uri()
-                && matches!(
-                    browser.attempt.navigation(uri.as_str()),
-                    NavigationDecision::SessionReturn
-                )
-            {
-                Browser::collect_session(&browser, uri.as_str());
+            Browser::handle_main_uri(&browser);
+            if !browser.live() {
                 return;
             }
             match event {
@@ -285,10 +357,24 @@ impl AuthWebView {
         });
 
         let weak = Rc::downgrade(inner);
-        inner.view.connect_load_failed(move |_, _, _, _| {
+        inner.view.connect_load_failed(move |_, _, uri, error| {
             if let Some(browser) = weak.upgrade()
-                && !browser.collecting.get()
+                && browser.live()
             {
+                // WebKit's NavigationClient emits load-failed only for its
+                // main frame. Policy ignores, superseding requests and our
+                // stop_loading produce benign cancellation errors; they are
+                // not authentication failures and must not replace the first
+                // navigation rejection with a generic BrowserLoad error.
+                if cancelled_load(error) {
+                    return true;
+                }
+                browser.record_rejection(
+                    NavigationEvent::LoadFailed,
+                    RejectionReason::LoadFailure,
+                    FrameContext::Main,
+                    Some(uri),
+                );
                 browser.fail(AuthError::BrowserLoad);
             }
             // Suppress WebKit's default URI-bearing error page.
@@ -297,15 +383,31 @@ impl AuthWebView {
         let weak = Rc::downgrade(inner);
         inner
             .view
-            .connect_load_failed_with_tls_errors(move |_, _, _, _| {
-                if let Some(browser) = weak.upgrade() {
+            .connect_load_failed_with_tls_errors(move |_, uri, _, _| {
+                if let Some(browser) = weak.upgrade()
+                    && browser.live()
+                {
+                    browser.record_rejection(
+                        NavigationEvent::Tls,
+                        RejectionReason::TlsFailure,
+                        FrameContext::Main,
+                        Some(uri),
+                    );
                     browser.fail(AuthError::BrowserTls);
                 }
                 true
             });
         let weak = Rc::downgrade(inner);
         inner.view.connect_web_process_terminated(move |_, _| {
-            if let Some(browser) = weak.upgrade() {
+            if let Some(browser) = weak.upgrade()
+                && browser.live()
+            {
+                browser.record_rejection(
+                    NavigationEvent::WebProcess,
+                    RejectionReason::ProcessTerminated,
+                    FrameContext::Unknown,
+                    None,
+                );
                 browser.fail(AuthError::BrowserProcess);
             }
         });
@@ -329,16 +431,114 @@ impl AuthWebView {
     }
 }
 
+fn service_document(raw: &str) -> bool {
+    matches!(raw, "about:blank" | "about:srcdoc")
+}
+
+fn cancelled_load(error: &gtk::glib::Error) -> bool {
+    error.matches(webkit6::NetworkError::Cancelled)
+        || error.matches(webkit6::PolicyError::FrameLoadInterruptedByPolicyChange)
+}
+
 impl Browser {
-    fn collect_session(browser: &Rc<Self>, returned: &str) {
-        if browser.closed.get() || browser.collecting.replace(true) {
+    fn live(&self) -> bool {
+        !self.closed.get() && !self.collecting.get() && !self.attempt.is_cancelled()
+    }
+
+    fn reason(&self, raw: &str) -> RejectionReason {
+        self.attempt
+            .navigation_rejection_reason(raw)
+            .unwrap_or(RejectionReason::InvalidCallback)
+    }
+
+    fn record_rejection(
+        &self,
+        event: NavigationEvent,
+        reason: RejectionReason,
+        context: FrameContext,
+        raw: Option<&str>,
+    ) {
+        let diagnostic = SafeNavigationDiagnostic::new(event, reason, context, raw);
+        {
+            let mut first = self.first_rejection.borrow_mut();
+            if first.is_some() {
+                return;
+            }
+            *first = Some(diagnostic);
+        }
+        // Desktop launchers can close stderr; reporting must never panic inside
+        // a GTK callback or replace the latched navigation event with I/O failure.
+        let _ = writeln!(
+            std::io::stderr().lock(),
+            "Karin auth navigation: {diagnostic}"
+        );
+    }
+
+    fn handle_main_uri(browser: &Rc<Self>) {
+        if !browser.live() {
             return;
         }
+        let Some(uri) = browser.view.uri() else {
+            return;
+        };
+        match browser.attempt.navigation(uri.as_str()) {
+            NavigationDecision::AllowTrusted => {
+                let origin = browser.attempt.display_origin(uri.as_str());
+                (browser.on_origin)(origin.as_deref().unwrap_or(""));
+            }
+            NavigationDecision::CodeReturn => {
+                (browser.on_origin)("");
+                match browser.attempt.complete_code_return(uri.as_str()) {
+                    Ok(code) => {
+                        browser.stop();
+                        (browser.on_redirect)(code);
+                    }
+                    Err(error) => {
+                        if !matches!(error, AuthError::Denied | AuthError::Rejected) {
+                            browser.record_rejection(
+                                NavigationEvent::MainUri,
+                                RejectionReason::InvalidCallback,
+                                FrameContext::Main,
+                                Some(uri.as_str()),
+                            );
+                        }
+                        browser.fail(error);
+                    }
+                }
+            }
+            NavigationDecision::SessionReturn => {
+                (browser.on_origin)("");
+                Browser::collect_session(browser, uri.as_str());
+            }
+            NavigationDecision::Reject(error) => {
+                browser.record_rejection(
+                    NavigationEvent::MainUri,
+                    browser.reason(uri.as_str()),
+                    FrameContext::Main,
+                    Some(uri.as_str()),
+                );
+                browser.fail(error);
+            }
+        }
+    }
+
+    fn collect_session(browser: &Rc<Self>, returned: &str) {
+        if !browser.live() {
+            return;
+        }
+        browser.collecting.set(true);
         if let Err(error) = browser.attempt.complete_session_return(returned) {
+            if !matches!(error, AuthError::Denied | AuthError::Rejected) {
+                browser.record_rejection(
+                    NavigationEvent::MainUri,
+                    RejectionReason::InvalidCallback,
+                    FrameContext::Main,
+                    Some(returned),
+                );
+            }
             browser.fail(error);
             return;
         }
-        browser.pending_return.borrow_mut().take();
         browser.view.stop_loading();
         browser.view.set_visible(false);
         (browser.on_origin)("");
@@ -365,8 +565,6 @@ impl Browser {
                     result
                         .map_err(|_| AuthError::BrowserSessionRead)
                         .and_then(|cookies| {
-                            // These Soup values are ephemeral copies. Never use their
-                            // derived Debug implementation or retain them after transfer.
                             SessionCookies::from_pairs(cookies.into_iter().filter_map(
                                 |mut cookie| {
                                     Some((cookie.name()?.to_string(), cookie.value()?.to_string()))
@@ -375,8 +573,6 @@ impl Browser {
                         });
                 match result {
                     Ok(cookies) => {
-                        // Cookie collection precedes data clearing. Exchange
-                        // receives a redacted memory-only value, never the view.
                         browser.stop();
                         (browser.on_session)(cookies);
                     }
@@ -391,7 +587,6 @@ impl Browser {
             return;
         }
         self.cookie_cancellable.cancel();
-        self.pending_return.borrow_mut().take();
         self.view.stop_loading();
         self.view.set_visible(false);
         (self.on_loading)(false);
@@ -407,9 +602,11 @@ impl Browser {
     }
 
     fn fail(&self, error: AuthError) {
-        if self.closed.get() || self.attempt.is_cancelled() {
+        if self.closed.get() || self.attempt.is_cancelled() || self.first_error.get().is_some() {
             return;
         }
+        // Latch before stop_loading can synchronously emit a cancellation.
+        self.first_error.set(Some(error));
         self.stop();
         (self.on_error)(error);
     }
@@ -420,6 +617,9 @@ impl Drop for AuthWebView {
         self.inner.stop();
     }
 }
+
+#[cfg(all(test, feature = "cassette-auth"))]
+mod interactive_tests;
 
 #[cfg(test)]
 mod tests {

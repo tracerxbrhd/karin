@@ -455,10 +455,15 @@ fn callbacks_are_single_use_across_manual_and_browser_navigation() {
     let fixture = SyntheticFixture::new(BrowserMode::Embedded);
     let attempt = &fixture.attempt;
     let returned = callback(attempt, SYNTHETIC_CODE);
-    match attempt.navigation(&returned) {
-        NavigationDecision::Callback(code) => assert_eq!(code.expose(), SYNTHETIC_CODE),
-        other => panic!("expected callback, got {other:?}"),
-    }
+    assert!(matches!(
+        attempt.navigation(&returned),
+        NavigationDecision::CodeReturn
+    ));
+    assert!(!attempt.consumed.load(Ordering::Acquire));
+    assert_eq!(
+        attempt.complete_code_return(&returned).unwrap().expose(),
+        SYNTHETIC_CODE
+    );
     assert_eq!(
         attempt.validate_callback(&returned).unwrap_err(),
         AuthError::InvalidCallback
@@ -556,6 +561,8 @@ fn only_exact_yandex_https_origins_and_explicit_fixture_origin_are_trusted() {
         "https://smartcaptcha.yandexcloud.net/checkbox?synthetic=value",
         "https://captcha-api.yandex.ru/checkbox?synthetic=value",
         "https://oauth.yandex.ru:443/authorize",
+        "https://oauth.yandex.ru/authorize#fragment",
+        "https://passport.yandex.ru/auth#phone",
     ] {
         assert!(matches!(
             attempt.navigation(url),
@@ -587,7 +594,6 @@ fn only_exact_yandex_https_origins_and_explicit_fixture_origin_are_trusted() {
         "https://synthetic@oauth.yandex.ru/authorize",
         "https://synthetic:private@oauth.yandex.ru/authorize",
         "https://oauth.yandex.ru@invalid.test/authorize",
-        "https://oauth.yandex.ru/authorize#fragment",
         "https://oauth.yandex.ru\\@invalid.test/authorize",
         " https://oauth.yandex.ru/authorize",
         "https://oauth.yandex.ru/authorize\n",
@@ -605,11 +611,166 @@ fn only_exact_yandex_https_origins_and_explicit_fixture_origin_are_trusted() {
     }
     let local = Url::parse(&attempt.authorization_url()).unwrap();
     let fixture_with_fragment = format!("{}#synthetic", local.as_str());
+    assert!(matches!(
+        attempt.navigation(&fixture_with_fragment),
+        NavigationDecision::AllowTrusted
+    ));
+    fixture.assert_no_provider_requests();
+}
+
+#[test]
+fn regression_trusted_page_fragment_must_not_abort_login() {
+    let fixture = SyntheticFixture::new(BrowserMode::Embedded);
+    let attempt = &fixture.attempt;
+    let local_fragment = format!(
+        "{}#synthetic-phone-step",
+        attempt.authorization_url().as_str()
+    );
+    assert!(matches!(
+        attempt.navigation(&local_fragment),
+        NavigationDecision::AllowTrusted
+    ));
+    assert!(!attempt.consumed.load(Ordering::Acquire));
+    // These failed in 77a1a27 solely because a fragment was present. They model
+    // sign-in page state changes, not real phone/QR behavior at Yandex.
+    for uri in [
+        "https://passport.yandex.ru/auth#phone",
+        "https://passport.yandex.ru/auth#phone=synthetic-five-characters",
+        "https://passport.yandex.ru/auth#qr-confirmation",
+        "https://passport.yandex.ru/auth#state=synthetic-spa-step",
+        "https://id.yandex.ru/#route?screen=synthetic-step",
+        "https://smartcaptcha.yandexcloud.net/checkbox#challenge",
+    ] {
+        assert!(matches!(
+            attempt.navigation(uri),
+            NavigationDecision::AllowTrusted
+        ));
+        assert_eq!(attempt.navigation_rejection_reason(uri), None);
+        assert!(!attempt.consumed.load(Ordering::Acquire));
+    }
     assert_eq!(
-        rejection(attempt.navigation(&fixture_with_fragment)),
+        attempt.display_origin(
+            "https://passport.yandex.ru/auth?phone=synthetic-private#phone=synthetic-private"
+        ),
+        Some("https://passport.yandex.ru".into())
+    );
+    // Page state has its own bounded URL budget; callback's 4 KiB ceiling must
+    // not reject a trusted document's longer nested retpath/challenge query.
+    let long_page = format!(
+        "https://passport.yandex.ru/auth?retpath={}#phone",
+        "x".repeat(MAX_RETURN + 1)
+    );
+    assert!(matches!(
+        attempt.navigation(&long_page),
+        NavigationDecision::AllowTrusted
+    ));
+    assert!(!attempt.consumed.load(Ordering::Acquire));
+    let oversized_page = format!(
+        "https://passport.yandex.ru/?challenge={}",
+        "x".repeat(MAX_PAGE_URL)
+    );
+    assert_eq!(
+        rejection(attempt.navigation(&oversized_page)),
         AuthError::UntrustedNavigation
     );
+    let returned = callback(attempt, SYNTHETIC_CODE);
+    for _ in 0..2 {
+        assert!(matches!(
+            attempt.navigation(&returned),
+            NavigationDecision::CodeReturn
+        ));
+        assert!(!attempt.consumed.load(Ordering::Acquire));
+    }
+    assert_eq!(
+        attempt.complete_code_return(&returned).unwrap().expose(),
+        SYNTHETIC_CODE
+    );
+    assert_eq!(
+        attempt.complete_code_return(&returned).unwrap_err(),
+        AuthError::InvalidCallback
+    );
     fixture.assert_no_provider_requests();
+}
+
+#[test]
+fn oauth_result_fragments_never_become_ordinary_navigation_or_consume_an_attempt() {
+    let fixture = SyntheticFixture::new(BrowserMode::Embedded);
+    let attempt = &fixture.attempt;
+    for fragment in [
+        "access_token=synthetic-private-token",
+        "%61ccess_token=synthetic-private-token",
+        "ACCESS_TOKEN=synthetic-private-token",
+        "route?code=synthetic-private-code&state=synthetic-private-state",
+        "error=access_denied",
+        "id_token=synthetic-private-token",
+        "refresh_token=synthetic-private-token",
+        "token_type=bearer",
+        "expires_in=3600",
+    ] {
+        let uri = format!("https://passport.yandex.ru/auth#{fragment}");
+        assert_eq!(
+            rejection(attempt.navigation(&uri)),
+            AuthError::UntrustedNavigation
+        );
+        assert_eq!(
+            attempt.navigation_rejection_reason(&uri),
+            Some(RejectionReason::OAuthResultOutsideCallback)
+        );
+        assert_eq!(attempt.display_origin(&uri), None);
+        assert!(!attempt.consumed.load(Ordering::Acquire));
+    }
+    assert_eq!(
+        attempt
+            .complete_code_return(&callback(attempt, SYNTHETIC_CODE))
+            .unwrap()
+            .expose(),
+        SYNTHETIC_CODE
+    );
+}
+
+#[test]
+fn rejection_reasons_are_fixed_and_do_not_change_navigation_policy() {
+    let fixture = SyntheticFixture::new(BrowserMode::Embedded);
+    let attempt = &fixture.attempt;
+    for (uri, reason) in [
+        (
+            " https://passport.yandex.ru/",
+            RejectionReason::InvalidAddress,
+        ),
+        (
+            "https://user:private@passport.yandex.ru/",
+            RejectionReason::CredentialsInAddress,
+        ),
+        (
+            "https://untrusted.invalid/",
+            RejectionReason::UntrustedOrigin,
+        ),
+        (
+            "http://passport.yandex.ru/",
+            RejectionReason::UnsupportedScheme,
+        ),
+        ("about:blank", RejectionReason::ServiceDocument),
+        ("javascript:synthetic", RejectionReason::UnsupportedScheme),
+    ] {
+        assert!(matches!(
+            attempt.navigation(uri),
+            NavigationDecision::Reject(_)
+        ));
+        assert_eq!(attempt.navigation_rejection_reason(uri), Some(reason));
+    }
+    let malformed_return = format!(
+        "{}#ordinary-fragment-is-invalid-on-code-return",
+        callback(attempt, SYNTHETIC_CODE)
+    );
+    assert_eq!(
+        attempt.navigation_rejection_reason(&malformed_return),
+        Some(RejectionReason::InvalidCallback)
+    );
+    attempt.cancel();
+    assert_eq!(
+        attempt.navigation_rejection_reason("https://passport.yandex.ru/"),
+        Some(RejectionReason::AttemptInactive)
+    );
 }
 
 #[test]
@@ -618,7 +779,8 @@ fn sensitive_auth_material_is_redacted_from_debug_and_user_errors() {
     let attempt = &fixture.attempt;
     let code = AuthorizationCode(Zeroizing::new(SYNTHETIC_CODE.to_owned()));
     let code_debug = format!("{code:?}");
-    let decision = NavigationDecision::Callback(code);
+    let decision = NavigationDecision::CodeReturn;
+    drop(code);
     let rendered = format!("{attempt:?} {decision:?} {code_debug}");
     assert!(rendered.contains("redacted"));
     for value in [

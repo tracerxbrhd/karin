@@ -6,7 +6,58 @@ This report separates initial cloud checks, user-reported Fedora acceptance,
 revised UI checks and compiler compatibility. A result for one environment or
 revision is not evidence that another has passed.
 
-## Cassette-compatible session provider — current revision (2026-10-29)
+## Interactive sign-in navigation correction — current work (2026-10-29)
+
+The owner reproduced this failure on Fedora using **`77a1a27`**: the real Yandex
+page opens, then Karin reports `AuthError::UntrustedNavigation` after roughly
+five phone-input digits or during QR sign-in. **The actual rejected Yandex browser
+event is unknown.** No captured evidence identifies its origin, fragment, frame
+or cause. Do not relabel this as Music API 403, a wrong password, VPN trouble or
+an established service/identity permission failure.
+
+Source inspection confirms independent defects in that revision:
+
+- Ordinary URL validation and origin display reject every `#fragment`, although
+  a trusted page may use a hash during its own interaction.
+- `NavigationAction::Reject` calls `Browser::fail` without reliable frame context,
+  so rejecting an auxiliary transition can destroy the entire login session.
+- Navigation classification can consume a code callback before main-document
+  confirmation; callback classification must instead remain side-effect-free.
+
+The correction separates ordinary navigation from exact authorization return,
+keeps rejected unknown-frame transitions blocked without automatically ending
+the session, and uses confirmed WebKit main-document evidence for completion.
+OAuth-result fragments outside the callback remain blocked. Exact return/state,
+one-use consumption, Music account validation, TLS and the WebKit sandbox remain
+required. No wildcard or speculative new origin is introduced. The connected
+Cassette-compatible provider, MusicService, library/search/queue and independent
+GStreamer player remain in place.
+
+Only the first rejected event per attempt produces a minimal
+`Karin auth navigation: ` diagnostic. It contains fixed event/reason/frame
+categories and a safe canonical public origin with fragment presence, or a fixed
+redacted address category. It never retains full URLs, paths, query/fragment
+contents, userinfo, input values, QR data, cookies, tokens or state. Cancellation
+following a policy rejection or application stop must not replace the first
+diagnostic or terminal cause. Unknown frame context is reported as unknown.
+
+The new independent interactive fixture is
+`webkit_auth_interactive_navigation_frames_and_first_rejection`. Its own local
+page reacts to synthetic input and a QR-like test action by changing fragments
+and creating/redirecting frames. Automated scope covers fragment acceptance,
+auxiliary rejection without session destruction, untrusted top-level blocking,
+iframe callback isolation, missing/wrong state, cancel/retry/late events and
+diagnostic privacy. This is not a real Yandex phone/QR or account acceptance test.
+New stable/1.98.1, fixture and hosted results for this correction are **pending
+execution**; the earlier passed matrix below does not establish them.
+
+Use [one local Fedora navigation retest](BUILDING.md#one-fedora-navigation-retest-after-77a1a27)
+with the new matching MSRV artifact. Report only its revision, first sanitized
+line and coarse native UI outcome; never save or publish a full network/browser
+log or private account material. The actual Yandex event and real
+session/token/Music/library/search acceptance remain separate local checks.
+
+## Historical Cassette-compatible provider implementation — through `77a1a27` (2026-10-29)
 
 The owner's corrected scope permits adapting Cassette's published working chain
 without a Karin-owned registration. Default `cassette-auth` enables the existing

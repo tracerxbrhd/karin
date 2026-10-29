@@ -23,8 +23,15 @@ use zeroize::Zeroizing;
 
 use crate::session::AccessToken;
 
+mod navigation;
+pub use navigation::{FrameContext, NavigationEvent, RejectionReason, SafeNavigationDiagnostic};
+
 const CALLBACK_PATH: &str = "/oauth/callback";
+// Final OAuth returns retain their own small strict grammar and size bound.
 const MAX_RETURN: usize = 4096;
+// Verified page navigation may carry nested provider retpaths/challenges. Its
+// separate bound is not permission to enlarge or weaken an OAuth return.
+const MAX_PAGE_URL: usize = 64 * 1024;
 const MAX_REQUEST: usize = 8192;
 const LIFETIME: Duration = Duration::from_secs(10 * 60);
 
@@ -263,7 +270,8 @@ impl fmt::Debug for AuthorizationCode {
 
 pub enum NavigationDecision {
     AllowTrusted,
-    Callback(AuthorizationCode),
+    /// Candidate only; no code/state is consumed before main-frame proof.
+    CodeReturn,
     /// Candidate only: the UI must establish that this is the main document.
     SessionReturn,
     Reject(AuthError),
@@ -272,7 +280,7 @@ impl fmt::Debug for NavigationDecision {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::AllowTrusted => f.write_str("AllowTrusted"),
-            Self::Callback(_) => f.write_str("Callback([redacted])"),
+            Self::CodeReturn => f.write_str("CodeReturn"),
             Self::SessionReturn => f.write_str("SessionReturn"),
             Self::Reject(error) => f.debug_tuple("Reject").field(error).finish(),
         }
@@ -653,7 +661,7 @@ impl AuthAttempt {
         if self.is_session_return(raw) {
             return NavigationDecision::SessionReturn;
         }
-        if !valid_url_bytes(raw) {
+        if !valid_page_url_bytes(raw) {
             return NavigationDecision::Reject(AuthError::UntrustedNavigation);
         }
         let Ok(url) = Url::parse(raw) else {
@@ -665,16 +673,74 @@ impl AuthAttempt {
             .map(|(origin, _)| origin)
             .unwrap_or_default();
         if url.origin().ascii_serialization() == callback_origin {
-            return match self.validate_callback(raw) {
-                Ok(code) => NavigationDecision::Callback(code),
-                Err(error) => NavigationDecision::Reject(error),
+            if !valid_url_bytes(raw) {
+                return NavigationDecision::Reject(AuthError::UntrustedNavigation);
+            }
+            let exact_return = raw
+                .strip_prefix(&self.callback)
+                .is_some_and(|tail| tail.is_empty() || tail.starts_with('?'));
+            return if exact_return {
+                NavigationDecision::CodeReturn
+            } else {
+                NavigationDecision::Reject(AuthError::InvalidCallback)
             };
+        }
+        if !url.username().is_empty() || url.password().is_some() || oauth_result_fragment(&url) {
+            return NavigationDecision::Reject(AuthError::UntrustedNavigation);
         }
         if self.permitted_origin(&url).is_some() {
             NavigationDecision::AllowTrusted
         } else {
             NavigationDecision::Reject(AuthError::UntrustedNavigation)
         }
+    }
+
+    /// Consumes a code return only after the presentation layer has established
+    /// that it belongs to the main frame. Ordinary navigation is side-effect free.
+    pub fn complete_code_return(&self, raw: &str) -> Result<AuthorizationCode, AuthError> {
+        if self.session_based {
+            return Err(AuthError::InvalidCallback);
+        }
+        self.validate_callback(raw)
+    }
+
+    /// Fixed categories only. This never retains or formats a navigation URL.
+    pub fn navigation_rejection_reason(&self, raw: &str) -> Option<RejectionReason> {
+        if self.check_live().is_err() {
+            return Some(RejectionReason::AttemptInactive);
+        }
+        if !valid_page_url_bytes(raw) {
+            return Some(RejectionReason::InvalidAddress);
+        }
+        let Ok(url) = Url::parse(raw) else {
+            return Some(RejectionReason::InvalidAddress);
+        };
+        if !url.username().is_empty() || url.password().is_some() {
+            return Some(RejectionReason::CredentialsInAddress);
+        }
+        let error = match self.navigation(raw) {
+            NavigationDecision::Reject(error) => error,
+            _ => return None,
+        };
+        if error == AuthError::InvalidCallback
+            || Url::parse(&self.callback).is_ok_and(|callback| url.origin() == callback.origin())
+        {
+            return Some(RejectionReason::InvalidCallback);
+        }
+        if oauth_result_fragment(&url) {
+            return Some(RejectionReason::OAuthResultOutsideCallback);
+        }
+        if url.scheme() == "about" {
+            return Some(RejectionReason::ServiceDocument);
+        }
+        if url.scheme() != "https" {
+            #[cfg(test)]
+            if self.fixture_origin.as_deref() == Some(url.origin().ascii_serialization().as_str()) {
+                return Some(RejectionReason::InvalidCallback);
+            }
+            return Some(RejectionReason::UnsupportedScheme);
+        }
+        Some(RejectionReason::UntrustedOrigin)
     }
 
     /// Sanitized active-document origin, without parsing or consuming a callback.
@@ -691,18 +757,22 @@ impl AuthAttempt {
                     .ascii_serialization(),
             );
         }
-        if !valid_url_bytes(raw)
+        if !valid_page_url_bytes(raw)
             || self.is_cancelled()
             || self.expired()
             || self.consumed.load(Ordering::Acquire)
         {
             return None;
         }
-        self.permitted_origin(&Url::parse(raw).ok()?)
+        let url = Url::parse(raw).ok()?;
+        if oauth_result_fragment(&url) {
+            return None;
+        }
+        self.permitted_origin(&url)
     }
 
     fn permitted_origin(&self, url: &Url) -> Option<String> {
-        if !url.username().is_empty() || url.password().is_some() || url.fragment().is_some() {
+        if !url.username().is_empty() || url.password().is_some() {
             return None;
         }
         let origin = url.origin().ascii_serialization();
@@ -928,10 +998,54 @@ fn valid_url_bytes(value: &str) -> bool {
 }
 
 fn valid_session_url_bytes(value: &str) -> bool {
+    value.len() <= MAX_RETURN && valid_page_url_bytes(value)
+}
+
+/// Navigation is not callback validation: a verified document may legitimately
+/// change its fragment while a user types or chooses another sign-in method.
+fn valid_page_url_bytes(value: &str) -> bool {
     !value.is_empty()
-        && value.len() <= MAX_RETURN
+        && value.len() <= MAX_PAGE_URL
         && !value.contains('\\')
         && !value.chars().any(|c| c.is_control() || c.is_whitespace())
+}
+
+fn oauth_result_fragment(url: &Url) -> bool {
+    // A state-only SPA fragment is not proof of an OAuth response. It may be
+    // ordinary page state, but diagnostic redaction still treats it as sensitive.
+    fragment_parameters_contain(
+        url,
+        &[
+            "access_token",
+            "refresh_token",
+            "id_token",
+            "token_type",
+            "expires_in",
+            "code",
+            "error",
+            "error_description",
+            "error_uri",
+        ],
+    )
+}
+
+fn sensitive_oauth_fragment(url: &Url) -> bool {
+    oauth_result_fragment(url) || fragment_parameters_contain(url, &["state"])
+}
+
+fn fragment_parameters_contain(url: &Url, keys: &[&str]) -> bool {
+    url.fragment().is_some_and(|fragment| {
+        fragment.split(['&', '?']).any(|pair| {
+            let Some((key, _)) = pair.split_once('=') else {
+                return false;
+            };
+            let Ok(key) = decode(key) else {
+                return true;
+            };
+            keys.iter()
+                .any(|expected| key.eq_ignore_ascii_case(expected))
+        })
+    })
 }
 
 fn decode(value: &str) -> Result<Zeroizing<String>, AuthError> {
