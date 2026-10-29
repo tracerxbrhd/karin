@@ -57,6 +57,9 @@ liked tracks and playlists independently. It checks account 403, cancel, retry,
 a late validation and search response, independent liked403/playlist200, logout
 and close. Delayed responses are released through channels after cancellation,
 not scheduler-dependent sleeps. Synthetic data and browser launchers are test-only.
+Fixture library captures additionally wait for actual native dialog unparenting,
+not only logical sign-in completion, before the paint delay. This avoids recording
+a closing-sheet animation as a persistent overlay in the reviewed evidence.
 The public blocked dialog is also structurally checked at all three smoke sizes
 in both themes. Errors use native message rows and clear on cancel/logout/retry.
 

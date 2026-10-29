@@ -2368,8 +2368,19 @@ mod tests {
         );
         blocked.store(false, Ordering::Release);
         this.widgets.login.emit_clicked();
+        let accepted_dialog = this.login_dialog.borrow().as_ref().unwrap().dialog.clone();
         pump_until(|| this.model.borrow().account_valid && !this.model.borrow().busy);
         assert!(this.login_dialog.borrow().is_none());
+        // Logical completion starts the native closing animation. Wait for
+        // actual unparenting before asserting/capturing the exposed library.
+        pump_until(|| {
+            window.visible_dialog().is_none()
+                && window.dialogs().n_items() == 0
+                && accepted_dialog.parent().is_none()
+                && dialog.dialog.parent().is_none()
+        });
+        drop(accepted_dialog);
+        drop(dialog);
         assert_eq!(this.widgets.account.text(), "Synthetic UI account");
         assert_eq!(rows(&this.widgets.library_rows), 50);
         assert!(this.widgets.library_next.is_visible());

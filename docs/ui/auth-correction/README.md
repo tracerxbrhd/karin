@@ -27,7 +27,7 @@ scrolling and silent diagnostic states. The fixture also covers library/search/
 queue/album, public provider blocking and Music-account denial.
 
 [Capture metadata](capture-info.txt) records the dirty working tree over
-`6ecfe75` and the actual binary/source hashes. That base is not misidentified as
+`2a6a1c3` and the actual binary/source hashes. That base is not misidentified as
 the rendered implementation. Hosted CI captures the final source again; its
 exact-revision result and artifact are linked from PR #8. Only selected clean
 images are retained in the repository. Previous [music UI captures](../v0.1-music/README.md)
