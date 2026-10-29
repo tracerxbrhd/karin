@@ -2,6 +2,7 @@
 //! Native presentation for one authorization attempt. Provider details stay outside GTK.
 
 use adw::prelude::*;
+use std::{cell::Cell, rc::Rc};
 
 #[cfg(feature = "auth-webkit")]
 pub(super) mod webkit;
@@ -14,6 +15,8 @@ pub(super) struct LoginDialog {
     message: adw::ActionRow,
     spinner: gtk::Spinner,
     origin: gtk::Label,
+    presentation_ready: Rc<Cell<bool>>,
+    close_requested: Rc<Cell<bool>>,
     #[cfg(feature = "auth-webkit")]
     web_content: gtk::Box,
     #[cfg(feature = "auth-webkit")]
@@ -24,10 +27,37 @@ impl LoginDialog {
     pub fn new() -> Self {
         let dialog = adw::Dialog::builder()
             .title("Вход в Яндекс Музыку")
+            .can_close(false)
             .content_width(440)
             .content_height(340)
             .build();
         dialog.set_widget_name("music-login-dialog");
+        let presentation_ready = Rc::new(Cell::new(false));
+        let close_requested = Rc::new(Cell::new(false));
+        let ready = presentation_ready.clone();
+        let closing = close_requested.clone();
+        let weak = dialog.downgrade();
+        let frames = Cell::new(0);
+        // Libadwaita 1.5 opens its sheet on the second map tick. Closing an
+        // already-false sheet before then does nothing, and its pending tick
+        // would subsequently reopen it. Our third tick runs after that setup,
+        // regardless of the order in which GTK invokes the tick callbacks.
+        // Only a weak widget is captured, so an unmapped dialog can be dropped.
+        dialog.add_tick_callback(move |_, _| {
+            frames.set(frames.get() + 1);
+            if frames.get() < 3 {
+                return gtk::glib::ControlFlow::Continue;
+            }
+            ready.set(true);
+            if let Some(dialog) = weak.upgrade() {
+                if closing.get() {
+                    dialog.force_close();
+                } else {
+                    dialog.set_can_close(true);
+                }
+            }
+            gtk::glib::ControlFlow::Break
+        });
         let toolbar = adw::ToolbarView::new();
         toolbar.add_top_bar(&adw::HeaderBar::new());
         let content = gtk::Box::new(gtk::Orientation::Vertical, 18);
@@ -87,6 +117,8 @@ impl LoginDialog {
             message,
             spinner,
             origin,
+            presentation_ready,
+            close_requested,
             #[cfg(feature = "auth-webkit")]
             web_content,
             #[cfg(feature = "auth-webkit")]
@@ -102,6 +134,18 @@ impl LoginDialog {
         self.spinner.set_spinning(true);
         self.retry.set_visible(false);
         self.cancel.set_label("Отменить");
+    }
+
+    pub fn presentation_ready(&self) -> bool {
+        self.presentation_ready.get()
+    }
+
+    pub fn request_close(&self) {
+        self.shutdown();
+        self.close_requested.set(true);
+        if self.presentation_ready() {
+            self.dialog.force_close();
+        }
     }
 
     pub fn unavailable(&self, title: &str, explanation: &str) {

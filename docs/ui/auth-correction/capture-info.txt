@@ -1,38 +1,14 @@
 Base commit (working-tree changes may follow):
-7509884151e8fc5ff07c4ff68c8259b82b790ef2
- M .github/pull_request_template.md
- M .github/workflows/ci.yml
- M AGENTS.md
- M Cargo.lock
- M Cargo.toml
- M README.md
- M docs/API_FEASIBILITY.md
- M docs/ARCHITECTURE.md
- M docs/BUILDING.md
- M docs/DEPENDENCY_LICENSES.md
- M docs/LICENSING.md
- M docs/LIMITATIONS.md
- M docs/ROADMAP.md
- M docs/UI_QUALITY_GATE.md
- M packaging/license_inventory.py
- M scripts/capture-ui.sh
- M src/lib.rs
- M src/main.rs
- M src/ui.rs
+6ecfe754ab4f3ad8d8e4cf2a9b5d2228e3a0ccae
+ M docs/VALIDATION.md
+ M src/ui/auth.rs
  M src/ui/music.rs
-?? docs/AUTHENTICATION_REVIEW.md
-?? docs/adr/0010-single-purpose-sign-in-and-provider-gate.md
-?? packaging/third-party-licenses/
-?? src/auth.rs
-?? src/auth/
-?? src/ui/auth.rs
-?? src/ui/auth/
 
 Rendered binary and UI sources:
-f1a035aa1ff094320a4a156d869894fc30aca7043a7869ce4d664491a5720287  /workspace/karin/target/debug/karin
+985606e57046ed4d02eb614db02e3265999a41303898832392af810365d89394  /workspace/karin/target/debug/karin
 160df6dfc1ac9b048dca01500d3b3dcf92f291cffbbae5fa4c09980ff9c7a7b3  /workspace/karin/src/ui.rs
 b2af80a0146f616085ffe040c9ae806f6ee2cc031bf1f38b22a6b1d895326e42  /workspace/karin/src/ui/playback.rs
-445d1970a2a05c62f592d4f92170537d6c8be8a09d4ba7f8cf64ef1c85c2cf1e  /workspace/karin/src/ui/music.rs
+cae078eb098b0e525ec93960d941e2a24d520382c368da8411f0bf5e43554f0e  /workspace/karin/src/ui/music.rs
 16ddb7e8250ed0db88e4e364e746b7b1ae08c7969fe365ac89946f759d5ddaf8  /workspace/karin/src/music.rs
 d5c0746b4a2c9839a98e45c1ad13ddff5bff1caae7b2c73ca1706143222a3325  /workspace/karin/src/session.rs
 801a3fe1062fa5839120bd87990bbd7395a8b1cae6a1be4351eb273a3b534d95  /workspace/karin/src/session/device.rs
@@ -41,7 +17,7 @@ d5c0746b4a2c9839a98e45c1ad13ddff5bff1caae7b2c73ca1706143222a3325  /workspace/kar
 1269a654a88ceb9805514ad5c9a07e956e5a863d5173d1fbd271d9ac6c10406c  /workspace/karin/src/playback.rs
 66b1b4a6afcbe8658c6d897cde32bc620e7821d7ec2093b1c4ca577853ac43ba  /workspace/karin/src/capabilities.rs
 bce25471b2d9e05361c1e6e5c2226334faa6396011570466bc5c1b9350cee6b6  /workspace/karin/src/auth.rs
-3ab963f9ee6f709f0d72b1a9817c56b8b90ceccf85f00fb62db9b451e76e7bd9  /workspace/karin/src/ui/auth.rs
+9b7853508b87f8f680806b4a816210b7f51b57ac25128a23d96fd3ed5c4d2126  /workspace/karin/src/ui/auth.rs
 60c1b486f2bc3f1029903703b825de9dc57f728b795e5b5674ae8ae8bc02a5a6  /workspace/karin/src/ui/auth/webkit.rs
 
 Experimental UI requested: 0

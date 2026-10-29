@@ -60,6 +60,18 @@ not scheduler-dependent sleeps. Synthetic data and browser launchers are test-on
 The public blocked dialog is also structurally checked at all three smoke sizes
 in both themes. Errors use native message rows and clear on cancel/logout/retry.
 
+The Ubuntu 24.04/GTK 4.14.5/Libadwaita 1.5.0 smoke exposed an early-close defect:
+that Libadwaita version opens its sheet on map tick two, so immediate close can
+leave an unopened sheet pending and retain the native window/audio worker.
+Karin invalidates credentials immediately and defers native closure through
+public GTK frame callbacks until presentation is ready. Native close attempts
+and `closed` signals are guarded by dialog identity. Regression coverage cancels
+through both the button and native close before the first main-loop yield,
+reopens immediately, then checks the native dialog list and actual unparenting.
+The reproduced Ubuntu smoke now passes focus and full window/worker cleanup;
+no lifecycle assertion was removed or bypassed. A never-mapped dialog also has
+weak-release coverage. This uses public APIs, not private widget-tree mutation.
+
 Rust 1.98.1 public and all-feature `--release --offline --locked` builds passed,
 with optimized GTK checks and public optimized terminal/audio/player checks.
 Public artifacts were restored. No `--ignore-rust-version` or native/runtime

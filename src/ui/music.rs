@@ -358,7 +358,48 @@ impl MusicPane {
     }
 
     pub async fn exercise_login_for_smoke(&self) -> Result<(), String> {
+        let window = self
+            .controller
+            .window
+            .upgrade()
+            .ok_or("Login window is unavailable")?;
+        if window.visible_dialog().is_some() || window.dialogs().n_items() != 0 {
+            return Err("A previous native dialog is still active".into());
+        }
+        // Cancel before the first main-loop yield, then reopen while the old
+        // dialog is still preparing its native sheet. Its later closed signal
+        // must neither leave an orphan modal nor cancel the new attempt.
         self.controller.open_login();
+        let cancelled = self
+            .controller
+            .login_dialog
+            .borrow()
+            .as_ref()
+            .cloned()
+            .ok_or("Immediate login dialog was not created")?;
+        cancelled.cancel.emit_clicked();
+        self.controller.open_login();
+        let native_cancelled = self
+            .controller
+            .login_dialog
+            .borrow()
+            .as_ref()
+            .cloned()
+            .ok_or("Native-close login dialog was not created")?;
+        // Escape, the header close button and the host's window-close handler
+        // all call Dialog.close(). Before presentation it routes close-attempt
+        // to immediate session cancellation and a deferred native close.
+        if native_cancelled.dialog.close() {
+            return Err("Native dialog close bypassed presentation readiness".into());
+        }
+        self.controller.open_login();
+        let reopened = self
+            .controller
+            .login_dialog
+            .borrow()
+            .as_ref()
+            .cloned()
+            .ok_or("Login dialog could not be reopened")?;
         let mut result = Err("Login dialog did not settle".to_owned());
         for _ in 0..40 {
             glib::timeout_future(std::time::Duration::from_millis(25)).await;
@@ -369,10 +410,16 @@ impl MusicPane {
             let Some(dialog) = dialog else {
                 break;
             };
-            let Some(window) = self.controller.window.upgrade() else {
+            if dialog.dialog != reopened.dialog {
+                result = Err("Late dialog close replaced the new attempt".into());
                 break;
-            };
-            if !dialog.dialog.is_mapped() || !dialog.cancel.is_sensitive() {
+            }
+            if !dialog.presentation_ready()
+                || !dialog.dialog.is_mapped()
+                || !dialog.cancel.is_sensitive()
+                || cancelled.dialog.parent().is_some()
+                || native_cancelled.dialog.parent().is_some()
+            {
                 continue;
             }
             result = super::check_widget_geometry(dialog.dialog.upcast_ref(), window.upcast_ref());
@@ -381,6 +428,25 @@ impl MusicPane {
             }
         }
         self.controller.cancel_login();
+        // Dialog::closed marks the beginning of the close animation in 1.5.
+        // The native host and parent must both release it before another resize
+        // or the normal window-close/resource checks can safely proceed.
+        let mut removed = false;
+        for _ in 0..80 {
+            if window.visible_dialog().is_none()
+                && window.dialogs().n_items() == 0
+                && cancelled.dialog.parent().is_none()
+                && native_cancelled.dialog.parent().is_none()
+                && reopened.dialog.parent().is_none()
+            {
+                removed = true;
+                break;
+            }
+            glib::timeout_future(std::time::Duration::from_millis(25)).await;
+        }
+        if !removed {
+            return Err("Canceled login dialogs remain in the native window host".into());
+        }
         if self.controller.model.borrow().account_valid
             || self.controller.model.borrow().token.is_some()
             || self.controller.login_dialog.borrow().is_some()
@@ -429,9 +495,15 @@ impl Controller {
         };
         let dialog = LoginDialog::new();
         let weak = Rc::downgrade(self);
-        dialog.dialog.connect_closed(move |_| {
+        dialog.dialog.connect_closed(move |closed| {
             if let Some(this) = weak.upgrade() {
-                this.cancel_login();
+                this.cancel_dialog(closed);
+            }
+        });
+        let weak = Rc::downgrade(self);
+        dialog.dialog.connect_close_attempt(move |closing| {
+            if let Some(this) = weak.upgrade() {
+                this.cancel_dialog(closing);
             }
         });
         let weak = Rc::downgrade(self);
@@ -455,8 +527,18 @@ impl Controller {
     fn dismiss_login(&self) {
         let dialog = self.login_dialog.borrow_mut().take();
         if let Some(dialog) = dialog {
-            dialog.shutdown();
-            dialog.dialog.force_close();
+            dialog.request_close();
+        }
+    }
+
+    fn cancel_dialog(&self, dialog: &adw::Dialog) {
+        let current = self
+            .login_dialog
+            .borrow()
+            .as_ref()
+            .is_some_and(|current| current.dialog == *dialog);
+        if current {
+            self.cancel_login();
         }
     }
 
@@ -2137,6 +2219,14 @@ mod tests {
     fn native_music_session_catalog_queue_and_logout() {
         gtk::init().unwrap();
         adw::init().unwrap();
+        let unpresented = LoginDialog::new();
+        let unpresented_weak = unpresented.dialog.downgrade();
+        unpresented.request_close();
+        drop(unpresented);
+        assert!(
+            unpresented_weak.upgrade().is_none(),
+            "Readiness ticks must not retain an unmapped dialog"
+        );
         let track = json!({"id":"42","title":"Synthetic UI track","durationMs":123000,"available":true,
             "artists":[{"id":11,"name":"Synthetic artist"}],"albums":[{"id":7,"title":"Synthetic album"}]});
         let account =
