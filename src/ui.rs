@@ -307,10 +307,18 @@ fn build_with_auth_mode(
     let AuthenticationCapability::AuthenticationUnavailable(
         AuthenticationUnavailable::MusicGrantNotEstablished,
     ) = service.capabilities().authentication;
-    connection_group.add(&row(
-        "Вход в Музыку пока недоступен",
-        "Для Karin ещё не подтверждён разрешённый способ авторизации в Яндекс Музыке. Источник музыкального аудио проверяется отдельно.",
-    ));
+    let (login_title, login_description) = if cfg!(feature = "cassette-auth") {
+        (
+            "Прототип входа через Cassette",
+            "Откройте раздел «Музыка» и нажмите «Войти». Доступ к аккаунту, библиотеке и поиску проверяется после входа. Музыкальное аудио пока недоступно.",
+        )
+    } else {
+        (
+            "Минимальная сборка без входа",
+            "В этой сборке нет WebKit и провайдера авторизации. Для проверки входа нужна обычная сборка Karin. Музыкальное аудио пока недоступно.",
+        )
+    };
+    connection_group.add(&row(login_title, login_description));
     diagnostics.append(&connection_group);
     let player = playback::DeveloperPlayback::new(app, &window);
     diagnostics.append(&player.group);

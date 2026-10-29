@@ -1883,9 +1883,13 @@ fn launch_system_browser(url: &str) -> Result<(), AuthError> {
 
 fn music_error_message(error: MusicError) -> (&'static str, &'static str) {
     match error {
-        MusicError::Forbidden | MusicError::MissingScopes => (
-            "Доступ Karin к Музыке не разрешён",
-            "Яндекс Музыка не приняла разрешения приложения. Это не означает, что вы ввели неверный пароль Яндекса.",
+        MusicError::Forbidden => (
+            "Music API отклонил запрос",
+            "Причина запрета не установлена. Это не означает, что вы ввели неверный пароль Яндекса.",
+        ),
+        MusicError::MissingScopes => (
+            "Music API требует дополнительные разрешения",
+            "Сервис сообщил об отсутствующих разрешениях для этого запроса. Это не означает неверный пароль Яндекса.",
         ),
         MusicError::AccessDenied | MusicError::Unauthenticated => (
             "Сеанс больше не действует",
@@ -2212,7 +2216,10 @@ mod tests {
         assert!(!this.model.borrow().account_valid);
         assert!(this.model.borrow().token.is_none());
         let dialog = this.login_dialog.borrow().as_ref().unwrap().clone();
-        assert!(contains_text(dialog.dialog.upcast_ref(), "не разрешён"));
+        assert!(contains_text(
+            dialog.dialog.upcast_ref(),
+            "Music API отклонил запрос"
+        ));
         assert!(!contains_text(pane.widget.upcast_ref(), "HTTP 403"));
         assert!(!contains_text(
             window.upcast_ref(),
@@ -2228,7 +2235,10 @@ mod tests {
         dialog.retry.emit_clicked();
         pump_until(|| this.model.borrow().account_valid && !this.model.borrow().busy);
         assert!(this.login_dialog.borrow().is_none());
-        assert!(contains_text(pane.widget.upcast_ref(), "не разрешён"));
+        assert!(contains_text(
+            pane.widget.upcast_ref(),
+            "Music API отклонил запрос"
+        ));
         this.widgets.library_mode.set_selected(1);
         assert!(contains_text(
             this.widgets.library_rows.upcast_ref(),
@@ -2241,7 +2251,10 @@ mod tests {
                 .subtitle()
                 .is_none_or(|value| value.is_empty())
         );
-        assert!(!contains_text(pane.widget.upcast_ref(), "не разрешён"));
+        assert!(!contains_text(
+            pane.widget.upcast_ref(),
+            "Music API отклонил запрос"
+        ));
         blocked.store(true, Ordering::Release);
         this.widgets.login.emit_clicked();
         pump_until(|| !this.model.borrow().busy);

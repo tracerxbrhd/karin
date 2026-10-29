@@ -808,14 +808,58 @@ mod tests {
                 dialog.set_webview(browser);
                 dialog.dialog.present(Some(&window));
                 view.load_uri(&attempt.authorization_url());
-                pump_until(|| {
-                    failed.get().is_some()
-                        || (loaded.get()
-                            && dialog.presentation_ready()
-                            && view.width() > 0
-                            && view.height() >= 360
-                            && (size != "maximized" || window.is_maximized()))
-                });
+                // A cached WebKit process can finish loading before Adwaita's
+                // opening animation has placed the bottom bar inside the sheet.
+                // Wait for the actual geometry, retaining every final bound.
+                let context = gtk::glib::MainContext::default();
+                let deadline = Instant::now() + Duration::from_secs(8);
+                let mut inside_since = None;
+                loop {
+                    if failed.get().is_some() {
+                        break;
+                    }
+                    let button = dialog.cancel.compute_bounds(&dialog.dialog);
+                    let inside = loaded.get()
+                        && dialog.presentation_ready()
+                        && view.width() > 0
+                        && view.height() >= 360
+                        && dialog.cancel.is_mapped()
+                        && (size != "maximized" || window.is_maximized())
+                        && button.is_some_and(|button| {
+                            button.x() >= 0.0
+                                && button.y() >= 0.0
+                                && button.x() + button.width() <= dialog.dialog.width() as f32 + 1.0
+                                && button.y() + button.height()
+                                    <= dialog.dialog.height() as f32 + 1.0
+                        });
+                    if inside {
+                        let since = inside_since.get_or_insert_with(Instant::now);
+                        if since.elapsed() >= Duration::from_millis(150) {
+                            break;
+                        }
+                    } else {
+                        inside_since = None;
+                    }
+                    assert!(
+                        Instant::now() < deadline,
+                        "WebKit dialog geometry did not settle: theme={theme} size={size} host={}x{} dialog={}x{} webview={}x{} cancel={button:?} loaded={} ready={} mapped={} maximized={}",
+                        window.width(),
+                        window.height(),
+                        dialog.dialog.width(),
+                        dialog.dialog.height(),
+                        view.width(),
+                        view.height(),
+                        loaded.get(),
+                        dialog.presentation_ready(),
+                        dialog.cancel.is_mapped(),
+                        window.is_maximized()
+                    );
+                    if context.pending() {
+                        context.iteration(false);
+                    } else {
+                        thread::sleep(Duration::from_millis(5));
+                    }
+                }
                 assert!(
                     failed.get().is_none(),
                     "local page failed in the native dialog"
@@ -825,11 +869,19 @@ mod tests {
                     .cancel
                     .compute_bounds(&dialog.dialog)
                     .expect("cancel button allocation");
-                assert!(button.x() >= 0.0 && button.y() >= 0.0);
-                assert!(button.x() + button.width() <= dialog.dialog.width() as f32 + 1.0);
+                assert!(
+                    button.x() >= 0.0 && button.y() >= 0.0,
+                    "cancel before dialog origin: {theme}/{size} {button:?}"
+                );
+                assert!(
+                    button.x() + button.width() <= dialog.dialog.width() as f32 + 1.0,
+                    "cancel outside dialog width: {theme}/{size} {button:?} dialog_width={}",
+                    dialog.dialog.width()
+                );
                 assert!(
                     button.y() + button.height() <= dialog.dialog.height() as f32 + 1.0,
-                    "cancel scrolled outside the dialog"
+                    "cancel scrolled outside the dialog: {theme}/{size} {button:?} dialog_height={}",
+                    dialog.dialog.height()
                 );
                 assert!(view.grab_focus(), "WebKit cannot receive keyboard focus");
                 assert!(

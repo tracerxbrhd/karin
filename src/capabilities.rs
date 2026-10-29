@@ -9,8 +9,9 @@ use std::fmt;
 
 use thiserror::Error;
 
-/// The currently established Music authentication capability. There is no
-/// enabled sign-in flow until Music-specific authorization is established.
+/// Globally established Music-access evidence, independent of the compiled
+/// prototype provider and each window's actual account validation. Enabling a
+/// browser or receiving an anonymous response does not establish that evidence.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AuthenticationCapability {
     AuthenticationUnavailable(AuthenticationUnavailable),
@@ -29,7 +30,7 @@ impl AuthenticationUnavailable {
     pub const fn next_action(self) -> &'static str {
         match self {
             Self::MusicGrantNotEstablished => {
-                "Validate the owner-registered Karin-owned public Linux client with the opt-in local PKCE diagnostic; confirm Music API acceptance and integration/playback rights separately."
+                "Validate the Cassette-compatible session prototype on a consenting local Fedora account; confirm Music account/library/search acceptance, distribution conditions and permitted playback separately."
             }
         }
     }
@@ -155,7 +156,7 @@ mod tests {
         assert!(
             blocker
                 .next_action()
-                .contains("Karin-owned public Linux client")
+                .contains("Cassette-compatible session prototype")
         );
     }
 }
