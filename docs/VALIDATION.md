@@ -26,13 +26,98 @@ in [the research](AUTHENTICATION_REVIEW.md), [licensing](LICENSING.md) and
 [ADR-0011](adr/0011-cassette-session-auth-prototype.md). Do not claim either an
 established blanket provider ban or express approval.
 
-Current-revision stable/1.98.1 checks, fixture results, release/source preparation,
-GTK/WebKit sandbox lifecycle and hosted CI outcomes will be recorded after their
-execution. The preceding revision's passed matrix below must not be used as
-proof for this new provider. `--smoke-test` and capture `--ui-fixture` inject an
-offline provider so automation never starts real Yandex login. Real-provider
-errors identify the failed return/state, session-cookie, token or Music stage,
-with fixed categories/statuses and no raw JSON, URLs, headers or user secrets.
+### Executed local matrix
+
+The prepared Debian 13 environment retained GTK 4.18.6, Libadwaita 1.7.6,
+GStreamer 1.26.2, WebKitGTK6 version 2.54.0 and libsoup 3.6.5. Cargo.lock and the
+native/Flatpak SDK/runtime baselines were not changed. The complete matrix first
+passed against `578a16e303649bb23b5ffe844d9971f6034fdde3`, then passed again for
+the final browser-chrome changes in the working tree over `ff4cf13`, including
+the pinned origin, corrected spinner and strengthened WebKit fixture. The latter
+is evidence for those changed files, not the `ff4cf13` commit itself; the final
+commit/source fingerprints are identified in PR #8 and its artifacts. Both runs
+produced the same results:
+
+| Check | Stable 1.99.1 | Exact Rust 1.98.1 |
+| --- | --- | --- |
+| Formatting; default, all-feature and no-feature all-target Clippy with `-D warnings` | Passed | Passed |
+| Default workspace tests | **119 passed**, 0 failed; 3 display tests ignored separately | Same |
+| All-feature workspace tests | **127 passed**, 0 failed; 3 display tests ignored separately | Same |
+| No-feature workspace tests | **106 passed**, 0 failed; 1 native test ignored separately | Same |
+| Explicit native Music/auth HTTP fixture | **1 passed** | **1 passed** |
+| Explicit ephemeral WebView construction/shutdown | **1 passed** | **1 passed** |
+| Default/all-feature/no-feature debug builds | Passed | Passed |
+| Default/all-feature GTK smoke, both themes and three sizes, early cancel/reopen and window/worker cleanup | Passed | Passed |
+| Hidden-terminal 14 synthetic PTY cases and missing-TTY refusal | Passed | Passed |
+| Silent GStreamer pipeline and real local playbin-controller diagnostics | Passed | Passed |
+| Default/all-feature `--release --offline --locked` and optimized GTK checks | Not selected | Passed |
+| Default optimized terminal/audio/player checks | Not selected | Passed |
+
+Workspace totals include four binary tests: default 115 library + 4 binary,
+all-feature 123 + 4, no-feature 102 + 4. Display-dependent tests are explicitly excluded
+from those totals and reported separately. No compiler-version check was bypassed.
+The prototype release artifact was restored with
+`--no-default-features --features cassette-auth` after all-feature checks.
+
+Fresh source preparation/vendoring, a matching license inventory (**206 external
+crates / 177 Linux graph**) and native prototype archive assembly rehearsal passed.
+The source bundle preserves the published Cassette configuration and original
+COPYING/provenance as well as Rust notices. Archive/source preparation is not a
+full GNOME SDK/Flatpak sandbox build, and Ubuntu-built native ABI acceptance on
+Fedora is not established by that rehearsal.
+
+### Full WebKit and follow-up revision
+
+The managed cloud still cannot create the WebKit process's Bubblewrap namespace;
+construction passing is not a passed page-load/session test. Hosted CI keeps the
+WebKit sandbox enabled and grants only the exact test executable its temporary
+Ubuntu AppArmor namespace permission, as documented in the historical section.
+
+At `578a16e`, hosted stable/MSRV compiler checks, native Music fixture and blank
+WebKit construction passed; the full WebKit test stopped in its new active-dialog
+geometry assertions because it checked Cancel before the opening animation had
+settled. Revision `ff4cf13` added a bounded wait for actual settled allocation,
+without weakening geometry assertions, and corrected stale diagnostics/unknown 403
+wording. Its complete hosted runs subsequently **passed in both compiler lanes**:
+
+- [PR run 40824968387](https://github.com/tracerxbrhd/karin/actions/runs/40824968387).
+- [Push run 40824963119](https://github.com/tracerxbrhd/karin/actions/runs/40824963119).
+
+These runs passed actual local WebKit loading, cookie isolation, main-document/
+state completion, the real CassetteProvider sessionid POST and existing MusicService
+account/library/search calls against synthetic HTTP fixtures, negative/cancellation
+cases, and the active native auth dialog at all four sizes/both themes. The WebKit
+sandbox remained enabled. MSRV also completed offline optimized builds/diagnostics
+and uploaded `karin-fedora-prototype-1.98.1` with its archive SHA256, source/build
+metadata, instructions and notices. This establishes the reported automated
+contract, not real Yandex auth or Fedora ABI acceptance.
+
+Actual inspection of those WebKit frames then found visual defects which structural
+success had not exposed: focus could scroll the displayed origin out of view, the
+spinner could remain active after page completion, and the first compact capture
+could precede page paint. The follow-up browser chrome pins the origin above the
+scrollable content and stops the loading spinner. Its fixture also waits for frame
+clock/settled geometry, asserts origin bounds and checks nonblank actual WebKit
+snapshot pixels. Both native-dialog and rendered-page frames are captured at all
+four sizes/themes. The follow-up passed the repeated complete local matrix above,
+including both compilers, all three feature configurations, separate native Music
+and blank-WebKit checks, GTK lifecycle, PTY/audio checks and MSRV offline releases.
+Its strengthened full-navigation test was compiled; actual page-loading execution
+still requires the hosted sandbox environment. Do not substitute `ff4cf13` images
+or its green hosted runs for source-matched evidence of these later changes.
+
+The current exact-head hosted full-WebKit outcome, compiler/runtime results,
+inspected image artifact and native Fedora-prototype download are recorded in
+[PR #8](https://github.com/tracerxbrhd/karin/pull/8).
+Select the matching successful revision there for acceptance. The full WebKit
+fixture requires a 1920×1080 display and running window manager; see
+[the reproduction command](BUILDING.md#webkit-authentication-build-and-local-fixture-checks).
+
+`--smoke-test` and capture `--ui-fixture` inject an offline provider so automation
+never starts real Yandex login. Real-provider errors identify the failed
+return/state, session-cookie, token or Music stage, with fixed categories/statuses
+and no raw JSON, URLs, headers or user secrets. New screenshot review is separate
+from both protocol fixtures and real Fedora acceptance.
 
 Follow [one Fedora procedure](BUILDING.md#music-sign-in-and-fedora-acceptance).
 Record sign-in, token issuance, Music account acceptance, actual liked tracks,

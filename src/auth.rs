@@ -141,7 +141,8 @@ impl std::error::Error for AuthError {}
 pub enum BrowserMode {
     /// RFC 8252 default; needs an actually registered, supported fixed callback.
     System,
-    /// Only for a provider that separately permits this embedded integration.
+    /// Embedded prototype. Its provider/distribution permission and RFC 8252
+    /// trade-off are separate from technical execution; see ADR-0011.
     Embedded,
 }
 

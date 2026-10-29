@@ -20,7 +20,9 @@ if [ "${1-}" != --session ]; then
             "$repository/src/queue.rs" "$repository/src/main.rs" \
             "$repository/src/playback.rs" "$repository/src/capabilities.rs" \
             "$repository/src/auth.rs" "$repository/src/ui/auth.rs" \
-            "$repository/src/ui/auth/webkit.rs"
+            "$repository/src/ui/auth/webkit.rs" "$repository/src/auth/cassette.rs" \
+            "$repository/src/auth/cassette_client.json" "$repository/Cargo.toml" \
+            "$repository/Cargo.lock"
         printf '\nAuthentication: explicit --ui-fixture; no live OAuth requests.\n'
         printf '\nExperimental UI requested: %s\n' "${KARIN_CAPTURE_EXPERIMENTAL:-0}"
         if command -v dpkg-query >/dev/null 2>&1; then

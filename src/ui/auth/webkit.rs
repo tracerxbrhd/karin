@@ -424,6 +424,7 @@ impl Drop for AuthWebView {
 #[cfg(test)]
 mod tests {
     use adw::prelude::AdwDialogExt;
+    use gtk::gdk::prelude::TextureExtManual;
     use std::{
         cell::Cell,
         io::{Read, Write},
@@ -482,7 +483,6 @@ mod tests {
     #[ignore = "requires GTK display, D-Bus and working WebKit process sandbox"]
     fn webkit_auth_local_startup_cookie_isolation_and_cancel() {
         gtk::init().expect("GTK startup");
-        active_dialog_geometry();
         let listener = TcpListener::bind("127.0.0.1:0").expect("loopback fixture");
         listener.set_nonblocking(true).unwrap();
         let origin = format!("http://{}", listener.local_addr().unwrap());
@@ -706,6 +706,7 @@ mod tests {
         );
         #[cfg(feature = "cassette-auth")]
         session_grant_and_music_fixtures();
+        active_dialog_geometry();
     }
 
     fn pump_until(mut ready: impl FnMut() -> bool) {
@@ -864,6 +865,10 @@ mod tests {
                     failed.get().is_none(),
                     "local page failed in the native dialog"
                 );
+                assert!(
+                    !dialog.spinner.is_spinning() && !dialog.spinner.is_visible(),
+                    "page loading spinner remained active: {theme}/{size}"
+                );
                 assert!(dialog.cancel.is_mapped());
                 let button = dialog
                     .cancel
@@ -888,8 +893,81 @@ mod tests {
                     dialog.cancel.grab_focus() && dialog.cancel.has_focus(),
                     "cancel cannot receive keyboard focus"
                 );
-                let painted = Instant::now() + Duration::from_millis(250);
-                pump_until(|| Instant::now() >= painted);
+                let origin = dialog
+                    .origin
+                    .compute_bounds(&dialog.dialog)
+                    .expect("active origin allocation");
+                assert!(
+                    dialog.origin.is_mapped(),
+                    "active origin disappeared after page focus: {theme}/{size}"
+                );
+                assert!(
+                    origin.x() >= 0.0
+                        && origin.y() >= 0.0
+                        && origin.x() + origin.width() <= dialog.dialog.width() as f32 + 1.0
+                        && origin.y() + origin.height() <= dialog.dialog.height() as f32 + 1.0,
+                    "active origin scrolled outside dialog chrome: {theme}/{size} {origin:?}"
+                );
+                // This pixel inspection is test-only and reads a synthetic page.
+                // A completed load does not establish that the first WebKit
+                // frame has painted. Require actual nonblank rendered content,
+                // without JavaScript, DOM access or arbitrary timing guesses.
+                let rendered = Rc::new(RefCell::new(None));
+                let rendered_page = rendered.clone();
+                let rendered_view = view.clone();
+                gtk::glib::spawn_future_local(async move {
+                    for _ in 0..20 {
+                        if let Ok(texture) = rendered_view
+                            .snapshot_future(
+                                webkit6::SnapshotRegion::Visible,
+                                webkit6::SnapshotOptions::NONE,
+                            )
+                            .await
+                        {
+                            let stride = texture.width() as usize * 4;
+                            let length = stride.checked_mul(texture.height() as usize).unwrap();
+                            assert!(
+                                length > 0 && length <= 16 * 1024 * 1024,
+                                "unexpected local-page snapshot dimensions"
+                            );
+                            let mut pixels = vec![0; length];
+                            texture.download(&mut pixels, stride);
+                            let first = &pixels[..4];
+                            if pixels
+                                .as_chunks::<4>()
+                                .0
+                                .iter()
+                                .filter(|pixel| pixel.as_slice() != first)
+                                .take(129)
+                                .count()
+                                > 128
+                            {
+                                *rendered_page.borrow_mut() = Some(Some(texture));
+                                return;
+                            }
+                        }
+                        gtk::glib::timeout_future(Duration::from_millis(50)).await;
+                    }
+                    *rendered_page.borrow_mut() = Some(None);
+                });
+                pump_until(|| rendered.borrow().is_some());
+                let texture = rendered
+                    .borrow_mut()
+                    .take()
+                    .flatten()
+                    .expect("local WebKit page remained blank");
+                let frames = Rc::new(Cell::new(0));
+                let painted_frames = frames.clone();
+                view.add_tick_callback(move |_, _| {
+                    painted_frames.set(painted_frames.get() + 1);
+                    if painted_frames.get() >= 3 {
+                        gtk::glib::ControlFlow::Break
+                    } else {
+                        gtk::glib::ControlFlow::Continue
+                    }
+                });
+                view.queue_draw();
+                pump_until(|| frames.get() >= 3);
                 if let Ok(directory) = std::env::var("KARIN_TEST_CAPTURE_DIR") {
                     let directory = std::path::PathBuf::from(directory);
                     std::fs::create_dir_all(&directory).unwrap();
@@ -906,9 +984,12 @@ mod tests {
                     let id = String::from_utf8(result.stdout).unwrap();
                     let id = id.lines().next().unwrap();
                     assert!(id.bytes().all(|byte| byte.is_ascii_digit()));
+                    texture
+                        .save_to_png(directory.join(format!("auth-webkit-page-{size}-{theme}.png")))
+                        .expect("save synthetic WebKit snapshot");
                     assert!(
                         std::process::Command::new("import")
-                            .args(["-window", id])
+                            .args(["-screen", "-window", id])
                             .arg(directory.join(format!("auth-webkit-{size}-{theme}.png")))
                             .status()
                             .unwrap()

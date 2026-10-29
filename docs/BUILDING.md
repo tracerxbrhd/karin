@@ -62,6 +62,14 @@ ulimit -c 0
 ./target/release/karin
 ```
 
+For convenience, a successful matching MSRV CI run also uploads
+`karin-fedora-prototype-1.98.1`, containing a native tar archive, `SHA256SUMS`,
+build/source metadata, runtime instructions and licenses. Verify it with
+`sha256sum -c SHA256SUMS` before extracting/running. This Ubuntu 24.04 x86_64
+binary is a test artifact, not a Flatpak or production release; Fedora ABI/startup
+is unverified. If unavailable or incompatible, use the canonical local source
+build above. Select the matching successful PR revision, not an older artifact.
+
 Run **without** `--ui-fixture`, `--smoke-test` or the separate
 `--oauth-diagnostic`; those are not the real sign-in journey. No secrets belong
 in command arguments, environment variables, files, chat or GitHub. The consent
@@ -129,15 +137,29 @@ GNOME 50 already supplies WebKitGTK6; the existing Flatpak manifest enables
 
 Display-dependent WebKit tests are ignored by the ordinary test command. Run each
 in a separate display/D-Bus process with the WebKit sandbox enabled. They use only
-synthetic/local pages and credentials, never a Yandex account:
+synthetic/local pages and credentials, never a Yandex account. The full test needs
+Openbox and `wmctrl` with a 1920×1080 Xvfb screen for actual maximization; optional
+captures also need `xdotool` and ImageMagick's `import`. Install these test tools
+separately from normal application runtime prerequisites.
 
 ```sh
 GTK_A11Y=none GSK_RENDERER=cairo dbus-run-session -- xvfb-run -a \
   cargo test --lib --locked --all-features \
   webkit_auth_construction_and_shutdown_without_navigation -- --ignored --test-threads=1
-GTK_A11Y=none GSK_RENDERER=cairo dbus-run-session -- xvfb-run -a \
-  cargo test --lib --locked --all-features \
+GTK_A11Y=none GSK_RENDERER=cairo dbus-run-session -- \
+  xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' sh -eu <<'SH'
+openbox --sm-disable >/tmp/karin-webkit-openbox.log 2>&1 &
+wm_pid=$!
+trap 'kill "$wm_pid" 2>/dev/null || true; wait "$wm_pid" 2>/dev/null || true' EXIT
+attempt=0
+until wmctrl -m >/dev/null 2>&1; do
+  attempt=$((attempt + 1))
+  test "$attempt" -lt 50
+  sleep 0.1
+done
+cargo test --lib --locked --all-features \
   webkit_auth_local_startup_cookie_isolation_and_cancel -- --ignored --test-threads=1
+SH
 ```
 
 `--smoke-test` and the capture helper's explicit `--ui-fixture` mode inject an

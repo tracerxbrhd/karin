@@ -73,8 +73,14 @@ impl LoginDialog {
         origin.set_wrap(true);
         origin.set_wrap_mode(gtk::pango::WrapMode::WordChar);
         origin.add_css_class("dim-label");
+        origin.set_margin_start(18);
+        origin.set_margin_end(18);
+        origin.set_margin_top(6);
+        origin.set_margin_bottom(6);
         origin.set_visible(false);
-        content.append(&origin);
+        // The verified active origin is browser chrome. It must remain visible
+        // when focus scrolls the page or its surrounding status into view.
+        toolbar.add_top_bar(&origin);
         let group = adw::PreferencesGroup::new();
         let message = adw::ActionRow::builder()
             .title("Подготовка входа…")
@@ -186,6 +192,8 @@ impl LoginDialog {
             "Выполните вход на странице Яндекса"
         });
         self.message.set_subtitle("Прототип использует совместимый с Cassette способ авторизации. Разрешения показывает Яндекс; доступ к Музыке проверяется после входа.");
+        self.spinner.set_visible(loading);
+        self.spinner.set_spinning(loading);
     }
 
     #[cfg(feature = "auth-webkit")]
