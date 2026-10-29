@@ -2,6 +2,9 @@
 
 # v0.1 Music UI review
 
+Historical evidence for `7509884`, before the 2026-10-29 authentication correction.
+See the [current sign-in review](../auth-correction/README.md).
+
 These are real GTK captures from the prepared Debian 13 environment, with GTK
 4.18.6, Libadwaita 1.7.6, GStreamer 1.26.2, Cairo and `GSK_DEBUG=full-redraw`.
 No real account, authorization input, provider response or user desktop appears.

@@ -7,22 +7,41 @@
   `/account/about` returned generic HTTP 403 with TUN on and off. Their exact
   cause remains unknown; selected scopes, ID success and anonymous HTTP 200 do
   not establish Music entitlement. See [API evidence](API_FEASIBILITY.md).
-- **Experimental Device Flow is local and opt-in.** It requires the build feature
-  and runtime flag, and locally entered application credentials the owner is
-  entitled to test. No official-app defaults or credentials are bundled. The
-  successful unmodified yamu experiment does not authorize Karin distribution
-  under another application's identity. The default/public Flatpak excludes
-  this flow. No password, cookie scraping or token-paste fallback is provided.
-- **Sessions do not survive restart.** Tokens and locally entered application
-  credentials remain in memory; no plaintext credential file, environment input
-  or token store is used. Logout/close clears local session state, but does not
+- **The ordinary sign-in dialog is provider-gated.** One `Войти` action opens a
+  native Libadwaita dialog. No build mode exposes Client ID, Client secret,
+  device-code copying, URL entry or token input in the GUI. The public provider
+  reports that sign-in is unavailable because a distributable Music-authorized
+  identity and approved callback are not established. It does not open a real
+  authorization page or claim a working system-browser fallback. See
+  [ADR-0010](adr/0010-single-purpose-sign-in-and-provider-gate.md).
+- **Automatic OAuth infrastructure is not provider acceptance.** The generic
+  `AuthProvider` boundary supports state, S256 PKCE and an exact automatic
+  fixed-loopback callback. Karin still needs an authorized Music grant and a
+  registered, provider-supported callback. Optional `auth-webkit` uses `webkit6`
+  0.5 for an isolated login view only; real Yandex authorization is not activated.
+  Linux embedded-view permission remains unresolved. Yandex documents WebView
+  support within its mobile LoginSDK, so no blanket provider ban is inferred.
+  RFC 8252 requires external user agents for native OAuth; a system browser with
+  an approved automatic callback remains the candidate if embedded login is
+  unsupported. See [authentication review](AUTHENTICATION_REVIEW.md).
+- **Device Flow is a library-only experiment.** The optional
+  `experimental-device-auth` module has no GUI or bundled application identity.
+  The successful unmodified yamu experiment does not authorize Karin
+  distribution under another application's identity. Default/public Flatpak
+  builds exclude Device Flow and optional WebKit authentication. The separate
+  developer PKCE CLI remains unchanged and is not the ordinary login journey.
+- **Sessions do not survive restart.** Tokens remain in memory; no plaintext
+  credential file, environment input or token store is used. Logout/close clears
+  local session state, but does not
   revoke Yandex's server grant. Refresh, remote revocation and a verified Secret
   Service lifecycle remain future gates. Keyring presence detection alone does
   not complete them.
-- **Music data acceptance is endpoint-specific.** The new adapter and UI implement
+- **Music data acceptance is endpoint-specific.** The adapter and UI implement
   read-only account/library/playlist/search/details requests and paging, but must
   be checked on Fedora with an authorized test session. Prior owner evidence
   covers yamu account/search/track/album, not every Karin endpoint or schema.
+  Login completion and actual library loads require Music account validation;
+  neither browser navigation nor token issuance supplies that acceptance.
   Writes, like/unlike, playlist editing, recommendations and My Wave are excluded
   until their methods and permissions are independently validated.
 - **Real Music audio is blocked.** The reviewed yamu delivery path requires

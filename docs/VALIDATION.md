@@ -6,7 +6,108 @@ This report separates initial cloud checks, user-reported Fedora acceptance,
 revised UI checks and compiler compatibility. A result for one environment or
 revision is not evidence that another has passed.
 
-## v0.1 music vertical slice — current revision
+## Authentication correction — current revision (2026-10-29)
+
+The public GUI now has one `Войти` action and a native Adw.Dialog in every build
+mode. Developer client/secret fields and Device Flow instructions are removed.
+**Live Yandex sign-in and Music authorization remain unachieved.** The public
+AuthProvider reports the local integration blocker without opening a meaningless
+ID-only page, invoking another application's identity or inventing a new HTTP
+refusal. The owner's own-client ID success / Music status+about 403 evidence
+remains unchanged; the exact cause of that refusal is unknown.
+
+The new AuthProvider boundary, single-use PKCE/callback transport and optional
+WebKit component are exercised only with synthetic local fixtures. Their tests
+are not evidence of a permitted Yandex provider. The existing MusicService,
+read-only catalog/queue, independent GStreamer engine and owner PKCE diagnostic
+are preserved; MusicService/OAuth/audio implementation files are unchanged by
+this correction. [The pinned Cassette investigation](AUTHENTICATION_REVIEW.md)
+and [ADR-0010](adr/0010-single-purpose-sign-in-and-provider-gate.md) distinguish
+provider login, token identity, Music acceptance and public distribution rights.
+
+### Executed compiler and runtime checks
+
+Prepared Debian 13 retained GTK 4.18.6, Libadwaita 1.7.6 and GStreamer 1.26.2.
+Optional WebKitGTK 6 is 2.54.0, with libsoup 3.6.5. Pinned `webkit6` 0.5.0 uses
+the existing GTK 0.10 / GLib-GIO 0.21 family; 0.6's GTK 0.11 was not selected.
+Default/Flatpak builds exclude both optional authentication components and
+contain no configured live provider or bundled credentials.
+
+| Check | Stable 1.99.1 | Exact Rust 1.98.1 |
+| --- | --- | --- |
+| Formatting; default and all-feature all-target Clippy, `-D warnings` | Passed | Passed |
+| Public workspace tests | **106 passed**, 0 failed; 1 GTK test separately selected | Same |
+| All-feature workspace tests | **114 passed**, 0 failed; 3 display tests separately assessed | Same |
+| Explicit native Music/auth/HTTP fixture | **1 passed** | **1 passed** |
+| Explicit ephemeral WebView construction/shutdown | **1 passed** | **1 passed** |
+| Locked default/all-feature debug builds and GTK smoke | Passed | Passed |
+| Original hidden-terminal cases and both silent audio/player diagnostics | Passed | Passed |
+
+Totals include four binary tests: public has 102 library tests, all-feature has
+110. Twenty auth protocol tests cover independent random state/verifier, S256,
+strict raw origin/port/path and duplicate/encoded parameters, denial/expiry,
+concurrent replay, non-consuming origin display, bounded loopback HTTP and
+cancellation. Fixed-port retry tests retain old owners/readers while checking
+that cancel/consumption releases the listener; the embedded expiry task holds
+only a weak attempt reference across waits.
+
+The expanded native fixture performs an automatic local callback and provider
+exchange, keeps the dialog open through Music account validation, then reads
+liked tracks and playlists independently. It checks account 403, cancel, retry,
+a late validation and search response, independent liked403/playlist200, logout
+and close. Delayed responses are released through channels after cancellation,
+not scheduler-dependent sleeps. Synthetic data and browser launchers are test-only.
+The public blocked dialog is also structurally checked at all three smoke sizes
+in both themes. Errors use native message rows and clear on cancel/logout/retry.
+
+Rust 1.98.1 public and all-feature `--release --offline --locked` builds passed,
+with optimized GTK checks and public optimized terminal/audio/player checks.
+Public artifacts were restored. No `--ignore-rust-version` or native/runtime
+version change was used. The optional WebKit page-loading/isolation test needs
+an isolated display and a functioning WebKit sandbox; its cloud/CI result is
+recorded separately below rather than inferred from construction success.
+
+### Packaging, visuals and target acceptance
+
+The all-feature license inventory is **206 external crates / 177 Linux graph**.
+Six new bindings are MIT-compatible. Four registry archives omit their MIT text;
+an exact-commit, SHA256-checked original notice and provenance are preserved by
+an explicit fallback. Unknown omissions/hash/source changes still fail. Registry
+and vendor content is not rewritten. Stable/MSRV inventories match, and negative
+fallback checks passed. See [LICENSING.md](LICENSING.md).
+
+Fresh source preparation, a matching vendored license inventory and the
+independent Rust 1.98.1 offline release build passed. All 28 Rust/Cargo files
+matched the tested snapshot. Integer `GDK_SCALE=2` smoke (3840×2160 Xvfb), including
+the new dialog, passed. All **62 fresh PNGs** were inspected: 50 public frames
+and 12 native HTTP-fixture frames, evenly split between themes. All four sizes,
+real EWMH maximize, dialog focus/close, native error placement and text checks
+passed. All 14 recorded source/binary hashes match the rendered working tree.
+[Selected screenshots and reproduction](ui/auth-correction/README.md) retain six
+clean frames and metadata; previous galleries remain historical.
+
+The actual local WebKit navigation/cookie-isolation/cancel test was attempted,
+but its process terminated when Bubblewrap could not create a namespace and
+launch the D-Bus proxy. This is **blocked**, not a passed page-load test; the
+sandbox was not disabled. The separate construction/shutdown test did pass.
+Hosted CI runs all three isolated GTK/WebKit tests in separate processes on its
+normal runner, plus public/all-feature builds and Rust 1.98.1 offline releases.
+Exact-head hosted outcomes and artifacts are recorded in PR #8's description;
+local fixtures and screenshots never establish a live Yandex login.
+
+Full sandboxed Flatpak and real WebKit page loading remain subject to namespace
+support; no sandbox-disable or privilege workaround is permitted. Existing GNOME
+50 already supplies WebKitGTK6 runtime/development components, so no new Flatpak
+runtime/module or filesystem/keyring permission was added. The public manifest
+still builds `--no-default-features`.
+
+Fedora 44/KDE/Wayland acceptance is pending. Follow the single default build/start
+and expected blocked-dialog procedure in [BUILDING.md](BUILDING.md#music-sign-in-and-fedora-acceptance).
+Actual account/library acceptance requires a permitted Music identity/grant and
+supported automatic callback first; no end-user credentials/configuration fields
+are a substitute. Service audio remains a separate unconfirmed delivery gate.
+
+## Historical v0.1 music vertical slice — `7509884`
 
 Issue #7 adds the identity-neutral read-only MusicService, native library/search/
 detail views, a metadata queue and local experimental Device Flow. Both the build

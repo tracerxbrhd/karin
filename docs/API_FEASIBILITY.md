@@ -5,13 +5,58 @@
 Gate B1 owner evidence and document recheck: **2026-10-26**.
 Gate A official-document review: **2026-10-25**. Initial anonymous cloud probes:
 **2026-10-24**, approximately **11:40 UTC**; retained below with their original scope.
+Authentication source/document recheck and product correction: **2026-10-29**.
 
 Karin uses an unofficial service interface. A successful HTTP response establishes
 only the behavior observed for that request, from this cloud environment, at this
 time. It does not establish authenticated access, a playback entitlement, a stable
 API contract, or permission to distribute a third-party music client.
 
-## Current v0.1 vertical slice and 28 October owner evidence
+## Current sign-in decision, 29 October
+
+The owner's [blocking PR #8 correction](https://github.com/tracerxbrhd/karin/pull/8#issuecomment-6486318822)
+requires one `Войти` action, real Yandex-hosted sign-in and automatic transition
+to the actual library only after Music authorization. It supersedes the earlier
+developer-credential/Device Flow GUI. Normal and experimental GUI modes expose
+no Client ID/secret, device-code copying, manual callback or token entry.
+
+The native dialog and dedicated `AuthProvider` boundary are implemented with a
+blocked public provider. Generic state/S256 PKCE, exact callback validation and
+automatic fixed-loopback infrastructure, plus an optional isolated WebKitGTK6
+view, can be checked with synthetic fixtures. They do **not** establish live
+Yandex sign-in. There is no configured production provider, approved Music
+application identity or supported registered automatic callback. The dialog
+reports that missing integration rather than launching an identity-only page,
+inventing a signed-in account or treating navigation/cookies as Music acceptance.
+
+[Cassette research](AUTHENTICATION_REVIEW.md) explains the material backend
+difference: v0.2.4 and inspected main use browser cookies, a `sessionid` grant
+and an existing hardcoded application identity/secret before Music account/about.
+The source being public does not authorize Karin to reuse that registration.
+Moving Karin's already tested own-client URL into WebKit does not establish a
+different Music result. No sessionid cookie grant or upstream credentials are
+adopted.
+
+Official code-flow documentation permits an initial secretless PKCE exchange.
+The registration documentation requires registered scheme/host/port/path
+matching; a working automatic Linux callback, including any loopback exception,
+remains unverified. RFC 8252 says native apps must not use embedded user agents.
+Yandex's mobile LoginSDK overview explicitly supports WebView within its
+iOS/Android context, so no blanket provider WebView ban is claimed; that does not
+establish permission for standalone Linux WebKitGTK or Music integration.
+The proposed system-browser fallback requires an approved Music identity and
+supported registered callback too. See [ADR-0010](adr/0010-single-purpose-sign-in-and-provider-gate.md).
+
+The remaining provider facts are concrete: Karin's permitted Music client/grant,
+the provider-supported automatic callback URI and matching registration, the
+chosen embedded/browser path's eligibility, and the token lifecycle/distribution
+conditions. The project owner needs provider confirmation and non-secret public
+configuration through the project process, followed by a separately consented
+local test of token binding and Music account/library acceptance. This is a
+project integration prerequisite, not end-user OAuth setup. Do not send private
+credentials or repeat real authorization from Cloud/CI to investigate it.
+
+## Read-only vertical slice and 28 October owner evidence
 
 The owner completed the independent PR #6 comparison on Fedora 44:
 [own-client results](https://github.com/tracerxbrhd/karin/issues/5#issuecomment-6470853664).
@@ -40,14 +85,13 @@ library, playlist, search and detail results, with explicit loading/error/empty
 states and bounded paging. The new Karin path is implemented, but owner-local
 service acceptance remains pending; source/fixture coverage is not live evidence.
 
-Device Flow is compiled only with `experimental-device-auth` and activated only
-with `--experimental-music`. A local native dialog accepts application credentials
-in memory, with no embedded identity, file/environment input or default secret.
-Use only credentials the owner is entitled to test. No public-client approval is
-inferred, and no extraction or redistribution of another application's credentials
-is proposed. The default/public Flatpak excludes this flow. Own-client PKCE is
-unchanged and remains a separately verified diagnostic. Session tokens are memory
-only; permanent credentials require a verified Secret Service lifecycle.
+The earlier Device Flow GUI is removed in all modes. The legacy module remains
+behind `experimental-device-auth` for isolated library-level development checks,
+without a GUI entry or bundled identity. The default/public Flatpak excludes it
+and optional WebKit. Own-client PKCE is unchanged and remains a separately
+verified developer diagnostic; its hidden manual redirect is not the normal
+journey. Session tokens are memory-only; permanent credentials require a verified
+Secret Service lifecycle.
 
 The queue contains actual selected metadata, but Music playback remains visibly
 unavailable. The [stream review](STREAM_DELIVERY_REVIEW.md) found no confirmed
@@ -55,7 +99,7 @@ permitted unsigned delivery contract; the inspected source negotiates through
 extracted signing material and another application's identity. No stream request,
 decryption, media download, mutation, likes/unlikes, My Wave or MPRIS service is
 added. See [ADR-0009](adr/0009-music-vertical-slice.md) for the scoped decision and
-[Fedora acceptance](BUILDING.md#experimental-music-session-and-fedora-acceptance).
+[Fedora acceptance](BUILDING.md#music-sign-in-and-fedora-acceptance).
 
 ## Gate B1 diagnostic evidence (historical PR #6)
 
@@ -284,16 +328,17 @@ or service access. This is an engineering evidence review, not legal clearance.
 
 ### Safe next owner action
 
-First obtain official confirmation of the named Music catalog/library/playback
-grants, permitted service/stream integration and third-party distribution terms
-for a public native Linux application. Then the owner can choose the confirmed
-registration type, register **Karin's own** client, confirm supported redirect and
-secretless expiry/refresh/revocation behavior, and supply public configuration
-through the normal project configuration process. No confidential client secret,
-password, browser cookie or access token belongs in chat, source or logs.
+The owner has already registered Karin's own diagnostic application, as recorded
+above. The remaining project action is provider confirmation of its intended
+Music grants, native browser/callback eligibility, permitted service/stream
+integration, lifecycle and distribution conditions. Correct or extend that
+project-owned registration only through the provider-supported process, and
+supply non-secret public configuration through the project process. Ordinary
+users must not register applications. No confidential client secret, password,
+browser cookie or access token belongs in chat, source or logs.
 
 Only after those prerequisites are established should the project request consent
-for an end-to-end account test, implement the approved browser/device flow and
+for an end-to-end account test, activate the approved browser flow and
 Secret Service lifecycle, and independently validate Music-specific entitlement
 and permitted delivery. No account login or registration is requested now,
 because a working Music-specific route has not been established.

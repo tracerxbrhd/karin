@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 
-# Karin music interface, playback and local OAuth experiments
+# Karin music interface, sign-in boundary and local OAuth experiments
 
 Karin remains one Cargo package with internal modules. The service integration
 and the independently usable playback engine have separate responsibilities.
@@ -21,8 +21,12 @@ flowchart LR
   UI --> MusicService[Typed read-only MusicService]
   MusicService --> MusicHTTP[Identity-neutral bounded HTTPS]
   MusicHTTP --> MusicREST[Music account / library / search / details]
-  UI --> Session[Opt-in memory-only development session]
-  Session --> Device[Device Flow / system browser]
+  UI --> Login[Single-purpose native sign-in dialog]
+  Login --> Auth[AuthProvider / session boundary]
+  Auth --> Gate[Public provider unavailable until authorized Music grant]
+  Auth --> Callback[State / S256 PKCE / exact automatic callback]
+  Login -. optional auth-webkit .-> WebKit[Isolated login WebKit view]
+  Auth --> Session[Memory-only validated session]
   UI --> Queue[Bounded metadata queue]
   CLI[Opt-in local OAuth CLI] --> OAuth[Isolated OAuth diagnostic]
   OAuth --> Browser[System browser / S256 PKCE]
@@ -40,14 +44,16 @@ flowchart LR
 | `oauth` | Separate opt-in code/PKCE experiment, bounded token exchange, ID-client binding and read-only Music probes with sanitized reports |
 | `oauth_cli` | Binary-private local terminal input and system-browser launch; no credential arguments or GUI session |
 | `music` | Application-facing typed read-only service, reduced models, bounded transport and token-bound account cache |
-| `session` | Zeroizing ephemeral tokens; feature-gated Device Flow without bundled application credentials |
+| `auth` | Provider/session boundary, authorization attempts, S256 PKCE/state and exact automatic fixed-loopback callback infrastructure; public provider remains unavailable |
+| `session` | Zeroizing ephemeral tokens; library-only feature-gated Device Flow without bundled application credentials |
 | `queue` | Bounded selection/order of real track metadata, independent of unavailable service audio |
 | `capabilities` | Explicit unavailable Music authentication and a typed future permitted-stream boundary |
 | `playback` | Reusable controller, worker-owned `playbin`, typed playback state, local media sources and developer self-test |
 | `audio` | Existing finite synthetic pipeline, EOS/error/timeout handling and resource cleanup |
 | `platform` | Session D-Bus/Secret Service presence diagnostics; reserved future MPRIS identity |
 | `config` | Non-secret application identity and version |
-| `ui` / `ui::music` | Native library/search/details/queue, opt-in session controls, diagnostics and main-thread updates |
+| `ui` / `ui::music` | Native library/search/details/queue, one sign-in action, diagnostics and main-thread updates |
+| `ui::auth` | Single-purpose Libadwaita sign-in dialog and optional isolated WebKitGTK6 login view |
 | `main` | Concrete composition, application lifecycle and explicit diagnostic CLI modes |
 
 UI consumes domain/application values and controller snapshots, not HTTP
@@ -67,6 +73,9 @@ actions in [API feasibility](API_FEASIBILITY.md) and
 local experiment in [ADR-0008](adr/0008-local-oauth-pkce-diagnostic.md).
 The scoped development-session and read-only interface decision is recorded in
 [ADR-0009](adr/0009-music-vertical-slice.md); it does not enable a remote source.
+The corrected public sign-in boundary and provider gate are recorded in
+[ADR-0010](adr/0010-single-purpose-sign-in-and-provider-gate.md) and the
+[authentication review](AUTHENTICATION_REVIEW.md).
 
 ## Read-only music and session lifecycle
 
@@ -78,18 +87,45 @@ automatic retries. A page can make at most two requests. No arbitrary returned
 resource URL is fetched. Request IDs, personal response bodies, headers, URLs and
 provider messages never enter displayable errors or Debug output.
 
-Default builds have no Device Flow provider. Both `experimental-device-auth` and
-`--experimental-music` are required for the local native experiment. Application
-credentials are entered in memory and cleared from the controls before the
-worker begins; no default identity, file/environment input or token-paste path
-exists. The provider code screen uses a system browser, bounded polling,
-countdown and cancellation. Music account validation is independent of token
-issuance. There is no persistent store, refresh or remote revocation claim.
+The ordinary interface exposes one `Войти` action opening an `Adw.Dialog`. It
+contains no Client ID, Client secret, device-code, URL or token-entry controls,
+including in experimental builds. The public `AuthProvider` returns a truthful
+unavailable result: Karin has no established distributable Music-authorized
+identity and approved callback configuration. It does not launch a real provider
+page or claim a working browser fallback. The separate `experimental-device-auth`
+module remains a library-only development experiment and is not connected to the
+GUI. Default builds and the public Flatpak exclude that optional feature.
+
+Provider-neutral infrastructure creates a fresh state and S256 PKCE attempt,
+handles an exact automatic fixed-loopback callback, and bounds cancellation and
+expiry. It does not establish Yandex acceptance of that callback. A provider can
+select the system browser or the optional `auth-webkit` login view only after
+its required identity, callback and service permissions are established.
+`auth-webkit` uses `webkit6` 0.5 with the existing GTK4 bindings for a single
+isolated authentication view; it is excluded from default/public Flatpak builds
+and is not activated for real Yandex authorization. Login navigation and callback
+checks use parsed origins and exact callback matching. No JavaScript injection,
+password collection or cookie-to-token exchange is part of this boundary.
+
+Embedded authentication requires a provider decision. RFC 8252 requires external
+user agents for native OAuth; Yandex documents WebView support for its mobile
+LoginSDK, which does not establish permission for Linux WebKitGTK or Music.
+If Linux embedded authentication is unsupported, a system-browser flow with an
+automatic approved callback is the candidate. Neither browser presentation can
+replace an authorized Music grant. See the scoped source evidence in the
+[authentication review](AUTHENTICATION_REVIEW.md).
+
+Token issuance and Music account validation are separate. The dialog completes
+and library/search become usable only after the Music account endpoint accepts
+the session. Successful completion starts the actual liked-track and playlist
+loads. No persistent store, refresh or remote revocation is claimed.
 
 GTK jobs capture session/view generations and discard late results. Search text
 can change while the previous bounded job finishes. Logout/close invalidates all
 worker token clones locally, drops account/queue state and clears the service
-cache. A cache epoch prevents an old in-flight validation from restoring facts
+cache. New attempts and logout also reset stale API errors; signed-out status
+appears in a native message row, and authentication errors stay in the dialog.
+A cache epoch prevents an old in-flight validation from restoring facts
 or overwriting a new session; an invalidated queued token cannot start another
 validation. An active HTTP call may retain its temporary credential until its
 deadline, without blocking GTK. Local invalidation is not server-side revocation.
@@ -195,4 +231,6 @@ implement MPRIS or My Wave. The new music interface provides catalog/library
 reads and a metadata queue, with service playback still blocked.
 Flatpak permissions omit Secret Service and MPRIS ownership because neither is
 used. The existing sandbox grants suffice for generated local media and explicit
-system-output diagnostics; the Runtime/SDK selection is unchanged.
+system-output diagnostics. The public manifest excludes optional Device Flow and
+WebKit authentication features; optional native dependency feasibility does not
+establish a working or approved provider session.

@@ -3,8 +3,8 @@
 # Karin
 
 An independent native Linux client for Yandex Music, built with Rust, GTK4,
-Libadwaita and GStreamer. **v0.1 provides a read-only music interface and an
-opt-in development session; service-stream playback remains blocked.** Karin
+Libadwaita and GStreamer. **v0.1 provides a read-only music interface; public
+Music sign-in and service-stream playback remain blocked.** Karin
 is not affiliated with Yandex.
 
 ## Implemented slice
@@ -16,10 +16,12 @@ is not affiliated with Yandex.
 - A native music interface with loading/error/empty/session states, library and
   search results, detail navigation and a bounded metadata queue. Only returned
   service data is displayed; no demonstration catalog is shipped.
-- A cancelable native Device Flow experiment behind **both** the
-  `experimental-device-auth` build feature and `--experimental-music` runtime
-  flag. The owner supplies application credentials locally in memory. No client
-  identity/secret is bundled, and no passwords or pasted OAuth tokens are accepted.
+- One native `Войти` dialog, with cancellation, retry and a clear provider block.
+  No application credentials, device codes or pasted tokens belong in the normal
+  journey. A dedicated authentication boundary and synthetic callback tests
+  prepare automatic completion, but no production Music provider is activated.
+- Optional, isolated WebKitGTK6 support is limited to the authentication window.
+  It is a development build option, not a working Yandex sign-in or a web app shell.
 - The independent own-client `--oauth-diagnostic` remains unchanged: hidden full
   redirect input, returned-state validation, S256 PKCE, secretless initial
   exchange and separate sanitized status/about outcomes.
@@ -33,18 +35,25 @@ endpoints returned HTTP 403**, with TUN on and off. A separate unmodified yamu
 Device Flow accessed account/search/track/album data. The same yamu-issued token
 worked at status without the Android-client header. These facts do not authorize
 shipping the official application's OAuth identity or establish stream rights.
-The new Karin session/UI path itself still requires owner-local acceptance.
+The exact cause of Karin's generic 403 remains unknown. Changing the browser UI
+does not establish a working Music grant.
 
-The public/default build and Flatpak exclude Device Flow. Experimental sessions
-are memory-only; logout clears local session/data and does not revoke the server
+The requested Cassette-style live login is **not achieved**. Karin needs its own
+permitted Music client/grant and supported registered automatic callback before
+it can show real Yandex login and load a person's library. Until then, `Войти`
+explains the provider block without opening an identity-only consent page or
+asking users to configure OAuth. The public/default build and Flatpak exclude
+optional authentication features; the legacy Device Flow module has no GUI entry.
+Session tokens are memory-only; logout clears local session/data and does not revoke the server
 grant. Persistent sessions require a separately verified Secret Service lifecycle.
 No playlist mutations, likes/unlikes, My Wave, service-stream resolver or MPRIS
 player is enabled. Playback controls visibly state the missing permitted-source
 contract rather than playing generated WAV as music.
 
-See [the integration decision](docs/adr/0009-music-vertical-slice.md),
+See [the sign-in decision](docs/adr/0010-single-purpose-sign-in-and-provider-gate.md),
+[authentication research](docs/AUTHENTICATION_REVIEW.md),
 [API evidence](docs/API_FEASIBILITY.md), [stream-delivery review](docs/STREAM_DELIVERY_REVIEW.md)
-and [local Fedora acceptance](docs/BUILDING.md#experimental-music-session-and-fedora-acceptance).
+and [local Fedora acceptance](docs/BUILDING.md#music-sign-in-and-fedora-acceptance).
 
 ## Build and run
 
@@ -63,7 +72,8 @@ the v0.0 native and Flatpak prototypes launch and diagnostic audio works there.
 The new music/session interface and existing playback controls require fresh manual acceptance;
 startup alone is not visual signoff. Cloud validation uses Debian 13 / Xvfb.
 In the prepared Codex Cloud environment, prefix native build commands with
-`/workspace/karin-environment/run`.
+`/workspace/karin-environment/run`. All-feature checks also need the optional
+WebKit native package in [BUILDING.md](docs/BUILDING.md#optional-webkit-authentication-build-check-development-only).
 
 ```sh
 cargo fmt --all -- --check
@@ -92,6 +102,7 @@ required by automated tests. Executed results and pending manual checks are in
 
 - [Architecture and concurrency](docs/ARCHITECTURE.md)
 - [API feasibility and evidence](docs/API_FEASIBILITY.md)
+- [Authentication contract and provider gate](docs/AUTHENTICATION_REVIEW.md)
 - [Fedora, cloud and Flatpak build instructions](docs/BUILDING.md)
 - [Validation and acceptance](docs/VALIDATION.md)
 - [UI quality gate](docs/UI_QUALITY_GATE.md)

@@ -10,8 +10,8 @@ fictional music catalogs, recommendations or player controls.
 ## Required matrix
 
 Inspect the music interface and diagnostics at each size below, in **light and
-dark themes**. Cover signed-out library/search/queue navigation and the opted-in
-development login entry without real credentials. Account/search/detail states
+dark themes**. Cover signed-out library/search/queue navigation and the single
+native sign-in dialog without real credentials. Account/search/detail states
 may use synthetic fixtures only in explicitly identified tests, never a release
 catalog. Use actual allocated dimensions; distinguish requested size from the
 size achieved under the window manager.
@@ -53,6 +53,16 @@ For each theme and relevant page:
   session cancel/logout, empty and unavailable-item text, queue editing and the
   visible permitted-source blocker. Disabled player controls must not suggest
   successful service playback. Default builds must not expose Device Flow.
+- Open the sign-in dialog at every size/theme. Check loading, truthful provider
+  blocking, retry, Escape/cancel and focus return. No build mode may expose Client
+  ID/secret, device codes, pasted tokens or URL fields in this user journey.
+  Only validated Music account access may complete sign-in; test callback/state,
+  cancellation and late responses against local fixtures. Clear old errors on
+  logout, cancel and a fresh attempt; use native message rows with wrapped text.
+- If the optional WebKit component changes, check ephemeral-session construction
+  and destruction, trusted origin display and callback interception separately
+  from provider permission. Exercise actual local page loading with the sandbox
+  enabled where supported; report namespace/sandbox restrictions as blocked.
 - Never capture real application credentials, verification codes, auth/browser
   pages or account/library data for public evidence. Cloud capture should use
   clean signed-out states; authenticated fixture coverage must be explicit.
@@ -91,6 +101,10 @@ and silent diagnostic activation, then closes with Ctrl+Q:
 cargo build --workspace --locked
 scripts/capture-ui.sh build/ui-captures
 ```
+
+The matrix also opens/closes the public blocked login dialog at all four sizes
+in both themes. These captures never load a real authorization page or claim a
+successful provider login.
 
 It requires Xvfb, Openbox, ImageMagick (`import`), xdotool, wmctrl and xwininfo,
 plus the normal GTK/GStreamer libraries and SVG loader. In the prepared cloud

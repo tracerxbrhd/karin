@@ -45,11 +45,20 @@ Do not introduce Electron or web-based application shells.
   its exact origin/path and returned state before a token request. Treat the
   authorization code as opaque. Manual URL transfer is not an automatic
   production callback, and ID success does not establish Music access.
-- Issue #7's Device Flow is a separate development-only experiment. Require both
-  `experimental-device-auth` and `--experimental-music`; keep it out of public
-  default/Flatpak builds. Never bundle official/borrowed OAuth credentials or
-  add official-client headers. Application credentials are entered locally in
-  memory only, not through files, environment, command arguments or Cloud/CI.
+- The normal sign-in journey has one `Войти` action and a single-purpose native
+  dialog. Never expose developer Client ID/secret, device-code copying, manual
+  redirect transfer or token entry in that journey, including experimental modes.
+  The legacy feature-gated Device Flow module is library-only, with no GUI entry.
+  Never bundle borrowed OAuth credentials or add official-client headers.
+- PR #8 permits WebKitGTK6 only inside the authentication window; the rest of
+  Karin remains native GTK/Libadwaita. Use an isolated ephemeral session, parsed
+  exact trusted origins/callbacks, state/S256 PKCE, bounded work and cancellation;
+  never inject JavaScript, scrape credentials/cookies or log navigation URLs.
+  No real provider is activated until Karin's permitted Music identity/grant,
+  supported callback and provider compatibility are established. A Yandex ID page
+  alone is not Music sign-in. RFC 8252 rejects embedded native OAuth; reviewed
+  Yandex mobile SDK support does not establish Linux WebKit permission. Document
+  any approved browser fallback with automatic callback, without manual input.
 - Session and account/catalog acceptance are independent. Never turn metadata
   into playback entitlement. The inspected protected/signing delivery code is
   not an approved source; keep music playback unavailable until separately
@@ -60,6 +69,8 @@ Do not introduce Electron or web-based application shells.
 
 ## User Experience
 - Cassette by Rirusha is an aesthetic reference, not a source to copy.
+- Its authentication source is evidence about a different cookie/sessionid grant
+  and reused application identity, not permission to adopt that identity or secret.
 - Follow GNOME HIG and Libadwaita conventions where suitable.
 - Support light/dark themes, HiDPI, keyboard navigation, and accessibility.
 - Design loading, empty, offline, unauthorized, and error states.

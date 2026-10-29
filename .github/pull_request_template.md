@@ -18,6 +18,7 @@ Describe the concrete behavior and why it is needed.
 - [ ] GitHub Actions result inspected for this revision
 - [ ] Public and `experimental-device-auth` configurations checked separately
 - [ ] Native Music HTTP-fixture test explicitly executed under Xvfb
+- [ ] Optional `auth-webkit` checked on stable/MSRV with one GTK dependency family; startup/cancel and sandbox-enabled local navigation results recorded separately
 - [ ] Default/Flatpak excludes experimental authentication and bundled identities
 - [ ] Documentation distinguishes passed, failed, blocked and unrun checks
 
@@ -33,6 +34,7 @@ state that explicitly; do not mark unexecuted visual checks as passed.
 - [ ] Header/title/window controls, typography, spacing and text clipping checked
 - [ ] Keyboard navigation, visible focus and activation checked
 - [ ] GTK structure/allocation/navigation checks accompany screenshots
+- [ ] Single native sign-in dialog checked at all sizes/themes; no developer credentials/code/token fields, stale signed-out errors or completion before Music account validation
 - [ ] Only clean cloud screenshots shared; no private user/desktop captures added
 - [ ] Pending Fedora/KDE/Wayland visual acceptance explicitly listed
 - [ ] No fictitious release catalog/recommendations or implied unimplemented playback; unavailable controls explain the blocker
@@ -47,6 +49,7 @@ state that explicitly; do not mark unexecuted visual checks as passed.
 - [ ] OAuth changes use local fixtures and hidden-input checks; no real account/credentials in Cloud or CI
 - [ ] Registration, token issuance, ID-client binding and Music access are reported separately; manual full-URL state validation is distinguished from an automatic production callback
 - [ ] Experimental application credentials/tokens are memory-only; logout/cancel/late responses and new-session cache isolation tested
+- [ ] Public auth provider permission/identity and callback registration are established or honestly blocked; no official/borrowed identity, session-cookie extraction or embedded-agent compliance claim
 
 ## Evidence and remaining manual checks
 
