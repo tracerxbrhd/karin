@@ -13,6 +13,21 @@ mod oauth_cli;
 
 fn main() -> glib::ExitCode {
     let mut args: Vec<_> = std::env::args().skip(1).collect();
+    let delivery_diagnostic = args.iter().any(|arg| arg == "--delivery-diagnostic");
+    if args
+        .iter()
+        .filter(|arg| *arg == "--delivery-diagnostic")
+        .count()
+        > 1
+    {
+        eprintln!("Duplicate delivery diagnostic option.");
+        return glib::ExitCode::from(2);
+    }
+    args.retain(|arg| arg != "--delivery-diagnostic");
+    if delivery_diagnostic && !args.is_empty() {
+        eprintln!("Run --delivery-diagnostic alone with the ordinary local sign-in window.");
+        return glib::ExitCode::from(2);
+    }
     let experimental = args.iter().any(|arg| arg == "--experimental-music");
     if experimental && !cfg!(feature = "experimental-device-auth") {
         eprintln!("Experimental Music login is absent from this public build.");
@@ -31,7 +46,7 @@ fn main() -> glib::ExitCode {
     match args.as_slice() {
         [flag] if flag == "--help" || flag == "-h" => {
             println!(
-                "Karin\n\nUsage: karin [--smoke-test | --ui-fixture | --audio-self-test | --playback-self-test | --probe-service | --oauth-diagnostic | --version]\n\n--smoke-test          Verify GTK and local playback cleanup without network or sound\n--ui-fixture          Offline sign-in fixture for automated UI captures; never contacts OAuth\n--audio-self-test     Process a synthetic signal through GStreamer fakesink\n--playback-self-test  Decode a generated local WAV through playbin; test controls and cleanup\n--probe-service       Make an anonymous availability request (network required)\n--oauth-diagnostic    Opt-in local PKCE experiment; private terminal and system browser required"
+                "Karin\n\nUsage: karin [--smoke-test | --ui-fixture | --audio-self-test | --playback-self-test | --probe-service | --oauth-diagnostic | --delivery-diagnostic | --version]\n\n--smoke-test          Verify GTK and local playback cleanup without network or sound\n--ui-fixture          Offline sign-in fixture for automated UI captures; never contacts OAuth\n--audio-self-test     Process a synthetic signal through GStreamer fakesink\n--playback-self-test  Decode a generated local WAV through playbin; test controls and cleanup\n--probe-service       Make an anonymous availability request (network required)\n--oauth-diagnostic    Opt-in local PKCE experiment; private terminal and system browser required\n--delivery-diagnostic Opt-in local delivery-info probe using this window's ordinary sign-in; no media request"
             );
             if cfg!(feature = "experimental-device-auth") {
                 println!(
@@ -167,6 +182,9 @@ fn main() -> glib::ExitCode {
         } else {
             ui::build_with_options(app, service.clone(), experimental)
         };
+        if delivery_diagnostic {
+            ui.enable_delivery_diagnostic();
+        }
         ui.window.present();
         if smoke {
             let app = app.clone();

@@ -174,7 +174,7 @@ fn real_endpoint_contracts_map_to_typed_models_without_transport_identity() {
     assert!(requests[2].starts_with("POST /tracks HTTP/1.1"));
     assert!(requests[2].ends_with("track-ids=42%3A7"));
     assert!(requests[3].starts_with("GET /users/1234/playlists/list HTTP/1.1"));
-    assert!(requests[4].starts_with("GET /users/1234/playlists/8 HTTP/1.1"));
+    assert!(requests[4].starts_with("GET /users/1234/playlists/8?richTracks=true HTTP/1.1"));
     assert!(requests[6].starts_with("GET /search?text=query+%26+safely+encoded&type=track&page=0&nocorrect=true&playlist-in-best=false HTTP/1.1"));
     assert!(requests[10].starts_with("GET /albums/7/with-tracks HTTP/1.1"));
     assert_redacted(service);
@@ -585,4 +585,219 @@ fn real_location_header_is_not_followed_and_authorization_is_not_forwarded() {
         alternate.accept().unwrap_err().kind(),
         std::io::ErrorKind::WouldBlock
     );
+}
+
+#[test]
+fn search_accepts_provider_sections_without_echo_and_credits_without_artist_ids() {
+    // The upstream models permit these fields to be absent. The original
+    // adapter rejected an entire valid search page because of either one.
+    let (service, server, listener) = fixture(vec![
+        (200, r#"{"result":{"tracks":{"total":1,"results":[{"id":42,"title":"synthetic-private-title","artists":[{"name":"synthetic-private-artist"},{"id":12}]}]}}}"#.into()),
+        (200, r#"{"result":{"albums":{"results":[{"id":7,"artists":[{"name":"synthetic-private-artist"}]}],"perPage":20}}}"#.into()),
+        (200, r#"{"result":{"artists":{"results":[{"id":"11","name":"synthetic-private-artist"}],"total":1}}}"#.into()),
+        (200, r#"{"result":{"tracks":{"total":0}}}"#.into()),
+        (200, r#"{"result":{"text":"synthetic query"}}"#.into()),
+    ]);
+    let token = token();
+    let tracks = service
+        .search(&token, "Синтетика & Latin", SearchKind::Tracks, 0)
+        .unwrap();
+    assert_eq!(tracks.tracks[0].artists, ["synthetic-private-artist"]);
+    assert!(!tracks.has_more);
+    assert_redacted(&tracks);
+    let albums = service
+        .search(&token, "synthetic", SearchKind::Albums, 0)
+        .unwrap();
+    assert_eq!(albums.albums[0].artists, ["synthetic-private-artist"]);
+    assert!(!albums.has_more);
+    let artists = service
+        .search(&token, "synthetic", SearchKind::Artists, 0)
+        .unwrap();
+    assert_eq!(artists.artists[0].id, "11");
+    assert!(!artists.has_more);
+    for _ in 0..2 {
+        let empty = service
+            .search(&token, "synthetic", SearchKind::Tracks, 0)
+            .unwrap();
+        assert!(empty.tracks.is_empty());
+        assert!(!empty.has_more);
+    }
+    let requests = complete(server, listener);
+    let target = requests[0]
+        .lines()
+        .next()
+        .unwrap()
+        .split_whitespace()
+        .nth(1)
+        .unwrap();
+    let url = Url::parse(&format!("http://fixture.invalid{target}")).unwrap();
+    assert_eq!(
+        url.query_pairs().find(|(key, _)| key == "text").unwrap().1,
+        "Синтетика & Latin"
+    );
+}
+
+#[test]
+fn search_respects_reported_large_pages_and_stops_on_empty_without_inventing_a_catalog() {
+    let tracks = (1..=201).map(|id| json!({"id":id})).collect::<Vec<_>>();
+    let (service, server, listener) = fixture(vec![
+        (
+            200,
+            json!({"result":{"tracks":{"total":202,"perPage":201,"results":tracks}}}).to_string(),
+        ),
+        (
+            200,
+            r#"{"result":{"tracks":{"total":202,"perPage":201,"results":[{"id":202}]}}}"#.into(),
+        ),
+        (
+            200,
+            r#"{"result":{"tracks":{"total":202,"perPage":201,"results":[]}}}"#.into(),
+        ),
+    ]);
+    let token = token();
+    let first = service
+        .search(&token, "synthetic", SearchKind::Tracks, 0)
+        .unwrap();
+    assert_eq!(first.tracks.len(), 201);
+    assert!(first.has_more);
+    let last = service
+        .search(&token, "synthetic", SearchKind::Tracks, 1)
+        .unwrap();
+    assert_eq!(last.tracks[0].id, "202");
+    assert!(!last.has_more);
+    let empty = service
+        .search(&token, "synthetic", SearchKind::Tracks, 2)
+        .unwrap();
+    assert!(empty.tracks.is_empty());
+    assert!(!empty.has_more);
+    assert_eq!(complete(server, listener).len(), 3);
+}
+
+#[test]
+fn relaxed_optional_metadata_still_rejects_unidentified_entities_and_invalid_pages() {
+    let bodies = [
+        r#"{"result":{"unexpected":"synthetic-private-person"}}"#,
+        r#"{"result":{"tracks":{}}}"#,
+        r#"{"result":{"artists":{"total":1,"results":[{"name":"synthetic-private-artist"}]}}}"#,
+        r#"{"result":{"artists":{"total":1,"results":[{"id":11}]}}}"#,
+        r#"{"result":{"tracks":{"total":1,"perPage":0,"results":[{"id":42}]}}}"#,
+        r#"{"result":{"tracks":{"total":0,"results":[{"id":42}]}}}"#,
+        r#"{"result":{"tracks":{"total":1,"results":[{"id":42,"artists":[{"name":"\u0000synthetic-private-person"}]}]}}}"#,
+    ];
+    let (service, server, listener) =
+        fixture(bodies.iter().map(|body| (200, (*body).into())).collect());
+    for (index, _) in bodies.iter().enumerate() {
+        let kind = if matches!(index, 2 | 3) {
+            SearchKind::Artists
+        } else {
+            SearchKind::Tracks
+        };
+        let error = service.search(&token(), "synthetic", kind, 0).unwrap_err();
+        assert_eq!(error, MusicError::InvalidResponse);
+        assert_eq!(error.category(), "response-contract");
+        assert_redacted(error);
+    }
+    assert_eq!(complete(server, listener).len(), bodies.len());
+}
+
+#[test]
+fn rich_playlist_entries_expand_only_missing_tracks_and_keep_duplicate_order() {
+    let (service, server, listener) = fixture(vec![
+        (
+            200,
+            format!(
+                r#"{{"result":{{"trackCount":4,"tracks":[{{"id":42,"albumId":7,"track":{TRACK}}},{{"id":43}},{{"id":42,"albumId":7,"track":{TRACK}}},{{"id":43}}]}}}}"#
+            ),
+        ),
+        (
+            200,
+            r#"{"result":[{"id":43,"title":"second synthetic track"}]}"#.into(),
+        ),
+    ]);
+    let id = PlaylistId {
+        owner: "1234".into(),
+        kind: "8".into(),
+    };
+    let page = service.playlist_tracks(&token(), &id, 0).unwrap();
+    assert_eq!(
+        page.items
+            .iter()
+            .map(|track| track.id.as_str())
+            .collect::<Vec<_>>(),
+        ["42", "43", "42", "43"]
+    );
+    assert_eq!(page.items[0].title, "synthetic-private-title");
+    assert_eq!(page.items[1].title, "second synthetic track");
+    assert!(!page.has_more);
+    let requests = complete(server, listener);
+    assert!(requests[0].starts_with("GET /users/1234/playlists/8?richTracks=true HTTP/1.1"));
+    assert!(requests[1].ends_with("track-ids=43"));
+}
+
+#[test]
+fn omitted_empty_playlist_opens_but_missing_nonempty_contents_and_mismatched_tracks_fail() {
+    let (service, server, listener) = fixture(vec![
+        (200, r#"{"result":{"trackCount":0}}"#.into()),
+        (200, r#"{"result":{"trackCount":0,"tracks":[]}}"#.into()),
+        (200, r#"{"result":{"trackCount":1}}"#.into()),
+        (200, r#"{"result":{}}"#.into()),
+        (
+            200,
+            r#"{"result":{"tracks":[{"id":42,"track":{"id":43}}]}}"#.into(),
+        ),
+    ]);
+    let id = PlaylistId {
+        owner: "1234".into(),
+        kind: "8".into(),
+    };
+    for _ in 0..2 {
+        let page = service.playlist_tracks(&token(), &id, 0).unwrap();
+        assert!(page.items.is_empty());
+        assert!(!page.has_more);
+    }
+    for _ in 0..3 {
+        assert_eq!(
+            service.playlist_tracks(&token(), &id, 0),
+            Err(MusicError::InvalidResponse)
+        );
+    }
+    assert_eq!(complete(server, listener).len(), 5);
+}
+
+#[test]
+fn artist_detail_uses_identified_resource_and_validates_pager_before_navigation() {
+    let (service, server, listener) = fixture(vec![
+        (
+            200,
+            format!(
+                r#"{{"result":{{"tracks":[{TRACK}],"pager":{{"page":0,"perPage":1,"total":2}}}}}}"#
+            ),
+        ),
+        (
+            200,
+            r#"{"result":{"tracks":[],"pager":{"page":1,"perPage":1,"total":2}}}"#.into(),
+        ),
+        (
+            200,
+            r#"{"result":{"tracks":[],"pager":{"page":0,"perPage":1,"total":2}}}"#.into(),
+        ),
+    ]);
+    let token = token();
+    let first = service.artist_tracks(&token, "11", 0).unwrap();
+    assert!(first.has_more);
+    assert_eq!(first.items[0].id, "42");
+    let last = service.artist_tracks(&token, "11", 1).unwrap();
+    assert!(!last.has_more);
+    assert!(last.items.is_empty());
+    assert_eq!(
+        service.artist_tracks(&token, "11", 1),
+        Err(MusicError::InvalidResponse)
+    );
+    assert_eq!(
+        service.artist_tracks(&token, "11", 10001),
+        Err(MusicError::InvalidInput)
+    );
+    let requests = complete(server, listener);
+    assert!(requests[0].starts_with("GET /artists/11/tracks?page=0&page-size=50 HTTP/1.1"));
+    assert!(requests[1].starts_with("GET /artists/11/tracks?page=1&page-size=50 HTTP/1.1"));
 }

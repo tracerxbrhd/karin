@@ -18,6 +18,8 @@ Describe the concrete behavior and why it is needed.
 - [ ] GitHub Actions result inspected for this revision
 - [ ] Default Cassette-compatible session provider, minimal no-WebKit and `experimental-device-auth` configurations checked separately
 - [ ] Native Music HTTP-fixture test explicitly executed under Xvfb
+- [ ] Concurrent search/library/detail actions, latest pending query and logout/stale-result isolation checked under Xvfb
+- [ ] Delivery-probe changes tested with bounded local fixtures; no credentials, resource URLs, provider payloads or media in reports/artifacts
 - [ ] `auth-webkit` checked on stable/MSRV with one GTK dependency family; startup/cancel and sandbox-enabled local navigation/session-cookie results recorded separately
 - [ ] Default/Flatpak enables `cassette-auth` and excludes legacy Device Flow; exact reused application identity, source attribution and public-distribution uncertainty documented separately
 - [ ] Documentation distinguishes passed, failed, blocked and unrun checks
@@ -55,3 +57,9 @@ state that explicitly; do not mark unexecuted visual checks as passed.
 
 Link screenshots/results and list the checks still needed on Fedora. Leave
 unperformed manual acceptance pending. Do not merge without the required review.
+
+For v0.2, report actual track/album/artist search and personal-playlist contents
+separately from account/list acceptance. Audible service playback is mandatory:
+only an entitled owner hearing a real selected track through PipeWire/GStreamer
+passes that criterion. A metadata probe, synthetic WAV or player screenshot does
+not. Record the exact delivery stage if blocked; do not silently defer the gate.

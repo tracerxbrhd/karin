@@ -3,10 +3,16 @@
 # Karin
 
 An independent native Linux client for Yandex Music, built with Rust, GTK4,
-Libadwaita and GStreamer. v0.1 provides a read-only music interface and a
-Cassette-compatible browser-session authentication prototype. **Real Karin
-account/library acceptance on Fedora is pending; service-stream playback remains
-unimplemented.** Karin is not affiliated with Yandex.
+Libadwaita and GStreamer. The owner has verified ordinary Yandex sign-in, Music
+account validation, liked tracks and personal-playlist listing on Fedora.
+**v0.2 must add working search, playlist contents and actual audible Music
+playback. Its sound acceptance is not yet met.** Karin is not affiliated with Yandex.
+
+[Issue #9](https://github.com/tracerxbrhd/karin/issues/9) tracks this stage. Its
+starting Fedora run found that search and opening personal playlists failed.
+Those are defects to repair, not successful features inferred from fixtures.
+Audio delivery is investigated in parallel with those repairs; synthetic WAV
+does not satisfy the real-track criterion.
 
 ## Implemented slice
 
@@ -52,9 +58,10 @@ provider prohibition is inferred. See [the scoped decision](docs/adr/0011-casset
 
 The default build and Flatpak enable this real provider; a no-feature compatibility
 build deliberately omits it. Device Flow remains a library-only optional experiment.
-Cloud fixtures do not prove successful Yandex login, Music access or a real library.
-[One local Fedora run](docs/BUILDING.md#music-sign-in-and-fedora-acceptance) must
-exercise those stages. Failures identify return/state, session-cookie collection,
+The owner's Fedora report in Issue #9 establishes real login, Music account,
+liked tracks and playlist-list access. Cloud fixtures alone do not establish
+those results. [Fresh local Fedora acceptance](docs/BUILDING.md#music-sign-in-and-fedora-acceptance)
+must verify corrected search/playlist contents and any new delivery/playback path. Failures identify return/state, session-cookie collection,
 OAuth exchange or Music validation rather than a generic provider block.
 Session tokens are memory-only; logout clears local session/data and does not revoke the server
 grant. Persistent sessions require a separately verified Secret Service lifecycle.
@@ -81,7 +88,8 @@ cargo run --locked
 The primary manual acceptance platform is Fedora 44 / KDE Plasma / Wayland /
 PipeWire. [Issue #3](https://github.com/tracerxbrhd/karin/issues/3) reports that
 the v0.0 native and Flatpak prototypes launch and diagnostic audio works there.
-The new music/session interface and existing playback controls require fresh manual acceptance;
+The confirmed session/library results are endpoint-specific. New search,
+playlist-detail, playback and visual changes require fresh manual acceptance;
 startup alone is not visual signoff. Cloud validation uses Debian 13 / Xvfb.
 In the prepared Codex Cloud environment, prefix native build commands with
 `/workspace/karin-environment/run-auth`, whose image includes WebKitGTK6.
@@ -121,6 +129,7 @@ required by automated tests. Executed results and pending manual checks are in
 - [Inspected cloud UI screenshots](docs/ui/README.md)
 - [Known limitations](docs/LIMITATIONS.md)
 - [License scope and dependency review](docs/LICENSING.md)
+- [Cassette v0.2.4 capability audit](docs/CASSETTE_PARITY.md)
 - [Roadmap](docs/ROADMAP.md) and [ADRs](docs/adr/)
 
 The Flatpak manifest and offline Cargo source preparation are in `packaging/`.

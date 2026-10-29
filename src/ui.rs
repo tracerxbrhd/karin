@@ -33,6 +33,12 @@ pub struct MainWindow {
 }
 
 impl MainWindow {
+    /// Enable the owner's explicitly requested metadata-only local experiment.
+    /// Credentials stay in this window's ordinary ephemeral Music session.
+    pub fn enable_delivery_diagnostic(&self) {
+        self.music.enable_delivery_diagnostic();
+    }
+
     /// Validate actual allocations as well as native responsive navigation.
     pub fn smoke_check(&self) -> bool {
         self.stack.set_visible_child_name("diagnostics");

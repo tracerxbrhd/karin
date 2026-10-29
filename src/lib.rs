@@ -14,4 +14,5 @@ pub mod platform;
 pub mod playback;
 pub mod queue;
 pub mod session;
+pub mod stream;
 pub mod ui;

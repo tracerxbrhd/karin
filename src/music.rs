@@ -28,6 +28,7 @@ const ORIGIN: &str = "https://api.music.yandex.net/";
 const MAX_BODY: usize = 1024 * 1024;
 const PAGE_SIZE: usize = 50;
 const MAX_COLLECTION: usize = 20_000;
+const MAX_SEARCH_PAGE: usize = 1_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum MusicError {
@@ -59,6 +60,25 @@ pub enum MusicError {
     Http(u16),
 }
 impl MusicError {
+    /// Fixed diagnostic vocabulary. Never include the endpoint, query, service
+    /// message or personal response material in an operation report.
+    pub fn category(self) -> &'static str {
+        match self {
+            Self::Configuration => "configuration",
+            Self::Unauthenticated => "session-required",
+            Self::AccessDenied => "authorization-rejected",
+            Self::Forbidden => "forbidden",
+            Self::MissingScopes => "missing-scopes",
+            Self::Restricted => "restricted",
+            Self::RateLimited => "rate-limited",
+            Self::Network => "network",
+            Self::Timeout => "timeout",
+            Self::ResponseTooLarge => "response-size",
+            Self::InvalidResponse => "response-contract",
+            Self::InvalidInput => "invalid-input",
+            Self::Http(_) => "http-rejected",
+        }
+    }
     pub fn http_status(self) -> Option<u16> {
         match self {
             Self::AccessDenied => Some(401),
@@ -239,6 +259,11 @@ impl MusicService {
             .map(|(_, uid)| uid.clone())
             .ok_or(MusicError::Unauthenticated)
     }
+    /// Check the existing token-bound Music validation without changing it.
+    /// A successful Yandex ID grant alone never opens authenticated operations.
+    pub(crate) fn validate_session(&self, token: &AccessToken) -> Result<(), MusicError> {
+        self.account_id(token).map(|_| ())
+    }
     pub fn account(&self, token: &AccessToken) -> Result<Account, MusicError> {
         // A failed revalidation must not leave a previously accepted account
         // available to later personal requests with this token.
@@ -297,21 +322,7 @@ impl MusicService {
         let (wire, has_more) = local_page(wire, page)?;
         let items = wire
             .into_iter()
-            .map(|wire| {
-                let owner = wire
-                    .owner
-                    .and_then(|owner| owner.uid)
-                    .or(wire.uid)
-                    .ok_or(MusicError::InvalidResponse)?;
-                Ok(Playlist {
-                    id: PlaylistId {
-                        owner: owner.0,
-                        kind: wire.kind.ok_or(MusicError::InvalidResponse)?.0,
-                    },
-                    title: text(wire.title.unwrap_or_else(|| "Без названия".into()))?,
-                    track_count: wire.track_count.ok_or(MusicError::InvalidResponse)?,
-                })
-            })
+            .map(playlist_from_wire)
             .collect::<Result<_, MusicError>>()?;
         Ok(Page { items, has_more })
     }
@@ -323,9 +334,17 @@ impl MusicService {
     ) -> Result<Page<Track>, MusicError> {
         validate_id(&id.owner)?;
         validate_id(&id.kind)?;
-        let wire: PlaylistWire =
-            self.get(token, &["users", &id.owner, "playlists", &id.kind], &[])?;
-        self.expand_page(token, wire.tracks.ok_or(MusicError::InvalidResponse)?, page)
+        let wire: PlaylistWire = self.get(
+            token,
+            &["users", &id.owner, "playlists", &id.kind],
+            &[("richTracks", "true")],
+        )?;
+        let references = match wire.tracks {
+            Some(tracks) => tracks,
+            None if wire.track_count == Some(0) => Vec::new(),
+            None => return Err(MusicError::InvalidResponse),
+        };
+        self.expand_page(token, references, page)
     }
     fn expand_page(
         &self,
@@ -334,14 +353,36 @@ impl MusicService {
         page: u32,
     ) -> Result<Page<Track>, MusicError> {
         let (references, has_more) = local_page(references, page)?;
-        let ids: Vec<_> = references
-            .into_iter()
-            .map(|entry| match entry.album_id {
+        // richTracks embeds the actual track in a compact entry. Preserve it,
+        // and expand only missing entries in one bounded batch. Duplicates and
+        // playlist order belong to the collection, not to the batch response.
+        let mut ordered = Vec::with_capacity(references.len());
+        let mut missing = Vec::new();
+        for entry in references {
+            let id = match entry.album_id {
                 Some(album) => format!("{}:{}", entry.id.0, album.0),
-                None => entry.id.0,
+                None => entry.id.0.clone(),
+            };
+            let embedded = entry.track.map(track_from_wire).transpose()?;
+            if let Some(track) = &embedded {
+                if track.id != id && track.id != entry.id.0 {
+                    return Err(MusicError::InvalidResponse);
+                }
+            } else {
+                missing.push(id);
+            }
+            ordered.push(embedded);
+        }
+        let expanded = self.tracks(token, &missing)?;
+        let mut expanded = expanded.into_iter();
+        let items = ordered
+            .into_iter()
+            .map(|track| {
+                track
+                    .or_else(|| expanded.next())
+                    .ok_or(MusicError::InvalidResponse)
             })
-            .collect();
-        let items = self.tracks(token, &ids)?;
+            .collect::<Result<_, _>>()?;
         Ok(Page { items, has_more })
     }
     pub fn search(
@@ -375,9 +416,21 @@ impl MusicService {
                 ("playlist-in-best", "false"),
             ],
         )?;
-        // The provider omits empty sections. A text-bearing search envelope is
-        // still required; an arbitrary HTTP 200 object is not an empty catalog.
-        text(wire.text)?;
+        // Upstream models make the echo and page counters optional. Require a
+        // recognized envelope, without rejecting a real section merely because
+        // the service omitted its redundant query echo.
+        let has_echo = wire.text.is_some();
+        if let Some(echo) = wire.text {
+            text(echo)?;
+        }
+        let has_section = match kind {
+            SearchKind::Tracks => wire.tracks.is_some(),
+            SearchKind::Albums => wire.albums.is_some(),
+            SearchKind::Artists => wire.artists.is_some(),
+        };
+        if !has_echo && !has_section {
+            return Err(MusicError::InvalidResponse);
+        }
         let mut results = SearchResults {
             tracks: Vec::new(),
             albums: Vec::new(),
@@ -477,6 +530,49 @@ impl MusicService {
             return Err(MusicError::InvalidResponse);
         }
         album_from_wire(wire)
+    }
+    /// Open an artist result through its own paged track endpoint, rather than
+    /// silently turning the artist's display name into another catalog search.
+    pub fn artist_tracks(
+        &self,
+        token: &AccessToken,
+        id: &str,
+        page: u32,
+    ) -> Result<Page<Track>, MusicError> {
+        validate_id(id)?;
+        if page > 10_000 {
+            return Err(MusicError::InvalidInput);
+        }
+        let page_text = page.to_string();
+        let size = PAGE_SIZE.to_string();
+        let wire: ArtistTracksWire = self.get(
+            token,
+            &["artists", id, "tracks"],
+            &[("page", &page_text), ("page-size", &size)],
+        )?;
+        if wire.tracks.len() > MAX_SEARCH_PAGE {
+            return Err(MusicError::ResponseTooLarge);
+        }
+        let has_more = match wire.pager {
+            Some(pager) => {
+                if pager.page.is_some_and(|index| index != u64::from(page)) {
+                    return Err(MusicError::InvalidResponse);
+                }
+                page_has_more(
+                    wire.tracks.len(),
+                    pager.total,
+                    pager.per_page.or(Some(PAGE_SIZE as u64)),
+                    page,
+                )?
+            }
+            None => wire.tracks.len() == PAGE_SIZE,
+        };
+        let items = wire
+            .tracks
+            .into_iter()
+            .map(track_from_wire)
+            .collect::<Result<_, _>>()?;
+        Ok(Page { items, has_more })
     }
     fn get<T: DeserializeOwned>(
         &self,
@@ -628,17 +724,36 @@ fn local_page<T>(items: Vec<T>, page: u32) -> Result<(Vec<T>, bool), MusicError>
     ))
 }
 fn search_page<T>(page: SearchPageWire<T>, index: u32) -> Result<(Vec<T>, bool), MusicError> {
-    if page.results.len() > 100 {
+    if page.results.len() > MAX_SEARCH_PAGE {
         return Err(MusicError::ResponseTooLarge);
     }
-    let per_page = page.per_page.unwrap_or(page.results.len() as u64);
-    if per_page > 100 || (per_page == 0 && !page.results.is_empty()) {
+    // A recognized empty page is valid. An arbitrary empty section, or a
+    // nonempty total with no rows, must not create an endless Next loop.
+    if page.results.is_empty() && page.total.is_none() && page.per_page.is_none() {
         return Err(MusicError::InvalidResponse);
     }
+    let more = page_has_more(page.results.len(), page.total, page.per_page, index)?;
+    Ok((page.results, more))
+}
+fn page_has_more(
+    count: usize,
+    total: Option<u64>,
+    per_page: Option<u64>,
+    index: u32,
+) -> Result<bool, MusicError> {
+    if per_page.is_some_and(|per_page| per_page > MAX_COLLECTION as u64 || per_page < count as u64)
+        || total.is_some_and(|total| total < count as u64)
+    {
+        return Err(MusicError::InvalidResponse);
+    }
+    if count == 0 {
+        return Ok(false);
+    }
+    let size = per_page.unwrap_or(count as u64);
     let consumed = (u64::from(index) + 1)
-        .checked_mul(per_page)
+        .checked_mul(size)
         .ok_or(MusicError::InvalidResponse)?;
-    Ok((page.results, consumed < page.total))
+    Ok(total.map_or_else(|| count as u64 == size, |total| consumed < total))
 }
 
 #[derive(Deserialize)]
@@ -703,6 +818,7 @@ struct LibraryFields {
 struct TrackReference {
     id: Id,
     album_id: Option<Id>,
+    track: Option<TrackWire>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -720,8 +836,8 @@ struct OwnerWire {
 }
 #[derive(Deserialize)]
 struct ArtistWire {
-    id: Id,
-    name: String,
+    id: Option<Id>,
+    name: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -745,7 +861,7 @@ struct AlbumWire {
 }
 #[derive(Deserialize)]
 struct SearchWire {
-    text: String,
+    text: Option<String>,
     tracks: Option<SearchPageWire<TrackWire>>,
     albums: Option<SearchPageWire<AlbumWire>>,
     artists: Option<SearchPageWire<ArtistWire>>,
@@ -753,18 +869,52 @@ struct SearchWire {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SearchPageWire<T> {
-    total: u64,
+    total: Option<u64>,
     per_page: Option<u64>,
+    #[serde(default = "Vec::new")]
     results: Vec<T>,
+}
+#[derive(Deserialize)]
+struct ArtistTracksWire {
+    tracks: Vec<TrackWire>,
+    pager: Option<PagerWire>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PagerWire {
+    total: Option<u64>,
+    page: Option<u64>,
+    per_page: Option<u64>,
 }
 fn artist_from_wire(wire: ArtistWire) -> Result<Artist, MusicError> {
     Ok(Artist {
-        id: wire.id.0,
-        name: text(wire.name)?,
+        id: wire.id.ok_or(MusicError::InvalidResponse)?.0,
+        name: text(wire.name.ok_or(MusicError::InvalidResponse)?)?,
+    })
+}
+fn playlist_from_wire(wire: PlaylistWire) -> Result<Playlist, MusicError> {
+    let owner = wire
+        .owner
+        .and_then(|owner| owner.uid)
+        .or(wire.uid)
+        .ok_or(MusicError::InvalidResponse)?;
+    Ok(Playlist {
+        id: PlaylistId {
+            owner: owner.0,
+            kind: wire.kind.ok_or(MusicError::InvalidResponse)?.0,
+        },
+        title: text(wire.title.unwrap_or_else(|| "Без названия".into()))?,
+        track_count: wire.track_count.ok_or(MusicError::InvalidResponse)?,
     })
 }
 fn artist_names(wire: Vec<ArtistWire>) -> Result<Vec<String>, MusicError> {
-    wire.into_iter().map(|artist| text(artist.name)).collect()
+    // Embedded credits may have a name without an independently browsable ID.
+    // Missing credits are omitted; they do not invalidate an otherwise real
+    // track/album. Standalone artist results remain strictly identified above.
+    wire.into_iter()
+        .filter_map(|artist| artist.name)
+        .map(text)
+        .collect()
 }
 fn track_from_wire(wire: TrackWire) -> Result<Track, MusicError> {
     let album = wire.albums.into_iter().next();
@@ -847,7 +997,7 @@ impl<'de> Deserialize<'de> for ForbiddenCode {
         deserializer.deserialize_any(Visitor)
     }
 }
-fn forbidden_error(body: &[u8]) -> MusicError {
+pub(crate) fn forbidden_error(body: &[u8]) -> MusicError {
     match serde_json::from_slice::<ForbiddenEnvelope>(body) {
         Ok(ForbiddenEnvelope {
             error: ForbiddenCode::Missing,

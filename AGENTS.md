@@ -72,9 +72,16 @@ Do not introduce Electron or web-based application shells.
   Linux WebKit permission. Record that uncertainty without inventing a provider
   ban or approval. Report a failed chain's concrete stage and safe category.
 - Session and account/catalog acceptance are independent. Never turn metadata
-  into playback entitlement. The inspected protected/signing delivery code is
-  not an approved source; keep music playback unavailable until separately
-  established. No raw provider messages, personal models or credentials in logs.
+  into playback entitlement. Issue #9 supersedes the earlier audio deferral:
+  real service playback is mandatory for v0.2. Investigate audio in parallel
+  with catalog repairs. Bounded opt-in delivery-info requests may use the
+  consenting owner's existing local session, without fetching media or
+  disclosing IDs, response bodies or resource URLs. Do not import extracted
+  signing/decryption secrets or infer that every signed resource uses DRM.
+  A returned server-signed resource and an extracted client-side signing key
+  are different mechanisms. Enable actual playback only for an established
+  permitted source; preserve an unmet audible-player gate if none is confirmed.
+  No raw provider messages, personal models or credentials in logs.
 - Logout/close clears local data and invalidates stale UI work. No plaintext
   credential store, persistent token or refresh/revocation claim before a
   verified Secret Service lifecycle. Keep PKCE and developer audio independent.

@@ -83,6 +83,22 @@ The corrected public sign-in boundary and provider gate are recorded in
 
 ## Read-only music and session lifecycle
 
+Issue #9's [catalog/delivery increment](adr/0012-catalog-repair-and-local-delivery-probe.md)
+supersedes the global catalog admission lock. Account, initial library, explicit
+library, search, detail and delivery requests have independent bounded lanes:
+one running and one latest pending job each. Tickets and session generations
+discard superseded replies; invalidated old work does not disable a new login.
+Detail navigation opens before the HTTP response, preserves its source section
+and displays loading, empty or retryable errors in native widgets.
+
+The opt-in `stream::DeliveryProbe` is an executable owner-local metadata boundary,
+separate from an audio resolver. It validates the existing Music session, performs
+one legacy per-track offer read and at most one unauthenticated descriptor read
+to an exact reviewed HTTPS origin/path. Bounded XML parsing has no DTD/entity
+resolution. Only finite reports and separate HTTP statuses reach GTK. No source
+is handed to GStreamer, and no raw URL/body, signing input or personal identifier
+becomes a diagnostic. See the current [delivery contract](STREAM_DELIVERY_REVIEW.md).
+
 The native Music pane consumes typed account, track, artist, album and playlist
 values. Library references are expanded in batches of at most 50 distinct IDs;
 duplicate playlist positions remain intact. Responses are bounded to 1 MiB, with

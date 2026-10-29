@@ -6,6 +6,12 @@ use std::{cell::RefCell, rc::Rc, sync::Arc};
 use adw::prelude::*;
 use gtk::{gio, glib};
 
+#[cfg(test)]
+mod navigation_tests;
+mod requests;
+use requests::{Operation, Requests};
+type PendingJob = Box<dyn FnOnce(&Rc<Controller>, u64)>;
+
 use super::auth::LoginDialog;
 use crate::auth::AuthorizationCode;
 #[cfg(feature = "auth-webkit")]
@@ -26,9 +32,14 @@ struct Model {
     token: Option<AccessToken>,
     account_valid: bool,
     busy: bool,
+    auth_busy: bool,
     closed: bool,
     generation: u64,
     view_generation: u64,
+    detail_origin: String,
+    library_touched: bool,
+    delivery_diagnostic: bool,
+    delivery_cancellation: Option<crate::stream::DeliveryCancellation>,
     library_page: u32,
     search_page: u32,
     queue: MusicQueue,
@@ -75,6 +86,7 @@ struct Controller {
     login_dialog: RefCell<Option<LoginDialog>>,
     model: RefCell<Model>,
     widgets: Widgets,
+    requests: RefCell<Requests<PendingJob>>,
 }
 
 struct OfflineProvider;
@@ -357,9 +369,14 @@ impl MusicPane {
                 token: None,
                 account_valid: false,
                 busy: false,
+                auth_busy: false,
                 closed: false,
                 generation: 0,
                 view_generation: 0,
+                detail_origin: "library".into(),
+                library_touched: false,
+                delivery_diagnostic: false,
+                delivery_cancellation: None,
                 library_page: 0,
                 search_page: 0,
                 queue: MusicQueue::new(),
@@ -368,6 +385,7 @@ impl MusicPane {
                 playlists: None,
             }),
             widgets,
+            requests: RefCell::new(Requests::default()),
         });
         controller.connect(window);
         controller.render_controls();
@@ -377,6 +395,12 @@ impl MusicPane {
             player_bar,
             controller,
         }
+    }
+
+    /// Explicit owner-local metadata-only delivery experiment; never enabled
+    /// by ordinary startup or automated smoke/capture modes.
+    pub fn enable_delivery_diagnostic(&self) {
+        self.controller.model.borrow_mut().delivery_diagnostic = true;
     }
 
     pub fn primary_action(&self) -> gtk::Button {
@@ -576,10 +600,13 @@ impl Controller {
         if self.login_dialog.borrow().is_none() {
             return;
         }
+        self.requests.borrow_mut().invalidate_all();
+        self.cancel_delivery();
         {
             let mut model = self.model.borrow_mut();
             model.generation += 1;
             model.view_generation += 1;
+            model.auth_busy = false;
             model.busy = false;
             if let Some(attempt) = model.attempt.take() {
                 attempt.cancel();
@@ -626,6 +653,7 @@ impl Controller {
             model.generation += 1;
             model.view_generation += 1;
             model.account_valid = false;
+            model.auth_busy = true;
             model.busy = true;
             model.generation
         };
@@ -894,6 +922,7 @@ impl Controller {
                 token.invalidate();
             }
             model.account_valid = false;
+            model.auth_busy = false;
             model.busy = false;
         }
         if let Some(service) = &self.service {
@@ -976,16 +1005,18 @@ impl Controller {
         let weak = Rc::downgrade(self);
         self.widgets.search.connect_changed(move |_| {
             if let Some(this) = weak.upgrade() {
-                let mut model = this.model.borrow_mut();
-                if model.account_valid {
-                    model.view_generation += 1;
-                }
+                this.invalidate_search();
             }
         });
         let weak = Rc::downgrade(self);
         self.widgets.search_kind.connect_selected_notify(move |_| {
             if let Some(this) = weak.upgrade() {
-                this.model.borrow_mut().view_generation += 1;
+                this.invalidate_search();
+                if this.model.borrow().account_valid
+                    && !this.widgets.search.text().trim().is_empty()
+                {
+                    this.search(0);
+                }
             }
         });
         let weak = Rc::downgrade(self);
@@ -1008,6 +1039,9 @@ impl Controller {
             .connect_visible_child_name_notify(move |_| {
                 if let Some(this) = weak.upgrade() {
                     this.model.borrow_mut().view_generation += 1;
+                    this.requests.borrow_mut().invalidate(Operation::Detail);
+                    this.requests.borrow_mut().invalidate(Operation::Delivery);
+                    this.cancel_delivery();
                 }
             });
         let weak = Rc::downgrade(self);
@@ -1055,11 +1089,11 @@ impl Controller {
 
     fn render_controls(&self) {
         let model = self.model.borrow();
-        let ready = model.account_valid && !model.busy && !model.closed;
+        let ready = model.account_valid && !model.closed;
         self.widgets.library_mode.set_sensitive(ready);
         self.widgets.library_refresh.set_sensitive(ready);
-        // The owner can edit a new query while the bounded old request finishes.
-        // Its result is discarded via view_generation; submission stays bounded.
+        // Independent lanes accept actions during unrelated work. Repeated
+        // requests in one lane retain only the latest pending action.
         self.widgets
             .search
             .set_sensitive(model.account_valid && !model.closed);
@@ -1073,7 +1107,7 @@ impl Controller {
         self.widgets.search_previous.set_sensitive(ready);
         self.widgets
             .login
-            .set_sensitive(!model.account_valid && !model.busy && !model.closed);
+            .set_sensitive(!model.account_valid && !model.auth_busy && !model.closed);
         self.widgets
             .login
             .set_tooltip_text(Some("Войти в Яндекс Музыку"));
@@ -1081,12 +1115,16 @@ impl Controller {
         self.widgets
             .logout
             .set_sensitive(model.token.is_some() && !model.closed);
-        self.widgets.spinner.set_spinning(model.busy);
-        self.widgets.spinner.set_visible(model.busy);
+        let visible_work =
+            model.busy && (model.account_valid || self.login_dialog.borrow().is_some());
+        self.widgets.spinner.set_spinning(visible_work);
+        self.widgets.spinner.set_visible(visible_work);
     }
 
     fn close(&self) {
         self.clear_text_focus();
+        self.requests.borrow_mut().invalidate_all();
+        self.cancel_delivery();
         let mut model = self.model.borrow_mut();
         if model.closed {
             return;
@@ -1111,6 +1149,8 @@ impl Controller {
 
     fn logout(self: &Rc<Self>) {
         self.clear_text_focus();
+        self.requests.borrow_mut().invalidate_all();
+        self.cancel_delivery();
         {
             let mut model = self.model.borrow_mut();
             model.generation += 1;
@@ -1119,12 +1159,14 @@ impl Controller {
                 token.invalidate();
             }
             model.account_valid = false;
+            model.auth_busy = false;
             model.busy = false;
             model.queue.clear();
             model.liked = None;
             model.playlists = None;
             model.library_page = 0;
             model.search_page = 0;
+            model.library_touched = false;
             if let Some(attempt) = model.attempt.take() {
                 attempt.cancel();
             }
@@ -1155,52 +1197,89 @@ impl Controller {
         self.render_queue();
     }
 
+    fn cancel_delivery(&self) {
+        if let Some(cancellation) = self.model.borrow_mut().delivery_cancellation.take() {
+            cancellation.cancel();
+        }
+    }
+
+    fn invalidate_search(&self) {
+        self.requests.borrow_mut().invalidate(Operation::Search);
+        let mut model = self.model.borrow_mut();
+        model.view_generation += 1;
+        model.search_page = 0;
+        drop(model);
+        self.widgets.search_next.set_visible(false);
+        self.widgets.search_previous.set_visible(false);
+        if self.model.borrow().account_valid {
+            set_empty(
+                &self.widgets.search_rows,
+                "Запрос изменён. Нажмите Enter или «Найти».",
+            );
+        }
+    }
+
+    fn sync_busy(&self) {
+        let running = self.requests.borrow().busy();
+        let mut model = self.model.borrow_mut();
+        model.busy = model.auth_busy || running;
+    }
+
     fn run<R: Send + 'static>(
         self: &Rc<Self>,
+        operation: Operation,
         work: impl FnOnce(MusicService, AccessToken) -> Result<R, MusicError> + Send + 'static,
         done: impl FnOnce(&Rc<Self>, Result<R, MusicError>) + 'static,
     ) {
-        self.run_with_view(true, work, done);
+        let generation = self.model.borrow().generation;
+        let job: PendingJob = Box::new(move |this, serial| {
+            this.start_job(operation, serial, generation, work, done);
+        });
+        let next = self.requests.borrow_mut().submit(operation, job);
+        self.sync_busy();
+        self.render_controls();
+        if let Some((serial, job)) = next {
+            job(self, serial);
+        } else {
+            catalog_event(operation, "queued_latest", None);
+        }
     }
 
-    fn run_with_view<R: Send + 'static>(
+    fn start_job<R: Send + 'static>(
         self: &Rc<Self>,
-        observe_view: bool,
+        operation: Operation,
+        serial: u64,
+        generation: u64,
         work: impl FnOnce(MusicService, AccessToken) -> Result<R, MusicError> + Send + 'static,
         done: impl FnOnce(&Rc<Self>, Result<R, MusicError>) + 'static,
     ) {
         let (Some(app), Some(service)) = (self.app.upgrade(), self.service.clone()) else {
-            self.widgets.status.set_title("Сетевой клиент недоступен.");
+            done(self, Err(MusicError::Configuration));
+            self.finish_job(operation, serial);
             return;
         };
-        let (token, generation, view_generation, view_matters) = {
-            let mut model = self.model.borrow_mut();
-            if model.closed || model.busy {
-                return;
-            }
-            let Some(token) = model.token.clone() else {
-                self.widgets.status.set_title("Сначала откройте сеанс.");
-                return;
-            };
-            if token.is_expired() {
+        let token = {
+            let model = self.model.borrow();
+            if model.closed || model.generation != generation {
                 drop(model);
-                self.logout();
-                self.widgets
-                    .status
-                    .set_title("Срок действия сеанса истёк. Войдите снова.");
+                self.finish_job(operation, serial);
                 return;
             }
-            model.busy = true;
-            (
-                token,
-                model.generation,
-                model.view_generation,
-                model.account_valid && observe_view,
-            )
+            model.token.clone()
         };
-        self.widgets.status.set_title("Загрузка…");
-        self.widgets.status.set_subtitle("");
-        self.render_controls();
+        let Some(token) = token else {
+            done(self, Err(MusicError::Unauthenticated));
+            self.finish_job(operation, serial);
+            return;
+        };
+        if token.is_expired() {
+            self.logout();
+            self.widgets
+                .status
+                .set_title("Срок действия сеанса истёк. Войдите снова.");
+            self.finish_job(operation, serial);
+            return;
+        }
         let hold = app.hold();
         let weak = Rc::downgrade(self);
         glib::spawn_future_local(async move {
@@ -1209,46 +1288,39 @@ impl Controller {
             let Some(this) = weak.upgrade() else {
                 return;
             };
-            let current = {
-                let mut model = this.model.borrow_mut();
-                if model.generation == generation {
-                    model.busy = false;
-                }
-                !model.closed
-                    && model.generation == generation
-                    && (!view_matters || model.view_generation == view_generation)
-            };
-            this.render_controls();
-            if !current {
+            let same_session = {
                 let model = this.model.borrow();
-                if !model.closed && model.generation == generation {
-                    if matches!(
-                        &result,
-                        Ok(Err(MusicError::AccessDenied | MusicError::Unauthenticated))
-                    ) {
-                        drop(model);
-                        this.show_error(MusicError::AccessDenied);
-                        return;
-                    }
-                    this.widgets.status.set_title(
-                        "Запрос завершён; раздел изменён. При необходимости обновите данные.",
-                    );
-                }
-                return;
+                !model.closed && model.generation == generation
+            };
+            let current = same_session && this.requests.borrow().current(operation, serial);
+            if !current {
+                catalog_event(operation, "stale_result", None);
             }
-            match result {
-                Ok(result) => done(&this, result),
-                Err(_) => {
-                    if this.login_dialog.borrow().is_some() && !this.model.borrow().account_valid {
-                        this.auth_failed(AuthError::Configuration);
-                    } else {
-                        this.widgets
-                            .status
-                            .set_title("Не удалось завершить операцию.");
-                    }
-                }
+            let result = result.unwrap_or(Err(MusicError::Configuration));
+            if current {
+                catalog_diagnostic(operation, result.as_ref().err().copied());
+                done(&this, result);
+            } else if same_session
+                && matches!(
+                    result,
+                    Err(MusicError::AccessDenied | MusicError::Unauthenticated)
+                )
+            {
+                this.show_error(MusicError::AccessDenied);
             }
+            // Always release the exact running ticket, even after logout or
+            // view invalidation. A late ticket cannot release a newer job.
+            this.finish_job(operation, serial);
         });
+    }
+
+    fn finish_job(self: &Rc<Self>, operation: Operation, serial: u64) {
+        let next = self.requests.borrow_mut().finish(operation, serial);
+        self.sync_busy();
+        self.render_controls();
+        if let Some((serial, job)) = next {
+            job(self, serial);
+        }
     }
 
     fn show_error(self: &Rc<Self>, error: MusicError) {
@@ -1267,6 +1339,7 @@ impl Controller {
         if !self.model.borrow().account_valid {
             return;
         }
+        self.requests.borrow_mut().invalidate(Operation::Library);
         let playlists = self.widgets.library_mode.selected() == 1;
         if playlists {
             let cached = self.model.borrow().playlists.clone();
@@ -1297,10 +1370,12 @@ impl Controller {
                 if self.widgets.library_rows.first_child().is_none() {
                     set_empty(&self.widgets.library_rows, "Плейлистов пока нет.");
                 }
-                self.widgets
-                    .status
-                    .set_title(&format!("Мои плейлисты · страница {}", page + 1));
-                self.widgets.status.set_subtitle("");
+                if self.widgets.stack.visible_child_name().as_deref() == Some("library") {
+                    self.widgets
+                        .status
+                        .set_title(&format!("Мои плейлисты · страница {}", page + 1));
+                    self.widgets.status.set_subtitle("");
+                }
             }
             Err(error) => {
                 set_empty(
@@ -1319,10 +1394,12 @@ impl Controller {
                 self.tracks(&self.widgets.library_rows, result.items);
                 self.widgets.library_next.set_visible(result.has_more);
                 self.widgets.library_previous.set_visible(page > 0);
-                self.widgets
-                    .status
-                    .set_title(&format!("Понравившиеся треки · страница {}", page + 1));
-                self.widgets.status.set_subtitle("");
+                if self.widgets.stack.visible_child_name().as_deref() == Some("library") {
+                    self.widgets
+                        .status
+                        .set_title(&format!("Понравившиеся треки · страница {}", page + 1));
+                    self.widgets.status.set_subtitle("");
+                }
             }
             Err(error) => {
                 set_empty(
@@ -1335,8 +1412,8 @@ impl Controller {
     }
 
     fn load_initial_library(self: &Rc<Self>) {
-        self.run_with_view(
-            false,
+        self.run(
+            Operation::InitialLibrary,
             |service, token| {
                 // A failure in one section must not suppress the other request.
                 let liked = service.liked_tracks(&token, 0);
@@ -1362,10 +1439,18 @@ impl Controller {
                         return;
                     }
                     let mut model = this.model.borrow_mut();
-                    model.liked = Some(liked);
-                    model.playlists = Some(playlists);
+                    if model.liked.is_none() {
+                        model.liked = Some(liked);
+                    }
+                    if model.playlists.is_none() {
+                        model.playlists = Some(playlists);
+                    }
+                    let render = !model.library_touched
+                        && this.widgets.stack.visible_child_name().as_deref() == Some("library");
                     drop(model);
-                    this.show_library();
+                    if render {
+                        this.show_library();
+                    }
                 }
                 Err(error) => this.show_error(error),
             },
@@ -1375,16 +1460,20 @@ impl Controller {
     fn load_library(self: &Rc<Self>, page: u32) {
         {
             let model = self.model.borrow();
-            if model.busy || !model.account_valid || model.closed {
+            if !model.account_valid || model.closed {
                 return;
             }
         }
+        self.model.borrow_mut().library_touched = true;
+        self.widgets.status.set_title("Загрузка библиотеки…");
+        self.widgets.status.set_subtitle("");
         set_empty(&self.widgets.library_rows, "Загрузка библиотеки…");
         self.widgets.library_next.set_visible(false);
         self.widgets.library_previous.set_visible(false);
         let playlists = self.widgets.library_mode.selected() == 1;
         if playlists {
             self.run(
+                Operation::Library,
                 move |service, token| service.playlists(&token, page),
                 move |this, result| {
                     if page == 0 {
@@ -1395,6 +1484,7 @@ impl Controller {
             );
         } else {
             self.run(
+                Operation::Library,
                 move |service, token| service.liked_tracks(&token, page),
                 move |this, result| {
                     if page == 0 {
@@ -1409,7 +1499,7 @@ impl Controller {
     fn search(self: &Rc<Self>, page: u32) {
         {
             let model = self.model.borrow();
-            if model.busy || !model.account_valid || model.closed {
+            if !model.account_valid || model.closed {
                 return;
             }
         }
@@ -1418,6 +1508,8 @@ impl Controller {
             self.widgets.status.set_title("Введите поисковый запрос.");
             return;
         }
+        self.widgets.status.set_title("Поиск…");
+        self.widgets.status.set_subtitle("");
         set_empty(&self.widgets.search_rows, "Поиск…");
         self.widgets.search_next.set_visible(false);
         self.widgets.search_previous.set_visible(false);
@@ -1426,7 +1518,9 @@ impl Controller {
             2 => SearchKind::Artists,
             _ => SearchKind::Tracks,
         };
+        self.widgets.stack.set_visible_child_name("search");
         self.run(
+            Operation::Search,
             move |service, token| service.search(&token, &query, kind, page),
             move |this, result| match result {
                 Ok(result) => {
@@ -1449,9 +1543,12 @@ impl Controller {
                     }
                     this.widgets.search_next.set_visible(result.has_more);
                     this.widgets.search_previous.set_visible(page > 0);
-                    this.widgets
-                        .status
-                        .set_title(&format!("Результаты поиска · страница {}", page + 1));
+                    if this.widgets.stack.visible_child_name().as_deref() == Some("search") {
+                        this.widgets
+                            .status
+                            .set_title(&format!("Результаты поиска · страница {}", page + 1));
+                        this.widgets.status.set_subtitle("");
+                    }
                 }
                 Err(error) => {
                     set_empty(
@@ -1520,27 +1617,57 @@ impl Controller {
     }
 
     fn artist_row(self: &Rc<Self>, list: &gtk::ListBox, artist: Artist) {
-        let (row, _) = item(&artist.name, "Найти треки исполнителя");
+        let (row, _) = item(&artist.name, "Открыть треки исполнителя");
         row.set_activatable(true);
         let weak = Rc::downgrade(self);
         row.connect_activate(move |_| {
             if let Some(this) = weak.upgrade() {
-                this.widgets.search.set_text(&artist.name);
-                this.widgets.search_kind.set_selected(0);
-                this.search(0);
+                this.open_artist(artist.clone(), 0);
             }
         });
         list.append(&row);
     }
 
+    fn detail_loading(self: &Rc<Self>, title: &str, subtitle: &str) {
+        if let Some(origin) = self.widgets.stack.visible_child_name()
+            && origin != "detail"
+        {
+            self.model.borrow_mut().detail_origin = origin.to_string();
+        }
+        self.cancel_delivery();
+        self.requests.borrow_mut().invalidate(Operation::Delivery);
+        self.detail_header(title, subtitle);
+        self.widgets.status.set_title("Загрузка выбранных данных…");
+        self.widgets.status.set_subtitle("");
+        let loading = adw::StatusPage::builder()
+            .title("Загрузка…")
+            .description("Можно вернуться назад, не дожидаясь ответа.")
+            .build();
+        let spinner = gtk::Spinner::new();
+        spinner.set_spinning(true);
+        spinner.set_halign(gtk::Align::Center);
+        loading.set_child(Some(&spinner));
+        self.widgets.detail.append(&loading);
+    }
+
     fn detail_header(self: &Rc<Self>, title: &str, subtitle: &str) {
         clear_box(&self.widgets.detail);
-        let back = gtk::Button::with_label("Назад в библиотеку");
+        let origin = self.model.borrow().detail_origin.clone();
+        let label = match origin.as_str() {
+            "search" => "Назад к поиску",
+            "queue" => "Назад к очереди",
+            _ => "Назад в библиотеку",
+        };
+        let back = gtk::Button::with_label(label);
         back.set_halign(gtk::Align::Start);
         let weak = Rc::downgrade(self);
         back.connect_clicked(move |_| {
             if let Some(this) = weak.upgrade() {
-                this.widgets.stack.set_visible_child_name("library");
+                this.cancel_delivery();
+                this.widgets.stack.set_visible_child_name(&origin);
+                if origin == "search" {
+                    this.widgets.search.grab_focus();
+                }
             }
         });
         self.widgets.detail.append(&back);
@@ -1549,8 +1676,58 @@ impl Controller {
         self.widgets.stack.set_visible_child_name("detail");
     }
 
+    fn detail_error(self: &Rc<Self>, error: MusicError, retry: impl Fn(&Rc<Self>) + 'static) {
+        if matches!(
+            error,
+            MusicError::AccessDenied | MusicError::Unauthenticated
+        ) {
+            self.show_error(error);
+            return;
+        }
+        // Retain the selected title and Back action; replace only the content.
+        let subtitle = self
+            .widgets
+            .detail
+            .first_child()
+            .and_then(|child| child.next_sibling())
+            .and_then(|child| child.next_sibling())
+            .and_downcast::<gtk::Label>();
+        if let Some(subtitle) = subtitle {
+            subtitle.set_text("Не удалось загрузить данные.");
+        }
+        let mut content = self.widgets.detail.first_child();
+        for _ in 0..3 {
+            content = content.and_then(|child| child.next_sibling());
+        }
+        while let Some(child) = content {
+            content = child.next_sibling();
+            self.widgets.detail.remove(&child);
+        }
+        let (title, message) = music_error_message(error);
+        let failure = adw::StatusPage::builder()
+            .title(title)
+            .description(message)
+            .icon_name("dialog-warning-symbolic")
+            .build();
+        let button = gtk::Button::with_label("Повторить");
+        button.set_halign(gtk::Align::Center);
+        button.add_css_class("suggested-action");
+        let weak = Rc::downgrade(self);
+        button.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade() {
+                retry(&this);
+            }
+        });
+        failure.set_child(Some(&button));
+        self.widgets.detail.append(&failure);
+        self.show_error(error);
+    }
+
     fn open_track(self: &Rc<Self>, id: String) {
+        self.detail_loading("Сведения о треке", "Загрузка трека…");
+        let retry_id = id.clone();
         self.run(
+            Operation::Detail,
             move |service, token| service.track(&token, &id),
             move |this, result| match result {
                 Ok(track) => {
@@ -1577,6 +1754,9 @@ impl Controller {
                         }
                     });
                     this.widgets.detail.append(&add);
+                    if this.model.borrow().delivery_diagnostic {
+                        this.delivery_action(track.id.clone());
+                    }
                     if let Some(album_id) = track.album_id {
                         let album = gtk::Button::with_label(
                             track.album_title.as_deref().unwrap_or("Открыть альбом"),
@@ -1598,20 +1778,27 @@ impl Controller {
                         .status
                         .set_title("Сведения о треке получены. Доступ к аудио не подтверждён.");
                 }
-                Err(error) => this.show_error(error),
+                Err(error) => {
+                    this.detail_error(error, move |this| this.open_track(retry_id.clone()))
+                }
             },
         );
     }
 
     fn open_album(self: &Rc<Self>, id: String) {
+        self.detail_loading("Альбом", "Загрузка альбома…");
+        let retry_id = id.clone();
         self.run(
+            Operation::Detail,
             move |service, token| service.album(&token, &id),
             move |this, result| match result {
                 Ok(album) => {
                     this.render_album(Rc::new(album), 0);
                     this.widgets.status.set_title("Альбом получен.");
                 }
-                Err(error) => this.show_error(error),
+                Err(error) => {
+                    this.detail_error(error, move |this| this.open_album(retry_id.clone()))
+                }
             },
         );
     }
@@ -1659,7 +1846,12 @@ impl Controller {
 
     fn open_playlist(self: &Rc<Self>, playlist: Playlist, page: u32) {
         let id = playlist.id.clone();
+        self.detail_loading(
+            &playlist.title,
+            &format!("Загрузка плейлиста · страница {}", page + 1),
+        );
         self.run(
+            Operation::Detail,
             move |service, token| service.playlist_tracks(&token, &id, page),
             move |this, result| match result {
                 Ok(result) => {
@@ -1670,6 +1862,18 @@ impl Controller {
                     let rows = list();
                     this.tracks(&rows, result.items);
                     this.widgets.detail.append(&rows);
+                    let pages = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+                    if page > 0 {
+                        let previous = gtk::Button::with_label("Предыдущая страница");
+                        let weak = Rc::downgrade(this);
+                        let playlist = playlist.clone();
+                        previous.connect_clicked(move |_| {
+                            if let Some(this) = weak.upgrade() {
+                                this.open_playlist(playlist.clone(), page - 1);
+                            }
+                        });
+                        pages.append(&previous);
+                    }
                     if result.has_more {
                         let next = gtk::Button::with_label("Следующая страница");
                         next.set_halign(gtk::Align::Start);
@@ -1679,13 +1883,113 @@ impl Controller {
                                 this.open_playlist(playlist.clone(), page.saturating_add(1));
                             }
                         });
-                        this.widgets.detail.append(&next);
+                        pages.append(&next);
                     }
+                    this.widgets.detail.append(&pages);
                     this.widgets.status.set_title("Плейлист получен.");
+                    this.widgets.status.set_subtitle("");
                 }
-                Err(error) => this.show_error(error),
+                Err(error) => this.detail_error(error, move |this| {
+                    this.open_playlist(playlist.clone(), page)
+                }),
             },
         );
+    }
+
+    fn open_artist(self: &Rc<Self>, artist: Artist, page: u32) {
+        self.detail_loading(&artist.name, "Загрузка треков исполнителя…");
+        let id = artist.id.clone();
+        self.run(
+            Operation::Detail,
+            move |service, token| service.artist_tracks(&token, &id, page),
+            move |this, result| match result {
+                Ok(result) => {
+                    this.detail_header(
+                        &artist.name,
+                        &format!("Треки исполнителя · страница {}", page + 1),
+                    );
+                    let rows = list();
+                    this.tracks(&rows, result.items);
+                    this.widgets.detail.append(&rows);
+                    let pages = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+                    if page > 0 {
+                        let previous = gtk::Button::with_label("Предыдущая страница");
+                        let weak = Rc::downgrade(this);
+                        let artist = artist.clone();
+                        previous.connect_clicked(move |_| {
+                            if let Some(this) = weak.upgrade() {
+                                this.open_artist(artist.clone(), page - 1);
+                            }
+                        });
+                        pages.append(&previous);
+                    }
+                    if result.has_more {
+                        let next = gtk::Button::with_label("Следующая страница");
+                        let weak = Rc::downgrade(this);
+                        next.connect_clicked(move |_| {
+                            if let Some(this) = weak.upgrade() {
+                                this.open_artist(artist.clone(), page.saturating_add(1));
+                            }
+                        });
+                        pages.append(&next);
+                    }
+                    this.widgets.detail.append(&pages);
+                    this.widgets.status.set_title("Треки исполнителя получены.");
+                    this.widgets.status.set_subtitle("");
+                }
+                Err(error) => {
+                    this.detail_error(error, move |this| this.open_artist(artist.clone(), page))
+                }
+            },
+        );
+    }
+
+    fn delivery_action(self: &Rc<Self>, id: String) {
+        let action = gtk::Button::with_label("Проверить доставку аудио без загрузки");
+        action.set_widget_name("music-delivery-probe");
+        action.set_halign(gtk::Align::Start);
+        let report = text(
+            "Локальный opt-in эксперимент: проверяется только информация о доставке. Аудио не загружается.",
+            "dim-label",
+        );
+        report.set_widget_name("music-delivery-report");
+        self.widgets.detail.append(&action);
+        self.widgets.detail.append(&report);
+        let weak = Rc::downgrade(self);
+        action.connect_clicked(move |action| {
+            let Some(this) = weak.upgrade() else {
+                return;
+            };
+            this.cancel_delivery();
+            let cancellation = crate::stream::DeliveryCancellation::new();
+            this.model.borrow_mut().delivery_cancellation = Some(cancellation.clone());
+            let id = id.clone();
+            let label = report.downgrade();
+            let button = action.downgrade();
+            action.set_sensitive(false);
+            report.set_text("Проверка информации о доставке…");
+            this.run(
+                Operation::Delivery,
+                move |service, token| {
+                    Ok(match crate::stream::DeliveryProbe::new() {
+                        Ok(probe) => probe.probe(&service, &token, &id, &cancellation),
+                        Err(report) => report,
+                    })
+                },
+                move |this, result| {
+                    this.model.borrow_mut().delivery_cancellation = None;
+                    if let Some(label) = label.upgrade() {
+                        match result {
+                            Ok(report) => label.set_text(&report.to_string()),
+                            Err(error) => label.set_text(music_error_message(error).0),
+                        }
+                    }
+                    if let Some(button) = button.upgrade() {
+                        button.set_sensitive(true);
+                    }
+                },
+            );
+        });
     }
 
     fn enqueue(self: &Rc<Self>, track: Track) {
@@ -1831,6 +2135,7 @@ impl Controller {
                 previous.invalidate();
             }
             model.account_valid = false;
+            model.auth_busy = false;
             model.busy = false;
         }
         if self.service.is_none() {
@@ -1840,7 +2145,7 @@ impl Controller {
         if let Some(dialog) = self.login_dialog.borrow().as_ref() {
             dialog.loading("Проверка доступа к Яндекс Музыке…");
         }
-        self.run(|service, token| service.account(&token), |this, result| match result {
+        self.run(Operation::Account, |service, token| service.account(&token), |this, result| match result {
             Ok(account) => {
                 {
                     let mut model = this.model.borrow_mut();
@@ -1862,7 +2167,8 @@ impl Controller {
                     if let Some(token) = model.token.take() { token.invalidate(); }
                     if let Some(attempt) = model.attempt.take() { attempt.cancel(); }
                     model.account_valid = false;
-                    model.busy = false;
+                    model.auth_busy = false;
+            model.busy = false;
                 }
                 if let Some(service) = &this.service { service.clear_session(); }
                 this.reset_status();
@@ -1879,6 +2185,28 @@ impl Controller {
 fn launch_system_browser(url: &str) -> Result<(), AuthError> {
     gio::AppInfo::launch_default_for_uri(url, None::<&gio::AppLaunchContext>)
         .map_err(|_| AuthError::BrowserLoad)
+}
+
+fn catalog_diagnostic(operation: Operation, error: Option<MusicError>) {
+    catalog_event(
+        operation,
+        error.map(MusicError::category).unwrap_or("success"),
+        error.and_then(MusicError::http_status),
+    );
+}
+
+fn catalog_event(operation: Operation, category: &'static str, http: Option<u16>) {
+    use std::io::Write;
+    // All values are local finite categories or a numeric status. Never format
+    // provider errors, responses, queries, collection names, IDs or URLs.
+    let _ = writeln!(
+        std::io::stderr().lock(),
+        "Karin catalog: operation={} outcome={} http={}",
+        operation.category(),
+        category,
+        http.map(|value| value.to_string())
+            .unwrap_or_else(|| "none".into())
+    );
 }
 
 fn music_error_message(error: MusicError) -> (&'static str, &'static str) {
@@ -1939,7 +2267,7 @@ mod tests {
         time::{Duration, Instant},
     };
 
-    fn pump_until(mut condition: impl FnMut() -> bool) {
+    pub(super) fn pump_until(mut condition: impl FnMut() -> bool) {
         let context = glib::MainContext::default();
         let deadline = Instant::now() + Duration::from_secs(8);
         loop {
@@ -1960,7 +2288,7 @@ mod tests {
 
     // Optional review evidence from this test-only fixture window. No synthetic
     // catalog, account or token is compiled into the normal application.
-    fn capture_native(name: &str) {
+    pub(super) fn capture_native(name: &str) {
         let Ok(directory) = std::env::var("KARIN_TEST_CAPTURE_DIR") else {
             return;
         };
@@ -1997,7 +2325,7 @@ mod tests {
         }
     }
 
-    fn contains_text(widget: &gtk::Widget, wanted: &str) -> bool {
+    pub(super) fn contains_text(widget: &gtk::Widget, wanted: &str) -> bool {
         if widget
             .downcast_ref::<gtk::Label>()
             .is_some_and(|label| label.text().contains(wanted))

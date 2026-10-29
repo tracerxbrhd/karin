@@ -5,7 +5,7 @@ on:
   push:
     branches: [master, 'feature/**', 'fix/**', 'chore/**']
   pull_request:
-    branches: [master, 'feature/v0.1-oauth-pkce-diagnostic']
+    branches: [master, 'feature/**', 'fix/**']
   workflow_dispatch:
 
 permissions:
@@ -114,6 +114,15 @@ jobs:
             export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
           fi
           dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_music_session_catalog_queue_and_logout -- --ignored --test-threads=1
+      - name: Native catalog concurrent actions, detail navigation and stale results
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+        run: |
+          if [ '${{ matrix.lane }}' = stable ]; then
+            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
+          fi
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_catalog_navigation_latest_actions -- --ignored --test-threads=1
       - name: Build all optional authentication components
         run: cargo build --workspace --all-features --locked
       - name: Isolated WebKit construction and cancellation
@@ -279,20 +288,21 @@ jobs:
             printf 'Binary SHA256: '; sha256sum target/release/karin
           } > "$artifact/BUILD-INFO.txt"
           cat > "$artifact/README.txt" <<'EOF'
-          Karin native authentication prototype for one consenting local Fedora 44 check.
+          Karin v0.2 catalog repair and local delivery-info prototype for Fedora 44.
           Verify the downloaded archive with: sha256sum -c SHA256SUMS
           Extract the archive and enter karin-fedora-prototype-1.98.1.
           Install Fedora runtime packages if needed:
           sudo dnf install gtk4 libadwaita gstreamer1 gstreamer1-plugins-base gstreamer1-plugins-good webkitgtk6.0 librsvg2
-          Disable core dumps for this local session, then start with no arguments:
+          Disable core dumps for this local session, then opt in to delivery metadata diagnostics:
           ulimit -c 0
-          ./karin 2>&1 | sed -n '/^Karin auth navigation: /p'
+          ./karin --delivery-diagnostic 2>&1 | sed -n '/^Karin auth navigation: /p'
           Click Войти and authorize your own account on the displayed Yandex page.
           No Client ID/secret, token, URL copying or application registration is needed.
-          Source build and acceptance instructions: https://github.com/tracerxbrhd/karin/blob/feature/v0.1-music-vertical-slice/docs/BUILDING.md
+          Source build and acceptance instructions: docs/BUILDING.md at the exact source commit in BUILD-INFO.txt.
           This is an Ubuntu 24.04 x86_64 build; Fedora acceptance for this exact artifact is pending.
           It is not a Flatpak, a production release or proof of live Music API access.
-          Only Music account validation can finish login; then check your actual library/search.
+          Only Music account validation can finish login; then check actual playlist contents and Latin/Cyrillic track/album/artist search, paging and changing actions during loading.
+          Open an actual track's details and explicitly request its delivery-info check. Report only its fixed stage/category/HTTP result; no media is requested.
           The reused application identity's public-distribution permission is unresolved.
           For the navigation retest, report only the first "Karin auth navigation: " line from the failing attempt and the coarse UI outcome.
           The filter discards other output without creating a full log. Do not record the terminal or enable network debugging.

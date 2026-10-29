@@ -1,89 +1,138 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 
-# v0.1 service-audio delivery review
+# Service-audio delivery investigation
 
-Reviewed: 2026-10-28. **Service playback remains unavailable in this slice.**
-The inspected client does not establish an identity-neutral, permitted audio
-delivery path that Karin can implement within this task's restrictions. This is
-a specific evidence gap, not a claim that all Music audio is encrypted or that
-every independent client is impossible.
+Reviewed: 2026-10-29, for [Issue #9][issue9]. **Audible Yandex Music playback
+is a required v0.2 acceptance criterion and is not yet satisfied.** The owner
+has confirmed Karin's ordinary sign-in, Music account, liked-track list and
+personal-playlist list on Fedora. Those results establish a usable metadata
+session, not a delivery grant or audible service music.
 
-## Evidence and limits
+The previous v0.1 source-only review is superseded by this investigation and
+the opt-in owner-local delivery diagnostic. Audio work proceeds alongside
+search and playlist repairs; it is not postponed until after the UI redesign.
+No real account, token, delivery-info response or music was supplied to Cloud
+or CI. The live delivery result below remains pending an owner-local run.
 
-The source reference is `okhsunrog/yamu` 0.1.2 at immutable revision
-`9803f319b9ea6f81befbc3117e4592132ed07d0e`. This review reads source only: no live
-OAuth, Music metadata, delivery-info or CDN request was made in Cloud, no audio
-was downloaded, and no credential/signing-key value or protection algorithm is
-copied into Karin.
+## Version-pinned chain, not just a playback window
 
-| Observation | What it establishes | What it does not establish |
+The Cassette **v0.2.4** annotated tag object is
+`fc6c6e689bd0c60fa662b03aa2aa3c05534b4811`; its source commit is
+`9d34251d01bcd414ffbec2bef7931090d33c9124`. Source links below use the latter.
+The inspected yamu main/0.1.2 revision is
+`9803f319b9ea6f81befbc3117e4592132ed07d0e`, still its main head when checked.
+
+| Stage | Cassette v0.2.4 implementation | Karin evidence / consequence |
 | --- | --- | --- |
-| Owner's Fedora `yamu` Device Flow returned account, search, track and album data; same-token status A/B worked without the Android header | Metadata/account requests work for that experimental token/context | A delivery grant, usable audio URL, stream entitlement or public distribution permission for Karin |
-| Own-client Karin PKCE and ID binding succeeded, but both Music account methods returned 403 with TUN on/off | The observed own-client legacy-account path remains refused | The exact server reason, lack of subscription or impossibility of another provider-approved integration |
-| `yamu` has a `download_info` / `open_audio_stream` API | The library contains a delivery implementation | A permitted contract for Karin or a source that can be resolved without the excluded mechanisms |
+| User session | Published session-cookie → OAuth grant, followed by Music account inspection | Karin's existing Cassette-compatible sign-in and account validation passed on the owner's Fedora machine; this path is preserved |
+| Track selection | [`Player.start_current_track`][cassette-player] selects the current queue item and asks `Cachier.get_track_uri` for a resource | Karin already has real track metadata and a bounded queue; neither supplies a playable resource |
+| Cached versus remote source | [`Cachier.get_track_uri`][cassette-cache] returns a cached URI when present, otherwise calls the API's download-URI method on an audio worker | Karin does not import Cassette's media cache or enable offline downloads |
+| Delivery offers | [`tracks_download_info`][cassette-offers] makes authenticated `GET /tracks/{id}/download-info`, deserializing `result` as an array | This bounded read is the first owner-local diagnostic, using the already validated Karin session and no new client identity |
+| Legacy resolution | [`track_download_uri` / `form_download_uri`][cassette-resolution] selects a bitrate, fetches the returned metadata document, parses XML components and constructs a `get-mp3` URI with a fixed checksum prefix | A legacy descriptor is not itself an audio URI. This construction is separate from both the initial read and modern protected delivery; its permission/provenance is not established by the source license |
+| Actual decoding | [`Player.start_current_track`][cassette-player] assigns the resulting resource to GStreamer `playbin` and calls `play`; its bus EOS callback advances the queue | Karin's existing GStreamer controller supports real local transport, but no eligible live service resource has yet reached it |
+| Cache/prefetch | Cassette can start caching the current/next track | Not reused: metadata access and a GPL implementation do not establish Karin's right to store/distribute service music |
 
-Owner observations are recorded in [Issue #5's final own-client comparison][own]
-and the [working-client][working] / [header A/B][ab] reports. They are not Cloud
-account tests. [Issue #7][issue] explicitly separates metadata access from audio
-delivery and prohibits extracted protection material or an access workaround.
+Cassette's [`DownloadInfo`][cassette-model] has `codec`, `bitrateInKbps`, `gain`,
+`preview`, `downloadInfoUrl` and `direct`. **`direct: true` alone does not prove
+that `downloadInfoUrl` is immediately playable:** the inspected Cassette method
+always resolves that field as an XML document. Neither an available-track flag,
+a codec nor the absence of an encryption-key field establishes entitlement.
 
-## Concrete implementation blocker
+## Legacy, streaming and protected mechanisms are distinct
 
-The reviewed [`download_info` implementation][negotiation] obtains delivery
-information through a separate `/get-file-info` negotiation. Its source explicitly
-identifies a signing constant as extracted from an official Music client, and the
-request presents a separate official Web client identity and browser-origin
-headers. Karin cannot treat this as its own supported, identity-neutral API
-contract or port the extracted signing material under the task's constraints.
+| Assessed path | Observed contract | Decision / exact remaining step |
+| --- | --- | --- |
+| Legacy offer read, no signing query | Cassette calls `/tracks/{id}/download-info` using its existing authenticated API transport | Implemented as a bounded opt-in metadata diagnostic. The current Karin session's live HTTP/offer outcome must be checked locally |
+| Legacy XML descriptor | Cassette and the independently inspected [yamuse model][yamuse-legacy] fetch the descriptor and derive a resource URI using XML components and fixed client-side checksum material | No claim that this is DRM or that its constant is proven extracted. Provenance and the usable delivery contract remain unresolved; Karin classifies the XML without reconstructing the URI or trying invalid signatures |
+| Direct streaming/HLS variant of the same endpoint | [Community issue #566][streaming-discussion] describes `can_use_streaming=true`, `direct=true` and `container=hls`, but also documents a request signature reverse engineered from an Android client | Not imported or requested. A direct URL in that example does not justify reproducing the excluded signer |
+| Modern yamu `/get-file-info` | [`download_info`][yamu-negotiation] computes a signature using a constant its own source explicitly identifies as extracted from an official client, and sends an additional official Web client identity | Excluded: no extracted constant, signing implementation or replacement client headers are added to Karin |
+| Modern returned media | [`DownloadInfo`][yamu-model] contains URLs and an optional key; [`open_audio_stream`][yamu-negotiation] deliberately omits OAuth at the CDN; the downloader has separate key-dependent and ordinary paths | Not all responses are necessarily encrypted. A raw transport or missing key does not remove the preceding negotiation/identity issue |
+| Complete, server-returned, authorized unprotected resource | No independently corroborated eligible resource has yet been observed with Karin's session | A server-signed URL is not automatically DRM. If obtained through a permitted contract, validate it, its expiry and redirect rules before a separate GStreamer handoff; do not invent such a response in production |
 
-The [`DownloadInfo` model][delivery-model] can contain URLs and an optional
-decryption key. The [`downloader`][downloader] handles both ordinary transfers
-and a key-dependent encrypted path. An optional key means **not every response
-is necessarily encrypted**. Conversely, a `raw` transport label, a codec name,
-an available-track flag or a model that permits an unencrypted response does not
-remove the preceding negotiation/identity question. No inspected track/catalog
-method supplies a separately confirmed unsigned, permitted audio source.
+The historical legacy checksum path must not be conflated with the modern
+extracted HMAC or encrypted transport. Inspection of the legacy implementation
+and its public history did not establish an official protocol grant, the
+prefix's provenance, or its classification as an extracted secret. This is an
+**unknown**, not a demonstrated blanket prohibition or evidence that every
+Yandex audio source requires DRM circumvention. Conversely, public source and
+an entitled account are not by themselves public-distribution permission.
 
-The reviewed official integration/terms evidence in
-[API_FEASIBILITY.md](API_FEASIBILITY.md) also contains no validated delivery
-contract for Karin. Code licenses and a user's subscription do not supply that
-contract. This is an engineering gate, not a legal determination about another
-application. Source compatibility and the owner's metadata results cannot
-resolve the gate by themselves.
+## Owner-local delivery diagnostic
 
-## Behavior for this vertical slice
+The diagnostic is deliberately independent of normal search/library reads. It
+uses the token from Karin's ordinary login, after the same Music account binding,
+for one selected track. The owner explicitly opts in locally; no developer
+credentials, manual token entry, token file/environment variable or Cloud
+account access is introduced.
 
-- Implement useful session, account, library, search and detail interactions
-  independently of stream delivery. Preserve own-client PKCE as a separate
-  diagnostic. An experimental session is not production integration approval.
-- Do not request delivery information, follow service/CDN URLs, add official
-  client headers, import media signing/decryption modules or resolve a remote
-  `PlaybackSource` from metadata. Do not download/cache service audio.
-- A real catalog track may be selected and inspected, but playback must report
-  the missing permitted source explicitly. Do not turn the existing generated
-  WAV diagnostic into that track or change its title to imply real playback.
-- Keep the existing GStreamer controller and its actual local-media tests.
-  Queue/selection state can be exercised independently, but audible service
-  playback, EOS from service media and MPRIS playback claims remain unverified.
+The first request is the authenticated legacy delivery-info read. At most one
+returned descriptor is then fetched **without OAuth or cookies**, using a
+separate client, strict reviewed origin/path policy, no redirects, a deadline
+and a 64 KiB limit. The additional origin evidence is a [published Python
+fixture][metadata-fixture] at `9ca132e5c18a72aab779c1fc68c169380a9357d0`,
+identifying HTTPS `storage.mds.yandex.net` and the `get-download-info` path for
+legacy metadata. That establishes a source-specific purpose, **not** an observed
+current Karin response or a reason to trust arbitrary service/CDN hosts.
 
-The remaining evidence is a provider-supported, identity-neutral delivery
-mechanism for the intended client and an appropriately entitled owner's consented
-Fedora test. It must not require an extracted signing secret, decryption workaround
-or false application identity. If such a mechanism becomes available, a separate
-change can validate source authorization/expiry/redirect policy, pass only an
-approved resource to GStreamer, exercise real pause/seek/queue/EOS/cleanup and
-report audibility on Fedora. No such success is claimed here.
+The XML parser forbids DTD/entity resolution, bounds nodes and input, rejects
+ambiguous/malformed required fields, and recognizes only finite classifications.
+A valid `download-info` document with the legacy components is reported as
+`legacy-client-signature-required`: this identifies the next construction step
+seen in the referenced clients, **not** DRM or a verified signing permission.
+Explicit nonempty key/encryption/protection metadata is classified separately,
+without inspecting or using its material. Unrecognized structures remain
+unsupported; they are not converted into an invented direct resource.
 
-Useful API model/endpoint ideas can still be reused without importing the
-delivery implementation; see [the Rust-client review](RUST_API_CLIENT_REVIEW.md).
-This document contains original analysis and source links rather than copied
-third-party source or constants. Any later source adaptation must retain its
-applicable third-party notices and license.
+Only finite categories cross the UI boundary: request stage, separate API and
+optional metadata HTTP statuses, known error category, format/descriptor class
+and whether protection requirements were explicit or **not established**.
+Provider text, track/account IDs, metadata bodies, headers, URLs, cookies,
+tokens, signing inputs and media bytes are not displayed or logged. Offers and
+sensitive addresses stay in memory. No audio request, stream download, signature
+construction or decryption is performed. Automated tests use loopback fixtures.
 
-[negotiation]: https://github.com/okhsunrog/yamu/blob/9803f319b9ea6f81befbc3117e4592132ed07d0e/src/client/downloads.rs#L16
-[delivery-model]: https://github.com/okhsunrog/yamu/blob/9803f319b9ea6f81befbc3117e4592132ed07d0e/src/models/download.rs#L156
-[downloader]: https://github.com/okhsunrog/yamu/blob/9803f319b9ea6f81befbc3117e4592132ed07d0e/src/downloader.rs#L287
-[own]: https://github.com/tracerxbrhd/karin/issues/5#issuecomment-6470853664
-[working]: https://github.com/tracerxbrhd/karin/issues/5#issuecomment-6471162750
-[ab]: https://github.com/tracerxbrhd/karin/issues/5#issuecomment-6471631991
-[issue]: https://github.com/tracerxbrhd/karin/issues/7
+An offer establishes only that the delivery-info read succeeded. It cannot
+establish that playback is allowed or audible. An XML descriptor, unverified
+metadata destination, malformed response, unavailable track, HTTP refusal and
+explicit protection indication remain distinguishable. Refusal does not justify
+changing identity, region, TLS or access controls.
+
+## Acceptance and next action
+
+The exact currently unfinished step is **live delivery classification using the
+working Karin session**, followed by an eligible resource-resolution contract.
+It is not failed login, Music account HTTP 403, a password/VPN diagnosis, or a
+proven claim that every assessed track is protected. The local probe provides
+the missing evidence without transferring account credentials or media.
+
+If the local result is only legacy negotiation metadata, XML/checksum resolution
+and its permitted contract still need to be settled; it is not a playback PASS.
+If the service refuses the read or explicitly requires protection, retain that
+precise stage/category and do not retry through an excluded mechanism. If a
+permitted complete unprotected source is confirmed, implement the validated,
+short-lived `StreamResolver → PlaybackController → GStreamer` handoff immediately,
+with independent credential/redirect isolation, cancellation and cleanup.
+
+**v0.2 audible-player acceptance remains NOT MET** until an entitled owner on
+Fedora 44 / KDE / Wayland / PipeWire selects a genuine liked, playlist and search
+track, hears music, exercises pause/resume/seek/skip/queue, and closes Karin
+without orphaned playback. Synthetic WAV decoding and metadata-only queue/player
+UI do not satisfy this criterion. MPRIS/media-key playback claims require the
+same real source. Public distribution approval, offline caching and persistent
+sessions remain independent gates.
+
+This document contains original analysis and source citations, not third-party
+implementation or signing constants. Adapted code retains its applicable
+copyright/license notices; GPL does not grant service or content rights.
+
+[issue9]: https://github.com/tracerxbrhd/karin/issues/9
+[cassette-offers]: https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/api/yam-client.vala#L1241
+[cassette-resolution]: https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/api/yam-client.vala#L1221
+[cassette-model]: https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/api/objects/download-info.vala#L24
+[cassette-player]: https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/player/player.vala#L492
+[cassette-cache]: https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/cachier/cachier.vala#L186
+[yamu-negotiation]: https://github.com/okhsunrog/yamu/blob/9803f319b9ea6f81befbc3117e4592132ed07d0e/src/client/downloads.rs#L16
+[yamu-model]: https://github.com/okhsunrog/yamu/blob/9803f319b9ea6f81befbc3117e4592132ed07d0e/src/models/download.rs#L156
+[yamuse-legacy]: https://github.com/flxxxxddd/yamuse/blob/368c74646520e8bcd30c44a9887e1bf99cb58172/src/models/track.rs#L323
+[streaming-discussion]: https://github.com/MarshalX/yandex-music-api/issues/566
+[metadata-fixture]: https://github.com/MarshalX/yandex-music-api/blob/9ca132e5c18a72aab779c1fc68c169380a9357d0/tests/test_download_info.py

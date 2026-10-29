@@ -41,6 +41,66 @@ for a consented local desktop experiment; it is not application sign-in or
 Yandex Music stream playback. The default sign-in provider is the Cassette-compatible
 session prototype below; it requires no end-user OAuth configuration.
 
+## v0.2 catalog and delivery-info acceptance on Fedora
+
+Use the newest branch/artifact linked from the Issue #9 PR series, not the
+previous `797ba3a` binary. The owner already confirmed ordinary sign-in, Music
+account validation, liked tracks and the personal-playlist list on that revision.
+Search, playlist contents and real service audio require a new acceptance run.
+
+Build the default prototype once using the Fedora prerequisites above:
+
+```sh
+cargo +1.98.1 build --release --locked
+ulimit -c 0
+./target/release/karin --delivery-diagnostic
+```
+
+This flag enables a per-track delivery-info action in the ordinary signed-in
+window. It is a local opt-in experiment, not a new sign-in mechanism. Do not run
+it with a real account in Cloud/CI, enable network/GStreamer debug logging or
+record the terminal. Never provide a token, cookie, track ID or resource URL as
+an argument, environment variable, chat message or GitHub attachment.
+
+In this one session:
+
+1. Click **Войти** and complete the existing Yandex dialog normally.
+2. Open an actual personal playlist, including an empty one if available. Its
+   title, back action and loading page must appear immediately, then tracks,
+   an empty state or an inline retryable error. Browse pages and return.
+3. Search a Latin and Cyrillic query using Enter and the search action. Check
+   tracks, albums and artists, result details, no results and page boundaries.
+   Submit another query or open a playlist during a pending request; the latest
+   action must run and superseded results must not replace the visible page.
+4. Open details of one actual available track and explicitly run the delivery
+   information check. Record only its fixed stage/category/HTTP result. This
+   bounded probe fetches delivery metadata, not audio. A legacy offer or `direct`
+   flag alone does not establish a validated playback URL or audible music.
+5. Cancel/leave during a request, retry, sign out and sign in again. Old results
+   and errors must not restore the prior session or page. Close the app normally.
+
+Report only the build revision and anonymized PASS/FAIL or the fixed error
+category for each stage. Do not share account names, track/playlist titles, IDs,
+search terms, private screenshots, raw JSON, headers, audio URLs, cookies or
+credentials. Existing `Karin auth navigation:` diagnostics remain sanitized;
+their presence alone is not evidence that the sign-in failed.
+
+If a permitted source becomes established, real audio acceptance additionally
+requires selecting an actual liked/playlist/search track, hearing it through
+PipeWire/GStreamer, pause/resume/seek/skip/queue/EOS and clean shutdown. Until
+that owner-local run succeeds, **v0.2's audible-player gate is not met**.
+Generated WAV and the metadata probe do not pass it. Consult
+[the delivery review](STREAM_DELIVERY_REVIEW.md) for the exact next delivery step.
+
+For the installed Flatpak, the equivalent opt-in launch is:
+
+```sh
+flatpak run io.github.tracerxbrhd.Karin --delivery-diagnostic
+```
+
+Rebuild the current source snapshot before using that command; an older installed
+Flatpak does not contain this experiment. No sandbox override is needed.
+
 ## Music sign-in and Fedora acceptance
 
 <a id="experimental-music-session-and-fedora-acceptance"></a>

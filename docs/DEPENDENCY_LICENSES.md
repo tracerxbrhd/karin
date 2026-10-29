@@ -9,7 +9,7 @@ Scope: `cargo metadata --locked --all-features` includes optional authentication
 The four WebKit/JavaScriptCore 0.5.0 archive notice omissions use an exact-commit,
 SHA-256-verified upstream MIT text; see the [reviewed provenance](../packaging/third-party-licenses/webkit6-rs-0.5.0/PROVENANCE.md).
 
-External packages: **206** across the lockfile; **177** in Cargo's Linux target graph (including build dependencies). A resolved graph is not a binary SBOM.
+External packages: **207** across the lockfile; **178** in Cargo's Linux target graph (including build dependencies). A resolved graph is not a binary SBOM.
 
 | Crate | Version | Upstream declaration | Linux graph |
 | --- | --- | --- | --- |
@@ -128,6 +128,7 @@ External packages: **206** across the lockfile; **177** in Cargo's Linux target 
 | [rand_pcg](https://crates.io/crates/rand_pcg/0.10.2) | 0.10.2 | `MIT OR Apache-2.0` | yes |
 | [reqwest](https://crates.io/crates/reqwest/0.12.28) | 0.12.28 | `MIT OR Apache-2.0` | yes |
 | [ring](https://crates.io/crates/ring/0.17.14) | 0.17.14 | `Apache-2.0 AND ISC` | yes |
+| [roxmltree](https://crates.io/crates/roxmltree/0.21.1) | 0.21.1 | `MIT OR Apache-2.0` | yes |
 | [rustc-hash](https://crates.io/crates/rustc-hash/2.1.3) | 2.1.3 | `Apache-2.0 OR MIT` | yes |
 | [rustc_version](https://crates.io/crates/rustc_version/0.4.1) | 0.4.1 | `MIT OR Apache-2.0` | yes |
 | [rustix](https://crates.io/crates/rustix/1.1.5) | 1.1.5 | `Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT` | yes |

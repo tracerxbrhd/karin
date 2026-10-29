@@ -2,12 +2,14 @@
 
 # Known limitations
 
-- **Live Karin sign-in/library acceptance is pending.** The default provider now
-  adapts Cassette's published WebKit session → OAuth sessionid chain. It is a real
-  attempt, without developer fields, code copying, token paste or app registration.
-  It is not the known own-client PKCE route, which previously returned ID 200 and
-  Music status/about403 with unknown cause. Cloud fixtures do not prove a real
-  login, Music account or personal library/search; run [the single Fedora check](BUILDING.md#music-sign-in-and-fedora-acceptance).
+- **Live acceptance is endpoint-specific.** The owner verified ordinary Karin
+  sign-in, Music account validation, actual liked tracks and personal-playlist
+  listing on Fedora at PR #8 baseline `797ba3a`, as recorded in Issue #9. Search
+  and opening those playlists failed. Fixes require new owner-local acceptance;
+  successful loopback fixtures do not change the historical failure into a pass.
+  The default Cassette-compatible provider remains the working sign-in path;
+  the separate own-client PKCE ID 200 / Music 403 result is not reused as its
+  default route or diagnosed as the cause of unrelated UI failures.
 - **Return/session/token outcomes are concrete stages.** Exact Music-root return
   and fresh echoed state must be accepted before collecting OAuth-endpoint cookies
   from this dialog's ephemeral session. A different return, missing state/cookie,
@@ -32,20 +34,24 @@
   revoke Yandex's server grant. Refresh, remote revocation and a verified Secret
   Service lifecycle remain future gates. Keyring presence detection alone does
   not complete them.
-- **Music data acceptance is endpoint-specific.** The adapter and UI implement
-  read-only account/library/playlist/search/details requests and paging, but must
-  be checked on Fedora with an authorized test session. Prior owner evidence
-  covers yamu account/search/track/album, not every Karin endpoint or schema.
-  Login completion and actual library loads require Music account validation;
-  neither browser navigation nor token issuance supplies that acceptance.
-  Writes, like/unlike, playlist editing, recommendations and My Wave are excluded
-  until their methods and permissions are independently validated.
-- **Real Music audio is blocked.** The reviewed yamu delivery path requires
-  extracted official-client signing material and non-Karin request identity;
-  a permitted unsigned, identity-neutral source contract has not been established.
-  No signing key, protected-stream decryption, audio URL resolver or service
-  download is implemented. The metadata queue can be edited, but does not pretend
-  to play tracks. See [delivery evidence](STREAM_DELIVERY_REVIEW.md).
+- **Metadata support does not establish all workflows.** Search, details,
+  paging, cancellations and independent action dispatch are under correction for
+  v0.2. Album/artist/playlist schema and HTTP outcomes need separate checks; do not
+  loosen account validation or silently hide a malformed response. Likes,
+  playlist writes, recommendations and My Wave must be enabled only with actual
+  implementations, safe errors and appropriate write confirmation/conflicts.
+- **Real service audio acceptance is NOT MET.** v0.2 requires audible actual
+  library/search music on Fedora; it is not deferred to a later milestone. Audio
+  investigation starts alongside catalog fixes. The existing delivery review
+  covered a newer signing/protected yamu path, not every possible unprotected
+  path. A bounded opt-in owner-local probe must classify eligible delivery info
+  without uploading tokens, URLs, track IDs, raw payloads or audio. An ordinary
+  server-signed resource is not automatically DRM; conversely source availability
+  alone establishes neither permission nor audibility. See the current
+  [delivery review](STREAM_DELIVERY_REVIEW.md) for the exact assessed stage.
+  No extracted signing material, protected-stream decryption, access-control
+  workaround or copyrighted audio distribution is allowed. If no permitted
+  source is confirmed, leave the sound criterion open and controls truthful.
 - **The GStreamer engine remains independent.** Local-file playback and clearly
   labeled generated-WAV diagnostics exercise decoding, transport, seeking, EOS
   and cleanup. They do not establish service playback, every future codec or

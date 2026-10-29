@@ -6,6 +6,64 @@ This report separates initial cloud checks, user-reported Fedora acceptance,
 revised UI checks and compiler compatibility. A result for one environment or
 revision is not evidence that another has passed.
 
+## Issue #9 first increment — catalog repair and parallel delivery probe (2026-10-29)
+
+**Owner baseline on Fedora, PR #8 `797ba3a`:** real ordinary Yandex sign-in,
+Music account validation, liked tracks and personal-playlist listing **passed**.
+Search and opening playlist contents **failed**; no actual service audio was
+implemented. The owner did not identify a failing HTTP/schema/dispatch event.
+Those facts supersede earlier pending-auth statements below, without turning
+the new search/audio implementation into a live pass.
+
+Confirmed code defects addressed in this increment include required search
+echo/artist-credit fields absent in valid upstream variants, an arbitrary
+100-result limit, loss of embedded rich playlist tracks, omitted empty-playlist
+contents, and catalog actions silently rejected by global `busy`. Independent
+bounded request lanes, latest-pending search, session/ticket invalidation,
+immediate detail loading/back and native retry errors have executable regressions.
+Fixed `Karin catalog:` categories distinguish queueing, stale results and safe
+HTTP/contract failures without queries, titles, IDs or provider payloads.
+
+The delivery probe is opt-in via `--delivery-diagnostic`, uses only this window's
+existing validated session and fetches no audio. It checks the legacy offer and
+at most one exact allowlisted unauthenticated XML descriptor. Tests check bounds,
+separate HTTP outcomes, redirects, credential separation, protection/schema
+classification, cancellation, DTD/entities and report privacy. A valid legacy XML
+identifies its remaining client-side construction step, not a DRM finding or a
+permitted playable source. See [the research](STREAM_DELIVERY_REVIEW.md) and
+[one combined Fedora run](BUILDING.md#v02-catalog-and-delivery-info-acceptance-on-fedora).
+
+Executed on prepared Debian 13: stable **1.99.1** and exact Rust **1.98.1**,
+GTK **4.18.6**, Libadwaita **1.7.6**, GStreamer **1.26.2**, WebKitGTK6 **2.54.0**:
+
+| Check | Stable | 1.98.1 |
+| --- | --- | --- |
+| Formatting; default/all-feature/no-feature all-target Clippy, `-D warnings` | Passed | Passed |
+| Default workspace tests | 152 library + 4 binary passed, 5 display tests ignored | Same |
+| All-feature workspace tests | 160 library + 4 binary passed, 5 display tests ignored | Same |
+| Minimal workspace tests | 138 library + 4 binary passed, 2 display tests ignored | Same |
+| Explicit native session/catalog fixture | 1 passed | 1 passed |
+| Explicit concurrent catalog/detail/latest-action fixture | 1 passed | 1 passed |
+| Explicit ephemeral WebKit construction/cancel fixture | 1 passed | 1 passed |
+| Default/all-feature/minimal builds and default/all-feature GTK smoke | Passed | Passed |
+| Synthetic terminal boundary suite, silent GStreamer and actual local playbin diagnostic | Passed | Passed |
+| Default and all-feature offline optimized builds, release GTK/audio/terminal checks | Not selected locally | Passed |
+
+Ignored display tests are not included in passing unit totals. Full sandboxed
+page-loading and interactive WebKit checks remain separately selected in hosted
+CI; the nested cloud cannot run that sandbox, and it was not disabled. The
+successful pre-existing auth tests do not prove live acceptance of this increment.
+The refreshed license inventory includes pinned MIT-or-Apache `roxmltree` 0.21.1,
+207 external crates / 178 in the Linux graph. No native baseline, Flatpak runtime,
+session provider/identity, signing key, protected audio or permissions changed.
+
+**Pending:** exact-revision CI and inspected screenshot links belong in the PR.
+Owner-local Latin/Cyrillic search, all content types, real playlist contents and
+the first delivery-probe outcome remain unrun here. Full Flatpak/Fedora/KDE/
+Wayland/HiDPI acceptance remains separate. **The v0.2 audible-player criterion is
+NOT MET:** no actual selected Yandex Music track has reached GStreamer. Generated
+WAV, fixtures and delivery metadata do not satisfy it.
+
 ## Interactive sign-in navigation correction — `00b0a41` (2026-10-29)
 
 The owner reproduced this failure on Fedora using **`77a1a27`**: the real Yandex

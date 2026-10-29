@@ -50,6 +50,23 @@ public release conditions. No official-client Music header, stream-signing key,
 DRM logic or protected media is imported. See [ADR-0011](adr/0011-cassette-session-auth-prototype.md)
 and [the authentication review](AUTHENTICATION_REVIEW.md).
 
+### v0.2 metadata parser and original presentation
+
+Issue #9 adds pinned `roxmltree` **0.21.1** (`MIT OR Apache-2.0`) for bounded
+metadata-only XML classification. Its MIT option is compatible with Karin's
+GPL-3.0-or-later distribution; retain the supplied upstream license and notice.
+This parser performs no external entity resolution, signing, decryption or media
+delivery. The refreshed inventory contains **207 external crates**, **178** in
+the Linux graph. The older counts below describe the preceding lockfile review.
+
+Catalog repair, the delivery probe and subsequent original navigation/artwork
+code retain Karin SPDX notices. Endpoint/model analysis cites pinned sources;
+no new Cassette artwork, graphical assets, checksum prefix, media-signing key,
+protected media or OAuth identity is imported. Public source licensing does not
+settle the existing experimental registration or service-distribution conditions.
+Fetched cover images are remote service material, not relicensed Karin assets;
+they must remain bounded memory-only presentation, with no bundled private art.
+
 ## License text and scope
 
 `LICENSE` is copied byte-for-byte from the Debian base image's standard
