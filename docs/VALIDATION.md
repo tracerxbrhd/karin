@@ -42,6 +42,12 @@ reduced motion; ordinary smoke/interactive WebKit use separate normal processes.
 
 Fresh full-size/theme/HiDPI screenshots and hosted CI links belong in the PR after
 inspection. Fedora/KDE/Wayland/fractional-scale visual acceptance remains pending.
+The first hosted run on Libadwaita 1.5 exposed a structural-check mismatch: that
+version keeps the closed compact drawer mapped at a negative X coordinate.
+The check now uses the public split-view state, always checking content and
+checking the sidebar when open or expanded. Open-drawer action/focus tests remain
+required; visible content is not exempted from clipping assertions. The corrected
+revision requires a fresh hosted run rather than relabelling the failed run.
 The user's earlier live auth/list successes remain valid scoped evidence; new
 catalog, artwork, likes and delivery outcomes require fresh local checks.
 **No service track has been played; the v0.2 sound gate remains NOT MET.**

@@ -897,6 +897,18 @@ fn row(title: &str, subtitle: &str) -> adw::ActionRow {
 
 /// Layout checks complement screenshots; intentional vertical scrolling is allowed.
 fn check_widget_geometry(widget: &gtk::Widget, window: &gtk::Widget) -> Result<(), String> {
+    if let Some(split) = widget.downcast_ref::<adw::OverlaySplitView>() {
+        // Libadwaita 1.5 keeps a closed compact drawer mapped, translated
+        // outside its viewport. Inspect its public visibility state instead
+        // of treating that intentional native transform as clipped content.
+        let content = split.content().ok_or("Split view has no content")?;
+        check_widget_geometry(&content, window)?;
+        if !split.is_collapsed() || split.shows_sidebar() {
+            let sidebar = split.sidebar().ok_or("Split view has no sidebar")?;
+            check_widget_geometry(&sidebar, window)?;
+        }
+        return Ok(());
+    }
     if widget.is_mapped() {
         // Inspect content and controls, not GtkWindow shadows or decorative
         // CSS nodes such as an overlay scrollbar's overhanging trough.
