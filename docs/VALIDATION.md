@@ -95,6 +95,17 @@ normal runner, plus public/all-feature builds and Rust 1.98.1 offline releases.
 Exact-head hosted outcomes and artifacts are recorded in PR #8's description;
 local fixtures and screenshots never establish a live Yandex login.
 
+The initial hosted run at `40ec106` also hit Ubuntu 24.04's AppArmor uid-map
+restriction. CI now loads a temporary profile attached only to the exact compiled
+library-test executable, granting the `userns` permission required by WebKit's
+sandbox. The global `apparmor_restrict_unprivileged_userns=1` guard is asserted
+unchanged before/after, WebKit's sandbox stays enabled, tests run as the ordinary
+runner user, and the profile is unloaded immediately afterward. There is no
+global bwrap allowance or host sysctl relaxation. This follows Ubuntu's shipped
+[Epiphany profile](https://git.launchpad.net/ubuntu/+source/apparmor/plain/profiles/apparmor.d/epiphany?h=ubuntu/noble).
+Its actual test outcome is recorded in the final hosted run, not inferred from
+the profile's presence. The managed cloud's namespace restriction is unchanged.
+
 Full sandboxed Flatpak and real WebKit page loading remain subject to namespace
 support; no sandbox-disable or privilege workaround is permitted. Existing GNOME
 50 already supplies WebKitGTK6 runtime/development components, so no new Flatpak

@@ -101,6 +101,13 @@ This unresolved embedded-provider requirement reinforces the default blocked
 provider and the separately registered system-browser candidate; no real
 embedded provider is activated by enabling `auth-webkit`.
 
+Ubuntu 24.04 CI additionally needs an AppArmor-labelled parent process to let
+WebKit create its own sandbox. The workflow grants `userns` only to the exact
+compiled test executable and removes that temporary profile after the test.
+It preserves the global restriction and never disables WebKit's sandbox; this
+is a test-runner prerequisite, not authorization to access Yandex services.
+The model is Ubuntu's [Epiphany application profile](https://git.launchpad.net/ubuntu/+source/apparmor/plain/profiles/apparmor.d/epiphany?h=ubuntu/noble).
+
 [correction]: https://github.com/tracerxbrhd/karin/pull/8#issuecomment-6486318822
 [old-view]: https://github.com/Rirusha/Cassette/blob/fc6c6e689bd0c60fa662b03aa2aa3c05534b4811/src/widgets/begin/begin-view.vala#L47-L104
 [old-dialog]: https://github.com/Rirusha/Cassette/blob/fc6c6e689bd0c60fa662b03aa2aa3c05534b4811/src/widgets/begin/begin-dialog.vala#L30-L38

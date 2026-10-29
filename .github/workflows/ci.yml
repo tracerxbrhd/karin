@@ -44,7 +44,7 @@ jobs:
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
             gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
             libssl-dev libdbus-1-dev libsecret-1-dev libwebkitgtk-6.0-dev dbus-x11 xvfb xauth \
-            librsvg2-common openbox imagemagick xdotool wmctrl x11-utils
+            librsvg2-common openbox imagemagick xdotool wmctrl x11-utils apparmor
       - name: Install selected Rust toolchain
         run: |
           rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
@@ -116,11 +116,55 @@ jobs:
           GTK_A11Y: none
           GSK_RENDERER: cairo
         run: dbus-run-session -- xvfb-run -a cargo test --lib --all-features --locked webkit_auth_construction_and_shutdown_without_navigation -- --ignored --test-threads=1
+      - name: Permit sandbox namespaces only for the compiled WebKit test
+        run: |
+          cargo test --lib --all-features --locked --no-run --message-format=json > /tmp/karin-webkit-artifact.jsonl
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          restriction = Path('/proc/sys/kernel/apparmor_restrict_unprivileged_userns')
+          if restriction.exists() and restriction.read_text().strip() == '1':
+              artifacts = [json.loads(line) for line in Path('/tmp/karin-webkit-artifact.jsonl').read_text().splitlines()]
+              binaries = [item['executable'] for item in artifacts
+                          if item.get('reason') == 'compiler-artifact'
+                          and item.get('target', {}).get('name') == 'karin'
+                          and item.get('target', {}).get('kind') == ['lib']
+                          and item.get('profile', {}).get('test') and item.get('executable')]
+              assert len(binaries) == 1, 'Expected one compiled library test executable'
+              binary = Path(binaries[0]).resolve()
+              expected = Path(os.environ['GITHUB_WORKSPACE']).resolve() / 'target/debug/deps'
+              assert binary.parent == expected and re.fullmatch(r'karin-[0-9a-f]+', binary.name)
+              assert binary.is_file() and os.access(binary, os.X_OK)
+              assert re.fullmatch(r'[A-Za-z0-9_./-]+', str(binary)), 'Unsafe profile attachment path'
+              # Ubuntu 24.04 requires a labelled parent app for WebKit's bwrap
+              # uid-map setup, as in its shipped Epiphany profile. No global
+              # sysctl, bwrap-wide allowance or WebKit sandbox setting changes.
+              profile = ('abi <abi/4.0>,\ninclude <tunables/global>\n'
+                         f'profile karin-webkit-ci "{binary}" flags=(unconfined) {{\n  userns,\n}}\n')
+              Path('/tmp/karin-webkit-ci.apparmor').write_text(profile)
+              print('Prepared CI-only userns permission for the exact library test executable')
+          PY
+          if [ -f /tmp/karin-webkit-ci.apparmor ]; then
+            sudo apparmor_parser -r /tmp/karin-webkit-ci.apparmor
+            test "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)" = 1
+          fi
       - name: WebKit local navigation, callback, cookie isolation and late cancellation
         env:
           GTK_A11Y: none
           GSK_RENDERER: cairo
-        run: dbus-run-session -- xvfb-run -a cargo test --lib --all-features --locked webkit_auth_local_startup_cookie_isolation_and_cancel -- --ignored --test-threads=1
+        run: |
+          ulimit -c 0
+          dbus-run-session -- xvfb-run -a cargo test --lib --all-features --locked webkit_auth_local_startup_cookie_isolation_and_cancel -- --ignored --test-threads=1
+      - name: Remove the CI-only namespace permission
+        if: always()
+        run: |
+          if [ -f /tmp/karin-webkit-ci.apparmor ]; then
+            sudo apparmor_parser -R /tmp/karin-webkit-ci.apparmor
+            test "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)" = 1
+          fi
       - name: Experimental GTK startup and cleanup under Xvfb
         env:
           GTK_A11Y: none
