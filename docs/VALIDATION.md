@@ -48,6 +48,14 @@ The check now uses the public split-view state, always checking content and
 checking the sidebar when open or expanded. Open-drawer action/focus tests remain
 required; visible content is not exempted from clipping assertions. The corrected
 revision requires a fresh hosted run rather than relabelling the failed run.
+The corrected `31c2f8c` hosted PR/push runs passed both compilers, including the
+sandboxed WebKit checks and 1×/2× capture. A later loaded local smoke exposed a
+focus-before-map race. Navigation focus now waits a bounded number of frames,
+cancels superseded requests/drawer openings and skips active dialogs. The
+assertion waits for actual focus without assigning it itself. Exact-1.98.1
+all-target Clippy and both-scale GTK checks passed this correction; hosted CI
+must verify its new revision. The obsolete Diagnostics destination text was
+also corrected to refer to Home.
 The user's earlier live auth/list successes remain valid scoped evidence; new
 catalog, artwork, likes and delivery outcomes require fresh local checks.
 **No service track has been played; the v0.2 sound gate remains NOT MET.**

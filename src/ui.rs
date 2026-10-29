@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Native presentation layer. Network transport details never enter this module.
 
-use std::{cell::RefCell, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
 
 use adw::prelude::*;
 use gtk::{gio, glib};
@@ -95,14 +98,20 @@ impl MainWindow {
         self.player.prepare.grab_focus();
         gtk::prelude::WidgetExt::activate_action(&self.window, "win.music-search", None)
             .map_err(|_| "Search window action is missing")?;
-        glib::timeout_future(std::time::Duration::from_millis(100)).await;
-        let target = self.music.navigation_target("music-search");
-        let search_focused = if target.is_sensitive() {
-            gtk::prelude::GtkWindowExt::focus(&self.window)
-                .is_some_and(|focus| focus == target || focus.is_ancestor(&target))
-        } else {
-            self.music.primary_action().has_focus()
-        };
+        let mut search_focused = false;
+        for _ in 0..20 {
+            let target = self.music.navigation_target("music-search");
+            search_focused = if target.is_sensitive() {
+                gtk::prelude::GtkWindowExt::focus(&self.window)
+                    .is_some_and(|focus| focus == target || focus.is_ancestor(&target))
+            } else {
+                self.music.primary_action().has_focus()
+            };
+            if search_focused {
+                break;
+            }
+            glib::timeout_future(std::time::Duration::from_millis(25)).await;
+        }
         if !search_focused {
             return Err("Search action did not move keyboard focus from diagnostics".into());
         }
@@ -352,6 +361,15 @@ fn build_with_music_pane(
         .max_sidebar_width(240.0)
         .sidebar_width_fraction(0.22)
         .build();
+    let focus_epoch = Rc::new(Cell::new(0_u64));
+    split.connect_show_sidebar_notify({
+        let epoch = Rc::clone(&focus_epoch);
+        move |split| {
+            if split.is_collapsed() && split.shows_sidebar() {
+                epoch.set(epoch.get().wrapping_add(1));
+            }
+        }
+    });
     let sidebar_toggle = gtk::ToggleButton::builder()
         .active(true)
         .icon_name("sidebar-show-symbolic")
@@ -440,7 +458,7 @@ fn build_with_music_pane(
     let (login_title, login_description) = if cfg!(feature = "cassette-auth") {
         (
             "Прототип входа через Cassette",
-            "Откройте раздел «Музыка» и нажмите «Войти». Доступ к аккаунту, библиотеке и поиску проверяется после входа. Музыкальное аудио пока недоступно.",
+            "На странице «Главная» нажмите «Войти». Доступ к аккаунту, библиотеке и поиску проверяется после входа. Музыкальное аудио пока недоступно.",
         )
     } else {
         (
@@ -614,7 +632,12 @@ fn build_with_music_pane(
             let weak_split = split.downgrade();
             let weak_focus = music.navigation_target(name).downgrade();
             let weak_login = music.primary_action().downgrade();
+            let weak_sections = sections.downgrade();
+            let weak_window = window.downgrade();
+            let epoch = Rc::clone(&focus_epoch);
             action.connect_activate(move |_, _| {
+                epoch.set(epoch.get().wrapping_add(1));
+                let serial = epoch.get();
                 if let Some(stack) = weak_stack.upgrade() {
                     stack.set_visible_child_name(if name == "diagnostics" {
                         "diagnostics"
@@ -630,17 +653,57 @@ fn build_with_music_pane(
                 if name != "diagnostics" {
                     let primary = weak_focus.clone();
                     let login = weak_login.clone();
-                    glib::idle_add_local_once(move || {
-                        if let Some(target) = primary.upgrade()
-                            && target.is_mapped()
-                            && target.is_sensitive()
-                        {
-                            target.grab_focus();
-                        } else if let Some(login) = login.upgrade()
-                            && login.is_mapped()
-                            && login.is_sensitive()
-                        {
-                            login.grab_focus();
+                    let stack = weak_stack.clone();
+                    let sections = weak_sections.clone();
+                    let window = weak_window.clone();
+                    let split = weak_split.clone();
+                    let epoch = Rc::clone(&epoch);
+                    let expected_section = match name {
+                        "music-home" => Some("home"),
+                        "music-library" => Some("library"),
+                        "music-search" => Some("search"),
+                        "music-queue" => Some("queue"),
+                        _ => None,
+                    };
+                    glib::spawn_future_local(async move {
+                        // Mapping follows native layout, not necessarily the first
+                        // idle. Obsolete requests must never steal later focus.
+                        for _ in 0..20 {
+                            glib::timeout_future(std::time::Duration::from_millis(25)).await;
+                            if epoch.get() != serial
+                                || !stack.upgrade().is_some_and(|stack| {
+                                    stack.visible_child_name().as_deref() == Some("home")
+                                })
+                                || expected_section.is_some_and(|expected| {
+                                    !sections.upgrade().is_some_and(|sections| {
+                                        sections.visible_child_name().as_deref() == Some(expected)
+                                    })
+                                })
+                                || !window
+                                    .upgrade()
+                                    .is_some_and(|window| window.visible_dialog().is_none())
+                                || split.upgrade().is_some_and(|split| {
+                                    split.is_collapsed() && split.shows_sidebar()
+                                })
+                            {
+                                return;
+                            }
+                            let moved = if let Some(target) = primary.upgrade() {
+                                if target.is_sensitive() {
+                                    target.is_mapped() && target.grab_focus()
+                                } else {
+                                    login.upgrade().is_some_and(|login| {
+                                        login.is_mapped()
+                                            && login.is_sensitive()
+                                            && login.grab_focus()
+                                    })
+                                }
+                            } else {
+                                return;
+                            };
+                            if moved {
+                                return;
+                            }
                         }
                     });
                 }
