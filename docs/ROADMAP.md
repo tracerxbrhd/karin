@@ -75,3 +75,20 @@ on the owner's Fedora desktop; CI uses synthetic fixtures. Public registration/
 service-distribution approval, verified Secret Service/refresh/revocation and
 content rights remain separate from successful technical interoperability.
 No source license or account metadata alone grants those rights.
+
+## Current implementation evidence
+
+The Issue #9 series starts with [PR #10](https://github.com/tracerxbrhd/karin/pull/10)
+(catalog contracts, independent actions and the owner-local delivery probe), then
+[PR #11](https://github.com/tracerxbrhd/karin/pull/11) (native music workspace,
+artwork and adaptive/HiDPI navigation). The following library-interaction slice
+adds confirmed like/unlike and owner-preserving liked-playlist reads. These are
+implemented workflows with local synthetic tests, not yet owner-verified service
+acceptance. No PR is merged automatically.
+
+A real stream resolver, audible track playback, real-media queue/EOS/seek and
+MPRIS remain unimplemented pending an eligible resource. The bounded executable
+local delivery probe is ready for the same signed-in Fedora session. It must
+identify the actual response/next step rather than assuming DRM or reusing the
+old own-client Music 403 as the diagnosis. **Overall v0.2 sound acceptance is
+NOT MET** until the owner hears an actual selected service track.

@@ -28,6 +28,11 @@ does not satisfy the real-track criterion.
   bar. Public cover images use bounded asynchronous loading and a memory cache;
   malformed or missing art has a native placeholder. Theme preferences support
   system/light/dark for the current process. No playback position is simulated.
+- Explicit like/unlike controls read current membership, send one user-requested
+  change and confirm it with an independent read. Unknown outcomes remain unknown;
+  Refresh reads state without replaying a write. Liked playlists retain their
+  actual owner and open through the same detail/paging flow. These new service
+  interactions still need owner-local acceptance.
 - One native `Войти` dialog loads the actual Yandex login in an isolated,
   ephemeral WebKitGTK6 view. The default `cassette-auth` provider adapts Cassette's
   published session-cookie → OAuth `sessionid` grant. No Client ID/secret fields,
@@ -70,8 +75,9 @@ must verify corrected search/playlist contents and any new delivery/playback pat
 OAuth exchange or Music validation rather than a generic provider block.
 Session tokens are memory-only; logout clears local session/data and does not revoke the server
 grant. Persistent sessions require a separately verified Secret Service lifecycle.
-No playlist mutations, likes/unlikes, My Wave, service-stream resolver or MPRIS
-player is enabled. Playback controls visibly state the missing permitted-source
+Playlist editing, My Wave, service-stream resolution and MPRIS are not enabled.
+Like/unlike writes are explicit and require confirmed membership; no success is
+inferred from a missing response. Playback controls visibly state the missing permitted-source
 contract rather than playing generated WAV as music.
 
 See [the sign-in decision](docs/adr/0011-cassette-session-auth-prototype.md),

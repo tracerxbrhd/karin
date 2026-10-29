@@ -125,6 +125,15 @@ jobs:
           dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_catalog_navigation_latest_actions -- --ignored --test-threads=1
       - name: Build all optional authentication components
         run: cargo build --workspace --all-features --locked
+      - name: Confirmed library writes, ambiguous outcomes and liked playlists
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+        run: |
+          if [ '${{ matrix.lane }}' = stable ]; then
+            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
+          fi
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_library_interactions_confirmed_fixture -- --ignored --test-threads=1
       - name: Cover textures, HiDPI, cancellation and native cleanup
         env:
           GTK_A11Y: none
@@ -354,5 +363,6 @@ jobs:
             build/ui-captures/**/*.png
             build/ui-captures/**/*.geometry.txt
             build/ui-captures/capture-info.txt
+            build/ui-captures/hidpi/capture-info.txt
           retention-days: 7
           if-no-files-found: error

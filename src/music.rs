@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Identity-neutral, read-only Music service. Invoke on a bounded worker, not GTK.
+//! Identity-neutral Music service. Invoke on a bounded worker, not GTK.
 //!
 //! Endpoint/envelope knowledge was compared with yamu 0.1.2 at
 //! 9803f319b9ea6f81befbc3117e4592132ed07d0e. No upstream implementation,
@@ -23,6 +23,8 @@ use serde::{Deserialize, de::DeserializeOwned};
 use zeroize::Zeroizing;
 
 use crate::session::AccessToken;
+
+pub mod interactions;
 
 const ORIGIN: &str = "https://api.music.yandex.net/";
 const MAX_BODY: usize = 1024 * 1024;

@@ -37,9 +37,11 @@
 - **Metadata support does not establish all workflows.** Search, details,
   paging, cancellations and independent action dispatch are under correction for
   v0.2. Album/artist/playlist schema and HTTP outcomes need separate checks; do not
-  loosen account validation or silently hide a malformed response. Likes,
-  playlist writes, recommendations and My Wave must be enabled only with actual
-  implementations, safe errors and appropriate write confirmation/conflicts.
+  loosen account validation or silently hide a malformed response. Like/unlike
+  and liked-playlist reads now have implementations and synthetic tests; live
+  acceptance remains pending. Unknown write outcomes require a read refresh,
+  not automatic replay. Playlist editing, recommendations and My Wave remain
+  absent until their full contracts and lifecycle are implemented and checked.
 - **Real service audio acceptance is NOT MET.** v0.2 requires audible actual
   library/search music on Fedora; it is not deferred to a later milestone. Audio
   investigation starts alongside catalog fixes. The existing delivery review

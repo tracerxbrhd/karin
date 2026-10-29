@@ -9,6 +9,8 @@ pub(super) enum Operation {
     Search,
     Detail,
     Delivery,
+    LikeRead,
+    Mutation,
 }
 impl Operation {
     fn index(self) -> usize {
@@ -22,6 +24,8 @@ impl Operation {
             Self::Search => "search",
             Self::Detail => "detail",
             Self::Delivery => "delivery",
+            Self::LikeRead => "like_read",
+            Self::Mutation => "library_mutation",
         }
     }
 }
@@ -42,7 +46,7 @@ impl<J> Default for Slot<J> {
 }
 
 pub(super) struct Requests<J> {
-    slots: [Slot<J>; 6],
+    slots: [Slot<J>; 8],
 }
 impl<J> Default for Requests<J> {
     fn default() -> Self {
@@ -94,6 +98,8 @@ impl<J> Requests<J> {
             Operation::Search,
             Operation::Detail,
             Operation::Delivery,
+            Operation::LikeRead,
+            Operation::Mutation,
         ] {
             self.invalidate(operation);
         }

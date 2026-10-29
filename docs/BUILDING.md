@@ -86,6 +86,15 @@ In this one session:
 5. Cancel/leave during a request, retry, sign out and sign in again. Old results
    and errors must not restore the prior session or page. Close the app normally.
 
+The final library-interaction slice also adds **Понравившиеся плейлисты** to the
+Library selector and a favorite control in loaded track details. On a consenting
+account, optionally change one track's like state and restore the original state.
+The control must first read membership and confirm each change independently.
+If the outcome is unknown/conflicted, use its **Refresh** action: it performs a
+read, not another write. Do not repeatedly click a failed write assuming it did
+not reach the server. Report only anonymized outcomes; never share the track,
+playlist or account identifiers/titles. This does not validate audio delivery.
+
 Report only the build revision and anonymized PASS/FAIL or the fixed error
 category for each stage. Do not share account names, track/playlist titles, IDs,
 search terms, private screenshots, raw JSON, headers, audio URLs, cookies or

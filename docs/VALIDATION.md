@@ -6,6 +6,57 @@ This report separates initial cloud checks, user-reported Fedora acceptance,
 revised UI checks and compiler compatibility. A result for one environment or
 revision is not evidence that another has passed.
 
+## Issue #9 confirmed library interactions (2026-10-29)
+
+The third increment implements account-bound membership, deliberate like/unlike
+writes with independent UID/revision/state confirmation, and liked-playlist
+listing/details that preserve the actual playlist owner. No optimistic favorite
+state or automatic POST replay is used. Unknown outcomes/conflicts recover through
+GET-only refresh; rejected confirmation sessions propagate to logout. Catalog
+reads remain independent of the single admitted write, and stale controls/results
+cannot restore a closed session or its cached Home/library data.
+
+The complete prepared Debian 13 matrix passed **stable 1.99.1 and Rust 1.98.1**:
+
+| Check | Both compiler lanes |
+| --- | --- |
+| fmt; default/all-feature/minimal all-target Clippy, `-D warnings` | Passed |
+| Default workspace | **180 library + 4 binary passed**, 7 display tests ignored |
+| All-feature workspace | **188 library + 4 binary passed**, 7 display tests ignored |
+| Minimal workspace | **166 library + 4 binary passed**, 4 display tests ignored |
+| Whole-window account/catalog and concurrent-action fixtures | Each explicitly passed |
+| Confirmed library interaction fixture | Explicitly passed: add/remove, duplicate activation, lost response, 409, GET-only refresh, liked-playlist opening and late logout response |
+| Actual cover texture/adjacency checks | Passed at scale 1 and 2 |
+| Default/all-feature GTK lifecycle; default HiDPI smoke | Passed |
+| WebKit construction/cancel, synthetic terminal suite, GStreamer/local-media diagnostics | Passed in their separate stated scopes |
+| MSRV default/all-feature offline release, release GTK/terminal/audio | Passed |
+
+Thirteen backend interaction tests and one fixed-feedback test cover binding,
+strict unsigned revisions, schema drift, conflict/non-retry, ambiguous outcomes,
+401 confirmation and privacy. The pre-existing catalog fixture now permits
+independent membership reads without weakening its other route/auth assertions.
+The focused Retry capture now uses actual Xvfb keyboard Tab/Shift+Tab and Return,
+asserts GTK's visible-focus state and counts the subsequent request; its new
+light-theme image shows the native focus ring. Programmatic focus alone was
+insufficient evidence in the earlier artifact.
+
+The current dependency inventory was regenerated and compared successfully:
+**207 external / 178 Linux** packages, with no new crate in this increment.
+Native versions, Rust MSRV, Flatpak SDK/runtime/permissions and the existing
+Cassette provider are preserved. Hosted CI and final artifact/image links must
+be checked for the committed revision before marking those results passed.
+Full sandboxed WebKit and Flatpak remain distinct from these local checks;
+their namespace restrictions are not bypassed.
+
+**Owner-local checks remain pending:** corrected real search/playlist contents,
+service cover loading, like/unlike and liked-playlist access, KDE/Wayland/HiDPI,
+the current Flatpak, and the first consenting same-session delivery-probe result.
+No real account/token/private image/audio entered Cloud or CI. The exact
+unobserved delivery-info/descriptor outcome is not labelled a server refusal or
+DRM. The legacy construction/provenance question is distinct from modern extracted
+signing material. **Audible v0.2 acceptance is NOT MET**; no real service source
+has reached GStreamer, and MPRIS/My Wave/lyrics/offline are not simulated.
+
 ## Issue #9 native music workspace (2026-10-29)
 
 The second stacked increment adds an `Adw.OverlaySplitView` desktop sidebar /

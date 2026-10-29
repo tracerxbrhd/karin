@@ -1,11 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Native account/catalog presentation. Only typed application results reach GTK.
 
-use std::{cell::RefCell, rc::Rc, sync::Arc};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+    sync::Arc,
+};
 
 use adw::prelude::*;
 use gtk::{gio, glib};
 
+mod interactions;
 #[cfg(test)]
 mod navigation_tests;
 mod requests;
@@ -99,6 +104,7 @@ struct Controller {
     model: RefCell<Model>,
     widgets: Widgets,
     requests: RefCell<Requests<PendingJob>>,
+    mutation_busy: Cell<bool>,
     artwork: Option<ArtworkLoader>,
 }
 
@@ -276,7 +282,11 @@ impl MusicPane {
         let library = gtk::Box::new(gtk::Orientation::Vertical, 16);
         library.append(&text("Библиотека", "title-1"));
         library.append(&text("Ваша коллекция в Яндекс Музыке", "dim-label"));
-        let library_mode = gtk::DropDown::from_strings(&["Понравившиеся треки", "Мои плейлисты"]);
+        let library_mode = gtk::DropDown::from_strings(&[
+            "Понравившиеся треки",
+            "Мои плейлисты",
+            "Понравившиеся плейлисты",
+        ]);
         library_mode.set_hexpand(true);
         library_mode.update_property(&[gtk::accessible::Property::Label("Раздел библиотеки")]);
         let library_controls = gtk::Box::new(gtk::Orientation::Horizontal, 8);
@@ -488,6 +498,7 @@ impl MusicPane {
             }),
             widgets,
             requests: RefCell::new(Requests::default()),
+            mutation_busy: Cell::new(false),
             artwork: ArtworkLoader::new().ok(),
         });
         controller.connect(window);
@@ -1285,6 +1296,7 @@ impl Controller {
     }
 
     fn close(&self) {
+        self.mutation_busy.set(false);
         self.clear_text_focus();
         self.requests.borrow_mut().invalidate_all();
         self.cancel_delivery();
@@ -1314,6 +1326,7 @@ impl Controller {
     }
 
     fn logout(self: &Rc<Self>) {
+        self.mutation_busy.set(false);
         self.clear_text_focus();
         self.requests.borrow_mut().invalidate_all();
         self.cancel_delivery();
@@ -1468,7 +1481,9 @@ impl Controller {
             }
             let result = result.unwrap_or(Err(MusicError::Configuration));
             if current {
-                catalog_diagnostic(operation, result.as_ref().err().copied());
+                if !matches!(operation, Operation::LikeRead | Operation::Mutation) {
+                    catalog_diagnostic(operation, result.as_ref().err().copied());
+                }
                 done(&this, result);
             } else if same_session
                 && matches!(
@@ -1510,6 +1525,10 @@ impl Controller {
             return;
         }
         self.requests.borrow_mut().invalidate(Operation::Library);
+        if self.widgets.library_mode.selected() == 2 {
+            self.load_library(0);
+            return;
+        }
         let playlists = self.widgets.library_mode.selected() == 1;
         if playlists {
             let cached = self.model.borrow().playlists.clone();
@@ -1541,9 +1560,15 @@ impl Controller {
                     set_empty(&self.widgets.library_rows, "Плейлистов пока нет.");
                 }
                 if self.widgets.stack.visible_child_name().as_deref() == Some("library") {
-                    self.widgets
-                        .status
-                        .set_title(&format!("Мои плейлисты · страница {}", page + 1));
+                    self.widgets.status.set_title(&format!(
+                        "{} · страница {}",
+                        if self.widgets.library_mode.selected() == 2 {
+                            "Понравившиеся плейлисты"
+                        } else {
+                            "Мои плейлисты"
+                        },
+                        page + 1
+                    ));
                     self.widgets.status.set_subtitle("");
                 }
             }
@@ -1587,7 +1612,10 @@ impl Controller {
                     &format!("{title}. Откройте библиотеку и повторите обновление."),
                 );
             }
-            None => set_empty(&self.widgets.home_preview, "Загрузка понравившихся треков…"),
+            None => set_empty(
+                &self.widgets.home_preview,
+                "Откройте «Все треки», чтобы обновить этот раздел.",
+            ),
         }
     }
 
@@ -1678,8 +1706,14 @@ impl Controller {
         set_empty(&self.widgets.library_rows, "Загрузка библиотеки…");
         self.widgets.library_next.set_visible(false);
         self.widgets.library_previous.set_visible(false);
-        let playlists = self.widgets.library_mode.selected() == 1;
-        if playlists {
+        let mode = self.widgets.library_mode.selected();
+        if mode == 2 {
+            self.run(
+                Operation::Library,
+                move |service, token| service.liked_playlists(&token, page),
+                move |this, result| this.render_playlists(result, page),
+            );
+        } else if mode == 1 {
             self.run(
                 Operation::Library,
                 move |service, token| service.playlists(&token, page),
@@ -1876,6 +1910,7 @@ impl Controller {
     }
 
     fn detail_loading(self: &Rc<Self>, title: &str, subtitle: &str) {
+        self.requests.borrow_mut().invalidate(Operation::LikeRead);
         if let Some(origin) = self.widgets.stack.visible_child_name()
             && origin != "detail"
         {
@@ -2075,6 +2110,9 @@ impl Controller {
                         }
                     });
                     this.widgets.detail.append(&add);
+                    this.widgets
+                        .detail
+                        .append(&this.like_controls(track.id.clone()));
                     if this.model.borrow().delivery_diagnostic {
                         this.delivery_action(track.id.clone());
                     }
@@ -3039,12 +3077,13 @@ mod tests {
             "artists":[{"id":11,"name":"Synthetic artist"}],"albums":[{"id":7,"title":"Synthetic album"}]});
         let account =
             json!({"result":{"account":{"uid":1234,"displayName":"Synthetic UI account"}}});
-        let liked = json!({"result":{"library":{"tracks":vec![json!({"id":42,"albumId":7});51]}}});
+        let liked = json!({"result":{"library":{"uid":1234,"revision":1,"tracks":vec![json!({"id":42,"albumId":7});51]}}});
         let tracks = json!({"result":[track.clone()]});
         let playlists = json!({"result":[{"kind":3,"title":"Synthetic playlist","trackCount":1,"owner":{"uid":1234}}]});
         let playlist = json!({"result":{"kind":3,"title":"Synthetic playlist","trackCount":1,"tracks":[{"id":42,"albumId":7}]}});
         let search = json!({"result":{"text":"Synthetic","tracks":{"total":1,"perPage":20,"page":0,"results":[track.clone()]}}});
         let album = json!({"result":{"id":7,"title":"Synthetic album","artists":[{"id":11,"name":"Synthetic artist"}],"volumes":[vec![track;63]]}});
+        let membership_body = liked.to_string();
         let responses = vec![
             ("GET /account/status", account, false),
             ("GET /users/1234/likes/tracks", liked.clone(), false),
@@ -3070,7 +3109,8 @@ mod tests {
         let server_late_started = late_started.clone();
         let (release_search, wait_for_release) = std::sync::mpsc::channel();
         let server = thread::spawn(move || {
-            for (prefix, response, delayed) in responses {
+            let mut responses = responses.into_iter().peekable();
+            while let Some((prefix, response, delayed)) = responses.peek() {
                 let deadline = Instant::now() + Duration::from_secs(8);
                 let mut stream = loop {
                     match listener.accept() {
@@ -3095,7 +3135,9 @@ mod tests {
                     assert!(bytes.len() < 32 * 1024);
                 }
                 let request = String::from_utf8(bytes).unwrap();
-                assert!(request.starts_with(prefix));
+                let independent_membership = !request.starts_with(prefix)
+                    && request.starts_with("GET /users/1234/likes/tracks");
+                assert!(request.starts_with(prefix) || independent_membership);
                 assert!(
                     !request
                         .to_ascii_lowercase()
@@ -3112,14 +3154,21 @@ mod tests {
                     .unwrap_or(0);
                 assert!(length < 32 * 1024);
                 stream.read_exact(&mut vec![0; length]).unwrap();
-                if delayed {
+                if *delayed && !independent_membership {
                     server_late_started.store(true, Ordering::Release);
                     wait_for_release
                         .recv_timeout(Duration::from_secs(8))
                         .unwrap();
                 }
-                let body = response.to_string();
+                let body = if independent_membership {
+                    membership_body.clone()
+                } else {
+                    response.to_string()
+                };
                 write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+                if !independent_membership {
+                    responses.next();
+                }
             }
             server_done.store(true, Ordering::Release);
         });

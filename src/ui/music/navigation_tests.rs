@@ -9,7 +9,7 @@ use std::{
     net::TcpListener,
     sync::{
         Arc, Condvar, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     thread,
     time::Duration,
@@ -26,6 +26,8 @@ fn native_catalog_navigation_latest_actions() {
     let stop = Arc::new(AtomicBool::new(false));
     let slow_started = Arc::new(AtomicBool::new(false));
     let library_started = Arc::new(AtomicBool::new(false));
+    let failed_requests = Arc::new(AtomicUsize::new(0));
+    let server_failed = failed_requests.clone();
     let gate = Arc::new((Mutex::new(false), Condvar::new()));
     let playlist_gate = Arc::new((Mutex::new(false), Condvar::new()));
     let server_playlist_gate = playlist_gate.clone();
@@ -48,6 +50,7 @@ fn native_catalog_navigation_latest_actions() {
             let playlist_gate = server_playlist_gate.clone();
             let slow = server_slow.clone();
             let library = server_library.clone();
+            let failures = server_failed.clone();
             children.push(thread::spawn(move || {
                 let mut stream = stream;
                 stream.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
@@ -82,7 +85,10 @@ fn native_catalog_navigation_latest_actions() {
                         (200, json!({"result":{"tracks":{"page":0,"perPage":20,"total":1,"results":[{"id":42,"title":title,"available":true,"artists":[]}]}}}))
                     }
                     "/users/1234/playlists/3" => { delayed_playlist = true; (200, json!({"result":{"kind":3,"trackCount":0}})) },
-                    "/users/1234/playlists/4" => (404, json!({"error":{"message":"synthetic-private-provider-text"}})),
+                    "/users/1234/playlists/4" => {
+                        failures.fetch_add(1, Ordering::AcqRel);
+                        (404, json!({"error":{"message":"synthetic-private-provider-text"}}))
+                    },
                     "/tracks" => (200, json!({"result":[track]})),
                     _ => (404, json!({"error":"synthetic-unknown-route"})),
                 };
@@ -251,10 +257,56 @@ fn native_catalog_navigation_latest_actions() {
     }
     let retry = retry_button(this.widgets.detail.upcast_ref()).expect("native retry action");
     assert!(retry.grab_focus());
+    let keyboard_window = if std::env::var_os("KARIN_TEST_CAPTURE_DIR").is_some() {
+        let found = std::process::Command::new("xdotool")
+            .args([
+                "search",
+                "--onlyvisible",
+                "--name",
+                "^Karin synthetic HTTP fixture$",
+            ])
+            .output()
+            .unwrap();
+        assert!(found.status.success());
+        let result = String::from_utf8(found.stdout).unwrap();
+        let id = result.lines().next().unwrap().to_owned();
+        assert!(id.bytes().all(|byte| byte.is_ascii_digit()));
+        assert!(
+            std::process::Command::new("xdotool")
+                .args(["windowfocus", "--sync", &id])
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(
+            std::process::Command::new("xdotool")
+                .args(["key", "--clearmodifiers", "Tab", "shift+Tab"])
+                .status()
+                .unwrap()
+                .success()
+        );
+        pump_until(|| retry.has_focus() && window.gets_focus_visible());
+        Some(id)
+    } else {
+        None
+    };
     capture_native("catalog-compact-playlist-error-focused");
-    retry.emit_clicked();
-    assert!(contains_text(this.widgets.detail.upcast_ref(), "Загрузка"));
-    pump_until(|| !this.model.borrow().busy);
+    let before_retry = failed_requests.load(Ordering::Acquire);
+    if keyboard_window.is_some() {
+        assert!(
+            std::process::Command::new("xdotool")
+                .args(["key", "--clearmodifiers", "Return"])
+                .status()
+                .unwrap()
+                .success()
+        );
+    } else {
+        retry.emit_clicked();
+        assert!(contains_text(this.widgets.detail.upcast_ref(), "Загрузка"));
+    }
+    pump_until(|| {
+        failed_requests.load(Ordering::Acquire) > before_retry && !this.model.borrow().busy
+    });
     assert!(contains_text(this.widgets.detail.upcast_ref(), "Повторить"));
     this.logout();
     assert!(!contains_text(

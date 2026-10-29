@@ -18,7 +18,7 @@ flowchart LR
   UI --> Audio[Finite synthetic diagnostic]
   Audio --> GST[GStreamer synthetic pipeline]
   UI --> Platform[D-Bus capability inspection]
-  UI --> MusicService[Typed read-only MusicService]
+  UI --> MusicService[Typed MusicService]
   MusicService --> MusicHTTP[Identity-neutral bounded HTTPS]
   MusicHTTP --> MusicREST[Music account / library / search / details]
   UI --> Login[Single-purpose native sign-in dialog]
@@ -46,7 +46,7 @@ flowchart LR
 | `api` | Bounded anonymous HTTPS request, wire format parsing and sanitized errors |
 | `oauth` | Separate opt-in code/PKCE experiment, bounded token exchange, ID-client binding and read-only Music probes with sanitized reports |
 | `oauth_cli` | Binary-private local terminal input and system-browser launch; no credential arguments or GUI session |
-| `music` | Application-facing typed read-only service, reduced models, bounded transport and token-bound account cache |
+| `music` | Typed metadata service, reduced models, bounded transport and token-bound account cache; explicit confirmed writes in `music::interactions` |
 | `auth` / `auth::cassette` | Default Cassette-compatible session provider, bounded attempts/return-state validation and official OAuth session exchange; separate generic code/PKCE fixed-loopback infrastructure |
 | `session` | Zeroizing ephemeral tokens; library-only feature-gated Device Flow without bundled application credentials |
 | `queue` | Bounded selection/order of real track metadata, independent of unavailable service audio |
@@ -160,6 +160,16 @@ The ordinary application retains its window/controller through close; signal
 handlers reference controllers weakly. Queue editing selects metadata only.
 No permitted audio resource is resolved and the player bar reports this blocker.
 The existing generated-WAV diagnostic remains a separate developer tool.
+
+## Confirmed library interactions
+
+The explicit library-write extension lives in `music::interactions`, retaining
+the existing transport and token/account cache. It separates membership, a
+single deliberate POST and independent confirmation. Native controls use their
+own read/write lanes and fixed errors, with no optimistic favorite toggle or
+automatic write retry. Liked playlists retain the returned owner identity.
+See [ADR-0014](adr/0014-confirmed-library-interactions.md). These operations do
+not create a media source or change the independent playback boundary.
 
 ## Playback controller
 
