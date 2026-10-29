@@ -81,8 +81,9 @@ No source license or account metadata alone grants those rights.
 The Issue #9 series starts with [PR #10](https://github.com/tracerxbrhd/karin/pull/10)
 (catalog contracts, independent actions and the owner-local delivery probe), then
 [PR #11](https://github.com/tracerxbrhd/karin/pull/11) (native music workspace,
-artwork and adaptive/HiDPI navigation). The following library-interaction slice
-adds confirmed like/unlike and owner-preserving liked-playlist reads. These are
+artwork and adaptive/HiDPI navigation), then
+[PR #12](https://github.com/tracerxbrhd/karin/pull/12) (confirmed like/unlike and
+owner-preserving liked-playlist reads). These are
 implemented workflows with local synthetic tests, not yet owner-verified service
 acceptance. No PR is merged automatically.
 

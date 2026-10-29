@@ -6,6 +6,69 @@ This report separates initial cloud checks, user-reported Fedora acceptance,
 revised UI checks and compiler compatibility. A result for one environment or
 revision is not evidence that another has passed.
 
+## Issue #9 final series evidence (2026-10-29)
+
+The three reviewable increments are [PR #10](https://github.com/tracerxbrhd/karin/pull/10),
+[PR #11](https://github.com/tracerxbrhd/karin/pull/11) and
+[PR #12](https://github.com/tracerxbrhd/karin/pull/12). They remain stacked on
+the open authentication/application branches; no PR or stable branch was merged.
+The following evidence identifies executable source revisions, rather than
+assuming that later documentation revisions produced these artifacts.
+
+| Executable source | Hosted PR / push runs | Result |
+| --- | --- | --- |
+| `4ad94298d8fa2eeb952759e35fa96c3e1cf0e96d` (#10) | [40919144869](https://github.com/tracerxbrhd/karin/actions/runs/40919144869) / [40919039746](https://github.com/tracerxbrhd/karin/actions/runs/40919039746) | Stable and exact 1.98.1 passed |
+| `dc7d5d899c8fdada0f9e25d21144aa3aa15705f0` (#11) | [40931684093](https://github.com/tracerxbrhd/karin/actions/runs/40931684093) / [40931673943](https://github.com/tracerxbrhd/karin/actions/runs/40931673943) | Stable and exact 1.98.1 passed |
+| `a84cbbd9b7c69f158e6b2431b914d422d70abd77` (#12) | [40933481648](https://github.com/tracerxbrhd/karin/actions/runs/40933481648) / [40933251803](https://github.com/tracerxbrhd/karin/actions/runs/40933251803) | Stable and exact 1.98.1 passed |
+
+These runs include the separately selected full sandbox-enabled interactive
+WebKit tests; no sandbox was disabled. Prepared-cloud blank-WebKit construction
+alone is not substituted for those hosted page/lifecycle results.
+
+The final [image artifact](https://github.com/tracerxbrhd/karin/actions/runs/40933481648/artifacts/12924012849)
+contains **170 actual PNGs**: 62 scale-1, 62 scale-2, 30 full-window account/catalog/
+library fixtures and 16 WebKit fixtures. All were covered by visual review:
+unchanged decoded pixels reused their previous actual inspection; every changed
+image was reopened. Both retained scale manifests have all 21 source/Cargo hashes
+matching `a84cbbd9`, and the same debug binary SHA-256
+`188d58577a102109cecb87976d70159144ce2e6b0b7435bc2bbc7010564b1bcf`.
+They identify CI merge `9ff84b8d1edcea2f90e35c8824c86b0170494591`.
+Window sizes are 420×720, 900×650, 1440×900 and WM-maximized 1920×1080,
+with doubled physical dimensions at `GDK_SCALE=2`. Maximize atoms, allocations,
+navigation, focus and cleanup have separate structural/interactive assertions.
+The Retry images show an actual keyboard focus ring; Return triggers another
+fixture request. No remaining concrete visual defect was observed. Synthetic
+fixtures contain no private service data; they do not establish real sign-in,
+provider writes, audibility or Fedora/KDE/Wayland acceptance.
+
+The [exact-1.98.1 native artifact](https://github.com/tracerxbrhd/karin/actions/runs/40933481648/artifacts/12922589612)
+was downloaded, its archive checksum verified and original GPL/Cassette notices
+compared. Its release binary SHA-256 is
+`72a5c279916274d97b2aff686254e83bd1a0ac7875d558a408fdc854145ef527`.
+Build metadata identifies Ubuntu 24.04, GTK 4.14.5, Libadwaita 1.5.0,
+GStreamer 1.24.2 and WebKitGTK6 2.52.6. The extracted binary passed version,
+silent GStreamer, generated local-WAV transport and GTK smoke checks in the
+prepared Debian environment. Fedora ABI and physical output remain unverified.
+
+Final locked Flatpak source preparation and license-inventory comparison passed:
+47 source/Cargo files match `a84cbbd9`, with 207 vendored external packages
+(178 in the Linux graph). The snapshot independently passed exact-1.98.1
+`cargo build --release --offline --locked --no-default-features --features cassette-auth`.
+This is a native vendored-source build, **not a complete Flatpak build**.
+An actual Flatpak Builder 1.4.4 attempt stopped with
+`org.gnome.Sdk/x86_64/50 not installed`. An independent harmless Bubblewrap check
+also failed because this cloud forbids creating a namespace. No SDK/runtime,
+permissions, TLS or sandbox restrictions were changed. Complete current Flatpak
+build/install/startup stays pending on Fedora.
+
+**The first owner-local delivery-info/descriptor result is still pending.**
+The current validated session must run the bounded probe described in
+[the combined Fedora instruction](BUILDING.md#v02-catalog-and-delivery-info-acceptance-on-fedora).
+No eligible service resource has been confirmed or passed to GStreamer. This
+unobserved step is not classified as HTTP 403, DRM or a proven permission denial.
+Real search/playlist/like workflows also need the next owner-local check.
+**Overall v0.2 audible-player acceptance remains NOT MET.**
+
 ## Issue #9 confirmed library interactions (2026-10-29)
 
 The third increment implements account-bound membership, deliberate like/unlike
@@ -43,10 +106,9 @@ insufficient evidence in the earlier artifact.
 The current dependency inventory was regenerated and compared successfully:
 **207 external / 178 Linux** packages, with no new crate in this increment.
 Native versions, Rust MSRV, Flatpak SDK/runtime/permissions and the existing
-Cassette provider are preserved. Hosted CI and final artifact/image links must
-be checked for the committed revision before marking those results passed.
-Full sandboxed WebKit and Flatpak remain distinct from these local checks;
-their namespace restrictions are not bypassed.
+Cassette provider are preserved. The source-matched hosted CI/artifact results
+are recorded above. Full sandboxed WebKit passed on the hosted runner; full
+Flatpak remains distinct and unverified. Namespace restrictions were not bypassed.
 
 **Owner-local checks remain pending:** corrected real search/playlist contents,
 service cover loading, like/unlike and liked-playlist access, KDE/Wayland/HiDPI,
@@ -91,8 +153,8 @@ layout changes. Whole-window fixtures now use the actual production shell with
 only the API/provider supplied by loopback tests. Static fixture frames use
 reduced motion; ordinary smoke/interactive WebKit use separate normal processes.
 
-Fresh full-size/theme/HiDPI screenshots and hosted CI links belong in the PR after
-inspection. Fedora/KDE/Wayland/fractional-scale visual acceptance remains pending.
+Source-matched hosted checks and final full-size/theme/HiDPI image review are
+recorded above. Fedora/KDE/Wayland/fractional-scale visual acceptance remains pending.
 The first hosted run on Libadwaita 1.5 exposed a structural-check mismatch: that
 version keeps the closed compact drawer mapped at a negative X coordinate.
 The check now uses the public split-view state, always checking content and
@@ -104,9 +166,9 @@ sandboxed WebKit checks and 1×/2× capture. A later loaded local smoke exposed 
 focus-before-map race. Navigation focus now waits a bounded number of frames,
 cancels superseded requests/drawer openings and skips active dialogs. The
 assertion waits for actual focus without assigning it itself. Exact-1.98.1
-all-target Clippy and both-scale GTK checks passed this correction; hosted CI
-must verify its new revision. The obsolete Diagnostics destination text was
-also corrected to refer to Home.
+all-target Clippy and both-scale GTK checks passed this correction; the exact
+`dc7d5d8` hosted PR/push runs subsequently passed both lanes as recorded above.
+The obsolete Diagnostics destination text was also corrected to refer to Home.
 The user's earlier live auth/list successes remain valid scoped evidence; new
 catalog, artwork, likes and delivery outcomes require fresh local checks.
 **No service track has been played; the v0.2 sound gate remains NOT MET.**
