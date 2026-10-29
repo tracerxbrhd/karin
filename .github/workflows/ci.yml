@@ -125,6 +125,14 @@ jobs:
           dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_catalog_navigation_latest_actions -- --ignored --test-threads=1
       - name: Build all optional authentication components
         run: cargo build --workspace --all-features --locked
+      - name: Cover textures, HiDPI, cancellation and native cleanup
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+        run: |
+          for scale in 1 2; do
+            GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked artwork_thumbnail_maps_caches_hidpi_and_cancels_without_network -- --ignored --test-threads=1
+          done
       - name: Isolated WebKit construction and cancellation
         env:
           GTK_A11Y: none
@@ -242,6 +250,12 @@ jobs:
           GTK_A11Y: none
           GSK_RENDERER: cairo
         run: dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' ./target/debug/karin --smoke-test
+      - name: HiDPI adaptive GTK navigation and cleanup
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+          GDK_SCALE: 2
+        run: dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' ./target/debug/karin --smoke-test
       - name: Release GStreamer diagnostic through fakesink on MSRV
         if: matrix.lane == 'msrv'
         run: ./target/release/karin --audio-self-test
@@ -326,6 +340,11 @@ jobs:
       - name: Capture real GTK visual review matrix
         if: matrix.lane == 'stable'
         run: scripts/capture-ui.sh build/ui-captures
+      - name: Capture HiDPI GTK visual review matrix
+        if: matrix.lane == 'stable'
+        env:
+          KARIN_CAPTURE_SCALE: 2
+        run: scripts/capture-ui.sh build/ui-captures/hidpi
       - name: Retain visual review evidence
         if: always() && matrix.lane == 'stable'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6, Node.js 24

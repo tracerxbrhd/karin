@@ -3,6 +3,7 @@
 
 pub mod api;
 pub mod application;
+pub mod artwork;
 pub mod audio;
 pub mod auth;
 pub mod capabilities;

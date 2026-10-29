@@ -162,7 +162,7 @@ fn main() -> glib::ExitCode {
                 .license_type(gtk::License::Gpl30)
                 .copyright("© 2026 Karin contributors")
                 .website("https://github.com/tracerxbrhd/karin")
-                .comments("v0.1: библиотека и поиск через MusicService. Прототип входа использует совместимую с Cassette сессию WebKit; реальный доступ требует проверки на Fedora. Воспроизведение Яндекс Музыки пока недоступно.")
+                .comments("Karin v0.2 в разработке: нативная библиотека, поиск и очередь. Вход через Яндекс сохраняет совместимую с Cassette сессию в памяти. Реальный источник аудио ещё не подтверждён; воспроизведение музыки пока недоступно.")
                 .build();
             dialog.present(app.active_window().as_ref());
         }
@@ -202,7 +202,7 @@ fn main() -> glib::ExitCode {
                             eprintln!("GTK layout failure: resizing changed the selected page");
                             layout_passed = false;
                         }
-                        for page in ["music-library", "music-search", "music-queue", "diagnostics"] {
+                        for page in ["music-home", "music-library", "music-search", "music-queue", "diagnostics"] {
                             ui.show_page(page);
                             glib::timeout_future(Duration::from_millis(60)).await;
                             if let Err(error) = ui.wait_for_layout().await {
@@ -210,13 +210,17 @@ fn main() -> glib::ExitCode {
                                 layout_passed = false;
                             }
                         }
+                        if let Err(error) = ui.exercise_sidebar_for_smoke().await {
+                            eprintln!("GTK sidebar failure at {width}×{height}: {error}");
+                            layout_passed = false;
+                        }
                         if let Err(error) = ui.exercise_login_for_smoke().await {
                             eprintln!("GTK login dialog failure at {width}×{height}: {error}");
                             layout_passed = false;
                         }
                     }
                 }
-                let navigation_passed = ui.smoke_check();
+                let navigation_passed = ui.smoke_check().await;
                 let playback_passed = ui.exercise_playback_for_smoke().await;
                 for (width, height) in [(420, 720), (900, 650), (1440, 900)] {
                     ui.window.set_default_size(width, height);

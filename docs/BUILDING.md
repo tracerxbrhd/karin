@@ -43,6 +43,13 @@ session prototype below; it requires no end-user OAuth configuration.
 
 ## v0.2 catalog and delivery-info acceptance on Fedora
 
+The native workspace has Home, Library, Search, Queue and Diagnostics in the
+sidebar (a drawer at compact widths). Keyboard shortcuts: Ctrl+H Home, Ctrl+L
+Library, Ctrl+F Search, Ctrl+J Queue, Ctrl+B compact drawer, Ctrl+, appearance
+preferences, Alt+2 Diagnostics and Ctrl+Q Quit. Appearance choices apply to the
+current process; session credentials remain memory-only. Verify both themes,
+scale/fractional HiDPI, keyboard focus and maximize/restore on KDE/Wayland.
+
 Use the newest branch/artifact linked from the Issue #9 PR series, not the
 previous `797ba3a` binary. The owner already confirmed ordinary sign-in, Music
 account validation, liked tracks and the personal-playlist list on that revision.

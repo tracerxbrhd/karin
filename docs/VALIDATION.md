@@ -6,6 +6,46 @@ This report separates initial cloud checks, user-reported Fedora acceptance,
 revised UI checks and compiler compatibility. A result for one environment or
 revision is not evidence that another has passed.
 
+## Issue #9 native music workspace (2026-10-29)
+
+The second stacked increment adds an `Adw.OverlaySplitView` desktop sidebar /
+compact drawer, real Home destinations and the first five already loaded liked
+tracks, optional artwork, native context/detail actions, a selected-track bar
+and current-process theme preferences. No fake catalog, copied Cassette graphic
+asset or fabricated playing state is included. Play/seek/volume remain disabled
+until an eligible source reaches the existing engine.
+
+The prepared Debian matrix passed stable 1.99.1 and exact Rust 1.98.1:
+formatting, default/all-feature/minimal all-target Clippy, default **166 + 4**,
+all-feature **174 + 4**, minimal **152 + 4** library/binary tests, all builds,
+native catalog/action fixtures, WebKit construction/cancel, terminal boundaries,
+GStreamer and local-media diagnostics, and MSRV offline default/all-feature
+release checks. Six default/all-feature and three minimal display tests are
+excluded from unit totals and selected explicitly where supported.
+
+Ten artwork backend tests exercise original synthetic PNG decoding, bounds,
+cache limits, dedicated-worker isolation, cancel/logout and privacy. The explicit
+native texture test passed at scale **1 and 2 on both compilers**; full GTK smoke
+also passed at both scales. It checks the same logical size matrix on a 3840×2160
+display at scale 2, not a resized screenshot.
+
+Subsequent visual inspection found an expanding thumbnail slot leaving blank
+space before metadata; explicit non-expansion and an adjacency regression at
+both scales corrected it. Keyboard checks distinguish disabled signed-out search
+from an enabled signed-in entry and exercise the actual window action from
+Diagnostics. Deferred weak focus targets apply after the outer page maps. The
+final exact-1.98.1 all-feature tests, Clippy, two native workflows, 1×/2× texture
+and GTK smoke checks, offline release and audio diagnostics passed after these
+layout changes. Whole-window fixtures now use the actual production shell with
+only the API/provider supplied by loopback tests. Static fixture frames use
+reduced motion; ordinary smoke/interactive WebKit use separate normal processes.
+
+Fresh full-size/theme/HiDPI screenshots and hosted CI links belong in the PR after
+inspection. Fedora/KDE/Wayland/fractional-scale visual acceptance remains pending.
+The user's earlier live auth/list successes remain valid scoped evidence; new
+catalog, artwork, likes and delivery outcomes require fresh local checks.
+**No service track has been played; the v0.2 sound gate remains NOT MET.**
+
 ## Issue #9 first increment — catalog repair and parallel delivery probe (2026-10-29)
 
 **Owner baseline on Fedora, PR #8 `797ba3a`:** real ordinary Yandex sign-in,
@@ -57,7 +97,16 @@ The refreshed license inventory includes pinned MIT-or-Apache `roxmltree` 0.21.1
 207 external crates / 178 in the Linux graph. No native baseline, Flatpak runtime,
 session provider/identity, signing key, protected audio or permissions changed.
 
-**Pending:** exact-revision CI and inspected screenshot links belong in the PR.
+PR #10's [PR CI](https://github.com/tracerxbrhd/karin/actions/runs/40919144869)
+and [push CI](https://github.com/tracerxbrhd/karin/actions/runs/40919039746) passed
+both compilers, including full sandbox-enabled WebKit checks. All 58 local and
+86 hosted images were inspected with source hashes matching `4ad9429`: 85 hosted
+frames were settled; `fixtures/login-blocked-light.png` recorded an opening fade
+and is excluded from the settled pass. Compact Retry/last diagnostics-row image
+coverage was incomplete. The next increment adds a focused Retry frame and
+static reduced-motion native captures. Exact links/evidence are in PR #10.
+
+**Pending:**
 Owner-local Latin/Cyrillic search, all content types, real playlist contents and
 the first delivery-probe outcome remain unrun here. Full Flatpak/Fedora/KDE/
 Wayland/HiDPI acceptance remains separate. **The v0.2 audible-player criterion is

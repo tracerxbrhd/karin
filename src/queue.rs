@@ -92,6 +92,8 @@ mod tests {
             album_title: None,
             duration_ms: None,
             available: true,
+            cover: None,
+            explicit: false,
         }
     }
 

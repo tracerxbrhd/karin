@@ -114,20 +114,23 @@ fn native_catalog_navigation_latest_actions() {
         .flags(gio::ApplicationFlags::NON_UNIQUE)
         .build();
     app.register(gio::Cancellable::NONE).unwrap();
-    let window = adw::ApplicationWindow::builder()
-        .application(&app)
-        .default_width(420)
-        .default_height(720)
-        .title("Karin synthetic HTTP fixture")
-        .build();
-    let pane = MusicPane::with_provider(
+    let ui = super::super::build_with_music_pane(
         &app,
-        &window,
-        Some(service),
-        Arc::new(OfflineProvider),
-        launch_system_browser,
+        crate::application::ConnectionService::new(crate::api::YandexApi::new().unwrap()),
+        |app, window| {
+            MusicPane::with_provider(
+                app,
+                window,
+                Some(service),
+                Arc::new(OfflineProvider),
+                launch_system_browser,
+            )
+        },
     );
-    window.set_content(Some(&super::super::scroll_page(&pane.widget)));
+    let pane = &ui.music;
+    let window = ui.window.clone();
+    window.set_title(Some("Karin synthetic HTTP fixture"));
+    window.set_default_size(420, 720);
     window.present();
     let this = &pane.controller;
     {
@@ -155,6 +158,7 @@ fn native_catalog_navigation_latest_actions() {
         },
         title: "Synthetic empty playlist".into(),
         track_count: 0,
+        cover: None,
     };
     this.open_playlist(playlist.clone(), 0);
     assert_eq!(
@@ -230,6 +234,28 @@ fn native_catalog_navigation_latest_actions() {
     ));
     window.set_default_size(420, 720);
     capture_native("catalog-compact-playlist-error");
+    fn retry_button(widget: &gtk::Widget) -> Option<gtk::Button> {
+        if let Some(button) = widget.downcast_ref::<gtk::Button>()
+            && button.label().as_deref() == Some("Повторить")
+        {
+            return Some(button.clone());
+        }
+        let mut child = widget.first_child();
+        while let Some(widget) = child {
+            if let Some(button) = retry_button(&widget) {
+                return Some(button);
+            }
+            child = widget.next_sibling();
+        }
+        None
+    }
+    let retry = retry_button(this.widgets.detail.upcast_ref()).expect("native retry action");
+    assert!(retry.grab_focus());
+    capture_native("catalog-compact-playlist-error-focused");
+    retry.emit_clicked();
+    assert!(contains_text(this.widgets.detail.upcast_ref(), "Загрузка"));
+    pump_until(|| !this.model.borrow().busy);
+    assert!(contains_text(this.widgets.detail.upcast_ref(), "Повторить"));
     this.logout();
     assert!(!contains_text(
         pane.widget.upcast_ref(),
@@ -243,4 +269,6 @@ fn native_catalog_navigation_latest_actions() {
     server.join().unwrap();
     pane.close();
     window.close();
+    drop(ui);
+    drop(window);
 }

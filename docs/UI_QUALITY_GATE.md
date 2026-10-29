@@ -9,6 +9,20 @@ fictional music catalogs, recommendations or player controls.
 
 ## Required matrix
 
+The v0.2 music shell uses a persistent desktop sidebar and a compact native
+drawer. Check opening/focus/activation/closing of that drawer, cross-page keyboard
+focus and selected-page preservation across both directions of resizing. Check
+Home's real cached liked-track preview, metadata rows, contextual actions and
+the persistent selected-track bar. Unsourced transport must remain explicitly
+disabled; it must never show an invented playing state or measured progress.
+
+Use `KARIN_CAPTURE_SCALE=2 scripts/capture-ui.sh build/ui-captures/hidpi` for
+the same logical-size matrix on a 3840×2160 Xvfb display. Inspect actual scale-2
+textures as well as layout. Static synthetic native-fixture frames explicitly
+use GTK reduced motion to avoid recording a dialog's opening fade; the ordinary
+full-window capture, smoke and separate interactive WebKit processes retain
+their normal motion settings. Record these conditions with the evidence.
+
 Inspect the music interface and diagnostics at each size below, in **light and
 dark themes**. Cover signed-out library/search/queue navigation and the single
 native sign-in dialog without real credentials. Account/search/detail states

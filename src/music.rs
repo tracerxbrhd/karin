@@ -103,6 +103,9 @@ pub struct Track {
     pub album_id: Option<String>,
     pub album_title: Option<String>,
     pub duration_ms: Option<u64>,
+    pub cover: Option<crate::artwork::CoverArt>,
+    /// Only the provider's explicit boolean supplies this content marker.
+    pub explicit: bool,
     /// Metadata availability is not stream permission or a playable resource.
     pub available: bool,
 }
@@ -110,6 +113,7 @@ pub struct Track {
 pub struct Artist {
     pub id: String,
     pub name: String,
+    pub cover: Option<crate::artwork::CoverArt>,
 }
 #[derive(Clone, PartialEq, Eq)]
 pub struct Album {
@@ -117,6 +121,7 @@ pub struct Album {
     pub title: String,
     pub artists: Vec<String>,
     pub tracks: Vec<Track>,
+    pub cover: Option<crate::artwork::CoverArt>,
 }
 #[derive(Clone, PartialEq, Eq)]
 pub struct PlaylistId {
@@ -128,6 +133,7 @@ pub struct Playlist {
     pub id: PlaylistId,
     pub title: String,
     pub track_count: u64,
+    pub cover: Option<crate::artwork::CoverArt>,
 }
 #[derive(Clone, PartialEq, Eq)]
 pub struct Page<T> {
@@ -829,6 +835,8 @@ struct PlaylistWire {
     title: Option<String>,
     track_count: Option<u64>,
     tracks: Option<Vec<TrackReference>>,
+    #[serde(default, deserialize_with = "cover_object")]
+    cover: Option<crate::artwork::CoverArt>,
 }
 #[derive(Deserialize)]
 struct OwnerWire {
@@ -838,6 +846,8 @@ struct OwnerWire {
 struct ArtistWire {
     id: Option<Id>,
     name: Option<String>,
+    #[serde(default, deserialize_with = "cover_object")]
+    cover: Option<crate::artwork::CoverArt>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -850,14 +860,21 @@ struct TrackWire {
     albums: Vec<AlbumWire>,
     duration_ms: Option<u64>,
     available: Option<bool>,
+    #[serde(default, deserialize_with = "cover_template")]
+    cover_uri: Option<crate::artwork::CoverArt>,
+    #[serde(default, deserialize_with = "explicit_flag")]
+    explicit: bool,
 }
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct AlbumWire {
     id: Id,
     title: Option<String>,
     #[serde(default)]
     artists: Vec<ArtistWire>,
     volumes: Option<Vec<Vec<TrackWire>>>,
+    #[serde(default, deserialize_with = "cover_template")]
+    cover_uri: Option<crate::artwork::CoverArt>,
 }
 #[derive(Deserialize)]
 struct SearchWire {
@@ -890,6 +907,7 @@ fn artist_from_wire(wire: ArtistWire) -> Result<Artist, MusicError> {
     Ok(Artist {
         id: wire.id.ok_or(MusicError::InvalidResponse)?.0,
         name: text(wire.name.ok_or(MusicError::InvalidResponse)?)?,
+        cover: wire.cover,
     })
 }
 fn playlist_from_wire(wire: PlaylistWire) -> Result<Playlist, MusicError> {
@@ -905,6 +923,7 @@ fn playlist_from_wire(wire: PlaylistWire) -> Result<Playlist, MusicError> {
         },
         title: text(wire.title.unwrap_or_else(|| "Без названия".into()))?,
         track_count: wire.track_count.ok_or(MusicError::InvalidResponse)?,
+        cover: wire.cover,
     })
 }
 fn artist_names(wire: Vec<ArtistWire>) -> Result<Vec<String>, MusicError> {
@@ -918,6 +937,9 @@ fn artist_names(wire: Vec<ArtistWire>) -> Result<Vec<String>, MusicError> {
 }
 fn track_from_wire(wire: TrackWire) -> Result<Track, MusicError> {
     let album = wire.albums.into_iter().next();
+    let cover = wire
+        .cover_uri
+        .or_else(|| album.as_ref().and_then(|album| album.cover_uri.clone()));
     Ok(Track {
         id: wire.id.0,
         title: text(wire.title.unwrap_or_else(|| "Без названия".into()))?,
@@ -926,6 +948,8 @@ fn track_from_wire(wire: TrackWire) -> Result<Track, MusicError> {
         album_title: album.and_then(|album| album.title).map(text).transpose()?,
         duration_ms: wire.duration_ms,
         available: wire.available.unwrap_or(false),
+        cover,
+        explicit: wire.explicit,
     })
 }
 fn album_from_wire(wire: AlbumWire) -> Result<Album, MusicError> {
@@ -945,7 +969,43 @@ fn album_from_wire(wire: AlbumWire) -> Result<Album, MusicError> {
         title: text(wire.title.unwrap_or_else(|| "Без названия".into()))?,
         artists: artist_names(wire.artists)?,
         tracks,
+        cover: wire.cover_uri,
     })
+}
+
+// Artwork is optional presentation metadata, not a network capability carried
+// verbatim from the service. These transient values are bounded by the existing
+// 1 MiB response limit and are never logged or retained in an application model.
+// A malformed image field must not discard an otherwise usable track or page.
+fn cover_template<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<crate::artwork::CoverArt>, D::Error> {
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(value.as_str().and_then(crate::artwork::CoverArt::parse))
+}
+
+fn cover_object<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<crate::artwork::CoverArt>, D::Error> {
+    let value = serde_json::Value::deserialize(deserializer)?;
+    let direct = value
+        .get("uri")
+        .and_then(serde_json::Value::as_str)
+        .and_then(crate::artwork::CoverArt::parse);
+    Ok(direct.or_else(|| {
+        value
+            .get("itemsUri")
+            .and_then(serde_json::Value::as_array)?
+            .iter()
+            .filter_map(serde_json::Value::as_str)
+            .find_map(crate::artwork::CoverArt::parse)
+    }))
+}
+
+fn explicit_flag<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<bool, D::Error> {
+    Ok(serde_json::Value::deserialize(deserializer)?
+        .as_bool()
+        .unwrap_or(false))
 }
 
 #[derive(Deserialize)]

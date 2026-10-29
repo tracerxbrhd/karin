@@ -23,6 +23,11 @@ does not satisfy the real-track criterion.
 - A native music interface with loading/error/empty/session states, library and
   search results, detail navigation and a bounded metadata queue. Only returned
   service data is displayed; no demonstration catalog is shipped.
+- A desktop sidebar/compact drawer, Home with working destinations, readable
+  music rows and context actions, detail covers and a persistent selected-track
+  bar. Public cover images use bounded asynchronous loading and a memory cache;
+  malformed or missing art has a native placeholder. Theme preferences support
+  system/light/dark for the current process. No playback position is simulated.
 - One native `Войти` dialog loads the actual Yandex login in an isolated,
   ephemeral WebKitGTK6 view. The default `cassette-auth` provider adapts Cassette's
   published session-cookie → OAuth `sessionid` grant. No Client ID/secret fields,

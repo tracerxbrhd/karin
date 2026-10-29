@@ -801,3 +801,167 @@ fn artist_detail_uses_identified_resource_and_validates_pager_before_navigation(
     assert!(requests[0].starts_with("GET /artists/11/tracks?page=0&page-size=50 HTTP/1.1"));
     assert!(requests[1].starts_with("GET /artists/11/tracks?page=1&page-size=50 HTTP/1.1"));
 }
+
+#[test]
+fn typed_artwork_is_reduced_from_track_album_artist_and_playlist_metadata() {
+    let template = "avatars.yandex.net/get-music-content/synthetic-private-cover/%%";
+    let expected = crate::artwork::CoverArt::parse(template).unwrap();
+    let track = track_from_wire(
+        serde_json::from_value(json!({
+            "id":42,"coverUri":template,"explicit":true,"available":false
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(track.cover, Some(expected.clone()));
+    assert!(track.explicit);
+    assert!(!track.available);
+    let album = album_from_wire(
+        serde_json::from_value(json!({
+            "id":7,"coverUri":template,"volumes":[]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(album.cover, Some(expected.clone()));
+    let artist = artist_from_wire(
+        serde_json::from_value(json!({
+            "id":11,"name":"synthetic-private-artist","cover":{"uri":template}
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(artist.cover, Some(expected.clone()));
+    let playlist = playlist_from_wire(
+        serde_json::from_value(json!({
+            "owner":{"uid":1234},"kind":8,"trackCount":0,"cover":{"itemsUri":[template]}
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(playlist.cover, Some(expected));
+    for visible in [
+        format!("{track:?}"),
+        format!("{album:?}"),
+        format!("{artist:?}"),
+        format!("{playlist:?}"),
+        format!("{:?}", track.cover),
+    ] {
+        assert!(!visible.contains("synthetic-private-cover"));
+        assert!(!visible.contains("avatars.yandex.net"));
+        assert!(!visible.contains("synthetic-private-artist"));
+    }
+}
+
+#[test]
+fn malformed_optional_artwork_never_discards_valid_track_or_catalog_entities() {
+    for invalid in [
+        json!(null),
+        json!(false),
+        json!(12),
+        json!({"uri":"synthetic-private-cover"}),
+        json!(["synthetic-private-cover"]),
+        json!("https://evil.invalid/synthetic-private-cover/%%"),
+        json!(
+            "https://avatars.yandex.net/get-music-content/synthetic/%%?token=synthetic-private-token"
+        ),
+        json!("http://avatars.yandex.net/get-music-content/synthetic/%%"),
+        json!("https://avatars.yandex.net:443/get-music-content/synthetic/%%"),
+    ] {
+        let track = track_from_wire(
+            serde_json::from_value(json!({
+                "id":42,"coverUri":invalid.clone(),"available":true
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(track.cover.is_none());
+        assert!(track.available);
+        let album = album_from_wire(
+            serde_json::from_value(json!({
+                "id":7,"coverUri":invalid.clone()
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(album.cover.is_none());
+        let artist = artist_from_wire(
+            serde_json::from_value(json!({
+                "id":11,"name":"synthetic-private-artist","cover":invalid.clone()
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(artist.cover.is_none());
+        let playlist = playlist_from_wire(
+            serde_json::from_value(json!({
+                "owner":{"uid":1234},"kind":8,"trackCount":0,"cover":invalid
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(playlist.cover.is_none());
+    }
+}
+
+#[test]
+fn artwork_fallbacks_choose_first_valid_template_without_widening_image_origin() {
+    let direct = "avatars.yandex.net/get-music-content/synthetic/direct/%%";
+    let fallback = "avatars.yandex.net/get-music-content/synthetic/fallback/%%";
+    let expected_direct = crate::artwork::CoverArt::parse(direct);
+    let expected_fallback = crate::artwork::CoverArt::parse(fallback);
+    let track = track_from_wire(
+        serde_json::from_value(json!({
+            "id":42,"coverUri":"https://evil.invalid/%%","albums":[{"id":7,"coverUri":fallback}]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(track.cover, expected_fallback);
+    let track = track_from_wire(
+        serde_json::from_value(json!({
+            "id":42,"coverUri":direct,"albums":[{"id":7,"coverUri":fallback}]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(track.cover, expected_direct);
+    let artist = artist_from_wire(serde_json::from_value(json!({
+        "id":11,"name":"synthetic-private-artist","cover":{"uri":"https://evil.invalid/%%","itemsUri":[null,17,"https://evil.invalid/%%",fallback,direct]}
+    })).unwrap()).unwrap();
+    assert_eq!(artist.cover, expected_fallback);
+    let playlist = playlist_from_wire(serde_json::from_value(json!({
+        "owner":{"uid":1234},"kind":8,"trackCount":0,"cover":{"uri":direct,"itemsUri":[fallback]}
+    })).unwrap()).unwrap();
+    assert_eq!(playlist.cover, expected_direct);
+}
+
+#[test]
+fn content_marker_uses_only_explicit_boolean_and_preserves_metadata_availability() {
+    for (value, expected) in [
+        (json!(true), true),
+        (json!(false), false),
+        (json!(null), false),
+        (json!("true"), false),
+        (json!(1), false),
+    ] {
+        let track = track_from_wire(
+            serde_json::from_value(json!({
+                "id":42,"explicit":value,"contentWarning":"explicit","available":false
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(track.explicit, expected);
+        assert!(!track.available);
+    }
+    let track = track_from_wire(
+        serde_json::from_value(json!({
+            "id":42,"contentWarning":"explicit","available":true
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    assert!(!track.explicit);
+    assert!(track.available);
+}

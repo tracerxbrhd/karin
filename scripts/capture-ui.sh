@@ -4,6 +4,12 @@
 set -eu
 repository=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 binary="$repository/target/debug/karin"
+capture_scale=${KARIN_CAPTURE_SCALE:-1}
+case "$capture_scale" in
+    1) capture_screen=1920x1080 ;;
+    2) capture_screen=3840x2160 ;;
+    *) echo 'KARIN_CAPTURE_SCALE must be 1 or 2' >&2; exit 2 ;;
+esac
 if [ "${1-}" != --session ]; then
     output_dir=$(realpath -m "${1:-$repository/build/ui-captures}")
     mkdir -p "$output_dir"
@@ -19,6 +25,8 @@ if [ "${1-}" != --session ]; then
             "$repository/src/session.rs" "$repository/src/session/device.rs" \
             "$repository/src/queue.rs" "$repository/src/main.rs" \
             "$repository/src/playback.rs" "$repository/src/capabilities.rs" \
+            "$repository/src/artwork.rs" "$repository/src/ui/artwork.rs" \
+            "$repository/src/ui/preferences.rs" "$repository/src/stream.rs" \
             "$repository/src/auth.rs" "$repository/src/ui/auth.rs" \
             "$repository/src/ui/auth/webkit.rs" "$repository/src/auth/cassette.rs" \
             "$repository/src/auth/cassette_client.json" "$repository/Cargo.toml" \
@@ -29,12 +37,12 @@ if [ "${1-}" != --session ]; then
             dpkg-query -W xvfb openbox imagemagick xdotool librsvg2-common
         fi
         openbox --version
-        printf '\nCapture: isolated Xvfb 1920x1080 at 96dpi; cairo/full-redraw; light and dark.\n'
+        printf '\nCapture: isolated Xvfb %s at 96dpi; GDK_SCALE=%s; cairo/full-redraw; light and dark.\n' "$capture_screen" "$capture_scale"
     } > "$output_dir/capture-info.txt"
     for theme in light dark; do
         env ADW_DEBUG_COLOR_SCHEME="prefer-$theme" GTK_A11Y=none GSK_RENDERER=cairo GSK_DEBUG=full-redraw \
-            GDK_SCALE=1 GDK_DPI_SCALE=1 \
-            dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' \
+            GDK_SCALE="$capture_scale" GDK_DPI_SCALE=1 \
+            dbus-run-session -- xvfb-run -a -s "-screen 0 ${capture_screen}x24 -dpi 96" \
             "$0" --session "$output_dir/$theme"
     done
     exit 0
@@ -99,13 +107,13 @@ capture() {
 resize() {
     wmctrl -ir "$window" -b remove,maximized_vert,maximized_horz
     sleep 0.2
-    timeout 5 xdotool windowsize --sync "$window" "$1" "$2"
-    timeout 5 xdotool windowmove --sync "$window" 48 48
+    timeout 5 xdotool windowsize --sync "$window" "$(( $1 * capture_scale ))" "$(( $2 * capture_scale ))"
+    timeout 5 xdotool windowmove --sync "$window" "$(( 48 * capture_scale ))" "$(( 48 * capture_scale ))"
 }
 scroll_to_top() {
     # Keyboard focus can reveal an entire preferences group after resizing.
     # Keep initial-page matrix frames at the top; transport frames stay natural.
-    xdotool mousemove --window "$window" 350 200
+    xdotool mousemove --window "$window" "$(( 350 * capture_scale ))" "$(( 200 * capture_scale ))"
     xdotool click --repeat 8 --delay 40 4
 }
 for shape in compact medium wide; do
@@ -115,6 +123,13 @@ for shape in compact medium wide; do
         wide) resize 1440 900 ;;
     esac
     xdotool key --clearmodifiers alt+1
+    xdotool key --clearmodifiers ctrl+h
+    capture "$shape-home"
+    if [ "$shape" = compact ]; then
+        xdotool key --clearmodifiers ctrl+b
+        capture compact-navigation-focus
+        xdotool key --clearmodifiers Return
+    fi
     xdotool key --clearmodifiers ctrl+l
     capture "$shape-overview"
     # Alt+1 focuses Login; --ui-fixture injects an explicitly offline provider.
@@ -133,6 +148,8 @@ for shape in compact medium wide; do
 done
 wmctrl -ir "$window" -b add,maximized_vert,maximized_horz
 xdotool key --clearmodifiers alt+1
+xdotool key --clearmodifiers ctrl+h
+capture maximized-home
 xdotool key --clearmodifiers ctrl+l
 capture maximized-overview
 xdotool key --clearmodifiers alt+1 Return
@@ -149,6 +166,10 @@ scroll_to_top
 capture maximized-diagnostics
 # Keyboard activation uses only the generated WAV and the default fakesink.
 resize 900 650
+xdotool key --clearmodifiers ctrl+comma
+capture preferences
+xdotool key --clearmodifiers Escape
+sleep 0.4
 xdotool key --clearmodifiers alt+2
 xdotool key --clearmodifiers Return
 sleep 1
@@ -171,7 +192,7 @@ xdotool key --clearmodifiers Tab Tab Tab Tab Tab Tab Tab
 xdotool key --clearmodifiers ctrl+End
 # Read-only native-library text follows the last interactive row. Scroll to
 # expose it as well; keyboard focus/activation is captured separately above.
-xdotool mousemove --window "$window" 350 560
+xdotool mousemove --window "$window" "$(( 350 * capture_scale ))" "$(( 560 * capture_scale ))"
 xdotool click --repeat 8 --delay 60 5
 capture compact-diagnostics-bottom
 xdotool key --clearmodifiers ctrl+q
