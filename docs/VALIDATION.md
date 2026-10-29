@@ -6,7 +6,7 @@ This report separates initial cloud checks, user-reported Fedora acceptance,
 revised UI checks and compiler compatibility. A result for one environment or
 revision is not evidence that another has passed.
 
-## Interactive sign-in navigation correction — current work (2026-10-29)
+## Interactive sign-in navigation correction — `00b0a41` (2026-10-29)
 
 The owner reproduced this failure on Fedora using **`77a1a27`**: the real Yandex
 page opens, then Karin reports `AuthError::UntrustedNavigation` after roughly
@@ -48,8 +48,67 @@ and creating/redirecting frames. Automated scope covers fragment acceptance,
 auxiliary rejection without session destruction, untrusted top-level blocking,
 iframe callback isolation, missing/wrong state, cancel/retry/late events and
 diagnostic privacy. This is not a real Yandex phone/QR or account acceptance test.
-New stable/1.98.1, fixture and hosted results for this correction are **pending
-execution**; the earlier passed matrix below does not establish them.
+
+### Executed regression and local matrix
+
+The identical portable test
+`regression_trusted_page_fragment_must_not_abort_login` was added to an isolated
+copy of `77a1a27`: it **failed with exit 101** because a trusted synthetic page
+fragment was rejected. It **passed after the correction**, before the full local
+matrix. This is red/green evidence for the fragment defect, not identification
+of the owner's actual Yandex event or a completed interactive browser check.
+
+The full prepared Debian 13 matrix passed for
+`00b0a419cc5703feb8249c8a5611a5528264ee94`, using GTK 4.18.6, Libadwaita 1.7.6,
+GStreamer 1.26.2 and WebKitGTK6 2.54.0. Cargo.lock, the Rust MSRV and native/Flatpak
+SDK/runtime baselines remain unchanged.
+
+| Check | Stable 1.99.1 | Exact Rust 1.98.1 |
+| --- | --- | --- |
+| Formatting; default/all-feature/no-feature all-target Clippy, `-D warnings` | Passed | Passed |
+| Default workspace tests | **125 passed**, 0 failed; 4 display tests selected separately | Same |
+| All-feature workspace tests | **133 passed**, 0 failed; 4 display tests selected separately | Same |
+| No-feature workspace tests | **111 passed**, 0 failed; 1 native test selected separately | Same |
+| Explicit native Music/auth HTTP fixture | **1 passed** | **1 passed** |
+| Explicit ephemeral WebView construction/shutdown | **1 passed** | **1 passed** |
+| Default/all-feature/no-feature debug builds | Passed | Passed |
+| GTK smoke: sizes, both themes, early/repeated cancel and window/worker cleanup | Passed | Passed |
+| Fourteen synthetic PTY cases and missing-TTY refusal | Passed | Passed |
+| Silent GStreamer and generated local playbin controller checks | Passed | Passed |
+| Default/all-feature offline optimized builds and GTK checks | Not selected | Passed |
+| Optimized terminal/audio/player checks | Not selected | Passed |
+
+Totals include four binary tests: default 121 library + 4 binary, all-feature
+129 + 4, no-feature 107 + 4. Display tests are excluded from those totals and
+reported separately; an ignored test is not counted as passed. The default
+prototype release was restored with
+`--no-default-features --features cassette-auth` after all-feature checks.
+No `--ignore-rust-version` or sandbox disablement was used.
+
+The full page-loading and new interactive WebKit tests require a working process
+sandbox. The nested cloud cannot provide its namespace; blank construction and
+the ordinary GTK smoke do not establish those checks. Both complete hosted runs
+for `00b0a419cc5703feb8249c8a5611a5528264ee94` **passed** on stable and exact
+Rust 1.98.1: [PR run 40887248552](https://github.com/tracerxbrhd/karin/actions/runs/40887248552)
+and [push run 40887236860](https://github.com/tracerxbrhd/karin/actions/runs/40887236860).
+The display-dependent checks executed as separate processes with the WebKit
+sandbox enabled and the existing temporary exact-test-binary AppArmor profile:
+
+| Hosted WebKit test | Stable | Rust 1.98.1 |
+| --- | --- | --- |
+| Full local page/callback, cookie isolation, session grant and cancellation fixture | **1 passed** | **1 passed** |
+| Interactive input, fragments, frames and first-rejection regression | **1 passed** | **1 passed** |
+
+The same runs passed the compiler/unit/native checks, MSRV offline releases and
+optimized diagnostics. The MSRV lane uploaded
+[the native prototype](https://github.com/tracerxbrhd/karin/actions/runs/40887248552/artifacts/12903920592),
+and stable uploaded [the cloud image artifact](https://github.com/tracerxbrhd/karin/actions/runs/40887248552/artifacts/12902854661).
+These are outcomes for the stated source revision, not an inferred result from
+earlier compilation or screenshots. They use synthetic loopback pages, input,
+cookies and tokens; they do not establish real Yandex phone/QR behavior, Music
+authorization or Fedora acceptance. Current exact-head hosted outcomes, inspected
+images and the matching artifact for the next local run are recorded in
+[PR #8](https://github.com/tracerxbrhd/karin/pull/8).
 
 Use [one local Fedora navigation retest](BUILDING.md#one-fedora-navigation-retest-after-77a1a27)
 with the new matching MSRV artifact. Report only its revision, first sanitized
