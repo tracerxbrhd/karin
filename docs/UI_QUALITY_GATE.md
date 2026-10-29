@@ -53,15 +53,17 @@ For each theme and relevant page:
   session cancel/logout, empty and unavailable-item text, queue editing and the
   visible permitted-source blocker. Disabled player controls must not suggest
   successful service playback. Default builds must not expose Device Flow.
-- Open the sign-in dialog at every size/theme. Check loading, truthful provider
-  blocking, retry, Escape/cancel and focus return. No build mode may expose Client
+- Open the sign-in dialog at every size/theme. Automated checks use the explicitly
+  injected offline provider or local browser-session fixtures; check loading,
+  stage-specific errors, retry, Escape/cancel and focus return. No build mode may expose Client
   ID/secret, device codes, pasted tokens or URL fields in this user journey.
   Only validated Music account access may complete sign-in; test callback/state,
   cancellation and late responses against local fixtures. Clear old errors on
   logout, cancel and a fresh attempt; use native message rows with wrapped text.
-- If the optional WebKit component changes, check ephemeral-session construction
-  and destruction, trusted origin display and callback interception separately
-  from provider permission. Exercise actual local page loading with the sandbox
+- When the WebKit component changes, check ephemeral-session construction and
+  destruction, trusted origin display, exact main-document return/state handling,
+  asynchronous own-session cookie collection/cancellation and callback interception
+  separately from provider permission. Exercise actual local page loading with the sandbox
   enabled where supported; report namespace/sandbox restrictions as blocked.
 - Never capture real application credentials, verification codes, auth/browser
   pages or account/library data for public evidence. Cloud capture should use
@@ -102,9 +104,12 @@ cargo build --workspace --locked
 scripts/capture-ui.sh build/ui-captures
 ```
 
-The matrix also opens/closes the public blocked login dialog at all four sizes
-in both themes. These captures never load a real authorization page or claim a
-successful provider login.
+The helper always selects explicit `--ui-fixture` mode before opening/closing the
+sign-in dialog at all four sizes in both themes. This injected offline provider
+is automation-only; ordinary startup uses the real Cassette-compatible provider.
+These captures never load a real authorization page or claim successful provider
+login. Mark fixture evidence clearly and use local WebKit/HTTP fixtures to cover
+the session grant; the real Fedora owner test is a separate acceptance gate.
 
 It requires Xvfb, Openbox, ImageMagick (`import`), xdotool, wmctrl and xwininfo,
 plus the normal GTK/GStreamer libraries and SVG loader. In the prepared cloud

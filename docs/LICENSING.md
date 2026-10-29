@@ -12,7 +12,8 @@ records the approved decision. Third-party files retain their original licenses.
 The Issue #7 slice was reviewed on **2026-10-28** without adding a crate or
 changing `Cargo.lock`. The thin Music adapter uses endpoint/schema knowledge
 from the pinned yamu review, with original implementations and GPL SPDX notices;
-no upstream OAuth identity, secret, signing/decryption code or media is imported.
+that Music adapter imports no upstream OAuth defaults, signing/decryption code
+or media. The subsequent Cassette auth adaptation described below is separate.
 The locked dependency inventory and supplied notices remain applicable. Clean UI
 captures use only signed-out states or explicitly synthetic test metadata.
 
@@ -20,10 +21,34 @@ PR #8 adds optional `webkit6`/`webkit6-sys` and
 `javascriptcore6`/`javascriptcore6-sys` **0.5.0**, plus
 `soup3`/`soup3-sys` **0.8.0**. All six Rust bindings declare MIT. Their notices
 are preserved, including the exact-commit recovery for four archive omissions
-described below. The default/public build excludes these optional bindings;
-the inventory deliberately audits the all-feature graph as well. Neither these
-licenses nor native WebKit availability establishes an approved Music provider,
-callback or right to use another application's OAuth identity.
+described below. Default `cassette-auth` now selects these bindings; the inventory
+continues auditing the all-feature graph, including the no-GUI Device Flow option.
+Neither these licenses nor native WebKit availability establishes service access,
+Linux embedded-auth approval or registration distribution rights.
+
+### Cassette authentication adaptation
+
+`src/auth/cassette.rs` adapts the published browser-session/token contract from
+Cassette v0.2.4, commit `fc6c6e689bd0c60fa662b03aa2aa3c05534b4811`, under
+**GPL-3.0-or-later**, preserving Copyright 2023–2024 Vladimir Vaskov. The published
+shared application configuration is retained in `src/auth/cassette_client.json`;
+it is upstream app material, not a user's password, OAuth token or session cookie.
+The unmodified upstream GPL text and exact provenance are retained at
+[`packaging/third-party-licenses/cassette-auth/`](../packaging/third-party-licenses/cassette-auth/).
+The source snapshot carries these materials; distributors must preserve them
+with Karin's GPL text, notices and corresponding source. This supplemental
+source adaptation is outside the Cargo-only crate inventory; no crate license
+is silently changed or used to stand in for its attribution.
+
+The owner's functional-prototype scope permits this adaptation without requiring
+a Karin-owned registration. GPL source reuse does **not** grant rights to the
+shared OAuth registration, Music API/content or trademarks. Express approval
+for Karin's reuse/public distribution and Linux WebKit is not established; this
+is an unresolved condition, not a confirmed blanket service prohibition or a
+technical token/API error. A successful private prototype test does not settle
+public release conditions. No official-client Music header, stream-signing key,
+DRM logic or protected media is imported. See [ADR-0011](adr/0011-cassette-session-auth-prototype.md)
+and [the authentication review](AUTHENTICATION_REVIEW.md).
 
 ## License text and scope
 

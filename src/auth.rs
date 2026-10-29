@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Browser/session boundary. Public sign-in stays blocked until Karin has a
-//! permitted Music client. A browser login or OAuth grant is never Music proof.
+//! Browser/session boundary. A browser session or OAuth grant is never Music proof.
 
 use std::{
     fmt,
@@ -31,6 +30,7 @@ const LIFETIME: Duration = Duration::from_secs(10 * 60);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AuthError {
+    OfflineFixture,
     MusicPermissionUnavailable,
     Configuration,
     Cancelled,
@@ -47,11 +47,36 @@ pub enum AuthError {
     BrowserLoad,
     BrowserTls,
     BrowserProcess,
+    BrowserSessionRead,
+    BrowserSessionMissing,
+    SessionStateMissing,
+    SessionStateMismatch,
+    TokenExchange {
+        status: u16,
+        category: TokenErrorCategory,
+    },
+    TokenNetwork,
+    TokenTimeout,
+    TokenMalformed,
+    TokenExpired,
+}
+
+/// Provider text is never retained. These are the only displayed token errors.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TokenErrorCategory {
+    InvalidClient,
+    InvalidGrant,
+    AccessDenied,
+    InvalidRequest,
+    UnsupportedGrant,
+    RateLimited,
+    Unknown,
 }
 
 impl AuthError {
     pub const fn user_message(self) -> &'static str {
         match self {
+            Self::OfflineFixture => "Локальная проверка интерфейса: сетевой вход отключён.",
             Self::MusicPermissionUnavailable => {
                 "Вход в Яндекс Музыку пока недоступен: разрешённый Music-доступ для приложения Karin не подтверждён. Это не ошибка вашего пароля."
             }
@@ -76,13 +101,38 @@ impl AuthError {
             }
             Self::BrowserTls => "Не удалось проверить защищённое соединение со страницей входа.",
             Self::BrowserProcess => "Окно входа завершило работу. Попробуйте ещё раз.",
+            Self::BrowserSessionRead => "Не удалось получить сессию этого окна входа.",
+            Self::BrowserSessionMissing => {
+                "Яндекс не предоставил сессию для обмена на Music-токен. Начните вход заново."
+            }
+            Self::SessionStateMissing => {
+                "Яндекс вернул страницу Музыки без проверочного state. Обмен сессии не выполнен."
+            }
+            Self::SessionStateMismatch => {
+                "Проверочный state страницы Музыки не совпал. Обмен сессии не выполнен."
+            }
+            Self::TokenExchange { .. } => "Яндекс отклонил обмен браузерной сессии на Music-токен.",
+            Self::TokenNetwork => {
+                "Не удалось связаться с OAuth при обмене браузерной сессии на Music-токен."
+            }
+            Self::TokenTimeout => {
+                "OAuth не ответил вовремя при обмене браузерной сессии на Music-токен."
+            }
+            Self::TokenMalformed => {
+                "OAuth вернул неподдерживаемый ответ при обмене сессии на Music-токен."
+            }
+            Self::TokenExpired => "OAuth выдал уже истёкший Music-токен. Начните вход заново.",
         }
     }
 }
 
 impl fmt::Display for AuthError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.user_message())
+        f.write_str(self.user_message())?;
+        if let Self::TokenExchange { status, category } = self {
+            write!(f, " · HTTP {status} · {category:?}")?;
+        }
+        Ok(())
     }
 }
 impl std::error::Error for AuthError {}
@@ -95,8 +145,7 @@ pub enum BrowserMode {
     Embedded,
 }
 
-/// Implementations must establish the right to use their client identity. The
-/// public factory deliberately supplies no provider for the known 403 client.
+/// Session acquisition and token issuance are separate from Music validation.
 pub trait AuthProvider: Send + Sync {
     fn begin(&self) -> Result<Arc<AuthAttempt>, AuthError>;
     fn exchange(
@@ -104,9 +153,18 @@ pub trait AuthProvider: Send + Sync {
         attempt: &AuthAttempt,
         code: AuthorizationCode,
     ) -> Result<AccessToken, AuthError>;
+    fn exchange_session(
+        &self,
+        _: &AuthAttempt,
+        _: SessionCookies,
+    ) -> Result<AccessToken, AuthError> {
+        Err(AuthError::Configuration)
+    }
 }
 
+#[cfg(not(feature = "cassette-auth"))]
 struct BlockedProvider;
+#[cfg(not(feature = "cassette-auth"))]
 impl AuthProvider for BlockedProvider {
     fn begin(&self) -> Result<Arc<AuthAttempt>, AuthError> {
         Err(AuthError::MusicPermissionUnavailable)
@@ -117,7 +175,75 @@ impl AuthProvider for BlockedProvider {
 }
 
 pub fn public_provider() -> Arc<dyn AuthProvider> {
-    Arc::new(BlockedProvider)
+    #[cfg(feature = "cassette-auth")]
+    {
+        Arc::new(cassette::CassetteProvider::new())
+    }
+    #[cfg(not(feature = "cassette-auth"))]
+    {
+        Arc::new(BlockedProvider)
+    }
+}
+
+#[cfg(feature = "cassette-auth")]
+pub mod cassette;
+
+/// Cookies from this attempt's ephemeral WebKit session only. No disk store,
+/// third-party browser import, arbitrary destination or Debug exposure.
+pub struct SessionCookies(
+    // Minimal builds retain the opaque provider boundary but intentionally
+    // compile no consumer of browser-session credentials.
+    #[cfg_attr(not(feature = "cassette-auth"), expect(dead_code))] Zeroizing<String>,
+);
+impl fmt::Debug for SessionCookies {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("SessionCookies([redacted])")
+    }
+}
+impl SessionCookies {
+    pub fn from_pairs<I: IntoIterator<Item = (String, String)>>(
+        pairs: I,
+    ) -> Result<Self, AuthError> {
+        let mut header = Zeroizing::new(String::new());
+        let mut session = false;
+        let mut names = std::collections::HashSet::new();
+        for (name, value) in pairs {
+            let name = Zeroizing::new(name);
+            let value = Zeroizing::new(value);
+            if names.len() >= 64
+                || name.is_empty()
+                || name.len() > 128
+                || value.len() > 8192
+                || !name
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
+                || !value.bytes().all(|b| {
+                    b == 0x21
+                        || (0x23..=0x2b).contains(&b)
+                        || (0x2d..=0x3a).contains(&b)
+                        || (0x3c..=0x5b).contains(&b)
+                        || (0x5d..=0x7e).contains(&b)
+                })
+                || !names.insert(name.to_string())
+            {
+                return Err(AuthError::BrowserSessionRead);
+            }
+            session |= name.as_str() == "Session_id" && !value.is_empty();
+            if !header.is_empty() {
+                header.push_str("; ");
+            }
+            header.push_str(&name);
+            header.push('=');
+            header.push_str(&value);
+            if header.len() > 16384 {
+                return Err(AuthError::BrowserSessionRead);
+            }
+        }
+        if !session {
+            return Err(AuthError::BrowserSessionMissing);
+        }
+        Ok(Self(header))
+    }
 }
 
 /// Single-use callback material. Never render or log this value.
@@ -137,6 +263,8 @@ impl fmt::Debug for AuthorizationCode {
 pub enum NavigationDecision {
     AllowTrusted,
     Callback(AuthorizationCode),
+    /// Candidate only: the UI must establish that this is the main document.
+    SessionReturn,
     Reject(AuthError),
 }
 impl fmt::Debug for NavigationDecision {
@@ -144,12 +272,14 @@ impl fmt::Debug for NavigationDecision {
         match self {
             Self::AllowTrusted => f.write_str("AllowTrusted"),
             Self::Callback(_) => f.write_str("Callback([redacted])"),
+            Self::SessionReturn => f.write_str("SessionReturn"),
             Self::Reject(error) => f.debug_tuple("Reject").field(error).finish(),
         }
     }
 }
 
-/// A bounded browser attempt. No production provider constructs one today.
+/// A bounded browser attempt. Cassette's implicit/sessionid grant is distinct
+/// from the retained code/PKCE automatic-loopback infrastructure.
 /// Loopback ports MUST match a provider-approved registration; random-port
 /// acceptance is not inferred from RFC 8252 or from synthetic tests.
 pub struct AuthAttempt {
@@ -163,6 +293,11 @@ pub struct AuthAttempt {
     created: Instant,
     cancelled: AtomicBool,
     consumed: AtomicBool,
+    #[cfg(feature = "cassette-auth")]
+    exchanged: AtomicBool,
+    session_based: bool,
+    session_authorized: AtomicBool,
+    cookie_uri: String,
     #[cfg(test)]
     fixture_origin: Option<String>,
 }
@@ -174,6 +309,192 @@ impl fmt::Debug for AuthAttempt {
 }
 
 impl AuthAttempt {
+    #[cfg(feature = "cassette-auth")]
+    pub(crate) fn session(client_id: &str) -> Result<Arc<Self>, AuthError> {
+        Self::prepare_session(
+            client_id,
+            "https://oauth.yandex.ru/authorize",
+            "https://music.yandex.ru/",
+        )
+    }
+
+    #[cfg(feature = "cassette-auth")]
+    fn prepare_session(
+        client_id: &str,
+        endpoint: &str,
+        callback: &str,
+    ) -> Result<Arc<Self>, AuthError> {
+        let mut bytes = Zeroizing::new([0u8; 32]);
+        SystemRandom::new()
+            .fill(bytes.as_mut())
+            .map_err(|_| AuthError::Configuration)?;
+        let state = Zeroizing::new(URL_SAFE_NO_PAD.encode(bytes.as_ref()));
+        let mut authorization = Url::parse(endpoint).map_err(|_| AuthError::Configuration)?;
+        let cookie_uri = authorization
+            .join("/token")
+            .map_err(|_| AuthError::Configuration)?
+            .to_string();
+        // Preserve Cassette's registered default redirect; do not substitute an
+        // unregistered Karin loopback or pretend this implicit flow uses PKCE.
+        authorization.query_pairs_mut().extend_pairs([
+            ("response_type", "token"),
+            ("client_id", client_id),
+            ("state", &state),
+        ]);
+        Ok(Arc::new(Self {
+            authorization: Zeroizing::new(authorization.into()),
+            callback: callback.into(),
+            state,
+            verifier: Zeroizing::new(String::new()),
+            listener: Mutex::new(None),
+            address: SocketAddrV4::new(std::net::Ipv4Addr::LOCALHOST, 0).into(),
+            mode: BrowserMode::Embedded,
+            created: Instant::now(),
+            cancelled: AtomicBool::new(false),
+            consumed: AtomicBool::new(false),
+            #[cfg(feature = "cassette-auth")]
+            exchanged: AtomicBool::new(false),
+            session_based: true,
+            session_authorized: AtomicBool::new(false),
+            cookie_uri,
+            #[cfg(test)]
+            fixture_origin: None,
+        }))
+    }
+
+    #[cfg(all(test, feature = "cassette-auth"))]
+    pub(crate) fn for_test_session(
+        endpoint: &str,
+        return_uri: &str,
+    ) -> Result<Arc<Self>, AuthError> {
+        let endpoint_url = Url::parse(endpoint).map_err(|_| AuthError::Configuration)?;
+        let returned = Url::parse(return_uri).map_err(|_| AuthError::Configuration)?;
+        for url in [&endpoint_url, &returned] {
+            if url.scheme() != "http"
+                || url.host_str() != Some("127.0.0.1")
+                || url.port().is_none()
+                || !url.username().is_empty()
+                || url.password().is_some()
+                || url.query().is_some()
+                || url.fragment().is_some()
+            {
+                return Err(AuthError::Configuration);
+            }
+        }
+        let mut attempt = Self::prepare_session("synthetic-cassette-client", endpoint, return_uri)?;
+        Arc::get_mut(&mut attempt)
+            .ok_or(AuthError::Configuration)?
+            .fixture_origin = Some(endpoint_url.origin().ascii_serialization());
+        Ok(attempt)
+    }
+
+    pub fn is_session_based(&self) -> bool {
+        self.session_based
+    }
+    pub fn session_cookie_uri(&self) -> &str {
+        &self.cookie_uri
+    }
+
+    fn is_session_return(&self, raw: &str) -> bool {
+        if !self.session_based || !valid_session_url_bytes(raw) {
+            return false;
+        }
+        let Some(tail) = raw.strip_prefix(&self.callback) else {
+            return false;
+        };
+        if !tail.is_empty() && !tail.starts_with(['?', '#']) {
+            return false;
+        }
+        let (Ok(url), Ok(callback)) = (Url::parse(raw), Url::parse(&self.callback)) else {
+            return false;
+        };
+        url.origin() == callback.origin()
+            && url.path() == callback.path()
+            && url.username().is_empty()
+            && url.password().is_none()
+    }
+
+    /// Consume a trusted MAIN-DOCUMENT return, never a subframe navigation.
+    /// The caller obtains cookies only from this attempt's isolated WebKit jar.
+    pub fn complete_session_return(&self, raw: &str) -> Result<(), AuthError> {
+        self.check_live()?;
+        if !self.is_session_return(raw) {
+            return Err(AuthError::InvalidCallback);
+        }
+        let url = Url::parse(raw).map_err(|_| AuthError::InvalidCallback)?;
+        let mut state = None;
+        let mut error = None;
+        let mut token_present = false;
+        let mut keys = std::collections::HashSet::new();
+        for section in [url.query(), url.fragment()].into_iter().flatten() {
+            for pair in section.split('&') {
+                if pair.is_empty() {
+                    return Err(AuthError::InvalidCallback);
+                }
+                let (key, value) = pair.split_once('=').ok_or(AuthError::InvalidCallback)?;
+                let key = decode(key)?;
+                let value = decode(value)?;
+                if keys.len() >= 32 || !keys.insert(key.to_string()) {
+                    return Err(AuthError::InvalidCallback);
+                }
+                match key.as_str() {
+                    "state" => state = Some(value),
+                    "error" => error = Some(value),
+                    "access_token" => token_present = true,
+                    _ => {} // Discard returned implicit tokens/personal fields without rendering or use.
+                }
+            }
+        }
+        let state = state.ok_or(AuthError::SessionStateMissing)?;
+        if state.len() != self.state.len()
+            || !bool::from(state.as_bytes().ct_eq(self.state.as_bytes()))
+        {
+            return Err(AuthError::SessionStateMismatch);
+        }
+        if error.is_some() && token_present {
+            return Err(AuthError::InvalidCallback);
+        }
+        self.consumed
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map_err(|_| AuthError::InvalidCallback)?;
+        if self.is_cancelled() {
+            return Err(AuthError::Cancelled);
+        }
+        if let Some(error) = error {
+            return Err(if error.as_str() == "access_denied" {
+                AuthError::Denied
+            } else {
+                AuthError::Rejected
+            });
+        }
+        self.session_authorized.store(true, Ordering::Release);
+        Ok(())
+    }
+
+    #[cfg(feature = "cassette-auth")]
+    fn check_session_exchange(&self) -> Result<(), AuthError> {
+        if self.is_cancelled() {
+            Err(AuthError::Cancelled)
+        } else if self.expired() {
+            Err(AuthError::Expired)
+        } else if !self.session_based
+            || !self.consumed.load(Ordering::Acquire)
+            || !self.session_authorized.load(Ordering::Acquire)
+        {
+            Err(AuthError::InvalidCallback)
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg(feature = "cassette-auth")]
+    fn claim_session_exchange(&self) -> Result<(), AuthError> {
+        self.check_session_exchange()?;
+        self.exchanged
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map_err(|_| AuthError::InvalidCallback)?;
+        self.check_session_exchange()
+    }
     /// Preparing a PKCE request establishes neither provider permission nor
     /// Music access. This is not connected to the public sign-in factory.
     pub fn new(
@@ -246,6 +567,11 @@ impl AuthAttempt {
             created: Instant::now(),
             cancelled: AtomicBool::new(false),
             consumed: AtomicBool::new(false),
+            #[cfg(feature = "cassette-auth")]
+            exchanged: AtomicBool::new(false),
+            session_based: false,
+            session_authorized: AtomicBool::new(false),
+            cookie_uri: "https://oauth.yandex.ru/token".into(),
             #[cfg(test)]
             fixture_origin: None,
         }))
@@ -323,6 +649,9 @@ impl AuthAttempt {
         if let Err(error) = self.check_live() {
             return NavigationDecision::Reject(error);
         }
+        if self.is_session_return(raw) {
+            return NavigationDecision::SessionReturn;
+        }
         if !valid_url_bytes(raw) {
             return NavigationDecision::Reject(AuthError::UntrustedNavigation);
         }
@@ -349,6 +678,18 @@ impl AuthAttempt {
 
     /// Sanitized active-document origin, without parsing or consuming a callback.
     pub fn display_origin(&self, raw: &str) -> Option<String> {
+        if self.is_session_return(raw)
+            && !self.is_cancelled()
+            && !self.expired()
+            && !self.consumed.load(Ordering::Acquire)
+        {
+            return Some(
+                Url::parse(&self.callback)
+                    .ok()?
+                    .origin()
+                    .ascii_serialization(),
+            );
+        }
         if !valid_url_bytes(raw)
             || self.is_cancelled()
             || self.expired()
@@ -372,7 +713,13 @@ impl AuthAttempt {
             && url.port().is_none_or(|p| p == 443)
             && matches!(
                 url.host_str(),
-                Some("oauth.yandex.ru" | "passport.yandex.ru" | "id.yandex.ru")
+                Some(
+                    "oauth.yandex.ru"
+                        | "passport.yandex.ru"
+                        | "id.yandex.ru"
+                        | "smartcaptcha.yandexcloud.net"
+                        | "captcha-api.yandex.ru"
+                )
             )
         {
             Some(origin)
@@ -576,6 +923,13 @@ fn valid_url_bytes(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= MAX_RETURN
         && !value.contains(['\\', '#'])
+        && !value.chars().any(|c| c.is_control() || c.is_whitespace())
+}
+
+fn valid_session_url_bytes(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_RETURN
+        && !value.contains('\\')
         && !value.chars().any(|c| c.is_control() || c.is_whitespace())
 }
 

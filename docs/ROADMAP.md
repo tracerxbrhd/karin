@@ -31,19 +31,22 @@ identity or a permitted Music stream.
 
 The current [vertical slice](adr/0009-music-vertical-slice.md) adds a typed
 MusicService, read-only library/search/details UI and metadata queue.
-[ADR-0010](adr/0010-single-purpose-sign-in-and-provider-gate.md) removes the
-developer-credential/code workflow from the GUI. One native sign-in dialog now
-reports the provider block; generic automatic callback/PKCE infrastructure and
-optional isolated WebKit support are covered by synthetic checks. Cassette-style
-live sign-in is not achieved. Karin still needs an authorized Music client/grant,
-a supported registered callback and provider confirmation for the chosen browser
-path before account/library/search acceptance can be performed. End users must
-not register applications or copy codes, URLs or tokens to sign in.
+[ADR-0011](adr/0011-cassette-session-auth-prototype.md) supersedes the earlier
+blocked-provider decision while retaining the single-purpose native login dialog.
+The default Cassette-compatible provider loads actual Yandex login in ephemeral
+WebKit and attempts the published session-cookie → OAuth sessionid chain before
+MusicService account validation and real library/search loads. End users do not
+register apps or copy codes, URLs or tokens. The known own-client PKCE 403 is kept
+as separate evidence rather than reused as the main login path.
 
-The default/public build has no activated auth provider or persistent session. A permitted
-source, audible service playback, verified credential lifecycle, write methods,
-MPRIS and My Wave remain separate gates. The [delivery review](STREAM_DELIVERY_REVIEW.md)
-records the concrete audio blocker; generated media does not complete v0.1.
+Actual Karin login, Music access and library/search acceptance remain pending
+one substantive Fedora run; cloud fixtures are insufficient. Code attribution,
+unresolved OAuth identity/service distribution conditions and concrete technical
+errors are documented separately. No persistent sessions or public-release
+approval are claimed. A permitted source, audible service playback, verified
+credential lifecycle, write methods, MPRIS and My Wave remain separate gates.
+The [delivery review](STREAM_DELIVERY_REVIEW.md) records the concrete audio blocker;
+generated media does not complete v0.1.
 
 ## Later Releases
 UX polish, richer library features, lyrics, settings,

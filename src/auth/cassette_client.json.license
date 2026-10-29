@@ -1,0 +1,7 @@
+SPDX-FileCopyrightText: 2023-2024 Vladimir Vaskov
+SPDX-License-Identifier: GPL-3.0-or-later
+
+Published application configuration adapted from Cassette v0.2.4,
+revision fc6c6e689bd0c60fa662b03aa2aa3c05534b4811,
+src/client/api/yam-client.vala. See
+packaging/third-party-licenses/cassette-auth/PROVENANCE.md and COPYING.

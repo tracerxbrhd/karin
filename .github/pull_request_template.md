@@ -16,10 +16,10 @@ Describe the concrete behavior and why it is needed.
 - [ ] Synthetic GStreamer diagnostic through `fakesink`
 - [ ] Generated local WAV through `--playback-self-test`, including transport and worker cleanup
 - [ ] GitHub Actions result inspected for this revision
-- [ ] Public and `experimental-device-auth` configurations checked separately
+- [ ] Default Cassette-compatible session provider, minimal no-WebKit and `experimental-device-auth` configurations checked separately
 - [ ] Native Music HTTP-fixture test explicitly executed under Xvfb
-- [ ] Optional `auth-webkit` checked on stable/MSRV with one GTK dependency family; startup/cancel and sandbox-enabled local navigation results recorded separately
-- [ ] Default/Flatpak excludes experimental authentication and bundled identities
+- [ ] `auth-webkit` checked on stable/MSRV with one GTK dependency family; startup/cancel and sandbox-enabled local navigation/session-cookie results recorded separately
+- [ ] Default/Flatpak enables `cassette-auth` and excludes legacy Device Flow; exact reused application identity, source attribution and public-distribution uncertainty documented separately
 - [ ] Documentation distinguishes passed, failed, blocked and unrun checks
 
 ## UI quality (required for substantial UI changes)
@@ -44,12 +44,12 @@ state that explicitly; do not mark unexecuted visual checks as passed.
 - [ ] New original sources carry `SPDX-License-Identifier: GPL-3.0-or-later`
 - [ ] Third-party licenses/notices and dependency distribution obligations preserved
 - [ ] GPL is not described as permission to access Yandex Music or its content
-- [ ] No credentials, account data or copyrighted music added
+- [ ] No user credentials, session cookies, tokens, account data or copyrighted music added; published application constants are distinguished from user secrets
 - [ ] Music authorization/stream claims have permission and scoped evidence; unavailable capabilities remain explicit
 - [ ] OAuth changes use local fixtures and hidden-input checks; no real account/credentials in Cloud or CI
 - [ ] Registration, token issuance, ID-client binding and Music access are reported separately; manual full-URL state validation is distinguished from an automatic production callback
 - [ ] Experimental application credentials/tokens are memory-only; logout/cancel/late responses and new-session cache isolation tested
-- [ ] Public auth provider permission/identity and callback registration are established or honestly blocked; no official/borrowed identity, session-cookie extraction or embedded-agent compliance claim
+- [ ] Login, current-dialog session, OAuth exchange, Music account acceptance and library/search are reported separately with safe concrete errors; third-party application identity/distribution status is not represented as established permission or RFC 8252 compliance
 
 ## Evidence and remaining manual checks
 

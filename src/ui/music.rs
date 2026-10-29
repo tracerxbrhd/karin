@@ -8,6 +8,8 @@ use gtk::{gio, glib};
 
 use super::auth::LoginDialog;
 use crate::auth::AuthorizationCode;
+#[cfg(feature = "auth-webkit")]
+use crate::auth::SessionCookies;
 use crate::{
     auth::{AuthAttempt, AuthError, AuthProvider, BrowserMode},
     music::{Album, Artist, MusicError, MusicService, Page, Playlist, SearchKind, Track},
@@ -75,6 +77,18 @@ struct Controller {
     widgets: Widgets,
 }
 
+struct OfflineProvider;
+
+impl AuthProvider for OfflineProvider {
+    fn begin(&self) -> Result<Arc<AuthAttempt>, AuthError> {
+        Err(AuthError::OfflineFixture)
+    }
+
+    fn exchange(&self, _: &AuthAttempt, _: AuthorizationCode) -> Result<AccessToken, AuthError> {
+        Err(AuthError::OfflineFixture)
+    }
+}
+
 impl MusicPane {
     pub fn new(
         app: &adw::Application,
@@ -82,6 +96,22 @@ impl MusicPane {
         experimental: bool,
     ) -> Self {
         Self::with_service(app, window, experimental, MusicService::new().ok())
+    }
+
+    /// Explicit visual/structural diagnostic: never contact a real OAuth service.
+    /// Ordinary application startup always uses `new` and its live provider.
+    pub fn new_offline(
+        app: &adw::Application,
+        window: &adw::ApplicationWindow,
+        _experimental: bool,
+    ) -> Self {
+        Self::with_provider(
+            app,
+            window,
+            MusicService::new().ok(),
+            Arc::new(OfflineProvider),
+            launch_system_browser,
+        )
     }
 
     fn with_service(
@@ -675,6 +705,15 @@ impl Controller {
             }
         });
         let weak = Rc::downgrade(self);
+        let session_attempt = attempt.clone();
+        let on_session = Rc::new(move |cookies| {
+            if let Some(this) = weak.upgrade()
+                && this.current_attempt(generation)
+            {
+                this.exchange_session(session_attempt.clone(), cookies, generation);
+            }
+        });
+        let weak = Rc::downgrade(self);
         let on_error = Rc::new(move |error| {
             if let Some(this) = weak.upgrade()
                 && this.current_attempt(generation)
@@ -688,11 +727,7 @@ impl Controller {
                 && this.current_attempt(generation)
                 && let Some(dialog) = this.login_dialog.borrow().as_ref()
             {
-                dialog.loading(if loading {
-                    "Загрузка страницы Яндекса…"
-                } else {
-                    "Выполните вход на странице Яндекса"
-                });
+                dialog.browser_loading(loading);
             }
         });
         let weak = Rc::downgrade(self);
@@ -707,6 +742,7 @@ impl Controller {
         let webview = super::auth::webkit::AuthWebView::new(
             attempt,
             on_redirect,
+            on_session,
             on_error,
             on_loading,
             on_origin,
@@ -797,6 +833,23 @@ impl Controller {
         self.run_auth_worker(generation, move || provider.exchange(&attempt, code));
     }
 
+    #[cfg(feature = "auth-webkit")]
+    fn exchange_session(
+        self: &Rc<Self>,
+        attempt: Arc<AuthAttempt>,
+        cookies: SessionCookies,
+        generation: u64,
+    ) {
+        if let Some(dialog) = self.login_dialog.borrow().as_ref() {
+            dialog.set_origin("");
+            dialog.loading("Получение разрешения Яндекс Музыки…");
+        }
+        let provider = self.provider.clone();
+        self.run_auth_worker(generation, move || {
+            provider.exchange_session(&attempt, cookies)
+        });
+    }
+
     fn run_auth_worker(
         self: &Rc<Self>,
         generation: u64,
@@ -848,7 +901,7 @@ impl Controller {
         }
         self.reset_status();
         if let Some(dialog) = self.login_dialog.borrow().as_ref() {
-            dialog.unavailable("Вход пока недоступен", error.user_message());
+            dialog.unavailable("Не удалось выполнить вход", &error.to_string());
         }
         self.render_controls();
     }
@@ -1708,7 +1761,7 @@ impl Controller {
 }
 
 fn public_notice() -> &'static str {
-    "Войдите, чтобы открыть свою библиотеку и поиск. Доступ Karin к Яндекс Музыке требует отдельного разрешения сервиса."
+    "Войдите в свой аккаунт Яндекса, чтобы открыть библиотеку и поиск. Прототип проверит доступ к Яндекс Музыке после входа."
 }
 fn text(value: &str, class: &str) -> gtk::Label {
     let label = gtk::Label::new(Some(value));
@@ -1814,7 +1867,8 @@ impl Controller {
                 if let Some(service) = &this.service { service.clear_session(); }
                 this.reset_status();
                 if let Some(dialog) = this.login_dialog.borrow().as_ref() {
-                    dialog.unavailable(title, message);
+                    let status = error.http_status().map(|status| format!(" · HTTP {status}")).unwrap_or_default();
+                    dialog.unavailable(title, &format!("Шаг: проверка аккаунта Яндекс Музыки. {message}{status}"));
                 }
                 this.render_controls();
             }

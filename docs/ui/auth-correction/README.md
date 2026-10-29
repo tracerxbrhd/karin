@@ -1,13 +1,18 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 
-# Native sign-in correction — 2026-10-29
+# Historical native sign-in correction — 2026-10-29
+
+These images describe the earlier `c5efbd3` provider-gate implementation, before
+[ADR-0011](../../adr/0011-cassette-session-auth-prototype.md) activated the scoped
+Cassette-compatible prototype. They are historical visual evidence, not current
+authentication acceptance or instructions for the real Fedora run.
 
 These are actual GTK renders from Debian 13 / GTK 4.18.6 / Libadwaita 1.7.6,
 Xvfb/Openbox 3.6.1 at 96 dpi, Cairo/full-redraw. No real authorization input,
 Yandex account, provider page or private desktop is captured.
 
-**Public sign-in is blocked by the missing permitted Music provider.** The
-dialog explains that fact; it is not a successful Yandex login or a disguised
+**At this historical revision, public sign-in was locally provider-blocked.**
+The dialog explains that earlier state; it is not a successful Yandex login or a disguised
 ID-only flow. The HTTP 403 image is an explicitly synthetic loopback fixture,
 not a new live provider result. No credentials/code/token fields are present.
 
@@ -33,7 +38,7 @@ exact-revision result and artifact are linked from PR #8. Only selected clean
 images are retained in the repository. Previous [music UI captures](../v0.1-music/README.md)
 remain historical evidence.
 
-Reproduce public captures with:
+Reproduce the historical no-feature/offline style of captures with:
 
 ```sh
 cargo +1.98.1 build --locked --no-default-features

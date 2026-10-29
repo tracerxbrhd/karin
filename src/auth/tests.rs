@@ -142,6 +142,7 @@ fn assert_private_response(response: &str, attempt: &AuthAttempt) {
 }
 
 #[test]
+#[cfg(not(feature = "cassette-auth"))]
 fn public_provider_stays_blocked_for_begin_and_exchange() {
     let fixture = SyntheticFixture::new(BrowserMode::System);
     let provider = public_provider();
@@ -552,6 +553,8 @@ fn only_exact_yandex_https_origins_and_explicit_fixture_origin_are_trusted() {
         "https://oauth.yandex.ru/authorize?synthetic=value",
         "https://passport.yandex.ru/auth",
         "https://id.yandex.ru/",
+        "https://smartcaptcha.yandexcloud.net/checkbox?synthetic=value",
+        "https://captcha-api.yandex.ru/checkbox?synthetic=value",
         "https://oauth.yandex.ru:443/authorize",
     ] {
         assert!(matches!(
@@ -566,6 +569,16 @@ fn only_exact_yandex_https_origins_and_explicit_fixture_origin_are_trusted() {
     for url in [
         "http://oauth.yandex.ru/authorize",
         "https://oauth.yandex.ru:444/authorize",
+        "http://smartcaptcha.yandexcloud.net/checkbox",
+        "https://smartcaptcha.yandexcloud.net:444/checkbox",
+        "https://smartcaptcha.yandexcloud.net.invalid.test/checkbox",
+        "https://other.yandexcloud.net/checkbox",
+        "https://synthetic@smartcaptcha.yandexcloud.net/checkbox",
+        "https://captcha.yandex.net/",
+        "http://captcha-api.yandex.ru/checkbox",
+        "https://captcha-api.yandex.ru:444/checkbox",
+        "https://captcha-api.yandex.ru.invalid.test/checkbox",
+        "https://sub.captcha-api.yandex.ru/checkbox",
         "https://oauth.yandex.ru.invalid.test/authorize",
         "https://invalid.test/oauth.yandex.ru",
         "https://sub.oauth.yandex.ru/authorize",

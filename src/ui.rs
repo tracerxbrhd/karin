@@ -198,6 +198,25 @@ pub fn build_with_options(
     service: ConnectionService,
     experimental: bool,
 ) -> MainWindow {
+    build_with_auth_mode(app, service, experimental, false)
+}
+
+/// Explicitly offline presentation for automated captures and GTK lifecycle
+/// checks. Ordinary application launches always use the real provider.
+pub fn build_offline_ui_fixture(
+    app: &adw::Application,
+    service: ConnectionService,
+    experimental: bool,
+) -> MainWindow {
+    build_with_auth_mode(app, service, experimental, true)
+}
+
+fn build_with_auth_mode(
+    app: &adw::Application,
+    service: ConnectionService,
+    experimental: bool,
+    offline_auth: bool,
+) -> MainWindow {
     let window = adw::ApplicationWindow::builder()
         .application(app)
         .title(config::APP_NAME)
@@ -357,7 +376,11 @@ pub fn build_with_options(
     diagnostics.append(&runtime_group);
 
     let (home, home_heading) = page("Музыка", "Библиотека, поиск и плейлисты");
-    let music = music::MusicPane::new(app, &window, experimental);
+    let music = if offline_auth {
+        music::MusicPane::new_offline(app, &window, experimental)
+    } else {
+        music::MusicPane::new(app, &window, experimental)
+    };
     home.append(&music.widget);
     toolbar.add_bottom_bar(&music.player_bar);
     toolbar.add_bottom_bar(&navigation);

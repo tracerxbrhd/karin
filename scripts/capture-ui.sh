@@ -21,6 +21,7 @@ if [ "${1-}" != --session ]; then
             "$repository/src/playback.rs" "$repository/src/capabilities.rs" \
             "$repository/src/auth.rs" "$repository/src/ui/auth.rs" \
             "$repository/src/ui/auth/webkit.rs"
+        printf '\nAuthentication: explicit --ui-fixture; no live OAuth requests.\n'
         printf '\nExperimental UI requested: %s\n' "${KARIN_CAPTURE_EXPERIMENTAL:-0}"
         if command -v dpkg-query >/dev/null 2>&1; then
             dpkg-query -W xvfb openbox imagemagick xdotool librsvg2-common
@@ -70,9 +71,9 @@ while [ "$attempt" -lt 80 ]; do
 done
 [ "$wm_ready" = true ] || wm_failure 'Openbox did not publish EWMH activation support within 8 seconds'
 if [ "${KARIN_CAPTURE_EXPERIMENTAL:-0}" = 1 ]; then
-    "$binary" --experimental-music > "$output_dir/application.log" 2>&1 &
+    "$binary" --experimental-music --ui-fixture > "$output_dir/application.log" 2>&1 &
 else
-    "$binary" > "$output_dir/application.log" 2>&1 &
+    "$binary" --ui-fixture > "$output_dir/application.log" 2>&1 &
 fi
 app_pid=$!
 window=
@@ -114,7 +115,7 @@ for shape in compact medium wide; do
     xdotool key --clearmodifiers alt+1
     xdotool key --clearmodifiers ctrl+l
     capture "$shape-overview"
-    # Alt+1 focuses the real Login action; no credentials or provider request.
+    # Alt+1 focuses Login; --ui-fixture injects an explicitly offline provider.
     xdotool key --clearmodifiers alt+1 Return
     capture "$shape-login"
     xdotool key --clearmodifiers Escape

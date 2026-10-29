@@ -23,10 +23,13 @@ flowchart LR
   MusicHTTP --> MusicREST[Music account / library / search / details]
   UI --> Login[Single-purpose native sign-in dialog]
   Login --> Auth[AuthProvider / session boundary]
-  Auth --> Gate[Public provider unavailable until authorized Music grant]
-  Auth --> Callback[State / S256 PKCE / exact automatic callback]
-  Login -. optional auth-webkit .-> WebKit[Isolated login WebKit view]
-  Auth --> Session[Memory-only validated session]
+  Login --> WebKit[Ephemeral WebKit Yandex login]
+  Auth --> Return[Exact Music return / fresh state]
+  WebKit --> Cookies[Own-session OAuth-endpoint cookies only]
+  Cookies --> Grant[Official OAuth sessionid exchange]
+  Grant --> Session[Memory-only token]
+  Session --> MusicService
+  MusicService --> Validation[Music account accepted before dialog success]
   UI --> Queue[Bounded metadata queue]
   CLI[Opt-in local OAuth CLI] --> OAuth[Isolated OAuth diagnostic]
   OAuth --> Browser[System browser / S256 PKCE]
@@ -44,7 +47,7 @@ flowchart LR
 | `oauth` | Separate opt-in code/PKCE experiment, bounded token exchange, ID-client binding and read-only Music probes with sanitized reports |
 | `oauth_cli` | Binary-private local terminal input and system-browser launch; no credential arguments or GUI session |
 | `music` | Application-facing typed read-only service, reduced models, bounded transport and token-bound account cache |
-| `auth` | Provider/session boundary, authorization attempts, S256 PKCE/state and exact automatic fixed-loopback callback infrastructure; public provider remains unavailable |
+| `auth` / `auth::cassette` | Default Cassette-compatible session provider, bounded attempts/return-state validation and official OAuth session exchange; separate generic code/PKCE fixed-loopback infrastructure |
 | `session` | Zeroizing ephemeral tokens; library-only feature-gated Device Flow without bundled application credentials |
 | `queue` | Bounded selection/order of real track metadata, independent of unavailable service audio |
 | `capabilities` | Explicit unavailable Music authentication and a typed future permitted-stream boundary |
@@ -53,7 +56,7 @@ flowchart LR
 | `platform` | Session D-Bus/Secret Service presence diagnostics; reserved future MPRIS identity |
 | `config` | Non-secret application identity and version |
 | `ui` / `ui::music` | Native library/search/details/queue, one sign-in action, diagnostics and main-thread updates |
-| `ui::auth` | Single-purpose Libadwaita sign-in dialog and optional isolated WebKitGTK6 login view |
+| `ui::auth` | Single-purpose Libadwaita sign-in dialog, ephemeral WebKitGTK6 login and scoped asynchronous cookie handoff |
 | `main` | Concrete composition, application lifecycle and explicit diagnostic CLI modes |
 
 UI consumes domain/application values and controller snapshots, not HTTP
@@ -74,7 +77,8 @@ local experiment in [ADR-0008](adr/0008-local-oauth-pkce-diagnostic.md).
 The scoped development-session and read-only interface decision is recorded in
 [ADR-0009](adr/0009-music-vertical-slice.md); it does not enable a remote source.
 The corrected public sign-in boundary and provider gate are recorded in
-[ADR-0010](adr/0010-single-purpose-sign-in-and-provider-gate.md) and the
+[ADR-0011](adr/0011-cassette-session-auth-prototype.md), superseding the earlier
+[ADR-0010](adr/0010-single-purpose-sign-in-and-provider-gate.md) provider block, and the
 [authentication review](AUTHENTICATION_REVIEW.md).
 
 ## Read-only music and session lifecycle
@@ -87,33 +91,39 @@ automatic retries. A page can make at most two requests. No arbitrary returned
 resource URL is fetched. Request IDs, personal response bodies, headers, URLs and
 provider messages never enter displayable errors or Debug output.
 
-The ordinary interface exposes one `Войти` action opening an `Adw.Dialog`. It
-contains no Client ID, Client secret, device-code, URL or token-entry controls,
-including in experimental builds. The public `AuthProvider` returns a truthful
-unavailable result: Karin has no established distributable Music-authorized
-identity and approved callback configuration. It does not launch a real provider
-page or claim a working browser fallback. The separate `experimental-device-auth`
-module remains a library-only development experiment and is not connected to the
-GUI. Default builds and the public Flatpak exclude that optional feature.
+The ordinary interface exposes one `Войти` action opening an `Adw.Dialog`,
+without Client ID/secret, device codes, URL transfer or token-entry controls.
+Default `cassette-auth` depends on `auth-webkit` and implements the published
+Cassette browser-session grant with the same shared OAuth registration. It is a
+real provider attempt, not a blocked stub or the known own-client PKCE 403 path.
+The separate `experimental-device-auth` module remains library-only and excluded
+from default/Flatpak builds. A no-feature compatibility artifact intentionally
+omits session authentication and is not the real Fedora acceptance build.
 
-Provider-neutral infrastructure creates a fresh state and S256 PKCE attempt,
-handles an exact automatic fixed-loopback callback, and bounds cancellation and
-expiry. It does not establish Yandex acceptance of that callback. A provider can
-select the system browser or the optional `auth-webkit` login view only after
-its required identity, callback and service permissions are established.
-`auth-webkit` uses `webkit6` 0.5 with the existing GTK4 bindings for a single
-isolated authentication view; it is excluded from default/public Flatpak builds
-and is not activated for real Yandex authorization. Login navigation and callback
-checks use parsed origins and exact callback matching. No JavaScript injection,
-password collection or cookie-to-token exchange is part of this boundary.
+The dialog owns a fresh ephemeral WebKitGTK6 NetworkSession with persistent
+credentials disabled. Exact trusted HTTPS origins and return path replace
+substring matching; a fresh cryptographic state must match the returned value
+before a single-use main-document completion can proceed. Navigation-policy
+callbacks alone cannot prove a main-frame return; the browser checks document
+completion separately. No password/DOM reading or JavaScript injection is used.
+`webkit6` 0.5 matches the existing GTK Rust 0.10 bindings and GNOME 50 WebKitGTK6.
 
-Embedded authentication requires a provider decision. RFC 8252 requires external
-user agents for native OAuth; Yandex documents WebView support for its mobile
-LoginSDK, which does not establish permission for Linux WebKitGTK or Music.
-If Linux embedded authentication is unsupported, a system-browser flow with an
-automatic approved callback is the candidate. Neither browser presentation can
-replace an authorized Music grant. See the scoped source evidence in the
-[authentication review](AUTHENTICATION_REVIEW.md).
+After a validated return, CookieManager asynchronously retrieves only cookies
+applicable to the fixed official OAuth token URI from this login's own ephemeral
+session. A bounded redacted memory payload crosses to a worker for the official
+`grant_type=sessionid` exchange; cookies never go to MusicService. Collect before
+clearing WebKit data, cancel pending collection on close, and discard late results.
+The published shared application configuration is attributed under upstream GPL;
+it is not a user credential or independently approved Karin OAuth registration.
+No Android/official-client Music request header is added.
+
+This implicit/sessionid contract is distinct from Authorization Code+PKCE. The
+own-client diagnostic and generic state/S256/fixed-loopback infrastructure remain
+separate and unchanged. RFC 8252 rejects embedded native OAuth; Yandex mobile SDK
+WebView support does not establish Linux approval, and source licensing does not
+establish registration/service distribution permission. Those unresolved facts
+are documented separately from technical stage errors, without replacing the
+prototype with a permanent provider block. See [authentication research](AUTHENTICATION_REVIEW.md).
 
 Token issuance and Music account validation are separate. The dialog completes
 and library/search become usable only after the Music account endpoint accepts
@@ -231,6 +241,8 @@ implement MPRIS or My Wave. The new music interface provides catalog/library
 reads and a metadata queue, with service playback still blocked.
 Flatpak permissions omit Secret Service and MPRIS ownership because neither is
 used. The existing sandbox grants suffice for generated local media and explicit
-system-output diagnostics. The public manifest excludes optional Device Flow and
-WebKit authentication features; optional native dependency feasibility does not
-establish a working or approved provider session.
+system-output diagnostics. The prototype manifest explicitly enables Cassette/WebKit authentication and
+excludes the legacy Device Flow feature. Dependency availability and synthetic
+fixtures do not establish a live accepted provider session or public-release
+permission. Smoke/capture modes inject an offline provider and never contact
+Yandex; ordinary no-argument startup uses the real provider.

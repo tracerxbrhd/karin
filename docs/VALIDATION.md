@@ -6,7 +6,42 @@ This report separates initial cloud checks, user-reported Fedora acceptance,
 revised UI checks and compiler compatibility. A result for one environment or
 revision is not evidence that another has passed.
 
-## Authentication correction — current revision (2026-10-29)
+## Cassette-compatible session provider — current revision (2026-10-29)
+
+The owner's corrected scope permits adapting Cassette's published working chain
+without a Karin-owned registration. Default `cassette-auth` enables the existing
+WebKit auth dialog and a real session provider, replacing the local permanently
+blocked factory. The chain is actual Yandex login → exact Music return/fresh
+state → own ephemeral-session cookies scoped to the official OAuth token URI →
+`sessionid` exchange with published Cassette app configuration → existing Music
+account validation → liked tracks/playlists and search. The own-client PKCE
+CLI, MusicService, queue and independent GStreamer engine remain separate.
+
+**No real account, session or token was supplied to Cloud/CI. Real Karin login,
+Music access and actual library/search acceptance are pending one Fedora run.**
+Source review and synthetic fixture passes are not that acceptance. Published
+app-configuration reuse and GPL attribution are documented separately from
+unresolved service/registration distribution conditions and Linux WebKit approval
+in [the research](AUTHENTICATION_REVIEW.md), [licensing](LICENSING.md) and
+[ADR-0011](adr/0011-cassette-session-auth-prototype.md). Do not claim either an
+established blanket provider ban or express approval.
+
+Current-revision stable/1.98.1 checks, fixture results, release/source preparation,
+GTK/WebKit sandbox lifecycle and hosted CI outcomes will be recorded after their
+execution. The preceding revision's passed matrix below must not be used as
+proof for this new provider. `--smoke-test` and capture `--ui-fixture` inject an
+offline provider so automation never starts real Yandex login. Real-provider
+errors identify the failed return/state, session-cookie, token or Music stage,
+with fixed categories/statuses and no raw JSON, URLs, headers or user secrets.
+
+Follow [one Fedora procedure](BUILDING.md#music-sign-in-and-fedora-acceptance).
+Record sign-in, token issuance, Music account acceptance, actual liked tracks,
+playlists/contents and each search type separately. Also check cancel/retry,
+logout/stale errors, restart, themes/sizes/keyboard/HiDPI and the exact Flatpak
+artifact. Service-stream playback remains unimplemented; local GStreamer success
+does not establish it. Full cloud Flatpak remains namespace-blocked.
+
+## Historical native-auth/provider-gate correction — `c5efbd3` (2026-10-29)
 
 The public GUI now has one `Войти` action and a native Adw.Dialog in every build
 mode. Developer client/secret fields and Device Flow instructions are removed.

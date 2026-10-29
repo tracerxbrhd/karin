@@ -2,9 +2,15 @@
 
 # ADR-0010: Single-purpose sign-in with an explicit Music-provider gate
 
-Status: Accepted for UI/boundary preparation; production provider blocked
+Status: Historical; provider-activation decision superseded by [ADR-0011](0011-cassette-session-auth-prototype.md)
 Date: 2026-10-29
 Supersedes: ADR-0009's developer-credential/Device Flow GUI
+
+The record below preserves the earlier own-registration-only scope and its
+blocked result. The owner's subsequent correction permits the Cassette-compatible
+functional prototype without a Karin-owned registration. ADR-0011 activates that
+scoped provider while retaining the single-purpose UI and Music validation gate;
+this record is not the current build/run instruction.
 
 ## Context
 

@@ -2,34 +2,30 @@
 
 # Known limitations
 
-- **Public Music sign-in is not established.** The owner verified Karin-owned
-  PKCE/token issuance and Yandex ID, but both Music `/account/status` and
-  `/account/about` returned generic HTTP 403 with TUN on and off. Their exact
-  cause remains unknown; selected scopes, ID success and anonymous HTTP 200 do
-  not establish Music entitlement. See [API evidence](API_FEASIBILITY.md).
-- **The ordinary sign-in dialog is provider-gated.** One `Войти` action opens a
-  native Libadwaita dialog. No build mode exposes Client ID, Client secret,
-  device-code copying, URL entry or token input in the GUI. The public provider
-  reports that sign-in is unavailable because a distributable Music-authorized
-  identity and approved callback are not established. It does not open a real
-  authorization page or claim a working system-browser fallback. See
-  [ADR-0010](adr/0010-single-purpose-sign-in-and-provider-gate.md).
-- **Automatic OAuth infrastructure is not provider acceptance.** The generic
-  `AuthProvider` boundary supports state, S256 PKCE and an exact automatic
-  fixed-loopback callback. Karin still needs an authorized Music grant and a
-  registered, provider-supported callback. Optional `auth-webkit` uses `webkit6`
-  0.5 for an isolated login view only; real Yandex authorization is not activated.
-  Linux embedded-view permission remains unresolved. Yandex documents WebView
-  support within its mobile LoginSDK, so no blanket provider ban is inferred.
-  RFC 8252 requires external user agents for native OAuth; a system browser with
-  an approved automatic callback remains the candidate if embedded login is
-  unsupported. See [authentication review](AUTHENTICATION_REVIEW.md).
-- **Device Flow is a library-only experiment.** The optional
-  `experimental-device-auth` module has no GUI or bundled application identity.
-  The successful unmodified yamu experiment does not authorize Karin
-  distribution under another application's identity. Default/public Flatpak
-  builds exclude Device Flow and optional WebKit authentication. The separate
-  developer PKCE CLI remains unchanged and is not the ordinary login journey.
+- **Live Karin sign-in/library acceptance is pending.** The default provider now
+  adapts Cassette's published WebKit session → OAuth sessionid chain. It is a real
+  attempt, without developer fields, code copying, token paste or app registration.
+  It is not the known own-client PKCE route, which previously returned ID 200 and
+  Music status/about403 with unknown cause. Cloud fixtures do not prove a real
+  login, Music account or personal library/search; run [the single Fedora check](BUILDING.md#music-sign-in-and-fedora-acceptance).
+- **Return/session/token outcomes are concrete stages.** Exact Music-root return
+  and fresh echoed state must be accepted before collecting OAuth-endpoint cookies
+  from this dialog's ephemeral session. A different return, missing state/cookie,
+  cookie-read failure, OAuth HTTP/schema refusal and Music API refusal are distinct
+  errors, not a generic provider-unavailable result. Sessionid is not Code+PKCE;
+  the independent own-client PKCE diagnostic remains unchanged.
+- **Service/identity distribution conditions remain unresolved.** The auth
+  adaptation and published shared registration are attributed under Cassette's
+  GPL-3.0-or-later terms; code licensing does not grant API, registration, content
+  or trademark rights. Express approval for Karin's reuse/public distribution
+  and Linux embedded auth is not established. Do not infer a blanket provider ban
+  or approval. RFC 8252 rejects embedded native agents; mobile LoginSDK WebView
+  support does not resolve Linux eligibility. See [the scoped decision](adr/0011-cassette-session-auth-prototype.md).
+- **Device Flow is a library-only experiment.** `experimental-device-auth` remains
+  excluded from default/Flatpak and has no GUI or bundled app identity. The normal
+  default/Flatpak instead enables `cassette-auth`/WebKit. A no-feature build omits
+  real auth intentionally; smoke/capture modes use an explicit offline provider
+  and must not be mistaken for the real Fedora acceptance build.
 - **Sessions do not survive restart.** Tokens remain in memory; no plaintext
   credential file, environment input or token store is used. Logout/close clears
   local session state, but does not
@@ -72,8 +68,9 @@
 - **Code licenses do not grant service access.** GPL-3.0-or-later and compatible
   dependency licenses require their notices/source obligations and grant no
   Yandex API, content, application-identity or trademark rights. The thin adapter
-  uses schema knowledge from pinned yamu source without importing its OAuth,
-  official-client identity or delivery implementation.
+  uses schema knowledge from pinned yamu source without importing its OAuth or
+  delivery implementation. The separate Cassette auth adaptation retains its own
+  GPL notices and shared-registration provenance; service rights remain separate.
 
 Executed checks and outstanding acceptance are recorded in
 [VALIDATION.md](VALIDATION.md). A workflow definition is not a passed run.

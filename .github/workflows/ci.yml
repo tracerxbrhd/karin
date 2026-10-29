@@ -66,7 +66,7 @@ jobs:
           PY
       - name: Formatting
         run: cargo fmt --all -- --check
-      - name: Verify public build policy
+      - name: Verify prototype authentication build policy
         run: |
           python3 - <<'PY'
           import json
@@ -83,11 +83,11 @@ jobs:
                   seen.add(feature)
                   pending.extend(features.get(feature, []))
           assert "experimental-device-auth" not in seen, "Experimental OAuth must remain opt-in"
-          assert "auth-webkit" not in seen, "The unactivated WebKit component must remain optional"
+          assert {"cassette-auth", "auth-webkit"} <= seen, "The ordinary prototype must include its WebKit session provider"
           manifest = json.loads(Path("packaging/flatpak/io.github.tracerxbrhd.Karin.json").read_text())
           commands = manifest["modules"][0]["build-commands"]
-          assert "cargo build --release --offline --locked --no-default-features" in commands
-          assert all("--all-features" not in command and "--features" not in command for command in commands)
+          assert "cargo build --release --offline --locked --no-default-features --features cassette-auth" in commands
+          assert all("--all-features" not in command and "experimental-device-auth" not in command for command in commands)
           assert all("--experimental-music" not in command for command in commands)
           assert not any(arg.startswith("--filesystem=") or "org.freedesktop.secrets" in arg for arg in manifest["finish-args"])
           PY
@@ -99,6 +99,11 @@ jobs:
         run: cargo test --workspace --locked
       - name: Experimental feature tests (synthetic local HTTP only)
         run: cargo test --workspace --all-features --locked
+      - name: Minimal no-WebKit compatibility
+        run: |
+          cargo clippy --workspace --all-targets --no-default-features --locked -- -D warnings
+          cargo test --workspace --no-default-features --locked
+          cargo build --workspace --no-default-features --locked
       - name: Native Music session and catalog against loopback fixtures
         env:
           GTK_A11Y: none
@@ -157,7 +162,21 @@ jobs:
           GSK_RENDERER: cairo
         run: |
           ulimit -c 0
-          dbus-run-session -- xvfb-run -a cargo test --lib --all-features --locked webkit_auth_local_startup_cookie_isolation_and_cancel -- --ignored --test-threads=1
+          if [ '${{ matrix.lane }}' = stable ]; then
+            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/webkit"
+          fi
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' sh -eu <<'SH'
+          openbox --sm-disable >/tmp/karin-webkit-openbox.log 2>&1 &
+          wm_pid=$!
+          trap 'kill "$wm_pid" 2>/dev/null || true; wait "$wm_pid" 2>/dev/null || true' EXIT
+          attempt=0
+          until wmctrl -m >/dev/null 2>&1; do
+            attempt=$((attempt + 1))
+            test "$attempt" -lt 50
+            sleep 0.1
+          done
+          cargo test --lib --all-features --locked webkit_auth_local_startup_cookie_isolation_and_cancel -- --ignored --test-threads=1
+          SH
       - name: Remove the CI-only namespace permission
         if: always()
         run: |
@@ -170,8 +189,8 @@ jobs:
           GTK_A11Y: none
           GSK_RENDERER: cairo
         run: dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' ./target/debug/karin --experimental-music --smoke-test
-      - name: Build public client without experimental authentication
-        run: cargo build --workspace --no-default-features --locked
+      - name: Build ordinary client with WebKit session authentication
+        run: cargo build --workspace --locked
       - name: Local OAuth terminal boundaries (synthetic input, no browser or network)
         run: python3 scripts/test-oauth-terminal.py ./target/debug/karin
       - name: Fetch locked dependencies for the offline release build
@@ -179,7 +198,7 @@ jobs:
         run: cargo fetch --locked
       - name: Flatpak-style offline release build on MSRV
         if: matrix.lane == 'msrv'
-        run: cargo build --release --offline --locked --no-default-features
+        run: cargo build --release --offline --locked --no-default-features --features cassette-auth
       - name: Release OAuth terminal boundaries on MSRV
         if: matrix.lane == 'msrv'
         run: python3 scripts/test-oauth-terminal.py ./target/release/karin
@@ -217,9 +236,62 @@ jobs:
           GTK_A11Y: none
           GSK_RENDERER: cairo
         run: dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' ./target/release/karin --experimental-music --smoke-test
-      - name: Restore public release artifact on MSRV
+      - name: Restore ordinary session-provider release artifact on MSRV
         if: matrix.lane == 'msrv'
-        run: cargo build --release --offline --locked --no-default-features
+        run: cargo build --release --offline --locked --no-default-features --features cassette-auth
+      - name: Prepare the native Fedora acceptance prototype
+        if: matrix.lane == 'msrv'
+        run: |
+          artifact=build/karin-fedora-prototype-1.98.1
+          mkdir -p "$artifact/licenses/cassette-auth"
+          install -m755 target/release/karin "$artifact/karin"
+          cp LICENSE docs/LICENSING.md "$artifact/licenses/"
+          cp packaging/third-party-licenses/cassette-auth/{COPYING,PROVENANCE.md} "$artifact/licenses/cassette-auth/"
+          python3 packaging/license_inventory.py --output "$artifact/licenses/DEPENDENCY_LICENSES.md" --notices-dir "$artifact/licenses/rust"
+          {
+            printf 'Source commit: '; git rev-parse HEAD
+            printf 'Source URL: https://github.com/tracerxbrhd/karin/tree/%s\n' "$GITHUB_SHA"
+            printf 'Features: --no-default-features --features cassette-auth\nBuild: --release --offline --locked\n'
+            rustc --version --verbose
+            cargo --version
+            printf 'Build system: Ubuntu 24.04; architecture: '; uname -m
+            for package in gtk4 libadwaita-1 gstreamer-1.0 webkitgtk-6.0; do
+              printf '%s: ' "$package"; pkg-config --modversion "$package"
+            done
+            printf 'Binary SHA256: '; sha256sum target/release/karin
+          } > "$artifact/BUILD-INFO.txt"
+          cat > "$artifact/README.txt" <<'EOF'
+          Karin native authentication prototype for one consenting local Fedora 44 check.
+          Verify the downloaded archive with: sha256sum -c SHA256SUMS
+          Extract the archive and enter karin-fedora-prototype-1.98.1.
+          Install Fedora runtime packages if needed:
+          sudo dnf install gtk4 libadwaita gstreamer1 gstreamer1-plugins-base gstreamer1-plugins-good webkitgtk6.0 librsvg2
+          Disable core dumps for this local session, then start with no arguments:
+          ulimit -c 0
+          ./karin
+          Click Войти and authorize your own account on the displayed Yandex page.
+          No Client ID/secret, token, URL copying or application registration is needed.
+          Source build and acceptance instructions: https://github.com/tracerxbrhd/karin/blob/feature/v0.1-music-vertical-slice/docs/BUILDING.md
+          This is an Ubuntu 24.04 x86_64 build; Fedora 44 ABI/startup remains unverified.
+          It is not a Flatpak, a production release or proof of live Music API access.
+          Only Music account validation can finish login; then check your actual library/search.
+          The reused application identity's public-distribution permission is unresolved.
+          Report only the fixed stage/category and HTTP status shown by Karin.
+          Session cookies/tokens stay in memory. Do not share raw JSON, parameterized URLs, tokens or personal screenshots.
+          Real service audio is not connected. See BUILD-INFO.txt and included licenses.
+          EOF
+          tar -C build -czf build/karin-fedora-prototype-1.98.1.tar.gz karin-fedora-prototype-1.98.1
+          (cd build && sha256sum karin-fedora-prototype-1.98.1.tar.gz > SHA256SUMS)
+      - name: Retain the native Fedora acceptance prototype
+        if: matrix.lane == 'msrv'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6, Node.js 24
+        with:
+          name: karin-fedora-prototype-1.98.1
+          path: |
+            build/karin-fedora-prototype-1.98.1.tar.gz
+            build/SHA256SUMS
+          retention-days: 14
+          if-no-files-found: error
       - name: Capture real GTK visual review matrix
         if: matrix.lane == 'stable'
         run: scripts/capture-ui.sh build/ui-captures

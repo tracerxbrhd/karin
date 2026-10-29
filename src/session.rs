@@ -40,8 +40,8 @@ impl AccessToken {
         self.invalidated.store(true, Ordering::Release);
     }
 
-    #[cfg(any(test, feature = "experimental-device-auth"))]
-    fn new(value: Zeroizing<String>, expires_at: Option<Instant>) -> Self {
+    #[cfg(any(test, feature = "experimental-device-auth", feature = "cassette-auth"))]
+    pub(crate) fn new(value: Zeroizing<String>, expires_at: Option<Instant>) -> Self {
         Self {
             value,
             expires_at,

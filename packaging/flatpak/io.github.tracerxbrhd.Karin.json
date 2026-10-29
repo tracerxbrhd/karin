@@ -24,14 +24,16 @@
       "name": "karin",
       "buildsystem": "simple",
       "build-commands": [
-        "cargo build --release --offline --locked --no-default-features",
+        "cargo build --release --offline --locked --no-default-features --features cassette-auth",
         "install -Dm755 target/release/karin /app/bin/karin",
         "install -Dm644 packaging/io.github.tracerxbrhd.Karin.desktop /app/share/applications/io.github.tracerxbrhd.Karin.desktop",
         "install -Dm644 packaging/icons/io.github.tracerxbrhd.Karin.svg /app/share/icons/hicolor/scalable/apps/io.github.tracerxbrhd.Karin.svg",
         "install -Dm644 LICENSE /app/share/licenses/karin/LICENSE",
         "install -Dm644 docs/LICENSING.md /app/share/licenses/karin/LICENSING.md",
         "install -d /app/share/licenses/karin/third-party",
-        "cp -a third-party-notices/. /app/share/licenses/karin/third-party/"
+        "cp -a third-party-notices/. /app/share/licenses/karin/third-party/",
+        "install -d /app/share/licenses/karin/cassette-auth",
+        "cp -a packaging/third-party-licenses/cassette-auth/. /app/share/licenses/karin/cassette-auth/"
       ],
       "sources": [
         {

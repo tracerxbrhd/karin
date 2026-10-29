@@ -15,7 +15,7 @@ Install native prerequisites:
 
 ```sh
 sudo dnf install gcc gcc-c++ make pkgconf-pkg-config \
-  gtk4-devel libadwaita-devel gstreamer1-devel gstreamer1-plugins-base-devel \
+  gtk4-devel libadwaita-devel webkitgtk6.0-devel gstreamer1-devel gstreamer1-plugins-base-devel \
   gstreamer1 gstreamer1-plugins-base gstreamer1-plugins-good \
   openssl-devel dbus-devel dbus-tools libsecret-devel \
   blueprint-compiler flatpak flatpak-builder python3 \
@@ -38,111 +38,119 @@ No Yandex account, token, OAuth client secret or subscription is required to bui
 and run Karin, its automated tests or its local player. The ordinary connection
 probe is anonymous. Gate B1's separate opt-in OAuth diagnostic is intended only
 for a consented local desktop experiment; it is not application sign-in or
-Yandex Music stream playback. The normal sign-in dialog currently reports a
-missing permitted Music provider; it requires no end-user OAuth configuration.
+Yandex Music stream playback. The default sign-in provider is the Cassette-compatible
+session prototype below; it requires no end-user OAuth configuration.
 
 ## Music sign-in and Fedora acceptance
 
 <a id="experimental-music-session-and-fedora-acceptance"></a>
 
-Use the default Fedora build/start commands above. Clicking the single `Войти`
-action opens a native sign-in dialog. **The expected current result is an explicit
-provider-unavailable explanation**, with retry/close and no Yandex login page.
-Karin has no activated, approved Music auth provider or registered automatic
-callback. No Client ID, Client secret, device code, pasted token or manual URL is
-part of the normal journey. The old experimental GUI is removed in every build
-mode; enabling a development feature does not restore it or unlock service access.
+The default build now enables `cassette-auth` and WebKitGTK6. The normal
+`Войти` action attempts real Yandex login using the published registration and
+session grant used by Cassette. This is **not** Karin's own-registration PKCE
+route, and it is not the previously blocked provider. No Client ID, Client secret,
+app registration, token paste, device code or URL copy is required.
 
-This is a truthful UI fallback for missing integration, not Cassette-style live
-sign-in acceptance. The owner must first establish Karin's permitted Music
-identity/grant, provider-supported registered automatic callback and eligible
-embedded/browser path. A system-browser button with automatic callback is a
-future provider-dependent path, not a currently configured fallback. Do not
-register an app or extract another client's credentials as an installation step.
-The unchanged developer-only OAuth diagnostic below remains separate and does
-not unlock the GUI. Do not run real authorization in Cloud/CI.
-
-Owner-run acceptance on Fedora 44 / KDE Plasma / Wayland / PipeWire:
-
-1. Build and start the default binary. Check that there is one `Войти` action and
-   no application-credential fields, device instructions or code/token input.
-2. Open the dialog, verify the provider-block explanation, retry, cancel and close
-   the window. Retry must stay truthful; it must not manufacture a live provider
-   refusal or launch a Yandex ID-only flow. Relaunch remains signed out.
-3. Check that signed-out content has no stale yellow Music 403 floating over it.
-   Errors belong in the native message row and must reset on a new attempt/logout.
-4. Check about 420×720, 900×650, 1440×900 and maximized, both themes, HiDPI,
-   HeaderBar/window controls, scrolling, keyboard focus/activation and Ctrl+Q.
-   Never publish real account/auth screenshots; cloud evidence uses clean states.
-5. Confirm that the player bar still explains the missing permitted Music audio
-   source. Synthetic diagnostics do not establish service playback. Repeat the
-   public Flatpak build/install below; optional auth features remain excluded.
-6. Report only revision, build mode and coarse results/fixed error categories.
-   Do not publish credentials, codes, parameterized URLs, private account/library
-   screens, raw provider bodies, headers or identifiers.
-
-Once the separate provider gate is passed, additional consented local acceptance
-must cover first login, existing provider session, automatic callback, token
-binding and Music account acceptance before dialog completion, actual liked
-tracks/playlists/search, timeout/denial/cancel, stale results, logout and restart.
-Those checks are pending, and the current blocked dialog cannot establish them.
-Tokens remain memory-only; local logout does not revoke provider consent. There
-is no persistent token store, refresh/revocation or verified Secret Service write.
-
-## Optional WebKit authentication build check (development only)
-
-WebKit is limited to a single-purpose auth window, behind `auth-webkit`. The
-`webkit6` 0.5 series matches Karin's GTK Rust 0.10 series; 0.6 targets GTK Rust
-0.11 and is not selected. Install the native development package only when
-checking this optional configuration:
+Use a trusted local Fedora desktop/terminal, not Cloud/CI, a terminal recorder,
+remote support session or shared console. After installing the prerequisites
+above, prepare one release build and run it:
 
 ```sh
-# Fedora 44
-sudo dnf install webkitgtk6.0-devel
+rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
+cargo +1.98.1 build --release --locked
+ulimit -c 0
+./target/release/karin
+```
 
-# Debian / Ubuntu
+Run **without** `--ui-fixture`, `--smoke-test` or the separate
+`--oauth-diagnostic`; those are not the real sign-in journey. No secrets belong
+in command arguments, environment variables, files, chat or GitHub. The consent
+page may name the upstream shared OAuth registration used by Cassette rather than
+Karin's own registration. Inspect the actual Yandex origin shown in the dialog
+and grant access only to your own account if you choose to proceed. Code licensing
+does not establish service/identity distribution rights; see
+[the scoped prototype decision](adr/0011-cassette-session-auth-prototype.md).
+
+Perform this one substantive acceptance run on Fedora 44/KDE/Wayland/PipeWire:
+
+1. Click `Войти`. Confirm the native dialog loads a real Yandex page and shows only
+   the trusted origin, without exposing full URLs or developer fields. Sign in to
+   your own normal account inside that page. Karin never reads its password form.
+2. After consent, the dialog must move automatically through return/state,
+   own-session cookie collection and OAuth exchange to **Music account validation**.
+   Do not copy any code, token or URL. A Yandex login or issued token alone is not
+   success. The dialog must close as authenticated only after Music validation.
+3. Verify your actual liked tracks and personal playlists load; choose a playlist
+   and verify its contents. Search for a familiar track, album and artist; inspect
+   the corresponding returned results and details. Empty libraries are legitimate
+   only if they match your account. Add metadata to the queue and confirm ordering;
+   selecting it does not yet resolve or play a Music stream.
+4. Sign out. Check that account/library/queue state and prior errors clear. Start
+   another login, cancel it, retry and close the window; delayed results must not
+   sign you back in. Restart should be signed out because sessions are memory-only.
+5. Check approximately 420×720, 900×650, 1440×900 and maximized, both themes, HiDPI,
+   HeaderBar/window controls, scrolling, keyboard focus/activation and Ctrl+Q.
+   Stale floating Music 403 text must not remain; errors belong in native rows.
+6. If a stage fails, share only the revision, `cassette-auth` build, failed stage,
+   safe fixed category and HTTP status when supplied. Examples are trusted-return/
+   state mismatch, missing session cookie, cookie-read failure, `/token` refusal
+   or unsupported response, Music account 403, or library/search schema rejection.
+   Do not publish cookies, tokens, full URLs, raw JSON/headers, account identifiers,
+   private library screens or login screenshots. Do not change identity, region or
+   OAuth mechanism during this acceptance run to hide a failed result.
+
+Live sign-in, token exchange and actual library/search remain **pending until
+this run succeeds**. Source review and cloud fixtures cannot prove them. The
+selected return is exact `https://music.yandex.ru/` with matching fresh state;
+if Yandex returns a different origin/path or omits state, the tool must report that
+specific return-validation failure rather than accept a substring or fake success.
+Cookie collection uses only this dialog's ephemeral session and the fixed official
+OAuth token URI, not another browser/application's session. Cookies and tokens are
+memory-only; cancellation clears browser data and stale work. Local logout does
+not revoke provider consent; persistence, refresh, remote revocation and verified
+Secret Service writes are not implemented. Music playback is a separate gate.
+
+## WebKit authentication build and local fixture checks
+
+WebKitGTK6 is a default prototype dependency, confined to the sign-in dialog.
+`webkit6` 0.5 matches GTK Rust 0.10; 0.6 targets GTK Rust 0.11 and is not selected.
+Fedora needs `webkitgtk6.0-devel` (included above); Debian/Ubuntu needs:
+
+```sh
 sudo apt-get install libwebkitgtk-6.0-dev
 ```
 
-Compile and run the synthetic protocol tests, then restore the public build
-before ordinary startup or packaging:
+`cassette-auth` enables `auth-webkit`; `--all-features` additionally includes the
+library-only legacy Device Flow experiment without exposing it in the GUI.
+`cargo build --no-default-features` is an intentional compatibility build without
+the real provider, not the artifact for Fedora authentication acceptance.
+GNOME 50 already supplies WebKitGTK6; the existing Flatpak manifest enables
+`cassette-auth` without changing runtime/SDK versions or permissions.
 
-```sh
-cargo check --workspace --locked --features auth-webkit
-cargo test --workspace --locked --features auth-webkit
-cargo build --workspace --locked --no-default-features
-./target/debug/karin
-```
-
-Display-dependent WebKit checks are explicitly ignored by the ordinary test
-command. Run each separately under a display/D-Bus session with a working WebKit
-process sandbox; they use synthetic/local pages only:
+Display-dependent WebKit tests are ignored by the ordinary test command. Run each
+in a separate display/D-Bus process with the WebKit sandbox enabled. They use only
+synthetic/local pages and credentials, never a Yandex account:
 
 ```sh
 GTK_A11Y=none GSK_RENDERER=cairo dbus-run-session -- xvfb-run -a \
-  cargo test --lib --locked --features auth-webkit \
+  cargo test --lib --locked --all-features \
   webkit_auth_construction_and_shutdown_without_navigation -- --ignored --test-threads=1
 GTK_A11Y=none GSK_RENDERER=cairo dbus-run-session -- xvfb-run -a \
-  cargo test --lib --locked --features auth-webkit \
+  cargo test --lib --locked --all-features \
   webkit_auth_local_startup_cookie_isolation_and_cancel -- --ignored --test-threads=1
-cargo build --workspace --locked --no-default-features
 ```
 
-These commands do not activate a production provider or demonstrate actual
-Yandex login. No account or secret is required. GNOME 50 already supplies the
-WebKitGTK6 runtime, but Karin's default Flatpak deliberately omits `auth-webkit`
-until the provider gate is resolved; runtime availability does not authorize a
-service integration. The feature must also pass locked stable and exact Rust
-1.98.1 checks with no duplicate incompatible GTK Rust series. See
-[authentication research](AUTHENTICATION_REVIEW.md),
-[ADR-0010](adr/0010-single-purpose-sign-in-and-provider-gate.md) and the executed
-results/pending acceptance in [VALIDATION.md](VALIDATION.md).
+`--smoke-test` and the capture helper's explicit `--ui-fixture` mode inject an
+offline provider. They exercise dialog/layout/lifecycle without contacting Yandex;
+they are not evidence of real sign-in. Never use `--ui-fixture` for the owner
+acceptance above. Hosted sandbox checks and remaining namespace restrictions are
+recorded in [VALIDATION.md](VALIDATION.md).
 
 ## Local OAuth diagnostic (Gate B1)
 
 This existing developer diagnostic is unchanged and is never part of normal
 GUI sign-in. Its local manual URL transfer does not configure the new automatic
-callback path or resolve the Music-provider block.
+Cassette session path or change its Music validation result.
 
 Run this experiment **on the owner's local Fedora desktop**, from a trusted,
 interactive terminal. Do not run it in Codex Cloud, CI, a remote support session,
@@ -286,9 +294,9 @@ at `/workspace/karin-environment`. The Rust toolchain lives in its `cargo/` and
 so Cargo sees GTK and GStreamer:
 
 ```sh
-/workspace/karin-environment/run cargo build --workspace --locked
-/workspace/karin-environment/run cargo test --workspace --locked
-/workspace/karin-environment/run sh
+/workspace/karin-environment/run-auth cargo build --workspace --locked
+/workspace/karin-environment/run-auth cargo test --workspace --locked
+/workspace/karin-environment/run-auth sh
 ```
 
 The wrapper's working directory is `/workspace/karin`. It mounts the current CA
@@ -302,10 +310,10 @@ For the pinned compatibility toolchain, install it alongside stable and select i
 per command; the wrapper does not change the default toolchain:
 
 ```sh
-/workspace/karin-environment/run rustup toolchain install 1.98.1 --profile minimal \
+/workspace/karin-environment/run-auth rustup toolchain install 1.98.1 --profile minimal \
   --component rustfmt --component clippy
-/workspace/karin-environment/run cargo +1.98.1 build --workspace --locked
-/workspace/karin-environment/run env RUSTUP_TOOLCHAIN=1.98.1 \
+/workspace/karin-environment/run-auth cargo +1.98.1 build --workspace --locked
+/workspace/karin-environment/run-auth env RUSTUP_TOOLCHAIN=1.98.1 \
   python3 packaging/flatpak/prepare-source.py
 ```
 
@@ -315,7 +323,7 @@ and the dependency-license inventory.
 ## Verification
 
 Run from the repository root (through the wrapper in the prepared cloud).
-All-feature checks require the optional WebKit native package described above:
+Default and all-feature checks require WebKitGTK6 as described above:
 
 ```sh
 cargo fmt --all -- --check
@@ -352,7 +360,7 @@ cargo +1.98.1 test --workspace --all-features --locked
 cargo +1.98.1 build --workspace --all-features --locked
 cargo +1.98.1 build --workspace --locked
 cargo +1.98.1 fetch --locked
-cargo +1.98.1 build --release --offline --locked --no-default-features
+cargo +1.98.1 build --release --offline --locked --no-default-features --features cassette-auth
 ./target/release/karin --audio-self-test
 ./target/release/karin --playback-self-test
 GTK_A11Y=none GSK_RENDERER=cairo dbus-run-session -- \
@@ -388,7 +396,7 @@ content, and the temporary media is not shipped in the repository.
 Inspect asynchronous state, position, duration and errors as well as listening.
 `fakesink` success proves decoding and lifecycle behavior for the generated WAV;
 it does not prove PipeWire output, support for other codecs or service streams.
-The Music authentication blocker and next authorized action are documented in
+The Music authentication evidence and pending local acceptance are documented in
 [API_FEASIBILITY.md](API_FEASIBILITY.md).
 
 For a substantial UI change, also run the screenshot matrix and review it under
@@ -412,8 +420,8 @@ keeps the GTK/Libadwaita runtime independent of the user's desktop environment.
 It has no host filesystem permission or Secret Service access grant. The existing
 network and audio permissions support diagnostics and future authorized reads;
 the music slice adds no sandbox grants. The manifest explicitly passes
-`--no-default-features`, excluding optional WebKit and the legacy library-only
-Device Flow module from this artifact. Generated media is created within the
+`--no-default-features --features cassette-auth`, including WebKit session auth
+and excluding the legacy library-only Device Flow module from this artifact. Generated media is created within the
 application's own temporary directory, so the player requires no access to the
 user's music files.
 
@@ -441,8 +449,9 @@ and replaces that generated directory on each run. It excludes Git data, local
 environment files and build outputs. It vendors only the versions fixed by
 `Cargo.lock`; review the source snapshot before distribution. Cargo's generated
 source configuration exists only in that copy. The manifest builds with
-`--offline --locked --no-default-features`, with no dependency downloads or
-optional authentication features inside the Flatpak build.
+`--offline --locked --no-default-features --features cassette-auth`, with no
+dependency downloads inside the Flatpak build. The GNOME 50 runtime supplies the
+native WebKit engine.
 The preparation also runs `packaging/license_inventory.py` in the generated
 snapshot and preserves supplied third-party license/notice files in
 `third-party-notices/`. The manifest installs these notices, Karin's `LICENSE`

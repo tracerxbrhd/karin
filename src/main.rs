@@ -31,11 +31,11 @@ fn main() -> glib::ExitCode {
     match args.as_slice() {
         [flag] if flag == "--help" || flag == "-h" => {
             println!(
-                "Karin\n\nUsage: karin [--smoke-test | --audio-self-test | --playback-self-test | --probe-service | --oauth-diagnostic | --version]\n\n--smoke-test          Verify GTK and local playback cleanup without network or sound\n--audio-self-test     Process a synthetic signal through GStreamer fakesink\n--playback-self-test  Decode a generated local WAV through playbin; test controls and cleanup\n--probe-service       Make an anonymous availability request (network required)\n--oauth-diagnostic    Opt-in local PKCE experiment; private terminal and system browser required"
+                "Karin\n\nUsage: karin [--smoke-test | --ui-fixture | --audio-self-test | --playback-self-test | --probe-service | --oauth-diagnostic | --version]\n\n--smoke-test          Verify GTK and local playback cleanup without network or sound\n--ui-fixture          Offline sign-in fixture for automated UI captures; never contacts OAuth\n--audio-self-test     Process a synthetic signal through GStreamer fakesink\n--playback-self-test  Decode a generated local WAV through playbin; test controls and cleanup\n--probe-service       Make an anonymous availability request (network required)\n--oauth-diagnostic    Opt-in local PKCE experiment; private terminal and system browser required"
             );
             if cfg!(feature = "experimental-device-auth") {
                 println!(
-                    "--experimental-music  Development compatibility flag; sign-in still requires a permitted Music provider"
+                    "--experimental-music  Development compatibility flag; ordinary sign-in is unchanged"
                 );
             }
             return glib::ExitCode::SUCCESS;
@@ -79,7 +79,11 @@ fn main() -> glib::ExitCode {
             };
         }
         [] => {}
-        [flag] if flag == "--smoke-test" || flag == "--probe-service" => {}
+        [flag]
+            if matches!(
+                flag.as_str(),
+                "--smoke-test" | "--ui-fixture" | "--probe-service"
+            ) => {}
         _ => {
             eprintln!("Unknown arguments. Run karin --help.");
             return glib::ExitCode::from(2);
@@ -108,10 +112,11 @@ fn main() -> glib::ExitCode {
         };
     }
     let smoke = args.first().is_some_and(|flag| flag == "--smoke-test");
+    let offline_auth = smoke || args.first().is_some_and(|flag| flag == "--ui-fixture");
     let smoke_passed = Rc::new(Cell::new(false));
     let app = adw::Application::builder()
         .application_id(config::APP_ID)
-        .flags(if smoke {
+        .flags(if offline_auth {
             gio::ApplicationFlags::NON_UNIQUE
         } else {
             gio::ApplicationFlags::FLAGS_NONE
@@ -142,7 +147,7 @@ fn main() -> glib::ExitCode {
                 .license_type(gtk::License::Gpl30)
                 .copyright("© 2026 Karin contributors")
                 .website("https://github.com/tracerxbrhd/karin")
-                .comments("v0.1: библиотека и поиск через отдельный MusicService. Вход ожидает подтверждения разрешённого доступа Karin к Music API. Источник аудио Яндекс Музыки не подтверждён.")
+                .comments("v0.1: библиотека и поиск через MusicService. Прототип входа использует совместимую с Cassette сессию WebKit; реальный доступ требует проверки на Fedora. Воспроизведение Яндекс Музыки пока недоступно.")
                 .build();
             dialog.present(app.active_window().as_ref());
         }
@@ -157,7 +162,11 @@ fn main() -> glib::ExitCode {
             window.present();
             return;
         }
-        let ui = ui::build_with_options(app, service.clone(), experimental);
+        let ui = if offline_auth {
+            ui::build_offline_ui_fixture(app, service.clone(), experimental)
+        } else {
+            ui::build_with_options(app, service.clone(), experimental)
+        };
         ui.window.present();
         if smoke {
             let app = app.clone();

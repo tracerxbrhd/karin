@@ -10,10 +10,12 @@ license = "GPL-3.0-or-later"
 publish = false
 
 [features]
-default = []
+default = ["cassette-auth"]
+# Functional prototype: Cassette-compatible, consenting per-window session.
+cassette-auth = ["auth-webkit"]
 # Local owner experiments only; default builds contain no Device Flow provider.
 experimental-device-auth = []
-# Isolated login component only. It does not enable a live Music provider.
+# Isolated login component, also used by the Cassette-compatible provider.
 auth-webkit = ["dep:webkit6"]
 
 [dependencies]

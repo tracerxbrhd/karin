@@ -91,6 +91,10 @@ impl LoginDialog {
         let web_content = {
             let container = gtk::Box::new(gtk::Orientation::Vertical, 0);
             container.set_vexpand(true);
+            container.set_hexpand(true);
+            // The outer scroller propagates natural height. A concrete minimum
+            // keeps a live WebView usable instead of allocating an empty strip.
+            container.set_size_request(-1, 360);
             container.set_visible(false);
             content.append(&container);
             container
@@ -102,7 +106,10 @@ impl LoginDialog {
         let cancel = gtk::Button::with_label("Отменить");
         actions.append(&retry);
         actions.append(&cancel);
-        content.append(&actions);
+        // A provider's page may scroll independently. Keep cancellation outside
+        // both scrollers so it remains reachable in compact/short windows.
+        super::margins(&actions, 12);
+        toolbar.add_bottom_bar(&actions);
         let scroll = gtk::ScrolledWindow::builder()
             .hscrollbar_policy(gtk::PolicyType::Never)
             .propagate_natural_height(true)
@@ -172,11 +179,22 @@ impl LoginDialog {
     }
 
     #[cfg(feature = "auth-webkit")]
+    pub fn browser_loading(&self, loading: bool) {
+        self.loading(if loading {
+            "Загрузка страницы Яндекса…"
+        } else {
+            "Выполните вход на странице Яндекса"
+        });
+        self.message.set_subtitle("Прототип использует совместимый с Cassette способ авторизации. Разрешения показывает Яндекс; доступ к Музыке проверяется после входа.");
+    }
+
+    #[cfg(feature = "auth-webkit")]
     pub fn set_webview(&self, webview: webkit::AuthWebView) {
         let origin = self.origin.text();
         self.shutdown();
         self.dialog.set_content_width(520);
         self.dialog.set_content_height(640);
+        self.message.set_subtitle("Вход выполняется на настоящей странице Яндекса. Прототип использует совместимый с Cassette способ авторизации; доступ к Музыке проверяется отдельно.");
         self.web_content.set_visible(true);
         self.web_content.append(webview.widget());
         *self.webview.borrow_mut() = Some(webview);

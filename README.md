@@ -3,9 +3,10 @@
 # Karin
 
 An independent native Linux client for Yandex Music, built with Rust, GTK4,
-Libadwaita and GStreamer. **v0.1 provides a read-only music interface; public
-Music sign-in and service-stream playback remain blocked.** Karin
-is not affiliated with Yandex.
+Libadwaita and GStreamer. v0.1 provides a read-only music interface and a
+Cassette-compatible browser-session authentication prototype. **Real Karin
+account/library acceptance on Fedora is pending; service-stream playback remains
+unimplemented.** Karin is not affiliated with Yandex.
 
 ## Implemented slice
 
@@ -16,12 +17,14 @@ is not affiliated with Yandex.
 - A native music interface with loading/error/empty/session states, library and
   search results, detail navigation and a bounded metadata queue. Only returned
   service data is displayed; no demonstration catalog is shipped.
-- One native `Войти` dialog, with cancellation, retry and a clear provider block.
-  No application credentials, device codes or pasted tokens belong in the normal
-  journey. A dedicated authentication boundary and synthetic callback tests
-  prepare automatic completion, but no production Music provider is activated.
-- Optional, isolated WebKitGTK6 support is limited to the authentication window.
-  It is a development build option, not a working Yandex sign-in or a web app shell.
+- One native `Войти` dialog loads the actual Yandex login in an isolated,
+  ephemeral WebKitGTK6 view. The default `cassette-auth` provider adapts Cassette's
+  published session-cookie → OAuth `sessionid` grant. No Client ID/secret fields,
+  device codes, pasted tokens, application registration or manual URL transfer
+  are part of this journey. Music account validation must pass before the dialog
+  closes and real liked tracks/playlists are fetched.
+- WebKit is confined to that authentication window; the application remains native
+  GTK/Libadwaita. Cancellation clears the browser session and discards late work.
 - The independent own-client `--oauth-diagnostic` remains unchanged: hidden full
   redirect input, returned-state validation, S256 PKCE, secretless initial
   exchange and separate sanitized status/about outcomes.
@@ -38,19 +41,28 @@ shipping the official application's OAuth identity or establish stream rights.
 The exact cause of Karin's generic 403 remains unknown. Changing the browser UI
 does not establish a working Music grant.
 
-The requested Cassette-style live login is **not achieved**. Karin needs its own
-permitted Music client/grant and supported registered automatic callback before
-it can show real Yandex login and load a person's library. Until then, `Войти`
-explains the provider block without opening an identity-only consent page or
-asking users to configure OAuth. The public/default build and Flatpak exclude
-optional authentication features; the legacy Device Flow module has no GUI entry.
+The own-client PKCE result is not reused as the normal sign-in path. The
+prototype instead uses the published OAuth registration already used by Cassette,
+with upstream GPL notices preserved. That registration's identity is distinct
+from Karin's own app; the consent page may name the upstream registration.
+Code-license permission, service/client-identity distribution conditions and
+technical interoperability are separate questions. No express provider approval
+for Karin's Linux embedded use or redistribution is established, and no blanket
+provider prohibition is inferred. See [the scoped decision](docs/adr/0011-cassette-session-auth-prototype.md).
+
+The default build and Flatpak enable this real provider; a no-feature compatibility
+build deliberately omits it. Device Flow remains a library-only optional experiment.
+Cloud fixtures do not prove successful Yandex login, Music access or a real library.
+[One local Fedora run](docs/BUILDING.md#music-sign-in-and-fedora-acceptance) must
+exercise those stages. Failures identify return/state, session-cookie collection,
+OAuth exchange or Music validation rather than a generic provider block.
 Session tokens are memory-only; logout clears local session/data and does not revoke the server
 grant. Persistent sessions require a separately verified Secret Service lifecycle.
 No playlist mutations, likes/unlikes, My Wave, service-stream resolver or MPRIS
 player is enabled. Playback controls visibly state the missing permitted-source
 contract rather than playing generated WAV as music.
 
-See [the sign-in decision](docs/adr/0010-single-purpose-sign-in-and-provider-gate.md),
+See [the sign-in decision](docs/adr/0011-cassette-session-auth-prototype.md),
 [authentication research](docs/AUTHENTICATION_REVIEW.md),
 [API evidence](docs/API_FEASIBILITY.md), [stream-delivery review](docs/STREAM_DELIVERY_REVIEW.md)
 and [local Fedora acceptance](docs/BUILDING.md#music-sign-in-and-fedora-acceptance).
@@ -72,8 +84,8 @@ the v0.0 native and Flatpak prototypes launch and diagnostic audio works there.
 The new music/session interface and existing playback controls require fresh manual acceptance;
 startup alone is not visual signoff. Cloud validation uses Debian 13 / Xvfb.
 In the prepared Codex Cloud environment, prefix native build commands with
-`/workspace/karin-environment/run`. All-feature checks also need the optional
-WebKit native package in [BUILDING.md](docs/BUILDING.md#optional-webkit-authentication-build-check-development-only).
+`/workspace/karin-environment/run-auth`, whose image includes WebKitGTK6.
+Default builds require the WebKit native package listed in [BUILDING.md](docs/BUILDING.md).
 
 ```sh
 cargo fmt --all -- --check
@@ -102,7 +114,7 @@ required by automated tests. Executed results and pending manual checks are in
 
 - [Architecture and concurrency](docs/ARCHITECTURE.md)
 - [API feasibility and evidence](docs/API_FEASIBILITY.md)
-- [Authentication contract and provider gate](docs/AUTHENTICATION_REVIEW.md)
+- [Authentication contract and prototype boundary](docs/AUTHENTICATION_REVIEW.md)
 - [Fedora, cloud and Flatpak build instructions](docs/BUILDING.md)
 - [Validation and acceptance](docs/VALIDATION.md)
 - [UI quality gate](docs/UI_QUALITY_GATE.md)
@@ -113,8 +125,8 @@ required by automated tests. Executed results and pending manual checks are in
 
 The Flatpak manifest and offline Cargo source preparation are in `packaging/`.
 GNOME 50 and the Freedesktop 25.08 Rust extension are retained, with no additional
-sandbox permissions for the music slice. The manifest explicitly builds without
-experimental features. Full sandboxed builds remain unavailable in this
+sandbox permissions for the music slice. The manifest explicitly enables `cassette-auth` while excluding the legacy
+Device Flow feature. Full sandboxed builds remain unavailable in this
 cloud container because Bubblewrap namespace creation is denied; the new revision
 must be packaged and accepted on Fedora independently of the reported v0.0 result.
 

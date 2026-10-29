@@ -2,11 +2,14 @@
 
 # Authentication contract review
 
-Reviewed **2026-10-29** for the owner's [PR #8 correction][correction]. This is
-public source/document research. No real authorization, account access, token
-exchange or private provider call was performed. Upstream credential/signing
-values are deliberately omitted. Source inspection does not establish provider
-permission or live acceptance.
+Reviewed **2026-10-29** for PR #8, including the owner's subsequent scope
+correction permitting adaptation of Cassette's published working auth chain
+without requiring a Karin-owned registration. Research and automated validation
+use public source and synthetic local fixtures only; no real account, session,
+OAuth exchange or Music request was performed in Cloud/CI. Published shared
+application values are attributed in the implementation, not repeated here;
+user secrets and stream-signing material are never published. Source licensing,
+provider permission, technical interoperability and live acceptance are separate.
 
 ## What Cassette actually does
 
@@ -29,10 +32,62 @@ not independently check Yandex ID client binding. Popup closure itself does not
 prove Music authorization. Current main's temporary cookie file also does not
 by itself establish an isolated ephemeral WebKit network session.
 
-Karin must not adopt the reused identity/secret, sessionid cookie exchange,
-substring callback check, navigation-URL logging, persistent cookie/token model
-or close-before-validation ordering. Public source/code licensing does not grant
-rights to another application's OAuth registration or service access.
+The corrected prototype adapts the published registration and sessionid contract,
+with upstream GPL notices retained. It does **not** adopt the substring check,
+URL logging, persistent cookies/tokens, official-client Music header or
+close-before-validation ordering. Public source/code licensing permits scoped
+code adaptation under its terms; it does not itself grant rights to the OAuth
+registration, Yandex service or content. Those conditions remain unresolved,
+not an established blanket prohibition or a technical provider-unavailable error.
+
+## Implemented Cassette-compatible provider
+
+Default `cassette-auth` enables `auth-webkit`; the existing Flatpak prototype
+selects it explicitly. The normal no-argument application uses this real provider,
+not the known Karin-owned PKCE route or a permanently blocked provider.
+
+1. `Войти` creates an ephemeral WebKitGTK6 NetworkSession, with persistent credential
+   storage disabled, and loads the actual official Yandex authorize endpoint with
+   `response_type=token`, Cassette's published client registration and fresh random
+   state. No redirect registration or technical credential input is required from
+   the end user. The consent screen may name that upstream registration rather
+   than Karin's own OAuth app; the identity must not be misrepresented.
+2. The provider checks the exact HTTPS `music.yandex.ru` root return and matching
+   state, in query or fragment, with bounded/duplicate-safe parsing and one-time
+   completion. Main-document completion is checked separately from frame navigation.
+   The implicit token fragment is not logged, displayed or used as Music proof.
+   Cassette relies on the registration's default redirect; the inspected source
+   does not establish its actual returned path or echoed state. A missing state
+   or another path therefore produces a concrete return-stage failure, pending
+   the real Fedora run, rather than unsafe substring acceptance.
+3. CookieManager asynchronously requests only cookies applicable to
+   `https://oauth.yandex.ru/token` from **this voluntary Karin session**. It does
+   not import other applications' cookies or read a database, password form, DOM
+   or JavaScript result. A bounded redacted memory payload requires the relevant
+   session cookie. Collection precedes clearing the ephemeral WebKit data.
+4. A worker posts `grant_type=sessionid`, the same published client ID/secret
+   and `host=oauth.yandex.ru` to official `/token`, with that scoped Cookie header.
+   TLS checking, no redirects, timeouts and response limits remain enforced.
+   Cookies are not forwarded to Music API. Token response/errors are reduced to
+   safe typed values; no body, URL, personal field or secret reaches logs/UI.
+5. The existing MusicService validates the account. Only success can close the
+   dialog and independently start liked tracks and personal playlist loads;
+   playlist contents, search, details and queue use the retained service/UI.
+   Music denial remains a Music-validation error, not a successful Yandex login.
+
+This is **not Authorization Code+PKCE**. The sessionid contract has no code
+verifier; the separate own-client PKCE diagnostic is unchanged. Cancellation
+aborts pending browser-cookie work, clears ephemeral data, invalidates the attempt
+and discards late token/Music responses. Tokens/cookies remain process-memory-only;
+no persistent credentials, refresh or remote revocation is implemented.
+
+`src/auth/cassette.rs` adapts the GPL-3.0-or-later v0.2.4 implementation, preserving
+Copyright 2023–2024 Vladimir Vaskov. The published shared app configuration is retained
+separately in `src/auth/cassette_client.json`. The unmodified upstream GPL and
+[provenance](../packaging/third-party-licenses/cassette-auth/PROVENANCE.md) are
+preserved under `packaging/third-party-licenses/cassette-auth/`. This config is
+shared published upstream application material, not a user's password/token;
+its inclusion does not settle OAuth registration distribution conditions.
 
 ## Provider documentation and native callback
 
@@ -70,36 +125,50 @@ An [unmodified yamu Device Flow][yamu] accessed account/search/metadata; a
 header. That comparison does not isolate OAuth flow from application/grant
 identity, approve reuse of that identity, or explain Karin's 403.
 
-No authorized distributable Music provider path is established. Replacing the
-browser presentation supplies no evidence of a different Music result. The
-remaining project prerequisites are:
+## Remaining facts, local test and distribution conditions
 
-1. Karin's permitted Music application identity/grant and distribution conditions.
-2. A provider-supported, registered automatic callback matching the selected
-   browser flow; fixed-loopback infrastructure alone does not register one.
-3. Provider confirmation for Linux embedded authentication if pursued, with the
-   RFC discrepancy explicit; otherwise an explained system-browser action with
-   automatic return from the same native dialog.
-4. Consented local proof of token binding and Music account acceptance, followed
-   by actual library/search, cancellation/logout and token lifecycle checks.
+The owner now authorizes the scoped Cassette-compatible functional prototype;
+a Karin-owned registration is no longer a precondition. The implementation
+must attempt the real chain, not repeat the known own-client 403 or disguise a
+local policy choice as a new provider response. The source contract is established;
+**the new Karin chain's real consent/session/token/Music/library/search acceptance
+is not yet established**. Use [the single Fedora procedure](BUILDING.md#music-sign-in-and-fedora-acceptance).
 
-These are project-owner/provider facts, not an end-user registration or secret-
-entry workflow. The public provider stays blocked. The implemented native dialog,
-generic callback/PKCE code and optional isolated `auth-webkit` view are preparation
-with synthetic coverage; Cassette-style live sign-in remains unachieved. Audio
-delivery has its own [independent gate](STREAM_DELIVERY_REVIEW.md). See
-[ADR-0010](adr/0010-single-purpose-sign-in-and-provider-gate.md) and
+A failed run reports the concrete stage: browser/TLS/process, exact return/state,
+missing/read-failed own-session cookie, `/token` HTTP and allowlisted OAuth error,
+network/timeout/malformed/expired token response, Music account validation, or
+library/search request. Only safe fixed categories/statuses may be shared. Do not
+infer missing scopes, subscription, allowlisting, region or provider policy from
+a generic failure; do not retry with another identity or region to conceal it.
+
+Public distribution remains a separate unresolved question. The reviewed GPL
+licenses establish code-reuse terms and notice/source obligations, **not** express
+permission to use the registration or Music API as Karin. No provider confirmation
+of Linux WebKit or those distribution conditions has been obtained. That is an
+unknown permission/compatibility condition, not proof of a blanket service ban
+or proof of approval. RFC 8252's embedded-agent objection remains applicable;
+Yandex's documented mobile SDK WebView support does not resolve Linux eligibility.
+
+The browser policy is not a firewall for every page subresource. The selected
+WebKit navigation API alone cannot prove a main-frame return, so session completion
+also checks the main document rather than trusting a subframe policy event.
+The exact HTTPS origins `smartcaptcha.yandexcloud.net` and `captcha-api.yandex.ru`
+are additionally permitted for Yandex-owned CAPTCHA navigation: the [official SmartCaptcha integration
+documentation](https://yandex.cloud/en/docs/smartcaptcha/quickstart) and its
+[published widget script](https://smartcaptcha.yandexcloud.net/captcha.js),
+retrieved on 2026-10-29, establish this component's origin; the script explicitly
+recognizes both exact hosts and builds its checkbox/challenge frames there.
+This does not prove that a particular Yandex OAuth login invokes either host.
+No wildcard Yandex or Yandex Cloud domain,
+alternate port, HTTP origin or lookalike is allowed. It does not change the exact
+Music completion or OAuth token destinations; `captcha.yandex.net` is not added
+without equivalent affirmative evidence.
+`--smoke-test` and the capture helper's explicit `--ui-fixture` provider are offline
+only and do not exercise actual Yandex auth. Browser sandbox tests remain separate
+from provider/session acceptance. Audio delivery retains its
+[independent gate](STREAM_DELIVERY_REVIEW.md). See
+[ADR-0011](adr/0011-cassette-session-auth-prototype.md) and
 [API evidence](API_FEASIBILITY.md).
-
-The optional browser component does not establish RFC 8252 compliance or Linux
-provider approval. Its navigation policy checks parsed origins and exact callback
-state before consuming a code; it is not a firewall for all page subresources.
-WebKitGTK 6's selected navigation API does not reliably expose whether an action
-is in the main frame (`frame_name` is not that proof). A response-frame test is
-too late to intercept a credential-bearing callback before network dispatch.
-This unresolved embedded-provider requirement reinforces the default blocked
-provider and the separately registered system-browser candidate; no real
-embedded provider is activated by enabling `auth-webkit`.
 
 Ubuntu 24.04 CI additionally needs an AppArmor-labelled parent process to let
 WebKit create its own sandbox. The workflow grants `userns` only to the exact

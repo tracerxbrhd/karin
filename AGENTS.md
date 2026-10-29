@@ -49,16 +49,28 @@ Do not introduce Electron or web-based application shells.
   dialog. Never expose developer Client ID/secret, device-code copying, manual
   redirect transfer or token entry in that journey, including experimental modes.
   The legacy feature-gated Device Flow module is library-only, with no GUI entry.
-  Never bundle borrowed OAuth credentials or add official-client headers.
-- PR #8 permits WebKitGTK6 only inside the authentication window; the rest of
-  Karin remains native GTK/Libadwaita. Use an isolated ephemeral session, parsed
-  exact trusted origins/callbacks, state/S256 PKCE, bounded work and cancellation;
-  never inject JavaScript, scrape credentials/cookies or log navigation URLs.
-  No real provider is activated until Karin's permitted Music identity/grant,
-  supported callback and provider compatibility are established. A Yandex ID page
-  alone is not Music sign-in. RFC 8252 rejects embedded native OAuth; reviewed
-  Yandex mobile SDK support does not establish Linux WebKit permission. Document
-  any approved browser fallback with automatic callback, without manual input.
+  Do not add official-client request headers or unrelated OAuth identities.
+- The owner explicitly permits adapting Cassette's published authentication chain
+  for the functional prototype; a Karin-owned OAuth registration is no longer a
+  prerequisite. The default `cassette-auth` provider must attempt real sign-in,
+  not return a permanent local provider block or reuse the known ID 200/Music 403
+  diagnostic as its normal path. Retain upstream GPL notices and attribution.
+  Document the published client identity transparently; distinguish code-license
+  permission, unresolved service/registration distribution conditions and actual
+  technical errors. Public source alone does not establish service permission.
+- WebKitGTK6 is limited to the authentication dialog; Karin remains native
+  GTK/Libadwaita. Use a fresh ephemeral session, exact trusted origins/return path,
+  random returned-state validation, bounded work and cancellation. Read only
+  cookies applicable to the official token endpoint from this voluntary Karin
+  session, in memory, for the scoped `sessionid` exchange. Never inspect DOM/form
+  passwords, inject JavaScript, import browser profiles, persist cookies, log
+  navigation URLs, or forward cookies to Music API. Sessionid is not code/PKCE;
+  keep the independent own-client PKCE diagnostic unchanged.
+  A Yandex page, session or token alone is not Music sign-in: validate Music
+  before completing the dialog, then load real library data. RFC 8252 rejects
+  embedded native OAuth; reviewed Yandex mobile SDK support does not establish
+  Linux WebKit permission. Record that uncertainty without inventing a provider
+  ban or approval. Report a failed chain's concrete stage and safe category.
 - Session and account/catalog acceptance are independent. Never turn metadata
   into playback entitlement. The inspected protected/signing delivery code is
   not an approved source; keep music playback unavailable until separately
@@ -68,9 +80,10 @@ Do not introduce Electron or web-based application shells.
   verified Secret Service lifecycle. Keep PKCE and developer audio independent.
 
 ## User Experience
-- Cassette by Rirusha is an aesthetic reference, not a source to copy.
-- Its authentication source is evidence about a different cookie/sessionid grant
-  and reused application identity, not permission to adopt that identity or secret.
+- Cassette by Rirusha is an aesthetic reference and, for the explicitly scoped
+  authentication prototype, a GPL-licensed protocol implementation reference.
+  Preserve notices for adapted components; do not copy its persistent cookie
+  storage, substring return matching, URL logging or close-before-validation.
 - Follow GNOME HIG and Libadwaita conventions where suitable.
 - Support light/dark themes, HiDPI, keyboard navigation, and accessibility.
 - Design loading, empty, offline, unauthorized, and error states.
@@ -113,10 +126,13 @@ When a Rust workspace exists, run:
 - cargo test --workspace
 - cargo build --workspace
 
-Also check `--all-features` Clippy/tests and build the opted-in experimental
-configuration, then restore `--no-default-features` before public artifacts and
-captures. Check feature/runtime gating and the public Flatpak policy; neither
-real account access nor provider credentials belongs in automated checks.
+Also check `--all-features` Clippy/tests and the `--no-default-features`
+compatibility build. Default and Flatpak prototype artifacts enable
+`cassette-auth` / `auth-webkit`; Device Flow stays excluded. Automated smoke and
+capture paths must inject an offline provider or use explicitly identified
+no-feature artifacts, never open real Yandex login. Test WebKit/session exchange
+with loopback fixtures, synthetic cookies and tokens only. A real Fedora owner
+run is separate; no account access or user secrets belong in Cloud/CI/GitHub.
 
 Preserve the minimum Rust series declared in `Cargo.toml` (1.98). Run the pinned
 Rust 1.98.1 CI checks as well as stable when changing Rust code, dependencies or
