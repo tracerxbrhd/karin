@@ -96,6 +96,16 @@ impl MusicError {
             _ => None,
         }
     }
+    /// A fixed schema-shape category; never a serde path or provider value.
+    pub fn diagnostic_shape(self) -> Option<&'static str> {
+        match self {
+            Self::SearchResponse {
+                stage: SearchParseStage::TrackWireShape(shape),
+                ..
+            } => Some(shape.as_str()),
+            _ => None,
+        }
+    }
     pub fn http_status(self) -> Option<u16> {
         match self {
             Self::AccessDenied => Some(401),
@@ -116,6 +126,7 @@ pub enum SearchParseStage {
     Section,
     Pagination,
     TrackWire,
+    TrackWireShape(SearchSchemaShape),
     TrackNormalization,
     AlbumWire,
     AlbumNormalization,
@@ -128,12 +139,35 @@ impl SearchParseStage {
             Self::Envelope => "search-envelope",
             Self::Section => "search-section",
             Self::Pagination => "search-pagination",
-            Self::TrackWire => "track-wire",
+            Self::TrackWire | Self::TrackWireShape(_) => "track-wire",
             Self::TrackNormalization => "track-normalization",
             Self::AlbumWire => "album-wire",
             Self::AlbumNormalization => "album-normalization",
             Self::ArtistWire => "artist-wire",
             Self::ArtistNormalization => "artist-normalization",
+        }
+    }
+}
+/// Nonpersonal categories for a rejected track record. Optional display credit
+/// values are not retained here, even if the provider returned an error record.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SearchSchemaShape {
+    RecordNotObject,
+    IdentityMissing,
+    IdentityType,
+    IdentityInvalid,
+    AvailabilityType,
+    FieldsUnsupported,
+}
+impl SearchSchemaShape {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::RecordNotObject => "track-record-not-object",
+            Self::IdentityMissing => "track-id-missing",
+            Self::IdentityType => "track-id-type",
+            Self::IdentityInvalid => "track-id-invalid",
+            Self::AvailabilityType => "track-availability-type",
+            Self::FieldsUnsupported => "track-fields-unsupported",
         }
     }
 }
@@ -828,13 +862,16 @@ fn parse_search(
     results.has_more = more;
     match kind {
         SearchKind::Tracks => {
-            results.tracks = search_items(
-                items,
-                SearchParseStage::TrackWire,
-                SearchParseStage::TrackNormalization,
-                http,
-                track_from_wire,
-            )?;
+            results.tracks = items
+                .into_iter()
+                .map(|item| {
+                    let wire = serde_json::from_str(item.get())
+                        .map_err(|_| search_track_shape(&item, http))?;
+                    track_from_wire(wire).map_err(|error| {
+                        search_failure(error, SearchParseStage::TrackNormalization, http)
+                    })
+                })
+                .collect::<Result<_, _>>()?;
         }
         SearchKind::Albums => {
             results.albums = search_items(
@@ -856,6 +893,39 @@ fn parse_search(
         }
     }
     Ok(results)
+}
+fn search_track_shape(item: &RawValue, http: u16) -> MusicError {
+    #[derive(Deserialize)]
+    struct Shape {
+        id: Option<Box<RawValue>>,
+        available: Option<Box<RawValue>>,
+    }
+    let shape = if !item.get().trim_start().starts_with('{') {
+        SearchSchemaShape::RecordNotObject
+    } else if let Ok(shape) = serde_json::from_str::<Shape>(item.get()) {
+        match shape.id {
+            None => SearchSchemaShape::IdentityMissing,
+            Some(id) if serde_json::from_str::<Id>(id.get()).is_err() => {
+                match id.get().trim_start().as_bytes().first() {
+                    Some(b'"' | b'-' | b'0'..=b'9') => SearchSchemaShape::IdentityInvalid,
+                    _ => SearchSchemaShape::IdentityType,
+                }
+            }
+            Some(_) => {
+                if shape
+                    .available
+                    .is_some_and(|value| !matches!(value.get(), "true" | "false"))
+                {
+                    SearchSchemaShape::AvailabilityType
+                } else {
+                    SearchSchemaShape::FieldsUnsupported
+                }
+            }
+        }
+    } else {
+        SearchSchemaShape::FieldsUnsupported
+    };
+    search_contract(SearchParseStage::TrackWireShape(shape), http)
 }
 fn search_items<T: DeserializeOwned, U>(
     items: Vec<Box<RawValue>>,
@@ -998,11 +1068,13 @@ struct ArtistWire {
 #[serde(rename_all = "camelCase")]
 struct TrackWire {
     id: Id,
+    #[serde(default, deserialize_with = "display_text")]
     title: Option<String>,
-    #[serde(default)]
-    artists: Vec<ArtistWire>,
-    #[serde(default)]
-    albums: Vec<AlbumWire>,
+    #[serde(default, deserialize_with = "display_credits")]
+    artists: Vec<ArtistCreditWire>,
+    #[serde(default, deserialize_with = "display_credits")]
+    albums: Vec<AlbumCreditWire>,
+    #[serde(default, deserialize_with = "display_duration")]
     duration_ms: Option<u64>,
     available: Option<bool>,
     #[serde(default, deserialize_with = "cover_template")]
@@ -1016,12 +1088,106 @@ struct AlbumWire {
     // Upstream compact album credits may omit their independent catalog ID.
     // A standalone album still requires it during normalization below.
     id: Option<Id>,
+    #[serde(default, deserialize_with = "display_text")]
     title: Option<String>,
-    #[serde(default)]
-    artists: Vec<ArtistWire>,
+    #[serde(default, deserialize_with = "display_credits")]
+    artists: Vec<ArtistCreditWire>,
     volumes: Option<Vec<Vec<TrackWire>>>,
     #[serde(default, deserialize_with = "cover_template")]
     cover_uri: Option<crate::artwork::CoverArt>,
+}
+
+// Display-only nested credits are not standalone navigable entities. MarshalX
+// 9ca132e5 base.py::de_list accepts null/non-list containers and skips non-object
+// members, unlike the previous Vec<ArtistWire>/Vec<AlbumWire> coupling. Keep the
+// required parent track ID strict and reject duplicate recognized credit keys.
+#[derive(Deserialize)]
+struct ArtistCreditWire {
+    #[serde(default, deserialize_with = "display_text")]
+    name: Option<String>,
+    #[serde(default, rename = "id", deserialize_with = "ignored_display_value")]
+    _id: (),
+    #[serde(default, rename = "cover", deserialize_with = "ignored_display_value")]
+    _cover: (),
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AlbumCreditWire {
+    #[serde(default, deserialize_with = "display_album_id")]
+    id: Option<Id>,
+    #[serde(default, deserialize_with = "display_text")]
+    title: Option<String>,
+    #[serde(default, deserialize_with = "cover_template")]
+    cover_uri: Option<crate::artwork::CoverArt>,
+    #[serde(
+        default,
+        rename = "artists",
+        deserialize_with = "ignored_display_value"
+    )]
+    _artists: (),
+    #[serde(
+        default,
+        rename = "volumes",
+        deserialize_with = "ignored_display_value"
+    )]
+    _volumes: (),
+}
+fn ignored_display_value<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<(), D::Error> {
+    let _ = Box::<RawValue>::deserialize(deserializer)?;
+    Ok(())
+}
+fn display_text<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<String>, D::Error> {
+    let value = Box::<RawValue>::deserialize(deserializer)?;
+    Ok(serde_json::from_str::<Option<String>>(value.get())
+        .ok()
+        .flatten()
+        .and_then(|value| text(value).ok()))
+}
+fn display_duration<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<u64>, D::Error> {
+    let value = Box::<RawValue>::deserialize(deserializer)?;
+    Ok(serde_json::from_str::<Option<u64>>(value.get())
+        .ok()
+        .flatten())
+}
+fn display_album_id<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Id>, D::Error> {
+    let value = Box::<RawValue>::deserialize(deserializer)?;
+    Ok(serde_json::from_str::<Option<Id>>(value.get())
+        .ok()
+        .flatten())
+}
+fn display_credits<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: DeserializeOwned,
+{
+    let value = Box::<RawValue>::deserialize(deserializer)?;
+    if !value.get().trim_start().starts_with('[') {
+        return Ok(Vec::new());
+    }
+    let values = serde_json::from_str::<Vec<Box<RawValue>>>(value.get())
+        .map_err(|_| <D::Error as serde::de::Error>::custom("unsupported display-credit list"))?;
+    if values.len() > MAX_COLLECTION {
+        return Err(<D::Error as serde::de::Error>::custom(
+            "display-credit list exceeds bound",
+        ));
+    }
+    values
+        .into_iter()
+        .filter(|value| value.get().trim_start().starts_with('{'))
+        .map(|value| {
+            serde_json::from_str(value.get()).map_err(|_| {
+                <D::Error as serde::de::Error>::custom("ambiguous display-credit record")
+            })
+        })
+        .collect()
 }
 #[derive(Deserialize)]
 struct SearchWire {
@@ -1080,7 +1246,7 @@ fn playlist_from_wire(wire: PlaylistWire) -> Result<Playlist, MusicError> {
         cover: wire.cover,
     })
 }
-fn artist_names(wire: Vec<ArtistWire>) -> Result<Vec<String>, MusicError> {
+fn artist_names(wire: Vec<ArtistCreditWire>) -> Result<Vec<String>, MusicError> {
     // Embedded credits may have a name without an independently browsable ID.
     // Missing credits are omitted; they do not invalidate an otherwise real
     // track/album. Standalone artist results remain strictly identified above.
@@ -1090,7 +1256,10 @@ fn artist_names(wire: Vec<ArtistWire>) -> Result<Vec<String>, MusicError> {
         .collect()
 }
 fn track_from_wire(wire: TrackWire) -> Result<Track, MusicError> {
-    let album = wire.albums.into_iter().next();
+    let album = wire
+        .albums
+        .into_iter()
+        .find(|album| album.id.is_some() || album.title.is_some() || album.cover_uri.is_some());
     let cover = wire
         .cover_uri
         .or_else(|| album.as_ref().and_then(|album| album.cover_uri.clone()));

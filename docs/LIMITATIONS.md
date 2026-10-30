@@ -2,6 +2,15 @@
 
 # Known limitations
 
+- **The later `99a177e` Fedora track-search retest also failed.** Ordinary login,
+  the library, track details/liked state and album search/details worked. The
+  subsequent correction handles source-backed mixed/null optional display
+  credits and exposes finite schema-shape support codes, with a native failing-
+  before/passing-after regression. It is not a claim to have seen the owner's
+  payload or passed another real-service test. The owner's delivery-info read
+  returned HTTP 200/mp3 but stopped before descriptor retrieval. See the latest
+  [validation evidence](VALIDATION.md); search and audible Music acceptance are
+  separate, and audio work continues in the child PR without waiting for search.
 - **Live acceptance is endpoint-specific.** The owner verified ordinary Karin
   sign-in, Music account validation, actual liked tracks and personal-playlist
   listing on Fedora at PR #8 baseline `797ba3a`, as recorded in Issue #9. Search

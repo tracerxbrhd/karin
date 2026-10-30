@@ -689,7 +689,6 @@ fn relaxed_optional_metadata_still_rejects_unidentified_entities_and_invalid_pag
         r#"{"result":{"artists":{"total":1,"results":[{"id":11}]}}}"#,
         r#"{"result":{"tracks":{"total":1,"perPage":0,"results":[{"id":42}]}}}"#,
         r#"{"result":{"tracks":{"total":0,"results":[{"id":42}]}}}"#,
-        r#"{"result":{"tracks":{"total":1,"results":[{"id":42,"artists":[{"name":"\u0000synthetic-private-person"}]}]}}}"#,
     ];
     let (service, server, listener) =
         fixture(bodies.iter().map(|body| (200, (*body).into())).collect());
@@ -704,7 +703,7 @@ fn relaxed_optional_metadata_still_rejects_unidentified_entities_and_invalid_pag
             0 => SearchParseStage::Section,
             1 | 4 | 5 => SearchParseStage::Pagination,
             2 | 3 => SearchParseStage::ArtistNormalization,
-            _ => SearchParseStage::TrackNormalization,
+            _ => unreachable!(),
         };
         assert_eq!(error, search_contract(expected_stage, 200));
         assert_eq!(error.category(), "response-contract");
@@ -1038,6 +1037,192 @@ fn search_embedded_album_identity_is_optional_but_result_identity_remains_strict
 }
 
 #[test]
+fn search_null_and_mixed_display_credits_preserve_valid_tracks_and_detail_opening() {
+    // Current MarshalX 9ca132e5 base.py::de_list omits null/non-list credit
+    // containers and non-object members. The original 99a177e Vec<ArtistWire>
+    // and Vec<AlbumWire> rejected these complete, identified track records.
+    let tracks = json!([
+        {"id":42,"title":"Synthetic null credits","available":true,
+         "artists":null,"albums":null},
+        {"id":"43","title":"Synthetic mixed credits","available":true,
+         "artists":[null,7,"not an artist",{},
+             {"id":null,"name":null,"error":"synthetic-private-message"},
+             {"id":"https://sensitive.invalid/private","name":"Synthetic credited artist"},
+             {"name":false},{"name":"\u{0000}synthetic-private-person"},
+             {"name":"Synthetic second artist"}],
+         "albums":[null,false,"not an album",{},
+             {"id":null,"title":"Synthetic compact album","artists":null,"volumes":false,
+              "coverUri":"avatars.yandex.net/get-music-content/synthetic/%%"}]},
+        {"id":44,"title":null,"available":true,"artists":{},"albums":false,
+         "durationMs":null},
+        {"id":45,"title":false,"available":true,"durationMs":"synthetic-private-value",
+         "artists":[{"name":{"unsupported":"synthetic-private-person"}}],
+         "albums":[{"id":"invalid/private-id","title":"Synthetic display-only album"}]}
+    ]);
+    let selected = tracks.as_array().unwrap()[1].clone();
+    let (service, server, listener) = fixture(vec![
+        (
+            200,
+            json!({"result":{"tracks":{"total":4,"perPage":20,"results":tracks}}}).to_string(),
+        ),
+        (200, json!({"result":[selected]}).to_string()),
+        (
+            200,
+            json!({"result":{"albums":{"total":1,"results":[{
+                "id":7,"title":"Synthetic album result","artists":[null,{"name":false},
+                    {"name":"Synthetic album artist"}]
+            }]}}})
+            .to_string(),
+        ),
+    ]);
+    let token = token();
+    let page = service
+        .search(&token, "Synthetic & Синтетика", SearchKind::Tracks, 0)
+        .unwrap();
+    assert_eq!(
+        page.tracks
+            .iter()
+            .map(|track| track.id.as_str())
+            .collect::<Vec<_>>(),
+        ["42", "43", "44", "45"]
+    );
+    assert!(!page.has_more);
+    assert!(page.tracks[0].artists.is_empty());
+    assert!(page.tracks[0].album_id.is_none());
+    assert_eq!(
+        page.tracks[1].artists,
+        ["Synthetic credited artist", "Synthetic second artist"]
+    );
+    assert!(page.tracks[1].album_id.is_none());
+    assert_eq!(
+        page.tracks[1].album_title.as_deref(),
+        Some("Synthetic compact album")
+    );
+    assert!(page.tracks[1].cover.is_some());
+    assert_eq!(page.tracks[2].title, "Без названия");
+    assert_eq!(page.tracks[3].title, "Без названия");
+    assert!(page.tracks[3].duration_ms.is_none());
+    assert!(page.tracks[3].album_id.is_none());
+    assert_eq!(
+        page.tracks[3].album_title.as_deref(),
+        Some("Synthetic display-only album")
+    );
+    assert!(page.tracks.iter().all(|track| track.available));
+    let detail = service.track(&token, &page.tracks[1].id).unwrap();
+    assert_eq!(detail.id, "43");
+    assert_eq!(detail.artists, page.tracks[1].artists);
+    let albums = service
+        .search(&token, "Synthetic", SearchKind::Albums, 0)
+        .unwrap();
+    assert_eq!(albums.albums[0].id, "7");
+    assert_eq!(albums.albums[0].artists, ["Synthetic album artist"]);
+    assert_redacted(page);
+    assert_redacted(detail);
+    assert_eq!(complete(server, listener).len(), 3);
+}
+
+#[test]
+fn optional_display_credit_tolerance_never_weakens_identity_availability_or_ambiguity() {
+    let cases = [
+        (
+            r#"{"title":"synthetic-private-title","artists":null}"#,
+            SearchSchemaShape::IdentityMissing,
+        ),
+        (
+            r#"{"id":null,"artists":null}"#,
+            SearchSchemaShape::IdentityMissing,
+        ),
+        (
+            r#"{"id":{},"artists":null}"#,
+            SearchSchemaShape::IdentityType,
+        ),
+        (
+            r#"{"id":false,"artists":null}"#,
+            SearchSchemaShape::IdentityType,
+        ),
+        (
+            r#"{"id":-42,"artists":null}"#,
+            SearchSchemaShape::IdentityInvalid,
+        ),
+        (
+            r#"{"id":"../private","artists":null}"#,
+            SearchSchemaShape::IdentityInvalid,
+        ),
+        (
+            r#"{"id":42,"available":"true","artists":null}"#,
+            SearchSchemaShape::AvailabilityType,
+        ),
+        (
+            r#"{"id":42,"id":43,"artists":null}"#,
+            SearchSchemaShape::FieldsUnsupported,
+        ),
+        (
+            r#"{"id":42,"artists":null,"artists":[]}"#,
+            SearchSchemaShape::FieldsUnsupported,
+        ),
+        (
+            r#"{"id":42,"artists":[{"name":"a","name":"b"}]}"#,
+            SearchSchemaShape::FieldsUnsupported,
+        ),
+        (
+            r#"{"id":42,"artists":[{"id":null,"id":11}]}"#,
+            SearchSchemaShape::FieldsUnsupported,
+        ),
+        (
+            r#"{"id":42,"albums":[{"id":null,"id":7}]}"#,
+            SearchSchemaShape::FieldsUnsupported,
+        ),
+        (
+            r#"{"id":42,"albums":[{"title":null,"title":"b"}]}"#,
+            SearchSchemaShape::FieldsUnsupported,
+        ),
+    ];
+    let (service, server, listener) = fixture(
+        cases
+            .iter()
+            .map(|(item, _)| {
+                (
+                    200,
+                    format!(r#"{{"result":{{"tracks":{{"total":1,"results":[{item}]}}}}}}"#),
+                )
+            })
+            .collect(),
+    );
+    for (_, shape) in cases {
+        let error = service
+            .search(&token(), "synthetic-private-query", SearchKind::Tracks, 0)
+            .unwrap_err();
+        assert_eq!(
+            error,
+            search_contract(SearchParseStage::TrackWireShape(shape), 200)
+        );
+        assert_eq!(error.diagnostic_stage(), Some("track-wire"));
+        assert_eq!(error.diagnostic_shape(), Some(shape.as_str()));
+        assert_eq!(error.http_status(), Some(200));
+        assert_redacted(error);
+        let visible = format!("{error} {error:?} {:?}", error.diagnostic_shape());
+        for private in [
+            "synthetic-private-query",
+            "private-title",
+            "../private",
+            "artists[",
+            "missing field",
+        ] {
+            assert!(!visible.contains(private));
+        }
+    }
+    assert_eq!(complete(server, listener).len(), cases.len());
+    for invalid in [json!(null), json!(-7), json!("invalid/private-id")] {
+        let album =
+            serde_json::from_value::<AlbumWire>(json!({"id":invalid.clone(),"artists":null}));
+        assert!(album.is_err() || album_from_wire(album.unwrap()).is_err());
+        let artist =
+            serde_json::from_value::<ArtistWire>(json!({"id":invalid,"name":"Synthetic artist"}));
+        assert!(artist.is_err() || artist_from_wire(artist.unwrap()).is_err());
+    }
+}
+
+#[test]
 fn search_reports_first_failed_layer_with_observed_http_and_fixed_private_safe_errors() {
     let cases = [
         (
@@ -1072,23 +1257,23 @@ fn search_reports_first_failed_layer_with_observed_http_and_fixed_private_safe_e
         ),
         (
             SearchKind::Tracks,
-            SearchParseStage::TrackWire,
+            SearchParseStage::TrackWireShape(SearchSchemaShape::IdentityMissing),
             r#"{"result":{"tracks":{"total":1,"results":[{"title":"synthetic-private-title"}]}}}"#,
         ),
         (
             SearchKind::Tracks,
-            SearchParseStage::TrackWire,
+            SearchParseStage::TrackWireShape(SearchSchemaShape::IdentityInvalid),
             r#"{"result":{"tracks":{"total":1,"results":[{"id":"https://sensitive.invalid/private?token=synthetic-private-query"}]}}}"#,
         ),
         (
             SearchKind::Tracks,
-            SearchParseStage::TrackWire,
-            r#"{"result":{"tracks":{"total":1,"results":[{"id":42,"durationMs":"synthetic-private-query"}]}}}"#,
+            SearchParseStage::TrackWireShape(SearchSchemaShape::AvailabilityType),
+            r#"{"result":{"tracks":{"total":1,"results":[{"id":42,"available":"synthetic-private-query"}]}}}"#,
         ),
         (
             SearchKind::Tracks,
-            SearchParseStage::TrackNormalization,
-            r#"{"result":{"tracks":{"total":1,"results":[{"id":42,"title":"\u0000synthetic-private-title"}]}}}"#,
+            SearchParseStage::TrackWireShape(SearchSchemaShape::RecordNotObject),
+            r#"{"result":{"tracks":{"total":1,"results":["synthetic-private-title"]}}}"#,
         ),
         (
             SearchKind::Albums,
@@ -1161,11 +1346,11 @@ fn staged_search_rejects_duplicate_known_fields_instead_of_losing_them_in_a_json
             r#"{"result":{"tracks":{"total":1,"total":2,"results":[{"id":42}]}}}"#,
         ),
         (
-            SearchParseStage::TrackWire,
+            SearchParseStage::TrackWireShape(SearchSchemaShape::FieldsUnsupported),
             r#"{"result":{"tracks":{"total":1,"results":[{"id":42,"id":43}]}}}"#,
         ),
         (
-            SearchParseStage::TrackWire,
+            SearchParseStage::TrackWireShape(SearchSchemaShape::FieldsUnsupported),
             r#"{"result":{"tracks":{"total":1,"results":[{"id":42,"albums":[{"id":7,"id":8}]}]}}}"#,
         ),
     ];

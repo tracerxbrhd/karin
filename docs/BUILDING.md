@@ -59,6 +59,16 @@ and non-opening result/playlist rows. Those are separate failures; successful
 Cloud fixtures do not pass the next Fedora retest. Use the corrected PR #12
 revision identified by its matching CI artifact, not the earlier tested build.
 
+The [later retest at `99a177e`](https://github.com/tracerxbrhd/karin/pull/12#issuecomment-6524410137)
+confirms track details, liked state and album search/details, but **track search
+still failed**. Use the subsequent PR #12 correction for mixed/null embedded
+display credits. Its native regression exercises actual Enter/Find and result
+clicks. If a supported response still fails, the normal inline error now includes
+only a fixed stage/schema-shape/HTTP support code; share that code rather than
+private screenshots or response data. Track ID and authorization checks remain
+strict. The separate audio child PR supplies the final combined playback build;
+the parent delivery diagnostic remains metadata-only.
+
 Build the default prototype once using the Fedora prerequisites above:
 
 ```sh

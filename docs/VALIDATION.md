@@ -6,6 +6,52 @@ This report separates initial cloud checks, user-reported Fedora acceptance,
 revised UI checks and compiler compatibility. A result for one environment or
 revision is not evidence that another has passed.
 
+## P0 track-search follow-up after `99a177e` (2026-10-30)
+
+The [latest owner retest](https://github.com/tracerxbrhd/karin/pull/12#issuecomment-6524410137)
+confirms ordinary sign-in, the personal library, opening a real track, confirmed
+liked state, and album search/details. **Track search still failed** at
+`99a177e`; that correction is not accepted as live track-search success. Its
+exact failing record/stage was not supplied and no private response was requested.
+
+The independent [delivery result](https://github.com/tracerxbrhd/karin/issues/9#issuecomment-6524404858)
+was `stage=delivery-info category=metadata-origin-unverified http=200
+metadata-http=none formats=mp3 resource=https-descriptor
+protection=not-established direct-hint=false preview-hint=false`.
+This confirms offers, not a descriptor request, media request, no-DRM conclusion
+or audible playback. Audio implementation proceeds independently in a child PR.
+
+The new search correction separates embedded display credits from independently
+navigable entities. MarshalX `9ca132e5` `base.py::de_list` (lines 359–383) accepts
+null/non-list credit containers and ignores non-object members; its Track,
+Artist and Album converters and pinned yamu also make embedded labels optional.
+Karin's coupled `Vec<ArtistWire>`/`Vec<AlbumWire>` rejected these variants before
+any track could be rendered. Display-only nested names/titles/durations and
+unused credit identifiers no longer discard a correctly identified track page.
+Required track identity, boolean availability, standalone identities, recognized
+duplicate fields, account checks and request/body limits remain strict.
+
+The extended native fixture now returns mixed/null and malformed optional credits,
+uses actual SearchEntry Enter and the Find button for Cyrillic/Latin queries,
+then clicks the result and verifies the track detail request. On the unchanged
+`99a177e` source it reproduces **HTTP 200 / `track-wire`** and times out without
+a track result. With the corrected converter the same fixture opens the track.
+This is a concrete source-backed regression, **not evidence that its synthetic
+record is the owner's unseen payload**.
+
+Remaining rejected track records have finite schema-shape codes in addition to
+stage/category/observed HTTP. The inline error also exposes that support code,
+without JSON, field paths, queries, names, IDs, URLs, headers or credentials.
+Both local compiler lanes (stable 1.99.1 and exact 1.98.1) passed fmt,
+default/all-feature/minimal all-target Clippy, **191 / 199 / 177 library + 4
+binary tests**, builds, the real Enter/Find/click/detail fixture, existing native
+catalog/library/cancellation checks, scale-1/2 GTK/artwork, WebKit construction,
+synthetic terminal/audio checks and exact-1.98.1 default/all-feature offline
+releases. Display tests remain separately selected (8 / 8 / 5 ignored in the
+ordinary configurations). Full sandboxed WebKit and exact-revision hosted CI
+outcomes are linked from PR #12 after execution; local checks do not imply them.
+Live track-search acceptance and **audible v0.2 acceptance remain pending**.
+
 ## PR #12 Fedora catalog regression correction (2026-10-30)
 
 The owner's [blocking Fedora retest](https://github.com/tracerxbrhd/karin/pull/12#issuecomment-6513456418)

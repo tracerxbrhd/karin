@@ -1831,6 +1831,18 @@ impl Controller {
                         "Поиск не выполнен. Повторите запрос.",
                     );
                     this.show_error(error);
+                    // A finite support code is safe to share from this inline
+                    // error. It never contains a serde path or provider value.
+                    if let Some(stage) = error.diagnostic_stage() {
+                        let shape = error.diagnostic_shape().unwrap_or("none");
+                        let http = error
+                            .http_status()
+                            .map(|status| status.to_string())
+                            .unwrap_or_else(|| "none".into());
+                        this.widgets
+                            .status
+                            .set_subtitle(&format!("Код ответа: {stage} · {shape} · HTTP {http}"));
+                    }
                 }
             },
         );
@@ -2671,13 +2683,18 @@ fn launch_system_browser(url: &str) -> Result<(), AuthError> {
 }
 
 fn catalog_diagnostic(operation: Operation, error: Option<MusicError>) {
-    write_catalog_line(catalog_line(
+    let mut line = catalog_line(
         operation,
         CatalogPhase::Result,
         error.map(MusicError::category).unwrap_or("success"),
         error.and_then(MusicError::http_status),
         error.and_then(MusicError::diagnostic_stage),
-    ));
+    );
+    if let Some(shape) = error.and_then(MusicError::diagnostic_shape) {
+        use std::fmt::Write;
+        let _ = write!(line, " shape={shape}");
+    }
+    write_catalog_line(line);
 }
 
 fn catalog_event(operation: Operation, category: &'static str, http: Option<u16>) {

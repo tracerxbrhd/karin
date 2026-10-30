@@ -149,7 +149,14 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
                     "/search" => {
                         let kind = url.query_pairs().find(|(key,_)| key == "type").unwrap().1.into_owned();
                         match kind.as_str() {
-                            "track" => json!({"result":{"tracks":{"page":0,"perPage":20,"total":1,"results":[track]}}}),
+                            // Real upstream converters permit partial/mixed
+                            // embedded display credits. Own track identity and
+                            // availability remain well formed and authoritative.
+                            "track" => json!({"result":{"tracks":{"page":0,"perPage":20,"total":1,"results":[{
+                                "id":42,"title":"Synthetic input track","available":true,
+                                "artists":[null,false,{"id":{"optional":"credit"},"name":"Synthetic input artist"},{"name":22}],
+                                "albums":[null,true,{"id":7,"title":"Synthetic input album","artists":null}]
+                            }]}}}),
                             "album" => json!({"result":{"albums":{"page":0,"perPage":20,"total":1,"results":[{"id":7,"title":"Synthetic input album","artists":[]}]}}}),
                             "artist" => json!({"result":{"artists":{"page":0,"perPage":20,"total":1,"results":[{"id":11,"name":"Synthetic input artist"}]}}}),
                             _ => panic!("unexpected synthetic search category"),
@@ -320,15 +327,28 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
         click(window, id, &this.widgets.detail.first_child().unwrap());
         pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("library"));
     }
-    for (kind, path, title) in [
-        (0, "/tracks", "Synthetic input track"),
-        (1, "/albums/7/with-tracks", "Synthetic input album"),
-        (2, "/artists/11/tracks", "Synthetic input artist"),
+    for (kind, enter, path, title) in [
+        (0, true, "/tracks", "Synthetic input track"),
+        (0, false, "/tracks", "Synthetic input track"),
+        (1, false, "/albums/7/with-tracks", "Synthetic input album"),
+        (2, false, "/artists/11/tracks", "Synthetic input artist"),
     ] {
         this.widgets.stack.set_visible_child_name("search");
         this.widgets.search_kind.set_selected(kind);
-        this.widgets.search.set_text("Synthetic input");
-        click(window, id, &this.widgets.search_button);
+        // Test actual SearchEntry Return as well as the actual Find button;
+        // neither path invokes Controller::search or emits activate directly.
+        this.widgets.search.set_text(if enter {
+            "Синтетический ввод"
+        } else {
+            "Synthetic input"
+        });
+        if enter {
+            assert!(this.widgets.search.grab_focus());
+            input(&["key", "--clearmodifiers", "Return"]);
+            settle();
+        } else {
+            click(window, id, &this.widgets.search_button);
+        }
         pump_until(|| {
             !this.model.borrow().busy && contains_text(this.widgets.search_rows.upcast_ref(), title)
         });
