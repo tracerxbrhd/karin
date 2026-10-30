@@ -45,7 +45,7 @@ The completed prepared Debian matrix used stable **1.99.1** and exact
 | WebKit construction/cancel, synthetic terminal boundaries, GStreamer/generated local-media diagnostics | Passed locally in their stated scopes on both compilers |
 | Exact-1.98.1 default/all-feature `--release --offline --locked` and release runtime checks | Passed |
 | Dependency-license inventory comparison | Passed; reviewed inventory unchanged |
-| Full sandbox-enabled WebKit/hosted CI and native vendored Flatpak-source checks | Pending matching child-revision execution; native source checks do not establish a complete Flatpak build |
+| Full sandbox-enabled WebKit/hosted CI and native vendored Flatpak-source checks | Immutable source/run IDs and executed outcomes are recorded in [PR #13](https://github.com/tracerxbrhd/karin/pull/13); native source checks do not establish a complete Flatpak build |
 | Owner Fedora actual-track audibility, transport/queue/close and live search | **Pending; audible v0.2 criterion NOT MET** |
 
 The media-error fixture verifies visible, sanitized HTTP 403 feedback at
@@ -56,6 +56,32 @@ above the fixed player bar, and returns with Shift+Tab/Back. This proves more
 than a mapped-but-obscured button. It never activates the production delivery
 client in Cloud/CI. No synthetic fixture or successful GStreamer state is a
 heard-service-track result.
+
+### Native dialog lifecycle correction
+
+One push attempt at `53a8678` aborted the catalog/session fixture with
+`malloc_consolidate(): unaligned fastbin chunk detected`; the corresponding PR
+compiler lanes passed. Ten unchanged repetitions on Debian/Libadwaita 1.7 also
+passed, so those passes alone do not explain the Ubuntu failure. No GStreamer
+controller was started by the failing fixture.
+
+The exact CI package, Ubuntu `libadwaita 1.5.0-1ubuntu2`, lacks upstream
+[406c76d](https://github.com/GNOME/libadwaita/commit/406c76d12d8b4737d4e41e007ed77aebb77a1ac7),
+which fixes a shadowed dialog's dangling focus weak pointer and explicitly
+describes memory corruption. Karin could present a replacement while a cancelled
+sheet was still parented. The new fixture assertions, transplanted alone onto
+unchanged `53a8678`, fail with **replacement login must wait for native
+unparenting**. This reproduces the unsafe overlap, not the allocator stack.
+
+Native presentation now waits for both host removal and actual unparenting;
+pending work and old Cancel/Retry callbacks are bound to their owning dialog,
+generation and closed state. Repeated pane/window/Drop close calls return before
+rendering already closed children. Tests exercise immediate cancellation,
+deferred presentation, stale buttons/close events and repeated close. The OAuth
+provider, browser/session exchange and Music validation are unchanged. This
+removes a verified upstream trigger; without a native backtrace, attribution of
+that particular allocator abort remains an inference. Final compiler/lifecycle
+results are identified by immutable revision in PR #13.
 
 The source-matched audio PR description and final artifacts will record executed
 outcomes. Do not reuse parent-run results as child-run evidence. Use the

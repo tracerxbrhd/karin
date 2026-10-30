@@ -121,6 +121,7 @@ struct Controller {
     launch_browser: fn(&str) -> Result<(), AuthError>,
     window: glib::WeakRef<adw::ApplicationWindow>,
     login_dialog: RefCell<Option<LoginDialog>>,
+    retiring_logins: RefCell<Vec<glib::WeakRef<adw::Dialog>>>,
     model: RefCell<Model>,
     widgets: Widgets,
     requests: RefCell<Requests<PendingJob>>,
@@ -504,6 +505,7 @@ impl MusicPane {
             provider,
             launch_browser,
             login_dialog: RefCell::new(None),
+            retiring_logins: RefCell::new(Vec::new()),
             model: RefCell::new(Model {
                 token: None,
                 account_valid: false,
@@ -588,21 +590,27 @@ impl MusicPane {
             .as_ref()
             .cloned()
             .ok_or("Immediate login dialog was not created")?;
-        cancelled.cancel.emit_clicked();
+        // This first sheet is already natively presented, though not ready.
+        // Native close is valid here and routes through close-attempt.
+        if cancelled.dialog.close() {
+            return Err("Native dialog close bypassed presentation readiness".into());
+        }
         self.controller.open_login();
-        let native_cancelled = self
+        let pending_cancelled = self
             .controller
             .login_dialog
             .borrow()
             .as_ref()
             .cloned()
-            .ok_or("Native-close login dialog was not created")?;
-        // Escape, the header close button and the host's window-close handler
-        // all call Dialog.close(). Before presentation it routes close-attempt
-        // to immediate session cancellation and a deferred native close.
-        if native_cancelled.dialog.close() {
-            return Err("Native dialog close bypassed presentation readiness".into());
+            .ok_or("Pending login dialog was not created")?;
+        if window.dialogs().n_items() > 1
+            || (cancelled.dialog.parent().is_some() && pending_cancelled.dialog.parent().is_some())
+        {
+            return Err("A replacement login shadowed a retiring native dialog".into());
         }
+        // A queued logical dialog has no native sheet yet. Its ordinary Cancel
+        // control must discard it; calling native close() would be invalid.
+        pending_cancelled.cancel.emit_clicked();
         self.controller.open_login();
         let reopened = self
             .controller
@@ -614,6 +622,10 @@ impl MusicPane {
         let mut result = Err("Login dialog did not settle".to_owned());
         for _ in 0..40 {
             glib::timeout_future(std::time::Duration::from_millis(25)).await;
+            if window.dialogs().n_items() > 1 {
+                result = Err("More than one native login dialog was presented".into());
+                break;
+            }
             if self.controller.model.borrow().busy {
                 continue;
             }
@@ -629,7 +641,7 @@ impl MusicPane {
                 || !dialog.dialog.is_mapped()
                 || !dialog.cancel.is_sensitive()
                 || cancelled.dialog.parent().is_some()
-                || native_cancelled.dialog.parent().is_some()
+                || pending_cancelled.dialog.parent().is_some()
             {
                 continue;
             }
@@ -647,7 +659,7 @@ impl MusicPane {
             if window.visible_dialog().is_none()
                 && window.dialogs().n_items() == 0
                 && cancelled.dialog.parent().is_none()
-                && native_cancelled.dialog.parent().is_none()
+                && pending_cancelled.dialog.parent().is_none()
                 && reopened.dialog.parent().is_none()
             {
                 removed = true;
@@ -696,8 +708,10 @@ impl Controller {
             return;
         }
         if let Some(dialog) = self.login_dialog.borrow().as_ref() {
-            if let Some(window) = self.window.upgrade() {
-                dialog.dialog.present(Some(&window));
+            if dialog.dialog.parent().is_some()
+                && let Some(window) = self.window.upgrade()
+            {
+                window.present();
             }
             return;
         }
@@ -718,26 +732,91 @@ impl Controller {
             }
         });
         let weak = Rc::downgrade(self);
+        let owner = dialog.dialog.downgrade();
         dialog.cancel.connect_clicked(move |_| {
-            if let Some(this) = weak.upgrade() {
-                this.cancel_login();
+            if let (Some(this), Some(owner)) = (weak.upgrade(), owner.upgrade()) {
+                this.cancel_dialog(&owner);
             }
         });
         let weak = Rc::downgrade(self);
+        let owner = dialog.dialog.downgrade();
         dialog.retry.connect_clicked(move |_| {
-            if let Some(this) = weak.upgrade() {
-                this.start_login();
+            if let (Some(this), Some(owner)) = (weak.upgrade(), owner.upgrade()) {
+                let current = this
+                    .login_dialog
+                    .borrow()
+                    .as_ref()
+                    .is_some_and(|current| current.dialog == owner);
+                if current {
+                    this.start_login();
+                }
             }
         });
         *self.login_dialog.borrow_mut() = Some(dialog.clone());
-        dialog.dialog.present(Some(&window));
-        dialog.cancel.grab_focus();
-        self.start_login();
+        let generation = {
+            let mut model = self.model.borrow_mut();
+            model.auth_busy = true;
+            model.busy = true;
+            model.generation
+        };
+        self.render_controls();
+        if self.login_host_ready(&window) {
+            dialog.dialog.present(Some(&window));
+            dialog.cancel.grab_focus();
+            self.start_login();
+            return;
+        }
+        // Libadwaita 1.5 keeps a closing sheet parented after logical closure.
+        // Presenting another sheet then shadows the retiring dialog and can
+        // register a native focus weak pointer whose owner is being disposed.
+        // Observe host removal and unparenting; never overlap our login sheets.
+        let weak = Rc::downgrade(self);
+        let pending = dialog.dialog.downgrade();
+        window.add_tick_callback(move |window, _| {
+            let (Some(this), Some(dialog)) = (weak.upgrade(), pending.upgrade()) else {
+                return glib::ControlFlow::Break;
+            };
+            let current = {
+                let model = this.model.borrow();
+                !model.closed
+                    && model.generation == generation
+                    && this
+                        .login_dialog
+                        .borrow()
+                        .as_ref()
+                        .is_some_and(|current| current.dialog == dialog)
+            };
+            if !current {
+                return glib::ControlFlow::Break;
+            }
+            if !this.login_host_ready(window) {
+                return glib::ControlFlow::Continue;
+            }
+            dialog.present(Some(window));
+            if let Some(current) = this.login_dialog.borrow().as_ref() {
+                current.cancel.grab_focus();
+            }
+            this.start_login();
+            glib::ControlFlow::Break
+        });
+    }
+
+    fn login_host_ready(&self, window: &adw::ApplicationWindow) -> bool {
+        let mut retiring = self.retiring_logins.borrow_mut();
+        retiring.retain(|dialog| {
+            dialog
+                .upgrade()
+                .is_some_and(|dialog| dialog.parent().is_some())
+        });
+        retiring.is_empty() && window.dialogs().n_items() == 0
     }
 
     fn dismiss_login(&self) {
         let dialog = self.login_dialog.borrow_mut().take();
         if let Some(dialog) = dialog {
+            self.retiring_logins
+                .borrow_mut()
+                .push(dialog.dialog.downgrade());
             dialog.request_close();
         }
     }
@@ -794,7 +873,12 @@ impl Controller {
     }
 
     fn start_login(self: &Rc<Self>) {
-        if self.login_dialog.borrow().is_none() {
+        if self
+            .login_dialog
+            .borrow()
+            .as_ref()
+            .is_none_or(|dialog| dialog.dialog.parent().is_none())
+        {
             return;
         }
         let Some(app) = self.app.upgrade() else {
@@ -1325,6 +1409,11 @@ impl Controller {
     }
 
     fn close(&self) {
+        // close-request, explicit close and the pane's Drop can all arrive.
+        // A repeated close must not render children after native disposal.
+        if self.model.borrow().closed {
+            return;
+        }
         self.stop_music();
         self.mutation_busy.set(false);
         self.clear_text_focus();
@@ -3338,6 +3427,51 @@ mod tests {
         window.set_default_size(900, 650);
         window.present();
         let this = &pane.controller;
+        // Cancel before native readiness and immediately replace the logical
+        // attempt. The old implementation presents two sheets synchronously,
+        // exposing Libadwaita 1.5's shadowed-dialog weak-focus lifetime bug.
+        this.open_login();
+        let retiring = this.login_dialog.borrow().as_ref().unwrap().clone();
+        retiring.cancel.emit_clicked();
+        this.open_login();
+        let pending = this.login_dialog.borrow().as_ref().unwrap().clone();
+        assert!(retiring.dialog.parent().is_some());
+        assert!(
+            pending.dialog.parent().is_none(),
+            "replacement login must wait for native unparenting"
+        );
+        assert_eq!(window.dialogs().n_items(), 1);
+        assert!(this.model.borrow().attempt.is_none());
+        assert!(this.model.borrow().auth_busy);
+        let pending_generation = this.model.borrow().generation;
+        retiring.cancel.emit_clicked();
+        retiring.retry.emit_clicked();
+        assert_eq!(this.model.borrow().generation, pending_generation);
+        assert_eq!(
+            this.login_dialog.borrow().as_ref().unwrap().dialog,
+            pending.dialog,
+            "retiring controls must not cancel or restart a pending login"
+        );
+        pump_until(|| {
+            assert!(window.dialogs().n_items() <= 1);
+            pending.dialog.parent().is_some()
+                && pending.presentation_ready()
+                && !this.model.borrow().busy
+        });
+        assert!(retiring.dialog.parent().is_none());
+        let presented_generation = this.model.borrow().generation;
+        retiring.cancel.emit_clicked();
+        retiring.retry.emit_clicked();
+        assert_eq!(this.model.borrow().generation, presented_generation);
+        assert_eq!(
+            this.login_dialog.borrow().as_ref().unwrap().dialog,
+            pending.dialog,
+            "late native close must not cancel the replacement attempt"
+        );
+        pending.cancel.emit_clicked();
+        pump_until(|| window.dialogs().n_items() == 0 && pending.dialog.parent().is_none());
+        drop(pending);
+        drop(retiring);
         assert_eq!(this.widgets.login.label().as_deref(), Some("Войти"));
         this.widgets.login.emit_clicked();
         pump_until(|| !this.model.borrow().busy);
@@ -3541,6 +3675,17 @@ mod tests {
         assert!(!this.widgets.status_revealer.reveals_child());
         let weak = Rc::downgrade(&pane.controller);
         pane.close();
+        let closed_generation = this.model.borrow().generation;
+        this.widgets
+            .player_status
+            .set_tooltip_text(Some("synthetic repeated-close marker"));
+        pane.close();
+        assert_eq!(this.model.borrow().generation, closed_generation);
+        assert_eq!(
+            this.widgets.player_status.tooltip_text().as_deref(),
+            Some("synthetic repeated-close marker"),
+            "a repeated close must not render disposed player widgets"
+        );
         window.close();
         drop(ui);
         drop(window);
