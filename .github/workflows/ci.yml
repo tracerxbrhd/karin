@@ -125,6 +125,16 @@ jobs:
           dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_catalog_navigation_latest_actions -- --ignored --test-threads=1
       - name: Build all optional authentication components
         run: cargo build --workspace --all-features --locked
+      - name: Actual mouse and keyboard catalog rows, details and delivery entry
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+          GSK_DEBUG: full-redraw
+        run: |
+          if [ '${{ matrix.lane }}' = stable ]; then
+            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
+          fi
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_catalog_rows_mouse_keyboard_details_and_delivery -- --ignored --test-threads=1
       - name: Confirmed library writes, ambiguous outcomes and liked playlists
         env:
           GTK_A11Y: none

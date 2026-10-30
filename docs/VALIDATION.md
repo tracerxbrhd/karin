@@ -6,6 +6,96 @@ This report separates initial cloud checks, user-reported Fedora acceptance,
 revised UI checks and compiler compatibility. A result for one environment or
 revision is not evidence that another has passed.
 
+## PR #12 Fedora catalog regression correction (2026-10-30)
+
+The owner's [blocking Fedora retest](https://github.com/tracerxbrhd/karin/pull/12#issuecomment-6513456418)
+reports **PASS** for account validation and initial/library reads, **FAIL** for
+track search (`response-contract`), and **FAIL** for opening artists, collections
+and personal playlists through their rows. The sanitized transcript contains no
+`operation=detail` after attempted opening. Other search categories return rows;
+that does not establish working detail navigation. The old `http=none` loses
+the known successful transport status and is not evidence of HTTP refusal.
+No live JSON, query, item identifier, title or account field was supplied.
+
+Two independent code defects are addressed in the existing PR #12 branch:
+
+- Row builders connected to the `GtkListBoxRow::activate` keybinding signal.
+  Actual user activation belongs to the parent `GtkListBox::row-activated`
+  signal. One parent dispatcher now invokes each row's existing typed action;
+  refresh/replacement does not accumulate handlers. Nested buttons retain their
+  separate actions, and empty/nonactivatable rows are excluded. Changing only
+  selection mode or directly calling a detail handler would not verify this fix.
+- The [pinned yamu album model](https://github.com/okhsunrog/yamu/blob/9803f319b9ea6f81befbc3117e4592132ed07d0e/src/models/album.rs#L20)
+  permits an absent album ID, including display metadata embedded in a track.
+  Karin required it while decoding every embedded album. The correction accepts
+  missing embedded album identity, while a standalone navigable album still
+  requires a valid ID. This is a source-backed incompatibility, **not proof that
+  this exact field caused the owner's unseen response to fail**.
+
+Search now decodes only the requested result category and reports the first
+failed layer using finite categories: `search-envelope`, `search-section`,
+`search-pagination`, `track-wire`, `track-normalization`, and corresponding
+album/artist wire/normalization stages. The actual observed successful HTTP
+status is retained through body/parsing errors and successful search results.
+Malformed/ambiguous recognized fields remain failures; account binding, strict
+IDs, request/body limits and transport controls are not relaxed. No raw serde
+path, JSON, URL, query, title, identifier, header or token reaches diagnostics.
+Separate `event=detail-requested` and `event=detail-result` distinguish dispatch
+from completion; search has corresponding requested/result events.
+
+The input-driven fixture
+`native_catalog_rows_mouse_keyboard_details_and_delivery` exercises rendered
+rows through X11 mouse/keyboard input rather than direct detail calls. It covers
+owned/liked playlists, track/album/artist results, Back, refresh without duplicate
+dispatch, nested controls, empty rows and queue selection, and checks that a
+loaded track exposes the enabled opt-in delivery action. The fixture does not
+activate the production delivery client or contact a real account/service.
+Backend regressions cover compatible embedded metadata, selected/mixed result
+sections, staged failures, duplicate recognized fields, bounds/status and privacy.
+The complete prepared Debian 13 matrix passed on stable **1.99.1** and exact
+**Rust 1.98.1** for this correction:
+
+| Check | Both compiler lanes |
+| --- | --- |
+| fmt; default/all-feature/minimal all-target Clippy, `-D warnings` | Passed |
+| Default / all-feature / minimal workspace tests | **189 / 197 / 175 library + 4 binary passed**; 8 / 8 / 5 display tests excluded from ordinary totals |
+| Real mouse/keyboard row, detail, Back, nested-control, refresh and delivery-entry fixture | Explicitly passed |
+| Existing native account/catalog, concurrent/stale actions and confirmed library fixtures | Explicitly passed |
+| Cover textures/adjacency and default GTK smoke at scale 1 and 2 | Passed |
+| All-feature GTK, WebKit construction/cancel, synthetic terminal boundaries, GStreamer/generated local media | Passed in their separate stated scopes |
+| Exact-1.98.1 default and all-feature offline optimized builds and release runtime checks | Passed |
+
+The **same input fixture** was also run against the pre-correction `3dd0b7f`
+source in an isolated worktree, adding only that test and its module declaration.
+It failed after the first actual Library-track mouse click: no detail operation
+started, and the expected detail view timed out. It passes against the corrected
+source on both compilers. This demonstrates the old row-activation defect rather
+than merely calling the repaired handler directly. The fixture waits for GTK to
+dispatch input and observes actual refresh requests before evaluating completion.
+
+The dependency-license inventory was regenerated and matched the reviewed
+**207 external / 178 Linux** package inventory. Only the existing `serde_json`
+dependency's `raw_value` feature is enabled; no version or lockfile changes,
+OAuth identity, native dependency or sandbox/Flatpak permission changes occur.
+Fresh 900×650 light/dark detail captures were inspected: actual keyboard focus,
+Back, nested actions and the complete enabled delivery button remain visible.
+Lower explanatory text is reachable by scrolling above the fixed player bar.
+These are synthetic cloud images, not real service or Fedora visual acceptance.
+
+Source-matched hosted CI, full sandbox-enabled WebKit and downloadable artifact
+outcomes are recorded in [PR #12 checks](https://github.com/tracerxbrhd/karin/pull/12/checks)
+and its description after execution. Local checks do not imply their outcome;
+earlier results below are historical revision-specific evidence.
+
+**Fedora retest remains pending:** actual track search, mouse/keyboard detail
+navigation, owned/liked playlist contents, Back and reaching/running the existing
+same-session delivery diagnostic. Follow
+[the combined local instruction](BUILDING.md#v02-catalog-and-delivery-info-acceptance-on-fedora).
+Preserve the working ordinary authentication path; no OAuth re-registration,
+VPN toggling or private response upload is needed. The exact live search layer
+and delivery response remain unknown until this run. **No real service audio
+has been played; overall v0.2 audible-player acceptance remains NOT MET.**
+
 ## Issue #9 final series evidence (2026-10-29)
 
 The three reviewable increments are [PR #10](https://github.com/tracerxbrhd/karin/pull/10),

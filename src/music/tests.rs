@@ -518,12 +518,19 @@ fn invalid_inputs_missing_records_and_schema_drift_never_create_release_content(
     assert_eq!(service.album(&token, "7"), Err(MusicError::InvalidResponse));
     assert_eq!(
         service.search(&token, "query", SearchKind::Tracks, 0),
-        Err(MusicError::InvalidResponse)
+        Err(search_contract(SearchParseStage::Section, 200))
     );
     assert_eq!(complete(server, listener).len(), 4);
 }
 
 fn wire_fixture(wire: String, delay: Duration) -> Result<Account, MusicError> {
+    wire_request_fixture(wire, delay, |service| service.account(&token()))
+}
+fn wire_request_fixture<T>(
+    wire: String,
+    delay: Duration,
+    operation: impl FnOnce(&MusicService) -> Result<T, MusicError>,
+) -> Result<T, MusicError> {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let server = thread::spawn(move || {
@@ -550,7 +557,7 @@ fn wire_fixture(wire: String, delay: Duration) -> Result<Account, MusicError> {
         origin: Url::parse(&format!("http://{address}/")).unwrap(),
         account: Arc::new(Mutex::new(AccountCache::default())),
     };
-    let result = service.account(&token());
+    let result = operation(&service);
     server.join().unwrap();
     result
 }
@@ -693,8 +700,15 @@ fn relaxed_optional_metadata_still_rejects_unidentified_entities_and_invalid_pag
             SearchKind::Tracks
         };
         let error = service.search(&token(), "synthetic", kind, 0).unwrap_err();
-        assert_eq!(error, MusicError::InvalidResponse);
+        let expected_stage = match index {
+            0 => SearchParseStage::Section,
+            1 | 4 | 5 => SearchParseStage::Pagination,
+            2 | 3 => SearchParseStage::ArtistNormalization,
+            _ => SearchParseStage::TrackNormalization,
+        };
+        assert_eq!(error, search_contract(expected_stage, 200));
         assert_eq!(error.category(), "response-contract");
+        assert_eq!(error.http_status(), Some(200));
         assert_redacted(error);
     }
     assert_eq!(complete(server, listener).len(), bodies.len());
@@ -964,4 +978,287 @@ fn content_marker_uses_only_explicit_boolean_and_preserves_metadata_availability
     .unwrap();
     assert!(!track.explicit);
     assert!(track.available);
+}
+
+#[test]
+fn search_embedded_album_identity_is_optional_but_result_identity_remains_strict() {
+    // Pinned yamu Album.id is optional even though a Track.id is required.
+    // Compact credits describe a real track; they need not be navigable albums.
+    // Unrequested result blocks can use different/unsupported schemas without
+    // replacing valid requested tracks with a fabricated empty page.
+    let body = json!({"result":{
+        "tracks":{"total":2,"perPage":20,"results":[
+            {"id":42,"title":"synthetic-private-title","available":true,
+             "albums":[{"title":"synthetic-private-album","coverUri":"avatars.yandex.net/get-music-content/synthetic/%%"}]},
+            {"id":"43","albums":[{"id":null,"title":"synthetic-private-album"}]}
+        ]},
+        "albums":{"total":"unsupported-unrequested-counter","results":[{"id":null}]},
+        "artists":{"results":[{"name":"synthetic-private-artist"}]},
+        "best":{"type":"unexpected-kind","result":{"synthetic-private-field":true}}
+    }}).to_string();
+    let (service, server, listener) = fixture(vec![
+        (200, body),
+        (
+            200,
+            r#"{"result":{"albums":{"total":1,"results":[{"title":"synthetic-private-album"}]}}}"#
+                .into(),
+        ),
+        (
+            200,
+            r#"{"result":[{"id":42,"albums":[{"title":"synthetic-private-album"}]}]}"#.into(),
+        ),
+    ]);
+    let token = token();
+    let results = service
+        .search(&token, "Синтетика & Latin", SearchKind::Tracks, 0)
+        .unwrap();
+    assert_eq!(results.http_status, 200);
+    assert_eq!(results.tracks.len(), 2);
+    assert_eq!(results.tracks[0].id, "42");
+    assert_eq!(results.tracks[1].id, "43");
+    assert!(results.tracks.iter().all(|track| track.album_id.is_none()));
+    assert_eq!(
+        results.tracks[0].album_title.as_deref(),
+        Some("synthetic-private-album")
+    );
+    assert!(results.tracks[0].cover.is_some());
+    assert!(!results.has_more);
+    assert_redacted(&results);
+    assert_eq!(
+        service.search(&token, "synthetic", SearchKind::Albums, 0),
+        Err(search_contract(SearchParseStage::AlbumNormalization, 200))
+    );
+    let track = service.track(&token, "42").unwrap();
+    assert!(track.album_id.is_none());
+    assert_eq!(
+        track.album_title.as_deref(),
+        Some("synthetic-private-album")
+    );
+    assert_eq!(complete(server, listener).len(), 3);
+}
+
+#[test]
+fn search_reports_first_failed_layer_with_observed_http_and_fixed_private_safe_errors() {
+    let cases = [
+        (
+            SearchKind::Tracks,
+            SearchParseStage::Envelope,
+            r#"{"result":"synthetic-private-query"}"#,
+        ),
+        (
+            SearchKind::Tracks,
+            SearchParseStage::Envelope,
+            r#"{"result":{},"error":{"message":"synthetic-private-person"}}"#,
+        ),
+        (
+            SearchKind::Tracks,
+            SearchParseStage::Section,
+            r#"{"result":{"tracks":"synthetic-private-title"}}"#,
+        ),
+        (
+            SearchKind::Tracks,
+            SearchParseStage::Section,
+            r#"{"result":{"albums":{"results":[{"id":7}]}}}"#,
+        ),
+        (
+            SearchKind::Tracks,
+            SearchParseStage::Pagination,
+            r#"{"result":{"tracks":{"total":"synthetic-private-query","results":[{"id":42}]}}}"#,
+        ),
+        (
+            SearchKind::Tracks,
+            SearchParseStage::Pagination,
+            r#"{"result":{"tracks":{"total":1,"perPage":0,"results":[{"id":42}]}}}"#,
+        ),
+        (
+            SearchKind::Tracks,
+            SearchParseStage::TrackWire,
+            r#"{"result":{"tracks":{"total":1,"results":[{"title":"synthetic-private-title"}]}}}"#,
+        ),
+        (
+            SearchKind::Tracks,
+            SearchParseStage::TrackWire,
+            r#"{"result":{"tracks":{"total":1,"results":[{"id":"https://sensitive.invalid/private?token=synthetic-private-query"}]}}}"#,
+        ),
+        (
+            SearchKind::Tracks,
+            SearchParseStage::TrackWire,
+            r#"{"result":{"tracks":{"total":1,"results":[{"id":42,"durationMs":"synthetic-private-query"}]}}}"#,
+        ),
+        (
+            SearchKind::Tracks,
+            SearchParseStage::TrackNormalization,
+            r#"{"result":{"tracks":{"total":1,"results":[{"id":42,"title":"\u0000synthetic-private-title"}]}}}"#,
+        ),
+        (
+            SearchKind::Albums,
+            SearchParseStage::AlbumWire,
+            r#"{"result":{"albums":{"total":1,"results":[{"id":-1}]}}}"#,
+        ),
+        (
+            SearchKind::Albums,
+            SearchParseStage::AlbumNormalization,
+            r#"{"result":{"albums":{"total":1,"results":[{"title":"synthetic-private-album"}]}}}"#,
+        ),
+        (
+            SearchKind::Artists,
+            SearchParseStage::ArtistWire,
+            r#"{"result":{"artists":{"total":1,"results":[{"id":11,"name":false}]}}}"#,
+        ),
+        (
+            SearchKind::Artists,
+            SearchParseStage::ArtistNormalization,
+            r#"{"result":{"artists":{"total":1,"results":[{"id":11}]}}}"#,
+        ),
+    ];
+    let (service, server, listener) = fixture(
+        cases
+            .iter()
+            .map(|(_, _, body)| (200, (*body).into()))
+            .collect(),
+    );
+    for (kind, stage, _) in cases {
+        let error = service
+            .search(&token(), "synthetic-private-query", kind, 0)
+            .unwrap_err();
+        assert_eq!(error, search_contract(stage, 200));
+        assert_eq!(error.category(), "response-contract");
+        assert_eq!(error.http_status(), Some(200));
+        assert_eq!(error.diagnostic_stage(), Some(stage.as_str()));
+        assert_redacted(error);
+        let visible = format!("{error} {error:?}");
+        for private in [
+            "synthetic-private-query",
+            "sensitive.invalid",
+            "durationMs",
+            "result.tracks",
+            "missing field",
+            "invalid type",
+        ] {
+            assert!(!visible.contains(private));
+        }
+    }
+    assert_eq!(complete(server, listener).len(), cases.len());
+}
+
+#[test]
+fn staged_search_rejects_duplicate_known_fields_instead_of_losing_them_in_a_json_tree() {
+    let cases = [
+        (
+            SearchParseStage::Envelope,
+            r#"{"result":{"text":"a"},"result":{"text":"b"}}"#,
+        ),
+        (
+            SearchParseStage::Envelope,
+            r#"{"result":{"tracks":{"total":0},"tracks":{"total":0}}}"#,
+        ),
+        (
+            SearchParseStage::Section,
+            r#"{"result":{"tracks":{"total":1,"results":[{"id":42}],"results":[{"id":43}]}}}"#,
+        ),
+        (
+            SearchParseStage::Section,
+            r#"{"result":{"tracks":{"total":1,"total":2,"results":[{"id":42}]}}}"#,
+        ),
+        (
+            SearchParseStage::TrackWire,
+            r#"{"result":{"tracks":{"total":1,"results":[{"id":42,"id":43}]}}}"#,
+        ),
+        (
+            SearchParseStage::TrackWire,
+            r#"{"result":{"tracks":{"total":1,"results":[{"id":42,"albums":[{"id":7,"id":8}]}]}}}"#,
+        ),
+    ];
+    let (service, server, listener) = fixture(
+        cases
+            .iter()
+            .map(|(_, body)| (200, (*body).into()))
+            .collect(),
+    );
+    for (stage, _) in cases {
+        assert_eq!(
+            service.search(&token(), "synthetic", SearchKind::Tracks, 0),
+            Err(search_contract(stage, 200))
+        );
+    }
+    assert_eq!(complete(server, listener).len(), cases.len());
+}
+
+#[test]
+fn search_transport_status_is_observed_and_never_invented_from_a_parse_category() {
+    let (service, server, listener) = fixture(vec![
+        (200, r#"{"result":{"tracks":{"total":0}}}"#.into()),
+        (201, r#"{"result":{"tracks":{"total":0}}}"#.into()),
+        (401, "synthetic-private-person".into()),
+        (403, r#"{"error":{"name":"missing-permissions"}}"#.into()),
+    ]);
+    let token = token();
+    assert_eq!(
+        service
+            .search(&token, "synthetic", SearchKind::Tracks, 0)
+            .unwrap()
+            .http_status,
+        200
+    );
+    for expected in [
+        MusicError::Http(201),
+        MusicError::AccessDenied,
+        MusicError::Forbidden,
+    ] {
+        let error = service
+            .search(&token, "synthetic", SearchKind::Tracks, 0)
+            .unwrap_err();
+        assert_eq!(error, expected);
+        assert_eq!(error.http_status(), expected.http_status());
+        assert!(error.diagnostic_stage().is_none());
+    }
+    assert_eq!(complete(server, listener).len(), 4);
+}
+
+#[test]
+fn search_success_status_survives_body_size_read_and_deadline_failures() {
+    for (wire, delay, kind) in [
+        (format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", MAX_BODY + 1), Duration::ZERO, SearchFailureKind::ResponseTooLarge),
+        (format!("HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n{}", "x".repeat(MAX_BODY + 1)), Duration::ZERO, SearchFailureKind::ResponseTooLarge),
+        ("HTTP/1.1 200 OK\r\nContent-Length: 1024\r\nConnection: close\r\n\r\nsynthetic-private-person".into(), Duration::ZERO, SearchFailureKind::Network),
+        (format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{ACCOUNT}", ACCOUNT.len()), Duration::from_millis(700), SearchFailureKind::Timeout),
+    ] {
+        let error = wire_request_fixture(wire, delay, |service| service.search(&token(), "synthetic", SearchKind::Tracks, 0)).unwrap_err();
+        assert_eq!(error, MusicError::SearchResponse { stage: SearchParseStage::Envelope, kind, http: 200 });
+        assert_redacted(error);
+        assert_eq!(error.http_status(), Some(200));
+    }
+    let (service, server, listener) = fixture(vec![]);
+    drop(listener);
+    server.join().unwrap();
+    let error = service
+        .search(&token(), "synthetic", SearchKind::Tracks, 0)
+        .unwrap_err();
+    assert_eq!(error, MusicError::Network);
+    assert!(error.http_status().is_none());
+    assert!(error.diagnostic_stage().is_none());
+}
+
+#[test]
+fn search_page_bounds_retain_success_status_without_weakening_request_limits() {
+    let tracks = (0..=MAX_SEARCH_PAGE)
+        .map(|id| json!({"id":id}))
+        .collect::<Vec<_>>();
+    let (service, server, listener) = fixture(vec![(
+        200,
+        json!({"result":{"tracks":{"total":tracks.len(),"results":tracks}}}).to_string(),
+    )]);
+    let error = service
+        .search(&token(), "synthetic", SearchKind::Tracks, 0)
+        .unwrap_err();
+    assert_eq!(
+        error,
+        MusicError::SearchResponse {
+            stage: SearchParseStage::Pagination,
+            kind: SearchFailureKind::ResponseTooLarge,
+            http: 200
+        }
+    );
+    assert_redacted(error);
+    assert_eq!(complete(server, listener).len(), 1);
 }

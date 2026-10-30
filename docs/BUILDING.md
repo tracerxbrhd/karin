@@ -53,7 +53,11 @@ scale/fractional HiDPI, keyboard focus and maximize/restore on KDE/Wayland.
 Use the newest branch/artifact linked from the Issue #9 PR series, not the
 previous `797ba3a` binary. The owner already confirmed ordinary sign-in, Music
 account validation, liked tracks and the personal-playlist list on that revision.
-Search, playlist contents and real service audio require a new acceptance run.
+The [2026-10-30 PR #12 retest](https://github.com/tracerxbrhd/karin/pull/12#issuecomment-6513456418)
+again confirmed account/library reads, but found track-search contract failure
+and non-opening result/playlist rows. Those are separate failures; successful
+Cloud fixtures do not pass the next Fedora retest. Use the corrected PR #12
+revision identified by its matching CI artifact, not the earlier tested build.
 
 Build the default prototype once using the Fedora prerequisites above:
 
@@ -72,19 +76,37 @@ an argument, environment variable, chat message or GitHub attachment.
 In this one session:
 
 1. Click **Войти** and complete the existing Yandex dialog normally.
-2. Open an actual personal playlist, including an empty one if available. Its
-   title, back action and loading page must appear immediately, then tracks,
-   an empty state or an inline retryable error. Browse pages and return.
-3. Search a Latin and Cyrillic query using Enter and the search action. Check
-   tracks, albums and artists, result details, no results and page boundaries.
+2. In Library, **single-click the actual row body** of an owned playlist, then a
+   liked playlist. The selected title, Back action and loading page must appear
+   immediately, followed by tracks, an empty state or an inline retryable error.
+   Open a track row and return with Back. Check an empty playlist if available,
+   paging and a refresh followed by another click; one click must not open twice.
+3. Search a Latin and Cyrillic query using Enter and **Найти**. For tracks,
+   albums and artists, click a result row and verify its actual detail page,
+   contents and Back destination. Also focus a row with the keyboard and try
+   Enter/Space. Check no results and page boundaries. Add-to-Queue and context
+   buttons must perform their own action without also opening the enclosing row.
    Submit another query or open a playlist during a pending request; the latest
    action must run and superseded results must not replace the visible page.
-4. Open details of one actual available track and explicitly run the delivery
-   information check. Record only its fixed stage/category/HTTP result. This
-   bounded probe fetches delivery metadata, not audio. A legacy offer or `direct`
-   flag alone does not establish a validated playback URL or audible music.
-5. Cancel/leave during a request, retry, sign out and sign in again. Old results
+4. From Library or a successful search, click one available **track row** to
+   open its details. Check that **Проверить доставку аудио без загрузки** is
+   present and enabled, then explicitly run that opt-in check. Search failure
+   does not require repeating sign-in: use a Library track to test this path
+   independently. Record only its fixed stage/category/HTTP result. This bounded
+   probe fetches delivery metadata, not audio. A legacy offer or `direct` flag
+   alone does not establish a validated playback URL or audible music.
+5. If a row does not open, report whether fixed `event=detail-requested` and
+   `event=detail-result` diagnostics appeared. For search failure, report only
+   its fixed `stage`, `outcome`, numeric `http` (or `none`) and event. Stages
+   distinguish `search-envelope`, `search-section`, `search-pagination`,
+   `track-wire` and `track-normalization` (with equivalent album/artist stages).
+   A successful HTTP 200 followed by parsing failure now retains `http=200`;
+   it is not an HTTP rejection. Do not upload a full terminal transcript.
+6. Cancel/leave during a request, retry, sign out and sign in again. Old results
    and errors must not restore the prior session or page. Close the app normally.
+
+Use the existing ordinary login throughout. This retest does not require another
+OAuth registration, developer credentials, VPN changes or raw service responses.
 
 The final library-interaction slice also adds **Понравившиеся плейлисты** to the
 Library selector and a favorite control in loaded track details. On a consenting

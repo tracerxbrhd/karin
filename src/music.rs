@@ -20,6 +20,7 @@ use reqwest::{
 };
 use ring::digest::{SHA256, digest};
 use serde::{Deserialize, de::DeserializeOwned};
+use serde_json::value::RawValue;
 use zeroize::Zeroizing;
 
 use crate::session::AccessToken;
@@ -56,6 +57,12 @@ pub enum MusicError {
     ResponseTooLarge,
     #[error("Music returned an unsupported response")]
     InvalidResponse,
+    #[error("Music search failed at {stage} ({kind}, HTTP {http})")]
+    SearchResponse {
+        stage: SearchParseStage,
+        kind: SearchFailureKind,
+        http: u16,
+    },
     #[error("Invalid Music request")]
     InvalidInput,
     #[error("Music request rejected (HTTP {0})")]
@@ -77,8 +84,16 @@ impl MusicError {
             Self::Timeout => "timeout",
             Self::ResponseTooLarge => "response-size",
             Self::InvalidResponse => "response-contract",
+            Self::SearchResponse { kind, .. } => kind.category(),
             Self::InvalidInput => "invalid-input",
             Self::Http(_) => "http-rejected",
+        }
+    }
+    /// Finite parsing stage, never a serde path, provider message or field value.
+    pub fn diagnostic_stage(self) -> Option<&'static str> {
+        match self {
+            Self::SearchResponse { stage, .. } => Some(stage.as_str()),
+            _ => None,
         }
     }
     pub fn http_status(self) -> Option<u16> {
@@ -87,10 +102,80 @@ impl MusicError {
             Self::Forbidden | Self::MissingScopes => Some(403),
             Self::Restricted => Some(451),
             Self::RateLimited => Some(429),
-            Self::Http(status) => Some(status),
+            Self::Http(status) | Self::SearchResponse { http: status, .. } => Some(status),
             _ => None,
         }
     }
+}
+
+/// The first failed layer in an otherwise successful search HTTP response.
+/// This vocabulary contains no response field paths or account/catalog data.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SearchParseStage {
+    Envelope,
+    Section,
+    Pagination,
+    TrackWire,
+    TrackNormalization,
+    AlbumWire,
+    AlbumNormalization,
+    ArtistWire,
+    ArtistNormalization,
+}
+impl SearchParseStage {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Envelope => "search-envelope",
+            Self::Section => "search-section",
+            Self::Pagination => "search-pagination",
+            Self::TrackWire => "track-wire",
+            Self::TrackNormalization => "track-normalization",
+            Self::AlbumWire => "album-wire",
+            Self::AlbumNormalization => "album-normalization",
+            Self::ArtistWire => "artist-wire",
+            Self::ArtistNormalization => "artist-normalization",
+        }
+    }
+}
+impl fmt::Display for SearchParseStage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SearchFailureKind {
+    Contract,
+    ResponseTooLarge,
+    Network,
+    Timeout,
+}
+impl SearchFailureKind {
+    fn category(self) -> &'static str {
+        match self {
+            Self::Contract => "response-contract",
+            Self::ResponseTooLarge => "response-size",
+            Self::Network => "network",
+            Self::Timeout => "timeout",
+        }
+    }
+}
+impl fmt::Display for SearchFailureKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.category())
+    }
+}
+fn search_failure(error: MusicError, stage: SearchParseStage, http: u16) -> MusicError {
+    let kind = match error {
+        MusicError::InvalidResponse => SearchFailureKind::Contract,
+        MusicError::ResponseTooLarge => SearchFailureKind::ResponseTooLarge,
+        MusicError::Network => SearchFailureKind::Network,
+        MusicError::Timeout => SearchFailureKind::Timeout,
+        _ => return error,
+    };
+    MusicError::SearchResponse { stage, kind, http }
+}
+fn search_contract(stage: SearchParseStage, http: u16) -> MusicError {
+    search_failure(MusicError::InvalidResponse, stage, http)
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -150,6 +235,8 @@ pub enum SearchKind {
 }
 #[derive(Clone, PartialEq, Eq)]
 pub struct SearchResults {
+    /// Status actually observed for the successful search response.
+    pub http_status: u16,
     pub tracks: Vec<Track>,
     pub albums: Vec<Album>,
     pub artists: Vec<Artist>,
@@ -413,7 +500,7 @@ impl MusicService {
             SearchKind::Artists => "artist",
         };
         let page_text = page.to_string();
-        let wire: SearchWire = self.get(
+        let response = self.request_response(
             token,
             &["search"],
             &[
@@ -423,61 +510,12 @@ impl MusicService {
                 ("nocorrect", "true"),
                 ("playlist-in-best", "false"),
             ],
+            None,
         )?;
-        // Upstream models make the echo and page counters optional. Require a
-        // recognized envelope, without rejecting a real section merely because
-        // the service omitted its redundant query echo.
-        let has_echo = wire.text.is_some();
-        if let Some(echo) = wire.text {
-            text(echo)?;
-        }
-        let has_section = match kind {
-            SearchKind::Tracks => wire.tracks.is_some(),
-            SearchKind::Albums => wire.albums.is_some(),
-            SearchKind::Artists => wire.artists.is_some(),
-        };
-        if !has_echo && !has_section {
-            return Err(MusicError::InvalidResponse);
-        }
-        let mut results = SearchResults {
-            tracks: Vec::new(),
-            albums: Vec::new(),
-            artists: Vec::new(),
-            has_more: false,
-        };
-        match kind {
-            SearchKind::Tracks => {
-                if let Some(section) = wire.tracks {
-                    let (items, more) = search_page(section, page)?;
-                    results.tracks = items
-                        .into_iter()
-                        .map(track_from_wire)
-                        .collect::<Result<_, _>>()?;
-                    results.has_more = more;
-                }
-            }
-            SearchKind::Albums => {
-                if let Some(section) = wire.albums {
-                    let (items, more) = search_page(section, page)?;
-                    results.albums = items
-                        .into_iter()
-                        .map(album_from_wire)
-                        .collect::<Result<_, _>>()?;
-                    results.has_more = more;
-                }
-            }
-            SearchKind::Artists => {
-                if let Some(section) = wire.artists {
-                    let (items, more) = search_page(section, page)?;
-                    results.artists = items
-                        .into_iter()
-                        .map(artist_from_wire)
-                        .collect::<Result<_, _>>()?;
-                    results.has_more = more;
-                }
-            }
-        }
-        Ok(results)
+        let http = response.status().as_u16();
+        let body = read_body(response)
+            .map_err(|error| search_failure(error, SearchParseStage::Envelope, http))?;
+        parse_search(&body, kind, page, http)
     }
     pub fn track(&self, token: &AccessToken, id: &str) -> Result<Track, MusicError> {
         validate_id(id)?;
@@ -597,6 +635,19 @@ impl MusicService {
         query: &[(&str, &str)],
         form: Option<Zeroizing<Vec<u8>>>,
     ) -> Result<T, MusicError> {
+        let response = self.request_response(token, path, query, form)?;
+        let body = read_body(response)?;
+        serde_json::from_slice::<Envelope<T>>(&body)
+            .map(|envelope| envelope.result)
+            .map_err(|_| MusicError::InvalidResponse)
+    }
+    fn request_response(
+        &self,
+        token: &AccessToken,
+        path: &[&str],
+        query: &[(&str, &str)],
+        form: Option<Zeroizing<Vec<u8>>>,
+    ) -> Result<Response, MusicError> {
         if token.is_expired() {
             return Err(MusicError::Unauthenticated);
         }
@@ -649,10 +700,7 @@ impl MusicService {
                 _ => MusicError::Http(status),
             });
         }
-        let body = read_body(response)?;
-        serde_json::from_slice::<Envelope<T>>(&body)
-            .map(|envelope| envelope.result)
-            .map_err(|_| MusicError::InvalidResponse)
+        Ok(response)
     }
 }
 
@@ -731,6 +779,101 @@ fn local_page<T>(items: Vec<T>, page: u32) -> Result<(Vec<T>, bool), MusicError>
         has_more,
     ))
 }
+fn parse_search(
+    body: &[u8],
+    kind: SearchKind,
+    page: u32,
+    http: u16,
+) -> Result<SearchResults, MusicError> {
+    let wire = serde_json::from_slice::<Envelope<SearchWire>>(body)
+        .map_err(|_| search_contract(SearchParseStage::Envelope, http))?
+        .result;
+    let has_echo = wire.text.is_some();
+    if let Some(echo) = wire.text {
+        text(echo).map_err(|error| search_failure(error, SearchParseStage::Envelope, http))?;
+    }
+    let section = match kind {
+        SearchKind::Tracks => wire.tracks,
+        SearchKind::Albums => wire.albums,
+        SearchKind::Artists => wire.artists,
+    };
+    if !has_echo && section.is_none() {
+        return Err(search_contract(SearchParseStage::Section, http));
+    }
+    let mut results = SearchResults {
+        http_status: http,
+        tracks: Vec::new(),
+        albums: Vec::new(),
+        artists: Vec::new(),
+        has_more: false,
+    };
+    let Some(section) = section else {
+        return Ok(results);
+    };
+    let section: SearchSectionWire = serde_json::from_str(section.get())
+        .map_err(|_| search_contract(SearchParseStage::Section, http))?;
+    let counter = |value: Option<Box<RawValue>>| {
+        value
+            .map(|value| serde_json::from_str::<u64>(value.get()))
+            .transpose()
+            .map_err(|_| search_contract(SearchParseStage::Pagination, http))
+    };
+    let section = SearchPageWire {
+        total: counter(section.total)?,
+        per_page: counter(section.per_page)?,
+        results: section.results,
+    };
+    let (items, more) = search_page(section, page)
+        .map_err(|error| search_failure(error, SearchParseStage::Pagination, http))?;
+    results.has_more = more;
+    match kind {
+        SearchKind::Tracks => {
+            results.tracks = search_items(
+                items,
+                SearchParseStage::TrackWire,
+                SearchParseStage::TrackNormalization,
+                http,
+                track_from_wire,
+            )?;
+        }
+        SearchKind::Albums => {
+            results.albums = search_items(
+                items,
+                SearchParseStage::AlbumWire,
+                SearchParseStage::AlbumNormalization,
+                http,
+                album_from_wire,
+            )?;
+        }
+        SearchKind::Artists => {
+            results.artists = search_items(
+                items,
+                SearchParseStage::ArtistWire,
+                SearchParseStage::ArtistNormalization,
+                http,
+                artist_from_wire,
+            )?;
+        }
+    }
+    Ok(results)
+}
+fn search_items<T: DeserializeOwned, U>(
+    items: Vec<Box<RawValue>>,
+    wire_stage: SearchParseStage,
+    normalization_stage: SearchParseStage,
+    http: u16,
+    normalize: fn(T) -> Result<U, MusicError>,
+) -> Result<Vec<U>, MusicError> {
+    items
+        .into_iter()
+        .map(|item| {
+            let wire =
+                serde_json::from_str(item.get()).map_err(|_| search_contract(wire_stage, http))?;
+            normalize(wire).map_err(|error| search_failure(error, normalization_stage, http))
+        })
+        .collect()
+}
+
 fn search_page<T>(page: SearchPageWire<T>, index: u32) -> Result<(Vec<T>, bool), MusicError> {
     if page.results.len() > MAX_SEARCH_PAGE {
         return Err(MusicError::ResponseTooLarge);
@@ -870,7 +1013,9 @@ struct TrackWire {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AlbumWire {
-    id: Id,
+    // Upstream compact album credits may omit their independent catalog ID.
+    // A standalone album still requires it during normalization below.
+    id: Option<Id>,
     title: Option<String>,
     #[serde(default)]
     artists: Vec<ArtistWire>,
@@ -881,16 +1026,23 @@ struct AlbumWire {
 #[derive(Deserialize)]
 struct SearchWire {
     text: Option<String>,
-    tracks: Option<SearchPageWire<TrackWire>>,
-    albums: Option<SearchPageWire<AlbumWire>>,
-    artists: Option<SearchPageWire<ArtistWire>>,
+    // Decode only the requested result category. RawValue preserves duplicate
+    // known keys for the next typed stage, unlike an intermediate Value tree.
+    tracks: Option<Box<RawValue>>,
+    albums: Option<Box<RawValue>>,
+    artists: Option<Box<RawValue>>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct SearchSectionWire {
+    total: Option<Box<RawValue>>,
+    per_page: Option<Box<RawValue>>,
+    #[serde(default)]
+    results: Vec<Box<RawValue>>,
+}
 struct SearchPageWire<T> {
     total: Option<u64>,
     per_page: Option<u64>,
-    #[serde(default = "Vec::new")]
     results: Vec<T>,
 }
 #[derive(Deserialize)]
@@ -946,7 +1098,9 @@ fn track_from_wire(wire: TrackWire) -> Result<Track, MusicError> {
         id: wire.id.0,
         title: text(wire.title.unwrap_or_else(|| "Без названия".into()))?,
         artists: artist_names(wire.artists)?,
-        album_id: album.as_ref().map(|album| album.id.0.clone()),
+        album_id: album
+            .as_ref()
+            .and_then(|album| album.id.as_ref().map(|id| id.0.clone())),
         album_title: album.and_then(|album| album.title).map(text).transpose()?,
         duration_ms: wire.duration_ms,
         available: wire.available.unwrap_or(false),
@@ -967,7 +1121,7 @@ fn album_from_wire(wire: AlbumWire) -> Result<Album, MusicError> {
         return Err(MusicError::ResponseTooLarge);
     }
     Ok(Album {
-        id: wire.id.0,
+        id: wire.id.ok_or(MusicError::InvalidResponse)?.0,
         title: text(wire.title.unwrap_or_else(|| "Без названия".into()))?,
         artists: artist_names(wire.artists)?,
         tracks,

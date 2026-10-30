@@ -67,6 +67,13 @@ For each theme and relevant page:
   session cancel/logout, empty and unavailable-item text, queue editing and the
   visible permitted-source blocker. Disabled player controls must not suggest
   successful service playback. Default builds must not expose Device Flow.
+- Activate rendered track, playlist, album, artist and queue rows with actual
+  mouse input and keyboard Enter/Space. Assert the destination and expected
+  service request, including after refresh replaces rows. Clicking nested
+  buttons/menus must preserve their own action; empty/nonactivatable rows must
+  do nothing. Direct calls to detail handlers or emitting a row's keybinding
+  signal alone do not prove real user activation. The input-driven loopback
+  fixture is `native_catalog_rows_mouse_keyboard_details_and_delivery`.
 - Open the sign-in dialog at every size/theme. Automated checks use the explicitly
   injected offline provider or local browser-session fixtures; check loading,
   stage-specific errors, retry, Escape/cancel and focus return. No build mode may expose Client

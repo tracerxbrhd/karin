@@ -10,12 +10,26 @@ use std::{
 use adw::prelude::*;
 use gtk::{gio, glib};
 
+#[cfg(test)]
+mod diagnostic_tests;
 mod interactions;
 #[cfg(test)]
 mod navigation_tests;
 mod requests;
+#[cfg(test)]
+mod row_activation_tests;
 use requests::{Operation, Requests};
 type PendingJob = Box<dyn FnOnce(&Rc<Controller>, u64)>;
+
+/// The row owns its typed action; removing/replacing it also removes the
+/// action's captured metadata. The list has one user-activation dispatcher.
+enum RowAction {
+    Track(String),
+    Playlist(Playlist),
+    Album(String),
+    Artist(Artist),
+    Queue(usize),
+}
 
 use super::auth::LoginDialog;
 use crate::auth::AuthorizationCode;
@@ -1414,6 +1428,15 @@ impl Controller {
         work: impl FnOnce(MusicService, AccessToken) -> Result<R, MusicError> + Send + 'static,
         done: impl FnOnce(&Rc<Self>, Result<R, MusicError>) + 'static,
     ) {
+        if matches!(operation, Operation::Search | Operation::Detail) {
+            write_catalog_line(catalog_line(
+                operation,
+                CatalogPhase::Requested,
+                "requested",
+                None,
+                None,
+            ));
+        }
         let generation = self.model.borrow().generation;
         let job: PendingJob = Box::new(move |this, serial| {
             this.start_job(operation, serial, generation, work, done);
@@ -1481,7 +1504,9 @@ impl Controller {
             }
             let result = result.unwrap_or(Err(MusicError::Configuration));
             if current {
-                if !matches!(operation, Operation::LikeRead | Operation::Mutation) {
+                if !matches!(operation, Operation::LikeRead | Operation::Mutation)
+                    && (operation != Operation::Search || result.is_err())
+                {
                     catalog_diagnostic(operation, result.as_ref().err().copied());
                 }
                 done(&this, result);
@@ -1767,6 +1792,13 @@ impl Controller {
             move |service, token| service.search(&token, &query, kind, page),
             move |this, result| match result {
                 Ok(result) => {
+                    write_catalog_line(catalog_line(
+                        Operation::Search,
+                        CatalogPhase::Result,
+                        "success",
+                        Some(result.http_status),
+                        None,
+                    ));
                     this.model.borrow_mut().search_page = page;
                     clear_list(&this.widgets.search_rows);
                     for track in result.tracks {
@@ -1845,13 +1877,7 @@ impl Controller {
             }
         });
         body.append(&add);
-        let weak = Rc::downgrade(self);
-        row.set_activatable(true);
-        row.connect_activate(move |_| {
-            if let Some(this) = weak.upgrade() {
-                this.open_track(track.id.clone());
-            }
-        });
+        self.row_action(&row, RowAction::Track(track.id));
         list.append(&row);
     }
 
@@ -1863,13 +1889,7 @@ impl Controller {
             56,
         ));
         body.append(&gtk::Image::from_icon_name("go-next-symbolic"));
-        row.set_activatable(true);
-        let weak = Rc::downgrade(self);
-        row.connect_activate(move |_| {
-            if let Some(this) = weak.upgrade() {
-                this.open_playlist(playlist.clone(), 0);
-            }
-        });
+        self.row_action(&row, RowAction::Playlist(playlist));
         list.append(&row);
     }
 
@@ -1881,13 +1901,7 @@ impl Controller {
             56,
         ));
         body.append(&gtk::Image::from_icon_name("go-next-symbolic"));
-        row.set_activatable(true);
-        let weak = Rc::downgrade(self);
-        row.connect_activate(move |_| {
-            if let Some(this) = weak.upgrade() {
-                this.open_album(album.id.clone());
-            }
-        });
+        self.row_action(&row, RowAction::Album(album.id));
         list.append(&row);
     }
 
@@ -1899,14 +1913,36 @@ impl Controller {
             56,
         ));
         body.append(&gtk::Image::from_icon_name("go-next-symbolic"));
+        self.row_action(&row, RowAction::Artist(artist));
+        list.append(&row);
+    }
+
+    fn row_action(self: &Rc<Self>, row: &gtk::ListBoxRow, action: RowAction) {
         row.set_activatable(true);
+        let group = gio::SimpleActionGroup::new();
+        let activate = gio::SimpleAction::new("activate", None);
         let weak = Rc::downgrade(self);
-        row.connect_activate(move |_| {
-            if let Some(this) = weak.upgrade() {
-                this.open_artist(artist.clone(), 0);
+        activate.connect_activate(move |_, _| {
+            let Some(this) = weak.upgrade() else { return };
+            if this.model.borrow().closed || !this.model.borrow().account_valid {
+                return;
+            }
+            match &action {
+                RowAction::Track(id) => this.open_track(id.clone()),
+                RowAction::Playlist(playlist) => this.open_playlist(playlist.clone(), 0),
+                RowAction::Album(id) => this.open_album(id.clone()),
+                RowAction::Artist(artist) => this.open_artist(artist.clone(), 0),
+                RowAction::Queue(index) => {
+                    this.model.borrow_mut().queue.select(*index);
+                    this.render_queue();
+                }
             }
         });
-        list.append(&row);
+        group.add_action(&activate);
+        // Do not set the row's GtkActionable action-name: the list's actual
+        // user-activation signal is the single dispatch path, for mouse and
+        // keyboard alike. Nested buttons retain their independent actions.
+        row.insert_action_group("catalog-row", Some(&group));
     }
 
     fn detail_loading(self: &Rc<Self>, title: &str, subtitle: &str) {
@@ -2456,14 +2492,7 @@ impl Controller {
                 }
             });
             body.append(&remove);
-            row.set_activatable(true);
-            let weak = Rc::downgrade(self);
-            row.connect_activate(move |_| {
-                if let Some(this) = weak.upgrade() {
-                    this.model.borrow_mut().queue.select(index);
-                    this.render_queue();
-                }
-            });
+            self.row_action(&row, RowAction::Queue(index));
             self.widgets.queue_rows.append(&row);
         }
         if model.queue.items().is_empty() {
@@ -2537,6 +2566,11 @@ fn icon_button(icon: &str, label: &str) -> gtk::Button {
 fn list() -> gtk::ListBox {
     let list = gtk::ListBox::new();
     list.set_selection_mode(gtk::SelectionMode::None);
+    list.connect_row_activated(|_, row| {
+        if row.is_activatable() {
+            let _ = row.activate_action("catalog-row.activate", None);
+        }
+    });
     list.add_css_class("boxed-list");
     list
 }
@@ -2637,29 +2671,77 @@ fn launch_system_browser(url: &str) -> Result<(), AuthError> {
 }
 
 fn catalog_diagnostic(operation: Operation, error: Option<MusicError>) {
-    catalog_event(
+    write_catalog_line(catalog_line(
         operation,
+        CatalogPhase::Result,
         error.map(MusicError::category).unwrap_or("success"),
         error.and_then(MusicError::http_status),
-    );
+        error.and_then(MusicError::diagnostic_stage),
+    ));
 }
 
 fn catalog_event(operation: Operation, category: &'static str, http: Option<u16>) {
-    use std::io::Write;
-    // All values are local finite categories or a numeric status. Never format
-    // provider errors, responses, queries, collection names, IDs or URLs.
-    let _ = writeln!(
-        std::io::stderr().lock(),
-        "Karin catalog: operation={} outcome={} http={}",
+    write_catalog_line(catalog_line(
+        operation,
+        CatalogPhase::State,
+        category,
+        http,
+        None,
+    ));
+}
+
+#[derive(Clone, Copy)]
+enum CatalogPhase {
+    Requested,
+    Result,
+    State,
+}
+
+fn catalog_line(
+    operation: Operation,
+    phase: CatalogPhase,
+    category: &'static str,
+    http: Option<u16>,
+    stage: Option<&'static str>,
+) -> String {
+    let event = match (operation, phase) {
+        (Operation::Detail, CatalogPhase::Requested) => "detail-requested",
+        (Operation::Detail, CatalogPhase::Result) => "detail-result",
+        (Operation::Search, CatalogPhase::Requested) => "search-requested",
+        (Operation::Search, CatalogPhase::Result) => "search-result",
+        (_, CatalogPhase::Requested) => "requested",
+        (_, CatalogPhase::Result) => "result",
+        (_, CatalogPhase::State) => "state",
+    };
+    format!(
+        "Karin catalog: operation={} outcome={} http={} stage={} event={}",
         operation.category(),
         category,
         http.map(|value| value.to_string())
-            .unwrap_or_else(|| "none".into())
-    );
+            .unwrap_or_else(|| "none".into()),
+        stage.unwrap_or("none"),
+        event,
+    )
+}
+
+fn write_catalog_line(line: String) {
+    use std::io::Write;
+    // All values are local finite categories or a numeric status. Never format
+    // provider errors, responses, queries, collection names, IDs or URLs.
+    let _ = writeln!(std::io::stderr().lock(), "{line}");
 }
 
 fn music_error_message(error: MusicError) -> (&'static str, &'static str) {
     match error {
+        MusicError::SearchResponse { kind, .. } => {
+            use crate::music::SearchFailureKind;
+            music_error_message(match kind {
+                SearchFailureKind::Contract => MusicError::InvalidResponse,
+                SearchFailureKind::ResponseTooLarge => MusicError::ResponseTooLarge,
+                SearchFailureKind::Network => MusicError::Network,
+                SearchFailureKind::Timeout => MusicError::Timeout,
+            })
+        }
         MusicError::Forbidden => (
             "Music API отклонил запрос",
             "Причина запрета не установлена. Это не означает, что вы ввели неверный пароль Яндекса.",

@@ -10,6 +10,14 @@
   The default Cassette-compatible provider remains the working sign-in path;
   the separate own-client PKCE ID 200 / Music 403 result is not reused as its
   default route or diagnosed as the cause of unrelated UI failures.
+- **The 2026-10-30 PR #12 catalog retest failed.** Account/library reads still
+  work, but track search reports `response-contract`, and actual row activation
+  did not open details. The correction replaces the GTK keybinding-signal hooks
+  with parent-list user-activation dispatch and accepts source-confirmed missing
+  embedded album identity. The precise live search-response mismatch is still
+  unknown; fixed parsing stages and the known HTTP status now distinguish it
+  without disclosing response data. New owner-local row/search/detail and
+  delivery-entry acceptance remains pending; historical green CI is not a pass.
 - **Return/session/token outcomes are concrete stages.** Exact Music-root return
   and fresh echoed state must be accepted before collecting OAuth-endpoint cookies
   from this dialog's ephemeral session. A different return, missing state/cookie,
