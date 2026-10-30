@@ -6,6 +6,66 @@ This report separates initial cloud checks, user-reported Fedora acceptance,
 revised UI checks and compiler compatibility. A result for one environment or
 revision is not evidence that another has passed.
 
+## Guarded legacy MP3 resolver and remote player (2026-10-30)
+
+The audio child branch above PR #12's `268a495` implements the actual source
+path: existing validated session → per-track offer → bounded XML → opaque
+short-lived legacy MP3 source → existing GStreamer playbin. Normal explicit
+Play uses this path; `--delivery-diagnostic` remains metadata-only. Local-file
+sources and generated-WAV developer diagnostics remain separate and supported.
+
+The owner has confirmed only the HTTP 200/mp3 offer result recorded below,
+which stopped at `metadata-origin-unverified` before descriptor retrieval.
+The new code accepts three exact metadata path families at the same reviewed
+HTTPS origin, including the published `/download-info/` variant and the pinned
+`/file-download-info/` fixture. This does not assert which URL the owner received.
+No live XML, current media host/resource, audible Music, new search PASS or
+public provider-distribution approval has been established in Cloud/CI.
+
+Resolver tests cover explicit full-track MP3 selection, protection/preview and
+ambiguous-response refusal, credential separation, origin/path/redirect bounds,
+private canonical construction, original-offer freshness and cancellation/logout.
+Remote-player tests generate original synthetic MP3 and exercise actual HTTP
+Range/TLS transport, controls/seek/EOS/cleanup, expiry and URI-log privacy. The
+native `native_music_playback_resolver_queue_controls_and_logout`,
+`native_music_playback_queue_races_remove_and_close` and
+`native_music_playback_media_error_visibility_stop_retry_and_catalog_preservation`
+fixtures join the resolver and real worker with synthetic loopback MP3/fakesink.
+The completed prepared Debian matrix used stable **1.99.1** and exact
+**Rust 1.98.1**, with no runtime changes between compiler lanes.
+
+| Current audio revision check | Executed result |
+| --- | --- |
+| fmt; default/all-feature/minimal all-target Clippy, `-D warnings`; builds | Passed on both compilers |
+| Default / all-feature / minimal workspace tests | **219 / 227 / 205 library + 4 binary passed** on each compiler; 11 / 11 / 8 display tests excluded from ordinary totals |
+| Resolver policy, original-offer expiry, no CDN credentials or diagnostic media GET | **38 stream tests passed** in the focused run; included in both completed compiler matrices |
+| Actual remote MP3 HTTP/TLS, controls/EOS, cancellation and URI-log privacy | **20 playback tests passed** in the focused run; included in both completed compiler matrices |
+| Three explicit native resolver/player/queue/session/error fixtures; existing account/catalog/library/input fixtures | Passed on both compilers |
+| GTK/theme/HiDPI smoke and actual cover textures/adjacency at scale 1 and 2 | Passed on both compilers |
+| WebKit construction/cancel, synthetic terminal boundaries, GStreamer/generated local-media diagnostics | Passed locally in their stated scopes on both compilers |
+| Exact-1.98.1 default/all-feature `--release --offline --locked` and release runtime checks | Passed |
+| Dependency-license inventory comparison | Passed; reviewed inventory unchanged |
+| Full sandbox-enabled WebKit/hosted CI and native vendored Flatpak-source checks | Pending matching child-revision execution; native source checks do not establish a complete Flatpak build |
+| Owner Fedora actual-track audibility, transport/queue/close and live search | **Pending; audible v0.2 criterion NOT MET** |
+
+The media-error fixture verifies visible, sanitized HTTP 403 feedback at
+420×720 and 900×650, no automatic retry, clearing on Stop/explicit Play, and
+preservation of a later unrelated catalog error. The row-input fixture reaches
+the delivery action with actual Tab, asserts that its complete allocation is
+above the fixed player bar, and returns with Shift+Tab/Back. This proves more
+than a mapped-but-obscured button. It never activates the production delivery
+client in Cloud/CI. No synthetic fixture or successful GStreamer state is a
+heard-service-track result.
+
+The source-matched audio PR description and final artifacts will record executed
+outcomes. Do not reuse parent-run results as child-run evidence. Use the
+[single combined Fedora instruction](BUILDING.md#v02-catalog-and-delivery-info-acceptance-on-fedora)
+and report only fixed stages/categories/numeric HTTP plus anonymized PASS/FAIL.
+No actual account, token, private response, signed address or music is needed in
+Cloud/CI/GitHub. The local prototype's technical playback and the unresolved
+public registration/service-distribution conditions remain separate facts.
+See [ADR-0015](adr/0015-guarded-legacy-mp3-playback.md).
+
 ## P0 track-search follow-up after `99a177e` (2026-10-30)
 
 The [latest owner retest](https://github.com/tracerxbrhd/karin/pull/12#issuecomment-6524410137)

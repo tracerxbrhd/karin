@@ -1096,7 +1096,7 @@ fn presentation(state: &ConnectionState) -> (&'static str, String) {
             (
                 title,
                 format!(
-                    "Получен ответ HTTP {}. Авторизация и воспроизведение музыки пока не подключены.{}",
+                    "Получен ответ HTTP {}. Этот запрос выполнен без входа и не проверяет аккаунт или доступ к музыке.{}",
                     report.http_status,
                     if report.service_available == Some(false) {
                         " Сервис сообщил о недоступности для текущего подключения."
@@ -1159,7 +1159,7 @@ mod tests {
         });
         let (title, text) = presentation(&state);
         assert_eq!(title, "Сервис недоступен в этой среде");
-        assert!(text.contains("пока не подключены"));
+        assert!(text.contains("запрос выполнен без входа"));
     }
 
     #[test]

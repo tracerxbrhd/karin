@@ -12,11 +12,11 @@ use std::{
 
 const PRIVATE: &str = "synthetic-private-delivery-value";
 
-fn token() -> AccessToken {
+pub(super) fn token() -> AccessToken {
     AccessToken::for_test(PRIVATE, Duration::from_secs(3600))
 }
 
-fn receive(stream: &mut TcpStream) -> String {
+pub(super) fn receive(stream: &mut TcpStream) -> String {
     stream
         .set_read_timeout(Some(Duration::from_secs(3)))
         .unwrap();
@@ -30,7 +30,7 @@ fn receive(stream: &mut TcpStream) -> String {
     String::from_utf8(bytes).unwrap()
 }
 
-fn respond(stream: &mut TcpStream, status: u16, body: &str) {
+pub(super) fn respond(stream: &mut TcpStream, status: u16, body: &str) {
     let _ = write!(
         stream,
         "HTTP/1.1 {status} Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -38,7 +38,7 @@ fn respond(stream: &mut TcpStream, status: u16, body: &str) {
     );
 }
 
-fn accepted(listener: &TcpListener) -> TcpStream {
+pub(super) fn accepted(listener: &TcpListener) -> TcpStream {
     listener.set_nonblocking(true).unwrap();
     let deadline = Instant::now() + Duration::from_secs(4);
     loop {
@@ -54,7 +54,7 @@ fn accepted(listener: &TcpListener) -> TcpStream {
     }
 }
 
-fn validated_service(token: &AccessToken) -> MusicService {
+pub(super) fn validated_service(token: &AccessToken) -> MusicService {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let service = MusicService::for_test(&format!("http://{}/", listener.local_addr().unwrap()));
     let server = thread::spawn(move || {
@@ -104,7 +104,7 @@ fn fixture(
     )
 }
 
-fn check_no_second_request(listener: TcpListener) {
+pub(super) fn check_no_second_request(listener: TcpListener) {
     listener.set_nonblocking(true).unwrap();
     assert_eq!(
         listener.accept().unwrap_err().kind(),
@@ -113,7 +113,7 @@ fn check_no_second_request(listener: TcpListener) {
     );
 }
 
-fn legacy_body(url: &str) -> String {
+pub(super) fn legacy_body(url: &str) -> String {
     json!({
         "result":[{"codec":"mp3","bitrateInKbps":192,"downloadInfoUrl":url,"direct":true,"preview":false}],
         "invocationInfo":{"requestId":PRIVATE}
@@ -121,7 +121,7 @@ fn legacy_body(url: &str) -> String {
     .to_string()
 }
 
-fn check_redacted(report: DeliveryReport) {
+pub(super) fn check_redacted(report: DeliveryReport) {
     let visible = format!("{report}\n{report:?}");
     for secret in [PRIVATE, "storage.example", "track-private", "phone-private"] {
         assert!(!visible.contains(secret), "only fixed report fields");
@@ -235,6 +235,11 @@ fn protection_values_are_skipped_and_never_used_or_echoed() {
         "decryption_key",
         "drm",
         "encryption",
+        "encrypted",
+        "protected",
+        "protection",
+        "licenseUrl",
+        "license_url",
     ] {
         let body = json!({"result":[{"codec":"flac",field:PRIVATE}]}).to_string();
         let report = classify(body.as_bytes(), 200);
@@ -261,6 +266,74 @@ fn empty_unknown_malformed_and_oversized_variants_remain_distinct() {
     ] {
         let report = classify(body.as_bytes(), 200);
         assert_eq!(report.category, DeliveryCategory::UnsupportedResponse);
+        check_redacted(report);
+    }
+}
+
+#[test]
+fn an_error_field_cannot_be_hidden_alongside_a_usable_delivery_result() {
+    let probe = DeliveryProbe::new().unwrap();
+    for error in [json!(null), json!(PRIVATE), json!({"message": PRIVATE})] {
+        let body = json!({
+            "result": [{
+                "codec": "mp3",
+                "preview": false,
+                "downloadInfoUrl": "https://storage.mds.yandex.net/download-info/synthetic"
+            }],
+            "error": error
+        })
+        .to_string();
+        let report = classify(body.as_bytes(), 200);
+        assert_eq!(report.category, DeliveryCategory::UnsupportedResponse);
+        assert_eq!(report.http_status, Some(200));
+        assert_eq!(report.stage, DeliveryStage::Info);
+        assert!(!report.metadata_attempted);
+        assert_eq!(
+            probe.metadata_url(body.as_bytes()).unwrap_err(),
+            DeliveryCategory::UnsupportedResponse
+        );
+        check_redacted(report);
+    }
+}
+
+#[test]
+fn only_absent_and_known_raw_transport_are_eligible_for_legacy_delivery() {
+    let probe = DeliveryProbe::new().unwrap();
+    for (transport, expected) in [
+        (json!("encraw"), DeliveryCategory::ProtectionRequired),
+        (json!("plain"), DeliveryCategory::UnsupportedResponse),
+        (json!(PRIVATE), DeliveryCategory::UnsupportedResponse),
+        (json!(true), DeliveryCategory::UnsupportedResponse),
+        (
+            json!({"value": PRIVATE}),
+            DeliveryCategory::UnsupportedResponse,
+        ),
+    ] {
+        let body = json!({"result": [{
+            "codec": "mp3",
+            "preview": false,
+            "downloadInfoUrl": "https://storage.mds.yandex.net/download-info/synthetic",
+            "transport": transport
+        }]})
+        .to_string();
+        let report = classify(body.as_bytes(), 200);
+        assert_eq!(report.category, expected);
+        assert_eq!(probe.metadata_url(body.as_bytes()).unwrap_err(), expected);
+        assert!(!report.metadata_attempted);
+        check_redacted(report);
+    }
+    for transport in [json!(null), json!("raw")] {
+        let body = json!({"result": [{
+            "codec": "mp3",
+            "preview": false,
+            "downloadInfoUrl": "https://storage.mds.yandex.net/download-info/synthetic",
+            "transport": transport
+        }]})
+        .to_string();
+        let report = classify(body.as_bytes(), 200);
+        assert_eq!(report.category, DeliveryCategory::LegacyNegotiationRequired);
+        assert!(probe.metadata_url(body.as_bytes()).is_ok());
+        assert!(!report.protection_required);
         check_redacted(report);
     }
 }
@@ -434,7 +507,7 @@ fn descriptor_origin_and_path_are_exact_and_never_widened_by_provider_input() {
                 )
                 .as_bytes()
             )
-            .is_some()
+            .is_ok()
     );
     for resource in [
         "http://storage.mds.yandex.net/get-download-info/track-private",
@@ -450,7 +523,7 @@ fn descriptor_origin_and_path_are_exact_and_never_widened_by_provider_input() {
         assert!(
             probe
                 .metadata_url(legacy_body(resource).as_bytes())
-                .is_none()
+                .is_err()
         );
     }
 }
@@ -506,6 +579,7 @@ fn descriptor_rejection_oversize_and_invalid_xml_keep_separate_http_results() {
     for (status, body, expected) in [
         (403, PRIVATE.to_owned(), DeliveryCategory::Forbidden),
         (302, PRIVATE.to_owned(), DeliveryCategory::HttpRejected),
+        (410, PRIVATE.to_owned(), DeliveryCategory::SourceExpired),
         (
             200,
             PRIVATE.to_owned(),

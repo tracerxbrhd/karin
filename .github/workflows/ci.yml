@@ -144,6 +144,22 @@ jobs:
             export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
           fi
           dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_library_interactions_confirmed_fixture -- --ignored --test-threads=1
+      - name: Real resolver, remote MP3 and native player controls against loopback
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+          GSK_DEBUG: full-redraw
+        run: |
+          gst-inspect-1.0 lamemp3enc >/dev/null
+          gst-inspect-1.0 xingmux >/dev/null
+          gst-inspect-1.0 mpg123audiodec >/dev/null
+          gst-inspect-1.0 souphttpsrc >/dev/null
+          if [ '${{ matrix.lane }}' = stable ]; then
+            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
+          fi
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_music_playback_resolver_queue_controls_and_logout -- --ignored --test-threads=1
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_music_playback_queue_races_remove_and_close -- --ignored --test-threads=1
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_music_playback_media_error_visibility_stop_retry_and_catalog_preservation -- --ignored --test-threads=1
       - name: Cover textures, HiDPI, cancellation and native cleanup
         env:
           GTK_A11Y: none
@@ -321,28 +337,30 @@ jobs:
             printf 'Binary SHA256: '; sha256sum target/release/karin
           } > "$artifact/BUILD-INFO.txt"
           cat > "$artifact/README.txt" <<'EOF'
-          Karin v0.2 catalog repair and local delivery-info prototype for Fedora 44.
+          Karin v0.2 guarded legacy MP3 playback prototype for Fedora 44.
           Verify the downloaded archive with: sha256sum -c SHA256SUMS
           Extract the archive and enter karin-fedora-prototype-1.98.1.
           Install Fedora runtime packages if needed:
           sudo dnf install gtk4 libadwaita gstreamer1 gstreamer1-plugins-base gstreamer1-plugins-good webkitgtk6.0 librsvg2
-          Disable core dumps for this local session, then opt in to delivery metadata diagnostics:
+          Disable core dumps for this local session, then run the ordinary client:
           ulimit -c 0
-          ./karin --delivery-diagnostic 2>&1 | sed -n '/^Karin auth navigation: /p'
+          ./karin
           Click Войти and authorize your own account on the displayed Yandex page.
           No Client ID/secret, token, URL copying or application registration is needed.
           Source build and acceptance instructions: docs/BUILDING.md at the exact source commit in BUILD-INFO.txt.
           This is an Ubuntu 24.04 x86_64 build; Fedora acceptance for this exact artifact is pending.
           It is not a Flatpak, a production release or proof of live Music API access.
-          Only Music account validation can finish login; then check actual playlist contents and Latin/Cyrillic track/album/artist search, paging and changing actions during loading.
-          Open an actual track's details and explicitly request its delivery-info check. Report only its fixed stage/category/HTTP result; no media is requested.
+          Only Music account validation can finish login. Select an entitled real Library track and explicitly press Play.
+          Audible service playback is not accepted until you hear it through PipeWire/GStreamer on Fedora.
+          Check pause/resume, progress/seek, volume, next/previous/queue/EOS, Stop and clean close.
+          Also check actual playlist contents and Latin/Cyrillic track/album/artist search and details.
+          Optional ./karin --delivery-diagnostic remains metadata-only and fetches no audio.
           The reused application identity's public-distribution permission is unresolved.
-          For the navigation retest, report only the first "Karin auth navigation: " line from the failing attempt and the coarse UI outcome.
-          The filter discards other output without creating a full log. Do not record the terminal or enable network debugging.
-          That one-shot diagnostic contains fixed event/reason/frame categories and a safe canonical origin or a redacted address category.
-          Also report the fixed stage/category and HTTP status shown by Karin, if any.
+          Report only the build revision, anonymized PASS/FAIL, and fixed stage/category/HTTP support codes.
+          Do not record a full terminal transcript or enable network/GStreamer debugging.
           Session cookies/tokens stay in memory. Do not share raw JSON, parameterized URLs, tokens or personal screenshots.
-          Real service audio is not connected. See BUILD-INFO.txt and included licenses.
+          CI uses original synthetic MP3 and loopback fixtures, never a real account or service recording.
+          This build is ready for that owner-local audible test, not a claim that it passed. See BUILD-INFO.txt and licenses.
           EOF
           tar -C build -czf build/karin-fedora-prototype-1.98.1.tar.gz karin-fedora-prototype-1.98.1
           (cd build && sha256sum karin-fedora-prototype-1.98.1.tar.gz > SHA256SUMS)

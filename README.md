@@ -4,15 +4,17 @@
 
 An independent native Linux client for Yandex Music, built with Rust, GTK4,
 Libadwaita and GStreamer. The owner has verified ordinary Yandex sign-in, Music
-account validation, liked tracks and personal-playlist listing on Fedora.
-**v0.2 must add working search, playlist contents and actual audible Music
-playback. Its sound acceptance is not yet met.** Karin is not affiliated with Yandex.
+account validation, the library, real track details/liked state and album search
+on Fedora. Track search still failed at `99a177e`; the subsequent correction
+handles optional embedded display credits. **A guarded legacy MP3 resolver and
+network player are now implemented, but real audible Music acceptance is not
+yet met.** Karin is not affiliated with Yandex.
 
 [Issue #9](https://github.com/tracerxbrhd/karin/issues/9) tracks this stage. Its
 starting Fedora run found that search and opening personal playlists failed.
 Those are defects to repair, not successful features inferred from fixtures.
-Audio delivery is investigated in parallel with those repairs; synthetic WAV
-does not satisfy the real-track criterion.
+The audio child PR continues that work in parallel with search repairs. Synthetic
+WAV or MP3 fixtures do not satisfy the real-track criterion.
 
 ## Implemented slice
 
@@ -44,8 +46,19 @@ does not satisfy the real-track criterion.
 - The independent own-client `--oauth-diagnostic` remains unchanged: hidden full
   redirect input, returned-state validation, S256 PKCE, secretless initial
   exchange and separate sanitized status/about outcomes.
-- The existing GStreamer local-media controller and explicitly synthetic developer
-  diagnostics remain available. They are not substitutes for Music playback.
+- An account-bound `StreamResolver` checks an explicit full MP3 offer, retrieves
+  a bounded XML descriptor and constructs an opaque, short-lived legacy resource.
+  The existing GStreamer controller accepts that validated HTTPS source as well
+  as local files. Explicit Play, pause/resume, Stop, progress/seek, volume,
+  Next/Previous, queue selection and EOS use actual worker snapshots. Protected,
+  preview, unknown-origin and expired sources fail visibly; no generated audio
+  is substituted for a service track.
+- Metadata and media use separate credential boundaries: OAuth goes only to the
+  fixed Music API; descriptor/CDN requests receive no OAuth or cookies. Remote
+  playback preserves TLS verification, rejects redirects/manifests and stores no
+  music files or signed addresses. The metadata-only diagnostic remains separate.
+- The existing local-media controller and explicitly synthetic developer
+  diagnostics remain available, independently of service playback.
 - Offline protocol/model tests, native GTK/GStreamer smoke checks, public and
   experimental build checks, and Rust stable / exact 1.98.1 CI lanes.
 
@@ -75,10 +88,16 @@ must verify corrected search/playlist contents and any new delivery/playback pat
 OAuth exchange or Music validation rather than a generic provider block.
 Session tokens are memory-only; logout clears local session/data and does not revoke the server
 grant. Persistent sessions require a separately verified Secret Service lifecycle.
-Playlist editing, My Wave, service-stream resolution and MPRIS are not enabled.
+Playlist editing, My Wave and MPRIS are not enabled.
 Like/unlike writes are explicit and require confirmed membership; no success is
-inferred from a missing response. Playback controls visibly state the missing permitted-source
-contract rather than playing generated WAV as music.
+inferred from a missing response. The owner has observed an MP3 delivery offer
+with HTTP 200, but the older allowlist stopped before fetching its descriptor.
+No live descriptor, playable service resource or audible track has yet been
+verified in Karin. The implemented resolver/player must pass the
+[single Fedora playback acceptance](docs/BUILDING.md#v02-catalog-and-delivery-info-acceptance-on-fedora).
+The historical legacy checksum is assessed separately from modern extracted
+signing keys and DRM; the latter are not implemented. See
+[ADR-0015](docs/adr/0015-guarded-legacy-mp3-playback.md).
 
 See [the sign-in decision](docs/adr/0011-cassette-session-auth-prototype.md),
 [authentication research](docs/AUTHENTICATION_REVIEW.md),
@@ -125,8 +144,8 @@ Both audio self-tests are silent and require no sound device.
 it is separate from the finite pipeline check in `--audio-self-test`.
 `--smoke-test` checks the real window and navigation without contacting the API.
 The separate optional `--probe-service` command makes a real anonymous network
-request and prints only the resulting domain report. Network access is never
-required by automated tests. Executed results and pending manual checks are in
+request and prints only the resulting domain report. External network access is never
+required by automated tests; network fixtures use loopback only. Executed results and pending manual checks are in
 [VALIDATION.md](docs/VALIDATION.md).
 
 ## Project documentation

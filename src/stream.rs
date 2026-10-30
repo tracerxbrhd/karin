@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Owner-local, opt-in delivery-metadata experiment using Karin's current session.
 //!
-//! This is not a stream resolver. It makes one authenticated metadata request,
-//! then at most one unauthenticated descriptor request to an exact reviewed
-//! metadata origin/path. It never requests or stores media. In particular,
-//! the legacy `direct` flag does not prove that its descriptor is a playable URI.
+//! The diagnostic makes one authenticated metadata request and at most one
+//! unauthenticated descriptor request; it never requests or stores media.
+//! The separate resolver validates an explicit full MP3 offer and constructs a
+//! short-lived legacy source for the existing playback boundary. The legacy
+//! `direct` hint alone never establishes a playable resource.
 //! The endpoint and field names were compared with Cassette v0.2.4, revision
-//! 9d34251d01bcd414ffbec2bef7931090d33c9124. No upstream signing material is used.
+//! 9d34251d01bcd414ffbec2bef7931090d33c9124. No modern extracted signing key
+//! or protected-media/decryption mechanism is used.
 
 use std::{
     fmt,
@@ -78,11 +80,17 @@ pub enum DeliveryCategory {
     UnsupportedResponse,
     NoDeliveryOptions,
     ProtectionRequired,
-    /// A legacy descriptor was offered; its follow-up/signature contract has
-    /// not been approved or implemented. This is not a DRM determination.
+    /// A legacy descriptor was offered; it is not itself a playable resource.
+    /// The diagnostic remains independent of resolver and media playback.
     LegacyNegotiationRequired,
     MetadataOriginUnverified,
+    MetadataPathUnverified,
     LegacySignatureRequired,
+    PreviewOnly,
+    PreviewUnverified,
+    UnsupportedCodec,
+    MediaOriginUnverified,
+    SourceExpired,
     UnsafeResource,
 }
 
@@ -107,6 +115,12 @@ impl DeliveryCategory {
             Self::ProtectionRequired => "protection-required",
             Self::LegacyNegotiationRequired => "legacy-negotiation-required",
             Self::MetadataOriginUnverified => "metadata-origin-unverified",
+            Self::MetadataPathUnverified => "metadata-path-unverified",
+            Self::PreviewOnly => "preview-only",
+            Self::PreviewUnverified => "preview-permission-unverified",
+            Self::UnsupportedCodec => "mp3-offer-unavailable",
+            Self::MediaOriginUnverified => "media-origin-unverified",
+            Self::SourceExpired => "source-expired",
             Self::LegacySignatureRequired => "legacy-client-signature-required",
             Self::UnsafeResource => "unsafe-resource-offered",
         }
@@ -162,10 +176,27 @@ impl DeliveryResource {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DeliveryStage {
+    Info,
+    Descriptor,
+    Resolution,
+}
+impl DeliveryStage {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Info => "delivery-info",
+            Self::Descriptor => "delivery-descriptor",
+            Self::Resolution => "stream-resolution",
+        }
+    }
+}
+
 /// Only finite, non-personal values cross the transport/UI boundary. No URL,
 /// identifier, request header, body, provider message or credential is retained.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DeliveryReport {
+    pub stage: DeliveryStage,
     pub category: DeliveryCategory,
     pub http_status: Option<u16>,
     /// Separate HTTP result of the optional descriptor-only request. An API
@@ -183,6 +214,7 @@ pub struct DeliveryReport {
 impl DeliveryReport {
     fn new(category: DeliveryCategory, http_status: Option<u16>) -> Self {
         Self {
+            stage: DeliveryStage::Info,
             category,
             http_status,
             metadata_http_status: None,
@@ -201,11 +233,7 @@ impl fmt::Display for DeliveryReport {
         write!(
             f,
             "stage={} category={}",
-            if self.metadata_attempted {
-                "delivery-descriptor"
-            } else {
-                "delivery-info"
-            },
+            self.stage.as_str(),
             self.category.as_str()
         )?;
         if let Some(status) = self.http_status {
@@ -280,11 +308,32 @@ impl DeliveryProbe {
         track_id: &str,
         cancellation: &DeliveryCancellation,
     ) -> DeliveryReport {
+        let (body, status) = match self.delivery_info(service, token, track_id, cancellation) {
+            Ok(response) => response,
+            Err(report) => return report,
+        };
+        let report = classify(&body, status);
+        if report.category != DeliveryCategory::LegacyNegotiationRequired {
+            return report;
+        }
+        match self.metadata_url(&body) {
+            Ok(url) => self.probe_descriptor(report, url, token, cancellation),
+            Err(category) => DeliveryReport { category, ..report },
+        }
+    }
+
+    fn delivery_info(
+        &self,
+        service: &MusicService,
+        token: &AccessToken,
+        track_id: &str,
+        cancellation: &DeliveryCancellation,
+    ) -> Result<(Zeroizing<Vec<u8>>, u16), DeliveryReport> {
         if cancellation.cancelled(token) {
-            return DeliveryReport::new(DeliveryCategory::Cancelled, None);
+            return Err(DeliveryReport::new(DeliveryCategory::Cancelled, None));
         }
         if service.validate_session(token).is_err() {
-            return DeliveryReport::new(DeliveryCategory::SessionRequired, None);
+            return Err(DeliveryReport::new(DeliveryCategory::SessionRequired, None));
         }
         // A service-returned track identifier may include an album suffix. No
         // free-form path, query, URL or account identifier is accepted here.
@@ -296,18 +345,18 @@ impl DeliveryProbe {
             || track_id.split(':').count() > 2
             || track_id.split(':').any(str::is_empty)
         {
-            return DeliveryReport::new(DeliveryCategory::InvalidTrack, None);
+            return Err(DeliveryReport::new(DeliveryCategory::InvalidTrack, None));
         }
         let mut url = self.origin.clone();
         let Ok(mut segments) = url.path_segments_mut() else {
-            return DeliveryReport::new(DeliveryCategory::Configuration, None);
+            return Err(DeliveryReport::new(DeliveryCategory::Configuration, None));
         };
         segments.pop_if_empty();
         segments.extend(["tracks", track_id, "download-info"]);
         drop(segments);
         let authorization = Zeroizing::new(format!("OAuth {}", token.expose()));
         let Ok(mut header) = HeaderValue::from_str(&authorization) else {
-            return DeliveryReport::new(DeliveryCategory::SessionRequired, None);
+            return Err(DeliveryReport::new(DeliveryCategory::SessionRequired, None));
         };
         header.set_sensitive(true);
         let response = self
@@ -317,25 +366,25 @@ impl DeliveryProbe {
             .header(AUTHORIZATION, header)
             .send();
         if cancellation.cancelled(token) {
-            return DeliveryReport::new(DeliveryCategory::Cancelled, None);
+            return Err(DeliveryReport::new(DeliveryCategory::Cancelled, None));
         }
         let response = match response {
             Ok(response) => response,
             Err(error) => {
-                return DeliveryReport::new(
+                return Err(DeliveryReport::new(
                     if error.is_timeout() {
                         DeliveryCategory::Timeout
                     } else {
                         DeliveryCategory::Network
                     },
                     None,
-                );
+                ));
             }
         };
         let status = response.status().as_u16();
         let outcome = read_body(response, token, cancellation, MAX_BODY);
         if cancellation.cancelled(token) {
-            return DeliveryReport::new(DeliveryCategory::Cancelled, None);
+            return Err(DeliveryReport::new(DeliveryCategory::Cancelled, None));
         }
         if status != 200 {
             let category = match status {
@@ -348,79 +397,149 @@ impl DeliveryProbe {
                 451 => DeliveryCategory::Restricted,
                 _ => DeliveryCategory::HttpRejected,
             };
-            return DeliveryReport::new(category, Some(status));
+            return Err(DeliveryReport::new(category, Some(status)));
         }
-        match outcome {
-            Ok(body) => {
-                let report = classify(&body, status);
-                if report.category != DeliveryCategory::LegacyNegotiationRequired {
-                    return report;
-                }
-                match self.metadata_url(&body) {
-                    Some(url) => self.probe_descriptor(report, url, token, cancellation),
-                    None => DeliveryReport {
-                        category: DeliveryCategory::MetadataOriginUnverified,
-                        ..report
-                    },
-                }
-            }
-            Err(category) => DeliveryReport::new(category, Some(status)),
-        }
+        outcome
+            .map(|body| (body, status))
+            .map_err(|category| DeliveryReport::new(category, Some(status)))
     }
 
-    fn metadata_url(&self, body: &[u8]) -> Option<Url> {
-        let envelope = serde_json::from_slice::<Envelope>(body).ok()?;
-        envelope.result.into_iter().find_map(|option| {
-            if option.key.is_some()
-                || option.decryption_key.is_some()
-                || option.drm.0
-                || option.encryption.0
-            {
-                return None;
+    fn metadata_url(&self, body: &[u8]) -> Result<Url, DeliveryCategory> {
+        let envelope = serde_json::from_slice::<Envelope>(body)
+            .map_err(|_| DeliveryCategory::UnsupportedResponse)?;
+        if envelope
+            .result
+            .iter()
+            .any(|option| option.transport == DeliveryTransport::Protected)
+        {
+            return Err(DeliveryCategory::ProtectionRequired);
+        }
+        if envelope
+            .result
+            .iter()
+            .any(|option| option.transport == DeliveryTransport::Unsupported)
+        {
+            return Err(DeliveryCategory::UnsupportedResponse);
+        }
+        let mut failure = DeliveryCategory::UnsupportedResponse;
+        for option in envelope.result {
+            if option.protected() {
+                failure = DeliveryCategory::ProtectionRequired;
+                continue;
             }
-            let resource = Zeroizing::new(option.download_info_url?);
-            if resource.len() > MAX_RESOURCE_URL {
-                return None;
+            if let Some(resource) = option.download_info_url {
+                match self.validate_metadata_url(&Zeroizing::new(resource)) {
+                    Ok(url) => return Ok(url),
+                    Err(category) => failure = category,
+                }
             }
-            let url = Url::parse(&resource).ok()?;
-            if !url.username().is_empty()
-                || url.password().is_some()
-                || url.fragment().is_some()
-                || !url.path().starts_with("/get-download-info/")
-            {
-                return None;
-            }
-            // A published, version-pinned descriptor fixture establishes this
-            // exact metadata origin/path purpose, not live access or playback.
-            // No arbitrary host or provider-returned subdomain is followed.
-            let permitted = url.scheme() == "https"
-                && url.host_str() == Some("storage.mds.yandex.net")
-                && url.port_or_known_default() == Some(443);
-            #[cfg(test)]
-            let permitted = permitted
-                || self
-                    .metadata_fixture_origin
-                    .as_ref()
-                    .is_some_and(|fixture| {
-                        url.scheme() == "http"
-                            && url.host_str() == Some("127.0.0.1")
-                            && url.origin() == fixture.origin()
-                    });
-            permitted.then_some(url)
-        })
+        }
+        Err(failure)
+    }
+
+    fn validate_metadata_url(&self, resource: &str) -> Result<Url, DeliveryCategory> {
+        if resource.is_empty()
+            || resource.len() > MAX_RESOURCE_URL
+            || !resource.is_ascii()
+            || resource
+                .bytes()
+                .any(|byte| byte.is_ascii_whitespace() || byte.is_ascii_control())
+            || resource.contains('\\')
+        {
+            return Err(DeliveryCategory::UnsafeResource);
+        }
+        let authority = resource
+            .split_once("://")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split(['/', '?', '#']).next())
+            .ok_or(DeliveryCategory::UnsafeResource)?;
+        // Url normalizes empty userinfo and an empty explicit port away. The
+        // raw forms still violate the exact-origin, no-userinfo contract.
+        if authority.is_empty() || authority.contains('@') || authority.ends_with(':') {
+            return Err(DeliveryCategory::UnsafeResource);
+        }
+        let url = Url::parse(resource).map_err(|_| DeliveryCategory::UnsafeResource)?;
+        if !url.username().is_empty() || url.password().is_some() || url.fragment().is_some() {
+            return Err(DeliveryCategory::UnsafeResource);
+        }
+        let permitted = url.scheme() == "https"
+            && url.host_str() == Some("storage.mds.yandex.net")
+            && url.port_or_known_default() == Some(443);
+        #[cfg(test)]
+        let permitted = permitted
+            || self
+                .metadata_fixture_origin
+                .as_ref()
+                .is_some_and(|fixture| {
+                    url.scheme() == "http"
+                        && url.host_str() == Some("127.0.0.1")
+                        && url.origin() == fixture.origin()
+                });
+        if !permitted {
+            return Err(DeliveryCategory::MetadataOriginUnverified);
+        }
+        // Retain /get-download-info/ from the previous policy. The additional
+        // /download-info/ is published by lifeart 49cfee7002eb, and the exact
+        // /file-download-info/ appears in MarshalX's fixture at 9ca132e5c18a.
+        // This does not authorize arbitrary paths, redirects or subdomains.
+        let path = url.path();
+        let raw_path = resource
+            .split_once("://")
+            .and_then(|(_, authority_and_path)| authority_and_path.split_once('/'))
+            .map(|(_, path)| path.split('?').next().unwrap_or_default())
+            .unwrap_or_default();
+        let suffix = path
+            .strip_prefix("/get-download-info/")
+            .or_else(|| path.strip_prefix("/download-info/"))
+            .or_else(|| path.strip_prefix("/file-download-info/"));
+        if suffix.is_none_or(str::is_empty)
+            || path.contains(['%', '\\'])
+            || path.split('/').any(|part| matches!(part, "." | ".."))
+            || raw_path.contains('%')
+            || raw_path.split('/').any(|part| matches!(part, "." | ".."))
+        {
+            return Err(DeliveryCategory::MetadataPathUnverified);
+        }
+        Ok(url)
     }
 
     fn probe_descriptor(
+        &self,
+        report: DeliveryReport,
+        url: Url,
+        token: &AccessToken,
+        cancellation: &DeliveryCancellation,
+    ) -> DeliveryReport {
+        let (body, mut report) = match self.descriptor_body(report, url, token, cancellation) {
+            Ok(response) => response,
+            Err(report) => return report,
+        };
+        report.category = match xml::classify(&body) {
+            xml::MetadataCategory::LegacySignatureRequired => {
+                DeliveryCategory::LegacySignatureRequired
+            }
+            xml::MetadataCategory::ProtectionRequired => {
+                report.protection_required = true;
+                DeliveryCategory::ProtectionRequired
+            }
+            xml::MetadataCategory::UnsupportedResponse => DeliveryCategory::UnsupportedResponse,
+            xml::MetadataCategory::PreviewOnly => DeliveryCategory::PreviewOnly,
+        };
+        report
+    }
+
+    fn descriptor_body(
         &self,
         mut report: DeliveryReport,
         url: Url,
         token: &AccessToken,
         cancellation: &DeliveryCancellation,
-    ) -> DeliveryReport {
+    ) -> Result<(Zeroizing<Vec<u8>>, DeliveryReport), DeliveryReport> {
         if cancellation.cancelled(token) {
-            return DeliveryReport::new(DeliveryCategory::Cancelled, None);
+            return Err(DeliveryReport::new(DeliveryCategory::Cancelled, None));
         }
         report.metadata_attempted = true;
+        report.stage = DeliveryStage::Descriptor;
         // Authentication is attached per request, never to Client defaults.
         // This request intentionally has NO OAuth, Cookie, Origin or Referer.
         let response = self
@@ -429,7 +548,7 @@ impl DeliveryProbe {
             .header(ACCEPT, "application/xml")
             .send();
         if cancellation.cancelled(token) {
-            return DeliveryReport::new(DeliveryCategory::Cancelled, None);
+            return Err(DeliveryReport::new(DeliveryCategory::Cancelled, None));
         }
         let response = match response {
             Ok(response) => response,
@@ -439,7 +558,7 @@ impl DeliveryProbe {
                 } else {
                     DeliveryCategory::Network
                 };
-                return report;
+                return Err(report);
             }
         };
         let status = response.status().as_u16();
@@ -448,30 +567,24 @@ impl DeliveryProbe {
             report.category = match status {
                 401 => DeliveryCategory::AccessDenied,
                 403 => DeliveryCategory::Forbidden,
+                410 => DeliveryCategory::SourceExpired,
                 429 => DeliveryCategory::RateLimited,
                 451 => DeliveryCategory::Restricted,
                 _ => DeliveryCategory::HttpRejected,
             };
-            return report;
+            return Err(report);
         }
         let outcome = read_body(response, token, cancellation, MAX_METADATA_BODY);
         if cancellation.cancelled(token) {
-            return DeliveryReport::new(DeliveryCategory::Cancelled, None);
+            return Err(DeliveryReport::new(DeliveryCategory::Cancelled, None));
         }
-        report.category = match outcome {
-            Ok(body) => match xml::classify(&body) {
-                xml::MetadataCategory::LegacySignatureRequired => {
-                    DeliveryCategory::LegacySignatureRequired
-                }
-                xml::MetadataCategory::ProtectionRequired => {
-                    report.protection_required = true;
-                    DeliveryCategory::ProtectionRequired
-                }
-                xml::MetadataCategory::UnsupportedResponse => DeliveryCategory::UnsupportedResponse,
-            },
-            Err(category) => category,
-        };
-        report
+        match outcome {
+            Ok(body) => Ok((body, report)),
+            Err(category) => {
+                report.category = category;
+                Err(report)
+            }
+        }
     }
 }
 
@@ -518,6 +631,14 @@ fn read_body(
 #[derive(Deserialize)]
 struct Envelope {
     result: Vec<DeliveryOption>,
+    #[serde(default, rename = "error", deserialize_with = "reject_delivery_error")]
+    _error: (),
+}
+
+fn reject_delivery_error<'de, D: Deserializer<'de>>(_: D) -> Result<(), D::Error> {
+    // Even a null error alongside a result is an ambiguous response. Do not
+    // copy provider messages or allow a usable-looking result to hide it.
+    Err(serde::de::Error::custom("error response"))
 }
 
 #[derive(Deserialize)]
@@ -527,8 +648,10 @@ struct DeliveryOption {
     download_info_url: Option<String>,
     #[serde(default)]
     direct: bool,
+    preview: Option<bool>,
+    bitrate_in_kbps: Option<u32>,
     #[serde(default)]
-    preview: bool,
+    transport: DeliveryTransport,
     // These values are skipped, not copied, displayed or used for decryption.
     key: Option<IgnoredAny>,
     #[serde(alias = "decryption_key")]
@@ -537,6 +660,74 @@ struct DeliveryOption {
     drm: ProtectionMarker,
     #[serde(default)]
     encryption: ProtectionMarker,
+    #[serde(default)]
+    encrypted: ProtectionMarker,
+    #[serde(default)]
+    protected: ProtectionMarker,
+    #[serde(default)]
+    protection: ProtectionMarker,
+    #[serde(default, alias = "license_url")]
+    license_url: ProtectionMarker,
+}
+
+impl DeliveryOption {
+    fn protected(&self) -> bool {
+        self.key.is_some()
+            || self.decryption_key.is_some()
+            || self.drm.0
+            || self.encryption.0
+            || self.encrypted.0
+            || self.protected.0
+            || self.protection.0
+            || self.license_url.0
+            || self.transport == DeliveryTransport::Protected
+    }
+}
+
+/// Legacy offers can omit transport; null is likewise an absent optional field.
+/// The exact raw label is independently used by pinned yamu's transport model.
+/// It does not override any protection declaration or change resource lookup.
+/// encraw denotes protection; other values remain unsupported. Provider text
+/// is classified without copying or exposing it.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum DeliveryTransport {
+    #[default]
+    Absent,
+    Raw,
+    Protected,
+    Unsupported,
+}
+
+fn declared_transport(value: &str) -> DeliveryTransport {
+    if value == "raw" {
+        DeliveryTransport::Raw
+    } else if value.len() <= 32 && value.trim().eq_ignore_ascii_case("encraw") {
+        DeliveryTransport::Protected
+    } else {
+        DeliveryTransport::Unsupported
+    }
+}
+
+impl<'de> Deserialize<'de> for DeliveryTransport {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Visitor;
+        impl<'de> serde::de::Visitor<'de> for Visitor {
+            type Value = DeliveryTransport;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("transport declaration")
+            }
+
+            fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Self::Value, E> {
+                Ok(declared_transport(value))
+            }
+
+            fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+                Ok(DeliveryTransport::Absent)
+            }
+        }
+        deserializer.deserialize_any(Visitor)
+    }
 }
 
 /// Skip protection metadata instead of copying keys or arbitrary provider text.
@@ -592,7 +783,7 @@ impl<'de> Deserialize<'de> for ProtectionMarker {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 enum Codec {
     Mp3,
@@ -616,6 +807,8 @@ fn classify(body: &[u8], status: u16) -> DeliveryReport {
     }
     let mut descriptor = false;
     let mut protected = false;
+    let mut protected_transport = false;
+    let mut unsupported_transport = false;
     for option in envelope.result {
         match option.codec {
             Codec::Mp3 => report.formats.mp3 = true,
@@ -624,12 +817,10 @@ fn classify(body: &[u8], status: u16) -> DeliveryReport {
             Codec::Other => report.formats.other = true,
         }
         report.direct_hint |= option.direct;
-        report.preview_hint |= option.preview;
-        if option.key.is_some()
-            || option.decryption_key.is_some()
-            || option.drm.0
-            || option.encryption.0
-        {
+        report.preview_hint |= option.preview.unwrap_or(false);
+        protected_transport |= option.transport == DeliveryTransport::Protected;
+        unsupported_transport |= option.transport == DeliveryTransport::Unsupported;
+        if option.protected() {
             protected = true;
             report.protection_required = true;
             continue;
@@ -661,7 +852,11 @@ fn classify(body: &[u8], status: u16) -> DeliveryReport {
             report.resource = DeliveryResource::HttpsDescriptor;
         }
     }
-    report.category = if descriptor {
+    report.category = if protected_transport {
+        DeliveryCategory::ProtectionRequired
+    } else if unsupported_transport {
+        DeliveryCategory::UnsupportedResponse
+    } else if descriptor {
         DeliveryCategory::LegacyNegotiationRequired
     } else if protected {
         DeliveryCategory::ProtectionRequired
@@ -685,3 +880,6 @@ fn forbidden_category(body: &[u8]) -> DeliveryCategory {
 mod tests;
 
 mod xml;
+
+mod resolver;
+pub use resolver::StreamResolver;

@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 
-# Karin music interface, sign-in boundary and local OAuth experiments
+# Karin music interface, guarded playback and sign-in boundary
 
 Karin remains one Cargo package with internal modules. The service integration
 and the independently usable playback engine have separate responsibilities.
@@ -14,7 +14,7 @@ flowchart LR
   UI --> Capability[Music authorization capability]
   UI --> Player[PlaybackController]
   Player --> Worker[Dedicated playback worker]
-  Worker --> Playbin[GStreamer playbin / local media]
+  Worker --> Playbin[GStreamer playbin / local or admitted HTTPS media]
   UI --> Audio[Finite synthetic diagnostic]
   Audio --> GST[GStreamer synthetic pipeline]
   UI --> Platform[D-Bus capability inspection]
@@ -30,7 +30,13 @@ flowchart LR
   Grant --> Session[Memory-only token]
   Session --> MusicService
   MusicService --> Validation[Music account accepted before dialog success]
-  UI --> Queue[Bounded metadata queue]
+  UI --> Queue[Bounded track queue]
+  UI --> Resolver[StreamResolver]
+  Session --> Resolver
+  Resolver --> Offers[Music delivery-info]
+  Resolver --> Descriptor[Exact HTTPS XML descriptor]
+  Resolver --> Source[Opaque short-lived source]
+  Source --> Player
   CLI[Opt-in local OAuth CLI] --> OAuth[Isolated OAuth diagnostic]
   OAuth --> Browser[System browser / S256 PKCE]
   OAuth --> ID[Yandex ID client-binding check]
@@ -49,13 +55,14 @@ flowchart LR
 | `music` | Typed metadata service, reduced models, bounded transport and token-bound account cache; explicit confirmed writes in `music::interactions` |
 | `auth` / `auth::cassette` | Default Cassette-compatible session provider, bounded attempts/return-state validation and official OAuth session exchange; separate generic code/PKCE fixed-loopback infrastructure |
 | `session` | Zeroizing ephemeral tokens; library-only feature-gated Device Flow without bundled application credentials |
-| `queue` | Bounded selection/order of real track metadata, independent of unavailable service audio |
-| `capabilities` | Explicit unavailable Music authentication and a typed future permitted-stream boundary |
-| `playback` | Reusable controller, worker-owned `playbin`, typed playback state, local media sources and developer self-test |
+| `queue` | Bounded order/selection of real track metadata; active source binding remains in the music player |
+| `capabilities` | Historical independent diagnostic capability types; not the normal provider or new resolver admission |
+| `playback` / `playback::remote` | Reusable controller, worker-owned `playbin`, local sources and sealed short-lived HTTPS admission/transport policy |
+| `stream` / `stream::resolver` | Metadata-only delivery diagnostic and the separate account-bound legacy full-MP3 resolver; bounded requests and sanitized reports |
 | `audio` | Existing finite synthetic pipeline, EOS/error/timeout handling and resource cleanup |
 | `platform` | Session D-Bus/Secret Service presence diagnostics; reserved future MPRIS identity |
 | `config` | Non-secret application identity and version |
-| `ui` / `ui::music` | Native library/search/details/queue, one sign-in action, diagnostics and main-thread updates |
+| `ui` / `ui::music` / `ui::music::player` | Native catalog/session UI plus explicit playback intents, queue/source binding, snapshot controls and cleanup |
 | `ui::auth` | Single-purpose Libadwaita sign-in dialog, ephemeral WebKitGTK6 login and scoped asynchronous cookie handoff |
 | `main` | Concrete composition, application lifecycle and explicit diagnostic CLI modes |
 
@@ -67,15 +74,12 @@ music interface. `MusicService` receives an ephemeral session token per call and
 never impersonates an official client. Unknown
 response schemas fail visibly rather than becoming invented account data.
 
-`AuthenticationUnavailable` is independent of a successful anonymous HTTP
-response and of generic Yandex ID login support. A typed permitted-stream resolver
-boundary reserves the future integration point; no production resolver or remote
-stream source is enabled. Its implementation requires the evidence and owner
-actions in [API feasibility](API_FEASIBILITY.md) and
-[ADR-0006](adr/0006-music-authorization-feasibility.md), updated by the separate
-local experiment in [ADR-0008](adr/0008-local-oauth-pkce-diagnostic.md).
-The scoped development-session and read-only interface decision is recorded in
-[ADR-0009](adr/0009-music-vertical-slice.md); it does not enable a remote source.
+The independent anonymous/OAuth diagnostic capability reports do not gate the
+working ordinary provider. The scoped development-session and interface decision
+is recorded in [ADR-0009](adr/0009-music-vertical-slice.md). Its historical remote-
+source deferral and ADR-0007's local-only source are superseded for the guarded
+legacy Play path by [ADR-0015](adr/0015-guarded-legacy-mp3-playback.md), without
+turning account metadata into a blanket playback entitlement.
 The corrected public sign-in boundary and provider gate are recorded in
 [ADR-0011](adr/0011-cassette-session-auth-prototype.md), superseding the earlier
 [ADR-0010](adr/0010-single-purpose-sign-in-and-provider-gate.md) provider block, and the
@@ -95,9 +99,11 @@ The opt-in `stream::DeliveryProbe` is an executable owner-local metadata boundar
 separate from an audio resolver. It validates the existing Music session, performs
 one legacy per-track offer read and at most one unauthenticated descriptor read
 to an exact reviewed HTTPS origin/path. Bounded XML parsing has no DTD/entity
-resolution. Only finite reports and separate HTTP statuses reach GTK. No source
-is handed to GStreamer, and no raw URL/body, signing input or personal identifier
-becomes a diagnostic. See the current [delivery contract](STREAM_DELIVERY_REVIEW.md).
+resolution. Only finite reports and separate HTTP statuses reach GTK. That diagnostic hands no source to GStreamer, and no raw URL/body, signing input
+or personal identifier becomes a report. The separate explicit Play path uses
+`StreamResolver`: token-bound offer → bounded XML → validated opaque source →
+PlaybackController. Both share request policy but retain distinct result/action
+semantics. See the current [delivery contract](STREAM_DELIVERY_REVIEW.md).
 
 The native Music pane consumes typed account, track, artist, album and playlist
 values. Library references are expanded in batches of at most 50 distinct IDs;
@@ -157,9 +163,13 @@ validation. An active HTTP call may retain its temporary credential until its
 deadline, without blocking GTK. Local invalidation is not server-side revocation.
 
 The ordinary application retains its window/controller through close; signal
-handlers reference controllers weakly. Queue editing selects metadata only.
-No permitted audio resource is resolved and the player bar reports this blocker.
-The existing generated-WAV diagnostic remains a separate developer tool.
+handlers reference controllers weakly. Queue selection is silent before an
+explicit Play; during active playback it is bound to the selected source. The
+music player has one running/latest-pending resolver intent, independent of
+catalog lanes. Track ID, session and intent serial prevent stale completion from
+restarting old audio. Stop, removing a playing selection, logout and close cancel
+resolution and retire the controller off GTK. The existing generated-WAV
+diagnostic remains a separate developer tool.
 
 ## Confirmed library interactions
 
@@ -186,13 +196,20 @@ error category and worker completion status. Prepare, play, pause/resume, stop,
 volume and seek all use the same real `playbin` path. EOS and errors update
 state explicitly; seeking is permitted only when the source reports support.
 
-The current source type accepts regular local files. It validates/canonicalizes
-the path and keeps it out of displayable errors and debug output. There is no
-arbitrary network-URI entry point. The engine therefore has no dependency on
-Yandex endpoints, tokens, subscriptions or stream signing.
+The local constructor still validates/canonicalizes regular files and keeps
+paths out of displayable errors/Debug. A separate constructor accepts only an
+opaque `RemotePlaybackSource` produced by the resolver; there is no arbitrary
+network-URI input. The worker does not receive OAuth/cookies or make Music API
+requests. It repeats source policy/freshness checks and enforces guarded Soup
+HTTPS, strict TLS, no redirects/retries, no credentials, no manifests/secondary
+URI handlers and no media files. Native URI debug output is disabled before
+handoff; finite categories and structured numeric HTTP status replace raw native
+errors. A conservative 60-second admission prevents stale new connections,
+resume/seek; it does not interrupt an already playing track. Explicit retry can
+resolve a fresh resource. See ADR-0015 for the narrow CDN/path policy.
 General local files must be trusted: a container or playlist can refer to other
-resources through a decoder plugin. Gate A's GTK diagnostics and automated tests
-accept only their own generated PCM WAV and contain no external references;
+resources through a decoder plugin. Gate A's GTK diagnostics and local diagnostic
+tests accept only their own generated PCM WAV and contain no external references;
 there is no general file chooser or untrusted-playlist feature.
 
 Developer diagnostics generate a temporary low-volume PCM WAV and feed it into
@@ -263,8 +280,9 @@ flow. The owner verified token/ID binding; both Music account methods returned
 Automated OAuth fixtures use loopback only and require no account or browser.
 
 `org.mpris.MediaPlayer2.Karin` remains reserved and unexported. Gate A does not
-implement MPRIS or My Wave. The new music interface provides catalog/library
-reads and a metadata queue, with service playback still blocked.
+implement MPRIS or My Wave. The music interface now has a guarded legacy remote
+player, but real service audio and target-desktop acceptance remain pending.
+MPRIS must not export fictional service playback.
 Flatpak permissions omit Secret Service and MPRIS ownership because neither is
 used. The existing sandbox grants suffice for generated local media and explicit
 system-output diagnostics. The prototype manifest explicitly enables Cassette/WebKit authentication and

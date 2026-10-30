@@ -2,6 +2,25 @@
 
 # Known limitations
 
+- **The remote player is implemented but service audio is not accepted yet.**
+  `StreamResolver` now handles the guarded legacy full-MP3 offer/XML path and
+  gives an opaque short-lived HTTPS source to the existing GStreamer worker.
+  Play/pause/resume/Stop, progress/seek, volume, queue navigation and EOS have
+  code paths; executed checks are recorded separately in [validation](VALIDATION.md).
+  The owner has not yet supplied a live descriptor or heard service track.
+  The 60-second local admission starts before the offer request, rather than
+  treating XML `ts` as an expiry grant; a playing track is not stopped merely
+  when that admission ages out. Reconnection/seek may need an explicit fresh Play.
+- **Remote delivery support is deliberately narrow.** Metadata accepts only
+  exact HTTPS `storage.mds.yandex.net` with `/get-download-info/`,
+  `/download-info/` or `/file-download-info/`. Media accepts the restricted generated
+  `s` + 1–5 digits + 3 lowercase letters host family under `storage.yandex.net`
+  and canonical `/get-mp3/` resources, not arbitrary Yandex subdomains. This is
+  a source-backed policy, not an exhaustive observed CDN inventory. Missing
+  full-track preview permission, protection markers, unsupported codecs,
+  ambiguous metadata, unknown hosts, redirects and expiry fail visibly. No
+  official extracted signer, DRM decryption, media cache or fallback identity
+  is included. See [ADR-0015](adr/0015-guarded-legacy-mp3-playback.md).
 - **The later `99a177e` Fedora track-search retest also failed.** Ordinary login,
   the library, track details/liked state and album search/details worked. The
   subsequent correction handles source-backed mixed/null optional display
@@ -60,17 +79,13 @@
   not automatic replay. Playlist editing, recommendations and My Wave remain
   absent until their full contracts and lifecycle are implemented and checked.
 - **Real service audio acceptance is NOT MET.** v0.2 requires audible actual
-  library/search music on Fedora; it is not deferred to a later milestone. Audio
-  investigation starts alongside catalog fixes. The existing delivery review
-  covered a newer signing/protected yamu path, not every possible unprotected
-  path. A bounded opt-in owner-local probe must classify eligible delivery info
-  without uploading tokens, URLs, track IDs, raw payloads or audio. An ordinary
-  server-signed resource is not automatically DRM; conversely source availability
-  alone establishes neither permission nor audibility. See the current
-  [delivery review](STREAM_DELIVERY_REVIEW.md) for the exact assessed stage.
-  No extracted signing material, protected-stream decryption, access-control
-  workaround or copyrighted audio distribution is allowed. If no permitted
-  source is confirmed, leave the sound criterion open and controls truthful.
+  library/search music on Fedora. The latest owner result confirms only an
+  authenticated MP3 offer and the old metadata-path refusal; no metadata or
+  audio GET followed. The new guarded source path must now be exercised using
+  the owner's ordinary local session. An ordinary legacy checksum or returned
+  signed resource is not automatically DRM, and a GPL implementation does not
+  establish service/distribution rights. No extracted signing/decryption keys,
+  access-control workaround or copyrighted audio distribution is included.
 - **The GStreamer engine remains independent.** Local-file playback and clearly
   labeled generated-WAV diagnostics exercise decoding, transport, seeking, EOS
   and cleanup. They do not establish service playback, every future codec or
@@ -93,9 +108,11 @@
 - **Code licenses do not grant service access.** GPL-3.0-or-later and compatible
   dependency licenses require their notices/source obligations and grant no
   Yandex API, content, application-identity or trademark rights. The thin adapter
-  uses schema knowledge from pinned yamu source without importing its OAuth or
-  delivery implementation. The separate Cassette auth adaptation retains its own
-  GPL notices and shared-registration provenance; service rights remain separate.
+  uses schema knowledge from pinned yamu without importing its OAuth or modern
+  extracted-key delivery implementation. The Cassette auth adaptation retains
+  its GPL notices and shared-registration provenance. The original Rust legacy
+  resolver cites the published Cassette/MarshalX/lifeart protocol references;
+  source, registration and service/content rights remain separate.
 
 Executed checks and outstanding acceptance are recorded in
 [VALIDATION.md](VALIDATION.md). A workflow definition is not a passed run.

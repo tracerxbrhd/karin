@@ -21,8 +21,9 @@ remains separate; it is not the normal login path.
 The owner's [Issue #9](https://github.com/tracerxbrhd/karin/issues/9) report at
 PR #8 baseline `797ba3a` confirms real sign-in, Music account, liked tracks and
 personal-playlist listing. Search and opening playlist contents failed; these
-are defects in claimed workflows. The queue is metadata-only and no service
-track has audibly played in Karin. This is not a completed minimum music player.
+are defects in claimed workflows. At that baseline the queue is metadata-only
+and no service track has audibly played in Karin. This is not a completed minimum
+music player.
 
 ## v0.2 — First usable, audible music client
 
@@ -44,11 +45,11 @@ fixes and begins the audio work **in parallel**, before broad visual polish:
    navigation. In parallel, inspect Cassette's actual delivery/playbin chain and
    run a bounded, opt-in, owner-local delivery-info experiment through the current
    session. No user token or response body enters Cloud/CI/GitHub.
-2. On confirmation of an eligible unprotected resource, implement a strict
-   `StreamResolver` → existing GStreamer controller path immediately. Verify real
-   selected-track sound, play/pause/resume/stop, seek/progress, volume, next/
-   previous, queue and EOS. Add truthful MPRIS/media-key integration when playback
-   works. Do not port extracted signing/decryption material or bypass restrictions.
+2. Exercise the implemented guarded `StreamResolver` → existing GStreamer path
+   with an eligible real resource. Verify selected-track sound, play/pause/
+   resume/stop, seek/progress, volume, next/previous, queue and EOS. Add truthful
+   MPRIS/media-key integration when actual service playback works. Do not port
+   extracted signing/decryption material or bypass restrictions.
 3. Build the music-first adaptive shell, covers, library/search/queue destinations,
    complete player bar and best-validated likes/playlist interactions. Inspect
    actual screenshots and GTK structure across sizes/themes/HiDPI/keyboard; Fedora
@@ -87,9 +88,21 @@ owner-preserving liked-playlist reads). These are
 implemented workflows with local synthetic tests, not yet owner-verified service
 acceptance. No PR is merged automatically.
 
-A real stream resolver, audible track playback, real-media queue/EOS/seek and
-MPRIS remain unimplemented pending an eligible resource. The bounded executable
-local delivery probe is ready for the same signed-in Fedora session. It must
-identify the actual response/next step rather than assuming DRM or reusing the
-old own-client Music 403 as the diagnosis. **Overall v0.2 sound acceptance is
-NOT MET** until the owner hears an actual selected service track.
+The later owner retest at `99a177e` confirms real track details/liked state and
+album search, but still fails track search. PR #12's `268a495` correction handles
+source-backed optional display-credit variants and has a failing-before/passing-
+after native search regression; live track-search sign-off remains pending.
+
+The audio child branch implements a real `StreamResolver` and extends the
+existing controller with a sealed short-lived HTTPS source. The player bar now
+binds Play/pause/resume/Stop, progress/seek, volume, queue/Next/Previous and EOS to
+GStreamer state. Legacy MP3 offers/XML and their public checksum framing are
+handled separately from modern extracted signing keys or protected transport;
+the latter remain excluded. The same-session diagnostic stays metadata-only.
+
+The owner has supplied an HTTP 200 MP3 offer classification, not a retrieved XML
+descriptor or heard track. The strict metadata-path correction and actual remote
+player therefore still require the one combined Fedora run. MPRIS remains
+unimplemented until actual sound and truthful service playback are accepted.
+**Overall v0.2 sound acceptance is NOT MET** until the owner hears an actual
+selected service track and verifies transport, queue and cleanup.

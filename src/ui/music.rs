@@ -15,6 +15,7 @@ mod diagnostic_tests;
 mod interactions;
 #[cfg(test)]
 mod navigation_tests;
+mod player;
 mod requests;
 #[cfg(test)]
 mod row_activation_tests;
@@ -103,6 +104,11 @@ struct Widgets {
     current_artist: gtk::Label,
     current_art: gtk::Box,
     position: gtk::Label,
+    player_status: gtk::Label,
+    play: gtk::Button,
+    stop: gtk::Button,
+    progress: gtk::Scale,
+    volume: gtk::Scale,
     previous: gtk::Button,
     next: gtk::Button,
     clear_queue: gtk::Button,
@@ -120,6 +126,7 @@ struct Controller {
     requests: RefCell<Requests<PendingJob>>,
     mutation_busy: Cell<bool>,
     artwork: Option<ArtworkLoader>,
+    player: RefCell<player::MusicPlayback>,
 }
 
 struct OfflineProvider;
@@ -362,7 +369,7 @@ impl MusicPane {
         queue_page.append(&text("Очередь", "title-1"));
         let queue_count = text("Очередь пуста", "dim-label");
         queue_page.append(&queue_count);
-        queue_page.append(&text("Выберите следующий трек или измените список. Источник аудио не подтверждён — выбор не запускает звук.", "caption"));
+        queue_page.append(&text("Выберите трек и нажмите воспроизведение. Следующий трек запускается после завершения текущего.", "caption"));
         let clear_queue = gtk::Button::with_label("Очистить очередь");
         clear_queue.set_halign(gtk::Align::Start);
         queue_page.append(&clear_queue);
@@ -394,23 +401,26 @@ impl MusicPane {
         current_artist.set_width_chars(1);
         playing.append(&current);
         playing.append(&current_artist);
+        let player_status = text("", "caption");
+        player_status.set_width_chars(1);
+        player_status.set_visible(false);
+        playing.append(&player_status);
         player_top.append(&playing);
-        let previous = icon_button(
-            "media-skip-backward-symbolic",
-            "Выбрать предыдущий трек в очереди, без воспроизведения",
-        );
+        let previous = icon_button("media-skip-backward-symbolic", "Предыдущий трек");
         let play = icon_button(
             "media-playback-start-symbolic",
-            "Источник аудио не подтверждён: воспроизведение недоступно",
+            "Воспроизвести выбранный трек",
         );
+        play.set_widget_name("music-play");
         play.set_sensitive(false);
-        let next = icon_button(
-            "media-skip-forward-symbolic",
-            "Выбрать следующий трек в очереди, без воспроизведения",
-        );
+        let stop = icon_button("media-playback-stop-symbolic", "Остановить воспроизведение");
+        stop.set_widget_name("music-stop");
+        stop.set_sensitive(false);
+        let next = icon_button("media-skip-forward-symbolic", "Следующий трек");
         player_top.append(&previous);
         player_top.append(&play);
         player_top.append(&next);
+        player_top.append(&stop);
         let queue = icon_button("view-list-symbolic", "Открыть очередь");
         queue.set_action_name(Some("win.music-queue"));
         player_top.append(&queue);
@@ -420,10 +430,9 @@ impl MusicPane {
         progress.set_draw_value(false);
         progress.set_hexpand(true);
         progress.set_sensitive(false);
-        progress.set_tooltip_text(Some("Источник аудио не подтверждён; позиция не измеряется"));
-        progress.update_property(&[gtk::accessible::Property::Label(
-            "Прогресс воспроизведения недоступен",
-        )]);
+        progress.set_widget_name("music-progress");
+        progress.set_tooltip_text(Some("Позиция воспроизведения"));
+        progress.update_property(&[gtk::accessible::Property::Label("Позиция воспроизведения")]);
         let position = text("— / —", "caption");
         position.set_hexpand(false);
         position.set_wrap(false);
@@ -435,13 +444,12 @@ impl MusicPane {
         let volume = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 1.0, 0.01);
         volume.set_draw_value(false);
         volume.set_value(0.7);
+        volume.set_widget_name("music-volume");
         volume.set_width_request(72);
         volume.set_sensitive(false);
-        volume.set_tooltip_text(Some(
-            "Громкость станет доступна после подтверждения источника аудио",
-        ));
+        volume.set_tooltip_text(Some("Громкость"));
         volume.update_property(&[gtk::accessible::Property::Label(
-            "Громкость воспроизведения недоступна",
+            "Громкость воспроизведения",
         )]);
         timeline.append(&volume);
         player_bar.append(&timeline);
@@ -480,6 +488,11 @@ impl MusicPane {
             current_artist,
             current_art,
             position,
+            player_status,
+            play,
+            stop,
+            progress,
+            volume,
             previous,
             next,
             clear_queue,
@@ -514,8 +527,10 @@ impl MusicPane {
             requests: RefCell::new(Requests::default()),
             mutation_busy: Cell::new(false),
             artwork: ArtworkLoader::new().ok(),
+            player: RefCell::new(player::MusicPlayback::default()),
         });
         controller.connect(window);
+        controller.connect_music_player();
         controller.render_controls();
         controller.render_queue();
         Self {
@@ -742,6 +757,7 @@ impl Controller {
         if self.login_dialog.borrow().is_none() {
             return;
         }
+        self.stop_music();
         self.requests.borrow_mut().invalidate_all();
         self.cancel_delivery();
         if let Some(artwork) = &self.artwork {
@@ -1218,6 +1234,7 @@ impl Controller {
         let weak = Rc::downgrade(self);
         self.widgets.clear_queue.connect_clicked(move |_| {
             if let Some(this) = weak.upgrade() {
+                this.stop_music();
                 this.model.borrow_mut().queue.clear();
                 this.render_queue();
             }
@@ -1225,15 +1242,13 @@ impl Controller {
         let weak = Rc::downgrade(self);
         self.widgets.previous.connect_clicked(move |_| {
             if let Some(this) = weak.upgrade() {
-                this.model.borrow_mut().queue.previous_track();
-                this.render_queue();
+                this.skip_music(false, false);
             }
         });
         let weak = Rc::downgrade(self);
         self.widgets.next.connect_clicked(move |_| {
             if let Some(this) = weak.upgrade() {
-                this.model.borrow_mut().queue.next_track();
-                this.render_queue();
+                this.skip_music(true, false);
             }
         });
         for (name, page, accelerator) in [
@@ -1310,6 +1325,7 @@ impl Controller {
     }
 
     fn close(&self) {
+        self.stop_music();
         self.mutation_busy.set(false);
         self.clear_text_focus();
         self.requests.borrow_mut().invalidate_all();
@@ -1340,6 +1356,7 @@ impl Controller {
     }
 
     fn logout(self: &Rc<Self>) {
+        self.stop_music();
         self.mutation_busy.set(false);
         self.clear_text_focus();
         self.requests.borrow_mut().invalidate_all();
@@ -1880,6 +1897,7 @@ impl Controller {
         }
         let menu = self.track_menu(&track);
         body.append(&menu);
+        body.append(&self.track_play_button(&track, true));
         let add = icon_button("list-add-symbolic", "Добавить трек в очередь");
         let weak = Rc::downgrade(self);
         let queued = track.clone();
@@ -1945,8 +1963,7 @@ impl Controller {
                 RowAction::Album(id) => this.open_album(id.clone()),
                 RowAction::Artist(artist) => this.open_artist(artist.clone(), 0),
                 RowAction::Queue(index) => {
-                    this.model.borrow_mut().queue.select(*index);
-                    this.render_queue();
+                    this.select_music_queue(*index);
                 }
             }
         });
@@ -2044,6 +2061,21 @@ impl Controller {
             }
         });
         actions.append(&detail);
+        let play = gtk::Button::with_label("Воспроизвести");
+        play.add_css_class("flat");
+        play.set_sensitive(track.available);
+        let weak = Rc::downgrade(self);
+        let close = popover.downgrade();
+        let selected = track.clone();
+        play.connect_clicked(move |_| {
+            if let Some(popover) = close.upgrade() {
+                popover.popdown();
+            }
+            if let Some(this) = weak.upgrade() {
+                this.play_music_track(selected.clone());
+            }
+        });
+        actions.append(&play);
         let add = gtk::Button::with_label("Добавить в очередь");
         add.add_css_class("flat");
         let weak = Rc::downgrade(self);
@@ -2148,6 +2180,9 @@ impl Controller {
                             .detail
                             .append(&text("Сервис пометил трек как недоступный.", "dim-label"));
                     }
+                    this.widgets
+                        .detail
+                        .append(&this.track_play_button(&track, false));
                     let add = gtk::Button::with_label("Добавить в очередь");
                     add.set_halign(gtk::Align::Start);
                     let weak = Rc::downgrade(this);
@@ -2181,9 +2216,7 @@ impl Controller {
                         });
                         this.widgets.detail.append(&album);
                     }
-                    this.widgets
-                        .status
-                        .set_title("Сведения о треке получены. Доступ к аудио не подтверждён.");
+                    this.widgets.status.set_title("Сведения о треке получены.");
                 }
                 Err(error) => {
                     this.detail_error(error, move |this| this.open_track(retry_id.clone()))
@@ -2407,9 +2440,7 @@ impl Controller {
     fn enqueue(self: &Rc<Self>, track: Track) {
         let result = self.model.borrow_mut().queue.append(track);
         match result {
-            Ok(_) => self.widgets.status.set_title(
-                "Трек добавлен в очередь. Звук не запускается: источник не подтверждён.",
-            ),
+            Ok(_) => self.widgets.status.set_title("Трек добавлен в очередь."),
             Err(_) => self
                 .widgets
                 .status
@@ -2419,6 +2450,7 @@ impl Controller {
     }
 
     fn render_queue(self: &Rc<Self>) {
+        self.guard_music_binding();
         clear_list(&self.widgets.queue_rows);
         let model = self.model.borrow();
         self.widgets
@@ -2435,7 +2467,14 @@ impl Controller {
             &selected
                 .map(|track| track.artists.join(", "))
                 .filter(|name| !name.is_empty())
-                .unwrap_or_else(|| "Аудио недоступно".into()),
+                .unwrap_or_else(|| {
+                    if selected.is_some() {
+                        "Исполнитель не указан"
+                    } else {
+                        "Выберите трек"
+                    }
+                    .into()
+                }),
         );
         self.widgets
             .current_artist
@@ -2499,8 +2538,7 @@ impl Controller {
             let weak = Rc::downgrade(self);
             remove.connect_clicked(move |_| {
                 if let Some(this) = weak.upgrade() {
-                    this.model.borrow_mut().queue.remove(index);
-                    this.render_queue();
+                    this.remove_music_queue(index);
                 }
             });
             body.append(&remove);
@@ -2513,6 +2551,8 @@ impl Controller {
                 "Добавляйте треки из библиотеки, поиска или альбома.",
             );
         }
+        drop(model);
+        self.render_music_player();
     }
 }
 

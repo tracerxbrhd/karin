@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Finite classification of an untrusted legacy metadata document. No URI is
-//! constructed, no checksum/key is used, and no provider text leaves this module.
+//! Bounded parsing of untrusted legacy metadata. Only the resolver may consume
+//! these private components; the diagnostic exposes a finite classification.
 
 use roxmltree::{Document, Node, ParsingOptions};
+use zeroize::Zeroizing;
+
+use super::{DeliveryTransport, declared_transport};
 
 const MAX_XML_BYTES: usize = 64 * 1024;
 
@@ -11,21 +14,42 @@ pub(super) enum MetadataCategory {
     LegacySignatureRequired,
     UnsupportedResponse,
     ProtectionRequired,
+    PreviewOnly,
+}
+
+pub(super) struct LegacyParts {
+    pub(super) host: Zeroizing<String>,
+    pub(super) path: Zeroizing<String>,
+    pub(super) timestamp: Zeroizing<String>,
+    pub(super) server_input: Zeroizing<String>,
+}
+
+impl std::fmt::Debug for LegacyParts {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("LegacyParts([redacted])")
+    }
 }
 
 pub(super) fn classify(body: &[u8]) -> MetadataCategory {
-    use MetadataCategory::{LegacySignatureRequired, ProtectionRequired, UnsupportedResponse};
+    match parse(body) {
+        Ok(_) => MetadataCategory::LegacySignatureRequired,
+        Err(category) => category,
+    }
+}
+
+pub(super) fn parse(body: &[u8]) -> Result<LegacyParts, MetadataCategory> {
+    use MetadataCategory::{ProtectionRequired, UnsupportedResponse};
 
     if body.is_empty() || body.len() > MAX_XML_BYTES {
-        return UnsupportedResponse;
+        return Err(UnsupportedResponse);
     }
     let Ok(text) = std::str::from_utf8(body) else {
-        return UnsupportedResponse;
+        return Err(UnsupportedResponse);
     };
     // roxmltree intentionally accepts an *empty* DTD with allow_dtd=false.
     // This diagnostic does not need any DTD, even an empty one.
     if text.contains("<!DOCTYPE") {
-        return UnsupportedResponse;
+        return Err(UnsupportedResponse);
     }
     let Ok(document) = Document::parse_with_options(
         text,
@@ -35,14 +59,30 @@ pub(super) fn classify(body: &[u8]) -> MetadataCategory {
             entity_resolver: None,
         },
     ) else {
-        return UnsupportedResponse;
+        return Err(UnsupportedResponse);
     };
     let root = document.root_element();
     if root.tag_name().name() != "download-info" || root.tag_name().namespace().is_some() {
-        return UnsupportedResponse;
+        return Err(UnsupportedResponse);
     }
     if root.descendants().any(protection_hint) {
-        return ProtectionRequired;
+        return Err(ProtectionRequired);
+    }
+    if let Some(category) = transport_category(root) {
+        return Err(category);
+    }
+    if root
+        .children()
+        .filter(|node| node.is_element() && node.tag_name().name().eq_ignore_ascii_case("preview"))
+        .any(|node| {
+            node.text().is_some_and(|value| {
+                !["false", "0", "none", "null", ""]
+                    .iter()
+                    .any(|negative| value.trim().eq_ignore_ascii_case(negative))
+            })
+        })
+    {
+        return Err(MetadataCategory::PreviewOnly);
     }
     if root.attributes().len() != 0
         || root.children().any(|node| {
@@ -52,26 +92,31 @@ pub(super) fn classify(body: &[u8]) -> MetadataCategory {
                     || node.children().any(|child| child.is_element()))
         })
     {
-        return UnsupportedResponse;
+        return Err(UnsupportedResponse);
     }
 
     let host = unique_text(root, "host", 253);
     let path = unique_text(root, "path", 8192);
-    let timestamp = unique_text(root, "ts", 20);
+    let timestamp = unique_text(root, "ts", 32);
     let server_input = unique_text(root, "s", 512);
     if !host.is_some_and(valid_host)
         || !path.is_some_and(|value| {
             value.starts_with('/') && !value.starts_with("//") && !value.contains(['\\', '?', '#'])
         })
-        || !timestamp.is_some_and(|value| value.bytes().all(|byte| byte.is_ascii_digit()))
+        || !timestamp.is_some_and(|value| value.bytes().all(|byte| byte.is_ascii_hexdigit()))
         || server_input.is_none()
     {
-        return UnsupportedResponse;
+        return Err(UnsupportedResponse);
     }
-    // Recognize the documented legacy XML shape, not a playable source. The
-    // published clients perform another client-side construction step here;
-    // this diagnostic intentionally stops before that step.
-    LegacySignatureRequired
+    // `ts` is an opaque legacy path component, not a Unix grant/expiry time.
+    // Published examples contain hexadecimal digits; freshness is measured by
+    // the caller from the new offer request rather than inferred from `ts`.
+    Ok(LegacyParts {
+        host: Zeroizing::new(host.unwrap().to_owned()),
+        path: Zeroizing::new(path.unwrap().to_owned()),
+        timestamp: Zeroizing::new(timestamp.unwrap().to_owned()),
+        server_input: Zeroizing::new(server_input.unwrap().to_owned()),
+    })
 }
 
 fn unique_text<'a>(root: Node<'a, 'a>, name: &str, maximum: usize) -> Option<&'a str> {
@@ -114,7 +159,10 @@ fn protection_hint(node: Node<'_, '_>) -> bool {
             "encrypted",
             "encryption",
             "decryptionKey",
+            "decryption_key",
             "licenseUrl",
+            "license_url",
+            "protected",
             "protection",
         ]
         .iter()
@@ -132,6 +180,34 @@ fn protection_hint(node: Node<'_, '_>) -> bool {
         || node
             .attributes()
             .any(|attribute| named(attribute.name()) && positive(attribute.value()))
+}
+
+fn transport_category(root: Node<'_, '_>) -> Option<MetadataCategory> {
+    let mut unsupported = false;
+    for node in root.descendants().filter(Node::is_element) {
+        if node.tag_name().name().eq_ignore_ascii_case("transport") {
+            match node
+                .text()
+                .map(declared_transport)
+                .unwrap_or(DeliveryTransport::Unsupported)
+            {
+                DeliveryTransport::Protected => return Some(MetadataCategory::ProtectionRequired),
+                DeliveryTransport::Unsupported => unsupported = true,
+                DeliveryTransport::Absent | DeliveryTransport::Raw => {}
+            }
+        }
+        for attribute in node
+            .attributes()
+            .filter(|attribute| attribute.name().eq_ignore_ascii_case("transport"))
+        {
+            match declared_transport(attribute.value()) {
+                DeliveryTransport::Protected => return Some(MetadataCategory::ProtectionRequired),
+                DeliveryTransport::Unsupported => unsupported = true,
+                DeliveryTransport::Absent | DeliveryTransport::Raw => {}
+            }
+        }
+    }
+    unsupported.then_some(MetadataCategory::UnsupportedResponse)
 }
 
 #[cfg(test)]
@@ -207,8 +283,16 @@ mod tests {
             "<key>synthetic-key-never-used</key>",
             "<drm>true</drm>",
             "<encrypted>1</encrypted>",
+            "<protected>true</protected>",
+            "<decryptionKey>synthetic-key-never-used</decryptionKey>",
+            "<decryption_key>synthetic-key-never-used</decryption_key>",
+            "<licenseUrl>synthetic-license-never-used</licenseUrl>",
+            "<license_url>synthetic-license-never-used</license_url>",
             "<protection><kind>synthetic</kind></protection>",
             "<extra encryption=\"synthetic-encryption\"/>",
+            "<extra protected=\"true\"/>",
+            "<extra decryption_key=\"synthetic-key-never-used\"/>",
+            "<extra license_url=\"synthetic-license-never-used\"/>",
         ] {
             let input = XML.replace("</download-info>", &format!("{field}</download-info>"));
             assert_eq!(
@@ -224,6 +308,55 @@ mod tests {
             classify(negative.as_bytes()),
             MetadataCategory::LegacySignatureRequired
         );
+    }
+
+    #[test]
+    fn declared_transport_cannot_promote_protected_or_unknown_delivery_to_legacy() {
+        for (field, expected) in [
+            (
+                "<transport>encraw</transport>",
+                MetadataCategory::ProtectionRequired,
+            ),
+            (
+                "<extra transport=\"encraw\"/>",
+                MetadataCategory::ProtectionRequired,
+            ),
+            (
+                "<transport>raw</transport>",
+                MetadataCategory::LegacySignatureRequired,
+            ),
+            (
+                "<transport>plain</transport>",
+                MetadataCategory::UnsupportedResponse,
+            ),
+            ("<transport/>", MetadataCategory::UnsupportedResponse),
+            (
+                "<transport>synthetic-private-transport</transport>",
+                MetadataCategory::UnsupportedResponse,
+            ),
+            (
+                "<extra transport=\"synthetic-private-transport\"/>",
+                MetadataCategory::UnsupportedResponse,
+            ),
+        ] {
+            let body = XML.replace("</download-info>", &format!("{field}</download-info>"));
+            assert_eq!(classify(body.as_bytes()), expected);
+            assert!(!format!("{expected:?}").contains("synthetic-private-transport"));
+        }
+        for protection in [
+            "<key>synthetic-private-key</key>",
+            "<protected>true</protected>",
+            "<transport>encraw</transport>",
+        ] {
+            let body = XML.replace(
+                "</download-info>",
+                &format!("<transport>raw</transport>{protection}</download-info>"),
+            );
+            assert_eq!(
+                classify(body.as_bytes()),
+                MetadataCategory::ProtectionRequired
+            );
+        }
     }
 
     #[test]

@@ -278,10 +278,42 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
             .expect("actual row navigation must reach the opt-in delivery action");
         assert!(delivery.is_sensitive());
         pump_until(|| delivery.is_mapped());
+        // The real player adds another action above the diagnostic. Reach it
+        // with actual Tab input so the scroller must expose the whole button,
+        // rather than accepting a mapped but partly obscured footer edge.
+        for _ in 0..16 {
+            if delivery.has_focus() {
+                break;
+            }
+            input(&["key", "--clearmodifiers", "Tab"]);
+            settle();
+        }
+        assert!(
+            delivery.has_focus(),
+            "delivery action is keyboard reachable"
+        );
+        pump_until(|| {
+            let action = delivery.compute_bounds(window);
+            let footer = pane.player_bar.compute_bounds(window);
+            action.zip(footer).is_some_and(|(action, footer)| {
+                action.y() >= 0.0 && action.y() + action.height() <= footer.y() + 1.0
+            })
+        });
         // Do not activate it: its production network client is intentionally
         // not supplied real credentials or a real track in Cloud/CI.
         capture_native("input-track-detail-delivery");
         let back = this.widgets.detail.first_child().unwrap();
+        for _ in 0..16 {
+            if back.has_focus() {
+                break;
+            }
+            input(&["key", "--clearmodifiers", "shift+Tab"]);
+            settle();
+        }
+        assert!(
+            back.has_focus(),
+            "Back remains keyboard reachable after scrolling"
+        );
         click(window, id, &back);
         pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("library"));
     }
