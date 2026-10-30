@@ -551,12 +551,15 @@ fn cdn_set_cookie_is_not_stored_or_replayed_on_a_later_range_request() {
 fn expired_admission_never_opens_network_and_active_playback_outlives_admission() {
     let media = SyntheticMp3::new(Duration::from_secs(5));
     let fixture = HttpFixture::new(Reply::Media(media.bytes.clone(), "audio/mpeg", false));
-    let expired = RemotePlaybackSource::from_test_resolver(
+    let mut expired = RemotePlaybackSource::from_test_resolver(
         &fixture.uri("synthetic-expired"),
-        Instant::now() + Duration::from_millis(5),
+        Instant::now() + Duration::from_secs(60),
     )
     .unwrap();
-    thread::sleep(Duration::from_millis(15));
+    // Expire an admitted fixture deterministically rather than racing a 5 ms
+    // constructor deadline against parallel test scheduling. Production has no
+    // deadline mutation API; the controller must still reject this source.
+    expired.expires_at = Instant::now() - Duration::from_secs(1);
     let controller = controller();
     assert_eq!(
         prepare_error(&controller, expired).last_error,
