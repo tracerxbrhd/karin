@@ -572,7 +572,7 @@ fn build_with_music_pane(
     desktop_group.add(&desktop_row);
     desktop_group.add(&row(
         "Интеграция",
-        "Хранение токенов и MPRIS ещё не подключены",
+        "Постоянное хранение токенов пока не подключено",
     ));
     diagnostic_columns.append(&desktop_group);
     diagnostics.append(&diagnostic_columns);
