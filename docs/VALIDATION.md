@@ -6,10 +6,358 @@ This report separates initial cloud checks, user-reported Fedora acceptance,
 revised UI checks and compiler compatibility. A result for one environment or
 revision is not evidence that another has passed.
 
-## Owner Fedora acceptance at `f0aa2bb` and remaining UI work (2026-10-31)
+## Final owner v0.3 acceptance at `0232548` (2026-10-31)
 
-The owner's next PR #13 run at **`f0aa2bb`** reports **Search PASS, Account
-PASS and Playback PASS**, while **UI FAIL** remains a blocking manual result.
+On **2026-10-31**, the owner accepted runtime revision
+**`02325489d23ead9da4471de9cc35e2c063ac8bab`** on **Fedora 44 / KDE Plasma /
+Wayland / PipeWire**, with the following reported results. This is acceptance
+of the functional local prototype, not a public release or final UI/UX approval.
+
+| Owner-reported final v0.3 coverage | Result |
+| --- | --- |
+| Persistent sign-in and session restoration after restart without signing in again | **PASS** |
+| Real Yandex Music covers in lists, Player Bar and right information pane | **PASS** |
+| Real cover and metadata in KDE Media Widget through MPRIS | **PASS** |
+| Actual Music playback | **PASS** |
+| Right information pane opens/closes | **PASS** |
+| Final Flatpak checks, including tested authorization, playback and system-integration scenarios | **Owner reports successful completion** |
+| Blocking functional defects after final acceptance | None reported by the owner |
+| Right pane visual design | Not accepted; substantial UI/UX work is deferred to the next separate iteration |
+
+The real-cover failure at `23174b0` is therefore **fixed and owner-verified at
+`0232548`** for the surfaces listed above. The report does not supply individual
+results for every album/playlist cover surface, exact wallet/portal backend,
+credential-deletion/failure matrix, physical media keys or Fedora GTK version;
+those details are not inferred. The successful final Flatpak report is owner
+evidence, separate from the cloud environment's inability to run that package.
+
+Counted automatic image-cache tests below establish disk reuse without repeated
+HTTP. User-observed speed does not establish request counts, and the earlier
+66 KB metadata observation is not an audio-cache defect. Persistent audio/offline
+remains unimplemented because service storage rights are unconfirmed; My Wave
+stays hidden pending its full service contract. Public distribution rights for
+the reused OAuth identity remain separate from functional acceptance.
+
+Finalization after this accepted runtime revision changes documentation only.
+The final documentation HEAD and squash commit are different source identities;
+their review and source-matched CI results belong to
+[PR #14 and its checks](https://github.com/tracerxbrhd/karin/pull/14). This owner
+report is not relabelled as a new runtime test of either later commit. Historical
+FAIL and then-pending results below retain their original revision and scope.
+
+### Final source review and integration boundary
+
+Manual review covered all **53 changed Rust source/test files** in
+`09f76355684873f32aaf83b8050e047df6077143..02325489d23ead9da4471de9cc35e2c063ac8bab`,
+with independent scoped passes for credentials/session/settings, cache/artwork,
+service/mutation/playback integration and GTK controllers/components. Cargo,
+CI, Flatpak permissions and licensing were checked alongside those sources.
+No confirmed merge-blocking defect was found. Two nonblocking metadata
+consistency follow-ups are recorded in
+[LIMITATIONS.md](LIMITATIONS.md#catalog-workspace-and-playback): populated Home
+previews may survive Refresh, and cache I/O failure can prevent removal of a
+record after an API refusal. Neither cached metadata nor a Home preview is a
+Music authorization or playback entitlement.
+
+The finalization changes documentation and the acceptance archive's README
+text only. Runtime sources, Cargo files, packaging, workflow logic and
+permissions remain identical to the accepted runtime; final-head and post-merge
+CI still run independently. The owner explicitly authorized Ready for Review
+and squash integration of PR #14 after successful review/checks, retaining the
+feature branch. That authorization is separate from a public-release approval.
+
+## Historical owner v0.3 native report at `23174b0` (2026-10-31)
+
+The owner tested native revision
+`23174b045cc228e4108e847e801f9264d7a088f9` on **Fedora 44 / KDE Plasma /
+Wayland / PipeWire** and supplied the following observations for final
+functional stabilization of existing Draft PR #14.
+
+| Owner-reported v0.3 coverage | Result |
+| --- | --- |
+| Saved native sign-in survives application restart | **PASS** |
+| Right information pane opens/closes; slide mechanics | **PASS** |
+| Right pane visual design | Owner is not satisfied; redesign is deliberately deferred to the next UI/UX iteration |
+| Metadata cache after using six tracks | About **66 KB observed**; this is not evidence of an audio cache or a defect by itself |
+| Real cover display in lists, albums, playlist tiles, Player Bar, information pane and other image surfaces | **FAIL — P0**; every image remains a symbolic fallback |
+| Real cover persistence/reuse across views or restart | **Not confirmed**, blocked by the image-display failure |
+| Initial audio buffering | Observed and expected without persistent audio caching; no new offline-audio claim |
+
+The all-cover failure was a real target-desktop result for that revision.
+Earlier synthetic pixels, GTK fixtures and green CI did not contradict it or
+establish the complete real-metadata-to-render path. At the start of
+stabilization, no failing stage had been established; the investigation below
+records the subsequently reproduced defect. Its later repair and real-cover
+acceptance are recorded separately above, without changing this historical FAIL.
+
+The native restart result confirmed that scenario only. At that point,
+remember-off deletion, logout/failure/recovery, the specific wallet backend and
+current Flatpak lifecycle had not been accepted by that report. The final owner
+report above adds its stated Flatpak scope without inventing those granular
+results. The reusable changed-function procedure is in
+[BUILDING.md](BUILDING.md#focused-cover-and-cache-stabilization-retest).
+
+## Cover stabilization: confirmed defect and new verification
+
+A reproducible URL-generation defect is established in `23174b0`: the loader
+used its **internal 128/256/512-pixel decode/cache buckets as CDN rendition
+names**. On two independent public Track/Album resources from pinned published
+fixtures, each old size returned HTTP 404. Changing only the rendition size to
+the corresponding supported preset returned HTTP 200 `image/jpeg`; Pillow
+decoded the bounded responses to the requested square dimensions.
+
+| Internal raster bucket | Old request size | Track / Album result | Correct CDN preset | Track / Album result |
+| --- | --- | --- | --- | --- |
+| 128 | 128×128 | 404 / 404 | 200×200 | 200 / 200, JPEG decoded |
+| 256 | 256×256 | 404 / 404 | 400×400 | 200 / 200, JPEG decoded |
+| 512 | 512×512 | 404 / 404 | 1000×1000 | 200 / 200, JPEG decoded |
+
+The probes used the exact existing HTTPS image origin, no redirect, account,
+token, cookie, personal library or audio. Successful responses had explicit
+`max-age=86400,immutable` and stayed below 200 KiB. Source samples are the
+[Track](https://github.com/MarshalX/yandex-music-api/blob/9ca132e5c18a72aab779c1fc68c169380a9357d0/tests/test_track.py)
+and [Album](https://github.com/MarshalX/yandex-music-api/blob/9ca132e5c18a72aab779c1fc68c169380a9357d0/tests/test_album.py)
+fixtures at that pinned commit. Safe local receipts record sample class,
+requested size, origin, HTTP status, MIME and decoded dimensions, excluding
+resource paths/queries, complete image addresses and image bytes. These are
+public-sample transport results, not the owner's captured HTTP traffic or
+successful native image display.
+
+The correction separates CDN presets **200/400/1000** from unchanged local
+**128/256/512** raster buckets and their existing decode/memory/disk bounds.
+The earlier loopback tests mostly supplied explicit URL overrides, so they did
+not verify the provider rendition generated by `CoverArt::url`.
+Production MusicService cover-field deserialization already supported the
+published `coverUri`, `cover.uri` and first admitted `cover.itemsUri` forms;
+that deserializer and the metadata-cache schema are not rewritten.
+
+The pinned [yamuse image normalizer and regression](https://github.com/flxxxxddd/yamuse/blob/368c74646520e8bcd30c44a9887e1bf99cb58172/src/models/mod.rs)
+supports protocol-relative templates. Karin admits them only for the same exact
+`avatars.yandex.net` origin. Published variants also justify a **1–20 decimal-byte revision**
+only on `get-music-user-playlist` templates. The revision remains part of URL
+and cache identity; arbitrary queries, fragments, ports, userinfo, origins and
+global redirects remain rejected. The narrow revision form is grounded in the
+[published Cover fixture](https://github.com/MarshalX/yandex-music-api/blob/9ca132e5c18a72aab779c1fc68c169380a9357d0/tests/test_cover.py),
+not in a personal playlist dump. No new CDN origin, MIME type or relaxed TLS
+policy is justified by this investigation.
+
+The new opt-in stage summary is described in
+[BUILDING.md](BUILDING.md#safe-opt-in-artwork-diagnostics). Fresh explicit
+freshness on a `must-revalidate` image may permit caching; its raster policy
+must prohibit expired/stale reuse without successful origin revalidation.
+
+| New stabilization coverage | Current status |
+| --- | --- |
+| Two public source-derived templates, old/new rendition comparison and in-memory JPEG decode | **Executed** as described above; no owner account used |
+| Stable 1.99.1 and exact Rust 1.98.1 formatting and Clippy | **PASS** locally: formatting plus default/all-feature/minimal all-target Clippy with `-D warnings` on both compilers |
+| Library tests, default / all features / no default features | **PASS**, **347 / 355 / 333** on each compiler, plus **4 CLI tests** per mode; ordinary totals exclude **26 / 26 / 23** ignored native fixtures |
+| Locked builds and offline release | **PASS**, default/minimal builds on both compilers; exact-1.98.1 ordinary `cassette-auth` and all-feature offline release builds |
+| Source-shaped metadata, production URL generation and cache-identity regressions | **PASS** in the local matrix, including preserved usable entities for malformed optional cover fields |
+| Counted image disk reuse | **PASS** in loopback/disk tests: a newly created loader/cache reuses the fresh raster without repeating HTTP; RAM is not substituted for restart reuse |
+| TTL/directives/integrity/account isolation/clear/disable | **PASS** in core tests, including explicit fresh `must-revalidate`, refusal of expired no-stale fallback, legacy flag compatibility and in-flight clear |
+| HTTP/TLS/decode errors and privacy | **PASS** in core tests. The negative TLS fixture sends a malformed handshake and confirms no HTTP downgrade/cache entry; it is not a live CDN TLS or certificate-chain acceptance test |
+| Validated metadata → fixture HTTP → decode → GTK display and saturated-queue retry | **PASS at 1×/2×**, including independent 404/MIME/corrupt-JPEG fallbacks, logout/late response, actual Openbox maximize and recovery after 650 ms with four workers/64 pending jobs full |
+| Auth terminal, GStreamer and GTK smoke | **PASS**, 15 synthetic OAuth pseudo-terminal checks, 40 silent GStreamer buffers, generated-WAV controls/cleanup, and ordinary/opted-in release GTK smoke |
+| Dependency licensing | **PASS**, reproduced inventory unchanged at 207 external crates / 178 Linux-graph crates; no dependency or license-text replacement |
+| Final native session/playback/MPRIS regression suite | **PASS**, 24 selectors explicitly executed at both 1× and 2× on isolated D-Bus/Xvfb; the two loading/interactive WebKit sandbox selectors require the separate hosted run |
+| Hosted CI and acceptance artifact | Source-matched run conclusions and artifact links are recorded in [PR #14](https://github.com/tracerxbrhd/karin/pull/14); local success does not establish that hosted result or a later documentation HEAD's result |
+| Actual real-cover display on updated Fedora native build | **Owner PASS at `0232548`** in lists, Player Bar and right pane; KDE Media Widget also receives actual cover and metadata |
+| Image disk reuse | **Automatic counted-fixture PASS** above; no owner request-count measurement is claimed |
+| Final Flatpak authorization/playback/system integration | **Owner reports successful completion at `0232548`**; no detailed backend/failure matrix supplied |
+| Full Flatpak build in this cloud environment | **Not executed here**: tooling/installed GNOME 50 SDK unavailable; native offline flags are not a sandbox build |
+
+The local matrix commands follow [BUILDING.md](BUILDING.md#verification).
+The native fixtures are invoked separately under an isolated bus/display and
+are not counted in the ordinary library-test totals. Thirty-two fresh cover
+captures were inspected across compact, medium, wide and actual maximized
+windows, light/dark and both scales. The playlist scene uses its real bound
+section selector; preferences waits for the existing compact allocation gate
+instead of assuming a resize completes within a fixed 150 ms. Neither change
+alters production layout. No real account or provider audio was used in these
+automated checks. The two loading/interactive WebKit sandbox fixtures are not
+claimed locally; check their explicit hosted results in the PR.
+
+The final real-cover gate was closed by the owner's `0232548` Fedora report,
+independently of synthetic images and public-CDN probes. The ordinary online
+player remains the existing path; persistent audio, full Wave and a visual
+redesign are outside this functional stabilization.
+
+## Accepted merged v0.2 baseline and v0.3 status (2026-10-31)
+
+The owner reports acceptance of the merged v0.2 `master` on **Fedora 44 / KDE
+Plasma / Wayland / PipeWire**, including the installed Flatpak: **17 PASS,
+0 FAIL and 1 N/D**. The table groups the supplied coverage; it is not a new
+cloud run or a reconstructed count of individual test cases.
+
+| Owner-reported baseline coverage | Result |
+| --- | --- |
+| Native sign-in, library and search | **PASS** |
+| Actual Music playback, contextual queues, transport, seek and volume | **PASS** |
+| MPRIS registration and KDE Media Widget | **PASS** |
+| Application shutdown | **PASS** |
+| Flatpak build/install/startup, sign-in, library/search, actual playback, MPRIS and shutdown | **PASS** |
+| Hardware media keys | **N/D**; no result supplied |
+
+PR #13 is merged. The v0.3 task starts from `master`
+`09f76355684873f32aaf83b8050e047df6077143`; the owner did not supply a separate
+artifact checksum with this acceptance report. Earlier revision-specific failures
+below remain historical evidence, including the old `f0aa2bb` UI failure; they
+are not the current merged-baseline status.
+
+**v0.3 — Seamless Experience has owner functional acceptance at `0232548`.**
+The final report above supersedes the earlier then-pending acceptance status;
+`23174b0` retains its cover FAIL. Existing authorization, resolver, player,
+contexts and MPRIS remain the regression baseline. UI/UX redesign belongs to a
+separate iteration. No account credentials, private library, service audio or
+user screenshots are supplied to Cloud/CI.
+
+The single current manual procedure is
+[the v0.3 Fedora acceptance guide](BUILDING.md#v03-seamless-experience-acceptance-on-fedora).
+Native secure storage and Flatpak Secret Portal/backend availability remain
+distinct capabilities. The final owner acceptance establishes only its supplied
+scenarios; neither a service name nor that report proves every backend and
+delete/failure case. Public service/registration permissions and persistent/
+offline audio rights remain independent of the accepted local prototype.
+
+## v0.3 execution record
+
+This historical section records the preceding implementation's cloud checks.
+It is not a passing result for the later cover repair and does not overwrite
+the Fedora failure at `23174b0`. Repair execution and final owner acceptance are
+recorded separately above.
+
+Local verification on **2026-10-31** covers the new implementation and its final
+runtime revision **`57ab96d7c7d3a64a5b0aaa72ac18cc65c3c0b020`**. The compiler
+matrix used stable **1.99.1** and exact **1.98.1**. Cloud native libraries were
+GTK **4.18.6**, Libadwaita **1.7.6**, GStreamer **1.26.2**, WebKitGTK **2.54.0**
+and pkg-config-visible libsecret **0.21.7**. Library presence is not a real
+keyring/backend result.
+
+| Check | Executed local result |
+| --- | --- |
+| Formatting on stable and exact 1.98.1 | **PASS**, `cargo fmt --all -- --check` |
+| Clippy, default/all features/no default features, both compilers | **PASS**, `--workspace --all-targets --locked -- -D warnings` |
+| Library tests, default / all features / no default features | **PASS**, **335 / 343 / 321** on each compiler; **4 CLI tests** also passed in each mode |
+| Ignored platform/display fixtures in ordinary tests | **24 / 24 / 21** remain excluded from those totals; they are not silently counted as passes |
+| Locked default and minimal builds, both compilers | **PASS** |
+| Exact-1.98.1 offline release | **PASS**, Flatpak-matching `--no-default-features --features cassette-auth` and all-feature release; no Cargo rust-version bypass |
+| Separate OAuth diagnostic terminal privacy/cancellation checks | **PASS**, synthetic pseudo-terminal inputs; no browser, account or provider request |
+| GStreamer diagnostic and generated-WAV controller self-test | **PASS**, 40 synthetic buffers plus actual playbin/fakesink transport, seek, volume, EOS and worker cleanup |
+| Native platform/display fixtures | **22 explicitly executed fixtures PASS** on the local stable test binary; new workspace/session/cache fixtures also passed at 1× and 2× |
+| Protected credential protocol | **PASS**, isolated guarded synthetic Secret Service and Secret Portal FD/request/envelope, unlock/prompt/cancel, delayed writes, tombstone and definitive-refusal cases |
+| Integrated restore/forget/close lifecycle | **PASS**, injected protected backend, fresh independent stores on reopen, loopback Music and actual generated-MP3/fakesink playback |
+| Settings persistence | **PASS**, disk roundtrip/restart, corruption, unsafe file types/permissions, bounded I/O and superseded saves |
+| Metadata/cover cache | **PASS**, disk/codec/loopback checks for reuse, TTL, isolation, integrity, limits/eviction, clear/disable races, stale restrictions and counted HTTP reuse |
+| Native cache provenance | **PASS**, unrelated background replies cannot hide a detail's stale state; cleared/disabled leases cannot repaint retired data; live network replies remain usable |
+| Artwork | **PASS**, HTTP persistence/freshness restrictions plus native thumbnail/HiDPI/cache/cancellation checks |
+| Pane/grid/preferences/playlist creation | **PASS**, actual mouse/keyboard, both scales, loading/error/empty/long-text and cleanup fixtures; creation uses one POST plus independent canonical confirmation |
+| Accepted music/search/account/queue behavior | **PASS**, synthetic service/input regressions, safe logout cancellation/default, exact context occurrences, retries and stale replies |
+| Existing GStreamer and MPRIS paths | **PASS**, generated media, resolver/queue/control/error/EOS/close fixtures and session-D-Bus methods/properties/signals/name release; same player is retained |
+| GTK smoke on final runtime | **PASS** with `G_DEBUG=fatal-warnings`, exact-1.98.1 offline release; responsive layouts, local playback and cleanup |
+| WebKit construction/shutdown | **PASS** without provider navigation |
+| Two sandbox-enabled interactive WebKit fixtures | Source-matched results are tracked in the Draft PR checks/artifacts; browser process/navigation/cookie-isolation success is **not established by this local record** |
+| Fresh screenshots and visual inspection | **PASS for the inspected cloud scope**, compact/medium/wide, actual Openbox-maximized, light/dark and 2×; selected clean PNGs and hashes in the gallery below |
+| Dependency license inventory | **PASS**, reproduced inventory matches the checked-in report: **207** external crates, **178** in the Linux graph |
+| Hosted GitHub Actions / new Fedora artifact | Source-matched results are tracked in the Draft PR checks/artifacts; hosted execution and the downloaded artifact are **not established by this local record** |
+| Current full Flatpak build/install/XDG/Secret Portal lifecycle | **Pending owner v0.3 run**; native offline compilation is not a full SDK/sandbox build |
+| Actual native KWallet/GNOME save/restore/delete | **Pending owner v0.3 run**; protocol fixtures and service presence are insufficient |
+| Actual new Music playback/KDE regression and hardware keys | **Pending owner v0.3 run**; hardware keys were N/D in the accepted baseline |
+| Live playlist creation | Implemented and fixture-checked; **new owner service acceptance pending** |
+| Modern Wave session/batch/feedback coordinator | Implemented hidden backend and passing synthetic tests; **full effective Karin service/playback lifecycle unconfirmed**, no normal UI |
+| Persistent audio/offline | **Intentionally absent**: third-party storage permission and verifiable offline-entitlement contract not established; see [review](AUDIO_CACHE_REVIEW.md) |
+| Public service/registration distribution approval | **Not established** by implementation or earlier technical acceptance |
+
+The matrix commands are reproduced in [BUILDING.md](BUILDING.md#verification),
+with the explicit [isolated native selectors](BUILDING.md#v03-isolated-persistence-and-workspace-fixtures).
+Every test uses synthetic accounts, isolated files/buses or original generated
+media. No fixture unlocks a personal wallet or restores a real user's cache.
+Native component snapshots/callbacks, disk/protocol tests and an owner-local
+keyring session are different evidence.
+
+The full compiler matrix passed with the implementation and TCP-cancellation
+fixture correction at `10c11ff`. Its first minimal stable run encountered the
+valid TCP-reset outcome while cancelling a partial local request; the test now
+accepts that transport cancellation without weakening redaction or termination
+assertions. Relevant default/all-feature cases and the complete minimal suite
+were rerun successfully. Subsequent layout fixes at `44b00a3` and `57ab96d`
+received both compilers' Clippy, focused native reruns and final offline release/
+smoke checks. Hosted CI must still verify the posted head as a whole.
+
+Local execution logs are `v03-final-matrix.log`, `v03-stable-resume.log`,
+`v03-msrv-and-release.log`, `v03-final-native.log`,
+`v03-final-native-after-density.log`, `v03-artwork-webkit-env.log`,
+`v03-density-fixed.log` and `v03-pane-allocation-fixed.log` in the execution
+workspace. The last corrective native run passed all 16 invocations; the final
+pane fix additionally passed full-shell 1×/2× and fatal-warning release smoke.
+These logs are not claims about real service accounts or the installed Flatpak.
+
+### Visual review and corrected regressions
+
+[The published v0.3 gallery](screenshots/v0.3/README.md) contains **17 original
+synthetic PNGs**, including four 2× images, with SHA-256 and per-file runtime
+revision in `captures.json`. Component captures use `44b00a3`; refreshed full-shell
+captures use final runtime `57ab96d`. Actual dimensions include 420×720,
+900×650, 1440×900, WM-maximized 1920×1080 and their 2× equivalents.
+
+Review inspected actual images, including current-versus-selected information,
+compact/medium overlays, PreferencesDialog errors, playlist tiles/creation,
+cache labels, complete search rows and the maximized shell. It identified and
+verified corrections for three concrete UI defects: muted playlist error text,
+preferences outcomes scrolling away, and an unrevealed cache banner retaining
+GtkBox spacing. The unchanged density gate now passes with **six complete track
+rows at 900×650**, at both scales. Native action/focus/scroll/lifecycle assertions
+accompany the images.
+
+Two earlier release-smoke GTK measurement/allocation warnings were traced to the
+unavailable track pane's header being measured during a breakpoint transition.
+`57ab96d` hides the unavailable pane widget. Final exact-1.98.1 release smoke
+passed with **`G_DEBUG=fatal-warnings` and no GTK warnings**, alongside full-shell
+1×/2× checks; the earlier warnings are retained as corrected evidence, not
+described as harmless without investigation.
+
+Missing-cover icons verify fallback framing, not the appearance of actual
+provider artwork. Sparse synthetic collections do not accept every real large-
+library composition. Xvfb/Openbox cannot pass Fedora Wayland visuals, real
+wallet/portal prompts, PipeWire audibility or KDE hardware media keys. Follow
+[the single native/Flatpak Fedora guide](BUILDING.md#v03-seamless-experience-acceptance-on-fedora)
+and leave all unperformed owner checks pending.
+
+### Hosted geometry-check follow-up
+
+The initial hosted run at `1ffed2b` failed the geometry helper on Ubuntu's
+Libadwaita 1.5: a closed wide sidebar remained mapped and translated outside the
+viewport (x=1442). The helper excluded closed compact sidebars only, so it
+mistook that native closed state for clipped visible content. The follow-up
+uses `OverlaySplitView::shows_sidebar()` at every width, always checks the main
+content and preserves all open-sidebar geometry checks. The full-shell fixture
+also asserts that content reclaims the closed pane's width, including resize
+away and back. Its local 1×/2× reruns passed. This corrects the validation helper;
+it does not redesign the product layout or turn the failed hosted run into a
+pass. Source-matched hosted results remain in the Draft PR checks/artifacts.
+
+The next MSRV run at `de519eb` exposed a test-input dependency in the playlist
+creation fixture: optional captures disabled animations and settled the dialog,
+but the no-capture lane sent Escape before its input/layout frame was ready.
+The previous executable reproduced the timeout locally without captures. The
+fixture now selects the same reduced-motion setup explicitly, waits for native
+control allocation and logs fixed phases without field values. Exact-1.98.1
+without captures and stable with 2× captures both passed, with unchanged server
+confirmation, cancellation and no-duplicate-write assertions. Production
+playlist code was not changed. The failed run remains failed evidence.
+
+## Reading the historical records
+
+The sections below retain their original revision/date, tests and owner findings.
+Statements such as “pending”, “not implemented”, “continue PR #13” or “no new PR”
+refer to that recorded scope, not the current v0.3 acceptance. PR #13 is merged;
+v0.3 finalization uses existing PR #14 and the guide linked above.
+Historical failures are not relabelled as passes, and later acceptance is not
+backdated into an earlier fixture run.
+
+## Historical owner Fedora acceptance at `f0aa2bb` (2026-10-31)
+
+The owner's historical PR #13 run at **`f0aa2bb`** reported **Search PASS,
+Account PASS and Playback PASS**, while **UI FAIL** blocked that revision.
 This is real Fedora 44 / KDE Plasma / Wayland / PipeWire evidence: corrected
 track search and safe account actions have now been accepted, and actual Yandex
 Music playback still works. It supersedes the earlier live-search failure and
@@ -66,9 +414,10 @@ capture qualification, not a confirmed Fedora defect. Lower unified-search
 sections are covered structurally; individual top-of-page captures do not show
 all four categories at once.
 
-The owner's `f0aa2bb` PASS/FAIL table above remains the latest real Fedora
-evidence. New UI acceptance, live unified search, contextual playback regression,
-KDE media widget/physical media keys and current Flatpak are still pending.
+At this implementation record's date, the `f0aa2bb` table was the latest owner
+evidence. The later merged-v0.2 acceptance at the top supersedes those pending
+UI/context/KDE/Flatpak checks; hardware media keys remain N/D. v0.3 requires a
+new regression run.
 
 ## Historical owner acceptance and search/UX correction through `f0aa2bb` (2026-10-31)
 

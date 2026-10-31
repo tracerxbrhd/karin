@@ -27,6 +27,23 @@ Describe the concrete behavior and why it is needed.
 - [ ] Default/Flatpak enables `cassette-auth` and excludes legacy Device Flow; exact reused application identity, source attribution and public-distribution uncertainty documented separately
 - [ ] Documentation distinguishes passed, failed, blocked and unrun checks
 
+## v0.3 persistence and cache (when changed)
+
+- [ ] One v0.3 branch and one Draft PR to `master`; accepted v0.2 owner evidence is distinguished from new checks
+- [ ] Saved tokens are used/saved only after current Music validation; native secure-store and Flatpak portal paths have explicit availability/failure states and no plaintext fallback
+- [ ] Restore, invalid token, network failure, locked/corrupt/unavailable store, cancellation and late operations tested with synthetic fixtures
+- [ ] Remember-off preserves the live session when intended, confirms saved-credential deletion and persists the forget barrier before async cleanup
+- [ ] Logout cancels old work, stops audio, purges personal cache and verifies saved-credential absence; unknown deletion/clear is not reported as final success
+- [ ] Settings corruption/unavailability cannot silently bypass unresolved forget; theme/cache/pane choices survive restart and obsolete saves cannot overwrite newer choices
+- [ ] Account-scoped metadata/cover cache hit/miss/TTL/corruption/byte bounds/eviction tested; no token, cookie, signed media URL or audio stored
+- [ ] Mutable reads remain network-first; explicit Refresh/membership/write confirmation bypass cache; only Network/Timeout can use visibly saved/stale fallback
+- [ ] Disable stops persistent content reads/writes without implicit deletion; usage and clear show actual results/errors
+- [ ] Clear/account switch/logout races reject old leases; ordinary cache clearing preserves credentials, active audio/context and live MPRIS cover
+- [ ] Artwork persistence respects explicit HTTP restrictions and shorter source freshness; graphical material is not relicensed as Karin assets
+- [ ] Native D-Bus secure-storage fixture runs only in its isolated guarded session bus; ordinary automation never restores a personal token/cache or unlocks a real wallet
+- [ ] Native KWallet/GNOME and current Flatpak Secret Portal/backend tests are separately executed or explicitly pending/unavailable
+- [ ] Persistent-audio permission/offline entitlement review recorded; no hidden media downloads or inert Offline switch
+
 ## UI quality (required for substantial UI changes)
 
 Follow `docs/UI_QUALITY_GATE.md`. If there is no UI change,
@@ -40,6 +57,11 @@ state that explicitly; do not mark unexecuted visual checks as passed.
 - [ ] Signed-in search/list density measured at compact/medium/wide sizes; visible content and action clarity reviewed
 - [ ] Keyboard navigation, visible focus and activation checked
 - [ ] GTK structure/allocation/navigation checks accompany screenshots
+- [ ] Adaptive track pane checked at wide and compact sizes, including selected/playing distinction, source occurrence, verified navigation and open/close without audio changes
+- [ ] Playlist tile layout/long titles/missing covers/loading/error/keyboard activation checked; Create uses one write plus server confirmation and never a fake local entry
+- [ ] Persistent preferences, restore/cleanup errors, cache enable/limit/usage/clear and asynchronous updates inspected in both themes/scales
+- [ ] Current/next/unavailable queue markers and actual bottom scroll reachability reviewed without changing the accepted player composition
+- [ ] My Wave/similar tracks/offline audio remain hidden unless their complete actual contracts/capabilities are established
 - [ ] Single native sign-in dialog checked at all sizes/themes; no developer credentials/code/token fields, stale signed-out errors or completion before Music account validation
 - [ ] Only clean cloud screenshots shared; no private user/desktop captures added
 - [ ] Pending Fedora/KDE/Wayland visual acceptance explicitly listed
@@ -54,7 +76,7 @@ state that explicitly; do not mark unexecuted visual checks as passed.
 - [ ] Music authorization/stream claims have permission and scoped evidence; unavailable capabilities remain explicit
 - [ ] OAuth changes use local fixtures and hidden-input checks; no real account/credentials in Cloud or CI
 - [ ] Registration, token issuance, ID-client binding and Music access are reported separately; manual full-URL state validation is distinguished from an automatic production callback
-- [ ] Experimental application credentials/tokens are memory-only; logout/cancel/late responses and new-session cache isolation tested
+- [ ] Separate own-client OAuth diagnostic credentials/tokens remain memory-only; ordinary protected-session logout/cancel/late responses and cache isolation are tested
 - [ ] Login, current-dialog session, OAuth exchange, Music account acceptance and library/search are reported separately with safe concrete errors; third-party application identity/distribution status is not represented as established permission or RFC 8252 compliance
 
 ## Evidence and remaining manual checks
@@ -62,8 +84,17 @@ state that explicitly; do not mark unexecuted visual checks as passed.
 Link screenshots/results and list the checks still needed on Fedora. Leave
 unperformed manual acceptance pending. Do not merge without the required review.
 
-For v0.2, report actual track/album/artist search and personal-playlist contents
-separately from account/list acceptance. Audible service playback is mandatory:
+For changed music workflows, report actual track/album/artist search and personal
+playlist contents separately from account/list acceptance. The merged v0.2 owner
+baseline is accepted; new v0.3 regression remains separate. Audible service
+playback is mandatory:
 only an entitled owner hearing a real selected track through PipeWire/GStreamer
 passes that criterion. A metadata probe, synthetic WAV or player screenshot does
 not. Record the exact delivery stage if blocked; do not silently defer the gate.
+
+For v0.3, use the single Fedora guide for native and Flatpak restore/forget,
+settings/cache, pane/tiles and real playback/KDE regression. Report backend kind
+and fixed availability/error categories only; no credential values, portal keys,
+real cache records, media metadata dumps or personal screenshots. A source graph,
+portal version or loopback fixture does not pass real system storage. Leave
+unperformed media-key, wallet/portal and package checks pending/N/D.

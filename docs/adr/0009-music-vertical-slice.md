@@ -2,7 +2,7 @@
 
 # ADR-0009: Identity-neutral Music reads and an isolated development session
 
-Status: Accepted for the scoped Issue #7 implementation
+Status: Historical Issue #7 scope; ordinary provider, remote playback and persistence are extended by ADR-0011, ADR-0015 and ADR-0018
 Date: 2026-10-28
 
 ## Context

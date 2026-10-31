@@ -2,128 +2,141 @@
 
 # Karin Roadmap
 
-## v0.0 — Technical foundation
+## Accepted v0.2 foundation
 
-The native Rust/GTK4/Libadwaita foundation, independent GStreamer controller,
-bounded API boundary, licensing and reproducible Cargo/Flatpak source preparation
-are in place. The owner ran the diagnostic prototype on Fedora 44 / KDE Plasma /
-Wayland / PipeWire. Generated audio validates the engine, not Music playback.
-See [validation](VALIDATION.md) for revision-specific evidence and limitations.
+[PR #13](https://github.com/tracerxbrhd/karin/pull/13) is merged into `master` at
+`09f76355684873f32aaf83b8050e047df6077143`. The owner reports **17 PASS, 0 FAIL
+and 1 N/D** on Fedora 44 / KDE Plasma / Wayland / PipeWire, including the Flatpak.
+Real sign-in, library/search, entitled Music playback, contextual queues,
+transport/seek/volume, MPRIS registration, KDE Media Widget and shutdown form
+the accepted baseline. Hardware media keys are N/D. This supersedes older UI,
+search and packaging gaps for their recorded revisions; the complete dated
+history remains in [VALIDATION.md](VALIDATION.md).
 
-## v0.1 — Signed-in metadata prototype
+Preserve the accepted native stack, Cassette-compatible voluntary sign-in,
+bounded identity-neutral MusicService, guarded StreamResolver, existing
+GStreamer worker, 500-position PlaybackContext and in-process MPRIS adapter.
+No generated audio, replacement provider or metadata-only queue may stand in
+for that working service path. A new revision still requires regression checks.
 
-[ADR-0011](adr/0011-cassette-session-auth-prototype.md) preserves the normal
-`Войти` → Yandex → Music account validation journey without developer credentials
-or manual tokens. It supersedes the historical blocked-provider decision.
-The independent own-client PKCE result (Yandex ID 200, Music status/about 403)
-remains separate; it is not the normal login path.
+## v0.3 — Seamless Experience: functional acceptance
 
-The owner's [Issue #9](https://github.com/tracerxbrhd/karin/issues/9) report at
-PR #8 baseline `797ba3a` confirms real sign-in, Music account, liked tracks and
-personal-playlist listing. Search and opening playlist contents failed; these
-are defects in claimed workflows. At that baseline the queue is metadata-only
-and no service track has audibly played in Karin. This is not a completed minimum
-music player.
+Delivered through one `feature/v0.3-seamless-experience` branch and
+[PR #14](https://github.com/tracerxbrhd/karin/pull/14). On **2026-10-31** the owner
+accepted runtime `02325489d23ead9da4471de9cc35e2c063ac8bab`: persistent sign-in
+and restart restoration, real covers in lists/Player Bar/right pane, actual
+Music playback, pane mechanics and KDE Media Widget cover/metadata. The owner
+also reported successful final Flatpak authorization, playback and system
+integration, with no blocking functional defect reported. Exact scope and
+historical failures remain in [VALIDATION.md](VALIDATION.md).
 
-## v0.2 — First usable, audible music client
+The owner authorized squash integration after final review and successful CI,
+without deleting the feature branch or rewriting history. The sections below
+record the delivered implementation scope and its continuing constraints.
 
-**Actual Yandex Music playback is mandatory in this stage**, alongside working
-search and personal playlists. It is not a later stretch goal. Acceptance means
-that the owner signs in on Fedora, opens the real library or catalog, selects an
-entitled track and hears it through GStreamer/PipeWire, then exercises transport,
-queue, error recovery and cleanup. Synthetic WAV, metadata, a delivery URL or a
-player-shaped interface do not pass this criterion.
+### A. Persistent Session and Settings
 
-The earlier stacked increments remain unmerged. Continue corrections in the
-existing PR #13 branch; do not create another branch/PR, change its base or close
-ancestors during this work. The stage has followed these independent work areas:
+Add asynchronous secure-store discovery, saved-token recovery and independent
+Music account validation. Store only the needed token after accepted Music
+validation; keep WebKit cookies, sessionid, password and temporary OAuth material
+ephemeral. Support the available native Secret Service and investigate the
+Flatpak Secret Portal/runtime contract without assuming either exists.
 
-1. Repair track/album/artist search, playlist contents, details and pagination;
-   replace silently dropped actions with bounded independent work and stale-result
-   checks. Show immediate loading pages, actionable errors, empty results and back
-   navigation. In parallel, inspect Cassette's actual delivery/playbin chain and
-   run a bounded, opt-in, owner-local delivery-info experiment through the current
-   session. No user token or response body enters Cloud/CI/GitHub.
-2. Exercise the implemented guarded `StreamResolver` → existing GStreamer path
-   with an eligible real resource. Verify selected-track sound, play/pause/
-   resume/stop, seek/progress, volume, next/previous, queue and EOS. Add truthful
-   MPRIS/media-key integration when actual service playback works. Do not port
-   extracted signing/decryption material or bypass restrictions.
-3. Build the music-first adaptive shell, covers, library/search/queue destinations,
-   complete player bar and best-validated likes/playlist interactions. Inspect
-   actual screenshots and GTK structure across sizes/themes/HiDPI/keyboard; Fedora
-   desktop and live-service sign-off stay separate from cloud checks.
+Keep restoring, authenticated, invalid session and unavailable storage distinct.
+A missing/locked/broken backend permits ordinary sign-in without plaintext
+fallback. Remember-login is effective by default only when secure storage is
+supported; turning it off deletes saved credentials while the current in-memory
+session can continue. Logout stops playback, invalidates old work, clears
+personal presentation and confirms saved-secret deletion; unknown/failed deletion
+must remain visible. Do not claim refresh or server revocation.
 
-[CASSETTE_PARITY.md](CASSETTE_PARITY.md) distinguishes Cassette v0.2.4's shipped
-workflows, API helpers and stubs. Evaluate My Wave, recommendations, lyrics and
-preferences using actual endpoint and lifecycle evidence, without publishing
-nonfunctional controls. Playlist writes require revision/conflict handling and
-read-after-write confirmation. Media caching/offline rights and persistent
-credentials require separate review.
+Persist actual application preferences, with private atomic XDG storage and
+safe recovery from invalid settings. GTK must not wait for disk, keyring or
+network work. [ADR-0018](adr/0018-persistent-session-and-settings.md) records the
+new lifecycle boundary; the existing authentication identity is retained.
 
-The owner accepted the core audible path at `8f1b09d` and reports **Search PASS,
-Account PASS and Playback PASS at `f0aa2bb`**, with **UI FAIL**. A new delivery
-refusal must still identify its exact stage/category without changing identity,
-region, TLS or protection handling. Preserve the working integration and use
-Library/search playback as a regression check while repairing the interface; do not
-replace accepted audio with a generated signal or a new provider experiment.
+### B. Bounded Metadata and Artwork Cache
 
-## Release conditions
+Add private per-account metadata and normalized-cover persistence, independent
+of GTK. Use TTL, explicit refresh, byte limits, LRU-like eviction, atomic writes,
+corruption recovery, bounded jobs and generation-aware cancellation. Disabling
+cache prevents persistent reads and new writes; existing records remain until
+explicit clearing. Clearing cache must preserve the secure session and current
+playback. Live authorization, membership, playlist revision and write confirmation
+remain server facts, not cached assertions.
 
-Keep the approved native stack, Rust stable and exact 1.98.1, current Flatpak SDK,
-license notices and existing voluntary session provider. Real account tests stay
-on the owner's Fedora desktop; CI uses synthetic fixtures. Public registration/
-service-distribution approval, verified Secret Service/refresh/revocation and
-content rights remain separate from successful technical interoperability.
-No source license or account metadata alone grants those rights.
+Expose enabled state, size limit, actual usage and clear progress/errors in
+Storage preferences. Label network-fallback records as saved/potentially stale.
+[ADR-0019](adr/0019-bounded-account-cache.md) defines policy and isolation.
 
-## Current implementation evidence
+Persistent audio is a separate permission/entitlement problem. Implement it only
+if a permitted third-party download/storage contract and enforceable offline
+rights lifecycle are established. Otherwise keep audio off disk, omit an inert
+Offline switch and record the exact blocker in
+[AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md). That blocker does not defer
+metadata, artwork, session or workspace work.
 
-The Issue #9 series starts with [PR #10](https://github.com/tracerxbrhd/karin/pull/10)
-(catalog contracts, independent actions and the owner-local delivery probe), then
-[PR #11](https://github.com/tracerxbrhd/karin/pull/11) (native music workspace,
-artwork and adaptive/HiDPI navigation), then
-[PR #12](https://github.com/tracerxbrhd/karin/pull/12) (confirmed like/unlike and
-owner-preserving liked-playlist reads). These are
-implemented workflows with local synthetic tests, not yet owner-verified service
-acceptance. No PR is merged automatically.
+### C. Music Workspace
 
-The [owner's PR #13 acceptance at `8f1b09d`](https://github.com/tracerxbrhd/karin/pull/13#issuecomment-6539311586)
-confirms actual audible Yandex Music through GStreamer/PipeWire, working controls
-and queue, and correct logout/close. This is the core service-audio PASS, not a
-synthetic fixture result. The accepted resolver/player and current sign-in
-provider must be preserved.
+Add an adaptive track information pane with actual cover/title/artist/album,
+explicit actions and only verified navigable identities. Keep click/Enter/Space
+as playback and Details as its separate action. Use an appropriate compact
+presentation, and preserve the accepted player bar and loaded-context behavior.
 
-The earlier track-search failure with HTTP 200 / `track-wire` /
-`track-fields-unsupported` is superseded by owner **Search PASS at `f0aa2bb`**.
-The correction replaces coupled search metadata decoding with a minimal
-validated identity hit and one account-bound
-`/tracks` batch of at most 50 distinct IDs within a 50-position page, with original
-order/pagination and explicit partial data. The account menu requires an explicitly labelled logout
-and native Cancel-default confirmation. Search errors/retry, row Play/details,
-Back, queue actions and everyday layout density receive targeted UX correction;
-no inert feature controls are added.
+Present playlists as adaptive native cover tiles with real metadata, long-title
+and missing-cover handling, loading/empty/error states and keyboard activation.
+Expose creation only through a source-confirmed server contract and independent
+server confirmation; an ambiguous write is not a local success or automatic
+retry. [ADR-0020](adr/0020-seamless-music-workspace.md) records these UI choices.
 
-The same `f0aa2bb` run accepts account actions and preserved actual playback,
-but rejects the overall UI. The next correction must improve the native music
-workspace and playback context while preserving these accepted paths; MPRIS
-must report/control that same player rather than invent a second audio engine.
-The [next accepted design decision](adr/0017-playback-context-unified-workspace-and-mpris.md)
-adds row-to-sound playback contexts from actual loaded collections, explicit
-manual appends, four-section unified search, the default icon rail/compact
-drawer, a round account avatar and a coherent persistent player. MPRIS uses the
-existing GIO/session bus and actual player capabilities, with only an exact
-Flatpak own-name grant. The implementation, fresh visual review and real Fedora
-KDE/media-key/context acceptance must be reported separately from this scope.
-The full v0.2 release remains blocked by UI acceptance, playback-context/desktop
-integration checks, current Flatpak verification and independently unresolved
-public OAuth-registration/service-distribution conditions.
-Use [one updated Fedora build](BUILDING.md#v02-catalog-and-delivery-info-acceptance-on-fedora)
-for search-to-play, safe logout and preservation of the accepted sound path.
+My Wave requires a complete radio-session/batch/listening-feedback contract,
+not a renamed ordinary queue. Similar tracks require a confirmed real endpoint.
+Keep unsupported functions hidden and document precise gaps; do not add fake
+recommendations or decorative disabled controls. The updated
+[capability audit](CASSETTE_PARITY.md) separates upstream source evidence, Karin
+implementation, fixture checks and live acceptance.
 
-After that owner acceptance, propose using **this existing PR #13** as the sole
-integration PR: retain its ancestor history and existing branch, retarget it to
-`master`, rerun CI/review against the new base and squash-merge once only if
-approved. Close #6/#8/#10/#11/#12 as superseded only with explicit approval and
-references to #13. No new branches/PRs, automatic base changes, merges, closures,
-branch deletion or history rewriting are part of the current task.
+### D. Integration and Regression
+
+Run stable and exact Rust 1.98.1 formatting, warning-free Clippy, default/all-
+feature/minimal tests/builds, offline release and packaging/license checks.
+Exercise secure-store recovery/failure/delete races, cache isolation/TTL/
+corruption/limits/clear/disable and settings persistence with synthetic local
+fixtures. Reuse the accepted GTK/WebKit/GStreamer/MPRIS lifecycle regressions.
+
+Inspect fresh actual screenshots and GTK structure at approximately 420×720,
+900×650, 1440×900 and maximized, in light/dark themes and scale 2, including
+keyboard/focus, track pane, playlist tiles and preferences. Xvfb does not establish
+Fedora Wayland acceptance. New native and Flatpak runs must check real music,
+session recovery, storage availability, cache behavior and shutdown.
+
+The integration PR records implemented code, executed commands/results, inspected
+images, actual native/Flatpak storage evidence, blocked service features and
+[one Fedora acceptance procedure](BUILDING.md#v03-seamless-experience-acceptance-on-fedora).
+The separate v0.3 owner report accepts its stated functional scope, not every
+unreported backend/failure case or future code change.
+
+## Next independent iteration: UI/UX
+
+The right pane's opening/closing mechanics are accepted, but its current visual
+design does not satisfy the owner. A substantial UI/UX revision is the next
+separate iteration; it must preserve the accepted authentication, actual audio,
+context queue, MPRIS, protected persistence and bounded cache. No redesign is
+part of PR #14's finalization. Track the source-reviewed nonblocking metadata
+refresh edges in [LIMITATIONS.md](LIMITATIONS.md#catalog-workspace-and-playback)
+alongside that follow-up, without treating them as authorization or playback.
+
+## Independent release conditions
+
+Code licensing, working account access and technical playback are distinct from
+public OAuth-registration/service-distribution permission and content rights.
+Keep GPL-3.0-or-later, third-party notices, the GNOME 50 / Freedesktop 25.08
+foundation and Rust 1.98.1 compatibility. No real account or secret enters Cloud,
+CI or GitHub; audio tests use original generated media and loopback fixtures.
+
+v0.3 is not a public-release declaration. The supplied functional acceptance and
+explicit PR #14 merge authorization do not establish public OAuth distribution
+rights, offline-audio rights or a later release approval. New runtime changes
+still require their own checks and acceptance.
+Earlier v0.0/v0.1 feasibility decisions and test histories remain in the ADRs and
+validation record; superseded restrictions do not replace the current task.

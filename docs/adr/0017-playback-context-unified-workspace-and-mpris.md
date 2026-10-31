@@ -2,9 +2,17 @@
 
 # ADR-0017: Playback contexts, a unified native workspace and MPRIS
 
-Status: Accepted for the next PR #13 increment; implementation and owner acceptance must be recorded separately
+Status: Accepted and owner-accepted in merged v0.2; v0.3 information/grid presentation extends this decision via ADR-0020
 Date: 2026-10-31
 Supersedes: ADR-0015's MPRIS deferral and ADR-0016's track-row activation opening details
+
+PR #13 is now merged into `master`; the owner accepted its native and Flatpak
+contextual playback/MPRIS/KDE baseline, with hardware media keys N/D. The final
+“continue existing PR #13” workflow below is historical, not a restriction on
+the authorized v0.3 branch/Draft PR. New protected persistence/cache/workspace
+work uses ADRs [0018](0018-persistent-session-and-settings.md),
+[0019](0019-bounded-account-cache.md) and
+[0020](0020-seamless-music-workspace.md), and needs fresh acceptance.
 
 ## Context
 

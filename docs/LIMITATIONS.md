@@ -1,136 +1,211 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 
-# Known limitations
+# Known limitations and acceptance boundaries
 
-- **Core service audio is accepted for the recorded baseline.** The owner's
-  [Fedora run at `8f1b09d`](https://github.com/tracerxbrhd/karin/pull/13#issuecomment-6539311586)
-  confirms an audible entitled Yandex Music track, working controls and queue,
-  and stopping on logout/close. This is real service acceptance, not a generated
-  signal. The later `f0aa2bb` run reports Search PASS, Account PASS and preserved
-  Playback PASS, but UI FAIL. The next workspace/context/MPRIS increment needs
-  fresh acceptance. It does not establish every format/track, a current Flatpak
-  artifact or public registration/service-distribution permission.
-  The 60-second local admission starts before the offer request, rather than
-  treating XML `ts` as an expiry grant; a playing track is not stopped merely
-  when that admission ages out. Reconnection/seek may need an explicit fresh Play.
-- **Remote delivery support is deliberately narrow.** Metadata accepts only
-  exact HTTPS `storage.mds.yandex.net` with `/get-download-info/`,
-  `/download-info/` or `/file-download-info/`. Media accepts the restricted generated
-  `s` + 1–5 digits + 3 lowercase letters host family under `storage.yandex.net`
-  and canonical `/get-mp3/` resources, not arbitrary Yandex subdomains. This is
-  a source-backed policy, not an exhaustive observed CDN inventory. Missing
-  full-track preview permission, protection markers, unsupported codecs,
-  ambiguous metadata, unknown hosts, redirects and expiry fail visibly. No
-  official extracted signer, DRM decryption, media cache or fallback identity
-  is included. See [ADR-0015](adr/0015-guarded-legacy-mp3-playback.md).
-- **Track normalization is accepted, with explicit bounds.** The historical `8f1b09d` result was HTTP
-  200 / `track-wire` / `track-fields-unsupported`; own ID validation succeeded,
-  but remaining display/wire metadata could not deserialize. No private response
-  or exact culprit field was supplied. The correction reads minimal validated
-  search IDs, accepts at most 50 raw hit positions and normalizes one batch of
-  at most 50 distinct IDs through the
-  working account-bound `/tracks` lookup. It preserves order/composite IDs,
-  duplicate positions and provider pagination, reports missing/null records and
-  keeps unavailable returned tracks disabled. Oversized pages fail before POST,
-  without N+1, truncation or a synthetic cursor. The owner's corrected-search
-  PASS at `f0aa2bb` supersedes that failure; the overall UI was rejected. New
-  unified tracks/albums/artists/playlists search and category paging need their
-  own live checks. Search playlist summaries preserve actual owner/kind and
-  leave an absent track count unknown.
-- **Playback context is the loaded collection, not an unlimited library.** A
-  row activation starts its exact occurrence in the returned collection, within
-  the 500-position queue bound. Order and duplicates are retained; unavailable
-  loaded items are skipped by Next/Previous/EOS. Partial contexts stay marked,
-  with no unbounded autofetch. Manual appends follow the loaded context; choosing
-  a new context replaces old extras. These new semantics require owner acceptance
-  without invalidating the previously accepted core sound.
-- **Live acceptance is endpoint-specific.** The owner verified ordinary Karin
-  sign-in, Music account validation, actual liked tracks and personal-playlist
-  listing on Fedora at PR #8 baseline `797ba3a`, as recorded in Issue #9. Search
-  and opening those playlists failed. Fixes require new owner-local acceptance;
-  successful loopback fixtures do not change the historical failure into a pass.
-  The default Cassette-compatible provider remains the working sign-in path;
-  the separate own-client PKCE ID 200 / Music 403 result is not reused as its
-  default route or diagnosed as the cause of unrelated UI failures.
-- **The 2026-10-30 PR #12 catalog retest failed.** Account/library reads still
-  work, but track search reports `response-contract`, and actual row activation
-  did not open details. The correction replaces the GTK keybinding-signal hooks
-  with parent-list user-activation dispatch and accepts source-confirmed missing
-  embedded album identity. The precise live search-response mismatch is still
-  unknown; fixed parsing stages and the known HTTP status now distinguish it
-  without disclosing response data. That historical failure is not a current
-  claim that audio or all details remain broken; use the latest revision-specific
-  owner evidence above. The later real `f0aa2bb` search PASS supersedes that
-  search failure; green fixtures alone could not have established it.
-- **Return/session/token outcomes are concrete stages.** Exact Music-root return
-  and fresh echoed state must be accepted before collecting OAuth-endpoint cookies
-  from this dialog's ephemeral session. A different return, missing state/cookie,
-  cookie-read failure, OAuth HTTP/schema refusal and Music API refusal are distinct
-  errors, not a generic provider-unavailable result. Sessionid is not Code+PKCE;
-  the independent own-client PKCE diagnostic remains unchanged.
-- **Service/identity distribution conditions remain unresolved.** The auth
-  adaptation and published shared registration are attributed under Cassette's
-  GPL-3.0-or-later terms; code licensing does not grant API, registration, content
-  or trademark rights. Express approval for Karin's reuse/public distribution
-  and Linux embedded auth is not established. Do not infer a blanket provider ban
-  or approval. RFC 8252 rejects embedded native agents; mobile LoginSDK WebView
-  support does not resolve Linux eligibility. See [the scoped decision](adr/0011-cassette-session-auth-prototype.md).
-- **Device Flow is a library-only experiment.** `experimental-device-auth` remains
-  excluded from default/Flatpak and has no GUI or bundled app identity. The normal
-  default/Flatpak instead enables `cassette-auth`/WebKit. A no-feature build omits
-  real auth intentionally; smoke/capture modes use an explicit offline provider
-  and must not be mistaken for the real Fedora acceptance build.
-- **Sessions do not survive restart.** Tokens remain in memory; no plaintext
-  credential file, environment input or token store is used. Logout/close clears
-  local session state, but does not
-  revoke Yandex's server grant. Refresh, remote revocation and a verified Secret
-  Service lifecycle remain future gates. Keyring presence detection alone does
-  not complete them.
-- **Metadata support does not establish all workflows.** Search, details,
-  paging, cancellations and independent action dispatch are under correction for
-  v0.2. Album/artist/playlist schema and HTTP outcomes need separate checks; do not
-  loosen account validation or silently hide a malformed response. Like/unlike
-  and liked-playlist reads now have implementations and synthetic tests; live
-  acceptance remains pending. Unknown write outcomes require a read refresh,
-  not automatic replay. Playlist editing, recommendations and My Wave remain
-  absent until their full contracts and lifecycle are implemented and checked.
-- **The GStreamer engine remains independent.** Local-file playback and clearly
-  labeled generated-WAV diagnostics exercise decoding, transport, seeking, EOS
-  and cleanup. They do not establish service playback, every future codec or
-  physical PipeWire output. The new MPRIS adapter uses the existing player,
-  without another audio engine or arbitrary-URI input. Native display metadata
-  and an optional validated local cover are exposed on the user's session bus,
-  never media/CDN addresses, tokens or cookies. Actual KDE/playerctl/hardware-key
-  and current Flatpak integration still require owner-local validation; repeat,
-  shuffle, TrackList and variable-speed playback are not implemented. Optional
-  LoopStatus/Shuffle properties are omitted. The worker adds only successful-
-  seek acknowledgement telemetry for the bridge; source resolution, admission
-  and the underlying media algorithms are preserved.
-- **Cloud results are limited.** Synthetic loopback fixtures and Xvfb/Openbox
-  captures establish only their stated protocol/UI behavior. They cannot certify
-  Fedora/KDE/Wayland decorations, HiDPI, accessibility, account rights, audible
-  music or the exact Flatpak artifact. Fresh acceptance of each changed
-  workflow/revision remains required; this does not erase the separately
-  recorded real audio PASS.
-- **Shutdown is cooperative.** Cancel/logout discards stale work and local
-  presentation state; a bounded in-flight HTTP call can retain a temporary token
-  clone until it completes. Forceful process termination cannot guarantee native
-  cleanup or erase all HTTP/TLS/OS copies. No raw provider diagnostics or personal
-  data should be published from local tests.
-- **Flatpak acceptance is pending for this revision.** GNOME 50, Freedesktop
-  25.08 Rust extension are preserved. MPRIS adds only ownership of
-  `org.mpris.MediaPlayer2.io.github.tracerxbrhd.Karin`, without broad session-bus,
-  host filesystem or Secret Service grants. Source preparation and offline Cargo checks
-  do not establish a full sandboxed build; Bubblewrap namespaces are denied in
-  the cloud environment.
-- **Code licenses do not grant service access.** GPL-3.0-or-later and compatible
-  dependency licenses require their notices/source obligations and grant no
-  Yandex API, content, application-identity or trademark rights. The thin adapter
-  uses schema knowledge from pinned yamu without importing its OAuth or modern
-  extracted-key delivery implementation. The Cassette auth adaptation retains
-  its GPL notices and shared-registration provenance. The original Rust legacy
-  resolver cites the published Cassette/MarshalX/lifeart protocol references;
-  source, registration and service/content rights remain separate.
+## Accepted baseline and new work
 
-Executed checks and outstanding acceptance are recorded in
-[VALIDATION.md](VALIDATION.md). A workflow definition is not a passed run.
+The owner accepted the merged v0.2 `master` on Fedora 44 / KDE Plasma / Wayland /
+PipeWire, including Flatpak: **17 PASS, 0 FAIL, 1 N/D**. Sign-in, library/search,
+actual Music playback, contextual queues, transport/seek/volume, MPRIS/KDE Media
+Widget and shutdown form the regression baseline. Hardware media keys are N/D.
+PR #13 is merged. Earlier search/UI/audio/packaging failures remain history for
+those exact revisions, not the current baseline.
+
+The owner accepted v0.3 runtime
+`02325489d23ead9da4471de9cc35e2c063ac8bab` on **2026-10-31**, including
+persistent sign-in/restart restoration, real covers in lists/Player Bar/right
+pane, real playback, pane mechanics and KDE Media Widget cover/metadata. The
+owner also reported successful final Flatpak authorization, playback and
+system-integration checks, with no blocking functional defect reported.
+Automated checks, that desktop acceptance and public-release rights remain
+separate statuses; the documentation-only finalization HEAD is not a new runtime
+acceptance revision. Exact provenance belongs in [VALIDATION.md](VALIDATION.md).
+Use the
+[single Fedora procedure](BUILDING.md#v03-seamless-experience-acceptance-on-fedora).
+
+## Current v0.3 functional stabilization
+
+At native revision `23174b045cc228e4108e847e801f9264d7a088f9`, saved sign-in
+and pane mechanics passed, while every cover surface failed. That historical
+FAIL remains recorded. The repair is owner-verified at `0232548` for real covers
+in lists, Player Bar and the right pane, plus KDE Media Widget cover/metadata.
+Pane mechanics are accepted; its visual design remains unsatisfactory to the
+owner. Substantial UI/UX redesign belongs to the next separate iteration.
+
+The URL-generation cause was reproduced independently: internal raster
+buckets 128/256/512 were sent as CDN sizes; two published public resources
+returned 404 for those sizes and 200 decoded JPEG for presets 200/400/1000.
+The correction keeps the internal buckets/limits and existing exact HTTPS
+origin. Published protocol-relative and narrowly numeric playlist-revision
+variants do not justify arbitrary sources, queries, MIME types or redirects.
+Core stable/MSRV checks, counted image-cache tests and extended native GTK
+fixtures pass at 1×/2×. Hosted conclusions are tracked on PR #14. Public-sample
+HTTP and synthetic fixtures remain separate from the owner's final render-path
+acceptance; neither proves every unreported album/playlist surface. The reusable
+focused procedure is
+[the cover/cache stabilization retest](BUILDING.md#focused-cover-and-cache-stabilization-retest).
+
+The observed metadata cache of about **66 KB after six tracks is not a defect by
+itself**. The 256 MiB default is a size ceiling, not a preallocation or expected
+music-file size. Disk reuse is established by existing automatic counted-image
+fixtures, not inferred HTTP-request counts from user-observed loading speed.
+Initial stream buffering remains expected; persistent audio/offline and the full
+Wave lifecycle retain their independent documented blockers.
+
+Artwork diagnostics are opt-in and finite, silent by default, and report fixed
+stage categories rather than image addresses or personal fields. They do not
+identify a particular private image or expose a full request trace. Successful
+`must-revalidate` responses may be reused only while explicitly fresh; an expired
+raster marked no-stale cannot supply network-error fallback. Other documented
+HTTP cache restrictions remain in force.
+The malformed-TLS loopback test is a negative handshake/no-downgrade check,
+not a claim about a real CDN certificate chain. This cloud execution lacked
+Flatpak tooling/an installed GNOME 50 SDK and did not test the package here.
+The final owner's Flatpak success is separate evidence; it does not provide a
+granular Secret Portal/backend deletion/failure matrix.
+
+## Session and system storage
+
+- **Protected storage is an actual capability, not a service-name check.** Native
+  Secret Service and Flatpak Secret Portal/backend availability differ by desktop
+  and configuration. Locked, denied, cancelled, corrupt, missing or timed-out
+  storage permits ordinary process-only sign-in without plaintext fallback.
+  Active cleanup I/O settles first; after a failed result, memory-only login can
+  continue while restoration/new persistent writes/cache remain barred.
+  The owner's persistent-login/restart and final Flatpak PASS do not identify
+  or accept every wallet operation/backend. Synthetic protocol fixtures do not
+  establish real verified deletion or failure recovery on each KWallet/GNOME/
+  Secret Portal installation; no granular owner matrix was supplied.
+- **Only a Music-validated token may be remembered/restored as authenticated.**
+  A loaded credential, Yandex ID, previous account or cached library is not fresh
+  Music authorization. Restore and validation run off GTK, with generations and
+  cancellation. A network failure is not automatically an expired/revoked token.
+  Existing Cassette-compatible sign-in remains the normal provider; the own-client
+  PKCE ID 200/Music 403 experiment is independent historical evidence.
+- **Forget is local and must be confirmed.** Turning remembering off deletes the
+  saved credential while the live session may continue. The saved preference
+  remains visible when storage is unavailable: enabled may be turned off to
+  record forget intent, with unresolved deletion shown; enabling requires
+  supported storage. Confirmed logout stops
+  audio, clears personal UI and persistent metadata/covers, and verifies saved
+  credential absence. Unknown delete/clear outcomes stay visible with Retry;
+  replacement login waits for active cleanup I/O, not an invented success.
+  Settled failure permits only memory login with persistent writes/cache paused.
+  A successfully saved pending-forget barrier suppresses old restoration across
+  restart; a failed barrier write leaves restart protection explicitly
+  unconfirmed and requires Retry. Normal close may
+  retain an allowed cache and confirmed remembered session.
+- **Portal and remote lifetimes differ.** Portal forgetting deletes Karin's
+  authenticated encrypted token envelope, not the portal's per-app master key.
+  Native Secret Service at-rest protection belongs to the configured system
+  keyring. No refresh-token or Yandex server-revocation flow is claimed. WebKit
+  cookies, sessionid, passwords and diagnostic OAuth inputs remain ephemeral.
+- **No broad sandbox assumption.** The exact MPRIS own-name grant does not grant
+  direct Secret Service access. Flatpak selects the portal path and an explicit
+  unavailable result rather than adding broad session-bus/host-filesystem grants.
+  GNOME source-graph libsecret availability is not a test of an installed runtime
+  or running portal backend. See [ADR-0018](adr/0018-persistent-session-and-settings.md).
+
+## Cache and offline behavior
+
+- **Metadata and normalized covers only.** The private account-bound disk cache
+  has TTL, byte/count limits, atomic writes, integrity/schema validation and
+  LRU-like eviction. Hashed paths avoid literal IDs but are not encryption;
+  local metadata remains personal material and must not be published. No token,
+  cookie, raw provider payload, signed media URL or music belongs there.
+- **Saved data is not current authority.** Explicit refresh, account validation,
+  favorite membership, playlist revisions and write confirmation use the server.
+  Eligible fallback is visibly saved/potentially stale; it must not hide rejected
+  authorization or manufacture successful writes. Every write outcome invalidates
+  affected metadata, including ambiguous results. Public covers obey explicit
+  cache restrictions and shorter source freshness.
+- **Disable, clear and logout have different effects.** Cache-off stops persistent
+  content reads/new writes while retaining existing files until explicit clear.
+  Usage/clear remain administrative operations. Clear preserves credentials,
+  current audio/context, displayed textures and live MPRIS cover; account/policy
+  generations prevent late repopulation. Logout deliberately stops playback and
+  purges personal cache. Normal close retains allowed data. Measured usage sums
+  record file lengths, not all physical filesystem allocation overhead.
+- **Persistent audio/offline rights are not established.** An authorized legacy
+  MP3 stream and official-client encrypted downloads do not supply Karin with a
+  third-party persistent-storage grant, account/subscription lease or enforceable
+  offline rights-expiry API. No service audio is written to disk or hidden in a
+  temporary cache; no inert Offline switch or availability badge is exposed.
+  This does not classify every MP3 checksum as DRM or imply the working stream
+  failed. See [AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md) for exact evidence and
+  prerequisites, and [ADR-0019](adr/0019-bounded-account-cache.md) for data policy.
+
+## Catalog, workspace and playback
+
+- **Home refresh can retain an existing preview.** Final source review found
+  that Home's refresh fetches new liked/playlist page zero but only assigns it
+  when the corresponding model is empty (`load_initial_library_policy`). An
+  already populated preview may therefore remain unchanged. Library/detail
+  Refresh follows its separate path. This is a nonblocking metadata-presentation
+  follow-up, not a replacement for the live account or audio checks.
+- **Refusal-driven cache removal can fail.** `CachedCatalog::read` returns a
+  non-transport API refusal, but removal of the previous record is best effort.
+  If cache I/O returns Busy/unavailable, a later stable read may still find the
+  earlier fresh metadata. This source-reviewed failure edge is not covered by
+  the successful-removal fixture. It does not authorize a session or supply a
+  playback resource; track it as a nonblocking cache-consistency follow-up.
+
+- **The API is unofficial and changeable.** Strict own identifiers/account binding
+  and bounded requests remain. Track search accepts at most 50 raw hit positions
+  and one canonical batch of at most 50 distinct IDs, preserving duplicate order,
+  composite identities and provider paging. Optional hit display fields cannot
+  reject otherwise valid IDs; missing records are reported and unavailable
+  tracks stay disabled. New contract variants still need explicit handling.
+- **A context is a loaded collection.** The 500-position bound, exact occurrences,
+  manual additions and visible partial boundary remain. Next/Previous/EOS skip
+  unavailable loaded tracks; no unbounded library autofetch or claim of a complete
+  remote collection is introduced. Pane/view changes must not replace playback.
+- **UI actions require actual data/contracts.** Track-pane artist/album links use
+  verified identities, not guessed names. Native playlist tiles permit bounded
+  two-line title ellipsis only with full tooltip/accessibility/detail text.
+  Creation requires independent server confirmation; ambiguous writes are not
+  replayed. Broader playlist editing, repeat/shuffle, TrackList, variable speed,
+  notifications and unrelated library features are not implied.
+- **My Wave/similar tracks/lyrics have separate gates.** A station list or normal
+  queue is not a radio-session/listening-feedback implementation. Keep My Wave
+  hidden until its full current session/capability is established. Do not publish
+  fabricated recommendations. The reviewed lyrics implementations use extracted
+  official-client signing material; Karin imports none, and no separately
+  permitted plain-text source is established. See [CASSETTE_PARITY.md](CASSETTE_PARITY.md).
+- **Remote delivery remains deliberately narrow.** Metadata admits exact HTTPS
+  `storage.mds.yandex.net` and the reviewed `/get-download-info/`, `/download-info/`
+  or `/file-download-info/` families. Generated media uses the restricted `s` +
+  1–5 digits + 3 lowercase letters host family under `storage.yandex.net`, with
+  canonical `/get-mp3/`. This is not arbitrary Yandex subdomains or an exhaustive
+  observed CDN inventory. Protected/preview/ambiguous offers, unknown origins,
+  redirects and unsupported formats fail visibly; no identity/key/DRM fallback
+  is added. The 60-second local admission is not XML timestamp entitlement or
+  offline expiry; an already playing track is not stopped just because it ages.
+  A new connection/seek/resume may need explicit fresh Play. See
+  [ADR-0015](adr/0015-guarded-legacy-mp3-playback.md).
+- **MPRIS controls the same player.** Known metadata, opaque track paths and an
+  optional private local PNG are exposed on the user's session bus, never media
+  URLs, credentials or account IDs. Native seeks require actual worker
+  acknowledgement. No second engine or arbitrary OpenUri is introduced.
+  The owner confirmed actual cover/metadata in KDE Media Widget at `0232548`
+  and reported successful final Flatpak system integration. Physical media keys
+  remain N/D without a separate reported test.
+
+## Evidence and release scope
+
+- **Cloud evidence has limits.** Synthetic loopback/D-Bus/files and Xvfb/Openbox
+  prove only their stated protocol, structure, pixels and lifecycle behavior.
+  They do not certify Fedora Wayland, real KWallet/portal, actual account rights,
+  PipeWire audibility, hardware keys or a newly installed Flatpak. Full cloud
+  namespace/SDK restrictions, when encountered, are reported rather than bypassed.
+- **Shutdown is cooperative.** Invalidation discards stale work; an already active
+  bounded HTTP/native operation can retain temporary memory until it finishes.
+  Forced termination cannot promise native cleanup or erase every OS/HTTP copy.
+  Do not publish raw browser/network/D-Bus diagnostics or real cache records.
+- **Software and service rights differ.** GPL-3.0-or-later notices and compatible
+  dependency grants do not authorize OAuth-registration reuse, Yandex API/content,
+  trademarks or public service distribution. The attributed Cassette-compatible
+  identity remains an explicitly permitted local-prototype adaptation, with
+  public service/registration/Linux embedded-auth conditions unresolved rather
+  than declared approved or blanket-prohibited. Technical local success and
+  source licensing remain independent of public-release authorization.

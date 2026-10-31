@@ -144,6 +144,7 @@ fn synthetic_track() -> Track {
         id: "42".into(),
         title: "Synthetic account-menu track".into(),
         artists: vec!["Synthetic artist".into()],
+        artist_links: Vec::new(),
         album_id: None,
         album_title: None,
         duration_ms: Some(123_000),
