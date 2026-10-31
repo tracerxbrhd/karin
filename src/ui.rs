@@ -562,6 +562,7 @@ fn build_with_music_pane(
     compact_navigation.add_setter(&split, "collapsed", Some(&true.to_value()));
     compact_navigation.add_setter(&split, "show-sidebar", Some(&false.to_value()));
     compact_navigation.add_setter(&sidebar_toggle, "visible", Some(&true.to_value()));
+    compact_navigation.add_setter(&music.account_caption(), "visible", Some(&false.to_value()));
     compact_navigation.add_setter(
         &diagnostic_columns,
         "orientation",

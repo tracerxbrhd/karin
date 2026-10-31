@@ -180,6 +180,18 @@ jobs:
           dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_music_playback_resolver_queue_controls_and_logout -- --ignored --test-threads=1
           dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_music_playback_queue_races_remove_and_close -- --ignored --test-threads=1
           dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_music_playback_media_error_visibility_stop_retry_and_catalog_preservation -- --ignored --test-threads=1
+      - name: Signed-in search and safe account actions at HiDPI
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+          GSK_DEBUG: full-redraw
+          GDK_SCALE: 2
+        run: |
+          if [ '${{ matrix.lane }}' = stable ]; then
+            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/hidpi"
+          fi
+          dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_search_retry_normalized_results_and_density -- --ignored --test-threads=1
+          dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_account_menu_logout_cancel_default_confirm_and_stale_session -- --ignored --test-threads=1
       - name: Cover textures, HiDPI, cancellation and native cleanup
         env:
           GTK_A11Y: none

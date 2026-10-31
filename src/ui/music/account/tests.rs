@@ -33,58 +33,13 @@ fn response_button(dialog: &adw::AlertDialog, label: &str) -> gtk::Button {
         .expect("native confirmation button")
 }
 
+fn wait_for_target_layout(window: &adw::ApplicationWindow, widget: &impl IsA<gtk::Widget>) {
+    super::super::test_input::wait_for_layout(window, widget);
+}
+
 fn click(window: &adw::ApplicationWindow, id: &str, widget: &impl IsA<gtk::Widget>) {
-    let widget = widget.as_ref();
-    pump_until(|| {
-        widget.is_mapped()
-            && widget.width() > 0
-            && widget.height() > 0
-            && widget
-                .native()
-                .and_then(|native| native.surface())
-                .is_some_and(|surface| surface.is_mapped())
-    });
-    // A popup's mapped signal precedes its final native allocation. Observe
-    // stable geometry on two real frames before sending an X11 coordinate;
-    // otherwise a fast test can click the account menu's previous popup spot.
-    let stable = Rc::new(Cell::new(0));
-    let previous = Rc::new(RefCell::new(None));
-    let ready = Rc::new(Cell::new(false));
-    let painted = ready.clone();
-    let host = window.downgrade();
-    widget.add_tick_callback(move |widget, _| {
-        let Some(window) = host.upgrade() else {
-            return glib::ControlFlow::Break;
-        };
-        let Some(rect) = widget.compute_bounds(&window) else {
-            return glib::ControlFlow::Continue;
-        };
-        let geometry = (
-            rect.x().to_bits(),
-            rect.y().to_bits(),
-            rect.width().to_bits(),
-            rect.height().to_bits(),
-        );
-        if previous.borrow().as_ref() == Some(&geometry) {
-            stable.set(stable.get() + 1);
-        } else {
-            stable.set(1);
-        }
-        *previous.borrow_mut() = Some(geometry);
-        if stable.get() >= 2 {
-            painted.set(true);
-            glib::ControlFlow::Break
-        } else {
-            glib::ControlFlow::Continue
-        }
-    });
-    pump_until(|| ready.get());
-    let rect = widget
-        .compute_bounds(window)
-        .expect("rendered account input target");
-    let x = (rect.x() + rect.width() / 2.0) as i32;
-    let y = (rect.y() + rect.height() / 2.0) as i32;
-    assert!(x >= 0 && x < window.width() && y >= 0 && y < window.height());
+    let (x, y) =
+        super::super::test_input::pointer(window, widget, super::super::test_input::Target::Center);
     input(&[
         "mousemove",
         "--sync",
@@ -257,6 +212,10 @@ fn native_account_menu_logout_cancel_default_confirm_and_stale_session() {
                 .surface()
                 .is_some_and(|surface| surface.width() == width && surface.height() == height)
         });
+        wait_for_target_layout(window, &this.widgets.account_menu);
+        ui.verify_layout().expect(
+            "signed-in navigation and full Home title must fit before opening an account popover",
+        );
 
         // A real click opens only a menu. It cannot stop audio, clear the
         // queue, invalidate a token or even create the confirmation yet.

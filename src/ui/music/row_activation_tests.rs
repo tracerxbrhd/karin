@@ -28,15 +28,7 @@ fn input(arguments: &[&str]) {
 }
 
 fn click(window: &adw::ApplicationWindow, id: &str, widget: &impl IsA<gtk::Widget>) {
-    let widget = widget.as_ref();
-    pump_until(|| widget.is_mapped() && widget.width() > 0 && widget.height() > 0);
-    let bounds = widget
-        .compute_bounds(window)
-        .expect("rendered input target");
-    // Stay away from a row's nested right-hand menu/add buttons.
-    let x = (bounds.x() + bounds.width().min(160.0) / 2.0) as i32;
-    let y = (bounds.y() + bounds.height() / 2.0) as i32;
-    assert!(x >= 0 && x < window.width() && y >= 0 && y < window.height());
+    let (x, y) = super::test_input::pointer(window, widget, super::test_input::Target::Leading);
     input(&[
         "mousemove",
         "--sync",
@@ -46,8 +38,7 @@ fn click(window: &adw::ApplicationWindow, id: &str, widget: &impl IsA<gtk::Widge
         &y.to_string(),
     ]);
     input(&["click", "1"]);
-    // XSendEvent/XTest completion is not GTK event dispatch. In particular,
-    // testing !busy immediately could pass before the click starts its job.
+    // XTest completion is not GTK dispatch; observe the actual resulting action.
     settle();
 }
 

@@ -8,6 +8,7 @@ mod tests;
 
 pub(super) struct AccountMenu {
     pub menu: gtk::MenuButton,
+    pub caption: gtk::Label,
     pub name: gtk::Label,
     pub logout: gtk::Button,
 }
@@ -20,7 +21,9 @@ impl AccountMenu {
         let avatar = gtk::Image::from_icon_name("avatar-default-symbolic");
         avatar.set_pixel_size(16);
         identity.append(&avatar);
-        identity.append(&gtk::Label::new(Some("Аккаунт")));
+        let caption = gtk::Label::new(Some("Аккаунт"));
+        caption.set_widget_name("music-account-caption");
+        identity.append(&caption);
         menu.set_child(Some(&identity));
         menu.set_always_show_arrow(true);
         menu.set_tooltip_text(Some("Меню аккаунта"));
@@ -43,7 +46,12 @@ impl AccountMenu {
         let popover = gtk::Popover::new();
         popover.set_child(Some(&content));
         menu.set_popover(Some(&popover));
-        Self { menu, name, logout }
+        Self {
+            menu,
+            caption,
+            name,
+            logout,
+        }
     }
 }
 

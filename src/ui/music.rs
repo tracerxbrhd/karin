@@ -22,6 +22,8 @@ mod requests;
 mod row_activation_tests;
 #[cfg(test)]
 mod search_tests;
+#[cfg(test)]
+mod test_input;
 use requests::{Operation, Requests};
 type PendingJob = Box<dyn FnOnce(&Rc<Controller>, u64)>;
 
@@ -76,6 +78,7 @@ struct Model {
 struct Widgets {
     account_bar: gtk::Box,
     account_menu: gtk::MenuButton,
+    account_caption: gtk::Label,
     account: gtk::Label,
     notice: gtk::Label,
     login: gtk::Button,
@@ -209,6 +212,7 @@ impl MusicPane {
         let account = account_controls.name.clone();
         account.set_widget_name("music-account");
         let account_menu = account_controls.menu;
+        let account_caption = account_controls.caption;
         let logout = account_controls.logout;
         let login = gtk::Button::with_label("Войти");
         login.set_widget_name("music-login");
@@ -478,6 +482,7 @@ impl MusicPane {
         let widgets = Widgets {
             account_bar,
             account_menu,
+            account_caption,
             account,
             notice,
             login,
@@ -594,6 +599,12 @@ impl MusicPane {
     /// navigation or a direct destructive icon in the music workspace.
     pub fn account_menu(&self) -> gtk::MenuButton {
         self.controller.widgets.account_menu.clone()
+    }
+
+    /// The compact HeaderBar keeps the avatar and menu arrow while its native
+    /// breakpoint hides this caption, leaving room for the full page title.
+    pub fn account_caption(&self) -> gtk::Label {
+        self.controller.widgets.account_caption.clone()
     }
 
     pub fn close(&self) {

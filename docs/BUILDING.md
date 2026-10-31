@@ -247,8 +247,9 @@ Perform this one substantive acceptance run on Fedora 44/KDE/Wayland/PipeWire:
 3. Verify your actual liked tracks and personal playlists load; choose a playlist
    and verify its contents. Search for a familiar track, album and artist; inspect
    the corresponding returned results and details. Empty libraries are legitimate
-   only if they match your account. Add metadata to the queue and confirm ordering;
-   selecting it does not yet resolve or play a Music stream.
+   only if they match your account. Add tracks to the queue and confirm ordering.
+   Selection is silent before explicit Play; during playback, selection changes
+   must play the selected track.
 4. Sign out. Check that account/library/queue state and prior errors clear. Start
    another login, cancel it, retry and close the window; delayed results must not
    sign you back in. Restart should be signed out because sessions are memory-only.
@@ -263,9 +264,11 @@ Perform this one substantive acceptance run on Fedora 44/KDE/Wayland/PipeWire:
    private library screens or login screenshots. Do not change identity, region or
    OAuth mechanism during this acceptance run to hide a failed result.
 
-Live sign-in, token exchange and actual library/search remain **pending until
-this run succeeds**. Source review and cloud fixtures cannot prove them. The
-selected return is exact `https://music.yandex.ru/` with matching fresh state;
+Owner evidence at `8f1b09d` now accepts real sign-in, Music account/library access
+and core audio. Corrected track search/UX and the new build's playback regression
+remain pending owner acceptance; source review and cloud fixtures cannot prove
+that new Fedora result. The selected return is exact `https://music.yandex.ru/`
+with matching fresh state;
 if Yandex returns a different origin/path or omits state, the tool must report that
 specific return-validation failure rather than accept a substring or fake success.
 Cookie collection uses only this dialog's ephemeral session and the fixed official

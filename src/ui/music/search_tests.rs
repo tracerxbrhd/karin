@@ -55,16 +55,14 @@ fn settle() {
     pump_until(|| Instant::now() >= deadline);
 }
 
+fn wait_for_step(step: &'static str, condition: impl FnMut() -> bool) {
+    eprintln!("Karin synthetic search step={step} state=waiting");
+    pump_until(condition);
+    eprintln!("Karin synthetic search step={step} state=complete");
+}
+
 fn click(window: &adw::ApplicationWindow, id: &str, widget: &impl IsA<gtk::Widget>) {
-    let widget = widget.as_ref();
-    pump_until(|| widget.is_mapped() && widget.width() > 0 && widget.height() > 0);
-    let bounds = widget
-        .compute_bounds(window)
-        .expect("native input allocation");
-    // For a list row, target its title rather than a right-hand nested action.
-    let x = (bounds.x() + bounds.width().min(160.0) / 2.0) as i32;
-    let y = (bounds.y() + bounds.height() / 2.0) as i32;
-    assert!(x >= 0 && x < window.width() && y >= 0 && y < window.height());
+    let (x, y) = super::test_input::pointer(window, widget, super::test_input::Target::Leading);
     input(&[
         "mousemove",
         "--sync",
@@ -78,13 +76,11 @@ fn click(window: &adw::ApplicationWindow, id: &str, widget: &impl IsA<gtk::Widge
 }
 
 fn click_expander_heading(window: &adw::ApplicationWindow, id: &str, expander: &gtk::Expander) {
-    let bounds = expander
-        .compute_bounds(window)
-        .expect("diagnostic disclosure allocation");
-    // The expanded child changes the expander's total height. Click its header
-    // line both times, rather than selecting text in the expanded support code.
-    let x = (bounds.x() + bounds.width().min(160.0) / 2.0) as i32;
-    let y = (bounds.y() + 10.0) as i32;
+    let (x, y) = super::test_input::pointer(
+        window,
+        expander,
+        super::test_input::Target::DisclosureHeading,
+    );
     input(&[
         "mousemove",
         "--sync",
@@ -328,7 +324,9 @@ fn native_search_retry_normalized_results_and_density() {
     click(window, id, &this.widgets.search);
     input(&["type", "--clearmodifiers", "synthetic-query"]);
     input(&["key", "--clearmodifiers", "Return"]);
-    pump_until(|| counts.lock().unwrap().searches == 1 && !this.model.borrow().busy);
+    wait_for_step("initial-search-error", || {
+        counts.lock().unwrap().searches == 1 && !this.model.borrow().busy
+    });
     let retry = named_button(
         this.widgets.search_feedback.upcast_ref(),
         "music-search-retry",
@@ -365,13 +363,15 @@ fn native_search_retry_normalized_results_and_density() {
     }
     capture_native("search-error-retry-collapsed");
     click_expander_heading(window, id, &details);
-    pump_until(|| details.is_expanded());
+    wait_for_step("expand-safe-diagnostics", || details.is_expanded());
     assert!(contains_text(details.upcast_ref(), "HTTP: 503"));
     assert!(!contains_text(details.upcast_ref(), "synthetic-private"));
     click_expander_heading(window, id, &details);
-    pump_until(|| !details.is_expanded());
+    wait_for_step("collapse-safe-diagnostics", || !details.is_expanded());
     click(window, id, &retry);
-    pump_until(|| counts.lock().unwrap().searches == 2 && !this.model.borrow().busy);
+    wait_for_step("retry-normalized-search", || {
+        counts.lock().unwrap().searches == 2 && !this.model.borrow().busy
+    });
     let result_rows = rows(&this.widgets.search_rows);
     assert_eq!(result_rows.len(), 13);
     let expected = [50, 42, 43, 44, 45, 46, 47, 48, 49, 51, 52, 53, 42];
