@@ -54,7 +54,7 @@ impl MusicPane {
         Rc::new(move |visible| {
             if let Some(this) = weak.upgrade() {
                 this.music_surface_visible.set(visible);
-                this.sync_info_visibility();
+                this.sync_track_pane();
             }
         })
     }
@@ -203,7 +203,7 @@ impl Controller {
                 )
             });
         self.track_pane.set_context(context_label.as_deref());
-        let available = ready && track.is_some();
+        let available = ready && track.is_some() && self.music_surface_visible.get();
         self.widgets
             .current_art_button
             .set_sensitive(ready && current.is_some());
@@ -246,6 +246,9 @@ impl Controller {
     }
 
     fn toggle_track_info(self: &Rc<Self>) {
+        if !self.music_surface_visible.get() {
+            return;
+        }
         if let Some(track) = self.model.borrow().queue.current().cloned() {
             let context = self.model.borrow().queue.context().cloned();
             self.info_selection.replace(Some(InfoSelection {

@@ -269,11 +269,19 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
     pump_until(|| !split.shows_sidebar());
     assert!(!this.music_surface_visible.get());
     assert!(!this.track_pane.widget.is_visible());
+    assert!(
+        !ui.window.lookup_action("music-info").unwrap().is_enabled(),
+        "track information must be unavailable on Diagnostics"
+    );
+    input(&["key", "--clearmodifiers", "ctrl+i"]);
+    settle();
+    assert!(!split.shows_sidebar());
     capture_native("workspace-shell-diagnostics-pane-hidden");
     ui.show_page("music-home");
     pump_until(|| split.shows_sidebar());
     assert!(this.music_surface_visible.get());
     assert!(this.track_pane.widget.is_visible());
+    assert!(ui.window.lookup_action("music-info").unwrap().is_enabled());
     assert_selection(&this, "42", ContextKind::LikedTracks, 1);
 
     for (shape, width, height) in [("compact", 420, 720), ("medium", 900, 650)] {

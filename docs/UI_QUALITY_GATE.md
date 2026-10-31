@@ -190,6 +190,8 @@ new persistence/cache/pane code. At every relevant size/theme/scale:
   presentation. Check large/missing cover, long full title/credits/album,
   selected-versus-playing state, close/focus return and only verified artist/
   album navigation. Pane opening/closing must not implicitly Play or Stop.
+  Its menu action and Ctrl+I stay disabled on Diagnostics; switching back to
+  music restores the appropriate action without changing playback.
 - Activate tracks through mouse/Enter/Space and through distinct Details/pane
   controls. Preserve exact source occurrence/duplicates, manual appends and the
   visible partial-context boundary; a different information selection must not
