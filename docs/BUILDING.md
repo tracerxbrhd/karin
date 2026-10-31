@@ -47,110 +47,119 @@ for a consented local desktop experiment; it is not application sign-in or
 Yandex Music stream playback. The default sign-in provider is the Cassette-compatible
 session prototype below; it requires no end-user OAuth configuration.
 
-## v0.2 catalog and delivery-info acceptance on Fedora
+<a id="v02-catalog-and-delivery-info-acceptance-on-fedora"></a>
 
-Use **one build from the audio child PR above current PR #12** for this combined
-acceptance. The parent search-only artifact does not contain the new remote
-player. Check the artifact's `BUILD-INFO.txt`/source revision and `SHA256SUMS`; the
-successful MSRV run uploads `karin-fedora-prototype-1.98.1`. Verify the archive
-before extracting/running. If the Ubuntu-built native test executable cannot
-start on Fedora, build the same audio branch locally with the prerequisites above:
+## v0.2 search, account UX and playback regression on Fedora
+
+Use **one updated build from the existing PR #13**, after its matching stable
+and MSRV CI checks pass. The owner already accepted real Music playback,
+controls, queue and cleanup at `8f1b09d`; that is the baseline to preserve.
+That older build still fails track search and is not the search/UX correction.
+Check the new artifact's `BUILD-INFO.txt`/source revision and `SHA256SUMS`. A
+successful MSRV run uploads `karin-fedora-prototype-1.98.1`; verify the archive
+before extracting/running. The artifact is a native Ubuntu-built test binary,
+not a Flatpak or production release. If it cannot start on Fedora, build the
+same PR #13 revision locally with the prerequisites above:
 
 ```sh
+rustup toolchain install 1.98.1 --profile minimal
 cargo +1.98.1 build --release --locked
 ulimit -c 0
 ./target/release/karin
 ```
 
-Normal startup includes the existing Cassette-compatible Yandex login and the
-remote player. No new OAuth registration, Client ID/secret, pasted token, URL
-transfer, VPN change or sandbox override is needed. Session credentials remain
-memory-only. Use your own consenting local Fedora 44 / KDE / Wayland / PipeWire
-session, outside Cloud/CI, a recorder or shared support terminal. Do not enable
-network/browser/GStreamer debug logging or save the full terminal output.
-
-The [latest owner retest at `99a177e`](https://github.com/tracerxbrhd/karin/pull/12#issuecomment-6524410137)
-confirms ordinary sign-in, the library, real track details/liked state and album
-search/details; track search still failed. PR #12's `268a495` correction handles
-source-backed mixed/null optional display credits and is included in the audio
-branch. Its cloud regression is not another Fedora search PASS.
+For the extracted artifact, disable core dumps and run ordinary `./karin`.
+No OAuth registration, Client ID/secret, pasted token, URL transfer, diagnostic
+flag, VPN change or sandbox override is needed. Use your own local Fedora 44 /
+KDE / Wayland / PipeWire session outside Cloud/CI, a recorder or shared support
+terminal. Keep network/browser/GStreamer debugging disabled; do not save a full
+terminal transcript. Session credentials remain memory-only.
 
 In this single session:
 
-1. Click **Войти** and finish the normal Yandex dialog. Open an available track
-   from your real Library. Row activation opens details; the explicit **Play**
-   action in a track/detail or the player bar requests its source. Confirm that
-   you **hear that actual track** through PipeWire. A loading state, metadata,
-   generated signal or elapsed counter alone is not a PASS.
-2. Exercise pause/resume, volume and Stop. Play again, observe real progress and
-   seek when the player reports support. A source that expired before a new
-   connection/seek must fail visibly; an explicit Play obtains fresh metadata
-   and can restore the last measured position when the new source is seekable.
-   There is no endless automatic retry, identity switch or protection fallback.
-3. Add a second actual track, then use Next/Previous and queue selection. Allow
-   one track to reach EOS and verify automatic advance. Remove a noncurrent
-   entry and the current entry; displayed metadata must not diverge from the
-   sound. Stop, log out and close Karin; no old or orphaned playback may continue.
-4. Test Latin/Cyrillic track queries using both Enter and **Найти**, then open and
-   play a result. Also open album/artist results and actual owned/liked playlists,
-   their tracks, Back, empty states and page boundaries. Search failure does not
-   prevent the independent Library-track sound test or require signing in again.
-5. Change query or selection during a request, cancel with Stop, then start a
-   different track. Late results must not restart a stopped track or a closed
-   session. Repeat normal sign-in once after logout. Check compact/medium/wide,
-   maximize/restore, both themes, keyboard focus and HiDPI on the target desktop.
+1. Click **Войти**, finish the normal Yandex dialog, open the Library and play
+   an entitled real track. Confirm that it is audible through PipeWire. This is
+   a regression check of the already accepted service-audio path, not a request
+   to replace it or prove it with a generated signal.
+2. Search for tracks using both Latin and Cyrillic queries, with Enter and
+   **Найти**. Verify normalized titles/artists, open a result's details, navigate
+   Back and play a found track. Search must not fail because the search endpoint
+   returned unusual optional display metadata. Check album/artist search and
+   personal playlists for regressions as well.
+3. Exercise Next/Previous search pages, empty results and partially unavailable
+   data. Missing records must be explained; unavailable returned tracks must
+   not appear playable. Page navigation must follow the original search page,
+   including when fewer tracks can be normalized. On an ordinary search error,
+   verify one readable message and **Повторить поиск**, with no duplicated
+   technical code on the main screen. Open **Сведения для диагностики** only if a failure needs
+   investigation; no raw API response is needed.
+4. While a track is playing, open the account menu and select **Выйти из
+   аккаунта**. Verify the native confirmation and default focus on **Отмена**.
+   Cancel with the button and with Escape; an ordinary default keyboard
+   activation must not sign out. Account data, queue and audible playback must
+   remain intact. Repeat and explicitly confirm logout: only then should local
+   credentials/data clear and Music stop. Sign in once again normally.
+5. Exercise Play/Pause/Resume/Stop, real progress/seek when supported, volume,
+   queue selection and Next/Previous. Add another actual track, remove a
+   noncurrent/current item, allow EOS advance and check that metadata matches
+   the sound. Close Karin while playing; no orphan audio may remain. A locally
+   expired source can require explicit Play to acquire a fresh resource; there
+   is no identity switch, protection fallback or automatic refusal retry loop.
+6. Resize around 420×720, 900×650 and 1440×900, maximize/restore, switch both
+   themes and check HiDPI. Assess useful result density, whitespace, row actions,
+   Back and player visibility, not only clipping. Use Tab/Shift+Tab, Enter,
+   Space and Escape through search, rows, queue and account confirmation. Change
+   query/page during a request; late results must not replace the current view
+   or restart stopped audio.
 
-The desktop sidebar becomes a compact drawer. Shortcuts are Ctrl+H Home, Ctrl+L
-Library, Ctrl+F Search, Ctrl+J Queue, Ctrl+B drawer, Ctrl+, appearance, Alt+2
-Diagnostics and Ctrl+Q Quit. Appearance choices apply to this process only.
-Optional like/unlike checks may deliberately change one track and restore it;
-unknown/conflicted writes recover with GET-only Refresh, not another blind write.
+The desktop sidebar becomes a compact drawer. Existing shortcuts are Ctrl+H
+Home, Ctrl+L Library, Ctrl+F Search, Ctrl+J Queue, Ctrl+B drawer, Ctrl+,
+appearance and Ctrl+Q Quit. Appearance choices apply to this process only.
+Diagnostics are a separate explicit destination; they are not needed for normal
+search or playback. Optional like/unlike checks may deliberately change one
+track and restore it; unknown/conflicted writes recover with GET-only Refresh.
 
-Report only the build revision, anonymized PASS/FAIL (including **heard actual
-Music: yes/no**) and fixed error stage/category/numeric HTTP. A search error's
-inline support code contains finite stage/schema-shape/HTTP fields. Playback
-errors use fixed `Karin playback:` stages; a numeric media HTTP code is taken
-only from GStreamer's structured HTTP status. Do not upload full logs, JSON,
-queries, track/playlist/account titles or IDs, headers, private screenshots,
-cookies, tokens, signed addresses or audio. Existing sanitized
-`Karin auth navigation:` lines alone do not establish failed login.
+Report only the build revision and anonymized PASS/FAIL for track search,
+search-to-play, logout cancellation/confirmation, playback regression and UX.
+If needed, copy only fixed stage/category/numeric HTTP from the disclosed safe
+details. Do not upload full logs, JSON, queries, track/playlist/account names or
+IDs, headers, private screenshots, cookies, tokens, signed addresses or audio.
+The [owner's `8f1b09d` report](https://github.com/tracerxbrhd/karin/pull/13#issuecomment-6539311586)
+remains a real audio PASS; it is not a new-build search/UX PASS.
 
 ### Optional metadata-only delivery check
 
-The earlier owner result was HTTP 200/mp3 followed by
-`metadata-origin-unverified`; **no descriptor or media request was attempted**.
-The audio branch accepts three reviewed exact metadata path families, retaining
-strict origin, no-userinfo/fragment, redirect, time and size controls. An unknown
-origin and a known origin with an unsupported path have separate fixed results.
+The existing `--delivery-diagnostic` mode remains separate from ordinary Play.
+It retrieves offers and at most one XML descriptor, never media. Use it only
+for a new delivery failure that needs targeted investigation, not as the default
+acceptance route. No token, cookie, track ID or resource address is an input.
+An older installed Flatpak does not contain the correction; preparing source
+and compiling offline do not establish full SDK/sandbox package acceptance.
 
-To inspect that boundary separately, restart the same audio build with:
+The full v0.2 release still requires corrected live search and UX, current
+Flatpak verification and resolution of the independent public-registration/
+service-distribution questions. Actual Music audibility is already accepted
+for the recorded baseline. See [validation](VALIDATION.md), the
+[delivery contract](STREAM_DELIVERY_REVIEW.md) and [ADR-0015](adr/0015-guarded-legacy-mp3-playback.md).
 
-```sh
-ulimit -c 0
-./target/release/karin --delivery-diagnostic
-```
+### After owner acceptance: one integration PR
 
-Sign in normally and open a Library track. **Проверить доставку аудио без загрузки**
-fetches only an offer and at most one XML descriptor; it does not fetch media or
-start playback. Its XML/checksum classification is not a sound PASS. The normal
-explicit Play action instead uses the implemented resolver and GStreamer path.
-No token, cookie, track ID or address is a command-line/environment input.
-
-For a freshly rebuilt and installed Flatpak from this audio revision, use
-`flatpak run io.github.tracerxbrhd.Karin` for playback, optionally adding
-`--delivery-diagnostic` for the separate metadata check. An older installed
-Flatpak does not contain this code. Source preparation/offline native compilation
-is not a complete SDK/sandbox package acceptance.
-
-**v0.2 audible-player acceptance remains NOT MET** until this owner-local run
-hears actual service music and verifies transport/queue/cleanup. See
-[the delivery contract](STREAM_DELIVERY_REVIEW.md) and
-[ADR-0015](adr/0015-guarded-legacy-mp3-playback.md). Public OAuth-registration
-and service-distribution approval remain separate from a working local prototype.
+Keep the existing branch and PR #13 throughout this correction. Once the owner
+accepts search, logout UX and preserved sound, propose these actions for explicit
+approval: retarget this same PR #13 to `master` with its ancestor commits intact;
+rerun the full CI and review the resulting complete diff against `master`; then
+squash-merge once if authorized. Close the superseded #6, #8, #10, #11 and #12
+only with explicit approval and cross-links to #13. No new branch/PR, automatic
+base change, closure, branch deletion or history rewrite is required now.
 
 ## Music sign-in and Fedora acceptance
 
 <a id="experimental-music-session-and-fedora-acceptance"></a>
+
+Current search/account/audio acceptance uses the combined guide above. The
+following notes describe the provider and earlier focused authentication
+retests; those historical diagnostics are not prerequisites for ordinary login
+or the accepted playback path.
 
 The default build now enables `cassette-auth` and WebKitGTK6. The normal
 `Войти` action attempts real Yandex login using the published registration and

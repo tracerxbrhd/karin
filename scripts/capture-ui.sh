@@ -20,17 +20,7 @@ if [ "${1-}" != --session ]; then
         git -C "$repository" status --short
         printf '\nRendered binary and UI sources:\n'
         sha256sum "$binary"
-        sha256sum "$repository/src/ui.rs" "$repository/src/ui/playback.rs" \
-            "$repository/src/ui/music.rs" "$repository/src/music.rs" \
-            "$repository/src/session.rs" "$repository/src/session/device.rs" \
-            "$repository/src/queue.rs" "$repository/src/main.rs" \
-            "$repository/src/playback.rs" "$repository/src/capabilities.rs" \
-            "$repository/src/artwork.rs" "$repository/src/ui/artwork.rs" \
-            "$repository/src/ui/preferences.rs" "$repository/src/stream.rs" \
-            "$repository/src/auth.rs" "$repository/src/ui/auth.rs" \
-            "$repository/src/ui/auth/webkit.rs" "$repository/src/auth/cassette.rs" \
-            "$repository/src/auth/cassette_client.json" "$repository/Cargo.toml" \
-            "$repository/Cargo.lock"
+        (cd "$repository" && git ls-files -z -- src Cargo.toml Cargo.lock | xargs -0 sha256sum)
         printf '\nAuthentication: explicit --ui-fixture; no live OAuth requests.\n'
         printf '\nExperimental UI requested: %s\n' "${KARIN_CAPTURE_EXPERIMENTAL:-0}"
         if command -v dpkg-query >/dev/null 2>&1; then

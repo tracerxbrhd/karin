@@ -2,7 +2,7 @@
 
 # ADR-0015: Guarded legacy MP3 resolution and remote playback
 
-Status: Accepted for the consenting local prototype; live audio acceptance pending
+Status: Accepted; owner Fedora core-audio PASS at `8f1b09d` (2026-10-31)
 Date: 2026-10-30
 Supersedes: ADR-0007's local-only source restriction and ADR-0012's metadata-only
 implementation boundary for the explicit Play path
@@ -14,7 +14,15 @@ verified normal sign-in, a Music library, real track details/liked state and alb
 search on Fedora. Track search still failed at `99a177e` and is corrected
 separately in PR #12. A consenting per-track delivery probe returned HTTP 200
 and an MP3 descriptor offer, but the old metadata allowlist stopped before any
-descriptor/media GET. No live XML, playable resource or heard track is confirmed.
+descriptor/media GET. At that decision date, no live XML, playable resource or
+heard track was confirmed.
+
+Acceptance update, 2026-10-31: the owner's
+[PR #13 conclusion](https://github.com/tracerxbrhd/karin/pull/13#issuecomment-6539311586)
+confirms a heard entitled Yandex Music track, working controls/queue and correct
+logout/close on Fedora at `8f1b09d`. This supersedes the preceding dated audio
+uncertainty. Preserve the implementation while correcting search/UX; it does
+not settle current Flatpak or public-registration/service-distribution approval.
 
 Cassette v0.2.4, the published 2026-07-16 lifeart investigation and pinned
 MarshalX/yamuse describe the legacy offer → XML → ordinary checksum/get-mp3
@@ -88,8 +96,10 @@ fixture success is not provider acceptance.
 
 The final combined Fedora build must use normal login, a real entitled Library
 or playlist/search track, explicit Play and **heard music through PipeWire**,
-followed by pause/seek/skip/Stop/logout/close. Until then v0.2 sound acceptance is
-NOT MET. A failure identifies the exact fixed stage/category/HTTP, without raw
+followed by pause/seek/skip/Stop/logout/close. The owner has now accepted this core
+path at `8f1b09d`; each changed build still needs playback regression coverage.
+The full v0.2 release remains blocked by corrected live search/UX and separate
+packaging/distribution gates. A failure identifies the exact fixed stage/category/HTTP, without raw
 responses, identifiers, addresses, credentials or music entering Cloud/CI/GitHub.
 
 A technically working local prototype is separate from public distribution

@@ -2,12 +2,13 @@
 
 # Known limitations
 
-- **The remote player is implemented but service audio is not accepted yet.**
-  `StreamResolver` now handles the guarded legacy full-MP3 offer/XML path and
-  gives an opaque short-lived HTTPS source to the existing GStreamer worker.
-  Play/pause/resume/Stop, progress/seek, volume, queue navigation and EOS have
-  code paths; executed checks are recorded separately in [validation](VALIDATION.md).
-  The owner has not yet supplied a live descriptor or heard service track.
+- **Core service audio is accepted for the recorded baseline.** The owner's
+  [Fedora run at `8f1b09d`](https://github.com/tracerxbrhd/karin/pull/13#issuecomment-6539311586)
+  confirms an audible entitled Yandex Music track, working controls and queue,
+  and stopping on logout/close. This is real service acceptance, not a generated
+  signal. The search/UX correction must preserve it and pass one new-build
+  regression run. It does not establish every format/track, a current Flatpak
+  artifact or public registration/service-distribution permission.
   The 60-second local admission starts before the offer request, rather than
   treating XML `ts` as an expiry grant; a playing track is not stopped merely
   when that admission ages out. Reconnection/seek may need an explicit fresh Play.
@@ -21,15 +22,17 @@
   ambiguous metadata, unknown hosts, redirects and expiry fail visibly. No
   official extracted signer, DRM decryption, media cache or fallback identity
   is included. See [ADR-0015](adr/0015-guarded-legacy-mp3-playback.md).
-- **The later `99a177e` Fedora track-search retest also failed.** Ordinary login,
-  the library, track details/liked state and album search/details worked. The
-  subsequent correction handles source-backed mixed/null optional display
-  credits and exposes finite schema-shape support codes, with a native failing-
-  before/passing-after regression. It is not a claim to have seen the owner's
-  payload or passed another real-service test. The owner's delivery-info read
-  returned HTTP 200/mp3 but stopped before descriptor retrieval. See the latest
-  [validation evidence](VALIDATION.md); search and audible Music acceptance are
-  separate, and audio work continues in the child PR without waiting for search.
+- **Track search still failed at `8f1b09d`.** The latest real result is HTTP
+  200 / `track-wire` / `track-fields-unsupported`; own ID validation succeeded,
+  but remaining display/wire metadata could not deserialize. No private response
+  or exact culprit field was supplied. The correction reads minimal validated
+  search IDs, accepts at most 50 raw hit positions and normalizes one batch of
+  at most 50 distinct IDs through the
+  working account-bound `/tracks` lookup. It preserves order/composite IDs,
+  duplicate positions and provider pagination, reports missing/null records and
+  keeps unavailable returned tracks disabled. Oversized pages fail before POST,
+  without N+1, truncation or a synthetic cursor. Corrected live search and UX
+  remain pending; the accepted Library/audio path is independent.
 - **Live acceptance is endpoint-specific.** The owner verified ordinary Karin
   sign-in, Music account validation, actual liked tracks and personal-playlist
   listing on Fedora at PR #8 baseline `797ba3a`, as recorded in Issue #9. Search
@@ -44,8 +47,10 @@
   with parent-list user-activation dispatch and accepts source-confirmed missing
   embedded album identity. The precise live search-response mismatch is still
   unknown; fixed parsing stages and the known HTTP status now distinguish it
-  without disclosing response data. New owner-local row/search/detail and
-  delivery-entry acceptance remains pending; historical green CI is not a pass.
+  without disclosing response data. That historical failure is not a current
+  claim that audio or all details remain broken; use the latest revision-specific
+  owner evidence above. Green fixtures alone do not establish corrected live
+  track search.
 - **Return/session/token outcomes are concrete stages.** Exact Music-root return
   and fresh echoed state must be accepted before collecting OAuth-endpoint cookies
   from this dialog's ephemeral session. A different return, missing state/cookie,
@@ -78,23 +83,17 @@
   acceptance remains pending. Unknown write outcomes require a read refresh,
   not automatic replay. Playlist editing, recommendations and My Wave remain
   absent until their full contracts and lifecycle are implemented and checked.
-- **Real service audio acceptance is NOT MET.** v0.2 requires audible actual
-  library/search music on Fedora. The latest owner result confirms only an
-  authenticated MP3 offer and the old metadata-path refusal; no metadata or
-  audio GET followed. The new guarded source path must now be exercised using
-  the owner's ordinary local session. An ordinary legacy checksum or returned
-  signed resource is not automatically DRM, and a GPL implementation does not
-  establish service/distribution rights. No extracted signing/decryption keys,
-  access-control workaround or copyrighted audio distribution is included.
 - **The GStreamer engine remains independent.** Local-file playback and clearly
   labeled generated-WAV diagnostics exercise decoding, transport, seeking, EOS
   and cleanup. They do not establish service playback, every future codec or
-  physical PipeWire output. MPRIS remains deferred until a real service source
-  and truthful playback state exist.
+  physical PipeWire output. MPRIS/media keys remain unimplemented in this
+  focused search/UX correction despite the accepted core audio path.
 - **Cloud results are limited.** Synthetic loopback fixtures and Xvfb/Openbox
   captures establish only their stated protocol/UI behavior. They cannot certify
   Fedora/KDE/Wayland decorations, HiDPI, accessibility, account rights, audible
-  music or the exact Flatpak artifact. Fresh owner acceptance remains required.
+  music or the exact Flatpak artifact. Fresh acceptance of each changed
+  workflow/revision remains required; this does not erase the separately
+  recorded real audio PASS.
 - **Shutdown is cooperative.** Cancel/logout discards stale work and local
   presentation state; a bounded in-flight HTTP call can retain a temporary token
   clone until it completes. Forceful process termination cannot guarantee native

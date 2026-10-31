@@ -18,6 +18,9 @@ Describe the concrete behavior and why it is needed.
 - [ ] GitHub Actions result inspected for this revision
 - [ ] Default Cassette-compatible session provider, minimal no-WebKit and `experimental-device-auth` configurations checked separately
 - [ ] Native Music HTTP-fixture test explicitly executed under Xvfb
+- [ ] Track search parses only validated identities, then one bounded batch; order, pagination, missing data and no N+1 verified
+- [ ] Search Retry, explicit Play/details/back and queue actions exercised with real mouse/keyboard input
+- [ ] Account-menu logout requires native confirmation; Cancel/Escape/default response preserve the session and audio
 - [ ] Concurrent search/library/detail actions, latest pending query and logout/stale-result isolation checked under Xvfb
 - [ ] Delivery-probe changes tested with bounded local fixtures; no credentials, resource URLs, provider payloads or media in reports/artifacts
 - [ ] `auth-webkit` checked on stable/MSRV with one GTK dependency family; startup/cancel and sandbox-enabled local navigation/session-cookie results recorded separately
@@ -34,6 +37,7 @@ state that explicitly; do not mark unexecuted visual checks as passed.
 - [ ] Light and dark themes covered for overview and diagnostics
 - [ ] Resize transitions, selected-page preservation and adaptive navigation checked
 - [ ] Header/title/window controls, typography, spacing and text clipping checked
+- [ ] Signed-in search/list density measured at compact/medium/wide sizes; visible content and action clarity reviewed
 - [ ] Keyboard navigation, visible focus and activation checked
 - [ ] GTK structure/allocation/navigation checks accompany screenshots
 - [ ] Single native sign-in dialog checked at all sizes/themes; no developer credentials/code/token fields, stale signed-out errors or completion before Music account validation

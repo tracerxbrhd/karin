@@ -6,7 +6,69 @@ This report separates initial cloud checks, user-reported Fedora acceptance,
 revised UI checks and compiler compatibility. A result for one environment or
 revision is not evidence that another has passed.
 
-## Guarded legacy MP3 resolver and remote player (2026-10-30)
+## Owner Fedora acceptance and search/UX correction (2026-10-31)
+
+The owner's [technical conclusion for PR #13 at `8f1b09d`](https://github.com/tracerxbrhd/karin/pull/13#issuecomment-6539311586)
+records **real service playback PASS** on Fedora 44 / KDE Plasma / Wayland /
+PipeWire: an entitled Yandex Music track was heard through Karin, playback
+controls and queue worked, and logout/close stopped playback. This is actual
+owner-local acceptance of the core audible path, not a synthetic audio test.
+It does not establish every track/format, the current Flatpak artifact, public
+OAuth-registration distribution permission or the full v0.2 release.
+
+The same run records **track search FAIL** with HTTP 200, `track-wire` and
+`track-fields-unsupported`. The result's own ID passed the first check; remaining
+wire/display fields did not. The exact private field was not supplied and is
+not guessed. Album search/detail worked. A direct logout icon was also mistaken
+for navigation, causing accidental sign-out; the search/error layout failed UX
+acceptance.
+
+The correction keeps the accepted authentication and audio integration. Track
+search now consumes a minimal typed hit containing only a checked ID, then uses
+the existing account-bound `/tracks` lookup once per page, for at most 50 raw
+hit positions and 50 distinct IDs. Search display fields are ignored rather than deserialized into a
+track. Order, duplicate positions, composite IDs and provider pagination are
+retained. Missing/null lookup records have an explicit omitted count;
+`available=false` records remain visible and unplayable. More than 50 raw hit
+positions fail before a lookup request, including repeated IDs, rather than
+being truncated or expanded with N+1 requests. See [ADR-0016](adr/0016-search-identity-and-batch-normalization.md).
+
+The ordinary account control is a menu with **Выйти из аккаунта**, followed by
+a native confirmation whose safe default is **Отмена**. Cancellation must leave
+the token, queue and active audio intact. Search has one plain-language error
+and Retry; safe technical details belong to an optional disclosure rather than
+the main error text. Fresh tests and screenshots must cover real mouse/keyboard
+input, search → detail → Play, partial results, cancelled/confirmed logout and
+layout density across sizes/themes/HiDPI.
+
+| Current correction acceptance | Evidence |
+| --- | --- |
+| Real Music audio, controls, queue and logout/close at `8f1b09d` | **Owner Fedora PASS** |
+| Track search at `8f1b09d` | **Owner Fedora FAIL**; HTTP 200 / `track-wire` / `track-fields-unsupported` |
+| New batch-search and native account/UX regression checks | Prepared stable 1.99.1: all-feature Clippy, 39 backend checks, native search/Retry/density, account mouse/keyboard/default-Cancel and search→detail→synthetic-MP3 checks passed; complete compiler/CI results are recorded by immutable revision in PR #13 |
+| New build: real track search → detail → audible playback; logout Cancel/confirm; density | Pending owner Fedora acceptance; prior audio PASS remains valid for its revision |
+| Full current Flatpak artifact and public service/registration distribution approval | Separate unresolved gates |
+
+An isolated `8f1b09d` regression with a valid own ID and synthetic unusual/duplicate
+display fields reproduces **HTTP 200 / `track-wire` /
+`track-fields-unsupported`**. The new service tests normalize such identified
+hits with one batch, including reordered, missing and unavailable records. This
+reproduces the failing contract without claiming to identify the owner's unseen
+private field. The native medium-window test exposes at least six complete rows
+above the fixed player, and checks allocated Play hit targets rather than their
+smaller CSS content boxes. Account input tests wait for mapped native surfaces
+and stable paint-frame allocations; screenshots cannot supply that readiness.
+
+Use the [single updated Fedora guide](BUILDING.md#v02-catalog-and-delivery-info-acceptance-on-fedora).
+No new PR, base change, merge, branch deletion or closure of ancestor PRs is part
+of this correction. The dated sections below preserve earlier evidence; their
+pre-acceptance audio status is superseded by the owner report above.
+
+## Historical guarded legacy MP3 resolver and remote player checks (2026-10-30)
+
+The completed baseline is `8f1b09d`, with [PR CI](https://github.com/tracerxbrhd/karin/actions/runs/41089490440)
+and [push CI](https://github.com/tracerxbrhd/karin/actions/runs/41089478936).
+Those source-specific results precede the new search/UX correction.
 
 The audio child branch above PR #12's `268a495` implements the actual source
 path: existing validated session → per-track offer → bounded XML → opaque
@@ -14,13 +76,15 @@ short-lived legacy MP3 source → existing GStreamer playbin. Normal explicit
 Play uses this path; `--delivery-diagnostic` remains metadata-only. Local-file
 sources and generated-WAV developer diagnostics remain separate and supported.
 
-The owner has confirmed only the HTTP 200/mp3 offer result recorded below,
-which stopped at `metadata-origin-unverified` before descriptor retrieval.
+At the start of this dated implementation, the available owner delivery evidence
+was the HTTP 200/mp3 offer result recorded below, which stopped at
+`metadata-origin-unverified` before descriptor retrieval.
 The new code accepts three exact metadata path families at the same reviewed
 HTTPS origin, including the published `/download-info/` variant and the pinned
 `/file-download-info/` fixture. This does not assert which URL the owner received.
 No live XML, current media host/resource, audible Music, new search PASS or
-public provider-distribution approval has been established in Cloud/CI.
+public provider-distribution approval was established by those Cloud/CI checks.
+The later owner report above accepts the audible path independently.
 
 Resolver tests cover explicit full-track MP3 selection, protection/preview and
 ambiguous-response refusal, credential separation, origin/path/redirect bounds,
@@ -34,7 +98,7 @@ fixtures join the resolver and real worker with synthetic loopback MP3/fakesink.
 The completed prepared Debian matrix used stable **1.99.1** and exact
 **Rust 1.98.1**, with no runtime changes between compiler lanes.
 
-| Current audio revision check | Executed result |
+| Dated audio implementation check | Executed result |
 | --- | --- |
 | fmt; default/all-feature/minimal all-target Clippy, `-D warnings`; builds | Passed on both compilers |
 | Default / all-feature / minimal workspace tests | **219 / 227 / 205 library + 4 binary passed** on each compiler; 11 / 11 / 8 display tests excluded from ordinary totals |
@@ -46,7 +110,7 @@ The completed prepared Debian matrix used stable **1.99.1** and exact
 | Exact-1.98.1 default/all-feature `--release --offline --locked` and release runtime checks | Passed |
 | Dependency-license inventory comparison | Passed; reviewed inventory unchanged |
 | Full sandbox-enabled WebKit/hosted CI and native vendored Flatpak-source checks | Immutable source/run IDs and executed outcomes are recorded in [PR #13](https://github.com/tracerxbrhd/karin/pull/13); native source checks do not establish a complete Flatpak build |
-| Owner Fedora actual-track audibility, transport/queue/close and live search | **Pending; audible v0.2 criterion NOT MET** |
+| Owner Fedora actual-track audibility, transport/queue/close and live search | Pending at this record date; later `8f1b09d` owner acceptance supersedes core audio, while live track search remains failed |
 
 The media-error fixture verifies visible, sanitized HTTP 403 feedback at
 420×720 and 900×650, no automatic retry, clearing on Stop/explicit Play, and
@@ -136,7 +200,8 @@ synthetic terminal/audio checks and exact-1.98.1 default/all-feature offline
 releases. Display tests remain separately selected (8 / 8 / 5 ignored in the
 ordinary configurations). Full sandboxed WebKit and exact-revision hosted CI
 outcomes are linked from PR #12 after execution; local checks do not imply them.
-Live track-search acceptance and **audible v0.2 acceptance remain pending**.
+At that parent revision, live track-search and audio acceptance were pending.
+The later owner report above supersedes audio only; track search still failed.
 
 ## PR #12 Fedora catalog regression correction (2026-10-30)
 
@@ -225,8 +290,8 @@ same-session delivery diagnostic. Follow
 [the combined local instruction](BUILDING.md#v02-catalog-and-delivery-info-acceptance-on-fedora).
 Preserve the working ordinary authentication path; no OAuth re-registration,
 VPN toggling or private response upload is needed. The exact live search layer
-and delivery response remain unknown until this run. **No real service audio
-has been played; overall v0.2 audible-player acceptance remains NOT MET.**
+and delivery response remain unknown until this run. **At this historical revision no real service audio had been played; audible
+acceptance was NOT MET. The later `8f1b09d` owner PASS above supersedes it.**
 
 ## Issue #9 final series evidence (2026-10-29)
 
@@ -289,7 +354,8 @@ The current validated session must run the bounded probe described in
 No eligible service resource has been confirmed or passed to GStreamer. This
 unobserved step is not classified as HTTP 403, DRM or a proven permission denial.
 Real search/playlist/like workflows also need the next owner-local check.
-**Overall v0.2 audible-player acceptance remains NOT MET.**
+**At this historical revision audible-player acceptance was NOT MET; the later
+`8f1b09d` owner PASS above supersedes that audio status.**
 
 ## Issue #9 confirmed library interactions (2026-10-29)
 
@@ -338,8 +404,10 @@ the current Flatpak, and the first consenting same-session delivery-probe result
 No real account/token/private image/audio entered Cloud or CI. The exact
 unobserved delivery-info/descriptor outcome is not labelled a server refusal or
 DRM. The legacy construction/provenance question is distinct from modern extracted
-signing material. **Audible v0.2 acceptance is NOT MET**; no real service source
-has reached GStreamer, and MPRIS/My Wave/lyrics/offline are not simulated.
+signing material. **At this historical revision audible acceptance was NOT MET**:
+no real
+service source had reached GStreamer. The later owner PASS above supersedes
+that audio status; MPRIS/My Wave/lyrics/offline remain unimplemented.
 
 ## Issue #9 native music workspace (2026-10-29)
 
@@ -393,7 +461,8 @@ all-target Clippy and both-scale GTK checks passed this correction; the exact
 The obsolete Diagnostics destination text was also corrected to refer to Home.
 The user's earlier live auth/list successes remain valid scoped evidence; new
 catalog, artwork, likes and delivery outcomes require fresh local checks.
-**No service track has been played; the v0.2 sound gate remains NOT MET.**
+**At this historical revision no service track had been played and the sound
+gate was NOT MET. The later `8f1b09d` owner PASS above supersedes it.**
 
 ## Issue #9 first increment — catalog repair and parallel delivery probe (2026-10-29)
 
@@ -458,9 +527,11 @@ static reduced-motion native captures. Exact links/evidence are in PR #10.
 **Pending:**
 Owner-local Latin/Cyrillic search, all content types, real playlist contents and
 the first delivery-probe outcome remain unrun here. Full Flatpak/Fedora/KDE/
-Wayland/HiDPI acceptance remains separate. **The v0.2 audible-player criterion is
-NOT MET:** no actual selected Yandex Music track has reached GStreamer. Generated
-WAV, fixtures and delivery metadata do not satisfy it.
+Wayland/HiDPI acceptance remains separate. **At this historical revision the
+audible-player criterion was NOT MET:**
+no actual selected service track had reached GStreamer. Generated WAV, fixtures
+and delivery metadata did not satisfy it; the later `8f1b09d` owner report
+above establishes a real audio PASS.
 
 ## Interactive sign-in navigation correction — `00b0a41` (2026-10-29)
 

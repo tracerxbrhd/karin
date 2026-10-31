@@ -20,6 +20,8 @@ use std::{
 
 #[derive(Default)]
 struct Counts {
+    searches: usize,
+    lookups: usize,
     offers: [usize; 4],
     descriptors: [usize; 4],
     media: [usize; 4],
@@ -143,7 +145,7 @@ fn serve(
         .unwrap()
         .split_whitespace()
         .collect::<Vec<_>>();
-    assert!(matches!(first[0], "GET" | "HEAD"));
+    assert!(matches!(first[0], "GET" | "HEAD" | "POST"));
     let url = reqwest::Url::parse(&format!("http://127.0.0.1{}", first[1])).unwrap();
     let header = |name: &str| {
         request.lines().skip(1).find_map(|line| {
@@ -151,7 +153,10 @@ fn serve(
             field.eq_ignore_ascii_case(name).then_some(value.trim())
         })
     };
-    let api = url.path() == "/account/status" || url.path().starts_with("/tracks/");
+    let api = matches!(
+        url.path(),
+        "/account/status" | "/search" | "/tracks" | "/users/1234/likes/tracks"
+    ) || url.path().starts_with("/tracks/");
     if api {
         assert_eq!(
             header("authorization"),
@@ -170,6 +175,32 @@ fn serve(
         json_response(
             &mut stream,
             json!({"result":{"account":{"uid":1234,"displayName":"Synthetic player account"}}}),
+        );
+    } else if url.path() == "/users/1234/likes/tracks" {
+        json_response(
+            &mut stream,
+            json!({"result":{"library":{"uid":1234,"revision":1,"tracks":[]}}}),
+        );
+    } else if url.path() == "/search" {
+        counts.lock().unwrap().searches += 1;
+        json_response(
+            &mut stream,
+            json!({"result":{"tracks":{"page":0,"perPage":20,"total":1,"results":[{
+                "id":42,"title":{"ignored":"display"},"artists":false,"albums":[null,17],"available":{"not":"canonical"},"explicit":[1,2]
+            }]}}}),
+        );
+    } else if url.path() == "/tracks" {
+        assert_eq!(first[0], "POST");
+        let length: usize = header("content-length").unwrap().parse().unwrap();
+        assert!(length < 4096);
+        let mut form = vec![0; length];
+        stream.read_exact(&mut form).unwrap();
+        assert!(String::from_utf8(form).unwrap().contains("42"));
+        counts.lock().unwrap().lookups += 1;
+        json_response(
+            &mut stream,
+            json!({"result":[{"id":42,"title":"Synthetic remote player track","durationMs":4000,
+            "available":true,"artists":[{"name":"Synthetic artist"}]}]}),
         );
     } else if url.path().starts_with("/tracks/") {
         let track: usize = url.path().split('/').nth(2).unwrap().parse().unwrap();
@@ -508,6 +539,53 @@ fn remove_queue_row(this: &Controller, index: i32) {
     panic!("native queue remove button is missing");
 }
 
+fn native_click(window: &adw::ApplicationWindow, widget: &impl IsA<gtk::Widget>) {
+    let widget = widget.as_ref();
+    pump_until(|| widget.is_mapped() && widget.width() > 0 && widget.height() > 0);
+    let found = std::process::Command::new("xdotool")
+        .args([
+            "search",
+            "--onlyvisible",
+            "--name",
+            "^Karin synthetic HTTP fixture$",
+        ])
+        .output()
+        .unwrap();
+    assert!(found.status.success());
+    let id = String::from_utf8(found.stdout).unwrap();
+    let id = id.lines().next().unwrap();
+    let rect = widget.compute_bounds(window).unwrap();
+    let x = ((rect.x() + rect.width().min(140.0) / 2.0) as i32).to_string();
+    let y = ((rect.y() + rect.height() / 2.0) as i32).to_string();
+    for arguments in [
+        vec!["windowfocus", "--sync", id],
+        vec!["mousemove", "--sync", "--window", id, &x, &y],
+        vec!["click", "1"],
+    ] {
+        assert!(
+            std::process::Command::new("xdotool")
+                .args(arguments)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+}
+
+fn named_play(widget: &gtk::Widget) -> Option<gtk::Button> {
+    if widget.widget_name() == "music-track-play" {
+        return widget.clone().downcast().ok();
+    }
+    let mut child = widget.first_child();
+    while let Some(widget) = child {
+        if let Some(button) = named_play(&widget) {
+            return Some(button);
+        }
+        child = widget.next_sibling();
+    }
+    None
+}
+
 #[test]
 #[ignore = "requires an isolated GTK display and GStreamer HTTP/MP3 plugins; run under Xvfb"]
 fn native_music_playback_resolver_queue_controls_and_logout() {
@@ -517,20 +595,67 @@ fn native_music_playback_resolver_queue_controls_and_logout() {
     let (_app, ui) = player_window(&fixture);
     let pane = &ui.music;
     let this = &pane.controller;
-    for id in ["42", "43", "44"] {
+    this.widgets.stack.set_visible_child_name("search");
+    this.widgets.search.set_text("Synthetic playable search");
+    native_click(&ui.window, &this.widgets.search_button);
+    pump_until(|| {
+        !this.model.borrow().busy
+            && contains_text(
+                this.widgets.search_rows.upcast_ref(),
+                "Synthetic remote player track",
+            )
+    });
+    assert_eq!(fixture.counts.lock().unwrap().searches, 1);
+    assert_eq!(
+        fixture.counts.lock().unwrap().lookups,
+        1,
+        "one batched normalization request for a search page"
+    );
+    native_click(&ui.window, &this.widgets.search_rows.first_child().unwrap());
+    pump_until(|| {
+        !this.model.borrow().busy && named_play(this.widgets.detail.upcast_ref()).is_some()
+    });
+    assert_eq!(
+        fixture.counts.lock().unwrap().lookups,
+        2,
+        "opening details uses the shared working MusicService lookup"
+    );
+    assert!(!this.widgets.progress.is_sensitive());
+    assert!(!this.widgets.position.text().contains("0:00"));
+    native_click(
+        &ui.window,
+        &named_play(this.widgets.detail.upcast_ref()).unwrap(),
+    );
+    wait_playing(this, 0);
+    for id in ["43", "44"] {
         this.enqueue(track(id));
     }
     this.widgets.stack.set_visible_child_name("queue");
     assert!(this.widgets.play.is_sensitive());
-    assert!(!this.widgets.progress.is_sensitive());
-    assert!(!this.widgets.position.text().contains("0:00"));
-    this.widgets.play.emit_clicked();
-    wait_playing(this, 0);
     assert!(contains_text(
         this.widgets.player_status.upcast_ref(),
         "Воспроизведение"
     ));
     assert!(this.widgets.stop.is_sensitive());
+    let playing = this.player.borrow().controller.clone().unwrap();
+    let generation = this.model.borrow().generation;
+    this.widgets.logout.emit_clicked();
+    pump_until(|| {
+        this.logout_confirmation
+            .borrow()
+            .as_ref()
+            .is_some_and(|confirmation| {
+                confirmation.dialog.is_mapped() && confirmation.dialog.can_close()
+            })
+    });
+    this.respond_logout_for_test("cancel");
+    pump_until(|| {
+        this.logout_confirmation.borrow().is_none() && ui.window.dialogs().n_items() == 0
+    });
+    assert_eq!(this.model.borrow().generation, generation);
+    assert!(this.model.borrow().token.is_some());
+    assert_eq!(this.model.borrow().queue.items().len(), 3);
+    assert!(playing.snapshot().worker_running);
     this.widgets.play.emit_clicked();
     pump_until(|| {
         this.music_snapshot()
@@ -610,6 +735,19 @@ fn native_music_playback_resolver_queue_controls_and_logout() {
     this.widgets.play.emit_clicked();
     pump_until(|| fixture.counts.lock().unwrap().slow_started);
     this.widgets.logout.emit_clicked();
+    pump_until(|| {
+        this.logout_confirmation
+            .borrow()
+            .as_ref()
+            .is_some_and(|confirmation| {
+                confirmation.dialog.is_mapped() && confirmation.dialog.can_close()
+            })
+    });
+    assert!(
+        this.model.borrow().token.is_some(),
+        "requesting logout must not invalidate the live session"
+    );
+    this.respond_logout_for_test("logout");
     fixture.release_descriptor();
     pump_until(|| !this.player.borrow().resolving);
     assert!(this.player.borrow().controller.is_none());

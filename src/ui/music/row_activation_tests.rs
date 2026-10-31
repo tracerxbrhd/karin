@@ -227,10 +227,16 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
     // Nested controls consume their own actual clicks rather than opening the
     // parent row. No direct call to open_track or emitted activation is used.
     let row = first(&this.widgets.library_rows);
-    let add = descendants(row.upcast_ref())
+    let menu = descendants(row.upcast_ref())
+        .into_iter()
+        .find_map(|widget| widget.downcast::<gtk::MenuButton>().ok())
+        .unwrap();
+    click(window, id, &menu);
+    pump_until(|| menu.popover().unwrap().is_visible());
+    let add = descendants(menu.popover().unwrap().upcast_ref())
         .into_iter()
         .filter_map(|widget| widget.downcast::<gtk::Button>().ok())
-        .find(|button| button.tooltip_text().as_deref() == Some("Добавить трек в очередь"))
+        .find(|button| button.label().as_deref() == Some("Добавить в очередь"))
         .unwrap();
     click(window, id, &add);
     pump_until(|| this.model.borrow().queue.items().len() == 1);
@@ -238,10 +244,7 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
         this.widgets.stack.visible_child_name().as_deref(),
         Some("library")
     );
-    let menu = descendants(row.upcast_ref())
-        .into_iter()
-        .find_map(|widget| widget.downcast::<gtk::MenuButton>().ok())
-        .unwrap();
+    pump_until(|| !menu.popover().unwrap().is_visible());
     click(window, id, &menu);
     pump_until(|| menu.popover().unwrap().is_visible());
     assert_eq!(

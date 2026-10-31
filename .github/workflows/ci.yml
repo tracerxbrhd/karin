@@ -144,6 +144,26 @@ jobs:
             export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
           fi
           dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_library_interactions_confirmed_fixture -- --ignored --test-threads=1
+      - name: Track search normalization, inline retry and useful list density
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+          GSK_DEBUG: full-redraw
+        run: |
+          if [ '${{ matrix.lane }}' = stable ]; then
+            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
+          fi
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_search_retry_normalized_results_and_density -- --ignored --test-threads=1
+      - name: Account menu, safe default cancellation and explicit confirmed logout
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+          GSK_DEBUG: full-redraw
+        run: |
+          if [ '${{ matrix.lane }}' = stable ]; then
+            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
+          fi
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_account_menu_logout_cancel_default_confirm_and_stale_session -- --ignored --test-threads=1
       - name: Real resolver, remote MP3 and native player controls against loopback
         env:
           GTK_A11Y: none
@@ -337,7 +357,7 @@ jobs:
             printf 'Binary SHA256: '; sha256sum target/release/karin
           } > "$artifact/BUILD-INFO.txt"
           cat > "$artifact/README.txt" <<'EOF'
-          Karin v0.2 guarded legacy MP3 playback prototype for Fedora 44.
+          Karin v0.2 track-search and account-UX acceptance build for Fedora 44.
           Verify the downloaded archive with: sha256sum -c SHA256SUMS
           Extract the archive and enter karin-fedora-prototype-1.98.1.
           Install Fedora runtime packages if needed:
@@ -351,7 +371,11 @@ jobs:
           This is an Ubuntu 24.04 x86_64 build; Fedora acceptance for this exact artifact is pending.
           It is not a Flatpak, a production release or proof of live Music API access.
           Only Music account validation can finish login. Select an entitled real Library track and explicitly press Play.
-          Audible service playback is not accepted until you hear it through PipeWire/GStreamer on Fedora.
+          Real core Music playback, controls, queue and shutdown passed owner Fedora acceptance at 8f1b09d.
+          This revision needs a search/UX acceptance run and a regression check of that working audio.
+          Search tracks using Enter and Find; open a result and play it. Check paging, unavailable items and Retry.
+          Open the account menu: Выйти из аккаунта must ask for confirmation, with Отмена as the default.
+          Cancel/Escape must preserve account, queue and audio. Only explicit confirmation signs out.
           Check pause/resume, progress/seek, volume, next/previous/queue/EOS, Stop and clean close.
           Also check actual playlist contents and Latin/Cyrillic track/album/artist search and details.
           Optional ./karin --delivery-diagnostic remains metadata-only and fetches no audio.
@@ -360,7 +384,8 @@ jobs:
           Do not record a full terminal transcript or enable network/GStreamer debugging.
           Session cookies/tokens stay in memory. Do not share raw JSON, parameterized URLs, tokens or personal screenshots.
           CI uses original synthetic MP3 and loopback fixtures, never a real account or service recording.
-          This build is ready for that owner-local audible test, not a claim that it passed. See BUILD-INFO.txt and licenses.
+          This build is ready for the search/account-UX and sound-regression run; this new revision is not yet owner-accepted.
+          See BUILD-INFO.txt and licenses.
           EOF
           tar -C build -czf build/karin-fedora-prototype-1.98.1.tar.gz karin-fedora-prototype-1.98.1
           (cd build && sha256sum karin-fedora-prototype-1.98.1.tar.gz > SHA256SUMS)

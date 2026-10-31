@@ -3,18 +3,21 @@
 # Karin
 
 An independent native Linux client for Yandex Music, built with Rust, GTK4,
-Libadwaita and GStreamer. The owner has verified ordinary Yandex sign-in, Music
-account validation, the library, real track details/liked state and album search
-on Fedora. Track search still failed at `99a177e`; the subsequent correction
-handles optional embedded display credits. **A guarded legacy MP3 resolver and
-network player are now implemented, but real audible Music acceptance is not
-yet met.** Karin is not affiliated with Yandex.
+Libadwaita and GStreamer. The owner's [Fedora acceptance at `8f1b09d`](https://github.com/tracerxbrhd/karin/pull/13#issuecomment-6539311586)
+confirms **audible real Yandex Music, working playback controls and queue, and
+correct stopping on logout/close** on Fedora 44 / KDE Plasma / Wayland / PipeWire.
+Track search still failed with HTTP 200 / `track-wire` /
+`track-fields-unsupported`. The current correction separates search identity
+from display metadata and expands track IDs through the existing batched lookup.
+Search and account UX still require owner acceptance; the audio success does not
+settle Flatpak or public-distribution permission. Karin is not affiliated with Yandex.
 
 [Issue #9](https://github.com/tracerxbrhd/karin/issues/9) tracks this stage. Its
 starting Fedora run found that search and opening personal playlists failed.
 Those are defects to repair, not successful features inferred from fixtures.
-The audio child PR continues that work in parallel with search repairs. Synthetic
-WAV or MP3 fixtures do not satisfy the real-track criterion.
+Work continues in the existing [PR #13](https://github.com/tracerxbrhd/karin/pull/13).
+Synthetic WAV or MP3 fixtures do not replace the owner's real-track evidence or
+the new build's playback regression check.
 
 ## Implemented slice
 
@@ -22,12 +25,18 @@ WAV or MP3 fixtures do not satisfy the real-track criterion.
   playlists and their contents, track/album details, and paged search for tracks,
   albums and artists. Its identity-neutral transport has bounded responses,
   deadlines, fixed errors and no automatic retries or redirects.
+- Track search reads minimal validated IDs and retrieves normalized track models
+  in one bounded batch, preserving result order and provider pagination. Missing
+  tracks are reported as partial data; unavailable returned tracks stay visible
+  with disabled playback. Search display fields do not gate otherwise valid IDs.
 - A native music interface with loading/error/empty/session states, library and
   search results, detail navigation and a bounded metadata queue. Only returned
   service data is displayed; no demonstration catalog is shipped.
 - A desktop sidebar/compact drawer, Home with working destinations, readable
   music rows and context actions, detail covers and a persistent selected-track
-  bar. Public cover images use bounded asynchronous loading and a memory cache;
+  bar. Account logout is an explicitly labelled menu action with a native
+  confirmation and Cancel as the safe default. Public cover images use bounded
+  asynchronous loading and a memory cache;
   malformed or missing art has a native placeholder. Theme preferences support
   system/light/dark for the current process. No playback position is simulated.
 - Explicit like/unlike controls read current membership, send one user-requested
@@ -81,20 +90,20 @@ provider prohibition is inferred. See [the scoped decision](docs/adr/0011-casset
 
 The default build and Flatpak enable this real provider; a no-feature compatibility
 build deliberately omits it. Device Flow remains a library-only optional experiment.
-The owner's Fedora report in Issue #9 establishes real login, Music account,
-liked tracks and playlist-list access. Cloud fixtures alone do not establish
-those results. [Fresh local Fedora acceptance](docs/BUILDING.md#music-sign-in-and-fedora-acceptance)
-must verify corrected search/playlist contents and any new delivery/playback path. Failures identify return/state, session-cookie collection,
+The owner's Fedora reports establish real login, Music account, liked tracks,
+playlist-list access and the core audible path at `8f1b09d`. Cloud fixtures alone
+do not establish those results. [Fresh local Fedora acceptance](docs/BUILDING.md#v02-catalog-and-delivery-info-acceptance-on-fedora)
+must verify corrected search, safe account actions and preservation of that
+working audio path. Failures identify return/state, session-cookie collection,
 OAuth exchange or Music validation rather than a generic provider block.
 Session tokens are memory-only; logout clears local session/data and does not revoke the server
 grant. Persistent sessions require a separately verified Secret Service lifecycle.
 Playlist editing, My Wave and MPRIS are not enabled.
 Like/unlike writes are explicit and require confirmed membership; no success is
-inferred from a missing response. The owner has observed an MP3 delivery offer
-with HTTP 200, but the older allowlist stopped before fetching its descriptor.
-No live descriptor, playable service resource or audible track has yet been
-verified in Karin. The implemented resolver/player must pass the
-[single Fedora playback acceptance](docs/BUILDING.md#v02-catalog-and-delivery-info-acceptance-on-fedora).
+inferred from a missing response. The earlier MP3 offer/descriptor refusal is
+historical: the owner subsequently heard an actual track through this resolver
+and player. Use the [single Fedora acceptance guide](docs/BUILDING.md#v02-catalog-and-delivery-info-acceptance-on-fedora)
+to check the new search-to-play journey and guard against audio regressions.
 The historical legacy checksum is assessed separately from modern extracted
 signing keys and DRM; the latter are not implemented. See
 [ADR-0015](docs/adr/0015-guarded-legacy-mp3-playback.md).
@@ -118,8 +127,9 @@ cargo run --locked
 The primary manual acceptance platform is Fedora 44 / KDE Plasma / Wayland /
 PipeWire. [Issue #3](https://github.com/tracerxbrhd/karin/issues/3) reports that
 the v0.0 native and Flatpak prototypes launch and diagnostic audio works there.
-The confirmed session/library results are endpoint-specific. New search,
-playlist-detail, playback and visual changes require fresh manual acceptance;
+The confirmed session/library/audio results are revision-specific. New search,
+playlist-detail and visual changes require fresh manual acceptance, with a
+regression check of the accepted playback path;
 startup alone is not visual signoff. Cloud validation uses Debian 13 / Xvfb.
 In the prepared Codex Cloud environment, prefix native build commands with
 `/workspace/karin-environment/run-auth`, whose image includes WebKitGTK6.

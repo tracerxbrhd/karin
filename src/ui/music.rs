@@ -10,6 +10,7 @@ use std::{
 use adw::prelude::*;
 use gtk::{gio, glib};
 
+mod account;
 #[cfg(test)]
 mod diagnostic_tests;
 mod interactions;
@@ -19,6 +20,8 @@ mod player;
 mod requests;
 #[cfg(test)]
 mod row_activation_tests;
+#[cfg(test)]
+mod search_tests;
 use requests::{Operation, Requests};
 type PendingJob = Box<dyn FnOnce(&Rc<Controller>, u64)>;
 
@@ -71,6 +74,8 @@ struct Model {
 
 #[derive(Clone)]
 struct Widgets {
+    account_bar: gtk::Box,
+    account_menu: gtk::MenuButton,
     account: gtk::Label,
     notice: gtk::Label,
     login: gtk::Button,
@@ -94,6 +99,7 @@ struct Widgets {
     search: gtk::SearchEntry,
     search_kind: gtk::DropDown,
     search_button: gtk::Button,
+    search_feedback: gtk::Box,
     search_rows: gtk::ListBox,
     search_previous: gtk::Button,
     search_next: gtk::Button,
@@ -122,6 +128,7 @@ struct Controller {
     window: glib::WeakRef<adw::ApplicationWindow>,
     login_dialog: RefCell<Option<LoginDialog>>,
     retiring_logins: RefCell<Vec<glib::WeakRef<adw::Dialog>>>,
+    logout_confirmation: RefCell<Option<account::LogoutConfirmation>>,
     model: RefCell<Model>,
     widgets: Widgets,
     requests: RefCell<Requests<PendingJob>>,
@@ -189,7 +196,7 @@ impl MusicPane {
         provider: Arc<dyn AuthProvider>,
         launch_browser: fn(&str) -> Result<(), AuthError>,
     ) -> Self {
-        let widget = gtk::Box::new(gtk::Orientation::Vertical, 18);
+        let widget = gtk::Box::new(gtk::Orientation::Vertical, 12);
         widget.set_widget_name("music-pane");
         let account_bar = gtk::Box::new(gtk::Orientation::Horizontal, 12);
         account_bar.set_widget_name("music-account-bar");
@@ -197,20 +204,16 @@ impl MusicPane {
         account_icon.set_pixel_size(20);
         account_icon.add_css_class("dim-label");
         account_bar.append(&account_icon);
-        let account = text("Ваш аккаунт Яндекса", "heading");
+        account_bar.append(&text("Ваш аккаунт Яндекса", "heading"));
+        let account_controls = account::AccountMenu::new();
+        let account = account_controls.name.clone();
         account.set_widget_name("music-account");
-        account.set_ellipsize(gtk::pango::EllipsizeMode::End);
-        account.set_wrap(false);
-        account.set_width_chars(1);
-        account_bar.append(&account);
+        let account_menu = account_controls.menu;
+        let logout = account_controls.logout;
         let login = gtk::Button::with_label("Войти");
         login.set_widget_name("music-login");
         login.add_css_class("suggested-action");
-        let logout = icon_button("system-log-out-symbolic", "Выйти из аккаунта");
-        logout.set_tooltip_text(Some("Закрыть локальный сеанс и удалить токен из памяти"));
-        logout.set_sensitive(false);
         account_bar.append(&login);
-        account_bar.append(&logout);
         widget.append(&account_bar);
         let notice = text(public_notice(), "dim-label");
         notice.set_visible(false);
@@ -230,6 +233,7 @@ impl MusicPane {
         let status_revealer = gtk::Revealer::new();
         status_revealer.set_child(Some(&progress));
         status_revealer.set_reveal_child(false);
+        status_revealer.set_visible(false);
         widget.append(&status_revealer);
 
         let stack = gtk::Stack::new();
@@ -296,14 +300,11 @@ impl MusicPane {
         open_queue.set_action_name(Some("win.music-queue"));
         open_queue.set_halign(gtk::Align::Start);
         home_signedin.append(&open_queue);
-        home_signedin.append(&text("Доступ к аудио ещё проверяется. Выбор и очередь хранят треки, но не имитируют воспроизведение.", "caption"));
         home.append(&home_signedin);
         stack.add_titled(&home, Some("home"), "Главная");
         stack.set_visible_child_name("home");
 
-        let library = gtk::Box::new(gtk::Orientation::Vertical, 16);
-        library.append(&text("Библиотека", "title-1"));
-        library.append(&text("Ваша коллекция в Яндекс Музыке", "dim-label"));
+        let library = gtk::Box::new(gtk::Orientation::Vertical, 10);
         let library_mode = gtk::DropDown::from_strings(&[
             "Понравившиеся треки",
             "Мои плейлисты",
@@ -332,14 +333,22 @@ impl MusicPane {
         library.append(&library_pages);
         stack.add_titled(&library, Some("library"), "Библиотека");
 
-        let search_page = gtk::Box::new(gtk::Orientation::Vertical, 16);
-        search_page.append(&text("Поиск", "title-1"));
+        // The HeaderBar already names this page. Give the entry and results
+        // priority; wide windows place both control groups on one native row.
+        let search_page = gtk::Box::new(gtk::Orientation::Vertical, 10);
+        let search_tools = gtk::FlowBox::new();
+        search_tools.set_selection_mode(gtk::SelectionMode::None);
+        search_tools.set_min_children_per_line(1);
+        search_tools.set_max_children_per_line(2);
+        search_tools.set_column_spacing(12);
+        search_tools.set_row_spacing(8);
         let search = gtk::SearchEntry::new();
         search.set_placeholder_text(Some("Треки, альбомы и исполнители"));
         search.set_hexpand(true);
+        search.set_width_request(220);
         search.set_widget_name("music-search");
         search.update_property(&[gtk::accessible::Property::Label("Поиск в Яндекс Музыке")]);
-        search_page.append(&search);
+        search_tools.insert(&search, -1);
         let search_controls = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         let search_kind = gtk::DropDown::from_strings(&["Треки", "Альбомы", "Исполнители"]);
         search_kind.set_hexpand(true);
@@ -349,7 +358,18 @@ impl MusicPane {
         search_button.add_css_class("suggested-action");
         search_controls.append(&search_kind);
         search_controls.append(&search_button);
-        search_page.append(&search_controls);
+        search_tools.insert(&search_controls, -1);
+        for child in [search.parent(), search_controls.parent()]
+            .into_iter()
+            .flatten()
+        {
+            child.set_focusable(false);
+        }
+        search_page.append(&search_tools);
+        let search_feedback = gtk::Box::new(gtk::Orientation::Vertical, 8);
+        search_feedback.set_widget_name("music-search-feedback");
+        search_feedback.set_visible(false);
+        search_page.append(&search_feedback);
         let search_rows = list();
         set_empty(&search_rows, "Введите запрос и нажмите Enter или «Найти».");
         search_page.append(&search_rows);
@@ -366,14 +386,14 @@ impl MusicPane {
         search_page.append(&search_pages);
         stack.add_titled(&search_page, Some("search"), "Поиск");
 
-        let queue_page = gtk::Box::new(gtk::Orientation::Vertical, 16);
-        queue_page.append(&text("Очередь", "title-1"));
+        let queue_page = gtk::Box::new(gtk::Orientation::Vertical, 10);
+        let queue_tools = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         let queue_count = text("Очередь пуста", "dim-label");
-        queue_page.append(&queue_count);
-        queue_page.append(&text("Выберите трек и нажмите воспроизведение. Следующий трек запускается после завершения текущего.", "caption"));
+        queue_tools.append(&queue_count);
         let clear_queue = gtk::Button::with_label("Очистить очередь");
         clear_queue.set_halign(gtk::Align::Start);
-        queue_page.append(&clear_queue);
+        queue_tools.append(&clear_queue);
+        queue_page.append(&queue_tools);
         let queue_rows = list();
         queue_page.append(&queue_rows);
         stack.add_titled(&queue_page, Some("queue"), "Очередь");
@@ -456,6 +476,8 @@ impl MusicPane {
         player_bar.append(&timeline);
 
         let widgets = Widgets {
+            account_bar,
+            account_menu,
             account,
             notice,
             login,
@@ -479,6 +501,7 @@ impl MusicPane {
             search,
             search_kind,
             search_button,
+            search_feedback,
             search_rows,
             search_previous,
             search_next,
@@ -506,6 +529,7 @@ impl MusicPane {
             launch_browser,
             login_dialog: RefCell::new(None),
             retiring_logins: RefCell::new(Vec::new()),
+            logout_confirmation: RefCell::new(None),
             model: RefCell::new(Model {
                 token: None,
                 account_valid: false,
@@ -564,6 +588,12 @@ impl MusicPane {
 
     pub fn primary_action(&self) -> gtk::Button {
         self.controller.widgets.login.clone()
+    }
+
+    /// Account actions belong to the window header, never the content's Back
+    /// navigation or a direct destructive icon in the music workspace.
+    pub fn account_menu(&self) -> gtk::MenuButton {
+        self.controller.widgets.account_menu.clone()
     }
 
     pub fn close(&self) {
@@ -1202,12 +1232,7 @@ impl Controller {
                 this.open_login();
             }
         });
-        let weak = Rc::downgrade(self);
-        self.widgets.logout.connect_clicked(move |_| {
-            if let Some(this) = weak.upgrade() {
-                this.logout();
-            }
-        });
+        self.connect_account_menu();
         for (button, mode) in [
             (&self.widgets.home_liked, 0),
             (&self.widgets.home_playlists, 1),
@@ -1356,6 +1381,17 @@ impl Controller {
                 app.set_accels_for_action(&format!("win.{name}"), &[accelerator]);
             }
         }
+        let back = gio::SimpleAction::new("music-back", None);
+        let weak = Rc::downgrade(self);
+        back.connect_activate(move |_, _| {
+            if let Some(this) = weak.upgrade() {
+                this.back_from_detail();
+            }
+        });
+        window.add_action(&back);
+        if let Some(app) = self.app.upgrade() {
+            app.set_accels_for_action("win.music-back", &["<Alt>Left"]);
+        }
     }
 
     fn render_controls(&self) {
@@ -1368,7 +1404,9 @@ impl Controller {
         self.widgets.home_liked.set_sensitive(ready);
         self.widgets.home_playlists.set_sensitive(ready);
         self.widgets.home_search.set_sensitive(ready);
-        self.widgets.logout.set_visible(model.account_valid);
+        self.widgets.account_bar.set_visible(!model.account_valid);
+        self.widgets.account_menu.set_visible(model.account_valid);
+        self.widgets.account_menu.set_sensitive(ready);
         self.widgets.library_mode.set_sensitive(ready);
         self.widgets.library_refresh.set_sensitive(ready);
         // Independent lanes accept actions during unrelated work. Repeated
@@ -1394,8 +1432,11 @@ impl Controller {
         self.widgets
             .logout
             .set_sensitive(model.token.is_some() && !model.closed);
-        let visible_work =
-            model.busy && (model.account_valid || self.login_dialog.borrow().is_some());
+        // Search owns its one inline loading/error area. A second global card
+        // would repeat the same state and push the actual results down.
+        let visible_work = (model.auth_busy
+            || self.requests.borrow().busy_except(Operation::Search))
+            && (model.account_valid || self.login_dialog.borrow().is_some());
         self.widgets.spinner.set_spinning(visible_work);
         self.widgets.spinner.set_visible(visible_work);
         let has_error = self
@@ -1403,9 +1444,9 @@ impl Controller {
             .status
             .subtitle()
             .is_some_and(|message| !message.is_empty());
-        self.widgets
-            .status_revealer
-            .set_reveal_child(model.account_valid && (visible_work || has_error));
+        let show_status = model.account_valid && (visible_work || has_error);
+        self.widgets.status_revealer.set_visible(show_status);
+        self.widgets.status_revealer.set_reveal_child(show_status);
     }
 
     fn close(&self) {
@@ -1414,6 +1455,7 @@ impl Controller {
         if self.model.borrow().closed {
             return;
         }
+        self.dismiss_logout_confirmation();
         self.stop_music();
         self.mutation_busy.set(false);
         self.clear_text_focus();
@@ -1445,6 +1487,7 @@ impl Controller {
     }
 
     fn logout(self: &Rc<Self>) {
+        self.dismiss_logout_confirmation();
         self.stop_music();
         self.mutation_busy.set(false);
         self.clear_text_focus();
@@ -1488,6 +1531,7 @@ impl Controller {
             "Ваша библиотека появится после входа.",
         );
         set_empty(&self.widgets.search_rows, "Введите запрос после входа.");
+        self.clear_search_feedback();
         self.render_home_preview();
         clear_box(&self.widgets.detail);
         self.widgets.library_next.set_visible(false);
@@ -1507,6 +1551,7 @@ impl Controller {
     }
 
     fn invalidate_search(&self) {
+        self.clear_search_feedback();
         self.requests.borrow_mut().invalidate(Operation::Search);
         let mut model = self.model.borrow_mut();
         model.view_generation += 1;
@@ -1878,13 +1923,19 @@ impl Controller {
         }
         let query = self.widgets.search.text().trim().to_owned();
         if query.is_empty() {
-            self.widgets.status.set_title("Введите поисковый запрос.");
+            self.clear_search_feedback();
             set_empty(&self.widgets.search_rows, "Введите поисковый запрос.");
             return;
         }
-        self.widgets.status.set_title("Поиск…");
-        self.widgets.status.set_subtitle("");
-        set_empty(&self.widgets.search_rows, "Поиск…");
+        self.clear_search_feedback();
+        clear_list(&self.widgets.search_rows);
+        let loading = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        let spinner = gtk::Spinner::new();
+        spinner.set_spinning(true);
+        loading.append(&spinner);
+        loading.append(&text("Ищем в каталоге…", "dim-label"));
+        self.widgets.search_feedback.append(&loading);
+        self.widgets.search_feedback.set_visible(true);
         self.widgets.search_next.set_visible(false);
         self.widgets.search_previous.set_visible(false);
         let kind = match self.widgets.search_kind.selected() {
@@ -1898,6 +1949,7 @@ impl Controller {
             move |service, token| service.search(&token, &query, kind, page),
             move |this, result| match result {
                 Ok(result) => {
+                    this.clear_search_feedback();
                     write_catalog_line(catalog_line(
                         Operation::Search,
                         CatalogPhase::Result,
@@ -1919,39 +1971,88 @@ impl Controller {
                     if this.widgets.search_rows.first_child().is_none() {
                         set_empty(
                             &this.widgets.search_rows,
-                            "Ничего не найдено. Попробуйте другой запрос.",
+                            if result.omitted_tracks > 0 {
+                                "Найденные треки сейчас недоступны. Попробуйте другой запрос или следующую страницу."
+                            } else {
+                                "Ничего не найдено. Попробуйте другой запрос."
+                            },
                         );
+                    } else if result.omitted_tracks > 0 {
+                        this.widgets.search_feedback.append(&text(
+                            "Часть найденных треков сейчас недоступна.",
+                            "dim-label",
+                        ));
+                        this.widgets.search_feedback.set_visible(true);
                     }
                     this.widgets.search_next.set_visible(result.has_more);
                     this.widgets.search_previous.set_visible(page > 0);
-                    if this.widgets.stack.visible_child_name().as_deref() == Some("search") {
-                        this.widgets
-                            .status
-                            .set_title(&format!("Результаты поиска · страница {}", page + 1));
-                        this.widgets.status.set_subtitle("");
-                    }
                 }
                 Err(error) => {
-                    set_empty(
-                        &this.widgets.search_rows,
-                        "Поиск не выполнен. Повторите запрос.",
-                    );
-                    this.show_error(error);
-                    // A finite support code is safe to share from this inline
-                    // error. It never contains a serde path or provider value.
-                    if let Some(stage) = error.diagnostic_stage() {
-                        let shape = error.diagnostic_shape().unwrap_or("none");
-                        let http = error
-                            .http_status()
-                            .map(|status| status.to_string())
-                            .unwrap_or_else(|| "none".into());
-                        this.widgets
-                            .status
-                            .set_subtitle(&format!("Код ответа: {stage} · {shape} · HTTP {http}"));
-                    }
+                    this.search_error(error, page);
                 }
             },
         );
+    }
+
+    fn clear_search_feedback(&self) {
+        clear_box(&self.widgets.search_feedback);
+        self.widgets.search_feedback.set_visible(false);
+    }
+
+    fn search_error(self: &Rc<Self>, error: MusicError, page: u32) {
+        self.clear_search_feedback();
+        clear_list(&self.widgets.search_rows);
+        if matches!(
+            error,
+            MusicError::AccessDenied | MusicError::Unauthenticated
+        ) {
+            self.show_error(error);
+            return;
+        }
+        let message = friendly_search_error(error);
+        let group = adw::PreferencesGroup::new();
+        let row = adw::ActionRow::builder()
+            .title("Не удалось выполнить поиск")
+            .subtitle(message)
+            .title_lines(0)
+            .subtitle_lines(0)
+            .build();
+        row.set_widget_name("music-search-error");
+        let retry = gtk::Button::with_label("Повторить поиск");
+        retry.set_widget_name("music-search-retry");
+        retry.set_valign(gtk::Align::Center);
+        retry.add_css_class("suggested-action");
+        let weak = Rc::downgrade(self);
+        retry.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.search(page);
+            }
+        });
+        row.add_suffix(&retry);
+        group.add(&row);
+        self.widgets.search_feedback.append(&group);
+        // Diagnostics are explicitly disclosed, collapsed and independently
+        // selectable. The everyday error contains no protocol vocabulary.
+        let details = gtk::Expander::new(Some("Сведения для диагностики"));
+        details.set_widget_name("music-search-diagnostics");
+        details.set_expanded(false);
+        let support = text(
+            &format!(
+                "Категория: {}\nЭтап: {}\nФорма: {}\nHTTP: {}",
+                error.category(),
+                error.diagnostic_stage().unwrap_or("none"),
+                error.diagnostic_shape().unwrap_or("none"),
+                error
+                    .http_status()
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "none".into()),
+            ),
+            "monospace",
+        );
+        support.set_selectable(true);
+        details.set_child(Some(&support));
+        self.widgets.search_feedback.append(&details);
+        self.widgets.search_feedback.set_visible(true);
     }
 
     fn tracks(self: &Rc<Self>, list: &gtk::ListBox, tracks: Vec<Track>) {
@@ -1973,10 +2074,15 @@ impl Controller {
             subtitle.push_str(" · Недоступен");
         }
         let (row, body) = item(&track.title, &subtitle);
+        row.set_tooltip_text(Some("Открыть сведения о треке"));
+        row.update_property(&[gtk::accessible::Property::Label(&format!(
+            "Открыть сведения: {}",
+            track.title
+        ))]);
         body.prepend(&cover_widget(
             self.artwork.as_ref(),
             track.cover.as_ref(),
-            48,
+            40,
         ));
         if let Some(duration) = track.duration_ms {
             let label = text(&format_duration(duration), "caption");
@@ -1984,18 +2090,10 @@ impl Controller {
             label.set_wrap(false);
             body.append(&label);
         }
-        let menu = self.track_menu(&track);
-        body.append(&menu);
-        body.append(&self.track_play_button(&track, true));
-        let add = icon_button("list-add-symbolic", "Добавить трек в очередь");
-        let weak = Rc::downgrade(self);
-        let queued = track.clone();
-        add.connect_clicked(move |_| {
-            if let Some(this) = weak.upgrade() {
-                this.enqueue(queued.clone());
-            }
-        });
-        body.append(&add);
+        let play = self.track_play_button(&track, true);
+        play.add_css_class("suggested-action");
+        body.append(&play);
+        body.append(&self.track_menu(&track));
         self.row_action(&row, RowAction::Track(track.id));
         list.append(&row);
     }
@@ -2092,24 +2190,52 @@ impl Controller {
         let label = match origin.as_str() {
             "search" => "Назад к поиску",
             "queue" => "Назад к очереди",
+            "home" => "Назад на главную",
             _ => "Назад в библиотеку",
         };
         let back = gtk::Button::with_label(label);
+        back.set_widget_name("music-detail-back");
+        let back_content = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        back_content.append(&gtk::Image::from_icon_name("go-previous-symbolic"));
+        back_content.append(&gtk::Label::new(Some(label)));
+        back.set_child(Some(&back_content));
+        back.update_property(&[gtk::accessible::Property::Label(label)]);
         back.set_halign(gtk::Align::Start);
         let weak = Rc::downgrade(self);
         back.connect_clicked(move |_| {
             if let Some(this) = weak.upgrade() {
-                this.cancel_delivery();
-                this.widgets.stack.set_visible_child_name(&origin);
-                if origin == "search" {
-                    this.widgets.search.grab_focus();
-                }
+                this.back_from_detail();
             }
         });
         self.widgets.detail.append(&back);
         self.widgets.detail.append(&text(title, "title-2"));
         self.widgets.detail.append(&text(subtitle, "dim-label"));
         self.widgets.stack.set_visible_child_name("detail");
+    }
+
+    fn back_from_detail(&self) {
+        if self.widgets.stack.visible_child_name().as_deref() != Some("detail") {
+            return;
+        }
+        self.cancel_delivery();
+        let origin = self.model.borrow().detail_origin.clone();
+        self.widgets.stack.set_visible_child_name(&origin);
+        match origin.as_str() {
+            "search" => {
+                self.widgets.search.grab_focus();
+            }
+            "queue" => {
+                if let Some(row) = self.widgets.queue_rows.first_child() {
+                    row.grab_focus();
+                }
+            }
+            "home" => {
+                self.widgets.home_liked.grab_focus();
+            }
+            _ => {
+                self.widgets.library_mode.grab_focus();
+            }
+        }
     }
 
     fn detail_cover(&self, cover: Option<&CoverArt>) {
@@ -2128,15 +2254,14 @@ impl Controller {
     }
 
     fn track_menu(self: &Rc<Self>, track: &Track) -> gtk::MenuButton {
-        let button = gtk::MenuButton::builder()
-            .icon_name("view-more-symbolic")
-            .build();
+        let button = gtk::MenuButton::builder().label("Ещё").build();
+        button.set_valign(gtk::Align::Center);
         button.set_tooltip_text(Some("Действия с треком"));
         button.update_property(&[gtk::accessible::Property::Label("Действия с треком")]);
         let popover = gtk::Popover::new();
         let actions = gtk::Box::new(gtk::Orientation::Vertical, 4);
         super::margins(&actions, 6);
-        let detail = gtk::Button::with_label("Сведения о треке");
+        let detail = gtk::Button::with_label("Открыть сведения о треке");
         detail.add_css_class("flat");
         let weak = Rc::downgrade(self);
         let close = popover.downgrade();
@@ -2244,7 +2369,6 @@ impl Controller {
         });
         failure.set_child(Some(&button));
         self.widgets.detail.append(&failure);
-        self.show_error(error);
     }
 
     fn open_track(self: &Rc<Self>, id: String) {
@@ -2621,8 +2745,20 @@ impl Controller {
             body.prepend(&cover_widget(
                 self.artwork.as_ref(),
                 track.cover.as_ref(),
-                48,
+                40,
             ));
+            let play = self.track_play_button(track, true);
+            play.add_css_class("suggested-action");
+            body.append(&play);
+            let details = icon_button("dialog-information-symbolic", "Сведения о треке");
+            let weak = Rc::downgrade(self);
+            let id = track.id.clone();
+            details.connect_clicked(move |_| {
+                if let Some(this) = weak.upgrade() {
+                    this.open_track(id.clone());
+                }
+            });
+            body.append(&details);
             let remove = icon_button("list-remove-symbolic", "Удалить трек из очереди");
             let weak = Rc::downgrade(self);
             remove.connect_clicked(move |_| {
@@ -2734,9 +2870,12 @@ fn set_empty(list: &gtk::ListBox, message: &str) {
 }
 fn item(title: &str, subtitle: &str) -> (gtk::ListBoxRow, gtk::Box) {
     let row = gtk::ListBoxRow::new();
-    let body = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-    super::margins(&body, 12);
-    let labels = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    let body = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    body.set_margin_start(12);
+    body.set_margin_end(12);
+    body.set_margin_top(8);
+    body.set_margin_bottom(8);
+    let labels = gtk::Box::new(gtk::Orientation::Vertical, 2);
     labels.set_hexpand(true);
     labels.append(&text(title, "heading"));
     if !subtitle.is_empty() {
@@ -2929,6 +3068,28 @@ fn music_error_message(error: MusicError) -> (&'static str, &'static str) {
     }
 }
 
+fn friendly_search_error(error: MusicError) -> &'static str {
+    match error {
+        MusicError::SearchResponse { kind, .. } => {
+            use crate::music::SearchFailureKind;
+            friendly_search_error(match kind {
+                SearchFailureKind::Network => MusicError::Network,
+                SearchFailureKind::Timeout => MusicError::Timeout,
+                SearchFailureKind::Contract => MusicError::InvalidResponse,
+                SearchFailureKind::ResponseTooLarge => MusicError::ResponseTooLarge,
+            })
+        }
+        MusicError::Network => "Проверьте подключение к сети и попробуйте ещё раз.",
+        MusicError::Timeout => "Сервис не ответил вовремя. Попробуйте ещё раз.",
+        MusicError::RateLimited => "Слишком много запросов. Немного подождите и повторите поиск.",
+        MusicError::Forbidden | MusicError::MissingScopes | MusicError::Restricted => {
+            "Сервис ограничил этот поиск. Попробуйте повторить запрос позже."
+        }
+        MusicError::InvalidInput => "Уточните поисковый запрос и попробуйте ещё раз.",
+        _ => "Не удалось прочитать результаты. Повторите поиск позже.",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3024,6 +3185,22 @@ mod tests {
             child = widget.next_sibling();
         }
         false
+    }
+
+    fn button_with_label(widget: &gtk::Widget, label: &str) -> Option<gtk::Button> {
+        if let Some(button) = widget.downcast_ref::<gtk::Button>()
+            && button.label().as_deref() == Some(label)
+        {
+            return Some(button.clone());
+        }
+        let mut child = widget.first_child();
+        while let Some(widget) = child {
+            if let Some(button) = button_with_label(&widget, label) {
+                return Some(button);
+            }
+            child = widget.next_sibling();
+        }
+        None
     }
 
     fn rows(list: &gtk::ListBox) -> usize {
@@ -3324,6 +3501,7 @@ mod tests {
             ("GET /users/1234/playlists/3", playlist, false),
             ("POST /tracks", tracks.clone(), false),
             ("GET /search", search.clone(), false),
+            ("POST /tracks", tracks.clone(), false),
             ("POST /tracks", tracks, false),
             ("GET /albums/7/with-tracks", album, false),
             ("GET /search", search, true),
@@ -3580,11 +3758,16 @@ mod tests {
             .unwrap()
             .downcast::<gtk::ListBoxRow>()
             .unwrap();
-        row.child()
+        let menu = row
+            .child()
             .unwrap()
             .last_child()
             .unwrap()
-            .downcast::<gtk::Button>()
+            .downcast::<gtk::MenuButton>()
+            .unwrap();
+        menu.popup();
+        pump_until(|| menu.popover().unwrap().is_visible());
+        button_with_label(menu.popover().unwrap().upcast_ref(), "Добавить в очередь")
             .unwrap()
             .emit_clicked();
         assert_eq!(this.model.borrow().queue.items().len(), 1);

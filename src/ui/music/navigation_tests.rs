@@ -66,7 +66,8 @@ fn native_catalog_navigation_latest_actions() {
                     line.to_ascii_lowercase().strip_prefix("content-length:").map(|value| value.trim().parse::<usize>().unwrap())
                 }).unwrap_or(0);
                 assert!(length < 32 * 1024);
-                stream.read_exact(&mut vec![0; length]).unwrap();
+                let mut form = vec![0; length];
+                stream.read_exact(&mut form).unwrap();
                 let target = request.lines().next().unwrap().split_whitespace().nth(1).unwrap();
                 let url = reqwest::Url::parse(&format!("http://127.0.0.1{target}")).unwrap();
                 let track = json!({"id":42,"title":"Synthetic selected track","available":true,"artists":[{"name":"Synthetic artist"}]});
@@ -81,15 +82,26 @@ fn native_catalog_navigation_latest_actions() {
                     "/search" => {
                         let query = url.query_pairs().find(|(name, _)| name == "text").unwrap().1.into_owned();
                         if query == "slow" { slow.store(true, Ordering::Release); delayed = true; }
-                        let title = if query == "slow" { "Stale synthetic search" } else { "Fresh synthetic search" };
-                        (200, json!({"result":{"tracks":{"page":0,"perPage":20,"total":1,"results":[{"id":42,"title":title,"available":true,"artists":[]}]}}}))
+                        let id = if query == "slow" { 44 } else { 43 };
+                        (200, json!({"result":{"tracks":{"page":0,"perPage":20,"total":1,"results":[{"id":id,"title":{"ignored":"search-display"},"available":null,"artists":false}]}}}))
                     }
                     "/users/1234/playlists/3" => { delayed_playlist = true; (200, json!({"result":{"kind":3,"trackCount":0}})) },
                     "/users/1234/playlists/4" => {
                         failures.fetch_add(1, Ordering::AcqRel);
                         (404, json!({"error":{"message":"synthetic-private-provider-text"}}))
                     },
-                    "/tracks" => (200, json!({"result":[track]})),
+                    "/tracks" => {
+                        let form = String::from_utf8(form).unwrap();
+                        let mut normalized = track;
+                        if form.contains("43") {
+                            normalized["id"] = json!(43);
+                            normalized["title"] = json!("Fresh synthetic search");
+                        } else if form.contains("44") {
+                            normalized["id"] = json!(44);
+                            normalized["title"] = json!("Stale synthetic search");
+                        }
+                        (200, json!({"result":[normalized]}))
+                    },
                     _ => (404, json!({"error":"synthetic-unknown-route"})),
                 };
                 if delayed_playlist {

@@ -13,8 +13,9 @@ The v0.2 music shell uses a persistent desktop sidebar and a compact native
 drawer. Check opening/focus/activation/closing of that drawer, cross-page keyboard
 focus and selected-page preservation across both directions of resizing. Check
 Home's real cached liked-track preview, metadata rows, contextual actions and
-the persistent selected-track bar. Unsourced transport must remain explicitly
-disabled; it must never show an invented playing state or measured progress.
+the persistent selected-track bar. Play may begin real source resolution; Pause/seek and other transport
+controls must reflect actual worker state/capability. An unresolved source must
+never show an invented playing state or measured progress.
 
 Use `KARIN_CAPTURE_SCALE=2 scripts/capture-ui.sh build/ui-captures/hidpi` for
 the same logical-size matrix on a 3840×2160 Xvfb display. Inspect actual scale-2
@@ -65,8 +66,23 @@ For each theme and relevant page:
   play physical sound or contact an account without an explicit action.
 - Check music detail/back navigation, result paging and stale-search handling,
   session cancel/logout, empty and unavailable-item text, queue editing and the
-  visible permitted-source blocker. Disabled player controls must not suggest
+  actual player state. Disabled player controls must not suggest
   successful service playback. Default builds must not expose Device Flow.
+- Assess useful density as well as clipping: search input/results must remain
+  primary, playable rows and Details must have distinct understandable actions,
+  Back must be easy to find, and queue selection/removal/clear must be legible.
+  Check one plain-language search failure with Retry and optional safe details;
+  no duplicated global/inline error or technical code should dominate the page.
+- Verify account menu → **Выйти из аккаунта** → native confirmation. Cancel must
+  have default focus/response; Enter/Escape/cancel must preserve the current
+  session, queue and active audio until explicit confirmation. Opening the menu
+  alone must not log out. Check stale confirmation responses after session
+  changes, focus return, compact geometry and mouse/keyboard activation.
+- Exercise the normalized search-to-detail-to-Play path with synthetic loopback
+  records, including unusual search display fields and partially missing lookup
+  records. Assert one batched normalization request rather than per-row requests,
+  retained provider pagination and disabled unavailable tracks. Owner Fedora
+  acceptance remains separate from this fixture.
 - Activate rendered track, playlist, album, artist and queue rows with actual
   mouse input and keyboard Enter/Space. Assert the destination and expected
   service request, including after refresh replaces rows. Clicking nested

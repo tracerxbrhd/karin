@@ -107,7 +107,17 @@ semantics. See the current [delivery contract](STREAM_DELIVERY_REVIEW.md).
 
 The native Music pane consumes typed account, track, artist, album and playlist
 values. Library references are expanded in batches of at most 50 distinct IDs;
-duplicate playlist positions remain intact. Responses are bounded to 1 MiB, with
+duplicate playlist positions remain intact. Track search first reads only a
+validated own ID from each hit, ignoring its optional display metadata, then
+uses the same account-bound `/tracks` normalization in one batch. Search order,
+duplicate/composite identities and provider pagination survive normalization;
+missing/null records have an explicit omitted count and unavailable returned
+tracks remain visible but unplayable. Track pages accept at most 50 raw hit
+positions as well as 50 distinct batch IDs, bounding restored duplicate models.
+Larger pages fail before a POST rather than causing truncation, a new cursor or
+N+1 requests; album/artist wire bounds remain unchanged.
+See [ADR-0016](adr/0016-search-identity-and-batch-normalization.md).
+Responses are bounded to 1 MiB, with
 five-second connect and fifteen-second total request deadlines, no redirects or
 automatic retries. A page can make at most two requests. No arbitrary returned
 resource URL is fetched. Request IDs, personal response bodies, headers, URLs and
@@ -161,6 +171,15 @@ A cache epoch prevents an old in-flight validation from restoring facts
 or overwriting a new session; an invalidated queued token cannot start another
 validation. An active HTTP call may retain its temporary credential until its
 deadline, without blocking GTK. Local invalidation is not server-side revocation.
+
+Ordinary user logout is an explicit account-menu action followed by an
+`Adw.AlertDialog` confirmation, with Cancel as the safe default. Opening the menu
+or dismissing/cancelling the confirmation does not invalidate tokens, alter the
+queue or interrupt audio. A confirmation is bound to the current session so a
+late response cannot sign out a replacement login. Internal expired/rejected
+session cleanup remains independent of this deliberate user action. Search
+errors occupy one plain-language retry state; optional safe diagnostic details
+do not compete with normal results or duplicate a global error banner.
 
 The ordinary application retains its window/controller through close; signal
 handlers reference controllers weakly. Queue selection is silent before an

@@ -7,12 +7,33 @@ Gate A official-document review: **2026-10-25**. Initial anonymous cloud probes:
 **2026-10-24**, approximately **11:40 UTC**; retained below with their original scope.
 Authentication source/document recheck and product correction: **2026-10-29**.
 
+## Current owner evidence, 31 October — real audio accepted; track search blocked
+
+The owner's [PR #13 acceptance at `8f1b09d`](https://github.com/tracerxbrhd/karin/pull/13#issuecomment-6539311586)
+confirms actual audible Yandex Music on Fedora 44 / KDE Plasma / Wayland /
+PipeWire, working controls/queue and correct stopping on logout/close. Ordinary
+sign-in, Music account/library access, real track details and album search also
+work. This is owner-local technical interoperability, not a synthetic tone or
+an approval to publicly distribute the OAuth registration/service integration.
+
+Track search still returns HTTP 200 / `track-wire` /
+`track-fields-unsupported`: own ID passes initial validation, but remaining
+search metadata cannot deserialize. No specific private field or raw response
+was supplied. The current correction reads minimal typed search IDs and expands
+them once through the working account-bound `/tracks` lookup, bounded to 50
+raw hit positions and 50 distinct IDs, preserving order/composite identities and
+provider pagination.
+See [ADR-0016](adr/0016-search-identity-and-batch-normalization.md).
+Live corrected-search/UX acceptance and current Flatpak verification remain
+separate from the accepted audio path and unresolved distribution conditions.
+The dated sections below preserve their original, narrower evidence.
+
 Karin uses an unofficial service interface. A successful HTTP response establishes
 only the behavior observed for that request, from this cloud environment, at this
 time. It does not establish authenticated access, a playback entitlement, a stable
 API contract, or permission to distribute a third-party music client.
 
-## Current sign-in decision, 29 October — Cassette-compatible prototype
+## Historical sign-in decision, 29 October — Cassette-compatible prototype
 
 The owner's latest PR #8 correction permits the functional prototype to adapt
 Cassette's published working authentication chain without requiring Karin's own
@@ -42,7 +63,7 @@ under a new dialog.
 
 Distinguish three kinds of evidence:
 
-| Question | Current status |
+| Question | Status at this record date |
 | --- | --- |
 | Reusing/adapting inspected source | GPL-3.0-or-later applies; upstream copyright, full license and provenance are retained. Published shared application configuration is not a user credential. |
 | Real Karin browser/session/Music interoperability | Pending consented Fedora validation; source/fixture success alone does not establish it. The registration's actual default Music return and state echo need that test. |
@@ -57,7 +78,7 @@ and shares only build/revision and coarse stage results, never personal data,
 secrets, URLs with parameters, raw responses or headers. Public distribution
 conditions and real audio remain separate gates.
 
-## Read-only vertical slice and 28 October owner evidence
+## Historical read-only vertical slice and 28 October owner evidence
 
 The owner completed the independent PR #6 comparison on Fedora 44:
 [own-client results](https://github.com/tracerxbrhd/karin/issues/5#issuecomment-6470853664).
@@ -95,12 +116,13 @@ verified developer diagnostic; its hidden manual redirect is not the normal
 journey. Session tokens are memory-only; permanent credentials require a verified
 Secret Service lifecycle.
 
-The queue contains actual selected metadata, but Music playback remains visibly
-unavailable. The [stream review](STREAM_DELIVERY_REVIEW.md) found no confirmed
+At this historical baseline the queue contained selected metadata and Music
+playback was unavailable. The then-current [stream review](STREAM_DELIVERY_REVIEW.md) found no confirmed
 permitted unsigned delivery contract; the inspected source negotiates through
 extracted signing material and another application's identity. No stream request,
 decryption, media download, mutation, likes/unlikes, My Wave or MPRIS service is
-added. See [ADR-0009](adr/0009-music-vertical-slice.md) for the scoped decision and
+added at that baseline. The later ADR-0015 and owner acceptance above supersede
+its audio restriction. See [ADR-0009](adr/0009-music-vertical-slice.md) for the scoped decision and
 [Fedora acceptance](BUILDING.md#music-sign-in-and-fedora-acceptance).
 
 ## Gate B1 diagnostic evidence (historical PR #6)

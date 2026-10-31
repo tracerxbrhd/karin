@@ -128,6 +128,7 @@ pub enum SearchParseStage {
     TrackWire,
     TrackWireShape(SearchSchemaShape),
     TrackNormalization,
+    TrackLookup,
     AlbumWire,
     AlbumNormalization,
     ArtistWire,
@@ -141,6 +142,7 @@ impl SearchParseStage {
             Self::Pagination => "search-pagination",
             Self::TrackWire | Self::TrackWireShape(_) => "track-wire",
             Self::TrackNormalization => "track-normalization",
+            Self::TrackLookup => "track-lookup",
             Self::AlbumWire => "album-wire",
             Self::AlbumNormalization => "album-normalization",
             Self::ArtistWire => "artist-wire",
@@ -275,6 +277,9 @@ pub struct SearchResults {
     pub albums: Vec<Album>,
     pub artists: Vec<Artist>,
     pub has_more: bool,
+    /// Search positions whose normalized track was absent/null in the batch.
+    /// Explicitly unavailable identified tracks remain visible and disabled.
+    pub omitted_tracks: usize,
 }
 
 macro_rules! redacted_debug {
@@ -306,6 +311,11 @@ impl<T> fmt::Debug for Page<T> {
 struct AccountCache {
     epoch: u64,
     validated: Option<([u8; 32], String)>,
+}
+struct SearchBinding {
+    epoch: u64,
+    token_key: [u8; 32],
+    uid: String,
 }
 impl AccountCache {
     fn invalidate(&mut self) -> u64 {
@@ -392,6 +402,42 @@ impl MusicService {
     /// A successful Yandex ID grant alone never opens authenticated operations.
     pub(crate) fn validate_session(&self, token: &AccessToken) -> Result<(), MusicError> {
         self.account_id(token).map(|_| ())
+    }
+    fn search_binding(&self, token: &AccessToken) -> Result<SearchBinding, MusicError> {
+        if token.is_expired() {
+            return Err(MusicError::Unauthenticated);
+        }
+        let cache = self.account.lock().map_err(|_| MusicError::Configuration)?;
+        let key = Self::token_key(token);
+        let (_, uid) = cache
+            .validated
+            .as_ref()
+            .filter(|(accepted, _)| *accepted == key)
+            .ok_or(MusicError::Unauthenticated)?;
+        Ok(SearchBinding {
+            epoch: cache.epoch,
+            token_key: key,
+            uid: uid.clone(),
+        })
+    }
+    fn check_search_binding(
+        &self,
+        token: &AccessToken,
+        binding: &SearchBinding,
+    ) -> Result<(), MusicError> {
+        if token.is_expired() {
+            return Err(MusicError::Unauthenticated);
+        }
+        let cache = self.account.lock().map_err(|_| MusicError::Configuration)?;
+        if cache.epoch != binding.epoch
+            || !cache
+                .validated
+                .as_ref()
+                .is_some_and(|(key, uid)| *key == binding.token_key && *uid == binding.uid)
+        {
+            return Err(MusicError::Unauthenticated);
+        }
+        Ok(())
     }
     pub fn account(&self, token: &AccessToken) -> Result<Account, MusicError> {
         // A failed revalidation must not leave a previously accepted account
@@ -528,6 +574,7 @@ impl MusicService {
         {
             return Err(MusicError::InvalidInput);
         }
+        let binding = self.search_binding(token)?;
         let category = match kind {
             SearchKind::Tracks => "track",
             SearchKind::Albums => "album",
@@ -545,11 +592,60 @@ impl MusicService {
                 ("playlist-in-best", "false"),
             ],
             None,
-        )?;
+        );
+        self.check_search_binding(token, &binding)?;
+        let response = response?;
         let http = response.status().as_u16();
         let body = read_body(response)
             .map_err(|error| search_failure(error, SearchParseStage::Envelope, http))?;
-        parse_search(&body, kind, page, http)
+        let (mut results, hits) = parse_search(&body, kind, page, http)?;
+        self.check_search_binding(token, &binding)?;
+        if !hits.is_empty() {
+            // Bound both the HTTP batch and the number of owned normalized
+            // Track clones retained for duplicate positions in one UI page.
+            if hits.len() > PAGE_SIZE {
+                return Err(search_failure(
+                    MusicError::ResponseTooLarge,
+                    SearchParseStage::TrackLookup,
+                    http,
+                ));
+            }
+            let mut distinct = Vec::new();
+            for hit in &hits {
+                if !distinct.contains(&hit.id.0) {
+                    distinct.push(hit.id.0.clone());
+                }
+            }
+            // Keep the existing /tracks batch bound. A larger provider page
+            // cannot silently lose rows or turn into per-row HTTP requests.
+            if distinct.len() > PAGE_SIZE {
+                return Err(search_failure(
+                    MusicError::ResponseTooLarge,
+                    SearchParseStage::TrackLookup,
+                    http,
+                ));
+            }
+            let response = self.track_batch_response(token, &distinct);
+            self.check_search_binding(token, &binding)?;
+            // Before headers, preserve transport errors without inventing a
+            // successful POST status from the earlier search HTTP 200.
+            let response = response?;
+            let lookup_http = response.status().as_u16();
+            let body = read_body(response).map_err(|error| {
+                search_failure(error, SearchParseStage::TrackLookup, lookup_http)
+            })?;
+            let tracks = decode_track_batch(&body, distinct.len()).map_err(|error| {
+                search_failure(error, SearchParseStage::TrackLookup, lookup_http)
+            })?;
+            self.check_search_binding(token, &binding)?;
+            let ordered = order_search_tracks(hits, tracks).map_err(|error| {
+                search_failure(error, SearchParseStage::TrackLookup, lookup_http)
+            })?;
+            results.tracks = ordered.0;
+            results.omitted_tracks = ordered.1;
+        }
+        self.check_search_binding(token, &binding)?;
+        Ok(results)
     }
     pub fn track(&self, token: &AccessToken, id: &str) -> Result<Track, MusicError> {
         validate_id(id)?;
@@ -557,12 +653,38 @@ impl MusicService {
         if items.len() != 1 {
             return Err(MusicError::InvalidResponse);
         }
-        Ok(items.remove(0))
+        let mut track = items.remove(0);
+        // Keep a validated composite selector across search → detail → Play.
+        // /tracks may normalize that selector to a bare canonical identity.
+        track.id = id.to_owned();
+        Ok(track)
     }
     fn tracks(&self, token: &AccessToken, ids: &[String]) -> Result<Vec<Track>, MusicError> {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
+        let response = self.track_batch_response(token, ids)?;
+        let body = read_body(response)?;
+        let distinct_count = ids.iter().collect::<std::collections::BTreeSet<_>>().len();
+        let tracks = decode_track_batch(&body, distinct_count)?;
+        // Preserve the established strict lookup behavior for library/detail
+        // callers; search alone can report missing positions as partial data.
+        let mut ordered = Vec::with_capacity(ids.len());
+        for id in ids {
+            let bare = id.split(':').next().ok_or(MusicError::InvalidInput)?;
+            let track = tracks
+                .iter()
+                .find(|track| track.id == *id || track.id == bare)
+                .ok_or(MusicError::InvalidResponse)?;
+            ordered.push(track.clone());
+        }
+        Ok(ordered)
+    }
+    fn track_batch_response(
+        &self,
+        token: &AccessToken,
+        ids: &[String],
+    ) -> Result<Response, MusicError> {
         if ids.len() > PAGE_SIZE {
             return Err(MusicError::InvalidInput);
         }
@@ -582,26 +704,7 @@ impl MusicService {
             }
         }
         let form = Zeroizing::new(url.query().unwrap_or_default().as_bytes().to_vec());
-        let wire: Vec<TrackWire> = self.request(token, &["tracks"], &[], Some(form))?;
-        if wire.len() > distinct.len() {
-            return Err(MusicError::InvalidResponse);
-        }
-        // Preserve requested order, including composite track:album IDs. Missing
-        // records fail visibly rather than displaying invented metadata.
-        let tracks = wire
-            .into_iter()
-            .map(track_from_wire)
-            .collect::<Result<Vec<_>, _>>()?;
-        let mut ordered = Vec::with_capacity(ids.len());
-        for id in ids {
-            let bare = id.split(':').next().ok_or(MusicError::InvalidInput)?;
-            let track = tracks
-                .iter()
-                .find(|track| track.id == *id || track.id == bare)
-                .ok_or(MusicError::InvalidResponse)?;
-            ordered.push(track.clone());
-        }
-        Ok(ordered)
+        self.request_response(token, &["tracks"], &[], Some(form))
     }
     pub fn album(&self, token: &AccessToken, id: &str) -> Result<Album, MusicError> {
         validate_id(id)?;
@@ -813,19 +916,89 @@ fn local_page<T>(items: Vec<T>, page: u32) -> Result<(Vec<T>, bool), MusicError>
         has_more,
     ))
 }
+fn decode_track_batch(body: &[u8], requested: usize) -> Result<Vec<Track>, MusicError> {
+    let wire = serde_json::from_slice::<Envelope<Vec<Option<TrackWire>>>>(body)
+        .map_err(|_| MusicError::InvalidResponse)?
+        .result;
+    if wire.len() > requested {
+        return Err(MusicError::InvalidResponse);
+    }
+    wire.into_iter().flatten().map(track_from_wire).collect()
+}
+
+/// A search row supplies identity only. No display field, optional availability
+/// hint, nested credit, image, or unknown metadata is trusted as a Track wire.
+#[derive(Deserialize)]
+struct SearchTrackHit {
+    id: Id,
+}
+
+fn order_search_tracks(
+    hits: Vec<SearchTrackHit>,
+    tracks: Vec<Track>,
+) -> Result<(Vec<Track>, usize), MusicError> {
+    for (index, track) in tracks.iter().enumerate() {
+        if tracks[..index].iter().any(|other| other.id == track.id)
+            || !hits.iter().any(|hit| {
+                hit.id.0 == track.id || hit.id.0.split(':').next() == Some(track.id.as_str())
+            })
+        {
+            return Err(MusicError::InvalidResponse);
+        }
+    }
+    let mut ordered = Vec::with_capacity(hits.len());
+    let mut omitted = 0;
+    for hit in hits {
+        // Exact composite results take precedence over a canonical bare alias,
+        // regardless of response order. Duplicate requested positions survive.
+        let exact = tracks.iter().find(|track| track.id == hit.id.0);
+        let candidate = match exact {
+            Some(track) => Some(track),
+            None => {
+                let bare = hit
+                    .id
+                    .0
+                    .split(':')
+                    .next()
+                    .ok_or(MusicError::InvalidResponse)?;
+                let mut aliases = tracks.iter().filter(|track| track.id == bare);
+                let first = aliases.next();
+                if aliases.next().is_some() {
+                    return Err(MusicError::InvalidResponse);
+                }
+                first
+            }
+        };
+        match candidate {
+            Some(track) => {
+                let mut track = track.clone();
+                // Keep the caller's validated composite selector for subsequent
+                // detail/play requests; do not invent or retarget album labels.
+                track.id = hit.id.0;
+                ordered.push(track);
+            }
+            None => omitted += 1,
+        }
+    }
+    Ok((ordered, omitted))
+}
 fn parse_search(
     body: &[u8],
     kind: SearchKind,
     page: u32,
     http: u16,
-) -> Result<SearchResults, MusicError> {
+) -> Result<(SearchResults, Vec<SearchTrackHit>), MusicError> {
     let wire = serde_json::from_slice::<Envelope<SearchWire>>(body)
         .map_err(|_| search_contract(SearchParseStage::Envelope, http))?
         .result;
-    let has_echo = wire.text.is_some();
-    if let Some(echo) = wire.text {
-        text(echo).map_err(|error| search_failure(error, SearchParseStage::Envelope, http))?;
-    }
+    // Echoed query text is optional display data. It only identifies the old
+    // provider's recognized empty-result envelope; never decode it to render a
+    // requested category that already has its own validated section.
+    let has_echo = wire
+        .text
+        .and_then(|echo| serde_json::from_str::<String>(echo.get()).ok())
+        .and_then(|echo| text(echo).ok())
+        .is_some();
     let section = match kind {
         SearchKind::Tracks => wire.tracks,
         SearchKind::Albums => wire.albums,
@@ -840,9 +1013,10 @@ fn parse_search(
         albums: Vec::new(),
         artists: Vec::new(),
         has_more: false,
+        omitted_tracks: 0,
     };
     let Some(section) = section else {
-        return Ok(results);
+        return Ok((results, Vec::new()));
     };
     let section: SearchSectionWire = serde_json::from_str(section.get())
         .map_err(|_| search_contract(SearchParseStage::Section, http))?;
@@ -860,16 +1034,17 @@ fn parse_search(
     let (items, more) = search_page(section, page)
         .map_err(|error| search_failure(error, SearchParseStage::Pagination, http))?;
     results.has_more = more;
+    let mut hits = Vec::new();
     match kind {
         SearchKind::Tracks => {
-            results.tracks = items
+            hits = items
                 .into_iter()
                 .map(|item| {
-                    let wire = serde_json::from_str(item.get())
-                        .map_err(|_| search_track_shape(&item, http))?;
-                    track_from_wire(wire).map_err(|error| {
-                        search_failure(error, SearchParseStage::TrackNormalization, http)
-                    })
+                    if !item.get().trim_start().starts_with('{') {
+                        return Err(search_track_shape(&item, http));
+                    }
+                    serde_json::from_str::<SearchTrackHit>(item.get())
+                        .map_err(|_| search_track_shape(&item, http))
                 })
                 .collect::<Result<_, _>>()?;
         }
@@ -892,13 +1067,12 @@ fn parse_search(
             )?;
         }
     }
-    Ok(results)
+    Ok((results, hits))
 }
 fn search_track_shape(item: &RawValue, http: u16) -> MusicError {
     #[derive(Deserialize)]
     struct Shape {
         id: Option<Box<RawValue>>,
-        available: Option<Box<RawValue>>,
     }
     let shape = if !item.get().trim_start().starts_with('{') {
         SearchSchemaShape::RecordNotObject
@@ -911,16 +1085,7 @@ fn search_track_shape(item: &RawValue, http: u16) -> MusicError {
                     _ => SearchSchemaShape::IdentityType,
                 }
             }
-            Some(_) => {
-                if shape
-                    .available
-                    .is_some_and(|value| !matches!(value.get(), "true" | "false"))
-                {
-                    SearchSchemaShape::AvailabilityType
-                } else {
-                    SearchSchemaShape::FieldsUnsupported
-                }
-            }
+            Some(_) => SearchSchemaShape::FieldsUnsupported,
         }
     } else {
         SearchSchemaShape::FieldsUnsupported
@@ -1191,7 +1356,7 @@ where
 }
 #[derive(Deserialize)]
 struct SearchWire {
-    text: Option<String>,
+    text: Option<Box<RawValue>>,
     // Decode only the requested result category. RawValue preserves duplicate
     // known keys for the next typed stage, unlike an intermediate Value tree.
     tracks: Option<Box<RawValue>>,

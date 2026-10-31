@@ -34,10 +34,9 @@ entitled track and hears it through GStreamer/PipeWire, then exercises transport
 queue, error recovery and cleanup. Synthetic WAV, metadata, a delivery URL or a
 player-shaped interface do not pass this criterion.
 
-Use 2–4 coherent PRs or stacked increments without automatically merging the
-open PRs. While #6/#8 remain open, build on the live #8 head and target the
-preceding feature branch. The first increment contains actual catalog/navigation
-fixes and begins the audio work **in parallel**, before broad visual polish:
+The earlier stacked increments remain unmerged. Continue corrections in the
+existing PR #13 branch; do not create another branch/PR, change its base or close
+ancestors during this work. The stage has followed these independent work areas:
 
 1. Repair track/album/artist search, playlist contents, details and pagination;
    replace silently dropped actions with bounded independent work and stale-result
@@ -62,11 +61,11 @@ nonfunctional controls. Playlist writes require revision/conflict handling and
 read-after-write confirmation. Media caching/offline rights and persistent
 credentials require separate review.
 
-If provider authorization or protection blocks every assessed delivery option,
-record the **exact failed stage** and safe owner-local evidence in
-[STREAM_DELIVERY_REVIEW.md](STREAM_DELIVERY_REVIEW.md). Continue independent
-catalog/UX work, but keep **v0.2 audible-player acceptance NOT MET**. Do not rename
-an unfinished player as complete or replace music with a generated signal.
+The owner has now accepted the core audible path at `8f1b09d`. A new delivery
+refusal must still identify its exact stage/category without changing identity,
+region, TLS or protection handling. Preserve the working integration and use
+Library playback as a regression check while repairing search and UX; do not
+replace accepted audio with a generated signal or a new provider experiment.
 
 ## Release conditions
 
@@ -88,21 +87,31 @@ owner-preserving liked-playlist reads). These are
 implemented workflows with local synthetic tests, not yet owner-verified service
 acceptance. No PR is merged automatically.
 
-The later owner retest at `99a177e` confirms real track details/liked state and
-album search, but still fails track search. PR #12's `268a495` correction handles
-source-backed optional display-credit variants and has a failing-before/passing-
-after native search regression; live track-search sign-off remains pending.
+The [owner's PR #13 acceptance at `8f1b09d`](https://github.com/tracerxbrhd/karin/pull/13#issuecomment-6539311586)
+confirms actual audible Yandex Music through GStreamer/PipeWire, working controls
+and queue, and correct logout/close. This is the core service-audio PASS, not a
+synthetic fixture result. The accepted resolver/player and current sign-in
+provider must be preserved.
 
-The audio child branch implements a real `StreamResolver` and extends the
-existing controller with a sealed short-lived HTTPS source. The player bar now
-binds Play/pause/resume/Stop, progress/seek, volume, queue/Next/Previous and EOS to
-GStreamer state. Legacy MP3 offers/XML and their public checksum framing are
-handled separately from modern extracted signing keys or protected transport;
-the latter remain excluded. The same-session diagnostic stays metadata-only.
+Track search still fails with HTTP 200 / `track-wire` /
+`track-fields-unsupported`. The current correction replaces coupled search
+metadata decoding with a minimal validated identity hit and one account-bound
+`/tracks` batch of at most 50 distinct IDs within a 50-position page, with original
+order/pagination and
+explicit partial data. The account menu requires an explicitly labelled logout
+and native Cancel-default confirmation. Search errors/retry, row Play/details,
+Back, queue actions and everyday layout density receive targeted UX correction;
+no unrelated redesign or inert feature controls are added.
 
-The owner has supplied an HTTP 200 MP3 offer classification, not a retrieved XML
-descriptor or heard track. The strict metadata-path correction and actual remote
-player therefore still require the one combined Fedora run. MPRIS remains
-unimplemented until actual sound and truthful service playback are accepted.
-**Overall v0.2 sound acceptance is NOT MET** until the owner hears an actual
-selected service track and verifies transport, queue and cleanup.
+The full v0.2 release is still blocked by live corrected search and UX, current
+Flatpak verification and independently unresolved public OAuth-registration/
+service-distribution conditions. MPRIS/media keys remain outside this correction.
+Use [one updated Fedora build](BUILDING.md#v02-catalog-and-delivery-info-acceptance-on-fedora)
+for search-to-play, safe logout and preservation of the accepted sound path.
+
+After that owner acceptance, propose using **this existing PR #13** as the sole
+integration PR: retain its ancestor history and existing branch, retarget it to
+`master`, rerun CI/review against the new base and squash-merge once only if
+approved. Close #6/#8/#10/#11/#12 as superseded only with explicit approval and
+references to #13. No new branches/PRs, automatic base changes, merges, closures,
+branch deletion or history rewriting are part of the current task.

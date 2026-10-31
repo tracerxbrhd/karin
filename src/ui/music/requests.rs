@@ -109,6 +109,14 @@ impl<J> Requests<J> {
             slot.pending.is_some() || slot.running.is_some_and(|serial| serial == slot.latest)
         })
     }
+
+    pub(super) fn busy_except(&self, excluded: Operation) -> bool {
+        self.slots.iter().enumerate().any(|(index, slot)| {
+            index != excluded.index()
+                && (slot.pending.is_some()
+                    || slot.running.is_some_and(|serial| serial == slot.latest))
+        })
+    }
 }
 
 #[cfg(test)]

@@ -385,8 +385,9 @@ fn build_with_music_pane(
     header.pack_start(&sidebar_toggle);
     let menu = gio::Menu::new();
     menu.append(Some("Настройки"), Some("win.preferences"));
+    menu.append(Some("Диагностика"), Some("win.diagnostics"));
     menu.append(Some("О Karin"), Some("app.about"));
-    menu.append(Some("Выйти"), Some("app.quit"));
+    menu.append(Some("Закрыть Karin"), Some("app.quit"));
     let menu_button = gtk::MenuButton::builder()
         .icon_name("open-menu-symbolic")
         .tooltip_text("Меню приложения")
@@ -416,11 +417,6 @@ fn build_with_music_pane(
         ("music-library", "Библиотека", "folder-music-symbolic"),
         ("music-search", "Поиск", "system-search-symbolic"),
         ("music-queue", "Очередь", "view-list-symbolic"),
-        (
-            "diagnostics",
-            "Диагностика",
-            "applications-engineering-symbolic",
-        ),
     ] {
         let row = gtk::ListBoxRow::new();
         let content = gtk::Box::new(gtk::Orientation::Horizontal, 12);
@@ -534,6 +530,8 @@ fn build_with_music_pane(
     let home = gtk::Box::new(gtk::Orientation::Vertical, 0);
     margins(&home, 24);
     let music = make_music(app, &window);
+    let account_menu = music.account_menu();
+    header.pack_end(&account_menu);
     home.append(&music.widget);
     toolbar.add_bottom_bar(&music.player_bar);
 
@@ -607,7 +605,7 @@ fn build_with_music_pane(
             split.set_show_sidebar(!split.shows_sidebar());
             if split.shows_sidebar()
                 && let Some(list) = weak_destinations.upgrade()
-                && let Some(row) = list.selected_row()
+                && let Some(row) = list.selected_row().or_else(|| list.row_at_index(0))
             {
                 row.grab_focus();
             }
@@ -722,26 +720,27 @@ fn build_with_music_pane(
                 destinations.upgrade(),
                 title.upgrade(),
             ) {
-                let index = if stack.visible_child_name().as_deref() == Some("diagnostics") {
-                    Some(4)
-                } else {
-                    match sections.visible_child_name().as_deref() {
-                        Some("home") => Some(0),
-                        Some("library") => Some(1),
-                        Some("search") => Some(2),
-                        Some("queue") => Some(3),
-                        _ => None,
-                    }
-                };
+                let (index, page_title) =
+                    if stack.visible_child_name().as_deref() == Some("diagnostics") {
+                        (None, "Диагностика")
+                    } else {
+                        match sections.visible_child_name().as_deref() {
+                            Some("home") => (Some(0), "Главная"),
+                            Some("library") => (Some(1), "Библиотека"),
+                            Some("search") => (Some(2), "Поиск"),
+                            Some("queue") => (Some(3), "Очередь"),
+                            Some("detail") => (None, "Сведения"),
+                            _ => (None, "Karin"),
+                        }
+                    };
                 if let Some(index) = index
                     && let Some(row) = destinations.row_at_index(index)
                 {
                     destinations.select_row(Some(&row));
-                    title.set_title(
-                        ["Главная", "Библиотека", "Поиск", "Очередь", "Диагностика"]
-                            [index as usize],
-                    );
+                } else {
+                    destinations.unselect_all();
                 }
+                title.set_title(page_title);
             }
         }
     };
@@ -894,6 +893,7 @@ fn build_with_music_pane(
             title.upcast(),
             sidebar_toggle.clone().upcast(),
             menu_button.upcast(),
+            account_menu.upcast(),
         ],
         split,
         sidebar_toggle,
