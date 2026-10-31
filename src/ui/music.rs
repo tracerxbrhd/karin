@@ -581,6 +581,12 @@ impl MusicPane {
             .button_label("Обновить")
             .revealed(false)
             .build();
+        // A collapsed but visible Banner still participates in GtkBox spacing.
+        // Keep the whole widget out of normal layout until it has a message.
+        cache_notice.set_visible(false);
+        cache_notice.connect_revealed_notify(|notice| {
+            notice.set_visible(notice.is_revealed());
+        });
         widget.insert_child_after(&cache_notice, Some(&status_revealer));
         let cache_hint = text("Сохранённые сведения", "caption");
         cache_hint.add_css_class("dim-label");
