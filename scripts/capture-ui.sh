@@ -189,7 +189,8 @@ xdotool key --clearmodifiers Tab Tab Tab Tab Tab Tab Tab
 xdotool key --clearmodifiers ctrl+End
 # Read-only native-library text follows the last interactive row. Scroll to
 # expose it as well; keyboard focus/activation is captured separately above.
-xdotool mousemove --window "$window" "$(( 350 * capture_scale ))" "$(( 560 * capture_scale ))"
+# Keep the pointer within the scrollable content, above the compact player bar.
+xdotool mousemove --window "$window" "$(( 350 * capture_scale ))" "$(( 400 * capture_scale ))"
 xdotool click --repeat 8 --delay 60 5
 capture compact-diagnostics-bottom
 xdotool key --clearmodifiers ctrl+q
