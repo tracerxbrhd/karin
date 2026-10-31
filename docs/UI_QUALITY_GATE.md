@@ -9,8 +9,27 @@ fictional music catalogs, recommendations or player controls.
 
 ## Required matrix
 
-Inspect both overview and diagnostics at each size below, in **light and dark
-themes**. Use actual allocated dimensions; distinguish requested size from the
+The v0.2 music shell uses native adaptive navigation. Check the actual desktop
+rail/sidebar and compact navigation, including labels/tooltips/accessibility for
+icon-only controls, opening/focus/activation/closing, cross-page keyboard
+focus and selected-page preservation across both directions of resizing. Check
+Home's real cached liked-track preview, metadata rows, contextual actions and
+the persistent selected-track bar. Play may begin real source resolution; Pause/seek and other transport
+controls must reflect actual worker state/capability. An unresolved source must
+never show an invented playing state or measured progress.
+
+Use `KARIN_CAPTURE_SCALE=2 scripts/capture-ui.sh build/ui-captures/hidpi` for
+the same logical-size matrix on a 3840×2160 Xvfb display. Inspect actual scale-2
+textures as well as layout. Static synthetic native-fixture frames explicitly
+use GTK reduced motion to avoid recording a dialog's opening fade; the ordinary
+full-window capture, smoke and separate interactive WebKit processes retain
+their normal motion settings. Record these conditions with the evidence.
+
+Inspect the music interface and diagnostics at each size below, in **light and
+dark themes**. Cover signed-out library/search/queue navigation and the single
+native sign-in dialog without real credentials. Account/search/detail states
+may use synthetic fixtures only in explicitly identified tests, never a release
+catalog. Use actual allocated dimensions; distinguish requested size from the
 size achieved under the window manager.
 
 | Window state | Approximate size | Main checks |
@@ -32,6 +51,9 @@ For each theme and relevant page:
   control may be clipped, including when maximized.
 - Check heading levels, margins, group spacing and reasonable row/button widths.
   Long status and error text must wrap without pushing actions off-screen.
+  The persistent player's single-line track title may use native ellipsis only
+  when its complete text is available through a tooltip and accessible label;
+  this exception does not apply to headings, errors, status text or action labels.
 - Use Tab and Shift+Tab through navigation, menu and action buttons. Verify a
   visible focus indicator, logical focus order, Enter/Space activation and
   keyboard access to every implemented action. Check Ctrl+Q shutdown.
@@ -43,6 +65,93 @@ For each theme and relevant page:
   working production integration.
 - Keep audio tests clearly labelled as synthetic. Do not make a screenshot run
   play physical sound or contact an account without an explicit action.
+- Check music detail/back navigation, result paging and stale-search handling,
+  session cancel/logout, empty and unavailable-item text, queue editing and the
+  actual player state. Disabled player controls must not suggest
+  successful service playback. Default builds must not expose Device Flow.
+- Assess useful density as well as clipping: search input/results must remain
+  primary, playable rows and Details must have distinct understandable actions,
+  Back must be easy to find, and queue selection/removal/clear must be legible.
+  Check one plain-language search failure with Retry and optional safe details;
+  no duplicated global/inline error or technical code should dominate the page.
+- Judge the composition as a music application: navigation, account avatar,
+  covers, primary play actions and the player bar must have a clear hierarchy.
+  A structural minimum-row assertion or absence of clipped widgets does not
+  pass this design review. Avoid repeated account banners, redundant headings,
+  oversized separators and large dead areas around populated lists. Inspect
+  actual populated states, including long real-shaped titles and missing artwork.
+- For unified search, inspect independent real-data track/album/artist/playlist
+  sections, their loading/empty/error states and section-specific Show All/Retry.
+  One failed section must not erase successful sections or become a fabricated
+  empty result. Successful empty categories are omitted; all-empty results have
+  one message. Section Retry must fetch that category only; Back to All runs a
+  fresh bounded aggregate query. Verify that opening details and returning
+  retains its query/section/paging, and a late reply cannot replace a newer query.
+- Verify account menu → **Выйти из аккаунта** → native confirmation. Cancel must
+  have default focus/response; Enter/Escape/cancel must preserve the current
+  session, queue and active audio until explicit confirmation. Opening the menu
+  alone must not log out. Check stale confirmation responses after session
+  changes, focus return, compact geometry and mouse/keyboard activation.
+- Exercise normalized search-row activation to actual Play, and the separate
+  explicit detail/Back path, with synthetic loopback
+  records, including unusual search display fields and partially missing lookup
+  records. Assert one batched normalization request rather than per-row requests,
+  retained provider pagination and disabled unavailable tracks. Owner Fedora
+  acceptance remains separate from this fixture.
+- Activate rendered track, playlist, album, artist and queue rows with actual
+  mouse input and keyboard Enter/Space. A playable track must start its exact
+  context position; collection rows open their details. Assert the action and
+  expected service request, including after refresh replaces rows. Clicking nested
+  buttons/menus must preserve their own action; empty/nonactivatable rows must
+  do nothing. Direct calls to detail handlers or emitting a row's keybinding
+  signal alone do not prove real user activation. The input-driven loopback
+  fixture is `native_catalog_rows_mouse_keyboard_details_and_delivery`.
+- Open the sign-in dialog at every size/theme. Automated checks use the explicitly
+  injected offline provider or local browser-session fixtures; check loading,
+  stage-specific errors, retry, Escape/cancel and focus return. No build mode may expose Client
+  ID/secret, device codes, pasted tokens or URL fields in this user journey.
+  Only validated Music account access may complete sign-in; test callback/state,
+  cancellation and late responses against local fixtures. Clear old errors on
+  logout, cancel and a fresh attempt; use native message rows with wrapped text.
+- When the WebKit component changes, check ephemeral-session construction and
+  destruction, trusted origin display, exact main-document return/state handling,
+  asynchronous own-session cookie collection/cancellation and callback interception
+  separately from provider permission. Exercise actual local page loading with the sandbox
+  enabled where supported; report namespace/sandbox restrictions as blocked.
+- Never capture real application credentials, verification codes, auth/browser
+  pages or account/library data for public evidence. Cloud capture should use
+  clean signed-out states; authenticated fixture coverage must be explicit.
+
+## Playback context and desktop controls
+
+Play a row from a multi-track library, playlist, album or search page. Check
+which returned tracks become its playback context, the selected position,
+Next/Previous and EOS, including skipping unavailable loaded items, retaining
+duplicate positions, paused/stopped intent and the 500-position context limit.
+Appending/removing/clearing queue entries, starting a different
+context and navigating away must have explicit, predictable effects. A partial
+loaded page is not an entire remote collection. Retry/error/logout/close must
+not restart stale audio or silently discard the user's newer queue action.
+
+Verify that the persistent player's artwork, title, transport, progress, seek,
+volume and queue controls match the actual selected source and worker state.
+Check empty, resolving, playing, paused, stopped, ended and failed states at
+compact and desktop sizes. A screenshot of a Play icon does not prove sound.
+
+When MPRIS is implemented, run a real isolated session-bus fixture and exercise
+the same native player through its exported methods, properties and signals.
+Compare capabilities and position/seek units with actual snapshots; verify no
+second audio engine, arbitrary URI input, stale track identifier, media address,
+credential or cookie is exposed. Bus-name ownership/release and application
+shutdown need lifecycle checks. Synthetic bus/media fixtures prove that contract
+only. Seeked must follow a successful worker acknowledgement, including a seek
+close to the current position; rejected/queued-only/stale seeks must not emit a
+false acknowledgement. Check optional cover-file cleanup and private file modes.
+Unsupported repeat/shuffle controls must not appear via optional MPRIS properties.
+Fedora acceptance must separately verify an actual selected Music track,
+`playerctl`, KDE's media widget and physical media keys, in the native artifact
+and, when built, the current Flatpak sandbox. No manual result is passed until
+it is actually performed.
 
 ## GTK structure and behavior
 
@@ -78,6 +187,13 @@ and silent diagnostic activation, then closes with Ctrl+Q:
 cargo build --workspace --locked
 scripts/capture-ui.sh build/ui-captures
 ```
+
+The helper always selects explicit `--ui-fixture` mode before opening/closing the
+sign-in dialog at all four sizes in both themes. This injected offline provider
+is automation-only; ordinary startup uses the real Cassette-compatible provider.
+These captures never load a real authorization page or claim successful provider
+login. Mark fixture evidence clearly and use local WebKit/HTTP fixtures to cover
+the session grant; the real Fedora owner test is a separate acceptance gate.
 
 It requires Xvfb, Openbox, ImageMagick (`import`), xdotool, wmctrl and xwininfo,
 plus the normal GTK/GStreamer libraries and SVG loader. In the prepared cloud

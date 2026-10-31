@@ -1,0 +1,36 @@
+Base commit (working-tree changes may follow):
+2a6a1c30a7f8206fc95a0623943a4e3de76aa2c0
+ M src/ui/music.rs
+
+Rendered binary and UI sources:
+985606e57046ed4d02eb614db02e3265999a41303898832392af810365d89394  /workspace/karin/target/debug/karin
+160df6dfc1ac9b048dca01500d3b3dcf92f291cffbbae5fa4c09980ff9c7a7b3  /workspace/karin/src/ui.rs
+b2af80a0146f616085ffe040c9ae806f6ee2cc031bf1f38b22a6b1d895326e42  /workspace/karin/src/ui/playback.rs
+d6e04ca3800f7c0e76728d3ba0cd6854f06da8425e02007c80fef9b7ac2d1409  /workspace/karin/src/ui/music.rs
+16ddb7e8250ed0db88e4e364e746b7b1ae08c7969fe365ac89946f759d5ddaf8  /workspace/karin/src/music.rs
+d5c0746b4a2c9839a98e45c1ad13ddff5bff1caae7b2c73ca1706143222a3325  /workspace/karin/src/session.rs
+801a3fe1062fa5839120bd87990bbd7395a8b1cae6a1be4351eb273a3b534d95  /workspace/karin/src/session/device.rs
+4f091a5cf5b880a9cc2050ac24fa11545dc8cfbfe01eafcbd13d643b2f64568a  /workspace/karin/src/queue.rs
+7a9799b3d4b99b626b74260bed50b11c3a1dd1e1a569c1817fd07b17ab6b114f  /workspace/karin/src/main.rs
+1269a654a88ceb9805514ad5c9a07e956e5a863d5173d1fbd271d9ac6c10406c  /workspace/karin/src/playback.rs
+66b1b4a6afcbe8658c6d897cde32bc620e7821d7ec2093b1c4ca577853ac43ba  /workspace/karin/src/capabilities.rs
+bce25471b2d9e05361c1e6e5c2226334faa6396011570466bc5c1b9350cee6b6  /workspace/karin/src/auth.rs
+9b7853508b87f8f680806b4a816210b7f51b57ac25128a23d96fd3ed5c4d2126  /workspace/karin/src/ui/auth.rs
+60c1b486f2bc3f1029903703b825de9dc57f728b795e5b5674ae8ae8bc02a5a6  /workspace/karin/src/ui/auth/webkit.rs
+
+Experimental UI requested: 0
+imagemagick	8:7.1.1.43+dfsg1-1+deb13u12
+librsvg2-common:amd64	2.60.0+dfsg-1+deb13u1
+openbox	3.6.1-12+b2
+xdotool	1:3.20160805.1-5.1
+xvfb	2:21.1.16-1.3+deb13u4
+Openbox 3.6.1
+Copyright (c) 2004   Mikael Magnusson
+Copyright (c) 2002   Dana Jansens
+
+This program comes with ABSOLUTELY NO WARRANTY.
+This is free software, and you are welcome to redistribute it
+under certain conditions. See the file COPYING for details.
+
+
+Capture: isolated Xvfb 1920x1080 at 96dpi; cairo/full-redraw; light and dark.

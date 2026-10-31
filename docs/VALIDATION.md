@@ -6,7 +6,1329 @@ This report separates initial cloud checks, user-reported Fedora acceptance,
 revised UI checks and compiler compatibility. A result for one environment or
 revision is not evidence that another has passed.
 
-## v0.1 Gate A (2026-10-25)
+## Owner Fedora acceptance at `f0aa2bb` and remaining UI work (2026-10-31)
+
+The owner's next PR #13 run at **`f0aa2bb`** reports **Search PASS, Account
+PASS and Playback PASS**, while **UI FAIL** remains a blocking manual result.
+This is real Fedora 44 / KDE Plasma / Wayland / PipeWire evidence: corrected
+track search and safe account actions have now been accepted, and actual Yandex
+Music playback still works. It supersedes the earlier live-search failure and
+pending account/search acceptance below; it does not turn the rejected interface
+into an accepted UI or imply that a later revision has passed.
+
+| Owner result at `f0aa2bb` | Status |
+| --- | --- |
+| Corrected track search | **Fedora PASS** |
+| Account actions, including the deliberate logout flow | **Fedora PASS** |
+| Preservation of real service playback | **Fedora PASS** |
+| Overall music interface | **Fedora FAIL**; further UI work and fresh manual acceptance required |
+| New playback-context/MPRIS/UI increment | Not yet accepted; implementation checks and the next owner run must be recorded separately |
+| Current Flatpak artifact and public registration/service-distribution permission | Separate unresolved gates |
+
+Keep the accepted search normalization, voluntary authentication and guarded
+GStreamer/resolver path intact. New navigation, playback-context and desktop
+integration checks must exercise those real paths rather than substitute
+synthetic audio, UI-only state or a different login. No user session, resource
+address, private library or raw log belongs in Cloud/CI evidence.
+
+## Context, unified workspace and MPRIS implementation checks (2026-10-31)
+
+The local implementation matrix at `fea02c3` passed on Rust stable **1.99.1**
+and exact **1.98.1**: formatting, warning-free default/all-feature/minimal Clippy,
+tests and builds. The library test counts were **248 default**, **256 with all
+features** and **234 without default features**, plus four CLI tests per mode.
+All 16 all-feature native fixtures were also executed, including actual mouse
+and keyboard rows, contextual playback, independent search sections, confirmed
+logout and isolated MPRIS controls. These checks used synthetic records and
+original generated media only.
+
+The same GStreamer worker was exercised through GTK and real `playerctl`/D-Bus
+calls: transport, volume, near-position seek acknowledgement, stale SetPosition,
+paused/stopped Next/Previous, EOS, manual additions, logout and bus-name cleanup.
+The tests reproduced and fixed a Ready-to-Play UI race that retained preparation
+state after playback began. Seeked now follows the worker's successful native
+seek observation rather than a queued request or elapsed-time approximation.
+
+An empty-Cargo-cache vendored MSRV offline release passed version, generated
+audio, local playback-controller and GTK lifecycle checks. License review
+verified 207 package checksums, 11,669 vendored file hashes and 377 packaged
+Rust notice files. This is a source/native artifact check, not a complete
+GNOME SDK 50 Flatpak build or distribution-permission assessment.
+
+The `fea02c3` PR and push CI matrices both passed. Their 238 real Xvfb PNGs were
+reviewed in light/dark themes at 1×/2×, including populated fixtures. Review found
+an unavailable expanded-navigation icon; `2367d87` keeps the installed native
+sidebar glyph in both states, retaining the toggle state and distinct tooltip.
+Formatting and both compilers' all-feature Clippy passed after that correction.
+Final revision-specific CI, captures and native build hashes are recorded in
+PR #13. A GTK 4.14 Xvfb black rectangle around the account popover remains a
+capture qualification, not a confirmed Fedora defect. Lower unified-search
+sections are covered structurally; individual top-of-page captures do not show
+all four categories at once.
+
+The owner's `f0aa2bb` PASS/FAIL table above remains the latest real Fedora
+evidence. New UI acceptance, live unified search, contextual playback regression,
+KDE media widget/physical media keys and current Flatpak are still pending.
+
+## Historical owner acceptance and search/UX correction through `f0aa2bb` (2026-10-31)
+
+The owner's [technical conclusion for PR #13 at `8f1b09d`](https://github.com/tracerxbrhd/karin/pull/13#issuecomment-6539311586)
+records **real service playback PASS** on Fedora 44 / KDE Plasma / Wayland /
+PipeWire: an entitled Yandex Music track was heard through Karin, playback
+controls and queue worked, and logout/close stopped playback. This is actual
+owner-local acceptance of the core audible path, not a synthetic audio test.
+It does not establish every track/format, the current Flatpak artifact, public
+OAuth-registration distribution permission or the full v0.2 release.
+
+The same run records **track search FAIL** with HTTP 200, `track-wire` and
+`track-fields-unsupported`. The result's own ID passed the first check; remaining
+wire/display fields did not. The exact private field was not supplied and is
+not guessed. Album search/detail worked. A direct logout icon was also mistaken
+for navigation, causing accidental sign-out; the search/error layout failed UX
+acceptance.
+
+The correction keeps the accepted authentication and audio integration. Track
+search now consumes a minimal typed hit containing only a checked ID, then uses
+the existing account-bound `/tracks` lookup once per page, for at most 50 raw
+hit positions and 50 distinct IDs. Search display fields are ignored rather than deserialized into a
+track. Order, duplicate positions, composite IDs and provider pagination are
+retained. Missing/null lookup records have an explicit omitted count;
+`available=false` records remain visible and unplayable. More than 50 raw hit
+positions fail before a lookup request, including repeated IDs, rather than
+being truncated or expanded with N+1 requests. See [ADR-0016](adr/0016-search-identity-and-batch-normalization.md).
+
+The ordinary account control is a menu with **Выйти из аккаунта**, followed by
+a native confirmation whose safe default is **Отмена**. Cancellation must leave
+the token, queue and active audio intact. Search has one plain-language error
+and Retry; safe technical details belong to an optional disclosure rather than
+the main error text. Fresh tests and screenshots must cover real mouse/keyboard
+input, search → detail → Play, partial results, cancelled/confirmed logout and
+layout density across sizes/themes/HiDPI.
+
+| Current correction acceptance | Evidence |
+| --- | --- |
+| Real Music audio, controls, queue and logout/close at `8f1b09d` | **Owner Fedora PASS** |
+| Track search at `8f1b09d` | **Owner Fedora FAIL**; HTTP 200 / `track-wire` / `track-fields-unsupported` |
+| New batch-search and native account/UX regression checks | Prepared stable 1.99.1: all-feature Clippy, 39 backend checks, native search/Retry/density, account mouse/keyboard/default-Cancel and search→detail→synthetic-MP3 checks passed; complete compiler/CI results are recorded by immutable revision in PR #13 |
+| Corrected build at `f0aa2bb`: search, account actions and preserved playback | **Owner Fedora PASS**; overall UI **FAIL**, as recorded above |
+| Full current Flatpak artifact and public service/registration distribution approval | Separate unresolved gates |
+
+An isolated `8f1b09d` regression with a valid own ID and synthetic unusual/duplicate
+display fields reproduces **HTTP 200 / `track-wire` /
+`track-fields-unsupported`**. The new service tests normalize such identified
+hits with one batch, including reordered, missing and unavailable records. This
+reproduces the failing contract without claiming to identify the owner's unseen
+private field. The native medium-window test exposes at least six complete rows
+above the fixed player, and checks allocated Play hit targets rather than their
+smaller CSS content boxes. Account input tests wait for mapped native surfaces
+and stable paint-frame allocations; screenshots cannot supply that readiness.
+
+Use the [single updated Fedora guide](BUILDING.md#v02-catalog-and-delivery-info-acceptance-on-fedora).
+No new PR, base change, merge, branch deletion or closure of ancestor PRs is part
+of this correction. The dated sections below preserve earlier evidence; their
+pre-acceptance audio/search status is superseded by the revision-specific owner
+reports above.
+
+## Historical guarded legacy MP3 resolver and remote player checks (2026-10-30)
+
+The completed baseline is `8f1b09d`, with [PR CI](https://github.com/tracerxbrhd/karin/actions/runs/41089490440)
+and [push CI](https://github.com/tracerxbrhd/karin/actions/runs/41089478936).
+Those source-specific results precede the new search/UX correction.
+
+The audio child branch above PR #12's `268a495` implements the actual source
+path: existing validated session → per-track offer → bounded XML → opaque
+short-lived legacy MP3 source → existing GStreamer playbin. Normal explicit
+Play uses this path; `--delivery-diagnostic` remains metadata-only. Local-file
+sources and generated-WAV developer diagnostics remain separate and supported.
+
+At the start of this dated implementation, the available owner delivery evidence
+was the HTTP 200/mp3 offer result recorded below, which stopped at
+`metadata-origin-unverified` before descriptor retrieval.
+The new code accepts three exact metadata path families at the same reviewed
+HTTPS origin, including the published `/download-info/` variant and the pinned
+`/file-download-info/` fixture. This does not assert which URL the owner received.
+No live XML, current media host/resource, audible Music, new search PASS or
+public provider-distribution approval was established by those Cloud/CI checks.
+The later owner report above accepts the audible path independently.
+
+Resolver tests cover explicit full-track MP3 selection, protection/preview and
+ambiguous-response refusal, credential separation, origin/path/redirect bounds,
+private canonical construction, original-offer freshness and cancellation/logout.
+Remote-player tests generate original synthetic MP3 and exercise actual HTTP
+Range/TLS transport, controls/seek/EOS/cleanup, expiry and URI-log privacy. The
+native `native_music_playback_resolver_queue_controls_and_logout`,
+`native_music_playback_queue_races_remove_and_close` and
+`native_music_playback_media_error_visibility_stop_retry_and_catalog_preservation`
+fixtures join the resolver and real worker with synthetic loopback MP3/fakesink.
+The completed prepared Debian matrix used stable **1.99.1** and exact
+**Rust 1.98.1**, with no runtime changes between compiler lanes.
+
+| Dated audio implementation check | Executed result |
+| --- | --- |
+| fmt; default/all-feature/minimal all-target Clippy, `-D warnings`; builds | Passed on both compilers |
+| Default / all-feature / minimal workspace tests | **219 / 227 / 205 library + 4 binary passed** on each compiler; 11 / 11 / 8 display tests excluded from ordinary totals |
+| Resolver policy, original-offer expiry, no CDN credentials or diagnostic media GET | **38 stream tests passed** in the focused run; included in both completed compiler matrices |
+| Actual remote MP3 HTTP/TLS, controls/EOS, cancellation and URI-log privacy | **20 playback tests passed** in the focused run; included in both completed compiler matrices |
+| Three explicit native resolver/player/queue/session/error fixtures; existing account/catalog/library/input fixtures | Passed on both compilers |
+| GTK/theme/HiDPI smoke and actual cover textures/adjacency at scale 1 and 2 | Passed on both compilers |
+| WebKit construction/cancel, synthetic terminal boundaries, GStreamer/generated local-media diagnostics | Passed locally in their stated scopes on both compilers |
+| Exact-1.98.1 default/all-feature `--release --offline --locked` and release runtime checks | Passed |
+| Dependency-license inventory comparison | Passed; reviewed inventory unchanged |
+| Full sandbox-enabled WebKit/hosted CI and native vendored Flatpak-source checks | Immutable source/run IDs and executed outcomes are recorded in [PR #13](https://github.com/tracerxbrhd/karin/pull/13); native source checks do not establish a complete Flatpak build |
+| Owner Fedora actual-track audibility, transport/queue/close and live search | Pending at this record date; later `8f1b09d` owner acceptance supersedes core audio, while live track search remains failed |
+
+The media-error fixture verifies visible, sanitized HTTP 403 feedback at
+420×720 and 900×650, no automatic retry, clearing on Stop/explicit Play, and
+preservation of a later unrelated catalog error. The row-input fixture reaches
+the delivery action with actual Tab, asserts that its complete allocation is
+above the fixed player bar, and returns with Shift+Tab/Back. This proves more
+than a mapped-but-obscured button. It never activates the production delivery
+client in Cloud/CI. No synthetic fixture or successful GStreamer state is a
+heard-service-track result.
+
+### Native dialog lifecycle correction
+
+One push attempt at `53a8678` aborted the catalog/session fixture with
+`malloc_consolidate(): unaligned fastbin chunk detected`; the corresponding PR
+compiler lanes passed. Ten unchanged repetitions on Debian/Libadwaita 1.7 also
+passed, so those passes alone do not explain the Ubuntu failure. No GStreamer
+controller was started by the failing fixture.
+
+The exact CI package, Ubuntu `libadwaita 1.5.0-1ubuntu2`, lacks upstream
+[406c76d](https://github.com/GNOME/libadwaita/commit/406c76d12d8b4737d4e41e007ed77aebb77a1ac7),
+which fixes a shadowed dialog's dangling focus weak pointer and explicitly
+describes memory corruption. Karin could present a replacement while a cancelled
+sheet was still parented. The new fixture assertions, transplanted alone onto
+unchanged `53a8678`, fail with **replacement login must wait for native
+unparenting**. This reproduces the unsafe overlap, not the allocator stack.
+
+Native presentation now waits for both host removal and actual unparenting;
+pending work and old Cancel/Retry callbacks are bound to their owning dialog,
+generation and closed state. Repeated pane/window/Drop close calls return before
+rendering already closed children. Tests exercise immediate cancellation,
+deferred presentation, stale buttons/close events and repeated close. The OAuth
+provider, browser/session exchange and Music validation are unchanged. This
+removes a verified upstream trigger; without a native backtrace, attribution of
+that particular allocator abort remains an inference. Final compiler/lifecycle
+results are identified by immutable revision in PR #13.
+
+The source-matched audio PR description and final artifacts will record executed
+outcomes. Do not reuse parent-run results as child-run evidence. Use the
+[single combined Fedora instruction](BUILDING.md#v02-catalog-and-delivery-info-acceptance-on-fedora)
+and report only fixed stages/categories/numeric HTTP plus anonymized PASS/FAIL.
+No actual account, token, private response, signed address or music is needed in
+Cloud/CI/GitHub. The local prototype's technical playback and the unresolved
+public registration/service-distribution conditions remain separate facts.
+See [ADR-0015](adr/0015-guarded-legacy-mp3-playback.md).
+
+## P0 track-search follow-up after `99a177e` (2026-10-30)
+
+The [latest owner retest](https://github.com/tracerxbrhd/karin/pull/12#issuecomment-6524410137)
+confirms ordinary sign-in, the personal library, opening a real track, confirmed
+liked state, and album search/details. **Track search still failed** at
+`99a177e`; that correction is not accepted as live track-search success. Its
+exact failing record/stage was not supplied and no private response was requested.
+
+The independent [delivery result](https://github.com/tracerxbrhd/karin/issues/9#issuecomment-6524404858)
+was `stage=delivery-info category=metadata-origin-unverified http=200
+metadata-http=none formats=mp3 resource=https-descriptor
+protection=not-established direct-hint=false preview-hint=false`.
+This confirms offers, not a descriptor request, media request, no-DRM conclusion
+or audible playback. Audio implementation proceeds independently in a child PR.
+
+The new search correction separates embedded display credits from independently
+navigable entities. MarshalX `9ca132e5` `base.py::de_list` (lines 359–383) accepts
+null/non-list credit containers and ignores non-object members; its Track,
+Artist and Album converters and pinned yamu also make embedded labels optional.
+Karin's coupled `Vec<ArtistWire>`/`Vec<AlbumWire>` rejected these variants before
+any track could be rendered. Display-only nested names/titles/durations and
+unused credit identifiers no longer discard a correctly identified track page.
+Required track identity, boolean availability, standalone identities, recognized
+duplicate fields, account checks and request/body limits remain strict.
+
+The extended native fixture now returns mixed/null and malformed optional credits,
+uses actual SearchEntry Enter and the Find button for Cyrillic/Latin queries,
+then clicks the result and verifies the track detail request. On the unchanged
+`99a177e` source it reproduces **HTTP 200 / `track-wire`** and times out without
+a track result. With the corrected converter the same fixture opens the track.
+This is a concrete source-backed regression, **not evidence that its synthetic
+record is the owner's unseen payload**.
+
+Remaining rejected track records have finite schema-shape codes in addition to
+stage/category/observed HTTP. The inline error also exposes that support code,
+without JSON, field paths, queries, names, IDs, URLs, headers or credentials.
+Both local compiler lanes (stable 1.99.1 and exact 1.98.1) passed fmt,
+default/all-feature/minimal all-target Clippy, **191 / 199 / 177 library + 4
+binary tests**, builds, the real Enter/Find/click/detail fixture, existing native
+catalog/library/cancellation checks, scale-1/2 GTK/artwork, WebKit construction,
+synthetic terminal/audio checks and exact-1.98.1 default/all-feature offline
+releases. Display tests remain separately selected (8 / 8 / 5 ignored in the
+ordinary configurations). Full sandboxed WebKit and exact-revision hosted CI
+outcomes are linked from PR #12 after execution; local checks do not imply them.
+At that parent revision, live track-search and audio acceptance were pending.
+The later owner report above supersedes audio only; track search still failed.
+
+## PR #12 Fedora catalog regression correction (2026-10-30)
+
+The owner's [blocking Fedora retest](https://github.com/tracerxbrhd/karin/pull/12#issuecomment-6513456418)
+reports **PASS** for account validation and initial/library reads, **FAIL** for
+track search (`response-contract`), and **FAIL** for opening artists, collections
+and personal playlists through their rows. The sanitized transcript contains no
+`operation=detail` after attempted opening. Other search categories return rows;
+that does not establish working detail navigation. The old `http=none` loses
+the known successful transport status and is not evidence of HTTP refusal.
+No live JSON, query, item identifier, title or account field was supplied.
+
+Two independent code defects are addressed in the existing PR #12 branch:
+
+- Row builders connected to the `GtkListBoxRow::activate` keybinding signal.
+  Actual user activation belongs to the parent `GtkListBox::row-activated`
+  signal. One parent dispatcher now invokes each row's existing typed action;
+  refresh/replacement does not accumulate handlers. Nested buttons retain their
+  separate actions, and empty/nonactivatable rows are excluded. Changing only
+  selection mode or directly calling a detail handler would not verify this fix.
+- The [pinned yamu album model](https://github.com/okhsunrog/yamu/blob/9803f319b9ea6f81befbc3117e4592132ed07d0e/src/models/album.rs#L20)
+  permits an absent album ID, including display metadata embedded in a track.
+  Karin required it while decoding every embedded album. The correction accepts
+  missing embedded album identity, while a standalone navigable album still
+  requires a valid ID. This is a source-backed incompatibility, **not proof that
+  this exact field caused the owner's unseen response to fail**.
+
+Search now decodes only the requested result category and reports the first
+failed layer using finite categories: `search-envelope`, `search-section`,
+`search-pagination`, `track-wire`, `track-normalization`, and corresponding
+album/artist wire/normalization stages. The actual observed successful HTTP
+status is retained through body/parsing errors and successful search results.
+Malformed/ambiguous recognized fields remain failures; account binding, strict
+IDs, request/body limits and transport controls are not relaxed. No raw serde
+path, JSON, URL, query, title, identifier, header or token reaches diagnostics.
+Separate `event=detail-requested` and `event=detail-result` distinguish dispatch
+from completion; search has corresponding requested/result events.
+
+The input-driven fixture
+`native_catalog_rows_mouse_keyboard_details_and_delivery` exercises rendered
+rows through X11 mouse/keyboard input rather than direct detail calls. It covers
+owned/liked playlists, track/album/artist results, Back, refresh without duplicate
+dispatch, nested controls, empty rows and queue selection, and checks that a
+loaded track exposes the enabled opt-in delivery action. The fixture does not
+activate the production delivery client or contact a real account/service.
+Backend regressions cover compatible embedded metadata, selected/mixed result
+sections, staged failures, duplicate recognized fields, bounds/status and privacy.
+The complete prepared Debian 13 matrix passed on stable **1.99.1** and exact
+**Rust 1.98.1** for this correction:
+
+| Check | Both compiler lanes |
+| --- | --- |
+| fmt; default/all-feature/minimal all-target Clippy, `-D warnings` | Passed |
+| Default / all-feature / minimal workspace tests | **189 / 197 / 175 library + 4 binary passed**; 8 / 8 / 5 display tests excluded from ordinary totals |
+| Real mouse/keyboard row, detail, Back, nested-control, refresh and delivery-entry fixture | Explicitly passed |
+| Existing native account/catalog, concurrent/stale actions and confirmed library fixtures | Explicitly passed |
+| Cover textures/adjacency and default GTK smoke at scale 1 and 2 | Passed |
+| All-feature GTK, WebKit construction/cancel, synthetic terminal boundaries, GStreamer/generated local media | Passed in their separate stated scopes |
+| Exact-1.98.1 default and all-feature offline optimized builds and release runtime checks | Passed |
+
+The **same input fixture** was also run against the pre-correction `3dd0b7f`
+source in an isolated worktree, adding only that test and its module declaration.
+It failed after the first actual Library-track mouse click: no detail operation
+started, and the expected detail view timed out. It passes against the corrected
+source on both compilers. This demonstrates the old row-activation defect rather
+than merely calling the repaired handler directly. The fixture waits for GTK to
+dispatch input and observes actual refresh requests before evaluating completion.
+
+The dependency-license inventory was regenerated and matched the reviewed
+**207 external / 178 Linux** package inventory. Only the existing `serde_json`
+dependency's `raw_value` feature is enabled; no version or lockfile changes,
+OAuth identity, native dependency or sandbox/Flatpak permission changes occur.
+Fresh 900×650 light/dark detail captures were inspected: actual keyboard focus,
+Back, nested actions and the complete enabled delivery button remain visible.
+Lower explanatory text is reachable by scrolling above the fixed player bar.
+These are synthetic cloud images, not real service or Fedora visual acceptance.
+
+Source-matched hosted CI, full sandbox-enabled WebKit and downloadable artifact
+outcomes are recorded in [PR #12 checks](https://github.com/tracerxbrhd/karin/pull/12/checks)
+and its description after execution. Local checks do not imply their outcome;
+earlier results below are historical revision-specific evidence.
+
+**Fedora retest remains pending:** actual track search, mouse/keyboard detail
+navigation, owned/liked playlist contents, Back and reaching/running the existing
+same-session delivery diagnostic. Follow
+[the combined local instruction](BUILDING.md#v02-catalog-and-delivery-info-acceptance-on-fedora).
+Preserve the working ordinary authentication path; no OAuth re-registration,
+VPN toggling or private response upload is needed. The exact live search layer
+and delivery response remain unknown until this run. **At this historical revision no real service audio had been played; audible
+acceptance was NOT MET. The later `8f1b09d` owner PASS above supersedes it.**
+
+## Issue #9 final series evidence (2026-10-29)
+
+The three reviewable increments are [PR #10](https://github.com/tracerxbrhd/karin/pull/10),
+[PR #11](https://github.com/tracerxbrhd/karin/pull/11) and
+[PR #12](https://github.com/tracerxbrhd/karin/pull/12). They remain stacked on
+the open authentication/application branches; no PR or stable branch was merged.
+The following evidence identifies executable source revisions, rather than
+assuming that later documentation revisions produced these artifacts.
+
+| Executable source | Hosted PR / push runs | Result |
+| --- | --- | --- |
+| `4ad94298d8fa2eeb952759e35fa96c3e1cf0e96d` (#10) | [40919144869](https://github.com/tracerxbrhd/karin/actions/runs/40919144869) / [40919039746](https://github.com/tracerxbrhd/karin/actions/runs/40919039746) | Stable and exact 1.98.1 passed |
+| `dc7d5d899c8fdada0f9e25d21144aa3aa15705f0` (#11) | [40931684093](https://github.com/tracerxbrhd/karin/actions/runs/40931684093) / [40931673943](https://github.com/tracerxbrhd/karin/actions/runs/40931673943) | Stable and exact 1.98.1 passed |
+| `a84cbbd9b7c69f158e6b2431b914d422d70abd77` (#12) | [40933481648](https://github.com/tracerxbrhd/karin/actions/runs/40933481648) / [40933251803](https://github.com/tracerxbrhd/karin/actions/runs/40933251803) | Stable and exact 1.98.1 passed |
+
+These runs include the separately selected full sandbox-enabled interactive
+WebKit tests; no sandbox was disabled. Prepared-cloud blank-WebKit construction
+alone is not substituted for those hosted page/lifecycle results.
+
+The final [image artifact](https://github.com/tracerxbrhd/karin/actions/runs/40933481648/artifacts/12924012849)
+contains **170 actual PNGs**: 62 scale-1, 62 scale-2, 30 full-window account/catalog/
+library fixtures and 16 WebKit fixtures. All were covered by visual review:
+unchanged decoded pixels reused their previous actual inspection; every changed
+image was reopened. Both retained scale manifests have all 21 source/Cargo hashes
+matching `a84cbbd9`, and the same debug binary SHA-256
+`188d58577a102109cecb87976d70159144ce2e6b0b7435bc2bbc7010564b1bcf`.
+They identify CI merge `9ff84b8d1edcea2f90e35c8824c86b0170494591`.
+Window sizes are 420×720, 900×650, 1440×900 and WM-maximized 1920×1080,
+with doubled physical dimensions at `GDK_SCALE=2`. Maximize atoms, allocations,
+navigation, focus and cleanup have separate structural/interactive assertions.
+The Retry images show an actual keyboard focus ring; Return triggers another
+fixture request. No remaining concrete visual defect was observed. Synthetic
+fixtures contain no private service data; they do not establish real sign-in,
+provider writes, audibility or Fedora/KDE/Wayland acceptance.
+
+The [exact-1.98.1 native artifact](https://github.com/tracerxbrhd/karin/actions/runs/40933481648/artifacts/12922589612)
+was downloaded, its archive checksum verified and original GPL/Cassette notices
+compared. Its release binary SHA-256 is
+`72a5c279916274d97b2aff686254e83bd1a0ac7875d558a408fdc854145ef527`.
+Build metadata identifies Ubuntu 24.04, GTK 4.14.5, Libadwaita 1.5.0,
+GStreamer 1.24.2 and WebKitGTK6 2.52.6. The extracted binary passed version,
+silent GStreamer, generated local-WAV transport and GTK smoke checks in the
+prepared Debian environment. Fedora ABI and physical output remain unverified.
+
+Final locked Flatpak source preparation and license-inventory comparison passed:
+47 source/Cargo files match `a84cbbd9`, with 207 vendored external packages
+(178 in the Linux graph). The snapshot independently passed exact-1.98.1
+`cargo build --release --offline --locked --no-default-features --features cassette-auth`.
+This is a native vendored-source build, **not a complete Flatpak build**.
+An actual Flatpak Builder 1.4.4 attempt stopped with
+`org.gnome.Sdk/x86_64/50 not installed`. An independent harmless Bubblewrap check
+also failed because this cloud forbids creating a namespace. No SDK/runtime,
+permissions, TLS or sandbox restrictions were changed. Complete current Flatpak
+build/install/startup stays pending on Fedora.
+
+**The first owner-local delivery-info/descriptor result is still pending.**
+The current validated session must run the bounded probe described in
+[the combined Fedora instruction](BUILDING.md#v02-catalog-and-delivery-info-acceptance-on-fedora).
+No eligible service resource has been confirmed or passed to GStreamer. This
+unobserved step is not classified as HTTP 403, DRM or a proven permission denial.
+Real search/playlist/like workflows also need the next owner-local check.
+**At this historical revision audible-player acceptance was NOT MET; the later
+`8f1b09d` owner PASS above supersedes that audio status.**
+
+## Issue #9 confirmed library interactions (2026-10-29)
+
+The third increment implements account-bound membership, deliberate like/unlike
+writes with independent UID/revision/state confirmation, and liked-playlist
+listing/details that preserve the actual playlist owner. No optimistic favorite
+state or automatic POST replay is used. Unknown outcomes/conflicts recover through
+GET-only refresh; rejected confirmation sessions propagate to logout. Catalog
+reads remain independent of the single admitted write, and stale controls/results
+cannot restore a closed session or its cached Home/library data.
+
+The complete prepared Debian 13 matrix passed **stable 1.99.1 and Rust 1.98.1**:
+
+| Check | Both compiler lanes |
+| --- | --- |
+| fmt; default/all-feature/minimal all-target Clippy, `-D warnings` | Passed |
+| Default workspace | **180 library + 4 binary passed**, 7 display tests ignored |
+| All-feature workspace | **188 library + 4 binary passed**, 7 display tests ignored |
+| Minimal workspace | **166 library + 4 binary passed**, 4 display tests ignored |
+| Whole-window account/catalog and concurrent-action fixtures | Each explicitly passed |
+| Confirmed library interaction fixture | Explicitly passed: add/remove, duplicate activation, lost response, 409, GET-only refresh, liked-playlist opening and late logout response |
+| Actual cover texture/adjacency checks | Passed at scale 1 and 2 |
+| Default/all-feature GTK lifecycle; default HiDPI smoke | Passed |
+| WebKit construction/cancel, synthetic terminal suite, GStreamer/local-media diagnostics | Passed in their separate stated scopes |
+| MSRV default/all-feature offline release, release GTK/terminal/audio | Passed |
+
+Thirteen backend interaction tests and one fixed-feedback test cover binding,
+strict unsigned revisions, schema drift, conflict/non-retry, ambiguous outcomes,
+401 confirmation and privacy. The pre-existing catalog fixture now permits
+independent membership reads without weakening its other route/auth assertions.
+The focused Retry capture now uses actual Xvfb keyboard Tab/Shift+Tab and Return,
+asserts GTK's visible-focus state and counts the subsequent request; its new
+light-theme image shows the native focus ring. Programmatic focus alone was
+insufficient evidence in the earlier artifact.
+
+The current dependency inventory was regenerated and compared successfully:
+**207 external / 178 Linux** packages, with no new crate in this increment.
+Native versions, Rust MSRV, Flatpak SDK/runtime/permissions and the existing
+Cassette provider are preserved. The source-matched hosted CI/artifact results
+are recorded above. Full sandboxed WebKit passed on the hosted runner; full
+Flatpak remains distinct and unverified. Namespace restrictions were not bypassed.
+
+**Owner-local checks remain pending:** corrected real search/playlist contents,
+service cover loading, like/unlike and liked-playlist access, KDE/Wayland/HiDPI,
+the current Flatpak, and the first consenting same-session delivery-probe result.
+No real account/token/private image/audio entered Cloud or CI. The exact
+unobserved delivery-info/descriptor outcome is not labelled a server refusal or
+DRM. The legacy construction/provenance question is distinct from modern extracted
+signing material. **At this historical revision audible acceptance was NOT MET**:
+no real
+service source had reached GStreamer. The later owner PASS above supersedes
+that audio status; MPRIS/My Wave/lyrics/offline remain unimplemented.
+
+## Issue #9 native music workspace (2026-10-29)
+
+The second stacked increment adds an `Adw.OverlaySplitView` desktop sidebar /
+compact drawer, real Home destinations and the first five already loaded liked
+tracks, optional artwork, native context/detail actions, a selected-track bar
+and current-process theme preferences. No fake catalog, copied Cassette graphic
+asset or fabricated playing state is included. Play/seek/volume remain disabled
+until an eligible source reaches the existing engine.
+
+The prepared Debian matrix passed stable 1.99.1 and exact Rust 1.98.1:
+formatting, default/all-feature/minimal all-target Clippy, default **166 + 4**,
+all-feature **174 + 4**, minimal **152 + 4** library/binary tests, all builds,
+native catalog/action fixtures, WebKit construction/cancel, terminal boundaries,
+GStreamer and local-media diagnostics, and MSRV offline default/all-feature
+release checks. Six default/all-feature and three minimal display tests are
+excluded from unit totals and selected explicitly where supported.
+
+Ten artwork backend tests exercise original synthetic PNG decoding, bounds,
+cache limits, dedicated-worker isolation, cancel/logout and privacy. The explicit
+native texture test passed at scale **1 and 2 on both compilers**; full GTK smoke
+also passed at both scales. It checks the same logical size matrix on a 3840×2160
+display at scale 2, not a resized screenshot.
+
+Subsequent visual inspection found an expanding thumbnail slot leaving blank
+space before metadata; explicit non-expansion and an adjacency regression at
+both scales corrected it. Keyboard checks distinguish disabled signed-out search
+from an enabled signed-in entry and exercise the actual window action from
+Diagnostics. Deferred weak focus targets apply after the outer page maps. The
+final exact-1.98.1 all-feature tests, Clippy, two native workflows, 1×/2× texture
+and GTK smoke checks, offline release and audio diagnostics passed after these
+layout changes. Whole-window fixtures now use the actual production shell with
+only the API/provider supplied by loopback tests. Static fixture frames use
+reduced motion; ordinary smoke/interactive WebKit use separate normal processes.
+
+Source-matched hosted checks and final full-size/theme/HiDPI image review are
+recorded above. Fedora/KDE/Wayland/fractional-scale visual acceptance remains pending.
+The first hosted run on Libadwaita 1.5 exposed a structural-check mismatch: that
+version keeps the closed compact drawer mapped at a negative X coordinate.
+The check now uses the public split-view state, always checking content and
+checking the sidebar when open or expanded. Open-drawer action/focus tests remain
+required; visible content is not exempted from clipping assertions. The corrected
+revision requires a fresh hosted run rather than relabelling the failed run.
+The corrected `31c2f8c` hosted PR/push runs passed both compilers, including the
+sandboxed WebKit checks and 1×/2× capture. A later loaded local smoke exposed a
+focus-before-map race. Navigation focus now waits a bounded number of frames,
+cancels superseded requests/drawer openings and skips active dialogs. The
+assertion waits for actual focus without assigning it itself. Exact-1.98.1
+all-target Clippy and both-scale GTK checks passed this correction; the exact
+`dc7d5d8` hosted PR/push runs subsequently passed both lanes as recorded above.
+The obsolete Diagnostics destination text was also corrected to refer to Home.
+The user's earlier live auth/list successes remain valid scoped evidence; new
+catalog, artwork, likes and delivery outcomes require fresh local checks.
+**At this historical revision no service track had been played and the sound
+gate was NOT MET. The later `8f1b09d` owner PASS above supersedes it.**
+
+## Issue #9 first increment — catalog repair and parallel delivery probe (2026-10-29)
+
+**Owner baseline on Fedora, PR #8 `797ba3a`:** real ordinary Yandex sign-in,
+Music account validation, liked tracks and personal-playlist listing **passed**.
+Search and opening playlist contents **failed**; no actual service audio was
+implemented. The owner did not identify a failing HTTP/schema/dispatch event.
+Those facts supersede earlier pending-auth statements below, without turning
+the new search/audio implementation into a live pass.
+
+Confirmed code defects addressed in this increment include required search
+echo/artist-credit fields absent in valid upstream variants, an arbitrary
+100-result limit, loss of embedded rich playlist tracks, omitted empty-playlist
+contents, and catalog actions silently rejected by global `busy`. Independent
+bounded request lanes, latest-pending search, session/ticket invalidation,
+immediate detail loading/back and native retry errors have executable regressions.
+Fixed `Karin catalog:` categories distinguish queueing, stale results and safe
+HTTP/contract failures without queries, titles, IDs or provider payloads.
+
+The delivery probe is opt-in via `--delivery-diagnostic`, uses only this window's
+existing validated session and fetches no audio. It checks the legacy offer and
+at most one exact allowlisted unauthenticated XML descriptor. Tests check bounds,
+separate HTTP outcomes, redirects, credential separation, protection/schema
+classification, cancellation, DTD/entities and report privacy. A valid legacy XML
+identifies its remaining client-side construction step, not a DRM finding or a
+permitted playable source. See [the research](STREAM_DELIVERY_REVIEW.md) and
+[one combined Fedora run](BUILDING.md#v02-catalog-and-delivery-info-acceptance-on-fedora).
+
+Executed on prepared Debian 13: stable **1.99.1** and exact Rust **1.98.1**,
+GTK **4.18.6**, Libadwaita **1.7.6**, GStreamer **1.26.2**, WebKitGTK6 **2.54.0**:
+
+| Check | Stable | 1.98.1 |
+| --- | --- | --- |
+| Formatting; default/all-feature/no-feature all-target Clippy, `-D warnings` | Passed | Passed |
+| Default workspace tests | 152 library + 4 binary passed, 5 display tests ignored | Same |
+| All-feature workspace tests | 160 library + 4 binary passed, 5 display tests ignored | Same |
+| Minimal workspace tests | 138 library + 4 binary passed, 2 display tests ignored | Same |
+| Explicit native session/catalog fixture | 1 passed | 1 passed |
+| Explicit concurrent catalog/detail/latest-action fixture | 1 passed | 1 passed |
+| Explicit ephemeral WebKit construction/cancel fixture | 1 passed | 1 passed |
+| Default/all-feature/minimal builds and default/all-feature GTK smoke | Passed | Passed |
+| Synthetic terminal boundary suite, silent GStreamer and actual local playbin diagnostic | Passed | Passed |
+| Default and all-feature offline optimized builds, release GTK/audio/terminal checks | Not selected locally | Passed |
+
+Ignored display tests are not included in passing unit totals. Full sandboxed
+page-loading and interactive WebKit checks remain separately selected in hosted
+CI; the nested cloud cannot run that sandbox, and it was not disabled. The
+successful pre-existing auth tests do not prove live acceptance of this increment.
+The refreshed license inventory includes pinned MIT-or-Apache `roxmltree` 0.21.1,
+207 external crates / 178 in the Linux graph. No native baseline, Flatpak runtime,
+session provider/identity, signing key, protected audio or permissions changed.
+
+PR #10's [PR CI](https://github.com/tracerxbrhd/karin/actions/runs/40919144869)
+and [push CI](https://github.com/tracerxbrhd/karin/actions/runs/40919039746) passed
+both compilers, including full sandbox-enabled WebKit checks. All 58 local and
+86 hosted images were inspected with source hashes matching `4ad9429`: 85 hosted
+frames were settled; `fixtures/login-blocked-light.png` recorded an opening fade
+and is excluded from the settled pass. Compact Retry/last diagnostics-row image
+coverage was incomplete. The next increment adds a focused Retry frame and
+static reduced-motion native captures. Exact links/evidence are in PR #10.
+
+**Pending:**
+Owner-local Latin/Cyrillic search, all content types, real playlist contents and
+the first delivery-probe outcome remain unrun here. Full Flatpak/Fedora/KDE/
+Wayland/HiDPI acceptance remains separate. **At this historical revision the
+audible-player criterion was NOT MET:**
+no actual selected service track had reached GStreamer. Generated WAV, fixtures
+and delivery metadata did not satisfy it; the later `8f1b09d` owner report
+above establishes a real audio PASS.
+
+## Interactive sign-in navigation correction — `00b0a41` (2026-10-29)
+
+The owner reproduced this failure on Fedora using **`77a1a27`**: the real Yandex
+page opens, then Karin reports `AuthError::UntrustedNavigation` after roughly
+five phone-input digits or during QR sign-in. **The actual rejected Yandex browser
+event is unknown.** No captured evidence identifies its origin, fragment, frame
+or cause. Do not relabel this as Music API 403, a wrong password, VPN trouble or
+an established service/identity permission failure.
+
+Source inspection confirms independent defects in that revision:
+
+- Ordinary URL validation and origin display reject every `#fragment`, although
+  a trusted page may use a hash during its own interaction.
+- `NavigationAction::Reject` calls `Browser::fail` without reliable frame context,
+  so rejecting an auxiliary transition can destroy the entire login session.
+- Navigation classification can consume a code callback before main-document
+  confirmation; callback classification must instead remain side-effect-free.
+
+The correction separates ordinary navigation from exact authorization return,
+keeps rejected unknown-frame transitions blocked without automatically ending
+the session, and uses confirmed WebKit main-document evidence for completion.
+OAuth-result fragments outside the callback remain blocked. Exact return/state,
+one-use consumption, Music account validation, TLS and the WebKit sandbox remain
+required. No wildcard or speculative new origin is introduced. The connected
+Cassette-compatible provider, MusicService, library/search/queue and independent
+GStreamer player remain in place.
+
+Only the first rejected event per attempt produces a minimal
+`Karin auth navigation: ` diagnostic. It contains fixed event/reason/frame
+categories and a safe canonical public origin with fragment presence, or a fixed
+redacted address category. It never retains full URLs, paths, query/fragment
+contents, userinfo, input values, QR data, cookies, tokens or state. Cancellation
+following a policy rejection or application stop must not replace the first
+diagnostic or terminal cause. Unknown frame context is reported as unknown.
+
+The new independent interactive fixture is
+`webkit_auth_interactive_navigation_frames_and_first_rejection`. Its own local
+page reacts to synthetic input and a QR-like test action by changing fragments
+and creating/redirecting frames. Automated scope covers fragment acceptance,
+auxiliary rejection without session destruction, untrusted top-level blocking,
+iframe callback isolation, missing/wrong state, cancel/retry/late events and
+diagnostic privacy. This is not a real Yandex phone/QR or account acceptance test.
+
+### Executed regression and local matrix
+
+The identical portable test
+`regression_trusted_page_fragment_must_not_abort_login` was added to an isolated
+copy of `77a1a27`: it **failed with exit 101** because a trusted synthetic page
+fragment was rejected. It **passed after the correction**, before the full local
+matrix. This is red/green evidence for the fragment defect, not identification
+of the owner's actual Yandex event or a completed interactive browser check.
+
+The full prepared Debian 13 matrix passed for
+`00b0a419cc5703feb8249c8a5611a5528264ee94`, using GTK 4.18.6, Libadwaita 1.7.6,
+GStreamer 1.26.2 and WebKitGTK6 2.54.0. Cargo.lock, the Rust MSRV and native/Flatpak
+SDK/runtime baselines remain unchanged.
+
+| Check | Stable 1.99.1 | Exact Rust 1.98.1 |
+| --- | --- | --- |
+| Formatting; default/all-feature/no-feature all-target Clippy, `-D warnings` | Passed | Passed |
+| Default workspace tests | **125 passed**, 0 failed; 4 display tests selected separately | Same |
+| All-feature workspace tests | **133 passed**, 0 failed; 4 display tests selected separately | Same |
+| No-feature workspace tests | **111 passed**, 0 failed; 1 native test selected separately | Same |
+| Explicit native Music/auth HTTP fixture | **1 passed** | **1 passed** |
+| Explicit ephemeral WebView construction/shutdown | **1 passed** | **1 passed** |
+| Default/all-feature/no-feature debug builds | Passed | Passed |
+| GTK smoke: sizes, both themes, early/repeated cancel and window/worker cleanup | Passed | Passed |
+| Fourteen synthetic PTY cases and missing-TTY refusal | Passed | Passed |
+| Silent GStreamer and generated local playbin controller checks | Passed | Passed |
+| Default/all-feature offline optimized builds and GTK checks | Not selected | Passed |
+| Optimized terminal/audio/player checks | Not selected | Passed |
+
+Totals include four binary tests: default 121 library + 4 binary, all-feature
+129 + 4, no-feature 107 + 4. Display tests are excluded from those totals and
+reported separately; an ignored test is not counted as passed. The default
+prototype release was restored with
+`--no-default-features --features cassette-auth` after all-feature checks.
+No `--ignore-rust-version` or sandbox disablement was used.
+
+The full page-loading and new interactive WebKit tests require a working process
+sandbox. The nested cloud cannot provide its namespace; blank construction and
+the ordinary GTK smoke do not establish those checks. Both complete hosted runs
+for `00b0a419cc5703feb8249c8a5611a5528264ee94` **passed** on stable and exact
+Rust 1.98.1: [PR run 40887248552](https://github.com/tracerxbrhd/karin/actions/runs/40887248552)
+and [push run 40887236860](https://github.com/tracerxbrhd/karin/actions/runs/40887236860).
+The display-dependent checks executed as separate processes with the WebKit
+sandbox enabled and the existing temporary exact-test-binary AppArmor profile:
+
+| Hosted WebKit test | Stable | Rust 1.98.1 |
+| --- | --- | --- |
+| Full local page/callback, cookie isolation, session grant and cancellation fixture | **1 passed** | **1 passed** |
+| Interactive input, fragments, frames and first-rejection regression | **1 passed** | **1 passed** |
+
+The same runs passed the compiler/unit/native checks, MSRV offline releases and
+optimized diagnostics. The MSRV lane uploaded
+[the native prototype](https://github.com/tracerxbrhd/karin/actions/runs/40887248552/artifacts/12903920592),
+and stable uploaded [the cloud image artifact](https://github.com/tracerxbrhd/karin/actions/runs/40887248552/artifacts/12902854661).
+These are outcomes for the stated source revision, not an inferred result from
+earlier compilation or screenshots. They use synthetic loopback pages, input,
+cookies and tokens; they do not establish real Yandex phone/QR behavior, Music
+authorization or Fedora acceptance. Current exact-head hosted outcomes, inspected
+images and the matching artifact for the next local run are recorded in
+[PR #8](https://github.com/tracerxbrhd/karin/pull/8).
+
+Use [one local Fedora navigation retest](BUILDING.md#one-fedora-navigation-retest-after-77a1a27)
+with the new matching MSRV artifact. Report only its revision, first sanitized
+line and coarse native UI outcome; never save or publish a full network/browser
+log or private account material. The actual Yandex event and real
+session/token/Music/library/search acceptance remain separate local checks.
+
+## Historical Cassette-compatible provider implementation — through `77a1a27` (2026-10-29)
+
+The owner's corrected scope permits adapting Cassette's published working chain
+without a Karin-owned registration. Default `cassette-auth` enables the existing
+WebKit auth dialog and a real session provider, replacing the local permanently
+blocked factory. The chain is actual Yandex login → exact Music return/fresh
+state → own ephemeral-session cookies scoped to the official OAuth token URI →
+`sessionid` exchange with published Cassette app configuration → existing Music
+account validation → liked tracks/playlists and search. The own-client PKCE
+CLI, MusicService, queue and independent GStreamer engine remain separate.
+
+**No real account, session or token was supplied to Cloud/CI. Real Karin login,
+Music access and actual library/search acceptance are pending one Fedora run.**
+Source review and synthetic fixture passes are not that acceptance. Published
+app-configuration reuse and GPL attribution are documented separately from
+unresolved service/registration distribution conditions and Linux WebKit approval
+in [the research](AUTHENTICATION_REVIEW.md), [licensing](LICENSING.md) and
+[ADR-0011](adr/0011-cassette-session-auth-prototype.md). Do not claim either an
+established blanket provider ban or express approval.
+
+### Executed local matrix
+
+The prepared Debian 13 environment retained GTK 4.18.6, Libadwaita 1.7.6,
+GStreamer 1.26.2, WebKitGTK6 version 2.54.0 and libsoup 3.6.5. Cargo.lock and the
+native/Flatpak SDK/runtime baselines were not changed. The complete matrix first
+passed against `578a16e303649bb23b5ffe844d9971f6034fdde3`, then passed again for
+the final browser-chrome changes in the working tree over `ff4cf13`, including
+the pinned origin, corrected spinner and strengthened WebKit fixture. The latter
+is evidence for those changed files, not the `ff4cf13` commit itself; the final
+commit/source fingerprints are identified in PR #8 and its artifacts. Both runs
+produced the same results:
+
+| Check | Stable 1.99.1 | Exact Rust 1.98.1 |
+| --- | --- | --- |
+| Formatting; default, all-feature and no-feature all-target Clippy with `-D warnings` | Passed | Passed |
+| Default workspace tests | **119 passed**, 0 failed; 3 display tests ignored separately | Same |
+| All-feature workspace tests | **127 passed**, 0 failed; 3 display tests ignored separately | Same |
+| No-feature workspace tests | **106 passed**, 0 failed; 1 native test ignored separately | Same |
+| Explicit native Music/auth HTTP fixture | **1 passed** | **1 passed** |
+| Explicit ephemeral WebView construction/shutdown | **1 passed** | **1 passed** |
+| Default/all-feature/no-feature debug builds | Passed | Passed |
+| Default/all-feature GTK smoke, both themes and three sizes, early cancel/reopen and window/worker cleanup | Passed | Passed |
+| Hidden-terminal 14 synthetic PTY cases and missing-TTY refusal | Passed | Passed |
+| Silent GStreamer pipeline and real local playbin-controller diagnostics | Passed | Passed |
+| Default/all-feature `--release --offline --locked` and optimized GTK checks | Not selected | Passed |
+| Default optimized terminal/audio/player checks | Not selected | Passed |
+
+Workspace totals include four binary tests: default 115 library + 4 binary,
+all-feature 123 + 4, no-feature 102 + 4. Display-dependent tests are explicitly excluded
+from those totals and reported separately. No compiler-version check was bypassed.
+The prototype release artifact was restored with
+`--no-default-features --features cassette-auth` after all-feature checks.
+
+Fresh source preparation/vendoring, a matching license inventory (**206 external
+crates / 177 Linux graph**) and native prototype archive assembly rehearsal passed.
+The source bundle preserves the published Cassette configuration and original
+COPYING/provenance as well as Rust notices. Archive/source preparation is not a
+full GNOME SDK/Flatpak sandbox build, and Ubuntu-built native ABI acceptance on
+Fedora is not established by that rehearsal.
+
+### Full WebKit and follow-up revision
+
+The managed cloud still cannot create the WebKit process's Bubblewrap namespace;
+construction passing is not a passed page-load/session test. Hosted CI keeps the
+WebKit sandbox enabled and grants only the exact test executable its temporary
+Ubuntu AppArmor namespace permission, as documented in the historical section.
+
+At `578a16e`, hosted stable/MSRV compiler checks, native Music fixture and blank
+WebKit construction passed; the full WebKit test stopped in its new active-dialog
+geometry assertions because it checked Cancel before the opening animation had
+settled. Revision `ff4cf13` added a bounded wait for actual settled allocation,
+without weakening geometry assertions, and corrected stale diagnostics/unknown 403
+wording. Its complete hosted runs subsequently **passed in both compiler lanes**:
+
+- [PR run 40824968387](https://github.com/tracerxbrhd/karin/actions/runs/40824968387).
+- [Push run 40824963119](https://github.com/tracerxbrhd/karin/actions/runs/40824963119).
+
+These runs passed actual local WebKit loading, cookie isolation, main-document/
+state completion, the real CassetteProvider sessionid POST and existing MusicService
+account/library/search calls against synthetic HTTP fixtures, negative/cancellation
+cases, and the active native auth dialog at all four sizes/both themes. The WebKit
+sandbox remained enabled. MSRV also completed offline optimized builds/diagnostics
+and uploaded `karin-fedora-prototype-1.98.1` with its archive SHA256, source/build
+metadata, instructions and notices. This establishes the reported automated
+contract, not real Yandex auth or Fedora ABI acceptance.
+
+Actual inspection of those WebKit frames then found visual defects which structural
+success had not exposed: focus could scroll the displayed origin out of view, the
+spinner could remain active after page completion, and the first compact capture
+could precede page paint. The follow-up browser chrome pins the origin above the
+scrollable content and stops the loading spinner. Its fixture also waits for frame
+clock/settled geometry, asserts origin bounds and checks nonblank actual WebKit
+snapshot pixels. Both native-dialog and rendered-page frames are captured at all
+four sizes/themes. The follow-up passed the repeated complete local matrix above,
+including both compilers, all three feature configurations, separate native Music
+and blank-WebKit checks, GTK lifecycle, PTY/audio checks and MSRV offline releases.
+Its strengthened full-navigation test was compiled; actual page-loading execution
+still requires the hosted sandbox environment. Do not substitute `ff4cf13` images
+or its green hosted runs for source-matched evidence of these later changes.
+
+The current exact-head hosted full-WebKit outcome, compiler/runtime results,
+inspected image artifact and native Fedora-prototype download are recorded in
+[PR #8](https://github.com/tracerxbrhd/karin/pull/8).
+Select the matching successful revision there for acceptance. The full WebKit
+fixture requires a 1920×1080 display and running window manager; see
+[the reproduction command](BUILDING.md#webkit-authentication-build-and-local-fixture-checks).
+
+`--smoke-test` and capture `--ui-fixture` inject an offline provider so automation
+never starts real Yandex login. Real-provider errors identify the failed
+return/state, session-cookie, token or Music stage, with fixed categories/statuses
+and no raw JSON, URLs, headers or user secrets. New screenshot review is separate
+from both protocol fixtures and real Fedora acceptance.
+
+Follow [one Fedora procedure](BUILDING.md#music-sign-in-and-fedora-acceptance).
+Record sign-in, token issuance, Music account acceptance, actual liked tracks,
+playlists/contents and each search type separately. Also check cancel/retry,
+logout/stale errors, restart, themes/sizes/keyboard/HiDPI and the exact Flatpak
+artifact. Service-stream playback remains unimplemented; local GStreamer success
+does not establish it. Full cloud Flatpak remains namespace-blocked.
+
+## Historical native-auth/provider-gate correction — `c5efbd3` (2026-10-29)
+
+The public GUI now has one `Войти` action and a native Adw.Dialog in every build
+mode. Developer client/secret fields and Device Flow instructions are removed.
+**Live Yandex sign-in and Music authorization remain unachieved.** The public
+AuthProvider reports the local integration blocker without opening a meaningless
+ID-only page, invoking another application's identity or inventing a new HTTP
+refusal. The owner's own-client ID success / Music status+about 403 evidence
+remains unchanged; the exact cause of that refusal is unknown.
+
+The new AuthProvider boundary, single-use PKCE/callback transport and optional
+WebKit component are exercised only with synthetic local fixtures. Their tests
+are not evidence of a permitted Yandex provider. The existing MusicService,
+read-only catalog/queue, independent GStreamer engine and owner PKCE diagnostic
+are preserved; MusicService/OAuth/audio implementation files are unchanged by
+this correction. [The pinned Cassette investigation](AUTHENTICATION_REVIEW.md)
+and [ADR-0010](adr/0010-single-purpose-sign-in-and-provider-gate.md) distinguish
+provider login, token identity, Music acceptance and public distribution rights.
+
+### Executed compiler and runtime checks
+
+Prepared Debian 13 retained GTK 4.18.6, Libadwaita 1.7.6 and GStreamer 1.26.2.
+Optional WebKitGTK 6 is 2.54.0, with libsoup 3.6.5. Pinned `webkit6` 0.5.0 uses
+the existing GTK 0.10 / GLib-GIO 0.21 family; 0.6's GTK 0.11 was not selected.
+Default/Flatpak builds exclude both optional authentication components and
+contain no configured live provider or bundled credentials.
+
+| Check | Stable 1.99.1 | Exact Rust 1.98.1 |
+| --- | --- | --- |
+| Formatting; default and all-feature all-target Clippy, `-D warnings` | Passed | Passed |
+| Public workspace tests | **106 passed**, 0 failed; 1 GTK test separately selected | Same |
+| All-feature workspace tests | **114 passed**, 0 failed; 3 display tests separately assessed | Same |
+| Explicit native Music/auth/HTTP fixture | **1 passed** | **1 passed** |
+| Explicit ephemeral WebView construction/shutdown | **1 passed** | **1 passed** |
+| Locked default/all-feature debug builds and GTK smoke | Passed | Passed |
+| Original hidden-terminal cases and both silent audio/player diagnostics | Passed | Passed |
+
+Totals include four binary tests: public has 102 library tests, all-feature has
+110. Twenty auth protocol tests cover independent random state/verifier, S256,
+strict raw origin/port/path and duplicate/encoded parameters, denial/expiry,
+concurrent replay, non-consuming origin display, bounded loopback HTTP and
+cancellation. Fixed-port retry tests retain old owners/readers while checking
+that cancel/consumption releases the listener; the embedded expiry task holds
+only a weak attempt reference across waits.
+
+The expanded native fixture performs an automatic local callback and provider
+exchange, keeps the dialog open through Music account validation, then reads
+liked tracks and playlists independently. It checks account 403, cancel, retry,
+a late validation and search response, independent liked403/playlist200, logout
+and close. Delayed responses are released through channels after cancellation,
+not scheduler-dependent sleeps. Synthetic data and browser launchers are test-only.
+Fixture library captures additionally wait for actual native dialog unparenting,
+not only logical sign-in completion, before the paint delay. This avoids recording
+a closing-sheet animation as a persistent overlay in the reviewed evidence.
+The public blocked dialog is also structurally checked at all three smoke sizes
+in both themes. Errors use native message rows and clear on cancel/logout/retry.
+
+The Ubuntu 24.04/GTK 4.14.5/Libadwaita 1.5.0 smoke exposed an early-close defect:
+that Libadwaita version opens its sheet on map tick two, so immediate close can
+leave an unopened sheet pending and retain the native window/audio worker.
+Karin invalidates credentials immediately and defers native closure through
+public GTK frame callbacks until presentation is ready. Native close attempts
+and `closed` signals are guarded by dialog identity. Regression coverage cancels
+through both the button and native close before the first main-loop yield,
+reopens immediately, then checks the native dialog list and actual unparenting.
+The reproduced Ubuntu smoke now passes focus and full window/worker cleanup;
+no lifecycle assertion was removed or bypassed. A never-mapped dialog also has
+weak-release coverage. This uses public APIs, not private widget-tree mutation.
+
+Rust 1.98.1 public and all-feature `--release --offline --locked` builds passed,
+with optimized GTK checks and public optimized terminal/audio/player checks.
+Public artifacts were restored. No `--ignore-rust-version` or native/runtime
+version change was used. The optional WebKit page-loading/isolation test needs
+an isolated display and a functioning WebKit sandbox; its cloud/CI result is
+recorded separately below rather than inferred from construction success.
+
+### Packaging, visuals and target acceptance
+
+The all-feature license inventory is **206 external crates / 177 Linux graph**.
+Six new bindings are MIT-compatible. Four registry archives omit their MIT text;
+an exact-commit, SHA256-checked original notice and provenance are preserved by
+an explicit fallback. Unknown omissions/hash/source changes still fail. Registry
+and vendor content is not rewritten. Stable/MSRV inventories match, and negative
+fallback checks passed. See [LICENSING.md](LICENSING.md).
+
+Fresh source preparation, a matching vendored license inventory and the
+independent Rust 1.98.1 offline release build passed. All 28 Rust/Cargo files
+matched the tested snapshot. Integer `GDK_SCALE=2` smoke (3840×2160 Xvfb), including
+the new dialog, passed. All **62 fresh PNGs** were inspected: 50 public frames
+and 12 native HTTP-fixture frames, evenly split between themes. All four sizes,
+real EWMH maximize, dialog focus/close, native error placement and text checks
+passed. All 14 recorded source/binary hashes match the rendered working tree.
+[Selected screenshots and reproduction](ui/auth-correction/README.md) retain six
+clean frames and metadata; previous galleries remain historical.
+
+The actual local WebKit navigation/cookie-isolation/cancel test was attempted,
+but its process terminated when Bubblewrap could not create a namespace and
+launch the D-Bus proxy. This is **blocked**, not a passed page-load test; the
+sandbox was not disabled. The separate construction/shutdown test did pass.
+Hosted CI runs all three isolated GTK/WebKit tests in separate processes on its
+normal runner, plus public/all-feature builds and Rust 1.98.1 offline releases.
+Exact-head hosted outcomes and artifacts are recorded in PR #8's description;
+local fixtures and screenshots never establish a live Yandex login.
+
+The initial hosted run at `40ec106` also hit Ubuntu 24.04's AppArmor uid-map
+restriction. CI now loads a temporary profile attached only to the exact compiled
+library-test executable, granting the `userns` permission required by WebKit's
+sandbox. The global `apparmor_restrict_unprivileged_userns=1` guard is asserted
+unchanged before/after, WebKit's sandbox stays enabled, tests run as the ordinary
+runner user, and the profile is unloaded immediately afterward. There is no
+global bwrap allowance or host sysctl relaxation. This follows Ubuntu's shipped
+[Epiphany profile](https://git.launchpad.net/ubuntu/+source/apparmor/plain/profiles/apparmor.d/epiphany?h=ubuntu/noble).
+Its actual test outcome is recorded in the final hosted run, not inferred from
+the profile's presence. The managed cloud's namespace restriction is unchanged.
+
+Full sandboxed Flatpak and real WebKit page loading remain subject to namespace
+support; no sandbox-disable or privilege workaround is permitted. Existing GNOME
+50 already supplies WebKitGTK6 runtime/development components, so no new Flatpak
+runtime/module or filesystem/keyring permission was added. The public manifest
+still builds `--no-default-features`.
+
+Fedora 44/KDE/Wayland acceptance is pending. Follow the single default build/start
+and expected blocked-dialog procedure in [BUILDING.md](BUILDING.md#music-sign-in-and-fedora-acceptance).
+Actual account/library acceptance requires a permitted Music identity/grant and
+supported automatic callback first; no end-user credentials/configuration fields
+are a substitute. Service audio remains a separate unconfirmed delivery gate.
+
+## Historical v0.1 music vertical slice — `7509884`
+
+Issue #7 adds the identity-neutral read-only MusicService, native library/search/
+detail views, a metadata queue and local experimental Device Flow. Both the build
+feature and runtime flag are required; no application credentials are embedded,
+no real account/token is supplied to Cloud/CI and no session is persisted.
+Own-client PKCE remains independent and unchanged. No permitted service-stream
+source has been established, so service playback and MPRIS remain unavailable.
+
+### Executed cloud checks
+
+The prepared Debian 13 environment retained GTK 4.18.6, Libadwaita 1.7.6,
+GStreamer 1.26.2 and the approved SDK/runtime selection. No crate was added and
+`Cargo.lock` is unchanged.
+
+| Check | Stable 1.99.1 | Exact Rust 1.98.1 |
+| --- | --- | --- |
+| Formatting; default and all-feature all-target Clippy with `-D warnings` | Passed, no warnings | Passed, no warnings |
+| Public workspace tests | **86 passed**, 0 failed; 1 GTK test separately selected | **86 passed**, 0 failed; 1 GTK test separately selected |
+| Experimental workspace tests | **94 passed**, 0 failed; 1 GTK test separately selected | **94 passed**, 0 failed; 1 GTK test separately selected |
+| Explicit native Music HTTP-fixture test under Xvfb | **1 passed**, 0 failed | **1 passed**, 0 failed |
+| Locked public and experimental debug builds | Passed | Passed |
+| Public/experimental GTK layout, navigation and cleanup smoke | Passed | Passed |
+| Public hidden-terminal and both silent GStreamer diagnostics | Passed | Passed |
+
+The public totals are 82 library + 4 binary tests, and experimental totals are
+90 library + 4 binary tests. The native test is normally marked ignored because
+it needs an isolated display; it was explicitly run and passed on both toolchains.
+It exercises native application-credential cancellation without a provider call,
+Music account validation, liked-track pagination, playlists, search, track/album
+details, 50-row album pages, queue editing and an in-flight result after logout.
+Every HTTP endpoint remains loopback, and all account/credential/media data is
+synthetic. Test fixtures/capture hooks are under `cfg(test)`, not release content.
+
+The 11 Music protocol groups include deterministic account-cache regressions:
+logout during validation, overlapping old/new accounts and an invalidated queued
+worker. Cache epochs and shared local token invalidation prevent stale account
+facts from restoring or displacing a new session. Eight Device Flow protocol
+groups check pending/slowdown, expiry/denial, cancellation including an in-flight
+grant, bounded responses, trusted verification URLs and secret-safe errors.
+The unchanged own-client PKCE suite and 14 PTY cases plus missing-TTY rejection
+also passed; no real browser, token or provider account was used.
+
+Both public and opted-in Rust 1.98.1 release builds passed with `--offline
+--locked`; optimized GTK checks passed for both, and the public binary passed
+terminal and silent audio/player checks. The public artifact was restored after
+the experimental build. Default builds reject `--experimental-music`. Integer
+HiDPI (`GDK_SCALE=2`, Xvfb 3840×2160) passed the public GTK smoke separately.
+Structural checks wait a bounded time for resize/breakpoint allocation to settle
+and retain every clipping/navigation/resource assertion.
+
+The initial hosted run exposed a real GTK 4.14 layout regression: a horizontally
+homogeneous `GtkStack` measured hidden wrapped pages at their minimum height,
+forcing a 746 px content minimum into a 420 px window. Measuring the visible page
+fixes this without changing native baselines or weakening geometry checks. The
+Ubuntu 24.04 reproduction (GTK 4.14.5, Libadwaita 1.5.0, GStreamer 1.24.2) passed
+Rust 1.98.1 all-feature Clippy/tests, the explicit native HTTP-fixture test and
+both public and experimental GTK smokes after the fix. The total-timeout fixture
+also no longer assumes a client can finish writing before its deadline; it holds
+the accepted connection without responding and still checks the fixed timeout
+category.
+
+The dependency-license inventory was regenerated and byte-compared: **200 external
+crates / 171 Linux graph**, unchanged. Public Cargo/Flatpak feature and permission
+policy checks passed. `prepare-source.py` vendored the locked dependencies and
+preserved notices; its snapshot matched all current Rust sources and Cargo files.
+An independent native `cargo +1.98.1 build --release --offline --locked
+--no-default-features` from that vendored snapshot passed, including a repeat
+after the compatibility fix. This is a source/build check, **not a full sandboxed
+Flatpak build**: Flatpak Builder 1.4.4
+is available, but Bubblewrap reported that namespace creation is not permitted.
+No privilege or sandbox workaround was attempted.
+
+### Visual evidence and hosted checks
+
+All **50 real GTK PNGs** were inspected: 42 public application frames and eight
+explicitly synthetic native HTTP-fixture frames, split evenly between light and
+dark themes. The application matrix covers library/search/queue/diagnostics at
+420×720, 900×650, 1440×900 and actual WM maximize 1920×1080, with geometry/EWMH
+records, keyboard focus/activation and diagnostic playback states. Header/text/
+spacing/scrolling checks found no blocking defect. The persistent player's
+intentional one-line metadata ellipsis requires a full tooltip/accessibility
+label; viewport scrolling is distinguished from text clipping.
+
+[Selected screenshots and reproduction](ui/v0.1-music/README.md) retain six clean
+frames and the source/binary hashes. Capture metadata identifies the reviewed
+working tree over `90a9799`, including the GTK compatibility fix, rather than
+mislabeling that base as the rendered code.
+Hosted CI captures the exact PR head again and uploads the complete matrix;
+exact-revision results are linked in the stacked PR description. Earlier matrices
+below remain evidence only for their stated revisions. Xvfb/Openbox and integer
+GDK scaling do not establish Fedora/KDE/Wayland or fractional-HiDPI acceptance.
+
+### Owner facts received on 2026-10-28
+
+- [Own-client status/about comparison](https://github.com/tracerxbrhd/karin/issues/5#issuecomment-6470853664):
+  state/token/ID succeeded; both Music endpoints returned generic HTTP 403 with
+  TUN on and off. No conclusion about the exact refusal cause or subscription.
+- [Unmodified yamu experiment](https://github.com/tracerxbrhd/karin/issues/5#issuecomment-6471162750):
+  Device Flow, account, search, track and album reads worked on Fedora. This is
+  not a new Karin UI/adapter acceptance result or a stream test.
+- [Same-token header A/B](https://github.com/tracerxbrhd/karin/issues/5#issuecomment-6471631991):
+  status succeeded with and without the Android client header. The result is
+  limited to that token/endpoint and grants no redistribution permission.
+
+Pending owner acceptance includes the new in-memory Device Flow, actual Karin
+library/playlist/search/details and paging, cancel/logout/late-response behavior,
+keyboard/HiDPI/themes and the exact public Flatpak artifact. The owner must share
+only coarse outcomes and safe categories; no codes, credentials, personal rows,
+raw responses, URLs with parameters or screenshots of account/auth pages.
+See [the checklist](BUILDING.md#experimental-music-session-and-fedora-acceptance),
+[ADR-0009](adr/0009-music-vertical-slice.md) and
+[delivery evidence](STREAM_DELIVERY_REVIEW.md).
+
+## Historical v0.1 Gate B1 (2026-10-26)
+
+
+The owner-confirmed Karin user-authorization registration and four selected
+scopes are recorded in [Issue #5](https://github.com/tracerxbrhd/karin/issues/5#issuecomment-6411056234).
+This is registration/consent-preview evidence supplied by the owner. Registration
+alone is not a token exchange, ID-client binding result, Music authenticated
+status or catalog response. The subsequent browser observation below is a
+separate evidence stage.
+
+Gate B1 adds a separate opt-in local OAuth diagnostic. Automated checks use only
+local HTTP fixtures with synthetic credentials; no real Client ID, authorization
+code, verifier, access/refresh token, private account JSON or OAuth session was
+supplied to Codex Cloud, CI or GitHub. No real authorization or token endpoint was
+exercised by the cloud/automated checks. The existing
+GUI login capability remains unavailable and the playback engine is independent.
+
+### Independent status/about diagnostic (revision `5dbb554`)
+
+The diagnostic now plans separate same-token `GET /account/status` and
+`GET /account/about` requests after successful ID-client/account verification.
+About runs even after status HTTP 403, network/schema failure or absent account;
+it has its own HTTP/error result and cannot supply status facts or unlock the
+catalog. About failure does not suppress catalog access after valid authenticated
+status. HTTP 200 about accepts only an object `result` without a top-level error;
+all fields are discarded. Both methods retain bounded bodies/deadlines, the same
+closed error-code allowlist and no retries/redirects.
+
+The prepared Debian 13 environment (GTK 4.18.6, Libadwaita 1.7.6, GStreamer
+1.26.2) passed the following checks. Native versions, SDK/runtime and permissions
+are unchanged.
+
+| Check | Stable 1.99.1 | Rust 1.98.1 |
+| --- | --- | --- |
+| Formatting and all-target Clippy with `-D warnings` | Passed, no warnings | Passed, no warnings |
+| All workspace tests | **71 passed, 0 failed, 0 ignored** (67 library + 4 binary) | **71 passed, 0 failed, 0 ignored** (67 library + 4 binary) |
+| Locked debug build | Passed | Passed |
+| Hidden terminal input | 14 PTY cases plus missing-TTY rejection passed | Same checks passed |
+| Silent GStreamer and generated-WAV player diagnostics | Passed | Passed |
+| GTK smoke: both themes/pages, resize, local playback and cleanup | Passed | Passed |
+
+The 29 OAuth protocol tests include five new groups for independent status/about
+outcomes, same-token/no-borrowed-identity requests, fail-closed envelope handling,
+private-field redaction, status network failure/timeout and bounded about reads.
+Malformed, oversized, incomplete or timed-out Music 403 bodies retain HTTP 403
+and generic `Forbidden`. All requests, including unexpected paths, stay on
+loopback. New fixture connection waits are bounded so regressions fail promptly.
+
+Exact Rust 1.98.1 `cargo build --release --offline --locked` passed, followed by
+optimized terminal, audio/player and GTK smoke checks. The dependency-license
+inventory was regenerated and byte-compared: 200 external / 171 Linux graph,
+unchanged. Hosted results for the final revision are linked from
+[PR #6's checks](https://github.com/tracerxbrhd/karin/pull/6/checks). Historical
+matrices below remain evidence for their stated revisions only.
+
+At this revision, no live `/account/about` result had been supplied. The later
+owner-reported HTTP 403 is recorded above; the exact refusal cause and Music
+service acceptance remain unverified. Local fixture success cannot establish any of those outcomes. No real
+OAuth inputs or account response were supplied to Cloud/CI, and no API-client
+dependency was added. Public library sources were inspected without executing
+them; see the [Rust-client review](RUST_API_CLIENT_REVIEW.md). OAuth/PKCE, routes,
+region and application identity remain unchanged.
+
+### Owner-reported DIRECT repeat and anonymous control
+
+The owner's [26 October DIRECT-path report](https://github.com/tracerxbrhd/karin/pull/6#issuecomment-6424867774)
+supersedes the earlier uncertainty about initial token exchange and ID-client
+binding. A fresh local flow returned `ValidatedRedirect`, token HTTP 200 and
+Yandex ID HTTP 200, with a matching Karin client and an existing ID account.
+Authenticated Music `/account/status` again returned HTTP 403. Music account
+presence and `serviceAvailable` were unknown; the catalog query was correctly
+skipped. These are owner-reported Fedora results, not a cloud account test.
+
+The route lookup selected an ordinary Ethernet/LAN path, and conventional
+uppercase/lowercase HTTP(S)/ALL proxy variables were absent in that run. This
+weakens the proxy/TUN hypothesis; it does not establish public egress or rule out
+policy routing and other host/network effects. The owner's separate [anonymous
+curl control](https://github.com/tracerxbrhd/karin/pull/6#issuecomment-6424928210)
+returned HTTP 200. Anonymous reachability and authenticated HTTP 403 are distinct
+contexts; curl and reqwest do not independently prove identical egress. Neither
+result establishes subscriptions, catalog access or playable content.
+
+The diagnostic now interprets only an allowlisted Music error identifier from
+the already-returned HTTP 403 response, preserving the response-size/deadline
+bounds and generic `Forbidden` fallback. Unknown remains unknown: no raw JSON,
+messages/descriptions, personal fields, request IDs, headers, URLs or secrets are
+printed. The original classifier change added no request; the current independent
+about probe is described above and is not a fallback for the denied status.
+No region/route/identity change or retry is part of either change. The actual
+Fedora 403 identifier remains unobserved; no root cause is claimed from community code or fixture results.
+
+### Music HTTP 403 classifier verification (revision `d6363b2`)
+
+The Music classifier was checked on 2026-10-26 in the prepared Debian 13
+environment, with GTK 4.18.6, Libadwaita 1.7.6 and GStreamer 1.26.2. Rust/native
+dependency versions, SDK/runtime selection and Flatpak permissions are unchanged.
+
+| Check | Stable 1.99.1 | Rust 1.98.1 |
+| --- | --- | --- |
+| Formatting and all-target Clippy with `-D warnings` | Passed, no warnings | Passed, no warnings |
+| All workspace tests | **66 passed, 0 failed, 0 ignored** (62 library + 4 binary) | **66 passed, 0 failed, 0 ignored** (62 library + 4 binary) |
+| Locked debug build | Passed | Passed |
+| Hidden input, audio and GTK diagnostics | 14 PTY cases plus missing-TTY rejection, both silent GStreamer paths and GTK smoke passed | Same checks passed |
+
+The 24 OAuth protocol tests include five new classifier tests: exact allowlisted
+identifiers; unknown/malformed/ambiguous envelopes; unchanged ID/OAuth and other
+HTTP-status behavior; catalog errors after a known Music account; and bounded,
+unreadable or timed-out 403 bodies. They assert redaction, generic fallback,
+unknown account/service facts after forbidden status and skipped catalog access.
+All HTTP fixtures remain on loopback; the terminal suite isolates browser
+handling and traps any network attempt. No real account or provider request was
+used by these checks.
+
+Rust 1.98.1 `cargo build --release --offline --locked` also passed. The optimized
+binary passed the same terminal suite, both silent audio diagnostics and GTK
+smoke, including both themes/pages, resize, actual local playback and window/
+worker cleanup. The reviewed license inventory was regenerated and byte-compared:
+**200 external crates**, **171** in the Linux target graph.
+
+Exact-revision hosted CI outcomes are linked from [PR #6's checks](https://github.com/tracerxbrhd/karin/pull/6/checks).
+The earlier redirect-correction and initial Gate B1 matrices below describe their
+stated revisions. Neither those results nor these fixtures establish Music access
+or identify the error code in the owner's actual 403.
+
+### Owner-observed Fedora browser flow and redirect correction
+
+On 2026-10-26 the owner [reported in PR #6](https://github.com/tracerxbrhd/karin/pull/6#issuecomment-6417990070)
+that the actual Yandex browser flow displayed Karin's consent screen and reached
+the registered verification page with `state`, `code` and an additional `cid`.
+The code was opaque alphanumeric text, longer than seven digits. The initial
+diagnostic rejected it as invalid local input; **no token POST occurred**.
+This is a Karin input-validation failure, not an OAuth-provider or Music API
+rejection. No private screenshot, URL, Client ID, code or state is published.
+
+The correction accepts a full browser redirect URL through hidden local input,
+validates origin/path and returned state before exchange, and treats the code
+as bounded opaque text. The observed `cid` is uninterpreted. There is no code-only
+fallback. A valid transfer reports `Returned state: ValidatedRedirect`; this is
+manual URL transfer, not an automatic production callback.
+
+### Executed redirect-correction checks (revision `9f29e2b`)
+
+The corrected parser and hidden full-URL path were checked on 2026-10-26 in the
+same prepared Debian 13 environment (GTK 4.18.6, Libadwaita 1.7.6, GStreamer
+1.26.2). Rust/native dependency versions, SDK selection and Flatpak permissions
+are unchanged. These results supersede the initial 57-test matrix below.
+
+| Check | Stable 1.99.1 | Rust 1.98.1 |
+| --- | --- | --- |
+| Formatting and all-target Clippy with `-D warnings` | Passed, no warnings | Passed, no warnings |
+| All workspace tests | **61 passed, 0 failed, 0 ignored** (57 library + 4 binary) | **61 passed, 0 failed, 0 ignored** (57 library + 4 binary) |
+| Locked debug build | Passed | Passed |
+| Hidden terminal checks | 14 PTY cases and missing-TTY rejection passed | 14 PTY cases and missing-TTY rejection passed |
+| Finite and generated-WAV GStreamer diagnostics | Passed through silent `fakesink` paths | Passed through silent `fakesink` paths |
+| GTK smoke | Passed: both themes/pages, resizing, actual local playback and window/worker cleanup | Passed: both themes/pages, resizing, actual local playback and window/worker cleanup |
+
+Protocol fixtures exercise opaque alphanumeric codes and safely encoded reserved
+characters, successful full-URL/state validation, absent/mismatched/duplicate
+code/state, extra response parameters including the tolerated `cid`, expiry,
+provider denial and secretless PKCE exchange. A valid synthetic return reports
+`Returned state: ValidatedRedirect`. All endpoints remain loopback, including
+unexpected fallback paths. The oversized-response fixture tolerates the expected
+client disconnect while still requiring the exact `ResponseTooLarge` result.
+
+The terminal suite adds hidden redirect-prompt checks for wrong/missing state,
+wrong origin, code-only paste rejection, cancellation, control data and overflow.
+It verifies no echo, exact terminal restoration and no HTTP request. Its harmless
+local URI handler and loopback proxy trap prevent real browser/provider access
+even if a validation regression occurs.
+
+The Rust 1.98.1 offline optimized release build passed with `--offline --locked`.
+The optimized binary passed the same terminal suite, both silent audio
+diagnostics and GTK smoke. The license inventory was regenerated and
+byte-compared: **200 external crates**, **171** in the Linux target graph.
+An initial headless GTK allocation check returned zero width; a focused repeat
+and the final complete matrix passed with unchanged UI sources.
+
+Hosted GitHub Actions for the corrected implementation `9f29e2b` passed both
+stable and Rust 1.98.1, including offline release, terminal, audio and GTK checks:
+[PR run](https://github.com/tracerxbrhd/karin/actions/runs/40339573169) and
+[push run](https://github.com/tracerxbrhd/karin/actions/runs/40339561523).
+These are results for that revision; use PR #6's checks for later heads.
+At that revision token exchange and Music API acceptance still awaited a local
+run. The subsequent owner-reported token/ID success and Music 403 are recorded
+above; none of these cloud fixtures supplies real-provider evidence.
+
+### Initial Gate B1 cloud checks (superseded revision `9f6a914`)
+
+The following initial Gate B1 checks passed on 2026-10-26 in the prepared Debian 13
+x86_64 environment, with GTK 4.18.6, Libadwaita 1.7.6 and GStreamer 1.26.2.
+The native library baselines, GNOME 50 / Freedesktop 25.08 SDK selection and
+Flatpak permissions are unchanged. Compiler checks used both current stable
+**Rust/Cargo 1.99.1** and exact minimum compatibility toolchain **1.98.1**.
+
+| Check | Stable 1.99.1 | Rust 1.98.1 |
+| --- | --- | --- |
+| `cargo fmt --all -- --check` | Passed | Passed |
+| `cargo clippy --workspace --all-targets --locked -- -D warnings` | Passed, no warnings | Passed, no warnings |
+| `cargo test --workspace --locked` | **57 passed, 0 failed, 0 ignored** (54 library + 3 binary) | **57 passed, 0 failed, 0 ignored** (54 library + 3 binary) |
+| `cargo build --workspace --locked` | Passed | Passed |
+| `python3 scripts/test-oauth-terminal.py` | Seven terminal-input cases and missing-controlling-TTY rejection passed | Seven terminal-input cases and missing-controlling-TTY rejection passed |
+| `--audio-self-test` | Passed, silent finite `fakesink` pipeline | Passed, silent finite `fakesink` pipeline |
+| `--playback-self-test` | Passed, real generated-WAV `playbin`/`fakesink` lifecycle | Passed, real generated-WAV `playbin`/`fakesink` lifecycle |
+| GTK smoke under Xvfb | Passed: both pages/themes, resize, actual local playback and window/worker cleanup | Passed: both pages/themes, resize, actual local playback and window/worker cleanup |
+
+OAuth tests cover the RFC 7636 S256 vector; fresh verifier/state; secretless form
+exchange; verifier mismatch, missing/mismatched returned state and provider denial;
+local/code/token expiry; missing scopes; exact ID client binding; anonymous Music
+accounts; and a sequential read-only catalog probe. Fixture requests also verify
+that redirects are not followed, credentials are not forwarded, automatic retries
+are disabled, errors are redacted, malformed/oversized bodies fail, and the total
+deadline stops continuously streaming responses. These are loopback fixtures,
+not observations of Yandex accepting Karin credentials.
+
+Terminal tests exercise Ctrl-C, Ctrl-D, Escape, empty input, invalid control data,
+bounded overflow and invalid Client ID, checking no echo, exact terminal-setting
+restoration and sanitized outcomes. A separate missing-TTY case exits before
+credential input. These checks use synthetic invalid input and stop before browser
+launch or provider requests. Their isolated XDG configuration installs a harmless
+local URI handler, so even a parser regression cannot open a real browser. An
+independent offline GIO check verified that guard without contacting a provider.
+
+The regenerated dependency-license inventory was byte-compared with the updated
+reviewed inventory: **200 external crates**, **171** in the Linux target graph.
+This is dependency evidence, not a final-package license or service-access grant.
+The GUI layout and playback implementation are unchanged; existing Gate A visual
+evidence remains scoped to that layout, with Fedora manual acceptance separate.
+
+Rust 1.98.1 `cargo build --release --offline --locked` passed after fetching the
+locked dependencies. The optimized binary also passed the terminal checks, both
+silent GStreamer diagnostics and GTK smoke. Hosted GitHub Actions outcomes must
+be read from this PR's checks; a workflow definition alone is not a passed run.
+Flatpak source preparation passed with the same Rust sources, lockfile and
+terminal script, the reviewed inventory and the new dependencies' original
+notices. The manifest still selects GNOME 50 and the existing Rust extension.
+Full Flatpak SDK/sandbox
+packaging remains a separate Fedora check because the cloud container denies
+Bubblewrap user namespaces; no bypass is used.
+
+### Gate B1 remaining Music API and desktop acceptance (historical scope)
+
+Karin's code/state return, initial secretless token exchange and ID-client
+binding are now owner-reported successes. The effective Music rights, Music
+account/service availability and read-only catalog response remain unestablished
+after HTTP 403. Do not mark
+Music authorization working from ID success, selected scope names, fixtures or
+an HTTP 200 without authenticated Music account evidence. Do not publish browser
+screenshots, raw responses or credentials. No streams, DRM bypass or subscription
+playback test is part of Gate B1.
+
+Do not repeat account login solely to recheck VPN, or change routes, region,
+identity or OAuth mechanism to bypass this denial. Any separately consented
+future local test must keep credentials on the owner's machine and share only
+the sanitized category/status/unknown facts. The full-URL transfer is not an
+automatic production callback. Public-client refresh/revocation,
+Secret Service lifecycle and GUI sign-in remain future acceptance gates. The
+executed cloud checks above do not establish these local/provider results.
+Historical Gate A results do not imply a Gate B1 OAuth pass.
+
+## Historical v0.1 Gate A (2026-10-25)
 
 Gate A was developed on `feature/v0.1-auth-playback-feasibility` from current
 `master` (`8b060aa`, merged PR #2). Issue #3 reports that the v0.0 native and
@@ -337,7 +1659,12 @@ It does not replace target-desktop accessibility or rendering acceptance.
 | Reproducible dependency/build workflow | Cargo.lock, `--locked` commands, CI definition and vendored offline Flatpak source preparation |
 | CI | GitHub Actions workflow provided; hosted-runner outcome must be read from the PR checks, not inferred from local results |
 
-## Unrun/manual acceptance
+## Historical initial-cloud manual gaps
+
+This final foundation record describes what had not been exercised at that
+initial baseline. Later revision-specific owner reports above supersede its
+login/library/search/audio gaps; the current UI/context/MPRIS and exact Flatpak
+acceptance status is recorded at the top of this document.
 
 Full Flatpak package build/install, repeat visual acceptance of the revised UI on
 Fedora 44/KDE/Wayland, HiDPI and accessibility acceptance remain unverified. The

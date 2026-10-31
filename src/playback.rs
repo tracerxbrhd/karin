@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Source-independent playback on a dedicated worker, separate from service access.
 //!
-//! The current public source constructor accepts local regular files only. A
-//! service resolver must establish permission before a future network-source
-//! constructor is added. No source paths or native decoder messages are exposed
+//! Public source constructors accept local files or an opaque resolver-issued
+//! remote source. No raw URL/token constructor is exposed to callers. No source
+//! paths, resource URLs or native decoder messages are exposed
 //! in snapshots/errors. Commands and shutdown never wait for GStreamer on GTK.
 
 use std::{
@@ -23,7 +23,13 @@ use std::{
 
 use gst::prelude::*;
 use gstreamer as gst;
+use reqwest::Url;
 use thiserror::Error;
+use zeroize::Zeroizing;
+
+mod remote;
+#[cfg(test)]
+mod remote_tests;
 
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 const TRANSITION_TIMEOUT: Duration = Duration::from_secs(5);
@@ -62,6 +68,12 @@ pub struct PlaybackSnapshot {
     pub worker_running: bool,
     /// Changes when a source is replaced; old pipeline messages cannot apply.
     pub generation: u64,
+    /// Monotonic per-controller count of seeks accepted by native GStreamer.
+    /// Queue admission alone and failed seek commands do not advance it.
+    pub seek_serial: u64,
+    /// Target of that successful native seek, not an extrapolated clock value.
+    /// Retained across stop/prepare; compare both serial and source generation.
+    pub seek_position: Option<Duration>,
 }
 
 impl Default for PlaybackSnapshot {
@@ -75,6 +87,8 @@ impl Default for PlaybackSnapshot {
             last_error: None,
             worker_running: true,
             generation: 0,
+            seek_serial: 0,
+            seek_position: None,
         }
     }
 }
@@ -85,8 +99,14 @@ pub enum PlaybackError {
     WorkerUnavailable,
     #[error("GStreamer could not initialize.")]
     Initialization,
-    #[error("The local media source is unavailable or is not a regular file.")]
+    #[error("The media source is unavailable or is not supported.")]
     SourceUnavailable,
+    #[error("The playback source admission has expired; resolve it again.")]
+    SourceExpired,
+    #[error("The remote playback source violates its transport policy.")]
+    SourcePolicy,
+    #[error("The media server rejected playback (HTTP {0}).")]
+    RemoteHttp(u16),
     #[error("The required playback or audio-output component is unavailable.")]
     Pipeline,
     #[error("The media could not be decoded or the audio output failed.")]
@@ -116,11 +136,16 @@ pub enum PlaybackError {
 #[derive(Clone)]
 pub struct PlaybackSource {
     path: PathBuf,
+    remote: Option<RemotePlaybackSource>,
 }
 
 impl fmt::Debug for PlaybackSource {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("PlaybackSource::LocalFile([redacted])")
+        formatter.write_str(if self.remote.is_some() {
+            "PlaybackSource::RemoteHttps([redacted])"
+        } else {
+            "PlaybackSource::LocalFile([redacted])"
+        })
     }
 }
 
@@ -131,8 +156,137 @@ impl PlaybackSource {
         if !path.is_file() {
             return Err(PlaybackError::SourceUnavailable);
         }
-        Ok(Self { path })
+        Ok(Self { path, remote: None })
     }
+
+    /// Only an opaque, short-lived source issued by the service resolver can
+    /// reach this path. In particular this is not a URL/token entry point.
+    pub fn remote(source: RemotePlaybackSource) -> Self {
+        Self {
+            path: PathBuf::new(),
+            remote: Some(source),
+        }
+    }
+}
+
+/// In-memory admission for a server-described legacy media resource. The
+/// monotonic deadline limits new connections; it is not a parsed server expiry
+/// and does not interrupt an already playing track when admission ages out.
+#[derive(Clone)]
+pub struct RemotePlaybackSource {
+    uri: Zeroizing<String>,
+    expires_at: Instant,
+    #[cfg(test)]
+    ca_file: Option<PathBuf>,
+}
+
+impl fmt::Debug for RemotePlaybackSource {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("RemotePlaybackSource([redacted])")
+    }
+}
+
+/// A deliberately narrow generated host family corroborated by the published
+/// legacy descriptor example `s268myt.storage.yandex.net`. It is not a promise
+/// that every current service CDN name is supported.
+pub(crate) fn permitted_media_host(host: &str) -> bool {
+    if !host.is_ascii() {
+        return false;
+    }
+    let Some(label) = host.strip_suffix(".storage.yandex.net") else {
+        return false;
+    };
+    let Some(label) = label.strip_prefix('s') else {
+        return false;
+    };
+    if !(4..=8).contains(&label.len()) {
+        return false;
+    }
+    let (digits, suffix) = label.split_at(label.len() - 3);
+    !digits.is_empty()
+        && digits.bytes().all(|byte| byte.is_ascii_digit())
+        && suffix.bytes().all(|byte| byte.is_ascii_lowercase())
+}
+
+impl RemotePlaybackSource {
+    pub(crate) fn from_resolver(uri: &str, expires_at: Instant) -> Result<Self, PlaybackError> {
+        let url = checked_remote_url(uri)?;
+        if url.scheme() != "https"
+            || url.port_or_known_default() != Some(443)
+            || !url.host_str().is_some_and(permitted_media_host)
+        {
+            return Err(PlaybackError::SourcePolicy);
+        }
+        Self::new_admission(url.as_str(), expires_at)
+    }
+
+    fn new_admission(uri: &str, expires_at: Instant) -> Result<Self, PlaybackError> {
+        let remaining = expires_at
+            .checked_duration_since(Instant::now())
+            .ok_or(PlaybackError::SourceExpired)?;
+        if remaining.is_zero() || remaining > Duration::from_secs(120) {
+            return Err(PlaybackError::SourceExpired);
+        }
+        Ok(Self {
+            uri: Zeroizing::new(uri.to_owned()),
+            expires_at,
+            #[cfg(test)]
+            ca_file: None,
+        })
+    }
+
+    pub fn is_expired(&self) -> bool {
+        Instant::now() >= self.expires_at
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_test_resolver(
+        uri: &str,
+        expires_at: Instant,
+    ) -> Result<Self, PlaybackError> {
+        let url = checked_remote_url(uri)?;
+        if url.scheme() != "http"
+            || !matches!(url.host_str(), Some("127.0.0.1" | "[::1]"))
+            || url.port().is_none_or(|port| port == 0)
+        {
+            return Err(PlaybackError::SourcePolicy);
+        }
+        Self::new_admission(url.as_str(), expires_at)
+    }
+}
+
+fn checked_remote_url(uri: &str) -> Result<Url, PlaybackError> {
+    if uri.len() > 4096
+        || !uri.is_ascii()
+        || uri
+            .bytes()
+            .any(|byte| byte.is_ascii_whitespace() || byte.is_ascii_control() || byte == b'\\')
+    {
+        return Err(PlaybackError::SourcePolicy);
+    }
+    let authority = uri
+        .split_once("://")
+        .map(|(_, tail)| tail)
+        .and_then(|tail| tail.split(['/', '?', '#']).next())
+        .ok_or(PlaybackError::SourcePolicy)?;
+    // Url deliberately normalizes an empty userinfo/port away. Those raw forms
+    // still violate the no-userinfo, exact-origin admission contract.
+    if authority.is_empty() || authority.contains('@') || authority.ends_with(':') {
+        return Err(PlaybackError::SourcePolicy);
+    }
+    let url = Url::parse(uri).map_err(|_| PlaybackError::SourcePolicy)?;
+    if !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || !url
+            .path()
+            .strip_prefix("/get-mp3/")
+            .is_some_and(|path| !path.is_empty())
+    {
+        return Err(PlaybackError::SourcePolicy);
+    }
+    Ok(url)
 }
 
 enum Command {
@@ -259,12 +413,13 @@ impl PlaybackController {
 struct ActivePipeline {
     element: gst::Element,
     bus: gst::Bus,
+    transport_refused: Option<Arc<AtomicBool>>,
 }
 
 impl Drop for ActivePipeline {
     fn drop(&mut self) {
         // Native calls stay on the playback worker, including stop/replacement,
-        // decoder error, EOS and application shutdown. Public sources are local.
+        // decoder error, EOS and application shutdown.
         let _ = self.element.set_state(gst::State::Null);
     }
 }
@@ -361,6 +516,15 @@ impl Worker {
                 self.start_pipeline(PlaybackState::Ready)
             }
             Command::Play | Command::Resume => {
+                if self
+                    .source
+                    .as_ref()
+                    .and_then(|source| source.remote.as_ref())
+                    .is_some_and(RemotePlaybackSource::is_expired)
+                {
+                    self.fail(PlaybackError::SourceExpired);
+                    return;
+                }
                 let state = self.shared.snapshot().state;
                 if matches!(state, PlaybackState::Stopped | PlaybackState::Ended) {
                     self.start_pipeline(PlaybackState::Playing)
@@ -390,6 +554,13 @@ impl Worker {
             Command::Stop => {
                 self.pending = None;
                 self.pipeline = None;
+                if self
+                    .source
+                    .as_ref()
+                    .is_some_and(|source| source.remote.is_some())
+                {
+                    self.source = None;
+                }
                 let mut snapshot = self.shared.snapshot();
                 snapshot.state = PlaybackState::Stopped;
                 snapshot.position = Some(Duration::ZERO);
@@ -432,14 +603,39 @@ impl Worker {
         self.pipeline = None;
         self.pending = None;
         let source = self.source.as_ref().ok_or(PlaybackError::InvalidState)?;
-        let uri = gst::glib::filename_to_uri(&source.path, None)
-            .map_err(|_| PlaybackError::SourceUnavailable)?;
+        let uri = if let Some(remote) = &source.remote {
+            if remote.is_expired() {
+                return Err(PlaybackError::SourceExpired);
+            }
+            // Native GStreamer debug messages can contain complete resource
+            // properties and response locations. Disable them before the URI
+            // enters GStreamer, including when GST_DEBUG was set by a caller.
+            // Public snapshots/bus handling below retain fixed diagnostics.
+            // Merely toggling debug active is insufficient: a later-loaded
+            // plugin category can restore its GST_DEBUG threshold. Reset the
+            // category rules and remove native output before source creation.
+            // The category/log-handler APIs serialize their own updates.
+            gst::log::set_threshold_from_string("0", true);
+            gst::log::remove_default_log_function();
+            remote.uri.clone()
+        } else {
+            Zeroizing::new(
+                gst::glib::filename_to_uri(&source.path, None)
+                    .map_err(|_| PlaybackError::SourceUnavailable)?
+                    .to_string(),
+            )
+        };
         let element = gst::ElementFactory::make("playbin")
             .build()
             .map_err(|_| PlaybackError::Pipeline)?;
         let bus = element.bus().ok_or(PlaybackError::Pipeline)?;
         // Audio-only: local media must never create an unrequested video window.
         element.set_property_from_str("flags", "audio+soft-volume");
+        let transport_refused = source
+            .remote
+            .as_ref()
+            .map(|source| remote::guard_pipeline(&element, source.clone()))
+            .transpose()?;
         element.set_property("uri", uri.as_str());
         let volume = self.shared.snapshot().volume;
         element.set_property("volume", volume);
@@ -456,7 +652,11 @@ impl Worker {
             .lock()
             .unwrap()
             .push(element.downgrade());
-        self.pipeline = Some(ActivePipeline { element, bus });
+        self.pipeline = Some(ActivePipeline {
+            element,
+            bus,
+            transport_refused,
+        });
         let target = if result == PlaybackState::Playing {
             gst::State::Playing
         } else {
@@ -471,10 +671,27 @@ impl Worker {
         result: PlaybackState,
     ) -> Result<(), PlaybackError> {
         let pipeline = self.pipeline.as_ref().ok_or(PlaybackError::InvalidState)?;
-        pipeline
-            .element
-            .set_state(target)
-            .map_err(|_| PlaybackError::StateChange)?;
+        if pipeline.element.set_state(target).is_err() {
+            if let Some(refused) = &pipeline.transport_refused {
+                if refused.load(Ordering::Acquire) {
+                    return Err(PlaybackError::SourcePolicy);
+                }
+                // A synchronous native refusal can post its structured error
+                // before set_state returns. Retain only a documented numeric
+                // HTTP status before dropping that failed pipeline.
+                for _ in 0..64 {
+                    let Some(message) = pipeline.bus.pop() else {
+                        break;
+                    };
+                    if let gst::MessageView::Error(error) = message.view()
+                        && let Some(status) = remote::error_http_status(error)
+                    {
+                        return Err(PlaybackError::RemoteHttp(status));
+                    }
+                }
+            }
+            return Err(PlaybackError::StateChange);
+        }
         self.pending = Some(Pending {
             target,
             result,
@@ -487,6 +704,14 @@ impl Worker {
     }
 
     fn seek(&mut self, position: Duration) -> Result<(), PlaybackError> {
+        if self
+            .source
+            .as_ref()
+            .and_then(|source| source.remote.as_ref())
+            .is_some_and(RemotePlaybackSource::is_expired)
+        {
+            return Err(PlaybackError::SourceExpired);
+        }
         let snapshot = self.shared.snapshot().clone();
         if !matches!(
             snapshot.state,
@@ -511,7 +736,13 @@ impl Worker {
                 gst::ClockTime::from_nseconds(position.as_nanos() as u64),
             )
             .map_err(|_| PlaybackError::SeekFailed)?;
-        self.shared.snapshot().last_error = None;
+        // Observation only: publish after the existing native seek has accepted
+        // the command. Do not infer completion from queue admission or from an
+        // old clock value which happens to be near the requested position.
+        let mut snapshot = self.shared.snapshot();
+        snapshot.seek_serial = snapshot.seek_serial.saturating_add(1);
+        snapshot.seek_position = Some(position);
+        snapshot.last_error = None;
         Ok(())
     }
 
@@ -519,17 +750,53 @@ impl Worker {
         let mut eos = false;
         let mut failure = None;
         if let Some(pipeline) = &self.pipeline {
+            if pipeline
+                .transport_refused
+                .as_ref()
+                .is_some_and(|refused| refused.load(Ordering::Acquire))
+            {
+                self.fail(PlaybackError::SourcePolicy);
+                return;
+            }
             for _ in 0..64 {
                 let Some(message) = pipeline.bus.pop() else {
                     break;
                 };
                 match message.view() {
-                    gst::MessageView::Error(_) => {
-                        failure = Some(PlaybackError::Playback);
+                    gst::MessageView::Error(error) => {
+                        failure = Some(
+                            if pipeline
+                                .transport_refused
+                                .as_ref()
+                                .is_some_and(|refused| refused.load(Ordering::Acquire))
+                            {
+                                PlaybackError::SourcePolicy
+                            } else if pipeline.transport_refused.is_some() {
+                                remote::error_http_status(error)
+                                    .map(PlaybackError::RemoteHttp)
+                                    .unwrap_or(PlaybackError::Playback)
+                            } else {
+                                PlaybackError::Playback
+                            },
+                        );
                         break;
                     }
                     gst::MessageView::Eos(_) => {
                         eos = true;
+                        break;
+                    }
+                    gst::MessageView::Redirect(_) if pipeline.transport_refused.is_some() => {
+                        failure = Some(PlaybackError::SourcePolicy);
+                        break;
+                    }
+                    gst::MessageView::Element(message)
+                        if pipeline.transport_refused.is_some()
+                            && message.structure().is_some_and(|structure| {
+                                structure.name() == "redirect"
+                                    || structure.has_field("new-location")
+                            }) =>
+                    {
+                        failure = Some(PlaybackError::SourcePolicy);
                         break;
                     }
                     _ => {}
@@ -543,6 +810,13 @@ impl Worker {
         if eos {
             self.pending = None;
             self.pipeline = None;
+            if self
+                .source
+                .as_ref()
+                .is_some_and(|source| source.remote.is_some())
+            {
+                self.source = None;
+            }
             let mut snapshot = self.shared.snapshot();
             snapshot.state = PlaybackState::Ended;
             snapshot.position = snapshot.duration;
@@ -589,6 +863,13 @@ impl Worker {
     fn fail(&mut self, error: PlaybackError) {
         self.pending = None;
         self.pipeline = None;
+        if self
+            .source
+            .as_ref()
+            .is_some_and(|source| source.remote.is_some())
+        {
+            self.source = None;
+        }
         let mut snapshot = self.shared.snapshot();
         snapshot.state = PlaybackState::Error;
         snapshot.last_error = Some(error);
@@ -642,7 +923,7 @@ impl DiagnosticMedia {
         }
         let (path, file) = opened.ok_or(PlaybackError::DiagnosticMedia)?;
         let mut file = std::io::BufWriter::new(file);
-        let source = PlaybackSource { path };
+        let source = PlaybackSource { path, remote: None };
         let guard = Self { source };
         let sample_rate = 22_050_u32;
         let samples = (duration.as_nanos() * sample_rate as u128 / 1_000_000_000) as u32;
@@ -881,6 +1162,95 @@ mod tests {
     }
 
     #[test]
+    fn native_seek_observation_advances_only_for_successful_seeks_across_sources() {
+        let first = DiagnosticMedia::create(Duration::from_secs(2)).unwrap();
+        let second = DiagnosticMedia::create(Duration::from_secs(1)).unwrap();
+        let controller = controller();
+        assert_eq!(controller.snapshot().seek_serial, 0);
+        assert_eq!(controller.snapshot().seek_position, None);
+
+        // Public acceptance only enqueues this inapplicable command. The worker
+        // rejects it, so a caller must not interpret that receipt as Seeked.
+        controller.seek(Duration::from_millis(50)).unwrap();
+        wait_for(&controller, |snapshot| {
+            snapshot.last_error == Some(PlaybackError::InvalidState)
+        })
+        .unwrap();
+        assert_eq!(controller.snapshot().seek_serial, 0);
+        assert_eq!(controller.snapshot().seek_position, None);
+
+        let ready = prepare(&controller, &first);
+        let generation = ready.generation;
+        assert_eq!(ready.seek_serial, 0);
+        let target = Duration::from_millis(50);
+        assert!(ready.position.unwrap_or_default().abs_diff(target) < Duration::from_millis(250));
+        controller.seek(target).unwrap();
+        let accepted = wait_for(&controller, |snapshot| {
+            snapshot.seek_serial == 1
+                && snapshot.seek_position == Some(target)
+                && snapshot
+                    .position
+                    .is_some_and(|position| position.abs_diff(target) < Duration::from_millis(20))
+        })
+        .unwrap();
+        assert_eq!(accepted.generation, generation);
+        assert_eq!(accepted.state, PlaybackState::Ready);
+        assert!(accepted.last_error.is_none());
+
+        // A non-seek command is a deterministic worker barrier: later polls and
+        // volume application must not repeatedly acknowledge the same seek.
+        controller.set_volume(0.37).unwrap();
+        wait_for(&controller, |snapshot| snapshot.volume == 0.37).unwrap();
+        assert_eq!(controller.snapshot().seek_serial, 1);
+        assert_eq!(controller.snapshot().seek_position, Some(target));
+        controller.seek(Duration::from_secs(3)).unwrap();
+        wait_for(&controller, |snapshot| {
+            snapshot.last_error == Some(PlaybackError::InvalidSeek)
+        })
+        .unwrap();
+        assert_eq!(controller.snapshot().seek_serial, 1);
+        assert_eq!(controller.snapshot().seek_position, Some(target));
+
+        controller.stop().unwrap();
+        let stopped = wait_for(&controller, |snapshot| {
+            snapshot.state == PlaybackState::Stopped
+        })
+        .unwrap();
+        assert_eq!(stopped.seek_serial, 1);
+        assert_eq!(stopped.seek_position, Some(target));
+        controller.seek(Duration::from_millis(75)).unwrap();
+        wait_for(&controller, |snapshot| {
+            snapshot.last_error == Some(PlaybackError::InvalidState)
+        })
+        .unwrap();
+        assert_eq!(controller.snapshot().seek_serial, 1);
+        let replaced = prepare(&controller, &second);
+        assert_eq!(replaced.generation, generation + 1);
+        assert_eq!(replaced.seek_serial, 1);
+        assert_eq!(replaced.seek_position, Some(target));
+        assert!(replaced.position.unwrap_or_default() < Duration::from_millis(20));
+        let next_target = Duration::from_millis(75);
+        controller.seek(next_target).unwrap();
+        let second_ack = wait_for(&controller, |snapshot| {
+            snapshot.seek_serial == 2
+                && snapshot.seek_position == Some(next_target)
+                && snapshot.position.is_some_and(|position| {
+                    position.abs_diff(next_target) < Duration::from_millis(20)
+                })
+        })
+        .unwrap();
+        assert_eq!(second_ack.generation, replaced.generation);
+        assert_eq!(
+            controller.seek(Duration::MAX),
+            Err(PlaybackError::InvalidSeek)
+        );
+        assert_eq!(controller.snapshot().seek_serial, 2);
+        shutdown(&controller);
+        assert_eq!(controller.snapshot().seek_serial, 2);
+        assert_eq!(controller.snapshot().seek_position, Some(next_target));
+    }
+
+    #[test]
     fn volume_and_invalid_commands_are_bounded_without_poisoning_playback() {
         let controller = controller();
         for volume in [f64::NAN, f64::INFINITY, -0.1, 1.1] {
@@ -1035,7 +1405,11 @@ mod tests {
             output: PlaybackOutput::Fakesink,
             shared: shared.clone(),
             source: Some(media.source()),
-            pipeline: Some(ActivePipeline { element, bus }),
+            pipeline: Some(ActivePipeline {
+                element,
+                bus,
+                transport_refused: None,
+            }),
             // Paused was deliberately never requested: this real playbin stays
             // Ready, allowing the worker's own deadline path to be tested
             // without sleeping five seconds or depending on a stalled plugin.

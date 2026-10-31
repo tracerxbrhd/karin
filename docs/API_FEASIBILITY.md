@@ -1,16 +1,313 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+
 # Yandex Music API feasibility
 
+Gate B1 owner evidence and document recheck: **2026-10-26**.
 Gate A official-document review: **2026-10-25**. Initial anonymous cloud probes:
 **2026-10-24**, approximately **11:40 UTC**; retained below with their original scope.
+Authentication source/document recheck and product correction: **2026-10-29**.
+
+## Current owner evidence, 31 October — search/account/playback accepted; UI rejected
+
+The owner's subsequent **`f0aa2bb`** run reports **Search PASS, Account PASS and
+Playback PASS**, with **UI FAIL**. The prior HTTP 200 search-wire failure below
+is historical, not the current search outcome. Preserve the accepted provider,
+MusicService and guarded audio path while correcting the workspace and playback
+context. The new unified four-section search and MPRIS bridge require their own
+checks; the owner has not yet accepted that later revision. No full current
+Flatpak or public OAuth-registration/service-distribution approval follows from
+these technical results.
+
+The owner's [PR #13 acceptance at `8f1b09d`](https://github.com/tracerxbrhd/karin/pull/13#issuecomment-6539311586)
+confirms actual audible Yandex Music on Fedora 44 / KDE Plasma / Wayland /
+PipeWire, working controls/queue and correct stopping on logout/close. Ordinary
+sign-in, Music account/library access, real track details and album search also
+work. This is owner-local technical interoperability, not a synthetic tone or
+an approval to publicly distribute the OAuth registration/service integration.
+
+At `8f1b09d`, track search still returned HTTP 200 / `track-wire` /
+`track-fields-unsupported`: own ID passes initial validation, but remaining
+search metadata cannot deserialize. No specific private field or raw response
+was supplied. The current correction reads minimal typed search IDs and expands
+them once through the working account-bound `/tracks` lookup, bounded to 50
+raw hit positions and 50 distinct IDs, preserving order/composite identities and
+provider pagination.
+See [ADR-0016](adr/0016-search-identity-and-batch-normalization.md).
+Minimal-ID search normalization was subsequently accepted at `f0aa2bb`.
+Unified search retains the same track bounds and one batch, with independently
+typed tracks/albums/artists/playlists sections and per-category paging. Playlist
+summaries keep a strict actual owner/kind; an absent count remains unknown rather
+than becoming zero. Revised UI/context/MPRIS and current Flatpak verification
+remain separate from accepted playback and unresolved distribution conditions.
+The `all`/playlist contract is reviewed against pinned
+[yamuse search](https://github.com/flxxxxddd/yamuse/blob/368c74646520e8bcd30c44a9887e1bf99cb58172/src/api/search.rs)
+and its typed optional playlist result. Pinned yamu exposes the All/Playlist
+enum but keeps playlist results in extra fields. Cassette v0.2.4's empty mixed-
+search helpers do not prove a working unified-search contract. These source
+facts support the implementation; they are not a live new-query acceptance.
+The dated sections below preserve their original, narrower evidence.
 
 Karin uses an unofficial service interface. A successful HTTP response establishes
 only the behavior observed for that request, from this cloud environment, at this
 time. It does not establish authenticated access, a playback entitlement, a stable
 API contract, or permission to distribute a third-party music client.
 
-## Gate A decision: Music authorization is blocked, not simulated
+## Historical sign-in decision, 29 October — Cassette-compatible prototype
 
-**Blocked:** no Music-specific grant, catalog/library/playback permission or
+The owner's latest PR #8 correction permits the functional prototype to adapt
+Cassette's published working authentication chain without requiring Karin's own
+OAuth registration. It supersedes the earlier permanently blocked provider
+choice in ADR-0010. One `Войти` action opens the existing native dialog and actual
+Yandex login in isolated WebKit. Normal/experimental GUI modes expose no Client
+ID/secret, app registration, device-code copying, manual redirect or token input.
+
+Default `cassette-auth` / `auth-webkit` and the existing Flatpak prototype use
+Cassette's published shared registration: implicit browser login with fresh state
+→ exact Music-root return/state validation → OAuth-endpoint cookies from this
+session only → official `/token` `sessionid` grant → existing Music account
+validation → actual liked tracks/playlists and search. The token grant is not
+code/PKCE; the independent own-client PKCE diagnostic stays unchanged and is not
+the main login path. No official-client Music header, session import, password
+DOM/JS inspection or stream access is added. See the pinned full-chain
+[research](AUTHENTICATION_REVIEW.md) and [ADR-0011](adr/0011-cassette-session-auth-prototype.md).
+
+The code path is implemented for a substantive local Fedora test, but **real
+Karin sign-in, session exchange, Music validation and library/search remain
+unverified** until that run succeeds. Cassette source and cloud fixtures do not
+prove them. Missing returned state/path, missing cookies, `/token` refusal/schema,
+Music 403 and library/search failures are separate concrete failed stages; none
+is reported as a generic unconfigured-provider block. The known own-client
+ID 200/Music 403 remains a separate fact with unknown cause, not the route retried
+under a new dialog.
+
+Distinguish three kinds of evidence:
+
+| Question | Status at this record date |
+| --- | --- |
+| Reusing/adapting inspected source | GPL-3.0-or-later applies; upstream copyright, full license and provenance are retained. Published shared application configuration is not a user credential. |
+| Real Karin browser/session/Music interoperability | Pending consented Fedora validation; source/fixture success alone does not establish it. The registration's actual default Music return and state echo need that test. |
+| Karin reuse/distribution of the registration and Linux embedded auth | Express provider approval has not been established; this is unresolved, not a confirmed blanket ban, approved public release, or a technical error response. GPL does not grant service/API/content/trademark rights. |
+
+RFC 8252 rejects embedded native OAuth. Yandex's mobile LoginSDK permits WebView
+in its iOS/Android context, which neither proves a blanket provider ban nor
+establishes Linux WebKit permission. Record the discrepancy without claiming
+compliance. This prototype does not silently fall back to another client, region
+or mechanism. The owner runs [one Fedora acceptance](BUILDING.md#music-sign-in-and-fedora-acceptance)
+and shares only build/revision and coarse stage results, never personal data,
+secrets, URLs with parameters, raw responses or headers. Public distribution
+conditions and real audio remain separate gates.
+
+## Historical read-only vertical slice and 28 October owner evidence
+
+The owner completed the independent PR #6 comparison on Fedora 44:
+[own-client results](https://github.com/tracerxbrhd/karin/issues/5#issuecomment-6470853664).
+Fresh own-client PKCE/state/token and ID-client/account binding passed; **both**
+Music status and about returned generic `403 / Forbidden`, with TUN on and off.
+The provider's cause remains unknown. This supersedes the older pending-about
+entry below; it does not establish missing subscription or a particular scope
+failure.
+
+A separate [unmodified yamu Device Flow experiment](https://github.com/tracerxbrhd/karin/issues/5#issuecomment-6471162750)
+accessed authenticated account, search (20 first-page tracks), track and album
+metadata. The owner's [same-token A/B](https://github.com/tracerxbrhd/karin/issues/5#issuecomment-6471631991)
+then accepted status with and without `X-Yandex-Music-Client`. That header was
+unnecessary for that endpoint/token; the test does not distinguish flow from
+OAuth app registration/grant, certify other endpoints, or authorize distributing
+an official application's identity. No real tokens, credentials or response bodies
+were supplied to the cloud.
+
+The new code uses a thin typed, identity-neutral `MusicService`, retaining the
+approved reqwest/serde stack. Endpoint/model knowledge was reviewed in pinned
+[yamu source](RUST_API_CLIENT_REVIEW.md); no library, OAuth defaults, signing
+material or protected delivery code is imported. Requests remain bounded with
+five-second connection and fifteen-second normal request limits, 1 MiB bodies,
+no redirects/retries and fixed redacted errors. The UI consumes typed account,
+library, playlist, search and detail results, with explicit loading/error/empty
+states and bounded paging. The new Karin path is implemented, but owner-local
+service acceptance remains pending; source/fixture coverage is not live evidence.
+
+The earlier Device Flow GUI is removed in all modes. The legacy module remains
+behind `experimental-device-auth` for isolated library-level development checks,
+without a GUI entry or bundled identity. Default/Flatpak excludes Device Flow
+and explicitly enables the Cassette/WebKit provider instead. Own-client PKCE is
+unchanged and remains a separately
+verified developer diagnostic; its hidden manual redirect is not the normal
+journey. Session tokens are memory-only; permanent credentials require a verified
+Secret Service lifecycle.
+
+At this historical baseline the queue contained selected metadata and Music
+playback was unavailable. The then-current [stream review](STREAM_DELIVERY_REVIEW.md) found no confirmed
+permitted unsigned delivery contract; the inspected source negotiates through
+extracted signing material and another application's identity. No stream request,
+decryption, media download, mutation, likes/unlikes, My Wave or MPRIS service is
+added at that baseline. The later ADR-0015 and owner acceptance above supersede
+its audio restriction. See [ADR-0009](adr/0009-music-vertical-slice.md) for the scoped decision and
+[Fedora acceptance](BUILDING.md#music-sign-in-and-fedora-acceptance).
+
+## Gate B1 diagnostic evidence (historical PR #6)
+
+
+On **2026-10-26**, the owner confirmed registration of a Karin-owned application
+of type **«Для авторизации пользователей»**, with these selected scopes:
+
+- `music:api-public`
+- `music:major-public-api`
+- `login:info`
+- `login:avatar`
+
+The development redirect is `https://oauth.yandex.ru/verification_code`.
+The [owner's Issue #5 update][owner-registration] supersedes the earlier hypothesis
+that a new Karin-owned multiuser registration could not offer Music scopes.
+The earlier same-day developer/API-only registration is a separate application;
+it must not be confused with this user-authorization client. Neither Client ID,
+Client secret nor private console screenshots belong in this repository.
+
+| Evidence stage | Current verdict | What it establishes |
+| --- | --- | --- |
+| Karin-owned multiuser registration and four selectable scopes | Owner-confirmed, 2026-10-26 | Registration and consent-preview labels; not a token grant |
+| Karin consent and authorization-code redirect | Owner-observed on Fedora, 2026-10-26 | Browser returned an opaque alphanumeric code, echoed `state` and an additional `cid`; no private values are retained here |
+| Secretless S256 PKCE token exchange | Owner-observed on Fedora, 2026-10-26 | Fresh `ValidatedRedirect` and token HTTP 200; this supersedes the initial local input rejection |
+| Token belongs to the locally supplied Karin Client ID | Owner-observed on Fedora, 2026-10-26 | Yandex ID HTTP 200, matching Karin client and an existing ID account; not Music account access |
+| Token's effective scope and Music account access | Blocked at Music status | Authenticated `/account/status` returned HTTP 403 again in the DIRECT-path control; Music account presence and `serviceAvailable` remain unknown |
+| Independent read-only Music `/account/about` response | Owner-reported HTTP 403, 2026-10-28 | Separate same-token probe returned generic Forbidden with TUN on/off; no personal-field schema or exact refusal cause established |
+| Read-only Music catalog response | Not run | Correctly skipped after forbidden Music status; about success cannot change this prerequisite and no catalog or playback acceptance follows |
+| Subscription/library/streams and public distribution rights | Not established | Neither registration nor catalog success licenses stream retrieval or distribution |
+
+### Local experiment and its boundary
+
+The separate opt-in `karin --oauth-diagnostic` uses the owner's locally entered
+Client ID, authorization code + S256 PKCE and the system browser. It exchanges
+only a one-time code through official Yandex OAuth, without `client_secret`.
+The hidden local prompt accepts the **full returned browser URL**, validates its
+exact origin/path and echoed `state` against the current attempt, then extracts
+the bounded, nonempty opaque code. A code is not restricted to seven digits.
+The observed `cid` is tolerated without interpreting it; unwanted parameters,
+missing/duplicate response fields and invalid state fail before token exchange.
+There is no code-only fallback. Manual URL transfer is a developer experiment,
+not an automatic production Linux callback. Tokens live only in diagnostic
+process memory; the GUI, anonymous adapter and independent playback engine do
+not receive them.
+See [Fedora instructions](BUILDING.md#local-oauth-diagnostic-gate-b1) and
+[ADR-0008](adr/0008-local-oauth-pkce-diagnostic.md) for exact checks and limits.
+
+The diagnostic separately checks ID client binding and identity, then the same
+token at Music `/account/status` and `/account/about`. The about probe runs after
+successful ID binding/account checks even if status returns HTTP 403, fails on
+the network, has an unsupported body or reports no account. Each method has its
+own HTTP/error result. About HTTP 200 is accepted only for a JSON object with an
+object `result` and no top-level `error`; the tool discards its fields without
+retaining identifiers or personal data. This checks a minimal envelope, not a
+verified about field schema or Music account presence. A successful about result
+cannot supply missing status/service facts or authorize catalog access. A failed
+about result does not suppress the existing catalog probe when status already
+establishes an authenticated account. Overall diagnostic success conservatively
+requires all planned stages, including about, to succeed.
+
+One fixed read-only catalog request remains gated by authenticated status.
+Requests have a five-second connection limit, fifteen-second total deadline and
+1 MiB response ceiling; redirects and automatic retries are disabled. Output is restricted to status codes,
+boolean/unknown facts and fixed error categories. It publishes no identity,
+profile/avatar, token, authorization code, verifier, response body or catalog
+content. There is no refresh, persistent storage, stream request, DRM workaround,
+UI sign-in or borrowed OAuth identity. The configured `login:avatar` scope does
+not cause an avatar request.
+
+### Fedora browser evidence and corrected input assumption
+
+The [owner's PR #6 report][owner-redirect] records that Yandex displayed Karin's
+consent screen and reached the registered verification redirect with `state`,
+`code` and an additional `cid`. The displayed code was alphanumeric and longer
+than seven digits. Karin's initial numeric restriction rejected it as local
+input, so **no POST to the token endpoint occurred**. This was a Karin parser
+bug, not an observed OAuth-provider rejection or Music API result.
+
+This evidence supersedes the initial assumption that the manual verification
+page could not provide a state return observable by the diagnostic. The full URL
+can be transferred through the hidden prompt and checked against the same fresh
+PKCE attempt. Neither the owner's private screenshot nor any actual URL, Client
+ID, code or state is included here. Discard the previous code and start a fresh
+local flow after an expired or invalid attempt; share only the sanitized outcome.
+
+### Fedora DIRECT-path repeat and anonymous control
+
+The owner's [DIRECT-path repeat][owner-direct] used a fresh PKCE flow on Fedora
+44. It reported `ValidatedRedirect`, token HTTP 200, Yandex ID HTTP 200, a
+matching Karin client and an ID account. Authenticated Music `/account/status`
+again returned **HTTP 403**. Music account presence and `serviceAvailable` were
+unknown, and catalog probing stopped. These are owner-reported local results;
+no private OAuth input or response body was supplied to Cloud or GitHub.
+
+The route lookup selected an ordinary Ethernet/LAN route, and conventional
+uppercase/lowercase HTTP(S)/ALL proxy variables were absent for that run.
+This weakens the proxy/TUN explanation but does not establish identical public
+egress, exclude policy routing or determine the provider's reason for denial.
+A subsequent [anonymous curl control][owner-anonymous-control] returned **HTTP
+200** from the same Music host. Curl and reqwest do not independently prove
+identical egress. Anonymous reachability and authenticated HTTP 403 can coexist;
+neither response establishes subscription, library, catalog or stream rights.
+
+The diagnostic classifies the Music HTTP 403 response already received, without
+an additional request. Its closed allowlist currently recognizes only the exact
+identifier `missing-required-scopes` in a top-level string `error` or nested
+`error.name`, producing a fixed category.
+The identifier is an [external implementation clue][music-error-clue], not an
+identifier observed in Karin's actual Fedora response. The pinned community
+[response model][music-error-schema] distinguishes an error code from its
+description; it supplies field-location evidence, not an official API contract.
+`API access restricted` is not promoted from a free-form message into a known
+code. Unknown identifiers, unsupported/malformed bodies and ordinary messages
+remain `Forbidden`; raw JSON, messages/descriptions, personal fields,
+request IDs, headers, URLs and tokens are never returned. The 1 MiB bound,
+request deadlines and no-redirect/no-retry policy remain in force. A failed Music
+status still leaves account/service facts unknown and skips catalog access,
+while about retains its separate outcome. The classifier applies independently
+to both Music methods; it never interprets an about result as successful status.
+
+### Independent about probe: owner result received
+
+The fixed same-token about probe is diagnostic rather than a fallback for refused
+status data. Its owner-local result on 2026-10-28 was HTTP 403 / `Forbidden` in
+both network modes, recorded in the current evidence section above. No live
+account response was supplied to the cloud. Account/service facts remain unknown;
+fixtures establish control flow and redaction, not service acceptance or cause.
+
+The owner has not supplied an allowlisted provider identifier for either actual
+403. Do not repeat login solely to test VPN, retry through other endpoints or infer
+Music access from ID success. The separate experimental integration introduced by
+Issue #7 is a new opted-in development boundary, not a change to PKCE or a claim
+that an official identity may be distributed. The earlier
+[Rust-client review](RUST_API_CLIENT_REVIEW.md) remains source-specific evidence;
+the new thin-adapter decision is in ADR-0009.
+
+### Official documentation rechecked on 2026-10-26
+
+The listed public documents returned HTTP 200 with ordinary TLS verification.
+No authorization, token or authenticated API request was made in the cloud.
+
+| Official source | Finding and limit |
+| --- | --- |
+| [User-authorization registration][register-auth] | Appropriate owner-registered app category; actual Karin registration is owner evidence, not inferred from the guide |
+| [Manual authorization-code flow][manual-code] | The verification page displays an authorization code; code lifetime is ten minutes. A seven-digit error-description example must not restrict the opaque code format. The owner's actual browser redirect with code/state is recorded separately above |
+| [Authorization request and code exchange][oauth-code] | S256, `state`, registered redirect and secretless initial exchange with `code_verifier`; generic callbacks return `code`/`error` and `state` |
+| [ID user-information API][id-info] | JSON `client_id` identifies the issuing OAuth client; `id` indicates identity. Use an `Authorization: OAuth …` header rather than a credential-bearing query string |
+| [Debug-token documentation][debug-token] | Describes an implicit-token debug route; Gate B1 deliberately does not implement or accept that route |
+| [Refresh][refresh] and [token invalidation][invalidate] | App authentication remains documented without the initial-code S256 exemption. Gate B1 implements neither refresh nor remote revocation; dropping memory does not revoke the server grant |
+
+The token response's `scope` field is optional in the documented exchange and is
+returned when fewer permissions were granted than requested. A present subset
+can identify missing permissions; absence is not independently observed scope
+introspection. The user-info API does not replace a Music-specific access test.
+Hidden full-URL state validation and public-client refresh/revocation remain
+separate from automatic production callback/lifecycle acceptance. Do not turn
+local fixture success into a claim of real Yandex Music authorization.
+
+## Historical Gate A decision (2026-10-25)
+
+The following decision and table record the evidence available at Gate A. Their
+registration prerequisite is superseded by the owner evidence above; the absence
+of a tested Music token, delivery contract and production integration remains.
+
+**Blocked at Gate A:** no Music-specific grant, catalog/library/playback permission or
 permitted stream-delivery contract has been established for a Karin-owned client.
 The official Yandex ID code flow does document PKCE and a secretless initial
 exchange; that finding must not be described as a lack of general OAuth support.
@@ -74,16 +371,17 @@ or service access. This is an engineering evidence review, not legal clearance.
 
 ### Safe next owner action
 
-First obtain official confirmation of the named Music catalog/library/playback
-grants, permitted service/stream integration and third-party distribution terms
-for a public native Linux application. Then the owner can choose the confirmed
-registration type, register **Karin's own** client, confirm supported redirect and
-secretless expiry/refresh/revocation behavior, and supply public configuration
-through the normal project configuration process. No confidential client secret,
-password, browser cookie or access token belongs in chat, source or logs.
+The owner has already registered Karin's own diagnostic application, as recorded
+above. The remaining project action is provider confirmation of its intended
+Music grants, native browser/callback eligibility, permitted service/stream
+integration, lifecycle and distribution conditions. Correct or extend that
+project-owned registration only through the provider-supported process, and
+supply non-secret public configuration through the project process. Ordinary
+users must not register applications. No confidential client secret, password,
+browser cookie or access token belongs in chat, source or logs.
 
 Only after those prerequisites are established should the project request consent
-for an end-to-end account test, implement the approved browser/device flow and
+for an end-to-end account test, activate the approved browser flow and
 Secret Service lifecycle, and independently validate Music-specific entitlement
 and permitted delivery. No account login or registration is requested now,
 because a working Music-specific route has not been established.
@@ -215,7 +513,7 @@ Run any live check deliberately; it is not an automated test dependency. Inspect
 the status and schema rather than assuming a previous result will recur. Do not
 add tokens to this command or publish future authenticated response bodies.
 
-## Source quality and unresolved prerequisites
+## Historical foundation source quality and unresolved prerequisites
 
 The community library explicitly calls itself unofficial and reverse engineered.
 The inspected source revision is pinned below so its claims remain auditable.
@@ -277,3 +575,12 @@ commit `9ca132e5c18a72aab779c1fc68c169380a9357d0`; official documents may change
 [refresh]: https://yandex.ru/dev/id/doc/ru/tokens/refresh-client
 [id-info]: https://yandex.ru/dev/id/doc/ru/user-information
 [id-requirements]: https://yandex.ru/dev/id/doc/ru/requirements
+
+[owner-registration]: https://github.com/tracerxbrhd/karin/issues/5#issuecomment-6411056234
+[manual-code]: https://yandex.ru/dev/id/doc/ru/codes/screen-code
+[debug-token]: https://yandex.ru/dev/id/doc/ru/tokens/debug-token
+[owner-redirect]: https://github.com/tracerxbrhd/karin/pull/6#issuecomment-6417990070
+[owner-direct]: https://github.com/tracerxbrhd/karin/pull/6#issuecomment-6424867774
+[owner-anonymous-control]: https://github.com/tracerxbrhd/karin/pull/6#issuecomment-6424928210
+[music-error-clue]: https://github.com/fakingpescobar-ctrl/opencode-mobile/blob/2d7c0f5d15bd9c0236f10762ce9568ec01e9a096/app/src/main/assets/mcp/ynison.js#L1297-L1304
+[music-error-schema]: https://github.com/MarshalX/yandex-music-api/blob/9ca132e5c18a72aab779c1fc68c169380a9357d0/yandex_music/utils/response.py#L24-L42

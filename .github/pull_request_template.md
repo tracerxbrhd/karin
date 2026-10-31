@@ -16,6 +16,15 @@ Describe the concrete behavior and why it is needed.
 - [ ] Synthetic GStreamer diagnostic through `fakesink`
 - [ ] Generated local WAV through `--playback-self-test`, including transport and worker cleanup
 - [ ] GitHub Actions result inspected for this revision
+- [ ] Default Cassette-compatible session provider, minimal no-WebKit and `experimental-device-auth` configurations checked separately
+- [ ] Native Music HTTP-fixture test explicitly executed under Xvfb
+- [ ] Track search parses only validated identities, then one bounded batch; order, pagination, missing data and no N+1 verified
+- [ ] Search Retry, explicit Play/details/back and queue actions exercised with real mouse/keyboard input
+- [ ] Account-menu logout requires native confirmation; Cancel/Escape/default response preserve the session and audio
+- [ ] Concurrent search/library/detail actions, latest pending query and logout/stale-result isolation checked under Xvfb
+- [ ] Delivery-probe changes tested with bounded local fixtures; no credentials, resource URLs, provider payloads or media in reports/artifacts
+- [ ] `auth-webkit` checked on stable/MSRV with one GTK dependency family; startup/cancel and sandbox-enabled local navigation/session-cookie results recorded separately
+- [ ] Default/Flatpak enables `cassette-auth` and excludes legacy Device Flow; exact reused application identity, source attribution and public-distribution uncertainty documented separately
 - [ ] Documentation distinguishes passed, failed, blocked and unrun checks
 
 ## UI quality (required for substantial UI changes)
@@ -28,21 +37,33 @@ state that explicitly; do not mark unexecuted visual checks as passed.
 - [ ] Light and dark themes covered for overview and diagnostics
 - [ ] Resize transitions, selected-page preservation and adaptive navigation checked
 - [ ] Header/title/window controls, typography, spacing and text clipping checked
+- [ ] Signed-in search/list density measured at compact/medium/wide sizes; visible content and action clarity reviewed
 - [ ] Keyboard navigation, visible focus and activation checked
 - [ ] GTK structure/allocation/navigation checks accompany screenshots
+- [ ] Single native sign-in dialog checked at all sizes/themes; no developer credentials/code/token fields, stale signed-out errors or completion before Music account validation
 - [ ] Only clean cloud screenshots shared; no private user/desktop captures added
 - [ ] Pending Fedora/KDE/Wayland visual acceptance explicitly listed
-- [ ] No fictitious catalog, recommendations or non-working player controls added
+- [ ] No fictitious release catalog/recommendations or implied unimplemented playback; unavailable controls explain the blocker
 
 ## Licensing and scope
 
 - [ ] New original sources carry `SPDX-License-Identifier: GPL-3.0-or-later`
 - [ ] Third-party licenses/notices and dependency distribution obligations preserved
 - [ ] GPL is not described as permission to access Yandex Music or its content
-- [ ] No credentials, account data or copyrighted music added
+- [ ] No user credentials, session cookies, tokens, account data or copyrighted music added; published application constants are distinguished from user secrets
 - [ ] Music authorization/stream claims have permission and scoped evidence; unavailable capabilities remain explicit
+- [ ] OAuth changes use local fixtures and hidden-input checks; no real account/credentials in Cloud or CI
+- [ ] Registration, token issuance, ID-client binding and Music access are reported separately; manual full-URL state validation is distinguished from an automatic production callback
+- [ ] Experimental application credentials/tokens are memory-only; logout/cancel/late responses and new-session cache isolation tested
+- [ ] Login, current-dialog session, OAuth exchange, Music account acceptance and library/search are reported separately with safe concrete errors; third-party application identity/distribution status is not represented as established permission or RFC 8252 compliance
 
 ## Evidence and remaining manual checks
 
 Link screenshots/results and list the checks still needed on Fedora. Leave
 unperformed manual acceptance pending. Do not merge without the required review.
+
+For v0.2, report actual track/album/artist search and personal-playlist contents
+separately from account/list acceptance. Audible service playback is mandatory:
+only an entitled owner hearing a real selected track through PipeWire/GStreamer
+passes that criterion. A metadata probe, synthetic WAV or player screenshot does
+not. Record the exact delivery stage if blocked; do not silently defer the gate.

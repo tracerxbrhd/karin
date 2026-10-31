@@ -3,10 +3,18 @@
 
 pub mod api;
 pub mod application;
+pub mod artwork;
 pub mod audio;
+pub mod auth;
 pub mod capabilities;
 pub mod config;
 pub mod domain;
+pub mod mpris;
+pub mod music;
+pub mod oauth;
 pub mod platform;
 pub mod playback;
+pub mod queue;
+pub mod session;
+pub mod stream;
 pub mod ui;

@@ -5,7 +5,7 @@ on:
   push:
     branches: [master, 'feature/**', 'fix/**', 'chore/**']
   pull_request:
-    branches: [master]
+    branches: [master, 'feature/**', 'fix/**']
   workflow_dispatch:
 
 permissions:
@@ -43,8 +43,9 @@ jobs:
             build-essential pkg-config libgtk-4-dev libadwaita-1-dev \
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
             gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
-            libssl-dev libdbus-1-dev libsecret-1-dev dbus-x11 xvfb xauth \
-            librsvg2-common openbox imagemagick xdotool wmctrl x11-utils
+            libssl-dev libdbus-1-dev libsecret-1-dev libwebkitgtk-6.0-dev dbus-x11 xvfb xauth \
+            librsvg2-common openbox imagemagick xdotool wmctrl x11-utils apparmor \
+            playerctl libglib2.0-bin
       - name: Install selected Rust toolchain
         run: |
           rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
@@ -66,18 +67,266 @@ jobs:
           PY
       - name: Formatting
         run: cargo fmt --all -- --check
+      - name: Verify prototype authentication build policy
+        run: |
+          python3 - <<'PY'
+          import json
+          import tomllib
+          from pathlib import Path
+
+          cargo = tomllib.loads(Path("Cargo.toml").read_text())
+          features = cargo.get("features", {})
+          pending = list(features.get("default", []))
+          seen = set()
+          while pending:
+              feature = pending.pop()
+              if feature not in seen:
+                  seen.add(feature)
+                  pending.extend(features.get(feature, []))
+          assert "experimental-device-auth" not in seen, "Experimental OAuth must remain opt-in"
+          assert {"cassette-auth", "auth-webkit"} <= seen, "The ordinary prototype must include its WebKit session provider"
+          manifest = json.loads(Path("packaging/flatpak/io.github.tracerxbrhd.Karin.json").read_text())
+          commands = manifest["modules"][0]["build-commands"]
+          assert "cargo build --release --offline --locked --no-default-features --features cassette-auth" in commands
+          assert all("--all-features" not in command and "experimental-device-auth" not in command for command in commands)
+          assert all("--experimental-music" not in command for command in commands)
+          assert not any(arg.startswith("--filesystem=") or "org.freedesktop.secrets" in arg for arg in manifest["finish-args"])
+          finish_args = manifest["finish-args"]
+          assert [arg for arg in finish_args if arg.startswith("--own-name=")] == [
+              "--own-name=org.mpris.MediaPlayer2.io.github.tracerxbrhd.Karin"
+          ], "Expose only Karin's exact MPRIS name"
+          assert "--socket=session-bus" not in finish_args
+          assert not any(arg.startswith("--talk-name=") or arg.startswith("--system-talk-name=") for arg in finish_args)
+          PY
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Experimental feature Clippy
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
       - name: Unit and local integration tests
         run: cargo test --workspace --locked
-      - name: Build
+      - name: Experimental feature tests (synthetic local HTTP only)
+        run: cargo test --workspace --all-features --locked
+      - name: Minimal no-WebKit compatibility
+        run: |
+          cargo clippy --workspace --all-targets --no-default-features --locked -- -D warnings
+          cargo test --workspace --no-default-features --locked
+          cargo build --workspace --no-default-features --locked
+      - name: MPRIS methods, properties, signals and shutdown on an isolated session bus
+        run: |
+          command -v playerctl
+          command -v gdbus
+          dbus-run-session -- cargo test --lib --all-features --locked native_mpris_session_bus_methods_properties_signals_and_shutdown -- --ignored --test-threads=1
+      - name: Native Music session and catalog against loopback fixtures
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+          GSK_DEBUG: full-redraw
+        run: |
+          if [ '${{ matrix.lane }}' = stable ]; then
+            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
+          fi
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_music_session_catalog_queue_and_logout -- --ignored --test-threads=1
+      - name: Native catalog concurrent actions, detail navigation and stale results
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+        run: |
+          if [ '${{ matrix.lane }}' = stable ]; then
+            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
+          fi
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_catalog_navigation_latest_actions -- --ignored --test-threads=1
+      - name: Build all optional authentication components
+        run: cargo build --workspace --all-features --locked
+      - name: Actual mouse and keyboard catalog rows, details and delivery entry
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+          GSK_DEBUG: full-redraw
+        run: |
+          if [ '${{ matrix.lane }}' = stable ]; then
+            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
+          fi
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_catalog_rows_mouse_keyboard_details_and_delivery -- --ignored --test-threads=1
+      - name: Confirmed library writes, ambiguous outcomes and liked playlists
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+        run: |
+          if [ '${{ matrix.lane }}' = stable ]; then
+            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
+          fi
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_library_interactions_confirmed_fixture -- --ignored --test-threads=1
+      - name: Track search normalization, inline retry and useful list density
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+          GSK_DEBUG: full-redraw
+        run: |
+          if [ '${{ matrix.lane }}' = stable ]; then
+            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
+          fi
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_search_retry_normalized_results_and_density -- --ignored --test-threads=1
+      - name: Account menu, safe default cancellation and explicit confirmed logout
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+          GSK_DEBUG: full-redraw
+        run: |
+          if [ '${{ matrix.lane }}' = stable ]; then
+            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
+          fi
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_account_menu_logout_cancel_default_confirm_and_stale_session -- --ignored --test-threads=1
+      - name: Real resolver, remote MP3 and native player controls against loopback
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+          GSK_DEBUG: full-redraw
+        run: |
+          gst-inspect-1.0 lamemp3enc >/dev/null
+          gst-inspect-1.0 xingmux >/dev/null
+          gst-inspect-1.0 mpg123audiodec >/dev/null
+          gst-inspect-1.0 souphttpsrc >/dev/null
+          if [ '${{ matrix.lane }}' = stable ]; then
+            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
+          fi
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_music_playback_resolver_queue_controls_and_logout -- --ignored --test-threads=1
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_music_playback_queue_races_remove_and_close -- --ignored --test-threads=1
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_music_playback_media_error_visibility_stop_retry_and_catalog_preservation -- --ignored --test-threads=1
+      - name: Playback context occurrences and shared transport against loopback
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+          GSK_DEBUG: full-redraw
+        run: |
+          if [ '${{ matrix.lane }}' = stable ]; then
+            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
+          fi
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_music_playback_context_occurrences_and_shared_transport -- --ignored --test-threads=1
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_music_context_mpris_shared_player_and_cleanup -- --ignored --test-threads=1
+      - name: Signed-in search and safe account actions at HiDPI
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+          GSK_DEBUG: full-redraw
+          GDK_SCALE: 2
+        run: |
+          if [ '${{ matrix.lane }}' = stable ]; then
+            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/hidpi"
+          fi
+          dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_search_retry_normalized_results_and_density -- --ignored --test-threads=1
+          dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_account_menu_logout_cancel_default_confirm_and_stale_session -- --ignored --test-threads=1
+      - name: Cover textures, HiDPI, cancellation and native cleanup
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+        run: |
+          for scale in 1 2; do
+            GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked artwork_thumbnail_maps_caches_hidpi_and_cancels_without_network -- --ignored --test-threads=1
+          done
+      - name: Isolated WebKit construction and cancellation
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+        run: dbus-run-session -- xvfb-run -a cargo test --lib --all-features --locked webkit_auth_construction_and_shutdown_without_navigation -- --ignored --test-threads=1
+      - name: Permit sandbox namespaces only for the compiled WebKit test
+        run: |
+          cargo test --lib --all-features --locked --no-run --message-format=json > /tmp/karin-webkit-artifact.jsonl
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          restriction = Path('/proc/sys/kernel/apparmor_restrict_unprivileged_userns')
+          if restriction.exists() and restriction.read_text().strip() == '1':
+              artifacts = [json.loads(line) for line in Path('/tmp/karin-webkit-artifact.jsonl').read_text().splitlines()]
+              binaries = [item['executable'] for item in artifacts
+                          if item.get('reason') == 'compiler-artifact'
+                          and item.get('target', {}).get('name') == 'karin'
+                          and item.get('target', {}).get('kind') == ['lib']
+                          and item.get('profile', {}).get('test') and item.get('executable')]
+              assert len(binaries) == 1, 'Expected one compiled library test executable'
+              binary = Path(binaries[0]).resolve()
+              expected = Path(os.environ['GITHUB_WORKSPACE']).resolve() / 'target/debug/deps'
+              assert binary.parent == expected and re.fullmatch(r'karin-[0-9a-f]+', binary.name)
+              assert binary.is_file() and os.access(binary, os.X_OK)
+              assert re.fullmatch(r'[A-Za-z0-9_./-]+', str(binary)), 'Unsafe profile attachment path'
+              # Ubuntu 24.04 requires a labelled parent app for WebKit's bwrap
+              # uid-map setup, as in its shipped Epiphany profile. No global
+              # sysctl, bwrap-wide allowance or WebKit sandbox setting changes.
+              profile = ('abi <abi/4.0>,\ninclude <tunables/global>\n'
+                         f'profile karin-webkit-ci "{binary}" flags=(unconfined) {{\n  userns,\n}}\n')
+              Path('/tmp/karin-webkit-ci.apparmor').write_text(profile)
+              print('Prepared CI-only userns permission for the exact library test executable')
+          PY
+          if [ -f /tmp/karin-webkit-ci.apparmor ]; then
+            sudo apparmor_parser -r /tmp/karin-webkit-ci.apparmor
+            test "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)" = 1
+          fi
+      - name: WebKit local navigation, callback, cookie isolation and late cancellation
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+        run: |
+          ulimit -c 0
+          if [ '${{ matrix.lane }}' = stable ]; then
+            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/webkit"
+          fi
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' sh -eu <<'SH'
+          openbox --sm-disable >/tmp/karin-webkit-openbox.log 2>&1 &
+          wm_pid=$!
+          trap 'kill "$wm_pid" 2>/dev/null || true; wait "$wm_pid" 2>/dev/null || true' EXIT
+          attempt=0
+          until wmctrl -m >/dev/null 2>&1; do
+            attempt=$((attempt + 1))
+            test "$attempt" -lt 50
+            sleep 0.1
+          done
+          cargo test --lib --all-features --locked webkit_auth_local_startup_cookie_isolation_and_cancel -- --ignored --test-threads=1
+          SH
+      - name: Interactive WebKit input, fragments, frames and first rejection
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+        run: |
+          ulimit -c 0
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' sh -eu <<'SH'
+          openbox --sm-disable >/tmp/karin-webkit-interactive-openbox.log 2>&1 &
+          wm_pid=$!
+          trap 'kill "$wm_pid" 2>/dev/null || true; wait "$wm_pid" 2>/dev/null || true' EXIT
+          attempt=0
+          until wmctrl -m >/dev/null 2>&1; do
+            attempt=$((attempt + 1))
+            test "$attempt" -lt 50
+            sleep 0.1
+          done
+          cargo test --lib --all-features --locked webkit_auth_interactive_navigation_frames_and_first_rejection -- --ignored --test-threads=1
+          SH
+      - name: Remove the CI-only namespace permission
+        if: always()
+        run: |
+          if [ -f /tmp/karin-webkit-ci.apparmor ]; then
+            sudo apparmor_parser -R /tmp/karin-webkit-ci.apparmor
+            test "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)" = 1
+          fi
+      - name: Experimental GTK startup and cleanup under Xvfb
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+        run: dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' ./target/debug/karin --experimental-music --smoke-test
+      - name: Build ordinary client with WebKit session authentication
         run: cargo build --workspace --locked
+      - name: Local OAuth terminal boundaries (synthetic input, no browser or network)
+        run: python3 scripts/test-oauth-terminal.py ./target/debug/karin
       - name: Fetch locked dependencies for the offline release build
         if: matrix.lane == 'msrv'
         run: cargo fetch --locked
       - name: Flatpak-style offline release build on MSRV
         if: matrix.lane == 'msrv'
-        run: cargo build --release --offline --locked
+        run: cargo build --release --offline --locked --no-default-features --features cassette-auth
+      - name: Release OAuth terminal boundaries on MSRV
+        if: matrix.lane == 'msrv'
+        run: python3 scripts/test-oauth-terminal.py ./target/release/karin
       - name: Verify reviewed dependency license inventory
         run: |
           python3 packaging/license_inventory.py --output /tmp/karin-dependency-licenses.md
@@ -91,6 +340,12 @@ jobs:
           GTK_A11Y: none
           GSK_RENDERER: cairo
         run: dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' ./target/debug/karin --smoke-test
+      - name: HiDPI adaptive GTK navigation and cleanup
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+          GDK_SCALE: 2
+        run: dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' ./target/debug/karin --smoke-test
       - name: Release GStreamer diagnostic through fakesink on MSRV
         if: matrix.lane == 'msrv'
         run: ./target/release/karin --audio-self-test
@@ -103,9 +358,100 @@ jobs:
           GTK_A11Y: none
           GSK_RENDERER: cairo
         run: dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' ./target/release/karin --smoke-test
+      - name: Opted-in offline release build on MSRV
+        if: matrix.lane == 'msrv'
+        run: cargo build --release --offline --locked --all-features
+      - name: Experimental release GTK startup and cleanup on MSRV
+        if: matrix.lane == 'msrv'
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+        run: dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' ./target/release/karin --experimental-music --smoke-test
+      - name: Restore ordinary session-provider release artifact on MSRV
+        if: matrix.lane == 'msrv'
+        run: cargo build --release --offline --locked --no-default-features --features cassette-auth
+      - name: Prepare the native Fedora acceptance prototype
+        if: matrix.lane == 'msrv'
+        run: |
+          artifact=build/karin-fedora-prototype-1.98.1
+          mkdir -p "$artifact/licenses/cassette-auth"
+          install -m755 target/release/karin "$artifact/karin"
+          cp LICENSE docs/LICENSING.md "$artifact/licenses/"
+          cp packaging/third-party-licenses/cassette-auth/{COPYING,PROVENANCE.md} "$artifact/licenses/cassette-auth/"
+          python3 packaging/license_inventory.py --output "$artifact/licenses/DEPENDENCY_LICENSES.md" --notices-dir "$artifact/licenses/rust"
+          {
+            printf 'Source commit: '; git rev-parse HEAD
+            printf 'Source URL: https://github.com/tracerxbrhd/karin/tree/%s\n' "$GITHUB_SHA"
+            printf 'Features: --no-default-features --features cassette-auth\nBuild: --release --offline --locked\n'
+            rustc --version --verbose
+            cargo --version
+            printf 'Build system: Ubuntu 24.04; architecture: '; uname -m
+            for package in gtk4 libadwaita-1 gstreamer-1.0 webkitgtk-6.0; do
+              printf '%s: ' "$package"; pkg-config --modversion "$package"
+            done
+            printf 'Binary SHA256: '; sha256sum target/release/karin
+          } > "$artifact/BUILD-INFO.txt"
+          cat > "$artifact/README.txt" <<'EOF'
+          Karin v0.2 playback-context, unified-search, account-UX and MPRIS acceptance build for Fedora 44.
+          Verify the downloaded archive with: sha256sum -c SHA256SUMS
+          Extract the archive and enter karin-fedora-prototype-1.98.1.
+          Install Fedora runtime packages if needed:
+          sudo dnf install gtk4 libadwaita gstreamer1 gstreamer1-plugins-base gstreamer1-plugins-good webkitgtk6.0 librsvg2
+          Optional tool for the manual MPRIS check: sudo dnf install playerctl
+          Disable core dumps for this local session, then run the ordinary client:
+          ulimit -c 0
+          ./karin
+          Click Войти and authorize your own account on the displayed Yandex page.
+          No Client ID/secret, token, URL copying or application registration is needed.
+          Source build and acceptance instructions: docs/BUILDING.md at the exact source commit in BUILD-INFO.txt.
+          This is an Ubuntu 24.04 x86_64 build; Fedora acceptance for this exact artifact is pending.
+          It is not a Flatpak, a production release or proof of live Music API access.
+          Only Music account validation can finish login. Activate an entitled real track row to start playback.
+          Owner Fedora acceptance at f0aa2bb confirmed search, account actions and real Music playback; UI acceptance failed.
+          This revision's UX, playback contexts and MPRIS are pending a new Fedora acceptance run.
+          Play from a library, search or playlist context; check that Next/Previous/EOS follow that list and skip unavailable items.
+          Verify track duplicates retain their own positions; manual queue additions remain after the loaded context.
+          Open details with the separate details action; check the row context menu and explicit queue actions.
+          Search Latin/Cyrillic names in the unified workspace; check tracks, albums, artists, paging, missing items and Retry.
+          Check the compact icon rail, wide sidebar, readable titles and persistent player at 420x720, 900x650, 1440x900 and maximized.
+          Check both themes, HiDPI, keyboard focus and real list density, including Back navigation and details.
+          Open the account avatar menu: verify the account name and Yandex ID browser action.
+          Выйти из аккаунта must ask for confirmation, with Отмена as the default.
+          Cancel/Escape must preserve account, queue and audio. Only explicit confirmation signs out.
+          Check pause/resume, progress/seek, volume, next/previous/queue/EOS, Stop and clean close.
+          Also check actual playlist contents and Latin/Cyrillic track/album/artist search and details.
+          During real playback, check playerctl --player=io.github.tracerxbrhd.Karin status and play-pause/next/previous/stop.
+          Check KDE media keys and external position/volume changes, Stop, unavailable actions and clean shutdown.
+          Cloud D-Bus fixtures and playerctl checks do not establish KDE/Wayland/PipeWire media-key acceptance.
+          Optional ./karin --delivery-diagnostic remains metadata-only and fetches no audio.
+          The reused application identity's public-distribution permission is unresolved.
+          Report only the build revision, anonymized PASS/FAIL, and fixed stage/category/HTTP support codes.
+          Do not record a full terminal transcript or enable network/GStreamer debugging.
+          Session cookies/tokens stay in memory. Do not share raw JSON, parameterized URLs, tokens or personal screenshots.
+          CI uses original synthetic MP3 and loopback fixtures, never a real account or service recording.
+          This build is prepared for the new UX/context/MPRIS and sound-regression run; this revision is not yet owner-accepted.
+          See BUILD-INFO.txt and licenses.
+          EOF
+          tar -C build -czf build/karin-fedora-prototype-1.98.1.tar.gz karin-fedora-prototype-1.98.1
+          (cd build && sha256sum karin-fedora-prototype-1.98.1.tar.gz > SHA256SUMS)
+      - name: Retain the native Fedora acceptance prototype
+        if: matrix.lane == 'msrv'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6, Node.js 24
+        with:
+          name: karin-fedora-prototype-1.98.1
+          path: |
+            build/karin-fedora-prototype-1.98.1.tar.gz
+            build/SHA256SUMS
+          retention-days: 14
+          if-no-files-found: error
       - name: Capture real GTK visual review matrix
         if: matrix.lane == 'stable'
         run: scripts/capture-ui.sh build/ui-captures
+      - name: Capture HiDPI GTK visual review matrix
+        if: matrix.lane == 'stable'
+        env:
+          KARIN_CAPTURE_SCALE: 2
+        run: scripts/capture-ui.sh build/ui-captures/hidpi
       - name: Retain visual review evidence
         if: always() && matrix.lane == 'stable'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6, Node.js 24
@@ -115,5 +461,6 @@ jobs:
             build/ui-captures/**/*.png
             build/ui-captures/**/*.geometry.txt
             build/ui-captures/capture-info.txt
+            build/ui-captures/hidpi/capture-info.txt
           retention-days: 7
           if-no-files-found: error

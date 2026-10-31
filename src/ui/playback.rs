@@ -456,6 +456,9 @@ fn error_text(error: PlaybackError) -> &'static str {
         PlaybackError::SourceUnavailable | PlaybackError::DiagnosticMedia => {
             "Не удалось подготовить локальный тестовый файл."
         }
+        PlaybackError::SourceExpired => "Срок действия источника истёк; выберите трек снова.",
+        PlaybackError::SourcePolicy => "Источник не прошёл проверку безопасного воспроизведения.",
+        PlaybackError::RemoteHttp(_) => "Медиасервер отклонил запрос воспроизведения.",
         PlaybackError::Pipeline | PlaybackError::Initialization => {
             "Проверьте установку GStreamer и аудиовыход."
         }
