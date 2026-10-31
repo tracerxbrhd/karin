@@ -62,7 +62,18 @@ fn fixture(
     mime: &'static str,
     bytes: Vec<u8>,
 ) -> (Url, thread::JoinHandle<()>) {
+    fixture_headers(count, status, mime, bytes, "")
+}
+
+fn fixture_headers(
+    count: usize,
+    status: u16,
+    mime: &'static str,
+    bytes: Vec<u8>,
+    extra: &'static str,
+) -> (Url, thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("local fixture listener");
+    listener.set_nonblocking(true).unwrap();
     let url = Url::parse(&format!(
         "http://{}/synthetic",
         listener.local_addr().unwrap()
@@ -70,7 +81,21 @@ fn fixture(
     .unwrap();
     let worker = thread::spawn(move || {
         for _ in 0..count {
-            let (mut stream, _) = listener.accept().expect("local request");
+            let deadline = Instant::now() + Duration::from_secs(3);
+            let (mut stream, _) = loop {
+                match listener.accept() {
+                    Ok(connection) => break connection,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        assert!(
+                            Instant::now() < deadline,
+                            "local cover request did not arrive"
+                        );
+                        thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(_) => panic!("local cover listener failed"),
+                }
+            };
+            stream.set_nonblocking(false).unwrap();
             stream
                 .set_read_timeout(Some(Duration::from_secs(2)))
                 .unwrap();
@@ -87,7 +112,7 @@ fn fixture(
             assert!(!headers.contains("referer:"));
             write!(
                 stream,
-                "HTTP/1.1 {status} Fixture\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                "HTTP/1.1 {status} Fixture\r\nContent-Type: {mime}\r\n{extra}Content-Length: {}\r\nConnection: close\r\n\r\n",
                 bytes.len()
             )
             .unwrap();
@@ -399,4 +424,335 @@ fn cover_cache_also_bounds_decoded_bytes_at_large_thumbnail_size() {
     let state = loader.0.state.lock().unwrap();
     assert!(state.bytes <= MAX_CACHE_BYTES);
     assert!(state.cache.len() < count);
+}
+
+struct DiskFixture {
+    directory: std::path::PathBuf,
+}
+
+impl DiskFixture {
+    fn new() -> Self {
+        use ring::rand::{SecureRandom, SystemRandom};
+        use std::os::unix::fs::DirBuilderExt;
+        let mut random = [0; 16];
+        SystemRandom::new().fill(&mut random).unwrap();
+        let suffix: String = random.iter().map(|byte| format!("{byte:02x}")).collect();
+        let directory = std::env::temp_dir().join(format!("karin-raster-cache-{suffix}"));
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&directory)
+            .unwrap();
+        Self { directory }
+    }
+
+    fn cache(&self) -> Cache {
+        let cache = Cache::new(
+            self.directory.join("cache"),
+            crate::cache::CachePolicy {
+                max_bytes: 4 * 1024 * 1024,
+                ..crate::cache::CachePolicy::default()
+            },
+        )
+        .unwrap();
+        cache.bind(Some(
+            crate::cache::AccountScope::from_account_id("31001").unwrap(),
+        ));
+        cache
+    }
+}
+
+impl Drop for DiskFixture {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.directory);
+    }
+}
+
+fn unavailable_local_url() -> Url {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    drop(listener);
+    Url::parse(&format!("http://{address}/synthetic-offline")).unwrap()
+}
+
+fn seed_stale_cover(loader: &ArtworkLoader, cache: &Cache) {
+    let access = loader.persistent_access(&cover(), 128).unwrap();
+    let image = decode(&png(), "png", 128).unwrap();
+    cache
+        .put_with_ttl(
+            access.lease.as_ref().unwrap(),
+            &access.key,
+            &encode_raster(&image).unwrap(),
+            Duration::ZERO,
+        )
+        .unwrap();
+}
+
+#[test]
+fn decoded_raster_cache_strips_padding_and_rejects_invalid_shapes() {
+    let image = CoverPixels {
+        width: 1,
+        height: 2,
+        rowstride: 4,
+        alpha: false,
+        bytes: vec![10, 20, 30, 0xff, 40, 50, 60],
+    };
+    let encoded = encode_raster(&image).unwrap();
+    assert_eq!(&encoded[..8], b"KARINRGB");
+    assert_eq!(&encoded[21..], &[10, 20, 30, 40, 50, 60]);
+    let decoded = decode_raster(&encoded, 128).unwrap();
+    assert_eq!(decoded.rowstride, 3);
+    assert_eq!((decoded.width, decoded.height), (1, 2));
+    assert!(!decoded.alpha);
+    assert_eq!(decoded.bytes, vec![10, 20, 30, 40, 50, 60]);
+    for index in [0, 8, 12, 16, 20] {
+        let mut invalid = encoded.clone();
+        invalid[index] = 0xff;
+        assert!(decode_raster(&invalid, 128).is_none());
+    }
+    assert!(decode_raster(&encoded[..encoded.len() - 1], 128).is_none());
+    let too_wide = CoverPixels {
+        width: 513,
+        height: 1,
+        rowstride: 513 * 4,
+        alpha: true,
+        bytes: vec![0; 513 * 4],
+    };
+    assert!(encode_raster(&too_wide).is_none());
+    let large = encode_raster(&decode(&png_size(512), "png", 512).unwrap()).unwrap();
+    assert!(decode_raster(&large, 128).is_none());
+}
+
+#[test]
+fn cache_policy_honors_no_store_no_cache_and_server_freshness_limits() {
+    use reqwest::header::{HeaderMap, HeaderValue};
+    let mut headers = HeaderMap::new();
+    assert_eq!(
+        cache_hint(&headers),
+        CacheHint {
+            allowed: true,
+            ttl: None
+        }
+    );
+    headers.insert(
+        reqwest::header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=3600"),
+    );
+    headers.insert(reqwest::header::AGE, HeaderValue::from_static("30"));
+    assert_eq!(cache_hint(&headers).ttl, Some(Duration::from_secs(3570)));
+    headers.append(
+        reqwest::header::CACHE_CONTROL,
+        HeaderValue::from_static("MAX-AGE=\"60\""),
+    );
+    assert_eq!(cache_hint(&headers).ttl, Some(Duration::from_secs(30)));
+    for value in [
+        "no-store",
+        "No-Cache",
+        "private",
+        "max-age=0",
+        "max-age=-1",
+        "max-age=invalid",
+        "must-revalidate",
+    ] {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            reqwest::header::CACHE_CONTROL,
+            HeaderValue::from_str(value).unwrap(),
+        );
+        assert!(!cache_hint(&headers).allowed);
+    }
+    for (name, value) in [
+        (reqwest::header::PRAGMA, "no-cache"),
+        (reqwest::header::VARY, "*"),
+        (reqwest::header::VARY, "Cookie"),
+        (reqwest::header::SET_COOKIE, "synthetic=discarded"),
+        (reqwest::header::EXPIRES, "0"),
+    ] {
+        let mut headers = HeaderMap::new();
+        headers.insert(name, HeaderValue::from_str(value).unwrap());
+        assert!(!cache_hint(&headers).allowed);
+    }
+}
+
+#[test]
+fn persistent_covers_survive_loader_and_cache_restart_without_repeating_http() {
+    let disk = DiskFixture::new();
+    let cache = disk.cache();
+    let first = loader();
+    first.set_persistent_cache(Some(cache.clone()));
+    let (url, server) = fixture_headers(
+        1,
+        200,
+        "image/png",
+        png(),
+        "Cache-Control: public, max-age=3600\r\n",
+    );
+    let original = first
+        .load_from(&cover(), 128, first.epoch(), url.clone())
+        .unwrap();
+    server.join().unwrap();
+    assert_eq!(cache.usage().unwrap().entries, 1);
+    first.clear();
+    let reopened_cache = disk.cache();
+    let reopened = loader();
+    reopened.set_persistent_cache(Some(reopened_cache.clone()));
+    let image = reopened
+        .load_from(&cover(), 128, reopened.epoch(), url)
+        .unwrap();
+    assert_eq!(image.bytes, original.bytes);
+    assert_eq!((image.width, image.height), (8, 8));
+    assert_eq!(reopened_cache.usage().unwrap().entries, 1);
+    assert!(
+        reopened.0.state.lock().unwrap().cache.is_empty(),
+        "a disk TTL is not extended by a RAM copy"
+    );
+}
+
+#[test]
+fn switching_accounts_cannot_reuse_disk_or_ram_covers_from_another_scope() {
+    let disk = DiskFixture::new();
+    let cache = disk.cache();
+    let loader = loader();
+    loader.set_persistent_cache(Some(cache.clone()));
+    let (url, server) = fixture(1, 200, "image/png", png());
+    let original = loader
+        .load_from(&cover(), 128, loader.epoch(), url.clone())
+        .unwrap();
+    server.join().unwrap();
+    cache.bind(Some(
+        crate::cache::AccountScope::from_account_id("31002").unwrap(),
+    ));
+    assert!(matches!(
+        loader.load_from(&cover(), 128, loader.epoch(), url.clone()),
+        Err(ArtworkError::Network)
+    ));
+    cache.bind(Some(
+        crate::cache::AccountScope::from_account_id("31001").unwrap(),
+    ));
+    let same_account = loader
+        .load_from(&cover(), 128, loader.epoch(), url)
+        .unwrap();
+    assert_eq!(same_account.bytes, original.bytes);
+}
+
+#[test]
+fn disabled_cover_cache_performs_no_persistent_reads_or_writes_and_clear_keeps_owned_pixels() {
+    let disk = DiskFixture::new();
+    let cache = disk.cache();
+    let loader = loader();
+    loader.set_persistent_cache(Some(cache.clone()));
+    let (url, server) = fixture(1, 200, "image/png", png());
+    let current = loader
+        .load_from(&cover(), 128, loader.epoch(), url.clone())
+        .unwrap();
+    server.join().unwrap();
+    let occupied = cache.usage().unwrap();
+    let enabled = cache.policy().unwrap();
+    cache
+        .configure(crate::cache::CachePolicy {
+            enabled: false,
+            ..enabled
+        })
+        .unwrap();
+    assert!(matches!(
+        loader.load_from(&cover(), 128, loader.epoch(), url.clone()),
+        Err(ArtworkError::Network)
+    ));
+    assert_eq!(cache.usage().unwrap(), occupied);
+    cache.configure(enabled).unwrap();
+    assert!(
+        loader
+            .load_from(&cover(), 128, loader.epoch(), url.clone())
+            .is_ok()
+    );
+    cache.clear().unwrap();
+    assert!(matches!(
+        loader.load_from(&cover(), 128, loader.epoch(), url),
+        Err(ArtworkError::Network)
+    ));
+    assert_eq!(cache.usage().unwrap().entries, 0);
+    assert_eq!((current.width, current.height), (8, 8));
+    assert!(!current.bytes.is_empty());
+}
+
+#[test]
+fn explicit_no_store_response_removes_stale_cover_and_is_not_retained_in_ram() {
+    let disk = DiskFixture::new();
+    let cache = disk.cache();
+    let loader = loader();
+    loader.set_persistent_cache(Some(cache.clone()));
+    seed_stale_cover(&loader, &cache);
+    assert_eq!(cache.usage().unwrap().entries, 1);
+    let (url, server) = fixture_headers(2, 200, "image/png", png(), "Cache-Control: no-store\r\n");
+    for _ in 0..2 {
+        let image = loader
+            .load_from(&cover(), 128, loader.epoch(), url.clone())
+            .unwrap();
+        assert_eq!((image.width, image.height), (8, 8));
+        assert!(loader.0.state.lock().unwrap().cache.is_empty());
+        assert_eq!(cache.usage().unwrap().entries, 0);
+    }
+    server.join().unwrap();
+}
+
+#[test]
+fn stale_cover_is_only_a_transport_failure_fallback_and_not_a_rejection_fallback() {
+    let disk = DiskFixture::new();
+    let cache = disk.cache();
+    let loader = loader();
+    loader.set_persistent_cache(Some(cache.clone()));
+    seed_stale_cover(&loader, &cache);
+    let saved = loader
+        .load_from(&cover(), 128, loader.epoch(), unavailable_local_url())
+        .unwrap();
+    assert_eq!((saved.width, saved.height), (8, 8));
+    assert!(loader.0.state.lock().unwrap().cache.is_empty());
+    let (url, server) = fixture(1, 403, "image/png", png());
+    assert!(matches!(
+        loader.load_from(&cover(), 128, loader.epoch(), url),
+        Err(ArtworkError::Rejected)
+    ));
+    server.join().unwrap();
+    assert_eq!(cache.usage().unwrap().entries, 0);
+}
+
+#[test]
+fn clearing_persistent_cache_during_http_cannot_repopulate_it_or_deliver_old_work() {
+    let disk = DiskFixture::new();
+    let cache = disk.cache();
+    let loader = loader();
+    loader.set_persistent_cache(Some(cache.clone()));
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = Url::parse(&format!(
+        "http://{}/synthetic",
+        listener.local_addr().unwrap()
+    ))
+    .unwrap();
+    let (started_tx, started_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let mut request = [0; 2048];
+        let _ = stream.read(&mut request).unwrap();
+        started_tx.send(()).unwrap();
+        release_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        let bytes = png();
+        write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", bytes.len()).unwrap();
+        stream.write_all(&bytes).unwrap();
+    });
+    let worker_loader = loader.clone();
+    let epoch = loader.epoch();
+    let worker = thread::spawn(move || worker_loader.load_from(&cover(), 128, epoch, url));
+    started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    cache.clear().unwrap();
+    release_tx.send(()).unwrap();
+    assert!(matches!(
+        worker.join().unwrap(),
+        Err(ArtworkError::Cancelled)
+    ));
+    server.join().unwrap();
+    assert_eq!(cache.usage().unwrap().entries, 0);
+    assert!(loader.0.state.lock().unwrap().cache.is_empty());
 }

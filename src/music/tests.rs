@@ -2143,3 +2143,33 @@ fn playlist_search_identity_failure_is_section_local_and_never_uses_personal_met
         assert_eq!(complete(server, listener).len(), 1);
     }
 }
+
+#[test]
+fn canonical_track_retains_only_verified_artist_navigation_without_rejecting_display_credits() {
+    let (service, server, listener) = search_fixture(vec![(
+        200,
+        json!({"result":[{
+            "id":"42", "title":"Synthetic linked track", "available":true,
+            "artists":[
+                {"id":11,"name":"Synthetic verified artist"},
+                {"name":"Synthetic name-only credit"},
+                {"id":{"unsupported":"display-only"},"name":"Synthetic malformed ID credit"},
+                {"id":"../private-selector","name":"Synthetic unsafe ID credit"}
+            ]
+        }]})
+        .to_string(),
+    )]);
+    let track = service.track(&token(), "42").unwrap();
+    assert_eq!(track.artists.len(), 4);
+    assert_eq!(track.artist_links.len(), 1);
+    assert_eq!(track.artist_links[0].id, "11");
+    assert_eq!(track.artist_links[0].name, "Synthetic verified artist");
+    assert!(track.available);
+    assert_redacted(track);
+    let requests = complete(server, listener);
+    assert_eq!(
+        requests.len(),
+        1,
+        "artist links reuse canonical metadata, without extra requests"
+    );
+}
