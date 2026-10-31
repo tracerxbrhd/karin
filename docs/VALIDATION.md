@@ -154,6 +154,16 @@ away and back. Its local 1×/2× reruns passed. This corrects the validation hel
 it does not redesign the product layout or turn the failed hosted run into a
 pass. Source-matched hosted results remain in the Draft PR checks/artifacts.
 
+The next MSRV run at `de519eb` exposed a test-input dependency in the playlist
+creation fixture: optional captures disabled animations and settled the dialog,
+but the no-capture lane sent Escape before its input/layout frame was ready.
+The previous executable reproduced the timeout locally without captures. The
+fixture now selects the same reduced-motion setup explicitly, waits for native
+control allocation and logs fixed phases without field values. Exact-1.98.1
+without captures and stable with 2× captures both passed, with unchanged server
+confirmation, cancellation and no-duplicate-write assertions. Production
+playlist code was not changed. The failed run remains failed evidence.
+
 ## Reading the historical records
 
 The sections below retain their original revision/date, tests and owner findings.

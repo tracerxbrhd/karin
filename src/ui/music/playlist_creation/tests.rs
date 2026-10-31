@@ -209,12 +209,20 @@ fn read_request(stream: &mut TcpStream) -> String {
 }
 fn input(args: &[&str]) {
     assert!(
-        std::process::Command::new("xdotool")
+        std::process::Command::new("timeout")
+            .args(["5", "xdotool"])
             .args(args)
             .status()
             .unwrap()
             .success()
     );
+}
+fn wait_phase(phase: &str, condition: impl FnMut() -> bool) {
+    // Test-only fixed phases and synthetic geometry. Never log the form value,
+    // HTTP data, token, account metadata or any URL even in this local fixture.
+    eprintln!("Karin synthetic creation wait: {phase}");
+    pump_until(condition);
+    eprintln!("Karin synthetic creation ready: {phase}");
 }
 fn descendants(root: &gtk::Widget) -> Vec<gtk::Widget> {
     let mut widgets = vec![root.clone()];
@@ -232,13 +240,20 @@ fn named(dialog: &adw::Dialog, name: &str) -> gtk::Widget {
         .expect("native creation control")
 }
 fn dialog(this: &Rc<Controller>) -> adw::Dialog {
-    pump_until(|| {
+    wait_phase("dialog mapped", || {
         this.playlist_dialog
             .borrow()
             .as_ref()
             .is_some_and(|dialog| dialog.is_mapped())
     });
-    this.playlist_dialog.borrow().as_ref().unwrap().clone()
+    let dialog = this.playlist_dialog.borrow().as_ref().unwrap().clone();
+    let window = this.window.upgrade().unwrap();
+    let cancel = named(&dialog, "music-create-playlist-cancel");
+    // Mapping precedes the native layout/focus frame. Input must not depend
+    // on capture_native() happening to settle a theme/opening transition.
+    super::super::test_input::wait_for_layout(&window, &cancel);
+    eprintln!("Karin synthetic creation ready: dialog native controls");
+    dialog
 }
 fn click(window: &adw::ApplicationWindow, id: &str, widget: &impl IsA<gtk::Widget>) {
     super::super::test_input::wait_for_layout(window, widget);
@@ -261,7 +276,7 @@ fn title(window: &adw::ApplicationWindow, id: &str, dialog: &adw::Dialog, value:
     click(window, id, &entry);
     input(&["key", "--clearmodifiers", "ctrl+a"]);
     input(&["type", "--clearmodifiers", "--delay", "1", value]);
-    pump_until(|| entry.text() == value);
+    wait_phase("synthetic title entered", || entry.text() == value);
 }
 
 #[test]
@@ -269,6 +284,12 @@ fn title(window: &adw::ApplicationWindow, id: &str, dialog: &adw::Dialog, value:
 fn native_playlist_creation_confirmation_refresh_refusal_and_late_widgets() {
     gtk::init().unwrap();
     adw::init().unwrap();
+    if let Some(settings) = gtk::Settings::default() {
+        // The capture lane already requests reduced motion. Explicitly use
+        // the same deterministic input setup in MSRV/no-capture lanes rather
+        // than relying on an optional screenshot's side effects.
+        settings.set_gtk_enable_animations(false);
+    }
     let fixture = Fixture::new();
     let service = MusicService::for_test(&fixture.origin);
     let token = AccessToken::for_test("synthetic-native-playlist-token", Duration::from_secs(300));
@@ -325,7 +346,7 @@ fn native_playlist_creation_confirmation_refresh_refusal_and_late_widgets() {
     this.render_queue();
     this.render_music_player();
     window.present();
-    pump_until(|| window.is_mapped());
+    wait_phase("main window mapped", || window.is_mapped());
     let found = std::process::Command::new("xdotool")
         .args([
             "search",
@@ -346,7 +367,7 @@ fn native_playlist_creation_confirmation_refresh_refusal_and_late_widgets() {
         ("wide", 1440, 900),
     ] {
         window.set_default_size(width, height);
-        pump_until(|| {
+        wait_phase(&format!("{shape} surface allocation"), || {
             window
                 .surface()
                 .is_some_and(|s| s.width() == width && s.height() == height)
@@ -371,14 +392,16 @@ fn native_playlist_creation_confirmation_refresh_refusal_and_late_widgets() {
         } else {
             click(window, id, &cancel);
         }
-        pump_until(|| this.playlist_dialog.borrow().is_none());
+        wait_phase(&format!("{shape} cancelled dialog closed"), || {
+            this.playlist_dialog.borrow().is_none()
+        });
         submit.emit_clicked();
         assert_eq!(fixture.posts.load(Ordering::Acquire), 0);
         assert!(!token.is_expired());
         assert_eq!(this.model.borrow().queue.items().len(), 1);
     }
     window.set_default_size(900, 650);
-    pump_until(|| {
+    wait_phase("confirmation window allocation", || {
         window
             .surface()
             .is_some_and(|s| s.width() == 900 && s.height() == 650)
@@ -390,18 +413,22 @@ fn native_playlist_creation_confirmation_refresh_refusal_and_late_widgets() {
     let submit = named(&current, "music-create-playlist-submit")
         .downcast::<gtk::Button>()
         .unwrap();
-    pump_until(|| submit.is_sensitive());
+    wait_phase("valid title enables Create", || submit.is_sensitive());
     let play_sensitive = this.widgets.play.is_sensitive();
     assert!(submit.grab_focus());
     input(&["key", "--clearmodifiers", "space"]);
-    pump_until(|| fixture.confirming.load(Ordering::Acquire));
+    wait_phase("server confirmation requested", || {
+        fixture.confirming.load(Ordering::Acquire)
+    });
     assert!(this.playlist_dialog.borrow().is_some());
     assert!(!submit.is_sensitive());
     assert_eq!(this.widgets.play.is_sensitive(), play_sensitive);
     assert_eq!(this.model.borrow().queue.items().len(), 1);
     assert_eq!(this.model.borrow().generation, generation);
     fixture.hold_confirmation.store(false, Ordering::Release);
-    pump_until(|| this.playlist_dialog.borrow().is_none() && !this.mutation_busy.get());
+    wait_phase("confirmed creation closes dialog", || {
+        this.playlist_dialog.borrow().is_none() && !this.mutation_busy.get()
+    });
     assert_eq!(fixture.posts.load(Ordering::Acquire), 1);
     assert!(!token.is_expired());
     fixture.mode.store(1, Ordering::Release);
@@ -415,19 +442,21 @@ fn native_playlist_creation_confirmation_refresh_refusal_and_late_widgets() {
         .downcast::<gtk::Button>()
         .unwrap();
     click(window, id, &submit);
-    pump_until(|| !this.mutation_busy.get() && refresh.is_visible());
+    wait_phase("ambiguous write offers GET-only refresh", || {
+        !this.mutation_busy.get() && refresh.is_visible()
+    });
     assert!(!submit.is_sensitive());
     capture_native("playlist-create-uncertain");
     click(window, id, &submit);
     assert_eq!(fixture.posts.load(Ordering::Acquire), 2);
     let reads = fixture.list_reads.load(Ordering::Acquire);
     click(window, id, &refresh);
-    pump_until(|| {
+    wait_phase("GET-only refresh closes dialog and reads library", || {
         this.playlist_dialog.borrow().is_none()
             && fixture.list_reads.load(Ordering::Acquire) > reads
     });
     assert_eq!(fixture.posts.load(Ordering::Acquire), 2);
-    pump_until(|| {
+    wait_phase("refreshed library exposes Create tile", || {
         descendants(this.playlist_grid.tiles.upcast_ref())
             .iter()
             .any(|widget| widget.widget_name() == "music-playlist-create")
@@ -446,7 +475,9 @@ fn native_playlist_creation_confirmation_refresh_refusal_and_late_widgets() {
         .downcast::<gtk::Button>()
         .unwrap();
     click(window, id, &submit);
-    pump_until(|| !this.mutation_busy.get() && !this.can_create_playlist.get());
+    wait_phase("permission refusal disables Create capability", || {
+        !this.mutation_busy.get() && !this.can_create_playlist.get()
+    });
     assert!(!submit.is_sensitive());
     assert!(!token.is_expired());
     assert!(this.model.borrow().account_valid);
@@ -462,7 +493,9 @@ fn native_playlist_creation_confirmation_refresh_refusal_and_late_widgets() {
         id,
         &named(&rejected, "music-create-playlist-cancel"),
     );
-    pump_until(|| this.playlist_dialog.borrow().is_none());
+    wait_phase("refused dialog cancelled", || {
+        this.playlist_dialog.borrow().is_none()
+    });
     this.present_create_playlist();
     assert!(this.playlist_dialog.borrow().is_none());
     old_create_tile.emit_clicked();
