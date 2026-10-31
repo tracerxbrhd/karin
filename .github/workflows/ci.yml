@@ -118,7 +118,7 @@ jobs:
           cargo clippy --workspace --all-targets --no-default-features --locked -- -D warnings
           cargo test --workspace --no-default-features --locked
           cargo build --workspace --no-default-features --locked
-      - name: Verify explicit v0.3 native fixture selectors exist
+      - name: Verify explicit native fixture selectors exist
         run: |
           cargo test --lib --all-features --locked -- --list > /tmp/karin-v03-native-fixtures.txt
           python3 - <<'PY'
@@ -128,6 +128,8 @@ jobs:
           selectors = [
               'native_secure_storage_secret_service_and_portal_protocol',
               'native_workspace_track_pane_actions_state_and_cleanup',
+              'native_catalog_native_music_layout',
+              'native_design_matched_matrix_and_populated_surfaces',
               'native_workspace_playlist_grid_input_states_and_resize',
               'native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup',
               'native_preferences_persistent_controls_snapshot_updates_and_cleanup',
@@ -178,6 +180,21 @@ jobs:
           dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup -- --ignored --test-threads=1
           dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_preferences_persistent_controls_snapshot_updates_and_cleanup -- --ignored --test-threads=1
           dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_playlist_creation_confirmation_refresh_refusal_and_late_widgets -- --ignored --test-threads=1
+      - name: Native Music populated geometry and complete visual matrix
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+          GSK_DEBUG: full-redraw
+          KARIN_V04_ASSERT_DENSITY: 1
+        run: |
+          for scale in 1 2; do
+            if [ "$scale" = 1 ]; then screen=1920x1080x24; else screen=3840x2160x24; fi
+            if [ '${{ matrix.lane }}' = stable ]; then
+              export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/native-music-$scale"
+            fi
+            GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_catalog_native_music_layout -- --ignored --test-threads=1
+            GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_design_matched_matrix_and_populated_surfaces -- --ignored --test-threads=1
+          done
       - name: Persistent session lifecycle and catalog cache provenance integration
         env:
           GTK_A11Y: none
@@ -490,68 +507,28 @@ jobs:
             printf 'Binary SHA256: '; sha256sum target/release/karin
           } > "$artifact/BUILD-INFO.txt"
           cat > "$artifact/README.txt" <<'EOF'
-          Karin v0.3 functional stabilization: Fedora 44 acceptance build.
-          Verify the downloaded archive with: sha256sum -c SHA256SUMS
-          Extract the archive and enter karin-fedora-prototype-1.98.1.
-          Verify the exact source revision, features, native library versions and binary hash in BUILD-INFO.txt.
-          This is an Ubuntu 24.04 x86_64 native prototype, not a Flatpak or a public release.
-          Install Fedora runtime packages if needed:
-          sudo dnf install gtk4 libadwaita gstreamer1 gstreamer1-plugins-base gstreamer1-plugins-good webkitgtk6.0 librsvg2 libsecret
-          Optional system-media test tool: sudo dnf install playerctl
-          Disable core dumps for this local session, then use the ordinary entry point:
+          Karin v0.4 Native Music: Fedora 44 UI/UX acceptance build.
+          Verify SHA256SUMS and BUILD-INFO.txt against this PR's exact head.
+          This is an Ubuntu 24.04 x86_64 native prototype, not a Flatpak/public release.
+          Fedora runtime: sudo dnf install gtk4 libadwaita gstreamer1 gstreamer1-plugins-base gstreamer1-plugins-good webkitgtk6.0 librsvg2 libsecret
+          Optional MPRIS tool: sudo dnf install playerctl
           ulimit -c 0
           ./karin
-          No experimental flag, Client ID/secret, token, URL copying or application registration is required.
-          Read docs/BUILDING.md#v03-seamless-experience-acceptance-on-fedora at the exact source commit in BUILD-INFO.txt.
-          Its focused-cover-and-cache-stabilization-retest subsection remains a reusable regression guide.
-          Owner accepted runtime 02325489d23ead9da4471de9cc35e2c063ac8bab on 2026-10-31: persistent login/restart, real list/player/pane covers, actual music, pane mechanics and KDE cover/metadata.
-          Final Flatpak authorization/playback/system-integration checks were also reported successful; individual backend/deletion/media-key results were not supplied.
-          Earlier all-cover failure at 23174b0 remains historical; finalization changes documentation and artifact guidance, not that accepted runtime.
-          If needed, close the app and run ./karin --artwork-diagnostic alone for bounded fixed image-stage categories.
-          Share only Karin artwork: category lines, never complete logs or resource addresses; normal startup keeps this disabled.
-          Baseline: owner accepted merged master 09f7635 on Fedora 44 / KDE / Wayland / PipeWire: 17 PASS, 0 FAIL, 1 not assessed.
-          The baseline included native and Flatpak Music playback, queues, MPRIS, KDE media widget and clean exit.
-          Hardware media keys were not individually reported. Build source identities and owner-tested runtime remain distinct.
-          Unlock the normal desktop keyring. Karin must report whether protected session storage is usable.
-          Click Войти, finish the real Yandex dialog and wait for Music account validation and the actual library.
-          With Запоминать вход enabled and usable protected storage, close and restart: restoration must validate Music asynchronously.
-          If storage is unavailable, ordinary memory-only login must remain usable without a plaintext fallback.
-          In Settings, check persisted system/light/dark appearance and authorization/storage preferences across restart.
-          Turn Запоминать вход off: saved credentials must be removed while the active session can continue.
-          Open the account avatar and choose Выйти из аккаунта: Отмена/default Enter/Escape must preserve session and sound.
-          Explicit confirmed logout must stop audio, clear personal state and delete saved credentials.
-          A failed/unknown deletion must remain visibly incomplete, with recovery; it must not be reported as final logout.
-          This client does not claim server-side token revocation or an invented refresh-token flow.
-          In Settings -> Storage, check cache enable/disable, configured limit, actual occupied bytes and Clear cache.
-          Disabling persistence must stop cache reads/new writes; existing data remains until explicit clear.
-          Clear while an entitled track plays: settings, protected session, live sound and current texture must remain intact.
-          Reopen previously loaded library/album/playlist/track views and cover images; check reduced repeated requests.
-          When stale/saved metadata is used during a network failure, its saved-data status must be visible.
-          Cached metadata is not proof of authorization, current likes, current playlist contents or playback rights.
-          Metadata/normalized-cover cache does not contain OAuth values, browser cookies, sessionid or signed media URLs.
-          This build does not save service audio or claim offline Music playback; see the separate service-rights review.
-          Start a real track with click/Enter/Space from liked tracks, album, playlist and unified search.
-          Check source-context ordering, duplicate positions, partial loaded collections, manual additions, Next/Previous and EOS.
-          Check Play/Pause/Resume/Stop, progress/Seek, volume, errors, source cancellation and clean shutdown.
-          Inspect the track information pane's real cover/name/artist/album/actions, desktop column and narrow-window presentation.
-          Open album/artist details only when returned identities exist; closing the pane or navigating must preserve playback.
-          Open playlist cover tiles using mouse and keyboard; check long/missing titles/covers, empty/loading/error states and paging.
-          Unsupported playlist creation or My Wave must remain hidden; no local imitation or inactive placeholder may imply service support.
-          Inspect compact 420x720, medium 900x650, wide 1440x900, maximized, light/dark, HiDPI and keyboard focus.
-          Preserve the compact expandable rail, account avatar, four-section search, explicit details and the accepted player bar.
-          During an actual playing Music track, check KDE media widget and playerctl --player=io.github.tracerxbrhd.Karin controls.
-          Verify position/volume/cover in both directions, logout cleanup, hardware media keys and bus-name release on exit.
-          Repeat storage/Portal/session/cache/private-path and real-music checks in the actual current Flatpak when built.
-          Do not add broad session-bus/filesystem permissions or direct Secret Service grants to hide a missing Portal/backend.
-          A usable Secret Portal/Secret Service is detected at runtime; installed packages alone do not prove availability.
-          Cloud D-Bus/GTK/generated-media fixtures do not accept Fedora keyrings, KDE keys, audible music or the current Flatpak.
-          The shared OAuth registration's public-distribution/service permission remains separate from local technical success.
-          Report exact revision and anonymized PASS/FAIL or not-assessed results only.
-          Do not enable network/GStreamer debugging, record complete logs, or share raw JSON, metadata dumps, URLs, credentials, cookies, private screenshots or audio.
-          CI uses synthetic data, isolated D-Bus fixtures and original generated media; it never uses a real account.
-          Functional v0.3 acceptance does not approve public release or settle shared-registration distribution rights.
-          The pane's visual design remains unaccepted; a separate UI/UX iteration follows this functional baseline.
-          See BUILD-INFO.txt, licenses and the single Fedora guide.
+          No experimental flag or developer credentials required. Keep the desktop keyring unlocked.
+          Follow docs/BUILDING.md#v04-native-music-acceptance-on-fedora at the source commit in BUILD-INFO.txt.
+          Test the real account/library/search/playlists/context queue, audible Music playback and KDE MPRIS.
+          Inspect light/dark, HiDPI, compact420x720, medium900x650, wide1440x900 and maximized.
+          Open the info pane; outside click/scroll/navigation must not close it.
+          Next/Previous/EOS/MPRIS must follow the actual occurrence without closing/reopening.
+          Explicit other-track selection must survive pause/seek/volume; current occurrence changes resume following.
+          Resize wide/medium/compact and suspend via Diagnostics; open intent must survive.
+          Close only via X, Ctrl+I or explicit compact Back. Logout must clear private state and pending jobs.
+          Recheck restart/protected login/cache clearing/preferences and safe default-cancel logout.
+          Cloud fixtures establish synthetic GTK behavior, not Fedora audio/keyring/KDE/Flatpak acceptance.
+          Native and current Flatpak acceptance require separate local checks; no broad bus grants.
+          Preserve GPL and third-party notices. Shared OAuth public-distribution/service permission remains unresolved separately.
+          Do not enable network/GStreamer logs or share tokens, URLs, account data, private screenshots or audio.
+          Report exact source revision and anonymized PASS/FAIL/not-assessed results only.
           EOF
           tar -C build -czf build/karin-fedora-prototype-1.98.1.tar.gz karin-fedora-prototype-1.98.1
           (cd build && sha256sum karin-fedora-prototype-1.98.1.tar.gz > SHA256SUMS)
@@ -573,6 +550,9 @@ jobs:
         env:
           KARIN_CAPTURE_SCALE: 2
         run: scripts/capture-ui.sh build/ui-captures/hidpi
+      - name: Matched accepted-baseline GTK captures (last Cargo step)
+        if: matrix.lane == 'stable'
+        run: scripts/capture-native-music-baseline.sh build/ui-captures
       - name: Retain visual review evidence
         if: always() && matrix.lane == 'stable'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6, Node.js 24
@@ -581,6 +561,8 @@ jobs:
           path: |
             build/ui-captures/**/*.png
             build/ui-captures/**/*.geometry.txt
+            build/ui-captures/**/*.jsonl
+            build/ui-captures/comparison-info.txt
             build/ui-captures/capture-info.txt
             build/ui-captures/hidpi/capture-info.txt
           retention-days: 7

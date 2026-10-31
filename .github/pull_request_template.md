@@ -67,6 +67,17 @@ state that explicitly; do not mark unexecuted visual checks as passed.
 - [ ] Pending Fedora/KDE/Wayland visual acceptance explicitly listed
 - [ ] No fictitious release catalog/recommendations or implied unimplemented playback; unavailable controls explain the blocker
 
+## Native Music v0.4 (when changed)
+
+- [ ] Existing Draft PR #15 and its branch retained; no automatic merge
+- [ ] Approved five SVGs treated as references; 32 matched actual GTK before/after cases reviewed with per-source hashes and true maximize
+- [ ] Pinned information survives outside clicks, scroll, navigation and resize; X/Ctrl+I/compact Back are explicit closes
+- [ ] Wide and medium reserve space; real GTK hit testing proves catalog Play/More remain reachable with information open
+- [ ] Actual current occurrence, duplicate positions, Next/Previous/EOS/MPRIS update information in place; explicit Details survives Pause/Seek/Volume
+- [ ] Pane toggles preserve worker/resolver identity; stale art/detail replies and logout/close cleanup tested
+- [ ] Closed-pane whole-window pixels, compact focus, normal/reduced motion, 64px row density and visible footer errors/Retry checked at both scales
+- [ ] Source-matched Fedora artifact and short v0.4 guide supplied; new owner visual/audio/KDE/Flatpak acceptance stays separate
+
 ## Licensing and scope
 
 - [ ] New original sources carry `SPDX-License-Identifier: GPL-3.0-or-later`
@@ -85,8 +96,8 @@ Link screenshots/results and list the checks still needed on Fedora. Leave
 unperformed manual acceptance pending. Do not merge without the required review.
 
 For changed music workflows, report actual track/album/artist search and personal
-playlist contents separately from account/list acceptance. The merged v0.2 owner
-baseline is accepted; new v0.3 regression remains separate. Audible service
+playlist contents separately from account/list acceptance. The v0.3 owner runtime at `0232548` is accepted and integrated at `5e85e8d`;
+new v0.4 visual and functional regression acceptance remains separate. Audible service
 playback is mandatory:
 only an entitled owner hearing a real selected track through PipeWire/GStreamer
 passes that criterion. A metadata probe, synthetic WAV or player screenshot does

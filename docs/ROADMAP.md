@@ -30,9 +30,10 @@ also reported successful final Flatpak authorization, playback and system
 integration, with no blocking functional defect reported. Exact scope and
 historical failures remain in [VALIDATION.md](VALIDATION.md).
 
-The owner authorized squash integration after final review and successful CI,
-without deleting the feature branch or rewriting history. The sections below
-record the delivered implementation scope and its continuing constraints.
+PR #14 is merged into `master` at `5e85e8d`; its accepted runtime remains the
+separately identified `0232548` above. The feature branch was retained. The
+sections below record the delivered implementation scope and its continuing
+constraints; new v0.4 code still needs its own verification and owner acceptance.
 
 ### A. Persistent Session and Settings
 
@@ -116,7 +117,7 @@ images, actual native/Flatpak storage evidence, blocked service features and
 The separate v0.3 owner report accepts its stated functional scope, not every
 unreported backend/failure case or future code change.
 
-## Next independent iteration: UI/UX
+## v0.4 — Native Music: implementation in existing Draft PR #15
 
 **Approved Karin v0.4 direction: [Native Music (B) visual references](design/v0.4/README.md).**
 The owner selected the native four-zone composition and the rule **minimum visible
@@ -129,17 +130,41 @@ not already-implemented behaviors.
 Use the [authoritative design specification](design/v0.4/DESIGN_SPEC.md) and
 [Codex implementation task](design/v0.4/CODEX_TASK.md). Original SVG mockups
 illustrate desired composition and state, not GTK screenshot acceptance or
-public music content. Implementation belongs to the same draft v0.4 PR once
-the work starts; do not start a second PR or mark v0.4 shipped.
+public music content. Implementation continues in
+[`feature/v0.4-native-music-ui` / Draft PR #15](https://github.com/tracerxbrhd/karin/pull/15)
+from design revision `cd6732a`, based on merged v0.3 `5e85e8d`. Do not create
+another implementation PR or merge this one; it remains Draft pending owner
+visual acceptance on Fedora.
 
+The scope is one coherent native four-zone interface across Home, Library,
+playlist/album detail, unified Search, Queue, account and Preferences: compact
+expandable rail, expressive real music content, controlled nonmodal information
+and a permanent compact Player Bar. Cover/typography/spacing should carry the
+hierarchy; keep explanatory prose rare without removing clear errors,
+confirmation or accessibility.
 
-The right pane's opening/closing mechanics are accepted, but its current visual
-design does not satisfy the owner. A substantial UI/UX revision is the next
-separate iteration; it must preserve the accepted authentication, actual audio,
-context queue, MPRIS, protected persistence and bounded cache. No redesign is
-part of PR #14's finalization. Track the source-reviewed nonblocking metadata
-refresh edges in [LIMITATIONS.md](LIMITATIONS.md#catalog-workspace-and-playback)
-alongside that follow-up, without treating them as authorization or playback.
+The information view must distinguish explicit open intent from availability,
+responsive presentation and selected/current target. It stays open through
+outside clicks, navigation and resizing. A new actual queue occurrence updates
+its contents in place and resumes current-track following, including duplicate
+IDs, EOS and MPRIS. Explicit Details changes metadata without playing it; no
+pane action may create a second playback controller or restart audio.
+
+Implementation, regression execution and owner review are separate milestones.
+The [quality gate](UI_QUALITY_GATE.md#v04-native-music-gate) requires 32 matched
+before/after GTK cases (sizes × themes × scales × pane state), populated-page
+and error/focus supplements, actual mouse/keyboard input and stable/exact-1.98.1
+regressions. The [focused Fedora guide](BUILDING.md#v04-native-music-acceptance-on-fedora)
+covers target-desktop/native/Flatpak acceptance. Current execution and remaining
+gates belong in [VALIDATION.md](VALIDATION.md#v04-native-music-implementation-and-acceptance-record).
+
+Preserve accepted authentication, actual audio, occurrence-bound contexts,
+MPRIS, protected persistence and bounded cache. The v0.3 pane mechanics passed,
+but its visual design did not satisfy the owner; v0.4 must earn a new visual
+result. No unsupported offline/Wave/recommendation function is added. Track
+the source-reviewed nonblocking metadata refresh edges in
+[LIMITATIONS.md](LIMITATIONS.md#catalog-workspace-and-playback) without treating
+cached display as authorization or playback entitlement.
 
 ## Independent release conditions
 

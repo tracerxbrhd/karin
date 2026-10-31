@@ -7,6 +7,59 @@ structural checks. A compiling widget tree, a visible window or a screenshot
 alone is insufficient. Review the existing technical prototype without adding
 fictional music catalogs, recommendations or player controls.
 
+## v0.4 Native Music gate
+
+The [approved Native Music specification](design/v0.4/DESIGN_SPEC.md) defines
+the current four-zone composition: expandable icon rail, central music view,
+controlled track-information presentation and permanent Player Bar. Keep visible
+prose minimal while retaining short meaningful errors, destructive confirmations,
+tooltips and accessible names. The [original SVG references](design/v0.4/README.md)
+are design inputs, not running GTK captures or evidence of implemented features.
+
+Compare the accepted v0.3 baseline integrated at `5e85e8d` with the actual v0.4
+implementation at **matched size, theme, scale, page and pane state**. The base
+matrix is four window states below × light/dark × scale 1/2 × information
+open/closed: **32 cases per revision, 32 before/after comparisons**. Include
+actual window-manager maximize, not only a maximized-sized undecorated window.
+Record omissions/failures explicitly; never rename an old capture as current.
+
+Supplement that matrix with populated Home, Library, playlist/album detail,
+four-section search and Show All, queue, account/logout and Preferences, plus
+loading/empty/error/Retry, long metadata, missing art and visible keyboard focus.
+Inspect actual pixels, coherent hierarchy and useful density; the six-complete-
+rows target at 900×650 with information closed is a minimum, not visual approval.
+Check normal motion and reduced-motion behavior separately.
+
+The following native input/state checks are mandatory:
+
+- Once opened, information stays open through uncovered-area clicks, scrolling,
+  navigation and wide→medium→compact→wide resizing. Close X, Ctrl+I or explicit
+  compact Back closes it deliberately with focus return. A modal scrim or
+  close/reopen workaround does not meet the medium nonmodal requirement.
+  Both desktop sizes reserve central content width (wide 320+20 pixels; medium
+  300+16), so the pane must not conceal track-row More menus or other actions.
+  Exercise those controls after row Play with the default open preference.
+- Open intent is distinct from widget visibility. Diagnostics may suspend
+  presentation without forgetting that intent; logout retires personal data and
+  asynchronous artwork/metadata work immediately.
+- Actual current-occurrence changes from mouse, Enter/Space, Next/Previous,
+  queue selection, EOS and MPRIS update the open view in place. Include repeated
+  track IDs at different queue positions and delayed old replies. Cover, title,
+  artist, album and actions must refer to the same current snapshot.
+- Explicit Details on another track changes information only. Pause, seek and
+  volume preserve that selection; the next actual current-occurrence change
+  resumes following. Opening, closing, resizing or navigation never replaces
+  PlaybackContext or starts/stops/restarts the audio engine.
+- Confirm one coherent visual system across all music pages, with real actions
+  and honest loading/failure states. No offline, My Wave, lyrics, similar-track
+  or recommendation block appears without its separately established contract.
+
+Use actual mouse/keyboard events in isolated GTK fixtures, then a separate
+owner-local Fedora/KDE/Wayland/PipeWire run. Passing cloud captures, structural
+tests or the earlier v0.3 acceptance does not pass v0.4 owner visual acceptance.
+Existing [Draft PR #15](https://github.com/tracerxbrhd/karin/pull/15) stays Draft
+until that review; do not create another implementation PR or merge it.
+
 ## Required matrix
 
 The accepted native music shell uses adaptive navigation. Check the actual desktop
@@ -163,10 +216,12 @@ Fedora acceptance must separately verify an actual selected Music track,
 and, when built, the current Flatpak sandbox. No manual result is passed until
 it is actually performed.
 
-## v0.3 session, storage and information workspace
+## Retained session, storage and information-workspace gates
 
-Treat the merged v0.2 owner acceptance as the regression baseline, not a pass for
-new persistence/cache/pane code. At every relevant size/theme/scale:
+Treat the accepted v0.3 service/audio/session/cache behavior as the regression
+baseline, not a pass for v0.4 presentation or new backend/failure scenarios.
+ADR-0021 supersedes only the old modal information presentation. At every
+relevant size/theme/scale:
 
 - Inspect restoring, validated, invalid session, unavailable/locked store,
   cancelled prompt and retryable deletion-error states. An issued or stored
@@ -231,6 +286,11 @@ Libadwaita may keep a closed sidebar mapped outside the viewport. Always check
 main content and assert that it reclaims the closed pane's width; keep all
 geometry checks for an open sidebar. A mapped closed pane alone is not visible
 clipping, and the correction must not skip open-pane or content assertions.
+That rule still applies to navigation containers; it does not substitute for
+v0.4's controlled `GtkRevealer` information checks. Verify its actual allocation,
+nonmodal hit testing, compact underlying-view hiding and explicit open intent,
+including after the native reveal animation settles. No automatic dismiss/reopen
+handler may be used to make the visibility assertion pass.
 
 Screenshots supplement these assertions by revealing hierarchy, clipping and
 focus problems that structure tests cannot judge. Conversely, a plausible image

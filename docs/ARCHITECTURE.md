@@ -12,11 +12,15 @@ The owner accepted v0.3 runtime `0232548` on 2026-10-31 for persistent login/
 restart, real covers, actual music, pane mechanics and KDE cover/metadata, and
 reported successful final Flatpak auth/playback/system integration. The pane's
 visual design remains for a separate UI/UX iteration; unreported backend/failure
-cases are not inferred. Future behavior requires its own checks; see
+cases are not inferred. PR #14 integrated that baseline at `5e85e8d`. v0.4's
+approved Native Music work continues in Draft PR #15 and requires new visual
+and behavioral acceptance; it does not replace the accepted service/audio path.
+See
 [validation](VALIDATION.md) and ADRs [0017](adr/0017-playback-context-unified-workspace-and-mpris.md),
 [0018](adr/0018-persistent-session-and-settings.md),
 [0019](adr/0019-bounded-account-cache.md) and
-[0020](adr/0020-seamless-music-workspace.md).
+[0020](adr/0020-seamless-music-workspace.md) and
+[0021](adr/0021-controlled-nonmodal-track-information.md).
 
 ```mermaid
 flowchart LR
@@ -100,7 +104,8 @@ flowchart LR
 | `config` | Non-secret application identity and version |
 | `ui` / `ui::music` / `ui::music::player` | Native catalog/session UI plus explicit playback intents, queue/source binding, snapshot controls and cleanup |
 | `ui::music::system_media` | MPRIS commands/snapshots joined to that same player; worker-acknowledged Seeked and bounded private cover-only files |
-| `ui::music::track_pane` / `playlist_grid` / `queue_view` | Native information, adaptive playlist tiles and current/up-next presentation; actions retain controller/source ownership |
+| `ui::music::workspace` / `track_pane` | Controlled information open intent, availability/presentation and occurrence-bound target; the view retains no independent audio state |
+| `ui::music::catalog_layout` / `playlist_grid` / `queue_view` | Native catalog hierarchy, compact song rows, adaptive playlist tiles and current/up-next presentation; actions retain controller/source ownership |
 | `ui::auth` | Single-purpose Libadwaita sign-in dialog, ephemeral WebKitGTK6 login and scoped asynchronous cookie handoff |
 | `main` | Concrete composition, application lifecycle and explicit diagnostic CLI modes |
 
@@ -126,7 +131,7 @@ The corrected public sign-in boundary and provider gate are recorded in
 ## Native workspace and unified search
 
 The desktop navigation defaults to a 72-pixel icon rail with an explicit
-expand-labels action. At logical widths of 760 pixels or less, navigation uses
+expand-labels action. At logical widths below 720 pixels, navigation uses
 a native labelled drawer. Ctrl+B expands desktop labels or toggles that drawer.
 Accessible names, tooltips and keyboard activation accompany icons. Diagnostics
 remain in the application menu, outside everyday library/search destinations. A compact native account
@@ -151,25 +156,64 @@ state; no extra per-row normalization request is introduced. Search playlist
 summaries keep actual owner/kind and optional counts; a generic **Плейлист**
 label for missing/invalid display text is not claimed to be a returned name.
 
-The persistent music bar groups a 56-pixel cover, actual title/artist, a
-44-pixel native Play control, transport, progress/seek, volume and queue.
-Its compact vertical arrangement preserves readable metadata and controls.
+The permanent music bar groups actual cover/title/artist, a primary native Play
+control, transport, progress/seek, volume and queue.
+Its compact main row and separate timeline preserve readable metadata and
+controls, with volume in a native popover at every width.
 It follows the existing worker snapshots; a
 redesigned control must not invent a new playing state or source. Both the
 workspace's useful density and its keyboard/HiDPI behavior require actual visual
 and structural review, separately from the accepted backend functionality.
-Details retain their distinct action and existing navigation. The v0.3
-track-information component additionally shows actual cover/title/credits/album,
-selection/playback state and verified entity actions in an adaptive right pane
-or collapsed overlay at logical widths of 1180 pixels or less. The persisted
-wide preference follows the playing track by default; compact/medium playback
-never automatically opens the overlay. Cover activation or Ctrl+I opens
-information, explicit close persists that choice, and Details may select metadata
-independently. It never infers an artist ID from a name or substitutes
+Details retain their distinct action and existing navigation. The information
+component shows actual cover/title/credits/album, selection/playback state and
+verified entity actions. It never infers an artist ID from a name or substitutes
 a separate player state. Playlist tiles use native adaptive wrapping, real
 optional metadata, long-title accessibility and explicit loading/empty/Retry.
 A server-create tile appears only with the confirmed creation workflow; no fake
 similar-track or My Wave content is introduced.
+
+### Controlled nonmodal information in v0.4
+
+[ADR-0021](adr/0021-controlled-nonmodal-track-information.md) replaces the v0.3
+collapsed modal right sidebar. The shell uses one permanent `GtkOverlay` and
+one right-aligned slide-left `GtkRevealer`: wide windows reserve 340 logical
+pixels (320-pixel pane plus a 20-pixel gap) beside the central workspace;
+widths 720–1279 reserve 316 pixels (300-pixel pane plus a 16-pixel gap).
+Both desktop modes are nonmodal side columns, leaving the music view's row
+actions in its allocated content area. No backdrop dismisses information.
+Below 720 the same information component
+fills a dedicated subview while the underlying central view is hidden. The
+Player Bar remains permanent. Resizing changes allocation, not the ownership
+or parenting of the information widget, and never forces close/reopen.
+
+The existing persisted `track_info_open` means explicit user intent, separate
+from availability and actual reveal state. Music navigation and outside clicks
+preserve it. Diagnostics may suspend rendering without forgetting intent;
+logout retires personal targets and work. Explicit close clears it and restores
+focus; later playback does not reopen a closed view.
+
+Workspace target state separates `FollowingCurrent` from `ExplicitSelection`.
+Source/context, position and track identity, plus the player's occurrence-change
+hook, distinguish duplicate IDs and new playback selections. Direct Play,
+Next/Previous, queue selection, EOS and MPRIS return information to the actual
+current occurrence, updating cover/metadata/actions in place. Details selects
+information without playing; Pause/Seek/Volume preserve that selection until
+the next actual current-occurrence change. Existing generation/epoch checks
+retire old detail/artwork completions. Presentation never owns a second player
+or changes the context merely because a pane opens, closes, resizes or navigates.
+Structural queue reindexing after removing another row preserves explicit
+information selection; removing the current occurrence returns to following.
+The medium width reservation fixes an actual native-test failure where an
+overlaid pane concealed a row's More action after Play; changing allocation
+does not change target/open intent or introduce another container/state owner.
+
+The approved four-zone visual system applies to Home, Library, album/playlist
+detail, unified Search, Queue and the Player Bar using existing typed models
+and request lanes. Concise content hierarchy does not remove safe errors,
+Retry, confirmation, accessibility or the partial-context boundary. Source
+implementation, executed GTK fixtures and owner Fedora visual acceptance are
+recorded separately in [VALIDATION.md](VALIDATION.md); design SVGs are not those
+captures.
 
 ## Read-only music and session lifecycle
 
@@ -324,10 +368,12 @@ empty metadata while the application stays open.
 The Flatpak manifest needs only the exact MPRIS own-name permission; broad
 session-bus/filesystem access is unnecessary. Secret Service remains ungranted.
 An isolated bus fixture and a synthetic native-player bridge fixture can verify
-methods, properties, signals, stale IDs, capability changes and cleanup. The owner accepted KDE Media Widget and Flatpak integration for the merged v0.2
-baseline; hardware media keys remain N/D. Changed v0.3 interactions require a
-new Fedora run with an audible Music track, plus the actual current Flatpak
-build/install/sandbox and storage-backend lifecycle.
+methods, properties, signals, stale IDs, capability changes and cleanup. The
+owner accepted KDE Media Widget and Flatpak integration in v0.2 and actual
+KDE cover/metadata plus final Flatpak system integration in v0.3; hardware media
+keys remain N/D. Changed v0.4 interactions require a new Fedora run with an
+audible Music track and the current native/Flatpak package, separately from
+unreported per-backend storage failure/deletion cases.
 
 ## Confirmed library interactions
 

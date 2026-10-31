@@ -6,6 +6,48 @@ This report separates initial cloud checks, user-reported Fedora acceptance,
 revised UI checks and compiler compatibility. A result for one environment or
 revision is not evidence that another has passed.
 
+## v0.4 Native Music: implementation and acceptance record
+
+Work continues only in existing [Draft PR #15](https://github.com/tracerxbrhd/karin/pull/15),
+`feature/v0.4-native-music-ui`, from design revision `cd6732a` and the merged
+v0.3 integration baseline `5e85e8d`. The owner accepted the underlying v0.3
+runtime `02325489d23ead9da4471de9cc35e2c063ac8bab`, as recorded below; that
+functional acceptance does not accept the redesigned v0.4 interface.
+
+The authoritative inputs are the [Native Music specification](design/v0.4/DESIGN_SPEC.md)
+and [implementation task](design/v0.4/CODEX_TASK.md). Their original SVGs are
+illustrative designs, not GTK screenshots. New implementation, executed fixture
+results and owner review must remain separate. No new PASS is recorded here
+until its corresponding source-matched check actually runs.
+
+| v0.4 evidence gate | Current result |
+| --- | --- |
+| Four-zone GTK implementation; Home/library/details/search/queue/Player Bar | **PASS**, populated native screenshots and real input at 1×/2× |
+| Controlled nonmodal information, explicit close/focus, resize persistence and cleanup | **PASS**, including actual 720/900-width action hit tests, outside input, compact Back/focus, normal/reduced motion and weak GTK cleanup |
+| Current-occurrence following, explicit Details, duplicate positions and stale replies | **PASS**, joined generated-MP3 worker and `playerctl` fixtures cover Pause/Seek/Volume, Next/Previous/EOS, duplicate occurrences and no restart from pane toggles |
+| Matched GTK matrix: four sizes, both themes, 1×/2×, pane open/closed | **PASS**, 32 before + 32 current images inspected; actual Openbox maximize and equal paired dimensions |
+| Populated pages, empty/error/Retry, keyboard and artwork supplements | **PASS**, 40 matched populated/state images per revision, plus native input, delayed artwork and composited-window checks |
+| Track density, 900×650 with information closed | **PASS**, six complete 64-pixel rows; actual GTK content 890×640 within the 900×650 capture |
+| Stable 1.99.1 and exact 1.98.1 strict Clippy | **PASS**, default/all/minimal all-target checks with `-D warnings` on both compilers |
+| Stable and exact 1.98.1 default/all/minimal tests and debug builds | **PASS**, **349 / 357 / 335** library tests plus **4 CLI tests** per configuration/compiler; ignored native fixtures are separate |
+| Formatting and offline MSRV release | **PASS**, both formatters; ordinary `cassette-auth` and all-feature offline/locked release builds; CLI boundaries, GStreamer and GTK startup/shutdown |
+| Complete local native fixture matrix | **PASS**, 26 named cases at each scale; compact media-error case retested after waiting for its actual height-for-width frame, retaining strict visible-error/native-Retry assertions |
+| WebKit | Construction/cancel lifecycle **PASS** locally; the two navigating sandboxed fixtures require host namespaces and run in hosted CI, without disabling the sandbox |
+| Persistence/cache, MPRIS and licenses | **PASS**, isolated protocol/lifecycle/cache/cover fixtures at 1×/2× and unchanged dependency-license inventory |
+| Full v0.4 Flatpak package | **Unavailable here**: Flatpak 1.16.6 / Builder 1.4.4 installed, GNOME SDK 50 absent. Offline MSRV release is not a full sandbox build; manifest/runtime/permissions unchanged |
+| Hosted CI and native acceptance artifact | Recorded per immutable head in [PR #15 checks/artifacts](https://github.com/tracerxbrhd/karin/pull/15/checks); hosted results are not inferred from local PASS |
+| Real Fedora/KDE/Wayland/PipeWire and v0.4 visual acceptance | Owner retest **pending**; PR remains Draft |
+
+The [quality gate](UI_QUALITY_GATE.md#v04-native-music-gate) defines the matched
+matrix and actual interaction requirements. The [implementation review](design/v0.4/IMPLEMENTATION_REVIEW.md)
+records reviewed captures, source/binary provenance and untouched before/after examples. The focused owner procedure is
+[the v0.4 Fedora guide](BUILDING.md#v04-native-music-acceptance-on-fedora).
+The same MusicService, guarded resolver, GStreamer worker, context queue,
+protected session/cache and MPRIS remain regression contracts. Persistent audio,
+My Wave, lyrics, similar tracks and public OAuth-distribution rights retain
+their independent scope/permission boundaries. No second PR or automatic merge
+is authorized for this iteration.
+
 ## Final owner v0.3 acceptance at `0232548` (2026-10-31)
 
 On **2026-10-31**, the owner accepted runtime revision

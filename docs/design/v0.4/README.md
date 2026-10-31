@@ -38,6 +38,11 @@ Selected by the project owner: **B — Native Music**, based on the previously a
 
 The actionable Codex instruction is [CODEX_TASK.md](CODEX_TASK.md), and the authoritative product/interaction brief is [DESIGN_SPEC.md](DESIGN_SPEC.md).
 
+The separate [implementation review](IMPLEMENTATION_REVIEW.md) records actual
+GTK before/after evidence, source fingerprints, corrections and pending checks.
+It does not turn these five SVG references into application screenshots or
+replace owner Fedora visual acceptance.
+
 ## Privacy and attribution
 
 Original mockup geometry and abstract artwork were authored for Karin. No private desktop screenshots, user account data, service album art, credential material, font binaries, or copied Cassette assets are included.

@@ -47,10 +47,77 @@ for a consented local desktop experiment; it is not application sign-in or
 Yandex Music stream playback. The default sign-in provider is the Cassette-compatible
 session prototype below; it requires no end-user OAuth configuration.
 
+<a id="v04-native-music-acceptance-on-fedora"></a>
+
+## v0.4 — Native Music acceptance on Fedora
+
+Use the source-matched artifact from existing
+[Draft PR #15](https://github.com/tracerxbrhd/karin/pull/15), check its revision
+and `SHA256SUMS`, and run ordinary `./karin`. If rebuilding locally, use the
+Fedora prerequisites above and `cargo +1.98.1 build --release --locked`, then
+`./target/release/karin`. The accepted v0.3 baseline is integrated at `5e85e8d`;
+its runtime acceptance is not a v0.4 visual PASS. Keep PR #15 Draft until the
+owner reviews actual Fedora behavior and visuals; do not merge or create a new PR.
+
+1. Restore the existing saved session or sign in through the normal Yandex
+   dialog. Confirm real Music account/library access, covers and a track audible
+   through PipeWire. No developer credentials, token transfer, debug logging,
+   fixture mode or recording belongs in this run.
+2. Check Home, Library, album/playlist detail, four-section Search/Show All,
+   queue, account and Preferences. Evaluate actual music hierarchy, useful
+   density, concise labels, reachable Back/Retry and clearly different Play and
+   Details actions. Missing art/data and errors must stay honest; no decorative
+   recommendation or unsupported feature should appear.
+3. Open information with the current cover or Ctrl+I. Click the main view,
+   scroll, navigate and resize wide→medium→compact→wide: keep it open without
+   a dismissing scrim or close/reopen flicker. Close explicitly with X/Ctrl+I
+   or compact Back and check focus return. Opening/closing must not restart sound.
+   Desktop layouts reserve space for the pane: 320+20 logical pixels at wide
+   widths and 300+16 at medium. Row More menus and other central actions must
+   remain fully reachable while information is open; compact uses its explicit
+   information subview instead.
+4. With information open, change the actual queue occurrence using track-row
+   mouse and Enter/Space, Next/Previous, queue selection, EOS and MPRIS. Its
+   cover/title/artist/album/actions must update together in place, including
+   repeated track IDs at different positions. Deliberate Details on another
+   track must not play it; Pause/Seek/Volume preserve that selection, and the
+   next current-occurrence change returns to following playback.
+5. Inspect approximately 420×720, 900×650, 1440×900 and real maximize, light/dark
+   and 1×/2×, with information open/closed. Check native title/window controls,
+   long titles, missing covers, focus, contrast, no clipping, stable Player Bar
+   and at least six complete rows at 900×650 with information closed where
+   accessibility permits. Compare the actual baseline/current GTK captures;
+   design SVGs do not establish implementation quality.
+6. Recheck search/detail/paging, contextual duplicates/manual queue edits,
+   transport/Seek/Volume/EOS, KDE Media Widget cover/metadata and supported
+   `playerctl` controls. Exercise physical media keys and report their result
+   separately. Cache-off/Clear, Preferences and information/navigation must
+   preserve session and current audio; native logout confirmation Cancel must
+   preserve them until explicit confirmation. Close/reopen and verify saved
+   login still restores normally.
+7. When a current Flatpak package is available, repeat the relevant auth,
+   persistence, music, cover, nonmodal-pane and KDE integration checks there,
+   without broadening sandbox permissions. Report unavailable backend/tooling
+   or unperformed cases explicitly, separately from native success.
+
+Report exact revision, artifact/native/Flatpak, environment and anonymized
+PASS/FAIL/N/D by scenario. The before/after visual matrix is 32 matched cases
+(four sizes × two themes × two scales × pane open/closed), with page/state
+supplements in [UI_QUALITY_GATE.md](UI_QUALITY_GATE.md#v04-native-music-gate).
+Do not publish personal screenshots, names, library contents, credentials,
+audio or signed addresses. Actual owner visual acceptance remains pending
+until performed; offline audio, My Wave and public distribution rights remain
+separate from this native UI iteration.
+
 <a id="v02-catalog-and-delivery-info-acceptance-on-fedora"></a>
 <a id="v03-seamless-experience-acceptance-on-fedora"></a>
 
 ## v0.3 — one Fedora acceptance session
+
+This retained procedure describes the accepted v0.3 runtime, including its old
+1180-pixel collapsed-pane layout. For the current v0.4 nonmodal information
+presentation and owner review, use [the v0.4 guide above](#v04-native-music-acceptance-on-fedora)
+and ADR-0021; the old dismissing overlay is not the current requirement.
 
 The owner accepted v0.3 runtime
 **`02325489d23ead9da4471de9cc35e2c063ac8bab`** on **2026-10-31** on Fedora
@@ -364,7 +431,7 @@ and audio offline rights remain separate from technical local acceptance.
 
 <a id="experimental-music-session-and-fedora-acceptance"></a>
 
-Current v0.3 acceptance uses the combined guide above. The following provider
+Current v0.4 acceptance uses the combined guide above. The following provider
 contract and historical focused retests explain earlier findings; they are not
 instructions to select old PR artifacts, prerequisites for ordinary login or a
 replacement for current persistence/real-playback checks.
@@ -865,6 +932,14 @@ EOS/error recovery and closing during playback. Visual acceptance must check
 window/title controls, resize/maximize behavior, HiDPI, keyboard/focus,
 accessibility and both themes under [the UI quality gate](UI_QUALITY_GATE.md).
 A headless check does not establish those properties on Fedora.
+
+For v0.4's matched baseline/current visual evidence, follow
+[IMPLEMENTATION_REVIEW.md](design/v0.4/IMPLEMENTATION_REVIEW.md). Run
+`scripts/capture-native-music-baseline.sh build/ui-captures` **last among Cargo
+steps**, after all current-source checks and captures: rebuilding the archived
+baseline uses the shared target and must not replace the current evidence
+binary. The helper records baseline/harness/executable fingerprints in
+`comparison-info.txt`; a subsequent current-source build must rebuild its crate.
 
 ## Developer playback diagnostics
 

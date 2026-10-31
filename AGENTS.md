@@ -137,11 +137,29 @@ Do not introduce Electron or web-based application shells.
 - Never add user screenshots containing personal information or desktop elements
   to a public repository without separate permission. Prefer clean cloud captures
   of Karin only, with no account data or unrelated desktop content.
-- ADR-0020 covers the adaptive track pane, playlist grid and persistent preferences.
+- ADR-0020 covers the v0.3 track pane, playlist grid and persistent preferences.
+  [ADR-0021](docs/adr/0021-controlled-nonmodal-track-information.md) defines v0.4's
+  controlled nonmodal presentation and occurrence-aware target, superseding the
+  collapsed modal right sidebar. Persist explicit open intent separately from
+  availability/reveal state; outside clicks, navigation and responsive changes
+  do not close it. Explicit Details never plays; a new actual queue occurrence,
+  including duplicate IDs, EOS and MPRIS, resumes following in place. Structural
+  queue reindexing alone is not a new current occurrence. No pane operation may
+  create a second playback state or restart audio.
   Preserve the accepted player bar, context queue and click/Enter/Space playback.
   Mutation UI must wait for server confirmation, never fabricate local success or
   automatically repeat an ambiguous POST. The current Fedora acceptance guide is
-  docs/BUILDING.md#v03-seamless-experience-acceptance-on-fedora.
+  docs/BUILDING.md#v04-native-music-acceptance-on-fedora.
+- Current v0.4 work follows [Native Music (B)](docs/design/v0.4/DESIGN_SPEC.md):
+  compact expandable rail, central music workspace, controlled information and
+  permanent Player Bar, with minimal visible explanatory prose. Retain meaningful
+  errors, confirmations, tooltips and accessible labels. Original design SVGs
+  are not running GTK screenshots or production artwork. Inspect matched
+  baseline/current GTK captures across sizes, themes, scales and open/closed
+  information, plus populated pages and input states, before claiming quality.
+  Work only in `feature/v0.4-native-music-ui` and existing Draft PR #15; leave
+  it Draft pending owner Fedora visual acceptance. Do not create another PR,
+  merge it or delete the branch without a new instruction.
 
 ## Licensing
 
@@ -191,9 +209,11 @@ The owner subsequently accepted v0.3 runtime 02325489d23ead9da4471de9cc35e2c063a
 on 2026-10-31: persistence/restart, real covers in lists/player/pane, audible Music,
 pane mechanics, KDE cover/metadata and the reported final Flatpak auth/playback/
 system integration. Do not invent unreported backend/deletion/media-key details.
-Keep historical FAILs intact. The pane's visual design is not accepted and moves
-to a separate UI/UX iteration. Functional acceptance and the explicit PR #14
-squash authorization are not public-release or service-distribution permission.
+Keep historical FAILs intact. The pane's v0.3 visual design was not accepted;
+v0.4 is its separately authorized UI/UX iteration, with new visual acceptance
+still required. PR #14 integrated the accepted baseline at `5e85e8d`. Functional
+acceptance and the explicit PR #14 squash authorization are not v0.4 merge,
+public-release or service-distribution permission.
 Do not claim a full current Flatpak build or a real wallet/portal test from source
 inspection, host-library checks or synthetic D-Bus fixtures.
 
