@@ -118,6 +118,21 @@ unreported backend/failure case or future code change.
 
 ## Next independent iteration: UI/UX
 
+**Approved Karin v0.4 direction: [Native Music (B) visual references](design/v0.4/README.md).**
+The owner selected the native four-zone composition and the rule **minimum visible
+text; intuitive use through visual hierarchy, images and controls**. The right
+track pane must remain open when clicking outside or navigating and must update
+in place when the currently playing track changes. Its explicit-selection mode
+is temporary until the next actual playback-item change. These are requirements,
+not already-implemented behaviors.
+
+Use the [authoritative design specification](design/v0.4/DESIGN_SPEC.md) and
+[Codex implementation task](design/v0.4/CODEX_TASK.md). Original SVG mockups
+illustrate desired composition and state, not GTK screenshot acceptance or
+public music content. Implementation belongs to the same draft v0.4 PR once
+the work starts; do not start a second PR or mark v0.4 shipped.
+
+
 The right pane's opening/closing mechanics are accepted, but its current visual
 design does not satisfy the owner. A substantial UI/UX revision is the next
 separate iteration; it must preserve the accepted authentication, actual audio,
