@@ -245,12 +245,20 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
     pump_until(|| !split.shows_sidebar());
     assert!(!this.track_info_preference());
     assert!(this.widgets.current_art_button.has_focus());
+    pump_until(|| {
+        split
+            .content()
+            .is_some_and(|content| content.width() >= split.width() - 2)
+    });
+    layout(&ui);
+    capture_native("workspace-shell-wide-closed-info");
     resize(&ui, 900, 650);
     assert!(split.is_collapsed());
     assert!(!split.shows_sidebar());
     resize(&ui, 1440, 900);
     assert!(!split.shows_sidebar());
     assert!(!this.track_info_preference());
+    capture_native("workspace-shell-wide-restored-closed-info");
 
     // Actual accelerator reopens the current occurrence, not the old selection.
     input(&["key", "--clearmodifiers", "ctrl+i"]);
