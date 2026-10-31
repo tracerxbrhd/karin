@@ -345,7 +345,10 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
         Some("0 Б · 0 записей")
     );
     window.set_default_size(420, 720);
-    settle();
+    // Resize is acknowledged asynchronously by GTK/X11, especially at 2x
+    // while another native fixture is rendering. Wait for the existing
+    // compact-width gate instead of sampling after a fixed 150 ms sleep.
+    pump_until(|| window.width() <= 444);
     assert!(window.width() <= 444);
     capture(id, "preferences-seamless-compact");
     window.set_default_size(1440, 900);

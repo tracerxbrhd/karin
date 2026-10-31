@@ -21,6 +21,9 @@ use ring::digest::{Context, SHA256};
 
 use crate::cache::{Cache, CacheKey as PersistentKey, CacheLease, EntryKind, Freshness};
 
+pub mod diagnostics;
+use diagnostics::{Event, emit};
+
 const MAX_ENCODED_BYTES: usize = 2 * 1024 * 1024;
 const MAX_SOURCE_EDGE: u32 = 2048;
 const MAX_CACHE_BYTES: usize = 24 * 1024 * 1024;
@@ -34,15 +37,30 @@ pub struct CoverArt(String);
 
 impl CoverArt {
     /// Music returns hostless templates. Accept only the exact public image
-    /// origin and a final size placeholder; URLs with parameters are rejected.
+    /// origin and a final size placeholder. Only the documented numeric cache
+    /// revision on custom-playlist covers is accepted after the placeholder.
     pub fn parse(raw: &str) -> Option<Self> {
+        let parsed = Self::parse_validated(raw);
+        if parsed.is_none() {
+            emit(Event::UriRejected);
+        }
+        parsed
+    }
+
+    fn parse_validated(raw: &str) -> Option<Self> {
         if raw.len() > 1024 || !raw.is_ascii() {
             return None;
         }
         let path = raw
             .strip_prefix("https://avatars.yandex.net/")
+            .or_else(|| raw.strip_prefix("//avatars.yandex.net/"))
             .or_else(|| raw.strip_prefix("avatars.yandex.net/"))?;
-        let resource = path.strip_suffix("/%%")?;
+        let (template, revision) = path
+            .split_once('?')
+            .map_or((path, None), |(template, revision)| {
+                (template, Some(revision))
+            });
+        let resource = template.strip_suffix("/%%")?;
         let segments: Vec<_> = resource.split('/').collect();
         if !(2..=12).contains(&segments.len())
             || segments.iter().any(|segment| {
@@ -57,21 +75,51 @@ impl CoverArt {
         {
             return None;
         }
-        Some(Self(resource.to_owned()))
+        if let Some(revision) = revision
+            && (segments.first().copied() != Some("get-music-user-playlist")
+                || revision.is_empty()
+                || revision.len() > 20
+                || !revision.bytes().all(|byte| byte.is_ascii_digit()))
+        {
+            return None;
+        }
+        Some(Self(revision.map_or_else(
+            || resource.to_owned(),
+            |revision| format!("{resource}?{revision}"),
+        )))
     }
 
     fn url(&self, pixels: u16) -> Result<Url, ArtworkError> {
-        Url::parse(&format!(
-            "https://avatars.yandex.net/{}/{pixels}x{pixels}",
-            self.0
+        let (resource, revision) = self.parts();
+        // CDN rendition names are a service contract, not the memory/cache
+        // bucket. The published square renditions are 200, 400 and 1000;
+        // locally decoded/cache pixels remain bounded to 128, 256 and 512.
+        let rendition = wire_pixels(pixels);
+        let mut url = Url::parse(&format!(
+            "https://avatars.yandex.net/{resource}/{rendition}x{rendition}"
         ))
-        .map_err(|_| ArtworkError::InvalidImage)
+        .map_err(|_| ArtworkError::InvalidImage)?;
+        url.set_query(revision);
+        Ok(url)
+    }
+
+    fn parts(&self) -> (&str, Option<&str>) {
+        self.0
+            .split_once('?')
+            .map_or((self.0.as_str(), None), |(resource, revision)| {
+                (resource, Some(revision))
+            })
     }
 
     /// Canonical already-validated public artwork template for typed metadata
-    /// records. It cannot contain credentials, parameters or media addresses.
+    /// records. It cannot contain credentials, arbitrary parameters or media
+    /// addresses; only the validated numeric playlist revision is retained.
     pub(crate) fn cache_template(&self) -> String {
-        format!("https://avatars.yandex.net/{}/%%", self.0)
+        let (resource, revision) = self.parts();
+        revision.map_or_else(
+            || format!("https://avatars.yandex.net/{resource}/%%"),
+            |revision| format!("https://avatars.yandex.net/{resource}/%%?{revision}"),
+        )
     }
 }
 
@@ -137,6 +185,15 @@ struct Shared {
     available: Condvar,
     jobs: SyncSender<Job>,
     persistent: Mutex<Option<Cache>>,
+    #[cfg(test)]
+    test_transport: Mutex<Option<TestTransport>>,
+}
+
+#[cfg(test)]
+#[derive(Clone)]
+struct TestTransport {
+    origin: Url,
+    client: Client,
 }
 
 struct PersistentAccess {
@@ -165,6 +222,7 @@ struct FetchedCover {
 struct CacheHint {
     allowed: bool,
     ttl: Option<Duration>,
+    allow_stale: bool,
 }
 
 struct Job {
@@ -244,6 +302,8 @@ impl ArtworkLoader {
             available: Condvar::new(),
             jobs,
             persistent: Mutex::new(None),
+            #[cfg(test)]
+            test_transport: Mutex::new(None),
         });
         let receiver = Arc::new(Mutex::new(receiver));
         let mut workers = 0;
@@ -303,6 +363,46 @@ impl ArtworkLoader {
         self.request_from(cover, pixels, epoch, cover.url(pixels)?)
     }
 
+    /// Test-only origin routing still uses the ordinary validated template,
+    /// rendition path and public request method before the fetch boundary.
+    #[cfg(test)]
+    pub(crate) fn for_test_origin(origin: &str) -> Result<Self, ArtworkError> {
+        let loader = Self::new()?;
+        loader.set_test_origin(origin)?;
+        Ok(loader)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_test_origin(&self, raw: &str) -> Result<(), ArtworkError> {
+        let origin = Url::parse(raw).map_err(|_| ArtworkError::InvalidImage)?;
+        let loopback = matches!(origin.host_str(), Some("127.0.0.1" | "[::1]" | "::1"));
+        if !loopback
+            || !matches!(origin.scheme(), "http" | "https")
+            || !origin.username().is_empty()
+            || origin.password().is_some()
+            || origin.path() != "/"
+            || origin.query().is_some()
+            || origin.fragment().is_some()
+            || origin.port_or_known_default().is_none_or(|port| port == 0)
+        {
+            return Err(ArtworkError::InvalidImage);
+        }
+        let client = Client::builder()
+            .no_proxy()
+            .redirect(Policy::none())
+            .retry(reqwest::retry::never())
+            .connect_timeout(Duration::from_secs(1))
+            .timeout(Duration::from_secs(2))
+            .build()
+            .map_err(|_| ArtworkError::Unavailable)?;
+        *self
+            .0
+            .test_transport
+            .lock()
+            .map_err(|_| ArtworkError::Unavailable)? = Some(TestTransport { origin, client });
+        Ok(())
+    }
+
     fn request_from(
         &self,
         cover: &CoverArt,
@@ -326,9 +426,16 @@ impl ArtworkLoader {
                 result,
             })
             .map_err(|error| match error {
-                TrySendError::Full(_) => ArtworkError::Busy,
-                TrySendError::Disconnected(_) => ArtworkError::Unavailable,
+                TrySendError::Full(_) => {
+                    emit(Event::QueueBusy);
+                    ArtworkError::Busy
+                }
+                TrySendError::Disconnected(_) => {
+                    emit(Event::RequestNotStarted);
+                    ArtworkError::Unavailable
+                }
             })?;
+        emit(Event::Queued);
         Ok(ArtworkRequest {
             result: receiver,
             cancelled,
@@ -442,6 +549,7 @@ impl ArtworkLoader {
                 let image = Arc::clone(&entry.image);
                 state.cache.push_back(entry);
                 drop(state);
+                emit(Event::MemoryHit);
                 return if self.cancelled(epoch, cancellation)
                     || persistent.as_ref().is_some_and(|access| !access.current())
                 {
@@ -453,6 +561,7 @@ impl ArtworkLoader {
             state.bytes -= entry.image.bytes.len();
         }
         if state.waiting >= MAX_WAITING {
+            emit(Event::QueueBusy);
             return Err(ArtworkError::Busy);
         }
         state.waiting += 1;
@@ -479,21 +588,42 @@ impl ArtworkLoader {
         drop(state);
         let _permit = Permit(Arc::clone(&self.0));
         let mut stale = None;
-        if let Some(access) = &persistent
-            && let Some(lease) = &access.lease
-            && let Ok(Some(entry)) = access.cache.get(lease, &access.key)
-            && let Some(image) = decode_raster(&entry.bytes, pixels)
-        {
-            if self.cancelled(epoch, cancellation) || !access.current() {
-                return Err(ArtworkError::Cancelled);
+        if let Some(access) = &persistent {
+            if let Some(lease) = &access.lease {
+                match access.cache.get(lease, &access.key) {
+                    Ok(Some(entry)) => {
+                        if let Some(image) = decode_raster(&entry.bytes, pixels) {
+                            if self.cancelled(epoch, cancellation) || !access.current() {
+                                emit(Event::Cancelled);
+                                return Err(ArtworkError::Cancelled);
+                            }
+                            let image = Arc::new(image);
+                            if entry.freshness == Freshness::Fresh {
+                                // Keep the source TTL rather than promoting a
+                                // disk hit into unbounded RAM freshness.
+                                emit(Event::DiskHit);
+                                return Ok(image);
+                            }
+                            if raster_allows_stale(&entry.bytes) {
+                                stale = Some(image);
+                            }
+                        } else {
+                            emit(Event::CacheReadFailure);
+                        }
+                    }
+                    Ok(None) => emit(Event::CacheMiss),
+                    Err(
+                        crate::cache::CacheError::Cancelled | crate::cache::CacheError::Disabled,
+                    ) => {
+                        emit(Event::Cancelled);
+                    }
+                    Err(_) => emit(Event::CacheReadFailure),
+                }
+            } else {
+                emit(Event::CacheBypassed);
             }
-            let image = Arc::new(image);
-            if entry.freshness == Freshness::Fresh {
-                // GTK retains this decoded image. Do not turn a disk entry's
-                // remaining server TTL into an unbounded in-memory cache hit.
-                return Ok(image);
-            }
-            stale = Some(image);
+        } else {
+            emit(Event::CacheMiss);
         }
         let fetched = match self.fetch(url, pixels, epoch, cancellation) {
             Ok(fetched) => fetched,
@@ -504,6 +634,7 @@ impl ArtworkLoader {
                     return Err(ArtworkError::Cancelled);
                 }
                 if let Some(image) = stale {
+                    emit(Event::DiskHit);
                     return Ok(image);
                 }
                 return Err(ArtworkError::Network);
@@ -534,18 +665,26 @@ impl ArtworkLoader {
             && let Some(lease) = &access.lease
         {
             if cacheable {
-                if let Some(bytes) = encode_raster(&image) {
-                    let _ = access.cache.put_with_ttl(
-                        lease,
-                        &access.key,
-                        &bytes,
-                        ttl.unwrap_or(Duration::from_secs(7 * 24 * 60 * 60)),
-                    );
+                if let Some(bytes) = encode_raster_with_policy(&image, fetched.caching.allow_stale)
+                    && access
+                        .cache
+                        .put_with_ttl(
+                            lease,
+                            &access.key,
+                            &bytes,
+                            ttl.unwrap_or(Duration::from_secs(7 * 24 * 60 * 60)),
+                        )
+                        .is_err()
+                {
+                    emit(Event::CacheWriteFailure);
                 }
             } else {
                 // A successful no-store/no-cache response supersedes any old
                 // stale copy; never silently retain the earlier disk record.
-                let _ = access.cache.remove(lease, &access.key);
+                emit(Event::CacheBypassed);
+                if access.cache.remove(lease, &access.key).is_err() {
+                    emit(Event::CacheWriteFailure);
+                }
             }
         }
         let mut state = self.0.state.lock().map_err(|_| ArtworkError::Unavailable)?;
@@ -593,25 +732,54 @@ impl ArtworkLoader {
         cancellation: Option<&AtomicBool>,
     ) -> Result<FetchedCover, ArtworkError> {
         if self.cancelled(epoch, cancellation) {
+            emit(Event::Cancelled);
             return Err(ArtworkError::Cancelled);
         }
-        let mut response = self
-            .0
-            .client
+        #[cfg(test)]
+        let (url, client) = {
+            let transport = self
+                .0
+                .test_transport
+                .lock()
+                .map_err(|_| ArtworkError::Unavailable)?
+                .clone();
+            if let Some(transport) = transport {
+                let mut url = url;
+                url.set_scheme(transport.origin.scheme())
+                    .map_err(|_| ArtworkError::InvalidImage)?;
+                url.set_host(transport.origin.host_str())
+                    .map_err(|_| ArtworkError::InvalidImage)?;
+                url.set_port(transport.origin.port())
+                    .map_err(|_| ArtworkError::InvalidImage)?;
+                (url, transport.client)
+            } else {
+                (url, self.0.client.clone())
+            }
+        };
+        #[cfg(not(test))]
+        let client = &self.0.client;
+        let mut response = client
             .get(url)
             .header(reqwest::header::ACCEPT, "image/jpeg, image/png")
             .send()
-            .map_err(|_| ArtworkError::Network)?;
+            .map_err(|error| {
+                emit(network_event(&error));
+                ArtworkError::Network
+            })?;
+        emit(Event::HttpStatus(response.status().as_u16()));
         if self.cancelled(epoch, cancellation) {
+            emit(Event::Cancelled);
             return Err(ArtworkError::Cancelled);
         }
         if response.status() != reqwest::StatusCode::OK {
+            emit(Event::HttpRefused);
             return Err(ArtworkError::Rejected);
         }
         if response
             .content_length()
             .is_some_and(|length| length > MAX_ENCODED_BYTES as u64)
         {
+            emit(Event::TooLarge);
             return Err(ArtworkError::TooLarge);
         }
         let mime = response
@@ -623,7 +791,10 @@ impl ArtworkLoader {
         let format = match mime {
             Some("image/png") => "png",
             Some("image/jpeg") => "jpeg",
-            _ => return Err(ArtworkError::InvalidImage),
+            _ => {
+                emit(Event::UnsupportedContentType);
+                return Err(ArtworkError::InvalidImage);
+            }
         };
         let caching = cache_hint(response.headers());
         let mut bytes = Vec::new();
@@ -632,13 +803,19 @@ impl ArtworkLoader {
             if self.cancelled(epoch, cancellation) {
                 return Err(ArtworkError::Cancelled);
             }
-            let read = response
-                .read(&mut chunk)
-                .map_err(|_| ArtworkError::Network)?;
+            let read = response.read(&mut chunk).map_err(|error| {
+                emit(if error.kind() == std::io::ErrorKind::TimedOut {
+                    Event::NetworkTimeout
+                } else {
+                    Event::NetworkOther
+                });
+                ArtworkError::Network
+            })?;
             if read == 0 {
                 break;
             }
             if bytes.len() + read > MAX_ENCODED_BYTES {
+                emit(Event::TooLarge);
                 return Err(ArtworkError::TooLarge);
             }
             bytes.extend_from_slice(&chunk[..read]);
@@ -646,10 +823,15 @@ impl ArtworkLoader {
         if self.cancelled(epoch, cancellation) {
             return Err(ArtworkError::Cancelled);
         }
-        Ok(FetchedCover {
-            pixels: decode(&bytes, format, pixels)?,
-            caching,
-        })
+        let pixels = decode(&bytes, format, pixels).inspect_err(|error| {
+            emit(if *error == ArtworkError::TooLarge {
+                Event::TooLarge
+            } else {
+                Event::DecodeFailure
+            });
+        })?;
+        emit(Event::PixelsReady);
+        Ok(FetchedCover { pixels, caching })
     }
 }
 
@@ -657,8 +839,10 @@ fn cache_hint(headers: &reqwest::header::HeaderMap) -> CacheHint {
     let denied = CacheHint {
         allowed: false,
         ttl: None,
+        allow_stale: false,
     };
     let mut max_age: Option<u64> = None;
+    let mut must_revalidate = false;
     for value in headers.get_all(reqwest::header::CACHE_CONTROL) {
         let Ok(value) = value.to_str() else {
             return denied;
@@ -670,7 +854,8 @@ fn cache_hint(headers: &reqwest::header::HeaderMap) -> CacheHint {
                     (name.trim(), Some(value.trim()))
                 });
             match name.to_ascii_lowercase().as_str() {
-                "no-store" | "no-cache" | "private" | "must-revalidate" => return denied,
+                "no-store" | "no-cache" | "private" => return denied,
+                "must-revalidate" => must_revalidate = true,
                 "max-age" => {
                     let Some(value) = value else {
                         return denied;
@@ -735,15 +920,26 @@ fn cache_hint(headers: &reqwest::header::HeaderMap) -> CacheHint {
     };
     let ttl = max_age
         .map(|seconds| Duration::from_secs(seconds.saturating_sub(age).min(30 * 24 * 60 * 60)));
+    if must_revalidate && max_age.is_none() {
+        // No explicit freshness horizon: do not invent one for a response that
+        // demands successful origin revalidation after becoming stale.
+        return denied;
+    }
     CacheHint {
         allowed: ttl.is_none_or(|ttl| !ttl.is_zero()),
         ttl,
+        allow_stale: !must_revalidate,
     }
 }
 
 /// Store only packed decoded RGB/RGBA. Raster rows contain no JPEG EXIF, PNG
 /// ancillary metadata, provider URL, cookies, authorization or audio payload.
+#[cfg(test)]
 fn encode_raster(image: &CoverPixels) -> Option<Vec<u8>> {
+    encode_raster_with_policy(image, true)
+}
+
+fn encode_raster_with_policy(image: &CoverPixels, allow_stale: bool) -> Option<Vec<u8>> {
     let width = u32::try_from(image.width).ok()?;
     let height = u32::try_from(image.height).ok()?;
     if !(1..=512).contains(&width) || !(1..=512).contains(&height) {
@@ -765,7 +961,9 @@ fn encode_raster(image: &CoverPixels) -> Option<Vec<u8>> {
     bytes.extend_from_slice(&width.to_be_bytes());
     bytes.extend_from_slice(&height.to_be_bytes());
     bytes.extend_from_slice(&rowstride.to_be_bytes());
-    bytes.push(u8::from(image.alpha));
+    // Backward-compatible v1 raster flags: bit0 alpha; bit1 forbids stale
+    // fallback. This stores one cache-policy fact, never source headers.
+    bytes.push(u8::from(image.alpha) | if allow_stale { 0 } else { 2 });
     for row in 0..rows {
         let start = row.checked_mul(image.rowstride)?;
         bytes.extend_from_slice(&image.bytes[start..start + row_bytes]);
@@ -774,13 +972,13 @@ fn encode_raster(image: &CoverPixels) -> Option<Vec<u8>> {
 }
 
 fn decode_raster(bytes: &[u8], pixels: u16) -> Option<CoverPixels> {
-    if bytes.len() < 21 || &bytes[..8] != b"KARINRGB" || bytes[20] > 1 {
+    if bytes.len() < 21 || &bytes[..8] != b"KARINRGB" || bytes[20] & !3 != 0 {
         return None;
     }
     let width = u32::from_be_bytes(bytes[8..12].try_into().ok()?);
     let height = u32::from_be_bytes(bytes[12..16].try_into().ok()?);
     let rowstride = u32::from_be_bytes(bytes[16..20].try_into().ok()?);
-    let alpha = bytes[20] == 1;
+    let alpha = bytes[20] & 1 != 0;
     let channels = if alpha { 4 } else { 3 };
     if width == 0
         || height == 0
@@ -803,6 +1001,10 @@ fn decode_raster(bytes: &[u8], pixels: u16) -> Option<CoverPixels> {
     })
 }
 
+fn raster_allows_stale(bytes: &[u8]) -> bool {
+    bytes.get(20).is_some_and(|flags| flags & 2 == 0)
+}
+
 struct Permit(Arc<Shared>);
 impl Drop for Permit {
     fn drop(&mut self) {
@@ -818,6 +1020,54 @@ fn pixel_bucket(requested: i32) -> u16 {
         ..=128 => 128,
         129..=256 => 256,
         _ => 512,
+    }
+}
+
+fn wire_pixels(decoded_bucket: u16) -> u16 {
+    match decoded_bucket {
+        ..=128 => 200,
+        129..=256 => 400,
+        _ => 1000,
+    }
+}
+
+fn known_network_detail(message: &str) -> Option<Event> {
+    if message.starts_with("dns error")
+        || message.starts_with("failed to lookup address information")
+    {
+        Some(Event::NetworkDns)
+    } else if message.starts_with("invalid peer certificate:")
+        || message.starts_with("received fatal alert:")
+        || message.starts_with("peer sent no certificates")
+        || message.starts_with("invalid TLS message:")
+    {
+        Some(Event::NetworkTls)
+    } else {
+        None
+    }
+}
+
+fn network_event(error: &reqwest::Error) -> Event {
+    if error.is_timeout() {
+        return Event::NetworkTimeout;
+    }
+    // Classification is diagnostic only, never an authorization/security
+    // decision. Inspect only known source prefixes and discard each temporary
+    // message immediately. Never emit or retain provider/network error text.
+    let mut source = std::error::Error::source(error);
+    for _ in 0..8 {
+        let Some(current) = source else {
+            break;
+        };
+        if let Some(event) = known_network_detail(&current.to_string()) {
+            return event;
+        }
+        source = current.source();
+    }
+    if error.is_connect() {
+        Event::NetworkConnection
+    } else {
+        Event::NetworkOther
     }
 }
 
@@ -838,7 +1088,10 @@ fn decode(bytes: &[u8], format: &str, pixels: u16) -> Result<CoverPixels, Artwor
     if width == 0 || height == 0 || width > MAX_SOURCE_EDGE || height > MAX_SOURCE_EDGE {
         return Err(ArtworkError::TooLarge);
     }
-    let loader = PixbufLoader::with_type(format).map_err(|_| ArtworkError::InvalidImage)?;
+    let loader = PixbufLoader::with_type(format).map_err(|_| {
+        emit(Event::DecoderUnavailable);
+        ArtworkError::InvalidImage
+    })?;
     // Select only these raster decoders, never SVG or external resources.
     let scale = (f64::from(pixels) / f64::from(width.max(height))).min(1.0);
     let target_width = (f64::from(width) * scale).round().max(1.0) as i32;

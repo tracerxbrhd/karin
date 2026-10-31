@@ -460,10 +460,24 @@ Music API deadlines, identity checks and independent operation lanes remain.
 
 Artwork persists only normalized bounded pixels when HTTP policy permits it;
 no-store/no-cache/private/Vary restrictions and shorter server freshness prevent
-or limit disk writes. RAM LRU, dedicated image workers, account/cancellation
+or limit disk writes. An explicitly fresh `must-revalidate` response may be
+reused until expiry, but a compact raster-policy bit forbids its stale fallback,
+including after restart; legacy raster records remain readable. No response
+headers are stored. RAM LRU, dedicated image workers, account/cancellation
 checks and main-thread texture ownership remain in place. MPRIS's live temporary
 PNG is separate from persistent cover records, so ordinary cache clearing does
 not destroy active media-widget presentation.
+
+`CoverArt` accepts exact `avatars.yandex.net` templates in bare-host, HTTPS or
+protocol-relative form. Only custom-playlist templates may carry a bounded
+decimal revision query. Provider renditions 200/400/1000 are distinct from the
+unchanged 128/256/512 decoded raster buckets; the latter are not valid CDN preset
+names on the public resources checked during stabilization. Visible thumbnails
+retry worker-queue admission with bounded backoff for at most 12 seconds, without
+retrying failed HTTP responses. The opt-in `--artwork-diagnostic` reports finite,
+fixed stage categories and HTTP status only; it cannot accept/log resource URLs,
+personal fields or raw transport errors. Loopback fixtures exercise the ordinary
+URL builder through native GTK rendering rather than pre-seeding RAM.
 
 Bind/policy/clear generations reject old readers/writers. Cache-off prevents
 persistent content reads/writes but leaves files until explicit clear; measured

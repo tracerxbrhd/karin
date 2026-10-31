@@ -433,6 +433,67 @@ mod tests {
         }
     }
     #[test]
+    fn playlist_cover_revisions_and_normalized_templates_survive_metadata_cache_round_trip() {
+        // MarshalX 9ca132e5 Cover fixtures include a decimal revision on a
+        // custom playlist template. Use synthetic resource and revision values.
+        // Revisions must remain distinct instead of showing an obsolete cover.
+        let mut revisions = Vec::new();
+        for revision in ["1700000000000", "1700000000001"] {
+            let template = format!(
+                "//avatars.yandex.net/get-music-user-playlist/12345/ABCDEF0123456789/%%?{revision}"
+            );
+            let cover = CoverArt::parse(&template).unwrap();
+            assert_eq!(
+                cover.cache_template(),
+                format!(
+                    "https://avatars.yandex.net/get-music-user-playlist/12345/ABCDEF0123456789/%%?{revision}"
+                )
+            );
+            let value = MetadataRecord::Playlists(Page {
+                items: vec![Playlist {
+                    id: PlaylistId {
+                        owner: "123".into(),
+                        kind: "5".into(),
+                    },
+                    title: "Synthetic playlist".into(),
+                    track_count: 2,
+                    cover: Some(cover.clone()),
+                }],
+                has_more: false,
+            });
+            let bytes = encode(EntryKind::Playlists, &value).unwrap();
+            assert_eq!(decode(EntryKind::Playlists, &bytes).unwrap(), value);
+            revisions.push((cover, bytes));
+        }
+        assert_ne!(revisions[0].0, revisions[1].0);
+        assert_ne!(revisions[0].1, revisions[1].1);
+
+        let mut track = track();
+        track.cover =
+            CoverArt::parse("//avatars.yandex.net/get-music-content/12345678/abcde1234f56789-1/%%");
+        track.artist_links[0].cover = CoverArt::parse(
+            "https://avatars.yandex.net/get-music-content/12345678/artist-cover-1/%%",
+        );
+        assert!(track.cover.is_some());
+        assert!(track.artist_links[0].cover.is_some());
+        let album = MetadataRecord::Album(Album {
+            id: "7".into(),
+            title: "Synthetic album".into(),
+            artists: track.artists.clone(),
+            cover: CoverArt::parse(
+                "avatars.yandex.net/get-music-content/12345678/ff00aa11bb22cc33-1/%%",
+            ),
+            tracks: vec![track.clone()],
+        });
+        for (kind, value) in [
+            (EntryKind::Track, MetadataRecord::Track(track)),
+            (EntryKind::Album, album),
+        ] {
+            let bytes = encode(kind, &value).unwrap();
+            assert_eq!(decode(kind, &bytes).unwrap(), value);
+        }
+    }
+    #[test]
     fn cache_decoder_rejects_unknown_fields_invalid_ids_and_signed_cover_addresses() {
         let original = encode(EntryKind::Track, &MetadataRecord::Track(track())).unwrap();
         let mut data: serde_json::Value = serde_json::from_slice(&original).unwrap();

@@ -9,6 +9,7 @@ use std::{
 use adw::prelude::*;
 use gtk::{gdk, glib};
 
+use crate::artwork::diagnostics::{self, Event};
 use crate::artwork::{ArtworkCancellation, ArtworkError, ArtworkLoader, CoverArt};
 
 /// A scale-aware thumbnail with a native symbolic fallback. The loader belongs
@@ -41,6 +42,8 @@ pub(super) fn thumbnail(
     picture.set_visible(false);
     overlay.add_overlay(&picture);
     let Some(cover) = cover else {
+        diagnostics::emit(Event::MissingMetadata);
+        diagnostics::emit(Event::RequestNotStarted);
         return overlay;
     };
     let generation = Rc::new(Cell::new(0_u64));
@@ -55,6 +58,7 @@ pub(super) fn thumbnail(
         let overlay = overlay.downgrade();
         move |scale: i32| {
             if !overlay.upgrade().is_some_and(|widget| widget.is_mapped()) {
+                diagnostics::emit(Event::VisibilityDeferred);
                 return;
             }
             if let Some(request) = active.borrow_mut().take() {
@@ -75,36 +79,55 @@ pub(super) fn thumbnail(
                 // this thumbnail is actually visible before starting HTTP.
                 loop {
                     let Some(widget) = overlay.upgrade() else {
+                        diagnostics::emit(Event::WidgetUnavailable);
                         return;
                     };
                     if generation.get() != current || !widget.is_mapped() || loader.epoch() != epoch
                     {
+                        diagnostics::emit(Event::Cancelled);
                         return;
                     }
                     if visible_in_viewport(&widget) {
                         break;
                     }
+                    diagnostics::emit(Event::VisibilityDeferred);
                     drop(widget);
                     glib::timeout_future(std::time::Duration::from_millis(100)).await;
                 }
-                let mut requested = Err(ArtworkError::Busy);
-                for _ in 0..3 {
-                    if generation.get() != current || loader.epoch() != epoch {
+                // A full bounded worker queue is transient, not an image
+                // failure. Wait for admission without enqueuing more than one
+                // request or depending on a remap to recover.
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(12);
+                let mut delay = 100;
+                let requested = loop {
+                    if generation.get() != current
+                        || loader.epoch() != epoch
+                        || !overlay.upgrade().is_some_and(|widget| widget.is_mapped())
+                    {
+                        diagnostics::emit(Event::Cancelled);
                         return;
                     }
-                    requested = loader.request(&cover, size.saturating_mul(scale), epoch);
-                    if !matches!(requested, Err(ArtworkError::Busy)) {
-                        break;
+                    let requested = loader.request(&cover, size.saturating_mul(scale), epoch);
+                    if !matches!(requested, Err(ArtworkError::Busy))
+                        || std::time::Instant::now() >= deadline
+                    {
+                        break requested;
                     }
-                    glib::timeout_future(std::time::Duration::from_millis(100)).await;
-                }
-                let Ok(request) = requested else { return };
+                    diagnostics::emit(Event::QueueBusy);
+                    glib::timeout_future(std::time::Duration::from_millis(delay)).await;
+                    delay = (delay * 2).min(500);
+                };
+                let Ok(request) = requested else {
+                    diagnostics::emit(Event::RequestNotStarted);
+                    return;
+                };
                 active.replace(Some(request.cancellation()));
                 let result = loop {
                     if generation.get() != current
                         || loader.epoch() != epoch
                         || !overlay.upgrade().is_some_and(|widget| widget.is_mapped())
                     {
+                        diagnostics::emit(Event::Cancelled);
                         return;
                     }
                     if let Some(result) = request.try_result() {
@@ -113,9 +136,14 @@ pub(super) fn thumbnail(
                     glib::timeout_future(std::time::Duration::from_millis(25)).await;
                 };
                 active.borrow_mut().take();
-                let (Some(picture), Some(fallback), Ok(image)) =
-                    (picture.upgrade(), fallback.upgrade(), result)
+                let Ok(image) = result else {
+                    // Transport/decode/cache cancellation already has its own
+                    // fixed diagnostic category; it is not a widget failure.
+                    return;
+                };
+                let (Some(picture), Some(fallback)) = (picture.upgrade(), fallback.upgrade())
                 else {
+                    diagnostics::emit(Event::WidgetUnavailable);
                     return;
                 };
                 let bytes = glib::Bytes::from_owned(image.bytes.clone());
@@ -133,6 +161,7 @@ pub(super) fn thumbnail(
                 picture.set_paintable(Some(&texture));
                 picture.set_visible(true);
                 fallback.set_visible(false);
+                diagnostics::emit(Event::Displayed);
             });
         }
     };

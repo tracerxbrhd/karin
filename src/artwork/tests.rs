@@ -28,6 +28,27 @@ fn png_size(size: i32) -> Vec<u8> {
         .expect("synthetic PNG encoding")
 }
 
+fn jpeg_size(size: i32) -> Vec<u8> {
+    let pixbuf =
+        gtk::gdk_pixbuf::Pixbuf::new(gtk::gdk_pixbuf::Colorspace::Rgb, false, 8, size, size)
+            .expect("synthetic RGB pixels");
+    pixbuf.fill(0x4466_88ff);
+    pixbuf
+        .save_to_bufferv("jpeg", &[])
+        .expect("synthetic JPEG encoding")
+}
+
+fn request_result(request: &ArtworkRequest) -> Result<Arc<CoverPixels>, ArtworkError> {
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        if let Some(result) = request.try_result() {
+            return result;
+        }
+        assert!(Instant::now() < deadline, "bounded cover completion");
+        thread::sleep(Duration::from_millis(5));
+    }
+}
+
 fn loader() -> ArtworkLoader {
     ArtworkLoader::with_client(
         Client::builder()
@@ -128,11 +149,15 @@ fn cover_accepts_only_bounded_exact_public_templates() {
     let parsed = cover();
     assert_eq!(
         parsed.url(256).unwrap().as_str(),
-        "https://avatars.yandex.net/get-music-content/synthetic/image/256x256"
+        "https://avatars.yandex.net/get-music-content/synthetic/image/400x400"
     );
     assert_eq!(
         Some(parsed.clone()),
         CoverArt::parse("https://avatars.yandex.net/get-music-content/synthetic/image/%%")
+    );
+    assert_eq!(
+        Some(parsed.clone()),
+        CoverArt::parse("//avatars.yandex.net/get-music-content/synthetic/image/%%")
     );
     for raw in [
         "http://avatars.yandex.net/get-music/synthetic/%%",
@@ -169,6 +194,170 @@ fn cover_accepts_only_bounded_exact_public_templates() {
     assert_eq!(pixel_bucket(384), 512);
     assert_eq!(pixel_bucket(i32::MAX), 512);
     assert!(!format!("{parsed:?}").contains("synthetic"));
+}
+
+#[test]
+fn only_custom_playlist_numeric_revisions_are_preserved_in_urls_and_cache_identity() {
+    let first = CoverArt::parse(
+        "//avatars.yandex.net/get-music-user-playlist/synthetic/image/%%?1234567890123",
+    )
+    .unwrap();
+    let second = CoverArt::parse(
+        "avatars.yandex.net/get-music-user-playlist/synthetic/image/%%?1234567890124",
+    )
+    .unwrap();
+    assert_ne!(first, second);
+    assert_eq!(
+        first.url(128).unwrap().as_str(),
+        "https://avatars.yandex.net/get-music-user-playlist/synthetic/image/200x200?1234567890123"
+    );
+    assert_eq!(
+        first.cache_template(),
+        "https://avatars.yandex.net/get-music-user-playlist/synthetic/image/%%?1234567890123"
+    );
+    let disk = DiskFixture::new();
+    let loader = loader();
+    loader.set_persistent_cache(Some(disk.cache()));
+    assert_ne!(
+        loader
+            .persistent_access(&first, 128)
+            .map(|access| access.key),
+        loader
+            .persistent_access(&second, 128)
+            .map(|access| access.key),
+        "revision is part of the persistent artwork identity"
+    );
+    for raw in [
+        "avatars.yandex.net/get-music-user-playlist/synthetic/image/%%?",
+        "avatars.yandex.net/get-music-user-playlist/synthetic/image/%%?123456789012345678901",
+        "avatars.yandex.net/get-music-user-playlist/synthetic/image/%%?123&456",
+        "avatars.yandex.net/get-music-user-playlist/synthetic/image/%%?revision=123",
+        "avatars.yandex.net/get-music-user-playlist/synthetic/image/%%?123#456",
+        "avatars.yandex.net/get-music-content/synthetic/image/%%?123",
+        "//avatars.yandex.net.evil.invalid/get-music-user-playlist/synthetic/image/%%?123",
+    ] {
+        assert!(CoverArt::parse(raw).is_none());
+    }
+}
+
+#[test]
+fn public_requests_use_published_renditions_but_keep_decoded_and_cache_buckets_bounded() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}/", listener.local_addr().unwrap());
+    listener.set_nonblocking(true).unwrap();
+    let server = thread::spawn(move || {
+        let mut paths = Vec::new();
+        let jpeg = jpeg_size(1000);
+        for _ in 0..6 {
+            let deadline = Instant::now() + Duration::from_secs(3);
+            let (mut stream, _) = loop {
+                match listener.accept() {
+                    Ok(connection) => break connection,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        assert!(Instant::now() < deadline, "local rendition request missing");
+                        thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(_) => panic!("local rendition listener failed"),
+                }
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut received = Vec::new();
+            let mut buffer = [0; 512];
+            while !received.windows(4).any(|value| value == b"\r\n\r\n") {
+                let count = stream.read(&mut buffer).unwrap();
+                assert!(count > 0 && received.len() < 8192);
+                received.extend_from_slice(&buffer[..count]);
+            }
+            let request = String::from_utf8(received).unwrap();
+            let headers = request.to_ascii_lowercase();
+            assert!(!headers.contains("authorization:"));
+            assert!(!headers.contains("cookie:"));
+            assert!(!headers.contains("referer:"));
+            let path = request
+                .lines()
+                .next()
+                .unwrap()
+                .split_whitespace()
+                .nth(1)
+                .unwrap();
+            // This fixture reproduces the published CDN's 404 for the old
+            // decoded-pixel names instead of accepting every arbitrary path.
+            let accepted = ["200x200", "400x400", "1000x1000"]
+                .iter()
+                .any(|size| path == format!("/get-music-content/synthetic/image/{size}"));
+            paths.push(path.to_owned());
+            let status = if accepted { 200 } else { 404 };
+            write!(stream, "HTTP/1.1 {status} Fixture\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", jpeg.len()).unwrap();
+            let _ = stream.write_all(&jpeg);
+        }
+        paths
+    });
+    let loader = ArtworkLoader::for_test_origin(&origin).unwrap();
+    // Recreate the previous URL construction at the ordinary fetch boundary:
+    // all three decoded bucket names receive an actual HTTP 404 and fail.
+    for bucket in [128, 256, 512] {
+        let old_url = Url::parse(&format!(
+            "https://avatars.yandex.net/get-music-content/synthetic/image/{bucket}x{bucket}"
+        ))
+        .unwrap();
+        let request = loader
+            .request_from(&cover(), bucket, loader.epoch(), old_url)
+            .unwrap();
+        assert_eq!(
+            request_result(&request).unwrap_err(),
+            ArtworkError::Rejected
+        );
+    }
+    // The public request builder maps those same local buckets to published
+    // CDN renditions; the fixture accepts only their exact public paths.
+    for bucket in [128, 256, 512] {
+        let request = loader.request(&cover(), bucket, loader.epoch()).unwrap();
+        let image = request_result(&request).unwrap();
+        assert_eq!((image.width, image.height), (bucket, bucket));
+        assert!(!image.alpha);
+        assert!(image.bytes.len() <= usize::try_from(bucket * bucket * 3).unwrap());
+    }
+    assert_eq!(
+        server.join().unwrap(),
+        [
+            "/get-music-content/synthetic/image/128x128",
+            "/get-music-content/synthetic/image/256x256",
+            "/get-music-content/synthetic/image/512x512",
+            "/get-music-content/synthetic/image/200x200",
+            "/get-music-content/synthetic/image/400x400",
+            "/get-music-content/synthetic/image/1000x1000",
+        ]
+    );
+    let state = loader.0.state.lock().unwrap();
+    assert_eq!(state.cache.len(), 3);
+    assert_eq!(
+        state
+            .cache
+            .iter()
+            .map(|entry| entry.key.1)
+            .collect::<Vec<_>>(),
+        vec![128, 256, 512]
+    );
+}
+
+#[test]
+fn test_transport_rejects_non_loopback_or_non_origin_targets() {
+    let loader = loader();
+    for raw in [
+        "https://avatars.yandex.net/",
+        "http://localhost/",
+        "http://127.0.0.1.evil.invalid/",
+        "http://127.0.0.1:0/",
+        "http://synthetic@127.0.0.1/",
+        "http://127.0.0.1/synthetic",
+        "http://127.0.0.1/?123",
+        "http://127.0.0.1/#synthetic",
+    ] {
+        assert_eq!(loader.set_test_origin(raw), Err(ArtworkError::InvalidImage));
+    }
+    assert!(loader.set_test_origin("http://127.0.0.1:12345/").is_ok());
 }
 
 #[test]
@@ -523,6 +712,30 @@ fn decoded_raster_cache_strips_padding_and_rejects_invalid_shapes() {
 }
 
 #[test]
+fn raster_policy_bit_preserves_legacy_rgb_rgba_and_rejects_unknown_flags() {
+    for alpha in [false, true] {
+        let channels = if alpha { 4 } else { 3 };
+        let image = CoverPixels {
+            width: 2,
+            height: 1,
+            rowstride: 2 * channels,
+            alpha,
+            bytes: vec![0x44; 2 * channels],
+        };
+        let legacy = encode_raster(&image).unwrap();
+        assert_eq!(legacy[20], u8::from(alpha));
+        assert!(raster_allows_stale(&legacy));
+        assert_eq!(decode_raster(&legacy, 128).unwrap().alpha, alpha);
+        let mut fresh_only = encode_raster_with_policy(&image, false).unwrap();
+        assert_eq!(fresh_only[20], u8::from(alpha) | 2);
+        assert!(!raster_allows_stale(&fresh_only));
+        assert_eq!(decode_raster(&fresh_only, 128).unwrap().bytes, image.bytes);
+        fresh_only[20] |= 4;
+        assert!(decode_raster(&fresh_only, 128).is_none());
+    }
+}
+
+#[test]
 fn cache_policy_honors_no_store_no_cache_and_server_freshness_limits() {
     use reqwest::header::{HeaderMap, HeaderValue};
     let mut headers = HeaderMap::new();
@@ -530,7 +743,8 @@ fn cache_policy_honors_no_store_no_cache_and_server_freshness_limits() {
         cache_hint(&headers),
         CacheHint {
             allowed: true,
-            ttl: None
+            ttl: None,
+            allow_stale: true
         }
     );
     headers.insert(
@@ -571,6 +785,163 @@ fn cache_policy_honors_no_store_no_cache_and_server_freshness_limits() {
         headers.insert(name, HeaderValue::from_str(value).unwrap());
         assert!(!cache_hint(&headers).allowed);
     }
+}
+
+#[test]
+fn must_revalidate_can_be_cached_only_with_explicit_unexpired_freshness() {
+    use reqwest::header::{HeaderMap, HeaderValue};
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        reqwest::header::CACHE_CONTROL,
+        HeaderValue::from_static("public, must-revalidate, max-age=60"),
+    );
+    headers.insert(reqwest::header::AGE, HeaderValue::from_static("30"));
+    assert_eq!(
+        cache_hint(&headers),
+        CacheHint {
+            allowed: true,
+            ttl: Some(Duration::from_secs(30)),
+            allow_stale: false,
+        }
+    );
+    headers.insert(reqwest::header::AGE, HeaderValue::from_static("60"));
+    assert!(!cache_hint(&headers).allowed);
+    for control in [
+        "must-revalidate",
+        "must-revalidate, max-age=60, no-store",
+        "must-revalidate, max-age=60, no-cache",
+        "must-revalidate, max-age=60, private",
+    ] {
+        headers.remove(reqwest::header::AGE);
+        headers.insert(
+            reqwest::header::CACHE_CONTROL,
+            HeaderValue::from_str(control).unwrap(),
+        );
+        assert!(!cache_hint(&headers).allowed);
+    }
+}
+
+#[test]
+fn must_revalidate_survives_restart_while_fresh_but_never_falls_back_after_expiry() {
+    let disk = DiskFixture::new();
+    let cache = disk.cache();
+    let (mut origin, server) = fixture_headers(
+        1,
+        200,
+        "image/jpeg",
+        jpeg_size(200),
+        "Cache-Control: public, max-age=3600, must-revalidate\r\n",
+    );
+    origin.set_path("/");
+    let first = ArtworkLoader::for_test_origin(origin.as_str()).unwrap();
+    first.set_persistent_cache(Some(cache.clone()));
+    let request = first.request(&cover(), 128, first.epoch()).unwrap();
+    let original = request_result(&request).unwrap();
+    server.join().unwrap();
+    assert_eq!(cache.usage().unwrap().entries, 1);
+    drop(request);
+    drop(first);
+
+    // The listener has closed after exactly one network request. A fresh
+    // cold-loader hit therefore must be the normalized disk raster.
+    let reopened = ArtworkLoader::for_test_origin(origin.as_str()).unwrap();
+    let reopened_cache = disk.cache();
+    reopened.set_persistent_cache(Some(reopened_cache.clone()));
+    let request = reopened.request(&cover(), 128, reopened.epoch()).unwrap();
+    assert_eq!(request_result(&request).unwrap().bytes, original.bytes);
+    let access = reopened.persistent_access(&cover(), 128).unwrap();
+    let lease = access.lease.as_ref().unwrap();
+    let entry = reopened_cache.get(lease, &access.key).unwrap().unwrap();
+    assert!(!raster_allows_stale(&entry.bytes));
+    assert_eq!(entry.freshness, Freshness::Fresh);
+    reopened_cache
+        .put_with_ttl(lease, &access.key, &entry.bytes, Duration::ZERO)
+        .unwrap();
+    drop(request);
+    assert!(reopened.0.state.lock().unwrap().cache.is_empty());
+    let expired = reopened.request(&cover(), 128, reopened.epoch()).unwrap();
+    assert_eq!(request_result(&expired).unwrap_err(), ArtworkError::Network);
+    assert_eq!(reopened_cache.usage().unwrap().entries, 1);
+    assert!(reopened.0.state.lock().unwrap().cache.is_empty());
+}
+
+#[test]
+fn network_subcategories_discard_raw_messages_and_leave_unconfirmed_causes_generic() {
+    for (raw, expected) in [
+        (
+            "dns error: synthetic-private.example failed",
+            Some(Event::NetworkDns),
+        ),
+        (
+            "failed to lookup address information: synthetic-private",
+            Some(Event::NetworkDns),
+        ),
+        (
+            "invalid peer certificate: synthetic-private",
+            Some(Event::NetworkTls),
+        ),
+        (
+            "connection failed at https://synthetic-private/?token=hidden",
+            None,
+        ),
+        ("unexpected private provider response", None),
+    ] {
+        assert_eq!(known_network_detail(raw), expected);
+        if let Some(event) = known_network_detail(raw) {
+            let fixed = format!("{event:?}");
+            assert!(!fixed.contains("synthetic-private"));
+            assert!(!fixed.contains("hidden"));
+            assert!(!fixed.contains("://"));
+        }
+    }
+}
+
+#[test]
+fn public_request_rejects_a_malformed_tls_handshake_without_image_cache_or_http_fallback() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("https://{}/", listener.local_addr().unwrap());
+    listener.set_nonblocking(true).unwrap();
+    let (finished_tx, finished_rx) = mpsc::channel();
+    let server = thread::spawn(move || {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let (mut stream, _) = loop {
+            match listener.accept() {
+                Ok(connection) => break connection,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    assert!(Instant::now() < deadline, "local TLS request missing");
+                    thread::sleep(Duration::from_millis(5));
+                }
+                Err(_) => panic!("local TLS listener failed"),
+            }
+        };
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let mut hello = [0; 3];
+        stream.read_exact(&mut hello).unwrap();
+        assert_eq!(hello[0], 0x16, "client starts a TLS handshake, not HTTP");
+        assert_eq!(hello[1], 0x03);
+        // Deliberately invalid TLS: this is a real transport-handshake
+        // rejection, not a certificate-validation or live CDN test.
+        let _ = stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: 0\r\n\r\n");
+        drop(stream);
+        finished_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+        assert!(
+            matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock),
+            "TLS failure must not retry or downgrade to an HTTP request"
+        );
+    });
+    let disk = DiskFixture::new();
+    let cache = disk.cache();
+    let loader = ArtworkLoader::for_test_origin(&origin).unwrap();
+    loader.set_persistent_cache(Some(cache.clone()));
+    let request = loader.request(&cover(), 128, loader.epoch()).unwrap();
+    assert_eq!(request_result(&request).unwrap_err(), ArtworkError::Network);
+    assert!(loader.0.state.lock().unwrap().cache.is_empty());
+    assert_eq!(cache.usage().unwrap().entries, 0);
+    finished_tx.send(()).unwrap();
+    server.join().unwrap();
 }
 
 #[test]

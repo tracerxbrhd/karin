@@ -11,6 +11,8 @@ use adw::prelude::*;
 use gtk::{gio, glib};
 
 mod account;
+#[cfg(test)]
+mod artwork_tests;
 mod catalog_view;
 #[cfg(test)]
 mod diagnostic_tests;

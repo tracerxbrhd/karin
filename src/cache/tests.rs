@@ -82,6 +82,32 @@ fn track_record() -> Vec<u8> {
 }
 
 #[test]
+fn normalized_raster_flags_admit_alpha_and_fresh_only_policy_but_not_unknown_bits() {
+    let (_temp, _clock, cache, lease) = setup(CachePolicy::default());
+    for flags in 0u8..=3 {
+        let channels = if flags & 1 == 0 { 3u32 } else { 4 };
+        let mut bytes = b"KARINRGB".to_vec();
+        for value in [2u32, 2, 2 * channels] {
+            bytes.extend_from_slice(&value.to_be_bytes());
+        }
+        bytes.push(flags);
+        bytes.extend(std::iter::repeat_n(0x44, (4 * channels) as usize));
+        let key = key(u32::from(flags));
+        cache.put(&lease, &key, &bytes).unwrap();
+        assert_eq!(cache.get(&lease, &key).unwrap().unwrap().bytes, bytes);
+        for extra in [4, 8, 128] {
+            let mut invalid = bytes.clone();
+            invalid[20] |= extra;
+            assert_eq!(
+                cache.put(&lease, &key, &invalid),
+                Err(CacheError::InvalidData)
+            );
+        }
+    }
+    assert_eq!(cache.usage().unwrap().entries, 4);
+}
+
+#[test]
 fn cache_survives_restart_and_reports_hit_miss_stale_and_clock_rollback() {
     let (temp, clock, cache, lease) = setup(CachePolicy {
         artwork_ttl: Duration::from_secs(10),

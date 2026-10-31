@@ -679,7 +679,9 @@ fn valid_payload(key: &CacheKey, bytes: &[u8]) -> bool {
     }
 }
 fn valid_raster(bytes: &[u8]) -> bool {
-    if bytes.len() < 21 || &bytes[..8] != b"KARINRGB" || bytes[20] > 1 {
+    // Raster v1 flags retain the original alpha bit and one freshness-policy
+    // bit. Reject every unknown bit before admitting a persistent payload.
+    if bytes.len() < 21 || &bytes[..8] != b"KARINRGB" || bytes[20] & !3 != 0 {
         return false;
     }
     let width = u32::from_be_bytes(bytes[8..12].try_into().expect("fixed raster slice"));
@@ -688,7 +690,7 @@ fn valid_raster(bytes: &[u8]) -> bool {
     if !(1..=512).contains(&width) || !(1..=512).contains(&height) {
         return false;
     }
-    let channels = if bytes[20] == 1 { 4 } else { 3 };
+    let channels = if bytes[20] & 1 != 0 { 4 } else { 3 };
     stride == width * channels && bytes.len() == 21 + (stride * height) as usize
 }
 fn hash(bytes: &[u8]) -> [u8; 32] {

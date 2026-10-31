@@ -78,6 +78,101 @@ No Client ID/secret, pasted token, application registration, manual URL transfer
 experimental flag, VPN change or sandbox override belongs in this journey.
 Do not use automation's `--ui-fixture` or `--smoke-test` for real acceptance.
 
+### Focused cover and cache stabilization retest
+
+Draft PR #14 continues from the owner's native `23174b0` test: saved sign-in and
+pane opening/closing passed, but **real covers failed on every surface**. Pane
+redesign is deferred. Use the updated acceptance artifact's exact revision and
+checksums; do not reclassify the old cover failure from synthetic tests alone.
+
+1. Start ordinary `./karin` on the local Fedora desktop. If a saved session is
+   available, confirm it still restores the intended Music account after fresh
+   validation. No technical OAuth inputs or user credentials go to Cloud/CI.
+2. Open tracks and collections whose covers you recognize. Check track lists,
+   search/details, albums, playlist tiles, Player Bar and the right pane while
+   selecting/playing the same item. Test missing/unavailable artwork separately:
+   a fallback is correct there, not a successful real-cover result. Repeat in
+   light/dark and HiDPI; scroll and resize without losing loaded images or sound.
+3. In Storage, keep data caching enabled with its default **256 MiB ceiling**.
+   Observe measured usage, reopen an already loaded album/track and restart the
+   app. Record cover reuse separately from initial image display. Fast appearance
+   alone does not prove a disk hit: automatic integration tests must count HTTP
+   requests/cache reads, and any local diagnostic must use only the approved
+   fixed categories. About 66 KB of metadata for six tracks is not an audio-cache
+   failure or an expected music-file size.
+4. Disable data caching and open another item. Persistent image reads/new writes
+   must stop; already saved files may remain until Clear. Re-enable it, then
+   clear while a real track plays. Confirm the clear result while sign-in,
+   playback/context, visible texture and KDE/MPRIS presentation remain intact.
+5. Briefly repeat search, collection navigation, click/Enter/Space playback,
+   Next/Previous, Pause/Resume/Stop, Seek and Volume. Opening/closing information
+   must not restart audio. Do not expose Wave, similar tracks or offline controls
+   to substitute for this functional regression check.
+6. Turn remembering off while playing: saved-credential deletion must be
+   confirmed while the current session/sound may continue. Close/reopen and
+   check that sign-in is required; sign in normally if continuing. Then test
+   Cancel/default confirmation before explicit Logout. Confirmed Logout stops
+   music, clears personal cache and deletes the saved credential. Unknown cleanup
+   remains incomplete with Retry. Do not damage a personal keyring to invent a
+   failure; automated locked/missing/corrupt/cancel cases use synthetic backends.
+7. Report exact revision, native/Flatpak and anonymized PASS/FAIL/N/D for real
+   covers by surface, persistence/reuse, cache-off/clear, restored login/forget,
+   sound/queue/MPRIS and close. Do not share titles, account IDs, full URLs,
+   response bodies, private cache files, secrets or personal screenshots.
+
+### Safe opt-in artwork diagnostics
+
+Ordinary runs keep image-stage diagnostics disabled. For one local reproduction,
+close any existing Karin window, use your own already authorized session and run
+this option **alone** from the extracted acceptance directory:
+
+```sh
+ulimit -c 0
+./karin --artwork-diagnostic
+```
+
+This opens the ordinary application; it is not a token-entry tool or a separate
+image downloader. Do not combine it with `--ui-fixture`, `--smoke-test`, delivery
+diagnostics or other flags. Leave HTTP/WebKit/GStreamer tracing and terminal
+recording disabled. No TLS, origin or redirect override is needed.
+
+The summary emits each fixed category at most once per process, at most **45
+lines**, with prefix `Karin artwork:`. Categories distinguish:
+
+- `metadata-missing`, `uri-rejected`, `request-not-started`;
+- `visibility-deferred`, `request-queued`, `queue-busy`, `cancelled`;
+- `dns-failure`, `tls-failure`, `network-timeout`, `connection-failure`,
+  `network-failure`, and `http-response` with only a numeric HTTP status;
+- `http-refused`, `content-type-unsupported`, `decoder-unavailable`,
+  `decode-failed`, `image-too-large`;
+- `memory-cache-hit`, `disk-cache-hit`, `cache-miss`, `cache-bypassed`,
+  `cache-read-failed`, `cache-write-failed`;
+- `pixels-ready`, `gtk-displayed`, `gtk-lifecycle-unavailable`.
+
+Examples of the allowed result shape are:
+
+```text
+Karin artwork: event=http-response http=200
+Karin artwork: event=pixels-ready
+Karin artwork: event=gtk-displayed
+```
+
+Only share those category lines and the exact source revision if a report is
+needed; no complete log, image URL/path/query, response body, title, account ID,
+cookie, token or private cache record is required. Categories are process-wide
+stage presence, not per-image correlation or network-request counts. A disk-hit
+category can support the local observation, while counted loopback integration
+tests establish exact reuse. A queued/deferred image is not a decode success,
+and `pixels-ready` is not yet `gtk-displayed`. An expected missing cover still
+uses its native fallback.
+
+Actual real-cover display is a separate Fedora acceptance gate. New source
+changes do not inherit the owner's old native restore PASS automatically; the
+targeted regression must preserve it. Current Flatpak build/install and its real
+Secret Portal/backend remain separate pending checks unless actually performed.
+Keep the current sandbox permissions. Persistent audio remains intentionally
+absent; see [AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md).
+
 ### Session and preferences
 
 1. Open Settings and inspect authorization/storage availability. Native builds
@@ -484,6 +579,15 @@ GTK_A11Y=none GSK_RENDERER=cairo dbus-run-session -- \
   xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' \
   cargo test --lib --all-features --locked \
   native_catalog_cache_provenance_interleaving_and_retired_replies -- --ignored --test-threads=1
+
+GTK_A11Y=none GSK_RENDERER=cairo GSK_DEBUG=full-redraw dbus-run-session -- \
+  xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' \
+  cargo +stable test --lib --all-features --locked \
+  native_cover_metadata_http_cache_and_render_lifecycle -- --ignored --test-threads=1
+GTK_A11Y=none GSK_RENDERER=cairo GSK_DEBUG=full-redraw dbus-run-session -- \
+  xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' \
+  cargo +stable test --lib --all-features --locked \
+  native_visible_cover_retries_after_worker_queue_saturation_without_remap -- --ignored --test-threads=1
 ```
 
 Repeat the GTK selectors with `GDK_SCALE=2 GDK_DPI_SCALE=1` and a 3840×2160
@@ -505,6 +609,12 @@ proves a real KWallet/Secret Portal lifecycle.
 The catalog fixture checks visible per-view cache provenance, background reply
 interleaving and rejection of retired clear/disable replies; placeholder content
 is synthetic, not evidence of live provider layout or access.
+The cover fixtures start from Music-shaped metadata and a counted loopback image
+server, use the ordinary loader/decode path and inspect native GTK display. They
+also exercise bounded-worker saturation without requiring a widget remap. Repeat
+these two selectors with `cargo +1.98.1` and at 2× as above. Their generated pixels,
+synthetic account and isolated display do not establish real Fedora cover display
+or image-cache reuse in the owner's account.
 
 ## Local OAuth diagnostic (Gate B1)
 

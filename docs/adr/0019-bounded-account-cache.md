@@ -59,6 +59,14 @@ persisted. No original embedded metadata or provider address is written into the
 raster record. Preserve the existing separate artwork-worker admission limits
 and main-thread-only GTK textures.
 
+Stabilization clarification: `must-revalidate` with explicit positive remaining
+`max-age` permits fresh reuse, but never stale-on-network-error fallback. Retain
+that fact in the normalized raster's policy flag across restarts (bit 0 is alpha,
+bit 1 forbids stale reuse; reject unknown bits). Existing 0/1 raster flags remain
+compatible. This is not permission to store raw HTTP headers or original image
+metadata. `no-store`, `no-cache` and the other restrictions above still prevent
+persistence.
+
 A lease contains account and policy generations. Binding another account,
 disabling persistence or clearing invalidates obsolete jobs. Late readers and
 writers must not populate the new account, revive disabled data or repopulate a

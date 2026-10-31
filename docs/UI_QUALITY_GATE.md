@@ -83,6 +83,13 @@ For each theme and relevant page:
   pass this design review. Avoid repeated account banners, redundant headings,
   oversized separators and large dead areas around populated lists. Inspect
   actual populated states, including long real-shaped titles and missing artwork.
+- For artwork changes, test validated Music metadata through the ordinary
+  `CoverArt` rendition builder, counted fixture HTTP, decode and GTK texture
+  attachment with the symbolic fallback hidden. Pre-seeding RAM or supplying a
+  replacement URL does not cover this path. Include independent image failures,
+  cancellation/logout, queue pressure, HiDPI and an empty-RAM disk-cache restart
+  with no extra HTTP request. Keep actual current-account cover display on
+  Fedora as a separate manual gate; synthetic colored pixels do not close it.
 - For unified search, inspect independent real-data track/album/artist/playlist
   sections, their loading/empty/error states and section-specific Show All/Retry.
   One failed section must not erase successful sections or become a fabricated

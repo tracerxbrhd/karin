@@ -17,6 +17,46 @@ are separate statuses. The baseline PASS does not accept the new revision; only
 executed results belong in [VALIDATION.md](VALIDATION.md). Use the
 [single Fedora procedure](BUILDING.md#v03-seamless-experience-acceptance-on-fedora).
 
+## Current v0.3 functional stabilization
+
+At native revision `23174b045cc228e4108e847e801f9264d7a088f9`, the owner confirmed
+saved sign-in across restart and the right pane's opening/closing mechanics on
+Fedora 44 / KDE Plasma / Wayland / PipeWire. The pane's visual design is not
+accepted; its redesign belongs to the next UI/UX iteration, not this repair.
+
+**Real covers are a P0 failure on that revision:** lists, album views, playlist
+tiles, Player Bar, track information and other image surfaces show only fallback
+icons. A synthetic texture test or successful CI cannot pass real cover display.
+The URL-generation cause has been reproduced independently: internal raster
+buckets 128/256/512 were sent as CDN sizes; two published public resources
+returned 404 for those sizes and 200 decoded JPEG for presets 200/400/1000.
+The correction keeps the internal buckets/limits and existing exact HTTPS
+origin. Published protocol-relative and narrowly numeric playlist-revision
+variants do not justify arbitrary sources, queries, MIME types or redirects.
+Core stable/MSRV checks, counted image-cache tests and extended native GTK
+fixtures pass at 1×/2×. Hosted conclusions are tracked on the updated PR, and
+a separate owner retest remains required. Public-sample HTTP results and these
+fixtures do not prove the updated Fedora render path. The focused procedure is
+[the cover/cache stabilization retest](BUILDING.md#focused-cover-and-cache-stabilization-retest).
+
+The observed metadata cache of about **66 KB after six tracks is not a defect by
+itself**. The 256 MiB default is a size ceiling, not a preallocation or expected
+music-file size. The owner's image-cache reuse remains unconfirmed until the
+fixed build is tested.
+Initial stream buffering remains expected; persistent audio/offline and the full
+Wave lifecycle retain their independent documented blockers.
+
+Artwork diagnostics are opt-in and finite, silent by default, and report fixed
+stage categories rather than image addresses or personal fields. They do not
+identify a particular private image or expose a full request trace. Successful
+`must-revalidate` responses may be reused only while explicitly fresh; an expired
+raster marked no-stale cannot supply network-error fallback. Other documented
+HTTP cache restrictions remain in force.
+The malformed-TLS loopback test is a negative handshake/no-downgrade check,
+not a claim about a real CDN certificate chain. The current execution lacks
+Flatpak tooling/an installed GNOME 50 SDK; a full updated package and its
+Secret Portal/backend have not been tested here.
+
 ## Session and system storage
 
 - **Protected storage is an actual capability, not a service-name check.** Native
@@ -25,8 +65,9 @@ executed results belong in [VALIDATION.md](VALIDATION.md). Use the
   storage permits ordinary process-only sign-in without plaintext fallback.
   Active cleanup I/O settles first; after a failed result, memory-only login can
   continue while restoration/new persistent writes/cache remain barred.
-  Synthetic protocol fixtures do not establish a working KWallet/GNOME/portal
-  lifecycle or current sandbox support.
+  The owner's native restart PASS does not identify or accept every wallet
+  operation. Synthetic protocol fixtures do not establish real verified deletion,
+  failure recovery, a KWallet/GNOME lifecycle or current Flatpak portal support.
 - **Only a Music-validated token may be remembered/restored as authenticated.**
   A loaded credential, Yandex ID, previous account or cached library is not fresh
   Music authorization. Restore and validation run off GTK, with generations and

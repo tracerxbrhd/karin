@@ -134,6 +134,8 @@ jobs:
               'native_playlist_creation_confirmation_refresh_refusal_and_late_widgets',
               'native_persistent_session_restore_settings_forget_and_close',
               'native_catalog_cache_provenance_interleaving_and_retired_replies',
+              'native_cover_metadata_http_cache_and_render_lifecycle',
+              'native_visible_cover_retries_after_worker_queue_saturation_without_remap',
           ]
           for selector in selectors:
               assert any(line.endswith(f'::{selector}: test') for line in listed), f'Missing compiled native fixture: {selector}'
@@ -306,6 +308,19 @@ jobs:
           for scale in 1 2; do
             GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked artwork_thumbnail_maps_caches_hidpi_and_cancels_without_network -- --ignored --test-threads=1
           done
+      - name: Validated cover metadata through HTTP, disk cache and native rendering
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+          GSK_DEBUG: full-redraw
+        run: |
+          for scale in 1 2; do
+            if [ '${{ matrix.lane }}' = stable ]; then
+              export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/cover-delivery-$scale"
+            fi
+            GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_cover_metadata_http_cache_and_render_lifecycle -- --ignored --test-threads=1
+            GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_visible_cover_retries_after_worker_queue_saturation_without_remap -- --ignored --test-threads=1
+          done
       - name: Isolated WebKit construction and cancellation
         env:
           GTK_A11Y: none
@@ -475,7 +490,7 @@ jobs:
             printf 'Binary SHA256: '; sha256sum target/release/karin
           } > "$artifact/BUILD-INFO.txt"
           cat > "$artifact/README.txt" <<'EOF'
-          Karin v0.3 Seamless Experience: Fedora 44 acceptance build.
+          Karin v0.3 functional stabilization: Fedora 44 acceptance build.
           Verify the downloaded archive with: sha256sum -c SHA256SUMS
           Extract the archive and enter karin-fedora-prototype-1.98.1.
           Verify the exact source revision, features, native library versions and binary hash in BUILD-INFO.txt.
@@ -488,6 +503,11 @@ jobs:
           ./karin
           No experimental flag, Client ID/secret, token, URL copying or application registration is required.
           Read docs/BUILDING.md#v03-seamless-experience-acceptance-on-fedora at the exact source commit in BUILD-INFO.txt.
+          For this repair, use its focused-cover-and-cache-stabilization-retest subsection first.
+          Owner-tested 23174b0 preserved native login across restart and pane mechanics, but every real cover failed.
+          This build corrects CDN rendition sizes; verify recognizable real covers across all music surfaces and disk reuse after restart.
+          If needed, close the app and run ./karin --artwork-diagnostic alone for bounded fixed image-stage categories.
+          Share only Karin artwork: category lines, never complete logs or resource addresses; normal startup keeps this disabled.
           Baseline: owner accepted merged master 09f7635 on Fedora 44 / KDE / Wayland / PipeWire: 17 PASS, 0 FAIL, 1 not assessed.
           The baseline included native and Flatpak Music playback, queues, MPRIS, KDE media widget and clean exit.
           Hardware media keys were not assessed. That previous result does not accept this new v0.3 artifact.
