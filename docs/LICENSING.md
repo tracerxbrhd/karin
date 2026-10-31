@@ -70,6 +70,36 @@ exports a decoded cover-only PNG in a temporary private app-cache directory
 (directory 0700, file 0600), removed on replacement, logout and normal shutdown.
 It contains no source URL or original embedded metadata; music is not cached.
 
+### v0.3 protected persistence and bounded presentation cache
+
+The session/cache/workspace additions are original GPL-3.0-or-later Rust and
+use the existing GIO, ring, Rustix and Serde dependency families. They do not
+import KWallet/libsecret implementation code, a new OAuth identity, media keys,
+third-party graphics or a service recording. Reviewed protocol/source references
+remain references rather than silently relicensed bundled material.
+
+Native credential I/O uses the user's system Secret Service; its at-rest policy
+belongs to that configured keyring. The standard local D-Bus `plain` session is
+not a claim of separately encrypted IPC or a plaintext Karin credential file.
+Flatpak uses the Secret Portal contract and an authenticated encrypted token
+envelope in app-private XDG data, with the portal key retained only in memory.
+Actual backend support and package/runtime checks are recorded separately from
+source availability. See [ADR-0018](adr/0018-persistent-session-and-settings.md).
+
+Reduced catalog metadata and explicitly cacheable decoded covers may now persist
+in a bounded private account cache. Service images remain third-party material;
+they are not Karin-owned GPL assets and are not bundled with the repository or
+prototype artifact. Respect explicit HTTP cache restrictions and source freshness
+bounds, strip embedded metadata from normalized raster records and retain clear
+cache/forget controls. The transient MPRIS PNG remains separately owned so ordinary
+cache clearing does not remove a live media-widget image.
+
+No service audio cache or offline-availability claim follows from code licensing,
+a subscription or the accepted legacy stream. The separate permission and
+offline-entitlement review is in [AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md).
+Unestablished third-party persistence rights are not described as a blanket
+technical failure or an assertion that every MP3 checksum is DRM.
+
 ## License text and scope
 
 `LICENSE` is copied byte-for-byte from the Debian base image's standard
@@ -160,14 +190,14 @@ copyright files were reviewed for the principal components below.
 
 | Component | Reviewed native scope |
 | --- | --- |
-| GTK4, Libadwaita, GLib/GIO and libsecret | Principally LGPL-2.1-or-later; individual bundled files/materials have their own notices. Dynamic use is compatible with the GPLv3 application, while native-library source/relinking and notice duties remain with distributors. libsecret presence is inspected over D-Bus; Karin currently does not link a credential-storage implementation. |
+| GTK4, Libadwaita, GLib/GIO and libsecret | Principally LGPL-2.1-or-later; individual bundled files/materials have their own notices. Dynamic use is compatible with the GPLv3 application, while native-library source/relinking and notice duties remain with distributors. Karin implements the standard credential protocols through existing GIO rather than linking a new libsecret binding. Native service/runtime availability remains separate from the component's license. |
 | Optional WebKitGTK6, JavaScriptCore and libsoup | Native components have their own LGPL-2.1-or-later/BSD-style and per-file terms, separate from the MIT Rust bindings. They are supplied by the host or GNOME 50 runtime; no extra native module/runtime version or sandbox grant is introduced. Distributors must preserve the exact components' notices and satisfy applicable source/relinking obligations. Review the actual runtime revision and bundled subcomponents before a release; the Cargo inventory is not that review. |
 | GStreamer core and installed base/good plugins | Principally LGPL-2.0-or-later / LGPL-2.1-or-later with per-file exceptions. The real player uses host-provided playbin, HTTPS source, MP3 decoding and output plugins; separate diagnostics use synthetic/local media. No codec pack or service recording is bundled. Additional plugins/codecs must be reviewed for their actual licenses and applicable patent/distribution constraints. |
 | D-Bus | The installed shared library offers `GPL-2.0-or-later OR AFL-2.1`; the GPL-later route permits GPLv3 combination. Karin currently uses GIO's D-Bus implementation and does not bundle a bus daemon. Separate utility/package files can have different terms. |
 | glibc and GCC runtime | glibc is principally LGPL-2.1-or-later; libgcc uses GPLv3 with GCC Runtime Library Exception. These are native runtime components, not relicensed by Karin. |
 | OpenSSL 3 in the development environment | Apache-2.0. Karin's HTTP implementation uses rustls/ring, not reqwest's OpenSSL backend. An installed development package is not proof that it is shipped or linked. Old OpenSSL versions would require their own review. |
 | Rust standard library/toolchain, GNOME SDK, Blueprint and build tools | Build tools are not automatically part of the shipped application. Rust's distributed components include their own MIT/Apache/LLVM-related notices; retain applicable notices for linked runtime pieces. The SDK and its tools retain their own component licenses. |
-| GNOME Flatpak runtime | A separately managed runtime with many component licenses. The initial manifest is not a complete runtime SBOM. A full Flatpak build is blocked in this cloud container, so final runtime/extension/license-content validation remains a release prerequisite. |
+| GNOME Flatpak runtime | A separately managed runtime with many component licenses. The manifest is not a complete runtime SBOM. The owner reports successful final v0.3 Flatpak functional checks; this cloud container did not run that package. Exact shipped runtime/extension/license-content validation remains a release prerequisite. |
 
 Do not add codec bundles, proprietary media, third-party artwork, or runtime
 libraries to a release merely because they are installed in a developer machine.
@@ -197,7 +227,10 @@ alone is not a universal substitute. Preserve runtime/library distributors'
 notices and satisfy their applicable obligations. Source generated from a worktree
 must be reviewed before distribution, including licenses and unintended files.
 
-This PR does not publish a release or certify the unbuilt Flatpak. GPL grants
+The owner accepted v0.3 runtime `0232548` and reported successful final Flatpak
+authorization/playback/system integration on 2026-10-31. This does not supply an
+exact backend failure matrix or a release SBOM. This iteration does not publish
+a release. GPL grants
 rights in software, **not** permission to access Yandex Music, use its API or
 trademarks, or distribute its audio. Service terms, account rights and the
 blockers in [API_FEASIBILITY.md](API_FEASIBILITY.md) remain separate.

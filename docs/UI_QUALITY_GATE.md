@@ -9,7 +9,7 @@ fictional music catalogs, recommendations or player controls.
 
 ## Required matrix
 
-The v0.2 music shell uses native adaptive navigation. Check the actual desktop
+The accepted native music shell uses adaptive navigation. Check the actual desktop
 rail/sidebar and compact navigation, including labels/tooltips/accessibility for
 icon-only controls, opening/focus/activation/closing, cross-page keyboard
 focus and selected-page preservation across both directions of resizing. Check
@@ -52,8 +52,11 @@ For each theme and relevant page:
 - Check heading levels, margins, group spacing and reasonable row/button widths.
   Long status and error text must wrap without pushing actions off-screen.
   The persistent player's single-line track title may use native ellipsis only
-  when its complete text is available through a tooltip and accessible label;
-  this exception does not apply to headings, errors, status text or action labels.
+  when its complete text is available through a tooltip and accessible label.
+  Playlist-tile metadata may use two wrapped lines with native ellipsis only
+  when its full title is available in a tooltip/accessibility label and detail
+  view. These exceptions do not apply to headings, errors, status text or action
+  labels.
 - Use Tab and Shift+Tab through navigation, menu and action buttons. Verify a
   visible focus indicator, logical focus order, Enter/Space activation and
   keyboard access to every implemented action. Check Ctrl+Q shutdown.
@@ -80,6 +83,13 @@ For each theme and relevant page:
   pass this design review. Avoid repeated account banners, redundant headings,
   oversized separators and large dead areas around populated lists. Inspect
   actual populated states, including long real-shaped titles and missing artwork.
+- For artwork changes, test validated Music metadata through the ordinary
+  `CoverArt` rendition builder, counted fixture HTTP, decode and GTK texture
+  attachment with the symbolic fallback hidden. Pre-seeding RAM or supplying a
+  replacement URL does not cover this path. Include independent image failures,
+  cancellation/logout, queue pressure, HiDPI and an empty-RAM disk-cache restart
+  with no extra HTTP request. Keep actual current-account cover display on
+  Fedora as a separate manual gate; synthetic colored pixels do not close it.
 - For unified search, inspect independent real-data track/album/artist/playlist
   sections, their loading/empty/error states and section-specific Show All/Retry.
   One failed section must not erase successful sections or become a fabricated
@@ -138,7 +148,7 @@ volume and queue controls match the actual selected source and worker state.
 Check empty, resolving, playing, paused, stopped, ended and failed states at
 compact and desktop sizes. A screenshot of a Play icon does not prove sound.
 
-When MPRIS is implemented, run a real isolated session-bus fixture and exercise
+Run a real isolated session-bus fixture and exercise
 the same native player through its exported methods, properties and signals.
 Compare capabilities and position/seek units with actual snapshots; verify no
 second audio engine, arbitrary URI input, stale track identifier, media address,
@@ -153,6 +163,62 @@ Fedora acceptance must separately verify an actual selected Music track,
 and, when built, the current Flatpak sandbox. No manual result is passed until
 it is actually performed.
 
+## v0.3 session, storage and information workspace
+
+Treat the merged v0.2 owner acceptance as the regression baseline, not a pass for
+new persistence/cache/pane code. At every relevant size/theme/scale:
+
+- Inspect restoring, validated, invalid session, unavailable/locked store,
+  cancelled prompt and retryable deletion-error states. An issued or stored
+  token alone must not appear authenticated before Music validation.
+- Inspect remember-login effective availability, save/forget progress and the
+  durable pending-forget state. Turning remember-login off may preserve current
+  playback; logout must stop it and confirm saved-credential cleanup. No final
+  successful logout may hide an unknown delete/cache-clear outcome. Cancel from
+  the native logout confirmation remains the safe default.
+- Check persisted system/light/dark appearance and PreferencesDialog pages for
+  authorization and storage. Labels, toggles, maximum-size controls, measured
+  usage, clear progress/errors and repeated open/close must remain accessible
+  with keyboard, long messages and compact windows. No secret, token value,
+  account identifier, portal key or raw backend error is displayed.
+  Check a failure after scrolling to Storage: the inline operation outcome must
+  be reachable/visible, while repeated unchanged snapshots must not steal focus.
+- While actual generated fixture media plays, change cache policy, clear cache, open/close
+  track information, move through playlists/search and resize both directions.
+  These presentation/storage operations must preserve current audio, track ID,
+  queue/context and MPRIS state unless the user explicitly performs a playback
+  or logout action. Clearing cache must not remove the stored session or the
+  live MPRIS cover file.
+- Inspect cache-hit, loading, explicit refresh, saved/potentially stale fallback,
+  disabled-cache and empty/error states. A saved library/playlist is not current
+  authorization or confirmed membership. Never show an offline-available badge
+  or Offline switch unless a permitted audio cache actually exists.
+- Inspect the right track pane on wide windows and its adaptive compact
+  presentation. Check large/missing cover, long full title/credits/album,
+  selected-versus-playing state, close/focus return and only verified artist/
+  album navigation. Pane opening/closing must not implicitly Play or Stop.
+  Its menu action and Ctrl+I stay disabled on Diagnostics; switching back to
+  music restores the appropriate action without changing playback.
+- Activate tracks through mouse/Enter/Space and through distinct Details/pane
+  controls. Preserve exact source occurrence/duplicates, manual appends and the
+  visible partial-context boundary; a different information selection must not
+  silently replace the playing queue.
+- Inspect playlist tiles at one-column through wide-grid sizes, including a
+  sparse one-item collection, long/missing title, unknown counts, absent covers,
+  loading/empty/error/Retry and keyboard focus. Confirm navigation using actual
+  clicks/Enter/Space. Creation appears only when its server-confirmed workflow is
+  implemented; ambiguous writes must not create a fake local tile or replay POST.
+- Keep My Wave and similar-track blocks hidden when their required real
+  contracts are not established. Source stubs and a renamed normal queue do not
+  pass their capability gates.
+
+Automated persistence/cache captures must use isolated synthetic XDG directories,
+a fake credential boundary and local fixtures, as well as the existing explicit
+`--ui-fixture` provider. They must not restore a developer's real saved session,
+read a personal cache, unlock a real wallet or contact Yandex. Native keyring and
+Flatpak Secret Portal prompts are owner-local checks; never publish personal
+wallet/auth windows. Fixture passes and Xvfb do not establish those real backends.
+
 ## GTK structure and behavior
 
 Run formatting, Clippy without warnings, tests, the build, GTK smoke test and
@@ -160,6 +226,11 @@ GStreamer diagnostic. Structural checks must cover actual window/widget
 allocation, adaptive navigation visibility, page selection and normal close/
 resource release. Check that widgets remain inside the content area and that
 scrolling exposes diagnostics on short windows.
+For `OverlaySplitView`, use its public `shows_sidebar()` state at every width:
+Libadwaita may keep a closed sidebar mapped outside the viewport. Always check
+main content and assert that it reclaims the closed pane's width; keep all
+geometry checks for an open sidebar. A mapped closed pane alone is not visible
+clipping, and the correction must not skip open-pane or content assertions.
 
 Screenshots supplement these assertions by revealing hierarchy, clipping and
 focus problems that structure tests cannot judge. Conversely, a plausible image

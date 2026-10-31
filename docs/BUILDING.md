@@ -48,23 +48,30 @@ Yandex Music stream playback. The default sign-in provider is the Cassette-compa
 session prototype below; it requires no end-user OAuth configuration.
 
 <a id="v02-catalog-and-delivery-info-acceptance-on-fedora"></a>
+<a id="v03-seamless-experience-acceptance-on-fedora"></a>
 
-## v0.2 workspace, playback context and desktop-control acceptance on Fedora
+## v0.3 — one Fedora acceptance session
 
-Use **one updated build from the existing PR #13**, after its matching stable
-and MSRV CI checks pass. The owner accepted **Search PASS, Account PASS and Playback PASS** at
-`f0aa2bb`. On 2026-10-31 the owner also accepted the revised native UI as a
-sufficient **integration baseline**, with further visual refinements deferred.
-That is not a claim that KDE MPRIS/media keys, every revised source context
-or the current Flatpak passed owner-local acceptance. Preserve those
-working service paths while checking the next interface revision. The earlier
-`8f1b09d` run established real audio but still failed track search; it is
-historical evidence, not the latest search result.
-Check the new artifact's `BUILD-INFO.txt`/source revision and `SHA256SUMS`. A
-successful MSRV run uploads `karin-fedora-prototype-1.98.1`; verify the archive
-before extracting/running. The artifact is a native Ubuntu-built test binary,
-not a Flatpak or production release. If it cannot start on Fedora, build the
-same PR #13 revision locally with the prerequisites above:
+The owner accepted v0.3 runtime
+**`02325489d23ead9da4471de9cc35e2c063ac8bab`** on **2026-10-31** on Fedora
+44 / KDE Plasma / Wayland / PipeWire: persistent sign-in/restart restoration,
+real covers in lists/Player Bar/right pane, actual playback, pane mechanics and
+KDE Media Widget cover/metadata. Final Flatpak checks were also reported
+successful for tested authorization, playback and system-integration scenarios.
+See [the exact acceptance scope](VALIDATION.md#final-owner-v03-acceptance-at-0232548-2026-10-31).
+No blocking functional defect was reported. The pane's visual design remains
+unaccepted; substantial UI/UX work moves to a separate iteration.
+
+The procedure below remains the reproducible native/Flatpak regression guide.
+Documentation-only finalization in [PR #14](https://github.com/tracerxbrhd/karin/pull/14)
+does not rename the accepted runtime SHA; final-head CI is tracked on that PR.
+This is functional-prototype acceptance, not a public-release approval.
+
+Check the build's source revision and `SHA256SUMS` before running. A successful
+MSRV CI run supplies `karin-fedora-prototype-1.98.1`, with an archive, build
+metadata and licenses. It is a native Ubuntu 24.04 x86_64 test binary, not a
+Flatpak or production release. If that binary is unavailable/incompatible,
+build the same PR revision locally using the prerequisites above:
 
 ```sh
 rustup toolchain install 1.98.1 --profile minimal
@@ -73,70 +80,239 @@ ulimit -c 0
 ./target/release/karin
 ```
 
-For the extracted artifact, disable core dumps and run ordinary `./karin`.
-No OAuth registration, Client ID/secret, pasted token, URL transfer, diagnostic
-flag, VPN change or sandbox override is needed. Use your own local Fedora 44 /
-KDE / Wayland / PipeWire session outside Cloud/CI, a recorder or shared support
-terminal. Keep network/browser/GStreamer debugging disabled; do not save a full
-terminal transcript. Session credentials remain memory-only.
+For the extracted archive, run ordinary `./karin`. Use your own local desktop,
+with network/browser/GStreamer debugging disabled and no terminal recording.
+No Client ID/secret, pasted token, application registration, manual URL transfer,
+experimental flag, VPN change or sandbox override belongs in this journey.
+Do not use automation's `--ui-fixture` or `--smoke-test` for real acceptance.
 
-In this single session:
+### Focused cover and cache stabilization retest
 
-1. Click **Войти**, finish the normal Yandex dialog and open the Library. Click
-   a playable track row: the player should respond immediately, and the actual
-   track must become audible through PipeWire. Repeat row activation with Enter
-   and Space. Open details through its distinct action and return without
-   accidentally starting another track. This preserves the accepted real audio
-   path; a generated signal does not satisfy it.
-2. From liked tracks, an album, a personal playlist and track-search results,
-   start a track from the middle of the returned list. Check that its source
-   context/order/position appears in the queue and Next/Previous/EOS select the
-   expected actual tracks. A loaded page must not pretend to be the full remote
-   collection. Append another track, remove a noncurrent/current entry, clear
-   the queue and start a different context. Navigating away or changing a page
-   must not unexpectedly replace active playback or resurrect old queue work.
-3. Search with Latin and Cyrillic queries. Check separate tracks, albums,
-   artists and playlists sections, then each section's Show All, paging and
-   return path. Verify normalized track titles/artists and real playback from
-   a result; search display metadata must not reject a valid own ID. Successful
-   sections must remain visible if another section fails; successful empty
-   categories should not add empty blocks. An all-empty search has one message.
-   Section Retry must request only that category; Back to All makes a fresh
-   bounded aggregate search. Missing records must
-   be explained and unavailable tracks must remain unplayable. Verify one
-   readable failure with **Повторить поиск** or the section's Retry action;
-   safe technical details stay collapsed unless deliberately opened.
-4. Open the round account avatar. It should show known account/session facts
-   without duplicating an account banner on every page. Initials are expected
-   when no photo is verified. Open the account action: it must launch the fixed
-   Yandex account page in the external browser. While Music plays, select
-   **Выйти из аккаунта** and verify default focus on **Отмена**. Button Cancel,
-   Escape and ordinary default keyboard activation must preserve the session,
-   queue and sound. Only explicit confirmation signs out and stops audio.
-   Sign in again normally; no technical credentials are required.
-5. Exercise the persistent bar's Play/Pause/Resume/Stop, progress/seek when
-   supported, volume and queue action. Its cover/title/artist and position must
-   match the heard track and real engine state. Check resolving/error/retry
-   states, then close while playing: no orphan audio may remain. A locally
-   expired source can require explicit Play to acquire a fresh resource; there
-   is no identity switch, protection fallback or automatic refusal retry loop.
-6. With a real track playing, check KDE's media widget and hardware media keys,
-   then use the MPRIS commands below. Compare transport/position/volume changes
-   in both directions with Karin. Next/Previous must preserve paused/stopped
-   intent. Logout must clear media metadata and stop sound; closing Karin must
-   release the bus name. Repeat inside the current Flatpak only after that
-   actual artifact has been built and installed; native success is separate.
-7. Resize around 420×720, 900×650 and 1440×900, maximize/restore, switch both
-   themes and check HiDPI. Check the default desktop icon rail, explicit labels
-   expansion and compact drawer, plus useful populated-list density and coherent
-   player spacing. Assess the overall music composition, not only clipping.
-   Use Tab/Shift+Tab, Enter, Space and Escape through search, rows, details,
-   queue, avatar and confirmation. Change query/page during a request; late
-   results must not replace the current view or restart stopped audio.
+The native `23174b0` test had a real-cover FAIL. Its repair is owner-accepted at
+`0232548` for lists, Player Bar and right-pane images, with actual KDE Media
+Widget cover/metadata also confirmed. Keep the earlier FAIL as revision history;
+additional surfaces and backend scenarios below are reusable regression checks,
+not invented individual results from the final owner report. Pane redesign is
+deferred. Match the artifact's exact source revision and checksums when repeating
+the procedure.
 
-Install Fedora's `playerctl` package if needed. With ordinary Karin open in the
-same user's desktop session, use only the controls below; no token, resource
-address or other technical input is required:
+1. Start ordinary `./karin` on the local Fedora desktop. If a saved session is
+   available, confirm it still restores the intended Music account after fresh
+   validation. No technical OAuth inputs or user credentials go to Cloud/CI.
+2. Open tracks and collections whose covers you recognize. Check track lists,
+   search/details, albums, playlist tiles, Player Bar and the right pane while
+   selecting/playing the same item. Test missing/unavailable artwork separately:
+   a fallback is correct there, not a successful real-cover result. Repeat in
+   light/dark and HiDPI; scroll and resize without losing loaded images or sound.
+3. In Storage, keep data caching enabled with its default **256 MiB ceiling**.
+   Observe measured usage, reopen an already loaded album/track and restart the
+   app. Record cover reuse separately from initial image display. Fast appearance
+   alone does not prove a disk hit: automatic integration tests must count HTTP
+   requests/cache reads, and any local diagnostic must use only the approved
+   fixed categories. About 66 KB of metadata for six tracks is not an audio-cache
+   failure or an expected music-file size.
+4. Disable data caching and open another item. Persistent image reads/new writes
+   must stop; already saved files may remain until Clear. Re-enable it, then
+   clear while a real track plays. Confirm the clear result while sign-in,
+   playback/context, visible texture and KDE/MPRIS presentation remain intact.
+5. Briefly repeat search, collection navigation, click/Enter/Space playback,
+   Next/Previous, Pause/Resume/Stop, Seek and Volume. Opening/closing information
+   must not restart audio. Do not expose Wave, similar tracks or offline controls
+   to substitute for this functional regression check.
+6. Turn remembering off while playing: saved-credential deletion must be
+   confirmed while the current session/sound may continue. Close/reopen and
+   check that sign-in is required; sign in normally if continuing. Then test
+   Cancel/default confirmation before explicit Logout. Confirmed Logout stops
+   music, clears personal cache and deletes the saved credential. Unknown cleanup
+   remains incomplete with Retry. Do not damage a personal keyring to invent a
+   failure; automated locked/missing/corrupt/cancel cases use synthetic backends.
+7. Report exact revision, native/Flatpak and anonymized PASS/FAIL/N/D for real
+   covers by surface, persistence/reuse, cache-off/clear, restored login/forget,
+   sound/queue/MPRIS and close. Do not share titles, account IDs, full URLs,
+   response bodies, private cache files, secrets or personal screenshots.
+
+### Safe opt-in artwork diagnostics
+
+Ordinary runs keep image-stage diagnostics disabled. For one local reproduction,
+close any existing Karin window, use your own already authorized session and run
+this option **alone** from the extracted acceptance directory:
+
+```sh
+ulimit -c 0
+./karin --artwork-diagnostic
+```
+
+This opens the ordinary application; it is not a token-entry tool or a separate
+image downloader. Do not combine it with `--ui-fixture`, `--smoke-test`, delivery
+diagnostics or other flags. Leave HTTP/WebKit/GStreamer tracing and terminal
+recording disabled. No TLS, origin or redirect override is needed.
+
+The summary emits each fixed category at most once per process, at most **45
+lines**, with prefix `Karin artwork:`. Categories distinguish:
+
+- `metadata-missing`, `uri-rejected`, `request-not-started`;
+- `visibility-deferred`, `request-queued`, `queue-busy`, `cancelled`;
+- `dns-failure`, `tls-failure`, `network-timeout`, `connection-failure`,
+  `network-failure`, and `http-response` with only a numeric HTTP status;
+- `http-refused`, `content-type-unsupported`, `decoder-unavailable`,
+  `decode-failed`, `image-too-large`;
+- `memory-cache-hit`, `disk-cache-hit`, `cache-miss`, `cache-bypassed`,
+  `cache-read-failed`, `cache-write-failed`;
+- `pixels-ready`, `gtk-displayed`, `gtk-lifecycle-unavailable`.
+
+Examples of the allowed result shape are:
+
+```text
+Karin artwork: event=http-response http=200
+Karin artwork: event=pixels-ready
+Karin artwork: event=gtk-displayed
+```
+
+Only share those category lines and the exact source revision if a report is
+needed; no complete log, image URL/path/query, response body, title, account ID,
+cookie, token or private cache record is required. Categories are process-wide
+stage presence, not per-image correlation or network-request counts. A disk-hit
+category can support the local observation, while counted loopback integration
+tests establish exact reuse. A queued/deferred image is not a decode success,
+and `pixels-ready` is not yet `gtk-displayed`. An expected missing cover still
+uses its native fallback.
+
+Actual real-cover display is owner-confirmed for the stated surfaces at
+`0232548`; the final native and Flatpak report remains separate from these
+diagnostic categories. A later runtime change needs its own targeted regression.
+The report does not identify every Secret Portal/backend or prove individual
+failure/deletion cases. Keep the current sandbox permissions. Persistent audio
+remains absent because storage rights are unconfirmed; see
+[AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md). My Wave remains hidden pending
+its full service contract, and public OAuth-distribution rights remain separate.
+
+### Session and preferences
+
+1. Open Settings and inspect authorization/storage availability. Native builds
+   use the available Secret Service keyring; Flatpak uses the available Secret
+   Portal/backend. Running KWallet/GNOME or a portal name alone is insufficient:
+   the following save/restore/delete sequence must actually succeed. If protected
+   storage is unavailable, ordinary process-only login must remain possible
+   without plaintext fallback. Active cleanup I/O must settle first; a failed
+   cleanup remains visible with Retry and permits only memory login while old
+   restoration/new persistent credentials/cache stay barred in the current
+   process; cross-restart protection requires a successfully saved barrier.
+2. With **Запоминать вход** enabled and supported, click **Войти**, complete the
+   existing Yandex dialog and wait for Music account validation and the real
+   library. Any native keyring unlock prompt belongs to the desktop; cancel it
+   if desired and verify an honest storage failure, without exposing a password
+   field in Karin. Play an entitled real track through PipeWire. A Yandex page,
+   saved token or generated tone is not successful Music playback.
+3. Close Karin normally and reopen the same build. Check a visible restoring
+   state, then the correct account/library after Music validation, without
+   repeating ordinary login. Verify real sound and the original queue/transport
+   behaviors again. A transient network failure must be distinguishable from an
+   invalid token or unavailable/locked store; Retry must not silently change
+   identity or report an unvalidated account as authenticated.
+4. Change system/light/dark appearance, cache settings and track-pane preference,
+   close/reopen and check persistence. Settings-save failures must be visible;
+   an older asynchronous save must not undo a newer choice. New loading/error
+   state itself must not become a persisted preference.
+5. While a real track plays, turn remember-login off. Saved-credential deletion
+   must be confirmed while the current in-memory session may continue. Close
+   and reopen: ordinary login is required again. Re-enable remembering and log
+   in normally if continuing the restoration tests. If a previously available
+   backend is now unavailable, its saved enabled preference must remain honest
+   and may still be turned off to record forget intent; deletion stays pending
+   with Retry. Enabling again requires supported protected storage.
+6. Open the account avatar and choose **Выйти из аккаунта**. Cancel/Enter/Escape
+   at the default **Отмена** response must preserve account, queue and sound.
+   Confirm explicitly: stop audio, clear personal presentation and persistent
+   metadata/covers, and delete the saved credential. A failed/unknown delete or
+   clear must stay visible with Retry; it must not claim final success. Reopen
+   after confirmed logout and verify no automatic old login. Test cancellation,
+   late loading and a fresh login without reviving old account data.
+
+When successfully saved, the durable pending-forget barrier prevents restoration
+while cleanup remains unresolved. If recording the barrier itself fails, Karin
+must say restart protection/final forget are unconfirmed; retry cleanup before
+relying on a later restart to remain signed out. Portal forgetting removes Karin's authenticated encrypted token
+file, not the portal's per-app master key or Yandex's server grant. Native
+forgetting verifies matching saved items are absent. No refresh-token or server
+revocation mechanism is claimed. Do not inspect or share keyring secret values.
+
+Locked/unavailable/corrupt storage, invalid-token and concurrent-operation cases
+are covered by synthetic fixtures; an actual desktop result is recorded only
+when observed. Do not damage a personal keyring to manufacture a failure. If an
+ordinary wallet prompt/error occurs, report its fixed category, not a screenshot
+or complete D-Bus trace.
+
+### Cache and normal music use
+
+1. In **Настройки → Хранилище**, verify caching defaults to enabled, with a
+   256 MiB limit and a supported 16 MiB–4 GiB range. Load real library, playlist,
+   album and track details/covers, then check measured usage. Repeat a read and
+   exercise explicit Refresh. Fixture tests count network requests; apparent
+   speed alone does not prove a cache hit or freshness.
+2. Check saved/stale fallback presentation during an ordinary network failure:
+   previously loaded metadata must be labelled as saved/potentially outdated.
+   Cached records must not confirm current authorization, favorite membership,
+   playlist revisions or writes. Do not interpret saved metadata/covers as
+   downloaded or offline-playable music.
+3. Disable caching. Existing usage may remain until explicit clear; persistent
+   content reads and new writes must stop. Re-enable it and verify normal
+   bounded reuse. Change the limit and confirm eviction/usage behavior. A cache
+   error must not invalidate the account or silently replace live data.
+4. While music plays, choose **Очистить кеш**. Observe clearing and its actual
+   result/errors. Current playback, context, metadata/texture presentation,
+   remembered session and live MPRIS cover must remain intact. Old in-flight
+   loads must not repopulate the cleared persistent store. Logout is different:
+   it deliberately stops audio and purges personal cache along with forgetting
+   the saved credential.
+5. If you have another account of your own and choose to test it, use ordinary
+   confirmed Logout followed by ordinary Login. No old account's cached library
+   may appear as the new account's data. Automated fixtures cover separate
+   synthetic accounts; never import a browser profile or another user's token.
+
+Corruption, interrupted writes, cache-hit/miss/stale, account isolation and
+clear/disable races use isolated synthetic files in automated tests. Do not
+upload a real cache record or edit personal credentials to reproduce them.
+Persistent audio/offline support has a separate rights/contract gate in
+[AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md). There is no inert Offline switch
+or hidden music download. The existing resolver/player still streams eligible
+resources through its guarded path.
+
+### Track information, playlists and regression
+
+1. Above 1180 logical pixels check the preferred right track-information pane;
+   at 1180 or narrower it is a collapsed overlay and must not auto-open on Play.
+   Click the current cover or press Ctrl+I to open it explicitly; close/reopen
+   and verify the persisted wide-pane preference. Verify actual large cover/title/artist/album,
+   selected-versus-playing status, close/focus return and verified album/artist
+   actions. Opening/closing or resizing information must not restart/stop audio.
+   Missing identities must not produce guessed navigation or fake similar tracks.
+2. Inspect playlist cover tiles with one, many, long-title and missing-cover
+   records. Use mouse and Enter/Space to open details. Check loading, empty,
+   failure/Retry and narrow-to-wide wrapping. If creation is exposed, deliberately
+   create one test playlist (private by default) and require server-confirmed
+   success. Public visibility must be an explicit choice. An ambiguous
+   result must remain unknown; Refresh reads the server and must not replay POST
+   or add a fake local tile. A known service refusal removes Create for this
+   account while normal library/playback remain usable. Do not repeatedly create
+   after an unknown outcome.
+3. From liked tracks, an album, playlist and unified search, activate a playable
+   row using click, Enter and Space. The exact occurrence must become current;
+   source order/duplicates, Next/Previous/EOS, manual additions and the visible
+   partial-collection boundary must remain correct within 500 positions. Details
+   are a separate action. Navigation must not replace an active context.
+4. Search Latin/Cyrillic queries across tracks/albums/artists/playlists; check
+   Show All, paging, Back, Retry and independent section failures. Keep the
+   accepted one-batch track normalization and unavailable-item handling intact.
+5. Exercise the accepted player bar's Play/Pause/Resume/Stop, progress/Seek,
+   Volume, queue and clean close while hearing a real Music track. Check KDE's
+   Media Widget and media keys when available; compare changes in both
+   directions with Karin. MPRIS registration alone does not prove those controls.
+6. Resize around 420×720, 900×650 and 1440×900, maximize/restore, both themes and
+   HiDPI. Check useful density, headers/window controls, full scroll reachability,
+   long text, keyboard focus, track pane, grid and PreferencesDialog. Preserve
+   the expandable icon rail, avatar, safe logout and accepted player composition.
+
+Optional command-line MPRIS checks, in the same user's desktop session:
 
 ```sh
 playerctl --player=io.github.tracerxbrhd.Karin status
@@ -149,67 +325,49 @@ playerctl --player=io.github.tracerxbrhd.Karin previous
 playerctl --player=io.github.tracerxbrhd.Karin stop
 ```
 
-Do not record or publish `playerctl metadata` output or a complete D-Bus trace:
-normal MPRIS track display fields are locally visible by design, but they are
-not needed in an acceptance report. Signed media addresses, OAuth and cookies
-must never appear there. If no bus player appears, report that specific failed
-step rather than treating the earlier heard-track result as failed.
+The ordinary shortcuts remain Ctrl+H Home, Ctrl+L Library, Ctrl+F Search,
+Ctrl+J Queue, Ctrl+B navigation and Ctrl+, preferences; Ctrl+I opens track
+information and Ctrl+Q closes Karin.
+My Wave and similar-track sections stay hidden when their complete real
+contracts/capabilities are unconfirmed. Unsupported source stubs are not features.
 
-The desktop icon rail expands labels and becomes a compact drawer. Ctrl+B
-expands desktop labels or toggles the compact drawer. Other shortcuts are Ctrl+H
-Home, Ctrl+L Library, Ctrl+F Search, Ctrl+J Queue, Ctrl+,
-appearance and Ctrl+Q Quit. Appearance choices apply to this process only.
-Diagnostics are a separate explicit destination; they are not needed for normal
-search or playback. Optional like/unlike checks may deliberately change one
-track and restore it; unknown/conflicted writes recover with GET-only Refresh.
+### Repeat inside the current Flatpak
 
-Report only the build revision and anonymized PASS/FAIL for unified search,
-row-to-sound/context/queue, account cancellation/confirmation, playback
-regression, KDE/playerctl/media keys and the overall UI.
-If needed, copy only fixed stage/category/numeric HTTP from the disclosed safe
-details. Do not upload full logs, JSON, queries, track/playlist/account names or
-IDs, headers, private screenshots, cookies, tokens, signed addresses or audio.
-The owner's `f0aa2bb` run is real search/account/playback acceptance, alongside
-an explicit UI failure. It does not pass the revised interface, a later build
-or MPRIS/desktop integration before those checks are actually performed.
+Build/install the same revision using the GNOME 50 / Freedesktop 25.08 procedure
+below, without filesystem/session-bus/sandbox overrides. Repeat the same session,
+settings, cache, workspace, actual sound and MPRIS checks in that installed app.
+Native keyring success does not establish a working sandbox portal backend;
+missing Secret Portal must produce the explicit safe session-only fallback.
 
-### Optional metadata-only delivery check
+XDG config/data/cache live in the app's private Flatpak space. Cache clearing
+must not remove the protected credential envelope or preferences. Preserve the
+exact MPRIS own-name permission; no broad session-bus, host-filesystem or direct
+Secret Service grant is assumed. A full package/build/install result is passed
+only when actually run, independently of vendored native/offline compilation.
 
-The existing `--delivery-diagnostic` mode remains separate from ordinary Play.
-It retrieves offers and at most one XML descriptor, never media. Use it only
-for a new delivery failure that needs targeted investigation, not as the default
-acceptance route. No token, cookie, track ID or resource address is an input.
-An older installed Flatpak does not contain the correction; preparing source
-and compiling offline do not establish full SDK/sandbox package acceptance.
+### Report only safe results
 
-The full v0.2 release still requires accepted UI and playback context, current
-Flatpak verification and resolution of the independent public-registration/
-service-distribution questions. Actual Music audibility is already accepted
-for the recorded baseline. See [validation](VALIDATION.md), the
-[delivery contract](STREAM_DELIVERY_REVIEW.md) and [ADR-0015](adr/0015-guarded-legacy-mp3-playback.md).
+Share the exact revision, native/Flatpak, backend kind/availability and anonymized
+PASS/FAIL/N/D for restore/forget, settings, cache/clear/isolation, pane/tiles,
+search/contextual sound, KDE controls and shutdown. Record unsupported services
+as unavailable or not established, not a synthetic success. New owner acceptance
+belongs in [VALIDATION.md](VALIDATION.md).
 
-### Integration into master — approved prototype scope
-
-On 2026-10-31 the owner approved consolidating the existing #6 → #8 → #10 →
-#11 → #12 → #13 development stack through **PR #13 only**, as one squash commit
-on `master`. Preserve discussion/history and do not create another PR.
-Review the complete `master` diff and validate the actual final source with
-stable and Rust 1.98.1 CI before merging. Close the five superseded PRs with
-cross-links after the squash merge, retaining their branches and conversations.
-This integration approves a working development prototype, **not** a public
-service release: current Flatpak build/install, KDE MPRIS/hardware media keys,
-revised end-to-end contextual playback, Secret Service persistence and the
-shared OAuth-registration/service-distribution permissions remain separately
-documented follow-up gates. Do not mark those checks as passed.
+Do not publish credentials, portal keys, secret-item values, parameterized URLs,
+headers, raw JSON, account/track/playlist names or IDs, cache records, media,
+`playerctl metadata`, complete D-Bus/network traces or personal screenshots.
+Use only the fixed category/stage/numeric HTTP supplied by native error details
+when a specific failure needs diagnosis. Public distribution/registration rights
+and audio offline rights remain separate from technical local acceptance.
 
 ## Music sign-in and Fedora acceptance
 
 <a id="experimental-music-session-and-fedora-acceptance"></a>
 
-Current search/account/audio acceptance uses the combined guide above. The
-following notes describe the provider and earlier focused authentication
-retests; those historical diagnostics are not prerequisites for ordinary login
-or the accepted playback path.
+Current v0.3 acceptance uses the combined guide above. The following provider
+contract and historical focused retests explain earlier findings; they are not
+instructions to select old PR artifacts, prerequisites for ordinary login or a
+replacement for current persistence/real-playback checks.
 
 The default build now enables `cassette-auth` and WebKitGTK6. The normal
 `Войти` action attempts real Yandex login using the published registration and
@@ -302,7 +460,8 @@ Perform this one substantive acceptance run on Fedora 44/KDE/Wayland/PipeWire:
    details use a separate action. Check Next/Previous/EOS and explicit appends.
 4. Sign out. Check that account/library/queue state and prior errors clear. Start
    another login, cancel it, retry and close the window; delayed results must not
-   sign you back in. Restart should be signed out because sessions are memory-only.
+   sign you back in. For v0.3, restart behavior follows the protected remember-login
+   setting and confirmed forget outcome described in the current guide above.
 5. Check approximately 420×720, 900×650, 1440×900 and maximized, both themes, HiDPI,
    HeaderBar/window controls, scrolling, keyboard focus/activation and Ctrl+Q.
    Stale floating Music 403 text must not remain; errors belong in native rows.
@@ -314,19 +473,20 @@ Perform this one substantive acceptance run on Fedora 44/KDE/Wayland/PipeWire:
    private library screens or login screenshots. Do not change identity, region or
    OAuth mechanism during this acceptance run to hide a failed result.
 
-Owner evidence at `8f1b09d` accepts real sign-in, Music account/library access
-and core audio; the later `f0aa2bb` run accepts corrected search/account actions
-and preserved playback while rejecting the overall UI. The next UI/context and
-MPRIS revision still requires fresh owner acceptance; source review and cloud
-fixtures cannot prove that new Fedora result. The selected return is exact `https://music.yandex.ru/`
-with matching fresh state;
-if Yandex returns a different origin/path or omits state, the tool must report that
-specific return-validation failure rather than accept a substring or fake success.
-Cookie collection uses only this dialog's ephemeral session and the fixed official
-OAuth token URI, not another browser/application's session. Cookies and tokens are
-memory-only; cancellation clears browser data and stale work. Local logout does
-not revoke provider consent; persistence, refresh, remote revocation and verified
-Secret Service writes are not implemented. Music playback is a separate gate.
+The owner accepted the merged v0.2 normal sign-in/library/search and real
+playback path, including KDE Media Widget and the installed Flatpak. Earlier
+`8f1b09d`/`f0aa2bb` results below remain historical stages. New v0.3 protected
+storage/cache/workspace behavior still requires the current combined acceptance
+run above; source review and fixtures cannot supply its real Fedora result.
+
+The selected return is exact `https://music.yandex.ru/` with matching fresh state;
+a different origin/path or missing state must report the specific validation
+failure rather than accept a substring. Cookie collection uses only this dialog's
+ephemeral session and fixed official OAuth token URI, never another browser's
+profile. Cookies/sessionid remain memory-only and cancellation clears browser
+state. A Music-validated token may be remembered only through the protected
+v0.3 backend. Local forgetting is not provider consent revocation; no refresh
+flow is introduced. See ADR-0018 and the current guide for restore/delete outcomes.
 
 ## WebKit authentication build and local fixture checks
 
@@ -388,6 +548,86 @@ offline provider. They exercise dialog/layout/lifecycle without contacting Yande
 they are not evidence of real sign-in. Never use `--ui-fixture` for the owner
 acceptance above. Hosted sandbox checks and remaining namespace restrictions are
 recorded in [VALIDATION.md](VALIDATION.md).
+
+## v0.3 isolated persistence and workspace fixtures
+
+The following tests use synthetic stores/snapshots and must run in their own
+session buses/displays. They do not use a real wallet, portal, account or cached
+library. The secure-storage test requires the explicit test guard as well as
+`dbus-run-session`; never select it against a personal desktop bus.
+Actual input/capture fixtures additionally need `xdotool`, Openbox, `wmctrl`
+and ImageMagick's `import`; the persistence integration fixture uses the
+original generated-MP3 GStreamer plugins described above.
+
+```sh
+KARIN_TEST_SECRET_BUS=1 dbus-run-session -- \
+  cargo test --lib --all-features --locked \
+  native_secure_storage_secret_service_and_portal_protocol -- --ignored --test-threads=1
+
+GTK_A11Y=none GSK_RENDERER=cairo dbus-run-session -- \
+  xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' \
+  cargo test --lib --all-features --locked \
+  native_workspace_track_pane_actions_state_and_cleanup -- --ignored --test-threads=1
+GTK_A11Y=none GSK_RENDERER=cairo dbus-run-session -- \
+  xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' \
+  cargo test --lib --all-features --locked \
+  native_workspace_playlist_grid_input_states_and_resize -- --ignored --test-threads=1
+GTK_A11Y=none GSK_RENDERER=cairo dbus-run-session -- \
+  xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' \
+  cargo test --lib --all-features --locked \
+  native_preferences_persistent_controls_snapshot_updates_and_cleanup -- --ignored --test-threads=1
+GTK_A11Y=none GSK_RENDERER=cairo dbus-run-session -- \
+  xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' \
+  cargo test --lib --all-features --locked \
+  native_playlist_creation_confirmation_refresh_refusal_and_late_widgets -- --ignored --test-threads=1
+GTK_A11Y=none GSK_RENDERER=cairo dbus-run-session -- \
+  xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' \
+  cargo test --lib --all-features --locked \
+  native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup -- --ignored --test-threads=1
+GTK_A11Y=none GSK_RENDERER=cairo dbus-run-session -- \
+  xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' \
+  cargo test --lib --all-features --locked \
+  native_persistent_session_restore_settings_forget_and_close -- --ignored --test-threads=1
+GTK_A11Y=none GSK_RENDERER=cairo dbus-run-session -- \
+  xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' \
+  cargo test --lib --all-features --locked \
+  native_catalog_cache_provenance_interleaving_and_retired_replies -- --ignored --test-threads=1
+
+GTK_A11Y=none GSK_RENDERER=cairo GSK_DEBUG=full-redraw dbus-run-session -- \
+  xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' \
+  cargo +stable test --lib --all-features --locked \
+  native_cover_metadata_http_cache_and_render_lifecycle -- --ignored --test-threads=1
+GTK_A11Y=none GSK_RENDERER=cairo GSK_DEBUG=full-redraw dbus-run-session -- \
+  xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' \
+  cargo +stable test --lib --all-features --locked \
+  native_visible_cover_retries_after_worker_queue_saturation_without_remap -- --ignored --test-threads=1
+```
+
+Repeat the GTK selectors with `GDK_SCALE=2 GDK_DPI_SCALE=1` and a 3840×2160
+screen for actual 2× coverage. Preferences component input tests use real
+mouse/keyboard with synthetic snapshots/callbacks; separate settings disk tests
+cover roundtrip/restart, invalid/corrupt files, permissions and superseded saves.
+These are different checks, not a synthetic callback masquerading as a successful
+system-keyring lifecycle. The playlist dialog fixture uses a loopback server to
+check confirmation, read-only refresh after uncertainty, refusal and late-widget
+cleanup; it does not create a real playlist. Current executed results belong in VALIDATION and the
+source-matched Draft PR.
+
+The full-shell fixture checks the production adaptive split, actual pane/row
+actions, keyboard focus and an Openbox-managed maximized window. The integrated
+session fixture injects protected storage and loopback Music/generated MP3,
+checks restart/forget/late work and confirms actual GStreamer Playing survives
+remember-off and ordinary cache clearing. Neither uses a personal account or
+proves a real KWallet/Secret Portal lifecycle.
+The catalog fixture checks visible per-view cache provenance, background reply
+interleaving and rejection of retired clear/disable replies; placeholder content
+is synthetic, not evidence of live provider layout or access.
+The cover fixtures start from Music-shaped metadata and a counted loopback image
+server, use the ordinary loader/decode path and inspect native GTK display. They
+also exercise bounded-worker saturation without requiring a widget remap. Repeat
+these two selectors with `cargo +1.98.1` and at 2× as above. Their generated pixels,
+synthetic account and isolated display do not establish real Fedora cover display
+or image-cache reuse in the owner's account.
 
 ## Local OAuth diagnostic (Gate B1)
 
@@ -617,10 +857,10 @@ Keep `Cargo.toml`'s minimum version and the pinned CI lane aligned, and verify c
 and locked dependencies before raising that minimum. Never bypass Cargo's
 version check with `--ignore-rust-version`.
 
-The user has confirmed the v0.0 functional checks on Fedora 44/KDE/Wayland/PipeWire,
-and Issue #3 reports native and Flatpak prototype startup with diagnostic audio.
-This is baseline evidence, not acceptance of Gate A's new player. Repeat manual
-checks must cover real system-output playback, pause/resume, seeking, volume,
+The owner has confirmed the v0.3 native runtime and final tested Flatpak
+scenarios at `0232548` on Fedora 44/KDE/Wayland/PipeWire; the supplied scope is
+recorded in VALIDATION. Repeat manual checks for later runtime revisions must
+cover real system-output playback, pause/resume, seeking, volume,
 EOS/error recovery and closing during playback. Visual acceptance must check
 window/title controls, resize/maximize behavior, HiDPI, keyboard/focus,
 accessibility and both themes under [the UI quality gate](UI_QUALITY_GATE.md).
@@ -639,8 +879,9 @@ content, and the temporary media is not shipped in the repository.
 Inspect asynchronous state, position, duration and errors as well as listening.
 `fakesink` success proves decoding and lifecycle behavior for the generated WAV;
 it does not prove PipeWire output, support for other codecs or service streams.
-The Music authentication evidence and pending local acceptance are documented in
-[API_FEASIBILITY.md](API_FEASIBILITY.md).
+Music authorization/delivery evidence and the independent developer diagnostic
+are recorded in [API_FEASIBILITY.md](API_FEASIBILITY.md); current owner acceptance
+and remaining acceptance boundaries are in [VALIDATION.md](VALIDATION.md).
 
 For a substantial UI change, also run the screenshot matrix and review it under
 [UI_QUALITY_GATE.md](UI_QUALITY_GATE.md). With the capture tools installed:
@@ -661,8 +902,8 @@ The initial manifest is
 It targets GNOME 50 and the matching Freedesktop 25.08 Rust SDK extension. This
 keeps the GTK/Libadwaita runtime independent of the user's desktop environment.
 It has no host filesystem permission or Secret Service access grant. The existing
-network and audio permissions support diagnostics and future authorized reads;
-the music slice adds no sandbox grants. The manifest explicitly passes
+network/audio and exact MPRIS own-name permissions support the accepted client;
+v0.3 adds no broad session-bus or host-filesystem grant. The manifest explicitly passes
 `--no-default-features --features cassette-auth`, including WebKit session auth
 and excluding the legacy library-only Device Flow module from this artifact. Generated media is created within the
 application's own temporary directory, so the player requires no access to the
@@ -712,9 +953,10 @@ build alone do not establish complete distribution compliance or release
 acceptance. GPL does not authorize Yandex Music API or content access.
 
 Full Flatpak builds are **not verified in the cloud environment**: Bubblewrap
-cannot create the required user namespace inside the nested container. The user
-reports that the v0.0 Flatpak prototype launches on Fedora; Gate A still needs a
-fresh package/build/install and audio/UI acceptance there. Keep sandboxing enabled
+cannot create the required user namespace inside the nested container. The owner
+accepted the merged v0.2 Flatpak build/install/sign-in/library/search/audio/MPRIS/
+shutdown. A changed v0.3 package and Secret Portal/backend still need their own
+fresh package/build/install and lifecycle acceptance there. Keep sandboxing enabled
 and perform packaging acceptance on Fedora or suitable CI.
 
 GNOME 50's Freedesktop SDK base is documented in the upstream

@@ -1055,10 +1055,31 @@ fn automatic_receive_cancels_while_reading_partial_request() {
         AuthError::Cancelled
     );
     worker.join().unwrap();
-    let mut response = String::new();
-    stream.read_to_string(&mut response).unwrap();
-    assert_private_response(&response, attempt);
-    assert!(!response.contains("synthetic-partial"));
+    let mut response = Vec::new();
+    // Closing a cancelled partial-header connection can deliver EOF or RST,
+    // depending on unread TCP bytes. Neither is an authorization result; keep
+    // a strict byte/time bound and reject every other transport failure.
+    match (&mut stream).take(4097).read_to_end(&mut response) {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => {}
+        Err(error) => panic!("bounded cancelled callback read failed: {error}"),
+    }
+    assert!(response.len() <= 4096);
+    let response = String::from_utf8(response).unwrap();
+    if response.contains("\r\n\r\n") {
+        assert_private_response(&response, attempt);
+    }
+    for sensitive in [
+        SYNTHETIC_CODE,
+        attempt.state.as_str(),
+        attempt.verifier(),
+        attempt.callback_uri(),
+        "synthetic-partial",
+    ] {
+        assert!(!response.contains(sensitive));
+    }
+    assert!(!attempt.consumed.load(Ordering::Acquire));
+    fixture.assert_no_provider_requests();
     drop(stream);
     drop(retry);
     drop(fixture);

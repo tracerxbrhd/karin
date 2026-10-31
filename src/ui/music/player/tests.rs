@@ -392,6 +392,7 @@ fn track(id: &str) -> Track {
         id: id.into(),
         title: "Synthetic remote player track".into(),
         artists: vec!["Synthetic artist".into()],
+        artist_links: Vec::new(),
         album_id: None,
         album_title: None,
         duration_ms: Some(4_000),

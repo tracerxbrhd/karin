@@ -894,6 +894,114 @@ fn typed_artwork_is_reduced_from_track_album_artist_and_playlist_metadata() {
 }
 
 #[test]
+fn published_cover_shapes_survive_search_and_canonical_track_batch() {
+    // Synthetic resources shaped after MarshalX 9ca132e5's Track/Album/Cover
+    // fixtures and yamuse 368c746's protocol-relative image normalization.
+    // No published resource, account identifier or remote image is requested.
+    let track_cover = "avatars.yandex.net/get-music-content/12345678/abcde1234f56789-1/%%";
+    let album_cover = "https://avatars.yandex.net/get-music-content/12345678/ff00aa11bb22cc33-1/%%";
+    let artist_cover = "//avatars.yandex.net/get-music-content/12345678/artist-cover-1/%%";
+    let playlist_cover =
+        "avatars.yandex.net/get-music-user-playlist/12345/ABCDEF0123456789/%%?1700000000000";
+    let body = json!({"result":{
+        "text":"synthetic-private-query",
+        "tracks":{"total":2,"perPage":20,"results":[{"id":42},{"id":43}]},
+        "albums":{"total":2,"perPage":20,"results":[
+            {"id":7,"coverUri":album_cover},
+            {"id":8,"coverUri":{"unsupported":"synthetic-private-cover"}}
+        ]},
+        "artists":{"total":2,"perPage":20,"results":[
+            {"id":11,"name":"synthetic-private-artist","cover":{
+                "uri":"https://evil.invalid/%%",
+                "itemsUri":[false,artist_cover]
+            }},
+            {"id":12,"name":"synthetic-private-artist","cover":{"itemsUri":false}}
+        ]},
+        "playlists":{"total":2,"perPage":20,"results":[
+            {"owner":{"uid":1234},"kind":8,"cover":{"uri":playlist_cover}},
+            {"owner":{"uid":1234},"kind":9,"cover":{
+                "itemsUri":["https://avatars.yandex.net/get-music-user-playlist/synthetic/%%?token=synthetic-private-token"]
+            }}
+        ]}
+    }});
+    let canonical = json!({"result":[
+        {"id":42,"available":true,"coverUri":track_cover},
+        {"id":43,"available":true,"coverUri":["synthetic-private-cover"]}
+    ]});
+    let (service, server, listener) =
+        search_fixture(vec![(200, body.to_string()), (200, canonical.to_string())]);
+    let result = service
+        .search_all(&token(), "synthetic-private-query")
+        .unwrap();
+    let tracks = result.tracks.as_ref().unwrap();
+    let albums = result.albums.as_ref().unwrap();
+    let artists = result.artists.as_ref().unwrap();
+    let playlists = result.playlists.as_ref().unwrap();
+    for (covers, expected) in [
+        (
+            tracks
+                .items
+                .iter()
+                .map(|item| item.cover.clone())
+                .collect::<Vec<_>>(),
+            track_cover,
+        ),
+        (
+            albums
+                .items
+                .iter()
+                .map(|item| item.cover.clone())
+                .collect::<Vec<_>>(),
+            album_cover,
+        ),
+        (
+            artists
+                .items
+                .iter()
+                .map(|item| item.cover.clone())
+                .collect::<Vec<_>>(),
+            artist_cover,
+        ),
+        (
+            playlists
+                .items
+                .iter()
+                .map(|item| item.cover.clone())
+                .collect::<Vec<_>>(),
+            playlist_cover,
+        ),
+    ] {
+        assert_eq!(
+            covers.len(),
+            2,
+            "optional artwork must not discard the page"
+        );
+        assert_eq!(
+            covers[0],
+            Some(crate::artwork::CoverArt::parse(expected).unwrap())
+        );
+        assert_eq!(covers[1], None);
+    }
+    assert_eq!(
+        tracks
+            .items
+            .iter()
+            .map(|track| track.id.as_str())
+            .collect::<Vec<_>>(),
+        ["42", "43"]
+    );
+    assert!(tracks.items.iter().all(|track| track.available));
+    assert_redacted(&result);
+    let requests = complete(server, listener);
+    assert_eq!(
+        requests.len(),
+        2,
+        "artwork parsing cannot add network requests"
+    );
+    assert!(requests[1].ends_with("track-ids=42&track-ids=43"));
+}
+
+#[test]
 fn malformed_optional_artwork_never_discards_valid_track_or_catalog_entities() {
     for invalid in [
         json!(null),
@@ -907,6 +1015,17 @@ fn malformed_optional_artwork_never_discards_valid_track_or_catalog_entities() {
         ),
         json!("http://avatars.yandex.net/get-music-content/synthetic/%%"),
         json!("https://avatars.yandex.net:443/get-music-content/synthetic/%%"),
+        json!("https://avatars.yandex.net/get-music-content/synthetic/%%?1700000000000"),
+        json!("https://avatars.yandex.net/get-music-user-playlist/synthetic/%%?"),
+        json!(
+            "https://avatars.yandex.net/get-music-user-playlist/synthetic/%%?170000000000000000000"
+        ),
+        json!(
+            "https://avatars.yandex.net/get-music-user-playlist/synthetic/%%?1700000000000&token=synthetic-private-token"
+        ),
+        json!(
+            "https://avatars.yandex.net/get-music-user-playlist/synthetic/%%?1700000000000#synthetic-private-fragment"
+        ),
     ] {
         let track = track_from_wire(
             serde_json::from_value(json!({
@@ -2142,4 +2261,34 @@ fn playlist_search_identity_failure_is_section_local_and_never_uses_personal_met
         assert_eq!(result.artists.unwrap().items.len(), 1);
         assert_eq!(complete(server, listener).len(), 1);
     }
+}
+
+#[test]
+fn canonical_track_retains_only_verified_artist_navigation_without_rejecting_display_credits() {
+    let (service, server, listener) = search_fixture(vec![(
+        200,
+        json!({"result":[{
+            "id":"42", "title":"Synthetic linked track", "available":true,
+            "artists":[
+                {"id":11,"name":"Synthetic verified artist"},
+                {"name":"Synthetic name-only credit"},
+                {"id":{"unsupported":"display-only"},"name":"Synthetic malformed ID credit"},
+                {"id":"../private-selector","name":"Synthetic unsafe ID credit"}
+            ]
+        }]})
+        .to_string(),
+    )]);
+    let track = service.track(&token(), "42").unwrap();
+    assert_eq!(track.artists.len(), 4);
+    assert_eq!(track.artist_links.len(), 1);
+    assert_eq!(track.artist_links[0].id, "11");
+    assert_eq!(track.artist_links[0].name, "Synthetic verified artist");
+    assert!(track.available);
+    assert_redacted(track);
+    let requests = complete(server, listener);
+    assert_eq!(
+        requests.len(),
+        1,
+        "artist links reuse canonical metadata, without extra requests"
+    );
 }

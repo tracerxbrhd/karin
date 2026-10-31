@@ -79,7 +79,9 @@ impl Default for MusicPlayback {
 impl Controller {
     #[cfg(test)]
     pub(super) fn set_fixture_resolver_for_test(&self, resolver: StreamResolver) {
-        self.player.borrow_mut().fixture_resolver = Some(resolver);
+        let mut player = self.player.borrow_mut();
+        player.fixture_resolver = Some(resolver);
+        player.output = PlaybackOutput::Fakesink;
     }
 
     pub(super) fn connect_music_player(self: &Rc<Self>) {
@@ -201,6 +203,7 @@ impl Controller {
             // implied, and manually appended extras belong to the old context.
             model.queue.replace_context(context);
         }
+        self.info_selection.borrow_mut().take();
         self.render_queue();
         self.request_music(true, None);
     }
@@ -221,6 +224,7 @@ impl Controller {
             }
             model.queue.select(index);
         }
+        self.info_selection.borrow_mut().take();
         self.render_queue();
         self.request_music(true, None);
     }
@@ -771,6 +775,7 @@ impl Controller {
         if !advanced {
             return;
         }
+        self.info_selection.borrow_mut().take();
         self.render_queue();
         if active {
             self.request_music(autoplay || eos, None);
@@ -919,6 +924,7 @@ impl Controller {
         drop(player);
         drop(model);
         self.publish_mpris();
+        self.sync_track_pane();
     }
 }
 

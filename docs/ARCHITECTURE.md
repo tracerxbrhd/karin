@@ -4,10 +4,19 @@
 
 Karin remains one Cargo package with internal modules. The service integration
 and the independently usable playback engine have separate responsibilities.
-The owner accepted real search, account actions and preserved service playback
-at `f0aa2bb`; the overall UI was rejected. The next context/workspace/MPRIS
-increment preserves those accepted service and engine boundaries, with fresh
-target-desktop acceptance required. See [ADR-0017](adr/0017-playback-context-unified-workspace-and-mpris.md).
+The merged v0.2 `master` (`09f7635`) has owner-reported native and Flatpak
+acceptance: 17 PASS, 0 FAIL, 1 N/D (hardware media keys). v0.3 extends protected
+session/settings persistence, bounded metadata/artwork cache and information/
+playlist presentation around those accepted service and engine boundaries.
+The owner accepted v0.3 runtime `0232548` on 2026-10-31 for persistent login/
+restart, real covers, actual music, pane mechanics and KDE cover/metadata, and
+reported successful final Flatpak auth/playback/system integration. The pane's
+visual design remains for a separate UI/UX iteration; unreported backend/failure
+cases are not inferred. Future behavior requires its own checks; see
+[validation](VALIDATION.md) and ADRs [0017](adr/0017-playback-context-unified-workspace-and-mpris.md),
+[0018](adr/0018-persistent-session-and-settings.md),
+[0019](adr/0019-bounded-account-cache.md) and
+[0020](adr/0020-seamless-music-workspace.md).
 
 ```mermaid
 flowchart LR
@@ -31,8 +40,19 @@ flowchart LR
   Auth --> Return[Exact Music return / fresh state]
   WebKit --> Cookies[Own-session OAuth-endpoint cookies only]
   Cookies --> Grant[Official OAuth sessionid exchange]
-  Grant --> Session[Memory-only token]
+  Grant --> Session[Current in-memory token]
   Session --> MusicService
+  UI --> Lifecycle[Session lifecycle]
+  Lifecycle --> Secure[Secret Service or Secret Portal]
+  Lifecycle --> Session
+  Validation --> Lifecycle
+  UI --> Settings[Private XDG preferences]
+  UI --> CatalogCache[CachedCatalog read facade]
+  CatalogCache --> MusicService
+  CatalogCache --> Cache[Account-scoped typed metadata cache]
+  UI --> CachePolicy[Cache policy and clear]
+  CachePolicy --> Cache
+  Cache --> Disk[Private metadata and raster records]
   MusicService --> Validation[Music account accepted before dialog success]
   UI --> Queue[Bounded track queue]
   UI --> Context[Returned collection / playback context]
@@ -63,7 +83,13 @@ flowchart LR
 | `oauth_cli` | Binary-private local terminal input and system-browser launch; no credential arguments or GUI session |
 | `music` | Typed metadata service, reduced models, bounded transport and token-bound account cache; explicit confirmed writes in `music::interactions` |
 | `auth` / `auth::cassette` | Default Cassette-compatible session provider, bounded attempts/return-state validation and official OAuth session exchange; separate generic code/PKCE fixed-loopback infrastructure |
-| `session` | Zeroizing ephemeral tokens; library-only feature-gated Device Flow without bundled application credentials |
+| `session` | Zeroizing live tokens and invalidation; library-only feature-gated Device Flow without bundled application credentials |
+| `credentials` | Bounded native Secret Service or Flatpak Secret Portal protected-token I/O; no plaintext fallback |
+| `session_lifecycle` | Generation/serialization boundary for restore, validated save, remember/forget and durable cleanup outcomes |
+| `settings` | Versioned non-secret XDG preferences, atomic private writes and superseded-save reservations |
+| `cache` / `music::cache_codec` | Account-scoped persistent store, policy/leases/integrity/eviction and reduced validated metadata records |
+| `catalog_cache` | Read facade over unchanged MusicService; stable fresh hits, mutable network-first reads, explicit refresh and per-reply provenance |
+| `artwork` | Bounded public-cover loading/RAM LRU and explicitly cacheable normalized raster persistence; GTK textures stay on main thread |
 | `queue` | Bounded ordered playback context and explicit queue appends from real track metadata; active source binding remains in the music player |
 | `capabilities` | Historical independent diagnostic capability types; not the normal provider or new resolver admission |
 | `playback` / `playback::remote` | Reusable controller, worker-owned `playbin`, local sources and sealed short-lived HTTPS admission/transport policy |
@@ -74,6 +100,7 @@ flowchart LR
 | `config` | Non-secret application identity and version |
 | `ui` / `ui::music` / `ui::music::player` | Native catalog/session UI plus explicit playback intents, queue/source binding, snapshot controls and cleanup |
 | `ui::music::system_media` | MPRIS commands/snapshots joined to that same player; worker-acknowledged Seeked and bounded private cover-only files |
+| `ui::music::track_pane` / `playlist_grid` / `queue_view` | Native information, adaptive playlist tiles and current/up-next presentation; actions retain controller/source ownership |
 | `ui::auth` | Single-purpose Libadwaita sign-in dialog, ephemeral WebKitGTK6 login and scoped asynchronous cookie handoff |
 | `main` | Concrete composition, application lifecycle and explicit diagnostic CLI modes |
 
@@ -131,8 +158,18 @@ It follows the existing worker snapshots; a
 redesigned control must not invent a new playing state or source. Both the
 workspace's useful density and its keyboard/HiDPI behavior require actual visual
 and structural review, separately from the accepted backend functionality.
-Details remain on their existing page with a distinct action; the optional
-wide information pane is not implemented in this increment.
+Details retain their distinct action and existing navigation. The v0.3
+track-information component additionally shows actual cover/title/credits/album,
+selection/playback state and verified entity actions in an adaptive right pane
+or collapsed overlay at logical widths of 1180 pixels or less. The persisted
+wide preference follows the playing track by default; compact/medium playback
+never automatically opens the overlay. Cover activation or Ctrl+I opens
+information, explicit close persists that choice, and Details may select metadata
+independently. It never infers an artist ID from a name or substitutes
+a separate player state. Playlist tiles use native adaptive wrapping, real
+optional metadata, long-title accessibility and explicit loading/empty/Retry.
+A server-create tile appears only with the confirmed creation workflow; no fake
+similar-track or My Wave content is introduced.
 
 ## Read-only music and session lifecycle
 
@@ -209,12 +246,18 @@ prototype with a permanent provider block. See [authentication research](AUTHENT
 Token issuance and Music account validation are separate. The dialog completes
 and library/search become usable only after the Music account endpoint accepts
 the session. Successful completion starts the actual liked-track and playlist
-loads. No persistent store, refresh or remote revocation is claimed.
+loads. The v0.3 lifecycle may then save the minimal token through a supported
+protected backend. Saved-token recovery runs independent Music validation before
+re-entering that state. No refresh or remote revocation is claimed.
 
 GTK jobs capture session/view generations and discard late results. Search text
 can change while the previous bounded job finishes. Logout/close invalidates all
-worker token clones locally, drops account/queue state and clears the service
-cache. New attempts and logout also reset stale API errors; signed-out status
+worker token clones locally and drops account/queue state. Normal close clears
+live state while retaining permitted saved credentials/cache; explicit confirmed
+logout also verifies credential deletion and purges persistent metadata/covers.
+Cleanup failure remains visible and replacement login waits for active I/O to
+settle. A failed result may allow memory-only login with restoration/new
+persistent credentials/cache still suppressed by the durable barrier. New attempts and logout also reset stale API errors; signed-out status
 appears in a native message row, and authentication errors stay in the dialog.
 A cache epoch prevents an old in-flight validation from restoring facts
 or overwriting a new session; an invalidated queued token cannot start another
@@ -281,10 +324,10 @@ empty metadata while the application stays open.
 The Flatpak manifest needs only the exact MPRIS own-name permission; broad
 session-bus/filesystem access is unnecessary. Secret Service remains ungranted.
 An isolated bus fixture and a synthetic native-player bridge fixture can verify
-methods, properties, signals, stale IDs, capability changes and cleanup. Actual
-KDE integration, hardware media keys and `playerctl` controlling an audible
-Music track remain a separate Fedora acceptance check; a complete current
-Flatpak build/install/sandbox result also remains separate.
+methods, properties, signals, stale IDs, capability changes and cleanup. The owner accepted KDE Media Widget and Flatpak integration for the merged v0.2
+baseline; hardware media keys remain N/D. Changed v0.3 interactions require a
+new Fedora run with an audible Music track, plus the actual current Flatpak
+build/install/sandbox and storage-backend lifecycle.
 
 ## Confirmed library interactions
 
@@ -351,6 +394,110 @@ hold while a GIO worker observes completion, up to a six-second deadline. Media
 guards survive that cleanup wait. UI polling captures widgets weakly; normal
 window teardown is checked while actual local playback is active.
 
+## Protected session and preferences
+
+`credentials` performs synchronous bounded system I/O only on application
+workers. Native processes use the configured Secret Service, including standard
+unlock/prompt/cancellation; Flatpak selects the Secret Portal request/FD contract.
+The portal's app-scoped secret derives an HKDF-SHA256/AES-256-GCM key for the
+atomic private `credentials/session.enc` envelope under the app's XDG data area.
+The key stays in memory;
+forgetting removes/verifies the envelope, not the portal key or server grant.
+Absent/locked/denied/corrupt/timeout/unconfirmed outcomes have fixed errors and
+never select plaintext storage. See [ADR-0018](adr/0018-persistent-session-and-settings.md).
+
+Native token bytes remain in Secret Service. A private non-secret
+`credentials/native-write.pending` tombstone fences ambiguous CreateItem writes:
+an empty query after a timeout cannot establish that no late item can commit.
+The standard local OpenSession `plain` transport does not mean an application
+plaintext file. Rust-owned sensitive buffers are zeroizing; opaque platform
+copies have no universal wiping guarantee.
+
+The lifecycle serializes protected mutations and tags restore/save/forget work
+by generation. Load alone never authorizes Music: validation must accept the
+current token before enabling service operations or saving it. Preferences are
+non-secret, schema-versioned private XDG config; a synchronous save reservation
+prevents delayed workers from overwriting newer state. `forget_pending` is a
+durable restoration barrier before deletion. Turning remember-login off forgets
+saved credentials while current live playback may continue; explicit logout
+also stops audio and clears personal/cache state. Final success waits for known
+cleanup, with retryable failures and guarded restoration. Window close can
+retain a confirmed remembered session and permitted cache. There is no invented
+refresh-token or remote-revocation mechanism.
+
+Replacement saves first record the same barrier, then confirm protected storage
+and clear it under the original preference reservation. Close lets already
+validated required mutations finish with their provider expiry and application
+hold. A main-context work fence delays a reopened window's storage setup until
+retired required work and queued non-secret field merges finish; immediate pane
+visibility changes cannot overwrite a pending lifecycle barrier. Failed cache
+purge remains a separate obligation and cannot be cleared by a new token save.
+Failed cleanup permits memory-only login after active I/O settles, while
+current-process persistence remains paused. A failed barrier write is explicitly
+unconfirmed protection across restart, rather than a claimed durable forget.
+
+## Persistent metadata and artwork
+
+The GTK-independent `cache` store and `catalog_cache::CachedCatalog` facade
+bind a lease to a validated account namespace
+and current generation. Private hashed filenames are not encryption; reduced
+record payloads remain local personal metadata and must never be published.
+Typed decoding revalidates identities and bounds; no account/token/stream schema,
+raw JSON response, header, signed media address or audio is admitted. Default
+policy is 256 MiB, metadata freshness 15 minutes and cover freshness 7 days,
+subject to server artwork restrictions; supported size is 16 MiB–4 GiB. Records
+have bounded framing/integrity checks, atomic temporary-write/fsync/rename,
+LRU-like access ordering, 4096-entry/64-scope ceilings and corruption recovery.
+
+Freshness and provenance belong to each reply, not a shared last-read notice.
+Stable track/album reads can use a fresh cache hit; a bounded same-key flight gate
+coalesces concurrent misses. Mutable liked/playlist/artist pages always use the
+network first. Only Network/Timeout may fall back to a saved/stale record,
+re-read with a current lease after the failure. Authorization/policy/rate/schema
+refusals and other HTTP errors remove the record and never fall back. Cached
+values never establish authentication, membership/revision or write success.
+Removal is currently best effort if cache I/O itself fails; the previously
+fresh metadata may then survive a refusal. The final review records this
+nonblocking consistency edge in [limitations](LIMITATIONS.md#catalog-workspace-and-playback),
+separately from live session validation and stream resolution.
+Explicit Refresh bypasses fresh hits. UI rechecks cache-derived leases before
+presentation; fresh network replies carry no cache lease so clearing/disable
+does not discard otherwise valid server data. Library mutations invalidate metadata for every outcome,
+including unknown writes, without deleting raster records. The original bounded
+Music API deadlines, identity checks and independent operation lanes remain.
+
+Artwork persists only normalized bounded pixels when HTTP policy permits it;
+no-store/no-cache/private/Vary restrictions and shorter server freshness prevent
+or limit disk writes. An explicitly fresh `must-revalidate` response may be
+reused until expiry, but a compact raster-policy bit forbids its stale fallback,
+including after restart; legacy raster records remain readable. No response
+headers are stored. RAM LRU, dedicated image workers, account/cancellation
+checks and main-thread texture ownership remain in place. MPRIS's live temporary
+PNG is separate from persistent cover records, so ordinary cache clearing does
+not destroy active media-widget presentation.
+
+`CoverArt` accepts exact `avatars.yandex.net` templates in bare-host, HTTPS or
+protocol-relative form. Only custom-playlist templates may carry a bounded
+decimal revision query. Provider renditions 200/400/1000 are distinct from the
+unchanged 128/256/512 decoded raster buckets; the latter are not valid CDN preset
+names on the public resources checked during stabilization. Visible thumbnails
+retry worker-queue admission with bounded backoff for at most 12 seconds, without
+retrying failed HTTP responses. The opt-in `--artwork-diagnostic` reports finite,
+fixed stage categories and HTTP status only; it cannot accept/log resource URLs,
+personal fields or raw transport errors. Loopback fixtures exercise the ordinary
+URL builder through native GTK rendering rather than pre-seeding RAM.
+
+Bind/policy/clear generations reject old readers/writers. Cache-off prevents
+persistent content reads/writes but leaves files until explicit clear; measured
+usage and user-requested clear remain available. Clear removes persistent records
+while retaining session, current context, audio and visible presentation. Logout
+instead invalidates leases and purges personal records as part of confirmed
+cleanup. An unavailable protected credential backend by itself does not disable
+the independent permitted metadata/cover cache. No extra database, background
+daemon or music file is introduced.
+See [ADR-0019](adr/0019-bounded-account-cache.md) and the independent
+[audio-cache rights/lifecycle review](AUDIO_CACHE_REVIEW.md).
+
 ## Other work and application lifecycle
 
 GTK objects remain on the main thread. Bounded HTTP, finite audio and platform
@@ -377,10 +524,11 @@ OAuth experiment uses the same no-redirect/TLS/error policy with a 1 MiB respons
 ceiling. Offline HTTP fixtures exist only under `#[cfg(test)]`; production uses
 fixed real service endpoints.
 
-The platform module queries whether Secret Service is running without activating
-it or reading an item. Permanent token lifecycle/storage belongs behind a
-separately validated Secret Service integration. There is no `.env` loading,
-pasted-token login or file credential store.
+The platform diagnostic still queries Secret Service presence without reading an
+item. It is not the protected-session implementation or proof that a store works.
+The separate `credentials`/lifecycle boundary performs actual bounded protected
+I/O and verifies outcomes as described below. There is no `.env` loading,
+pasted-token login or plaintext credential file.
 
 The opt-in local OAuth CLI is a separate experiment, not a GUI login path. It
 accepts a local Client ID and the full returned browser URL from hidden terminal
@@ -402,11 +550,13 @@ flow. The owner verified token/ID binding; both Music account methods returned
 Automated OAuth fixtures use loopback only and require no account or browser.
 
 The earlier Gate A MPRIS reservation and later audio-only deferral are historical;
-ADR-0017 defines the scoped bridge to the now accepted player. My Wave and
-persistent Secret Service sessions remain unimplemented. Actual service-audio
-acceptance at `8f1b09d` and preservation at `f0aa2bb` do not by themselves pass
-the new workspace/MPRIS or current Flatpak. The exact MPRIS own-name grant does
-not enable Secret Service access. The prototype manifest explicitly enables Cassette/WebKit authentication and
+ADR-0017 defines the bridge accepted in the merged v0.2 baseline. v0.3 adds the
+protected-session lifecycle without changing that provider/player. My Wave stays
+hidden unless its complete service-session/feedback capability is established.
+The separate owner v0.3 report supplies its stated functional acceptance; it does
+not individually certify every cache, wallet or portal failure case. The exact MPRIS own-name grant does not enable direct
+Secret Service access; Flatpak selects Secret Portal and a safe unavailable
+result instead of silently widening the sandbox. The prototype manifest explicitly enables Cassette/WebKit authentication and
 excludes the legacy Device Flow feature. Dependency availability and synthetic
 fixtures do not establish a live accepted provider session or public-release
 permission. Smoke/capture modes inject an offline provider and never contact

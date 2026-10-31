@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Ephemeral session credentials. No token file or production credential store.
+//! Zeroizing in-memory credentials for transport and protected session storage.
 //!
 //! The optional developer Device Flow has no bundled application identity. It
 //! is separate from Karin's own PKCE diagnostic and absent from default builds.
@@ -40,7 +40,14 @@ impl AccessToken {
         self.invalidated.store(true, Ordering::Release);
     }
 
-    #[cfg(any(test, feature = "experimental-device-auth", feature = "cassette-auth"))]
+    /// Detach only a validated, generation-fenced storage operation from the
+    /// transport lifecycle. A normal window close may invalidate transport
+    /// clones while this required write finishes, but provider expiry remains
+    /// authoritative and logout still cancels the storage operation's ticket.
+    pub(crate) fn clone_for_storage(&self) -> Option<Self> {
+        (!self.is_expired()).then(|| Self::new(self.value.clone(), self.expires_at))
+    }
+
     pub(crate) fn new(value: Zeroizing<String>, expires_at: Option<Instant>) -> Self {
         Self {
             value,
@@ -89,5 +96,17 @@ mod tests {
             worker.is_expired(),
             "Logout invalidates queued worker clones locally"
         );
+    }
+
+    #[test]
+    fn detached_storage_token_preserves_expiry_without_transport_invalidation() {
+        let token = AccessToken::for_test("synthetic-storage-token", Duration::from_secs(60));
+        let detached = token.clone_for_storage().unwrap();
+        assert_eq!(token.expires_at, detached.expires_at);
+        token.invalidate();
+        assert!(!detached.is_expired());
+        assert!(token.clone_for_storage().is_none());
+        let expired = AccessToken::for_test("synthetic-expired-token", Duration::ZERO);
+        assert!(expired.clone_for_storage().is_none());
     }
 }

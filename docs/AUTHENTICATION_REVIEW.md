@@ -2,6 +2,32 @@
 
 # Authentication contract review
 
+Current status, **2026-10-31**: the owner accepted v0.3 runtime revision
+**`02325489d23ead9da4471de9cc35e2c063ac8bab`** on **Fedora 44 / KDE Plasma /
+Wayland / PipeWire**. Persistent sign-in and session restoration after restart
+passed. Real covers in lists/Player Bar/right pane, KDE Media Widget cover and
+metadata, actual Music playback and pane opening/closing also passed. The owner
+reports successful final Flatpak authorization, playback and system-integration
+checks, with no blocking functional defect reported. See
+[the exact acceptance scope](VALIDATION.md#final-owner-v03-acceptance-at-0232548-2026-10-31);
+individual wallet/portal backend, credential-deletion/failure or physical-media-key
+outcomes were not supplied and are not inferred.
+
+The retained provider's real sign-in, account/library/search and playback were
+already part of the merged v0.2 native/Flatpak baseline (**17 PASS, 0 FAIL, 1 N/D**,
+hardware media keys). PR #13 is merged. v0.3 preserves that browser/session grant
+and adds protected token persistence under
+[ADR-0018](adr/0018-persistent-session-and-settings.md); browser cookies remain
+ephemeral. This is functional prototype acceptance, not a public release or
+final UI/UX approval: the pane's visual design is unaccepted and deferred to the
+next separate UI/UX iteration.
+
+The research below retains its **29 October** scope, source pins and concrete
+navigation findings. Statements that the real chain was unverified or the token
+was memory-only describe that earlier revision, not the current merged status
+or v0.3 storage policy. Public service/registration distribution conditions and
+the embedded-agent standards concern remain unresolved by technical acceptance.
+
 Reviewed **2026-10-29** for PR #8, including the owner's subsequent scope
 correction permitting adaptation of Cassette's published working auth chain
 without requiring a Karin-owned registration. Research and automated validation
@@ -182,7 +208,7 @@ An [unmodified yamu Device Flow][yamu] accessed account/search/metadata; a
 header. That comparison does not isolate OAuth flow from application/grant
 identity, approve reuse of that identity, or explain Karin's 403.
 
-## Remaining facts, local test and distribution conditions
+## Historical remaining facts and local-test gate (2026-10-29)
 
 The owner now authorizes the scoped Cassette-compatible functional prototype;
 a Karin-owned registration is no longer a precondition. The implementation

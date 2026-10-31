@@ -25,7 +25,10 @@ use zeroize::Zeroizing;
 
 use crate::session::AccessToken;
 
+pub mod cache_codec;
 pub mod interactions;
+pub mod playlist_creation;
+pub mod wave;
 
 const ORIGIN: &str = "https://api.music.yandex.net/";
 const MAX_BODY: usize = 1024 * 1024;
@@ -227,6 +230,8 @@ pub struct Track {
     pub id: String,
     pub title: String,
     pub artists: Vec<String>,
+    /// Independently validated canonical artist credits, never inferred by name.
+    pub artist_links: Vec<Artist>,
     pub album_id: Option<String>,
     pub album_title: Option<String>,
     pub duration_ms: Option<u64>,
@@ -1454,8 +1459,8 @@ struct AlbumWire {
 struct ArtistCreditWire {
     #[serde(default, deserialize_with = "display_text")]
     name: Option<String>,
-    #[serde(default, rename = "id", deserialize_with = "ignored_display_value")]
-    _id: (),
+    #[serde(default, deserialize_with = "display_album_id")]
+    id: Option<Id>,
     #[serde(default, rename = "cover", deserialize_with = "ignored_display_value")]
     _cover: (),
 }
@@ -1639,6 +1644,21 @@ fn artist_names(wire: Vec<ArtistCreditWire>) -> Result<Vec<String>, MusicError> 
         .collect()
 }
 fn track_from_wire(wire: TrackWire) -> Result<Track, MusicError> {
+    let mut artists = Vec::new();
+    let mut artist_links = Vec::new();
+    for credit in wire.artists {
+        if let Some(name) = credit.name {
+            let name = text(name)?;
+            artists.push(name.clone());
+            if let Some(id) = credit.id {
+                artist_links.push(Artist {
+                    id: id.0,
+                    name,
+                    cover: None,
+                });
+            }
+        }
+    }
     let album = wire
         .albums
         .into_iter()
@@ -1649,7 +1669,8 @@ fn track_from_wire(wire: TrackWire) -> Result<Track, MusicError> {
     Ok(Track {
         id: wire.id.0,
         title: text(wire.title.unwrap_or_else(|| "Без названия".into()))?,
-        artists: artist_names(wire.artists)?,
+        artists,
+        artist_links,
         album_id: album
             .as_ref()
             .and_then(|album| album.id.as_ref().map(|id| id.0.clone())),

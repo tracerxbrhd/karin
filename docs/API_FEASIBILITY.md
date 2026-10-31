@@ -7,7 +7,45 @@ Gate A official-document review: **2026-10-25**. Initial anonymous cloud probes:
 **2026-10-24**, approximately **11:40 UTC**; retained below with their original scope.
 Authentication source/document recheck and product correction: **2026-10-29**.
 
-## Current owner evidence, 31 October — search/account/playback accepted; UI rejected
+## Current v0.3 owner acceptance, 31 October
+
+On **2026-10-31**, the owner accepted runtime revision
+**`02325489d23ead9da4471de9cc35e2c063ac8bab`** on **Fedora 44 / KDE Plasma /
+Wayland / PipeWire**. Persistent sign-in and restoration after restart passed.
+Real Music covers now display in lists, Player Bar and the right information
+pane; KDE Media Widget receives the actual cover and metadata through MPRIS.
+Actual Music playback and pane opening/closing passed. The owner also reports
+successful final Flatpak authorization, playback and system-integration checks,
+with no blocking functional defect reported. This fixes the real-cover failure
+at `23174b0`; its historical FAIL is retained in
+[the revision-scoped acceptance record](VALIDATION.md#final-owner-v03-acceptance-at-0232548-2026-10-31).
+
+This is functional prototype acceptance, not a public release or final UI/UX
+approval. The pane's visual design remains unaccepted; substantial UI/UX work
+belongs to the next separate iteration. The report does not supply individual
+new-query, album/playlist-cover, mutation, wallet-deletion or hardware-media-key
+results. Counted automatic tests establish image-cache reuse; perceived Fedora
+speed is not an HTTP-request measurement.
+
+The owner accepted merged v0.2 `master` on Fedora 44 / KDE Plasma / Wayland /
+PipeWire, including the installed Flatpak: **17 PASS, 0 FAIL, 1 N/D** (hardware
+media keys). Sign-in, account/library/search, actual Music playback/contextual
+controls, KDE Media Widget and shutdown passed. PR #13 is merged. Earlier
+revision-specific failures below remain historical; the `f0aa2bb` UI failure is
+not the current merged-baseline verdict. See [VALIDATION.md](VALIDATION.md).
+
+v0.3 retains that provider, MusicService and guarded resolver/player. It adds
+protected token persistence, bounded metadata/cover cache and workspace
+components; executed checks and the owner's stated acceptance scope are recorded
+in VALIDATION rather than inferred for every individual scenario. Stored
+credentials are validated with MusicService before use. Offline audio rights,
+effective modern Wave lifecycle and public service/registration distribution
+approval remain independent gates, described in
+[AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md),
+[CASSETTE_PARITY.md](CASSETTE_PARITY.md#v03-service-capability-review) and
+[ADR-0018](adr/0018-persistent-session-and-settings.md).
+
+## Historical owner evidence at `f0aa2bb` — search/account/playback accepted; UI rejected
 
 The owner's subsequent **`f0aa2bb`** run reports **Search PASS, Account PASS and
 Playback PASS**, with **UI FAIL**. The prior HTTP 200 search-wire failure below
@@ -45,11 +83,12 @@ and its typed optional playlist result. Pinned yamu exposes the All/Playlist
 enum but keeps playlist results in extra fields. Cassette v0.2.4's empty mixed-
 search helpers do not prove a working unified-search contract. These source
 facts support the implementation; they are not a live new-query acceptance.
-The dated sections below preserve their original, narrower evidence.
+The dated sections below preserve their original, narrower evidence. Their
+pending/unimplemented statements are not the merged-baseline or v0.3 status.
 
 Karin uses an unofficial service interface. A successful HTTP response establishes
-only the behavior observed for that request, from this cloud environment, at this
-time. It does not establish authenticated access, a playback entitlement, a stable
+only the behavior observed for that request in its recorded environment and
+at that time. It does not establish authenticated access, a playback entitlement, a stable
 API contract, or permission to distribute a third-party music client.
 
 ## Historical sign-in decision, 29 October — Cassette-compatible prototype

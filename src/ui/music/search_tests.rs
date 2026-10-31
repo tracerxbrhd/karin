@@ -615,6 +615,11 @@ fn native_search_retry_normalized_results_and_density() {
     this.widgets.search.grab_focus();
     settle();
     let footer = pane.player_bar.compute_bounds(window).unwrap();
+    assert!(!this.widgets.cache_notice.is_revealed());
+    assert!(
+        !this.widgets.cache_notice.is_visible(),
+        "a hidden cache notice must not consume an extra GtkBox interval"
+    );
     let visible = result_rows
         .iter()
         .filter(|row| {

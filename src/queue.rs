@@ -238,6 +238,7 @@ mod tests {
             id: id.into(),
             title: "Synthetic queue fixture".into(),
             artists: vec![],
+            artist_links: Vec::new(),
             album_id: None,
             album_title: None,
             duration_ms: None,

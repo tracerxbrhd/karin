@@ -63,6 +63,7 @@ fn native_library_interactions_confirmed_fixture() {
     let posts = Arc::new(AtomicUsize::new(0));
     let reads = Arc::new(AtomicUsize::new(0));
     let playlist_reads = Arc::new(AtomicUsize::new(0));
+    let playlist_detail_reads = Arc::new(AtomicUsize::new(0));
     // A single explicit future write can lose its response after being applied.
     let lose_write_response = Arc::new(AtomicBool::new(false));
     let conflict_write = Arc::new(AtomicBool::new(false));
@@ -75,6 +76,7 @@ fn native_library_interactions_confirmed_fixture() {
         let posts = posts.clone();
         let reads = reads.clone();
         let playlist_reads = playlist_reads.clone();
+        let playlist_detail_reads = playlist_detail_reads.clone();
         let lose_write_response = lose_write_response.clone();
         let conflict_write = conflict_write.clone();
         let hold_read = hold_read.clone();
@@ -142,10 +144,17 @@ fn native_library_interactions_confirmed_fixture() {
                         }
                     }
                     ("GET", "/users/1234/likes/playlists") => {
-                        playlist_reads.fetch_add(1, Ordering::AcqRel);
-                        (200, json!({"result":[{"playlist":{"owner":{"uid":5678},"kind":9,"title":"Synthetic liked playlist","trackCount":0}}]}).to_string())
+                        let request = playlist_reads.fetch_add(1, Ordering::AcqRel);
+                        if request == 0 {
+                            (503, json!({"error":{"message":"synthetic-private-grid-retry-error"}}).to_string())
+                        } else {
+                            (200, json!({"result":[{"playlist":{"owner":{"uid":5678},"kind":9,"title":"Synthetic liked playlist","trackCount":0}}]}).to_string())
+                        }
                     }
-                    ("GET", "/users/5678/playlists/9") => (200, json!({"result":{"kind":9,"trackCount":0}}).to_string()),
+                    ("GET", "/users/5678/playlists/9") => {
+                        playlist_detail_reads.fetch_add(1, Ordering::AcqRel);
+                        (200, json!({"result":{"kind":9,"trackCount":0}}).to_string())
+                    },
                     _ => panic!("unexpected synthetic interaction operation"),
                 };
                 let _ = write!(
@@ -266,19 +275,95 @@ fn native_library_interactions_confirmed_fixture() {
     this.widgets.stack.set_visible_child_name("library");
     this.widgets.library_mode.set_selected(2);
     pump_until(|| playlist_reads.load(Ordering::Acquire) == 1 && !this.model.borrow().busy);
+    assert!(this.playlist_grid.retry.is_visible());
     assert!(contains_text(
-        this.widgets.library_rows.upcast_ref(),
+        this.playlist_grid.widget.upcast_ref(),
+        "Не удалось загрузить плейлисты"
+    ));
+    assert!(!contains_text(
+        window.upcast_ref(),
+        "synthetic-private-grid-retry-error"
+    ));
+    capture_native("library-liked-playlists-retry");
+    let found = std::process::Command::new("xdotool")
+        .args([
+            "search",
+            "--onlyvisible",
+            "--name",
+            "^Karin synthetic HTTP fixture$",
+        ])
+        .output()
+        .unwrap();
+    assert!(found.status.success());
+    let id = String::from_utf8(found.stdout).unwrap();
+    let id = id.lines().next().unwrap();
+    assert!(
+        std::process::Command::new("xdotool")
+            .args(["windowfocus", id])
+            .status()
+            .unwrap()
+            .success()
+    );
+    let (x, y) = super::super::test_input::pointer(
+        &window,
+        &this.playlist_grid.retry,
+        super::super::test_input::Target::Center,
+    );
+    assert!(
+        std::process::Command::new("timeout")
+            .args([
+                "5",
+                "xdotool",
+                "mousemove",
+                "--window",
+                id,
+                &x.to_string(),
+                &y.to_string(),
+                "click",
+                "1"
+            ])
+            .status()
+            .unwrap()
+            .success()
+    );
+    pump_until(|| playlist_reads.load(Ordering::Acquire) == 2 && !this.model.borrow().busy);
+    assert!(contains_text(
+        this.playlist_grid.widget.upcast_ref(),
         "Synthetic liked playlist"
     ));
     capture_native("library-liked-playlists");
-    this.widgets
-        .library_rows
+    let tile = this
+        .playlist_grid
+        .tiles
         .first_child()
         .unwrap()
-        .downcast::<gtk::ListBoxRow>()
+        .downcast::<gtk::FlowBoxChild>()
         .unwrap()
-        .emit_by_name::<()>("activate", &[]);
-    pump_until(|| !this.model.borrow().busy);
+        .child()
+        .unwrap()
+        .downcast::<gtk::Button>()
+        .unwrap();
+    assert_eq!(tile.widget_name(), "music-playlist-tile");
+    let (x, y) =
+        super::super::test_input::pointer(&window, &tile, super::super::test_input::Target::Center);
+    assert!(
+        std::process::Command::new("timeout")
+            .args([
+                "5",
+                "xdotool",
+                "mousemove",
+                "--window",
+                id,
+                &x.to_string(),
+                &y.to_string(),
+                "click",
+                "1"
+            ])
+            .status()
+            .unwrap()
+            .success()
+    );
+    pump_until(|| playlist_detail_reads.load(Ordering::Acquire) == 1 && !this.model.borrow().busy);
     assert!(contains_text(
         this.widgets.detail.upcast_ref(),
         "Треков пока нет"
