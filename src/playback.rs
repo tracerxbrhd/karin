@@ -68,6 +68,12 @@ pub struct PlaybackSnapshot {
     pub worker_running: bool,
     /// Changes when a source is replaced; old pipeline messages cannot apply.
     pub generation: u64,
+    /// Monotonic per-controller count of seeks accepted by native GStreamer.
+    /// Queue admission alone and failed seek commands do not advance it.
+    pub seek_serial: u64,
+    /// Target of that successful native seek, not an extrapolated clock value.
+    /// Retained across stop/prepare; compare both serial and source generation.
+    pub seek_position: Option<Duration>,
 }
 
 impl Default for PlaybackSnapshot {
@@ -81,6 +87,8 @@ impl Default for PlaybackSnapshot {
             last_error: None,
             worker_running: true,
             generation: 0,
+            seek_serial: 0,
+            seek_position: None,
         }
     }
 }
@@ -728,7 +736,13 @@ impl Worker {
                 gst::ClockTime::from_nseconds(position.as_nanos() as u64),
             )
             .map_err(|_| PlaybackError::SeekFailed)?;
-        self.shared.snapshot().last_error = None;
+        // Observation only: publish after the existing native seek has accepted
+        // the command. Do not infer completion from queue admission or from an
+        // old clock value which happens to be near the requested position.
+        let mut snapshot = self.shared.snapshot();
+        snapshot.seek_serial = snapshot.seek_serial.saturating_add(1);
+        snapshot.seek_position = Some(position);
+        snapshot.last_error = None;
         Ok(())
     }
 
@@ -1145,6 +1159,95 @@ mod tests {
                 .all(|pipeline| pipeline.upgrade().is_none())
         );
         shutdown(&controller);
+    }
+
+    #[test]
+    fn native_seek_observation_advances_only_for_successful_seeks_across_sources() {
+        let first = DiagnosticMedia::create(Duration::from_secs(2)).unwrap();
+        let second = DiagnosticMedia::create(Duration::from_secs(1)).unwrap();
+        let controller = controller();
+        assert_eq!(controller.snapshot().seek_serial, 0);
+        assert_eq!(controller.snapshot().seek_position, None);
+
+        // Public acceptance only enqueues this inapplicable command. The worker
+        // rejects it, so a caller must not interpret that receipt as Seeked.
+        controller.seek(Duration::from_millis(50)).unwrap();
+        wait_for(&controller, |snapshot| {
+            snapshot.last_error == Some(PlaybackError::InvalidState)
+        })
+        .unwrap();
+        assert_eq!(controller.snapshot().seek_serial, 0);
+        assert_eq!(controller.snapshot().seek_position, None);
+
+        let ready = prepare(&controller, &first);
+        let generation = ready.generation;
+        assert_eq!(ready.seek_serial, 0);
+        let target = Duration::from_millis(50);
+        assert!(ready.position.unwrap_or_default().abs_diff(target) < Duration::from_millis(250));
+        controller.seek(target).unwrap();
+        let accepted = wait_for(&controller, |snapshot| {
+            snapshot.seek_serial == 1
+                && snapshot.seek_position == Some(target)
+                && snapshot
+                    .position
+                    .is_some_and(|position| position.abs_diff(target) < Duration::from_millis(20))
+        })
+        .unwrap();
+        assert_eq!(accepted.generation, generation);
+        assert_eq!(accepted.state, PlaybackState::Ready);
+        assert!(accepted.last_error.is_none());
+
+        // A non-seek command is a deterministic worker barrier: later polls and
+        // volume application must not repeatedly acknowledge the same seek.
+        controller.set_volume(0.37).unwrap();
+        wait_for(&controller, |snapshot| snapshot.volume == 0.37).unwrap();
+        assert_eq!(controller.snapshot().seek_serial, 1);
+        assert_eq!(controller.snapshot().seek_position, Some(target));
+        controller.seek(Duration::from_secs(3)).unwrap();
+        wait_for(&controller, |snapshot| {
+            snapshot.last_error == Some(PlaybackError::InvalidSeek)
+        })
+        .unwrap();
+        assert_eq!(controller.snapshot().seek_serial, 1);
+        assert_eq!(controller.snapshot().seek_position, Some(target));
+
+        controller.stop().unwrap();
+        let stopped = wait_for(&controller, |snapshot| {
+            snapshot.state == PlaybackState::Stopped
+        })
+        .unwrap();
+        assert_eq!(stopped.seek_serial, 1);
+        assert_eq!(stopped.seek_position, Some(target));
+        controller.seek(Duration::from_millis(75)).unwrap();
+        wait_for(&controller, |snapshot| {
+            snapshot.last_error == Some(PlaybackError::InvalidState)
+        })
+        .unwrap();
+        assert_eq!(controller.snapshot().seek_serial, 1);
+        let replaced = prepare(&controller, &second);
+        assert_eq!(replaced.generation, generation + 1);
+        assert_eq!(replaced.seek_serial, 1);
+        assert_eq!(replaced.seek_position, Some(target));
+        assert!(replaced.position.unwrap_or_default() < Duration::from_millis(20));
+        let next_target = Duration::from_millis(75);
+        controller.seek(next_target).unwrap();
+        let second_ack = wait_for(&controller, |snapshot| {
+            snapshot.seek_serial == 2
+                && snapshot.seek_position == Some(next_target)
+                && snapshot.position.is_some_and(|position| {
+                    position.abs_diff(next_target) < Duration::from_millis(20)
+                })
+        })
+        .unwrap();
+        assert_eq!(second_ack.generation, replaced.generation);
+        assert_eq!(
+            controller.seek(Duration::MAX),
+            Err(PlaybackError::InvalidSeek)
+        );
+        assert_eq!(controller.snapshot().seek_serial, 2);
+        shutdown(&controller);
+        assert_eq!(controller.snapshot().seek_serial, 2);
+        assert_eq!(controller.snapshot().seek_position, Some(next_target));
     }
 
     #[test]

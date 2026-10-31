@@ -49,12 +49,14 @@ session prototype below; it requires no end-user OAuth configuration.
 
 <a id="v02-catalog-and-delivery-info-acceptance-on-fedora"></a>
 
-## v0.2 search, account UX and playback regression on Fedora
+## v0.2 workspace, playback context and desktop-control acceptance on Fedora
 
 Use **one updated build from the existing PR #13**, after its matching stable
-and MSRV CI checks pass. The owner already accepted real Music playback,
-controls, queue and cleanup at `8f1b09d`; that is the baseline to preserve.
-That older build still fails track search and is not the search/UX correction.
+and MSRV CI checks pass. The owner accepted **Search PASS, Account PASS and
+Playback PASS at `f0aa2bb`**, but **UI FAIL** remains blocking. Preserve those
+working service paths while checking the next interface revision. The earlier
+`8f1b09d` run established real audio but still failed track search; it is
+historical evidence, not the latest search result.
 Check the new artifact's `BUILD-INFO.txt`/source revision and `SHA256SUMS`. A
 successful MSRV run uploads `karin-fedora-prototype-1.98.1`; verify the archive
 before extracting/running. The artifact is a native Ubuntu-built test binary,
@@ -77,55 +79,96 @@ terminal transcript. Session credentials remain memory-only.
 
 In this single session:
 
-1. Click **Войти**, finish the normal Yandex dialog, open the Library and play
-   an entitled real track. Confirm that it is audible through PipeWire. This is
-   a regression check of the already accepted service-audio path, not a request
-   to replace it or prove it with a generated signal.
-2. Search for tracks using both Latin and Cyrillic queries, with Enter and
-   **Найти**. Verify normalized titles/artists, open a result's details, navigate
-   Back and play a found track. Search must not fail because the search endpoint
-   returned unusual optional display metadata. Check album/artist search and
-   personal playlists for regressions as well.
-3. Exercise Next/Previous search pages, empty results and partially unavailable
-   data. Missing records must be explained; unavailable returned tracks must
-   not appear playable. Page navigation must follow the original search page,
-   including when fewer tracks can be normalized. On an ordinary search error,
-   verify one readable message and **Повторить поиск**, with no duplicated
-   technical code on the main screen. Open **Сведения для диагностики** only if a failure needs
-   investigation; no raw API response is needed.
-4. While a track is playing, open the account menu and select **Выйти из
-   аккаунта**. Verify the native confirmation and default focus on **Отмена**.
-   Cancel with the button and with Escape; an ordinary default keyboard
-   activation must not sign out. Account data, queue and audible playback must
-   remain intact. Repeat and explicitly confirm logout: only then should local
-   credentials/data clear and Music stop. Sign in once again normally.
-5. Exercise Play/Pause/Resume/Stop, real progress/seek when supported, volume,
-   queue selection and Next/Previous. Add another actual track, remove a
-   noncurrent/current item, allow EOS advance and check that metadata matches
-   the sound. Close Karin while playing; no orphan audio may remain. A locally
+1. Click **Войти**, finish the normal Yandex dialog and open the Library. Click
+   a playable track row: the player should respond immediately, and the actual
+   track must become audible through PipeWire. Repeat row activation with Enter
+   and Space. Open details through its distinct action and return without
+   accidentally starting another track. This preserves the accepted real audio
+   path; a generated signal does not satisfy it.
+2. From liked tracks, an album, a personal playlist and track-search results,
+   start a track from the middle of the returned list. Check that its source
+   context/order/position appears in the queue and Next/Previous/EOS select the
+   expected actual tracks. A loaded page must not pretend to be the full remote
+   collection. Append another track, remove a noncurrent/current entry, clear
+   the queue and start a different context. Navigating away or changing a page
+   must not unexpectedly replace active playback or resurrect old queue work.
+3. Search with Latin and Cyrillic queries. Check separate tracks, albums,
+   artists and playlists sections, then each section's Show All, paging and
+   return path. Verify normalized track titles/artists and real playback from
+   a result; search display metadata must not reject a valid own ID. Successful
+   sections must remain visible if another section fails; successful empty
+   categories should not add empty blocks. An all-empty search has one message.
+   Section Retry must request only that category; Back to All makes a fresh
+   bounded aggregate search. Missing records must
+   be explained and unavailable tracks must remain unplayable. Verify one
+   readable failure with **Повторить поиск** or the section's Retry action;
+   safe technical details stay collapsed unless deliberately opened.
+4. Open the round account avatar. It should show known account/session facts
+   without duplicating an account banner on every page. Initials are expected
+   when no photo is verified. Open the account action: it must launch the fixed
+   Yandex account page in the external browser. While Music plays, select
+   **Выйти из аккаунта** and verify default focus on **Отмена**. Button Cancel,
+   Escape and ordinary default keyboard activation must preserve the session,
+   queue and sound. Only explicit confirmation signs out and stops audio.
+   Sign in again normally; no technical credentials are required.
+5. Exercise the persistent bar's Play/Pause/Resume/Stop, progress/seek when
+   supported, volume and queue action. Its cover/title/artist and position must
+   match the heard track and real engine state. Check resolving/error/retry
+   states, then close while playing: no orphan audio may remain. A locally
    expired source can require explicit Play to acquire a fresh resource; there
    is no identity switch, protection fallback or automatic refusal retry loop.
-6. Resize around 420×720, 900×650 and 1440×900, maximize/restore, switch both
-   themes and check HiDPI. Assess useful result density, whitespace, row actions,
-   Back and player visibility, not only clipping. Use Tab/Shift+Tab, Enter,
-   Space and Escape through search, rows, queue and account confirmation. Change
-   query/page during a request; late results must not replace the current view
-   or restart stopped audio.
+6. With a real track playing, check KDE's media widget and hardware media keys,
+   then use the MPRIS commands below. Compare transport/position/volume changes
+   in both directions with Karin. Next/Previous must preserve paused/stopped
+   intent. Logout must clear media metadata and stop sound; closing Karin must
+   release the bus name. Repeat inside the current Flatpak only after that
+   actual artifact has been built and installed; native success is separate.
+7. Resize around 420×720, 900×650 and 1440×900, maximize/restore, switch both
+   themes and check HiDPI. Check the default desktop icon rail, explicit labels
+   expansion and compact drawer, plus useful populated-list density and coherent
+   player spacing. Assess the overall music composition, not only clipping.
+   Use Tab/Shift+Tab, Enter, Space and Escape through search, rows, details,
+   queue, avatar and confirmation. Change query/page during a request; late
+   results must not replace the current view or restart stopped audio.
 
-The desktop sidebar becomes a compact drawer. Existing shortcuts are Ctrl+H
-Home, Ctrl+L Library, Ctrl+F Search, Ctrl+J Queue, Ctrl+B drawer, Ctrl+,
+Install Fedora's `playerctl` package if needed. With ordinary Karin open in the
+same user's desktop session, use only the controls below; no token, resource
+address or other technical input is required:
+
+```sh
+playerctl --player=io.github.tracerxbrhd.Karin status
+playerctl --player=io.github.tracerxbrhd.Karin pause
+playerctl --player=io.github.tracerxbrhd.Karin play
+playerctl --player=io.github.tracerxbrhd.Karin position 5+
+playerctl --player=io.github.tracerxbrhd.Karin volume 0.5
+playerctl --player=io.github.tracerxbrhd.Karin next
+playerctl --player=io.github.tracerxbrhd.Karin previous
+playerctl --player=io.github.tracerxbrhd.Karin stop
+```
+
+Do not record or publish `playerctl metadata` output or a complete D-Bus trace:
+normal MPRIS track display fields are locally visible by design, but they are
+not needed in an acceptance report. Signed media addresses, OAuth and cookies
+must never appear there. If no bus player appears, report that specific failed
+step rather than treating the earlier heard-track result as failed.
+
+The desktop icon rail expands labels and becomes a compact drawer. Ctrl+B
+expands desktop labels or toggles the compact drawer. Other shortcuts are Ctrl+H
+Home, Ctrl+L Library, Ctrl+F Search, Ctrl+J Queue, Ctrl+,
 appearance and Ctrl+Q Quit. Appearance choices apply to this process only.
 Diagnostics are a separate explicit destination; they are not needed for normal
 search or playback. Optional like/unlike checks may deliberately change one
 track and restore it; unknown/conflicted writes recover with GET-only Refresh.
 
-Report only the build revision and anonymized PASS/FAIL for track search,
-search-to-play, logout cancellation/confirmation, playback regression and UX.
+Report only the build revision and anonymized PASS/FAIL for unified search,
+row-to-sound/context/queue, account cancellation/confirmation, playback
+regression, KDE/playerctl/media keys and the overall UI.
 If needed, copy only fixed stage/category/numeric HTTP from the disclosed safe
 details. Do not upload full logs, JSON, queries, track/playlist/account names or
 IDs, headers, private screenshots, cookies, tokens, signed addresses or audio.
-The [owner's `8f1b09d` report](https://github.com/tracerxbrhd/karin/pull/13#issuecomment-6539311586)
-remains a real audio PASS; it is not a new-build search/UX PASS.
+The owner's `f0aa2bb` run is real search/account/playback acceptance, alongside
+an explicit UI failure. It does not pass the revised interface, a later build
+or MPRIS/desktop integration before those checks are actually performed.
 
 ### Optional metadata-only delivery check
 
@@ -136,7 +179,7 @@ acceptance route. No token, cookie, track ID or resource address is an input.
 An older installed Flatpak does not contain the correction; preparing source
 and compiling offline do not establish full SDK/sandbox package acceptance.
 
-The full v0.2 release still requires corrected live search and UX, current
+The full v0.2 release still requires accepted UI and playback context, current
 Flatpak verification and resolution of the independent public-registration/
 service-distribution questions. Actual Music audibility is already accepted
 for the recorded baseline. See [validation](VALIDATION.md), the
@@ -144,8 +187,10 @@ for the recorded baseline. See [validation](VALIDATION.md), the
 
 ### After owner acceptance: one integration PR
 
-Keep the existing branch and PR #13 throughout this correction. Once the owner
-accepts search, logout UX and preserved sound, propose these actions for explicit
+Keep the existing branch and PR #13 throughout this correction. Search, account
+actions and preserved sound were accepted at `f0aa2bb`; the revised interface,
+playback context and desktop integration still need their own acceptance.
+After that acceptance, propose these actions for explicit
 approval: retarget this same PR #13 to `master` with its ancestor commits intact;
 rerun the full CI and review the resulting complete diff against `master`; then
 squash-merge once if authorized. Close the superseded #6, #8, #10, #11 and #12
@@ -248,8 +293,8 @@ Perform this one substantive acceptance run on Fedora 44/KDE/Wayland/PipeWire:
    and verify its contents. Search for a familiar track, album and artist; inspect
    the corresponding returned results and details. Empty libraries are legitimate
    only if they match your account. Add tracks to the queue and confirm ordering.
-   Selection is silent before explicit Play; during playback, selection changes
-   must play the selected track.
+   Activating a playable track row starts it in its returned collection context;
+   details use a separate action. Check Next/Previous/EOS and explicit appends.
 4. Sign out. Check that account/library/queue state and prior errors clear. Start
    another login, cancel it, retry and close the window; delayed results must not
    sign you back in. Restart should be signed out because sessions are memory-only.
@@ -264,10 +309,11 @@ Perform this one substantive acceptance run on Fedora 44/KDE/Wayland/PipeWire:
    private library screens or login screenshots. Do not change identity, region or
    OAuth mechanism during this acceptance run to hide a failed result.
 
-Owner evidence at `8f1b09d` now accepts real sign-in, Music account/library access
-and core audio. Corrected track search/UX and the new build's playback regression
-remain pending owner acceptance; source review and cloud fixtures cannot prove
-that new Fedora result. The selected return is exact `https://music.yandex.ru/`
+Owner evidence at `8f1b09d` accepts real sign-in, Music account/library access
+and core audio; the later `f0aa2bb` run accepts corrected search/account actions
+and preserved playback while rejecting the overall UI. The next UI/context and
+MPRIS revision still requires fresh owner acceptance; source review and cloud
+fixtures cannot prove that new Fedora result. The selected return is exact `https://music.yandex.ru/`
 with matching fresh state;
 if Yandex returns a different origin/path or omits state, the tool must report that
 specific return-validation failure rather than accept a substring or fake success.

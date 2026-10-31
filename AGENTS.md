@@ -82,6 +82,15 @@ Do not introduce Electron or web-based application shells.
   are different mechanisms. Enable actual playback only for an established
   permitted source; preserve an unmet audible-player gate if none is confirmed.
   No raw provider messages, personal models or credentials in logs.
+- Normal track-row activation (mouse, Enter and Space) starts the exact occurrence
+  in a bounded PlaybackContext from its real loaded source. Details are explicit
+  secondary actions. Preserve duplicate order, unavailable-item handling, original
+  paging and the visible partial-context boundary; manual additions supplement it.
+- MPRIS is an in-process GIO adapter to the same queue and PlaybackController,
+  never a second engine. Publish actual worker state and confirmed seek/volume,
+  opaque track object paths and decoded local cover files only. Never expose an
+  OAuth value, cookie, account ID or signed media URL on D-Bus. Advertise only
+  supported capabilities and retain the exact Flatpak MPRIS own-name permission.
 - Logout/close clears local data and invalidates stale UI work. No plaintext
   credential store, persistent token or refresh/revocation claim before a
   verified Secret Service lifecycle. Keep PKCE and developer audio independent.

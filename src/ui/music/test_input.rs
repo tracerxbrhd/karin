@@ -104,6 +104,25 @@ pub(super) fn pointer(
             _ => height / 2.0,
         };
     let surface = window.surface().expect("mapped main surface");
+    let scale = f64::from(window.scale_factor());
+    let native = widget.as_ref().native().expect("mapped target native");
+    let own = widget
+        .as_ref()
+        .compute_bounds(native.upcast_ref::<gtk::Widget>());
+    let direct = widget.as_ref().compute_bounds(window);
+    eprintln!(
+        "Karin synthetic pointer: widget={} name={} native={} native-transform={:?} root-transform={:?} own={own:?} direct={direct:?} surface-point=({x},{y}) scale={scale} focused={} focusable={} sensitive={} surface={}x{}",
+        widget.as_ref().type_().name(),
+        widget.as_ref().widget_name(),
+        native.type_().name(),
+        native.surface_transform(),
+        window.surface_transform(),
+        widget.as_ref().has_focus(),
+        widget.as_ref().is_focusable(),
+        widget.as_ref().is_sensitive(),
+        surface.width(),
+        surface.height(),
+    );
     assert!(
         x.is_finite()
             && y.is_finite()
@@ -112,20 +131,6 @@ pub(super) fn pointer(
             && y >= 0.0
             && y < f64::from(surface.height()),
         "input target is outside the main surface"
-    );
-    let scale = f64::from(window.scale_factor());
-    let native = widget.as_ref().native().expect("mapped target native");
-    let own = widget
-        .as_ref()
-        .compute_bounds(native.upcast_ref::<gtk::Widget>());
-    let direct = widget.as_ref().compute_bounds(window);
-    eprintln!(
-        "Karin synthetic pointer: widget={} name={} native={} native-transform={:?} root-transform={:?} own={own:?} direct={direct:?} surface-point=({x},{y}) scale={scale}",
-        widget.as_ref().type_().name(),
-        widget.as_ref().widget_name(),
-        native.type_().name(),
-        native.surface_transform(),
-        window.surface_transform(),
     );
     ((x * scale).round() as i32, (y * scale).round() as i32)
 }

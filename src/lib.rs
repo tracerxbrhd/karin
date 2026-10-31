@@ -9,6 +9,7 @@ pub mod auth;
 pub mod capabilities;
 pub mod config;
 pub mod domain;
+pub mod mpris;
 pub mod music;
 pub mod oauth;
 pub mod platform;

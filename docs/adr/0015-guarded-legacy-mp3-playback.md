@@ -4,6 +4,7 @@
 
 Status: Accepted; owner Fedora core-audio PASS at `8f1b09d` (2026-10-31)
 Date: 2026-10-30
+MPRIS deferral superseded by [ADR-0017](0017-playback-context-unified-workspace-and-mpris.md); the guarded resolver/engine remains unchanged.
 Supersedes: ADR-0007's local-only source restriction and ADR-0012's metadata-only
 implementation boundary for the explicit Play path
 

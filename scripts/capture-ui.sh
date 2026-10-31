@@ -115,6 +115,13 @@ for shape in compact medium wide; do
     xdotool key --clearmodifiers alt+1
     xdotool key --clearmodifiers ctrl+h
     capture "$shape-home"
+    if [ "$shape" = medium ]; then
+        # The desktop rail is collapsed by default. Verify its explicit label
+        # expansion, then restore it before the rest of the page matrix.
+        xdotool key --clearmodifiers ctrl+b
+        capture medium-navigation-expanded
+        xdotool key --clearmodifiers ctrl+b
+    fi
     if [ "$shape" = compact ]; then
         xdotool key --clearmodifiers ctrl+b
         capture compact-navigation-focus

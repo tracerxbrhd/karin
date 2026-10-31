@@ -12,6 +12,7 @@ use crate::{
         PlaybackController, PlaybackError, PlaybackOutput, PlaybackSnapshot, PlaybackSource,
         PlaybackState,
     },
+    queue::PlaybackContext,
     stream::{DeliveryCancellation, DeliveryReport, StreamResolver},
 };
 
@@ -76,6 +77,11 @@ impl Default for MusicPlayback {
 }
 
 impl Controller {
+    #[cfg(test)]
+    pub(super) fn set_fixture_resolver_for_test(&self, resolver: StreamResolver) {
+        self.player.borrow_mut().fixture_resolver = Some(resolver);
+    }
+
     pub(super) fn connect_music_player(self: &Rc<Self>) {
         let weak = Rc::downgrade(self);
         self.widgets.play.connect_clicked(move |_| {
@@ -97,9 +103,7 @@ impl Controller {
                     && value.is_finite()
                     && value >= 0.0
                 {
-                    this.music_command(|controller| {
-                        controller.seek(Duration::from_secs_f64(value))
-                    });
+                    this.seek_music(Duration::from_secs_f64(value));
                 }
                 glib::Propagation::Proceed
             });
@@ -111,8 +115,7 @@ impl Controller {
                     && value.is_finite()
                     && (0.0..=1.0).contains(&value)
                 {
-                    this.player.borrow_mut().volume = value;
-                    this.music_command(|controller| controller.set_volume(value));
+                    this.set_music_volume(value);
                 }
                 glib::Propagation::Proceed
             });
@@ -131,6 +134,34 @@ impl Controller {
     }
 
     pub(super) fn track_play_button(self: &Rc<Self>, track: &Track, compact: bool) -> gtk::Button {
+        let button = Self::music_play_button(track, compact);
+        let weak = Rc::downgrade(self);
+        let selected = track.clone();
+        button.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.play_music_track(selected.clone());
+            }
+        });
+        button
+    }
+
+    pub(super) fn context_play_button(
+        self: &Rc<Self>,
+        track: &Track,
+        compact: bool,
+        context: PlaybackContext,
+    ) -> gtk::Button {
+        let button = Self::music_play_button(track, compact);
+        let weak = Rc::downgrade(self);
+        button.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.play_music_context(context.clone());
+            }
+        });
+        button
+    }
+
+    fn music_play_button(track: &Track, compact: bool) -> gtk::Button {
         let button = if compact {
             icon_button("media-playback-start-symbolic", "Воспроизвести трек")
         } else {
@@ -144,14 +175,54 @@ impl Controller {
         if !track.available {
             button.set_tooltip_text(Some("Трек недоступен по данным сервиса"));
         }
-        let weak = Rc::downgrade(self);
-        let selected = track.clone();
-        button.connect_clicked(move |_| {
-            if let Some(this) = weak.upgrade() {
-                this.play_music_track(selected.clone());
-            }
-        });
         button
+    }
+
+    pub(super) fn play_music_context(self: &Rc<Self>, context: PlaybackContext) {
+        if !context.items()[context.current_index()].available {
+            self.widgets
+                .status
+                .set_title("Сервис пометил трек как недоступный.");
+            return;
+        }
+        {
+            let mut model = self.model.borrow_mut();
+            if model.closed || !model.account_valid {
+                return;
+            }
+            if model.token.as_ref().is_none_or(AccessToken::is_expired) {
+                drop(model);
+                self.show_error(MusicError::Unauthenticated);
+                return;
+            }
+            // A context contains one already loaded, bounded list. Replace it
+            // atomically and keep the exact clicked occurrence, including IDs
+            // repeated within a playlist or a search page. No catalog fetch is
+            // implied, and manually appended extras belong to the old context.
+            model.queue.replace_context(context);
+        }
+        self.render_queue();
+        self.request_music(true, None);
+    }
+
+    pub(super) fn play_music_queue(self: &Rc<Self>, index: usize) {
+        {
+            let mut model = self.model.borrow_mut();
+            if model.closed || !model.account_valid {
+                return;
+            }
+            if model
+                .queue
+                .items()
+                .get(index)
+                .is_none_or(|track| !track.available)
+            {
+                return;
+            }
+            model.queue.select(index);
+        }
+        self.render_queue();
+        self.request_music(true, None);
     }
 
     pub(super) fn play_music_track(self: &Rc<Self>, track: Track) {
@@ -192,15 +263,95 @@ impl Controller {
         self.request_music(true, None);
     }
 
-    fn toggle_music(self: &Rc<Self>) {
+    pub(super) fn toggle_music(self: &Rc<Self>) {
+        if self.music_requested() {
+            return;
+        }
         let snapshot = self.music_snapshot();
         match snapshot.as_ref().map(|snapshot| snapshot.state) {
             Some(PlaybackState::Playing) => self.music_command(PlaybackController::pause),
             Some(PlaybackState::Paused) => self.music_command(PlaybackController::resume),
-            Some(PlaybackState::Ready) => self.music_command(PlaybackController::play),
+            Some(PlaybackState::Ready) => {
+                if let Some(snapshot) = &snapshot {
+                    self.play_prepared_music(snapshot);
+                }
+            }
             Some(PlaybackState::Loading) => {}
             _ => self.request_music(true, snapshot.and_then(|snapshot| snapshot.position)),
         }
+    }
+
+    pub(super) fn play_music(self: &Rc<Self>) {
+        if self.music_requested() {
+            return;
+        }
+        let snapshot = self.music_snapshot();
+        match snapshot.as_ref().map(|snapshot| snapshot.state) {
+            Some(PlaybackState::Playing | PlaybackState::Loading) => {}
+            Some(PlaybackState::Paused) => self.music_command(PlaybackController::resume),
+            Some(PlaybackState::Ready) => {
+                if let Some(snapshot) = &snapshot {
+                    self.play_prepared_music(snapshot);
+                }
+            }
+            _ => self.request_music(true, snapshot.and_then(|snapshot| snapshot.position)),
+        }
+    }
+
+    pub(super) fn pause_music(&self) {
+        if self
+            .music_snapshot()
+            .is_some_and(|snapshot| snapshot.state == PlaybackState::Playing)
+        {
+            self.music_command(PlaybackController::pause);
+        }
+    }
+
+    fn play_prepared_music(&self, snapshot: &PlaybackSnapshot) {
+        // The worker can reach Ready between GUI polls. Explicit Play must
+        // consume that preparation before the worker leaves Ready; otherwise
+        // its already-completed preparation would keep the UI buffering. Apply
+        // the same pending resume position that the ordinary poll would use.
+        let preparation = self.player.borrow_mut().preparing.take();
+        if let Some((_, position)) = preparation {
+            self.apply_music_resume_position(position, snapshot);
+        }
+        self.music_command(PlaybackController::play);
+    }
+
+    fn apply_music_resume_position(&self, position: Option<Duration>, snapshot: &PlaybackSnapshot) {
+        if let Some(position) = position.filter(|value| !value.is_zero())
+            && snapshot.seekable
+            && snapshot.duration.is_none_or(|duration| position < duration)
+        {
+            self.seek_music(position);
+        }
+    }
+
+    pub(super) fn seek_music(&self, position: Duration) {
+        let before = self
+            .music_snapshot()
+            .map_or(0, |snapshot| snapshot.seek_serial);
+        let result = self
+            .player
+            .borrow()
+            .controller
+            .as_ref()
+            .map(|controller| controller.seek(position));
+        if self.music_command_result(result) {
+            // Acceptance only arms the bridge. It emits Seeked after a later
+            // actual worker snapshot acknowledges this position/track binding.
+            self.note_music_seek_from(position, before);
+        }
+    }
+
+    pub(super) fn set_music_volume(&self, volume: f64) {
+        if !volume.is_finite() || !(0.0..=1.0).contains(&volume) {
+            return;
+        }
+        self.player.borrow_mut().volume = volume;
+        self.music_command(|controller| controller.set_volume(volume));
+        self.render_music_player();
     }
 
     fn request_music(self: &Rc<Self>, autoplay: bool, position: Option<Duration>) {
@@ -417,7 +568,7 @@ impl Controller {
         self.render_music_player();
     }
 
-    fn music_snapshot(&self) -> Option<PlaybackSnapshot> {
+    pub(super) fn music_snapshot(&self) -> Option<PlaybackSnapshot> {
         self.player
             .borrow()
             .controller
@@ -425,13 +576,28 @@ impl Controller {
             .map(PlaybackController::snapshot)
     }
 
+    pub(super) fn music_requested(&self) -> bool {
+        self.player.borrow().requested
+    }
+
+    pub(super) fn music_volume(&self) -> f64 {
+        self.player.borrow().volume
+    }
+
     fn music_command(
         &self,
         command: impl FnOnce(&PlaybackController) -> Result<(), PlaybackError>,
     ) {
         let result = self.player.borrow().controller.as_ref().map(command);
+        self.music_command_result(result);
+    }
+
+    fn music_command_result(&self, result: Option<Result<(), PlaybackError>>) -> bool {
         match result {
-            Some(Err(error)) => self.music_failure(Failure::Engine(error)),
+            Some(Err(error)) => {
+                self.music_failure(Failure::Engine(error));
+                false
+            }
             Some(Ok(())) => {
                 let owned_error = {
                     let mut player = self.player.borrow_mut();
@@ -448,8 +614,9 @@ impl Controller {
                 }
                 self.widgets.player_status.set_tooltip_text(None);
                 self.render_controls();
+                true
             }
-            None => {}
+            None => false,
         }
     }
 
@@ -537,13 +704,8 @@ impl Controller {
             }
         }
         if let Some((autoplay, position)) = ready {
-            if let Some(position) = position.filter(|value| !value.is_zero())
-                && snapshot.as_ref().is_some_and(|snapshot| {
-                    snapshot.seekable
-                        && snapshot.duration.is_none_or(|duration| position < duration)
-                })
-            {
-                self.music_command(|controller| controller.seek(position));
+            if let Some(snapshot) = &snapshot {
+                self.apply_music_resume_position(position, snapshot);
             }
             if autoplay {
                 self.music_command(PlaybackController::play);
@@ -591,11 +753,20 @@ impl Controller {
         let (active, autoplay) = self.continuation();
         let advanced = {
             let mut model = self.model.borrow_mut();
-            if forward {
-                model.queue.next_track().is_some()
-            } else {
-                model.queue.previous_track().is_some()
-            }
+            let current = model.queue.current_index();
+            let next = current.and_then(|current| {
+                if forward {
+                    model.queue.items()[current + 1..]
+                        .iter()
+                        .position(|track| track.available)
+                        .map(|offset| current + 1 + offset)
+                } else {
+                    model.queue.items()[..current]
+                        .iter()
+                        .rposition(|track| track.available)
+                }
+            });
+            next.is_some_and(|index| model.queue.select(index).is_some())
         };
         if !advanced {
             return;
@@ -606,6 +777,7 @@ impl Controller {
         }
     }
 
+    #[cfg(test)]
     pub(super) fn select_music_queue(self: &Rc<Self>, index: usize) {
         let (active, autoplay) = self.continuation();
         let changed = {
@@ -744,6 +916,9 @@ impl Controller {
                 ),
             );
         }
+        drop(player);
+        drop(model);
+        self.publish_mpris();
     }
 }
 

@@ -1,9 +1,13 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 
-# Karin music interface, guarded playback and sign-in boundary
+# Karin music workspace, guarded playback and platform integration
 
 Karin remains one Cargo package with internal modules. The service integration
 and the independently usable playback engine have separate responsibilities.
+The owner accepted real search, account actions and preserved service playback
+at `f0aa2bb`; the overall UI was rejected. The next context/workspace/MPRIS
+increment preserves those accepted service and engine boundaries, with fresh
+target-desktop acceptance required. See [ADR-0017](adr/0017-playback-context-unified-workspace-and-mpris.md).
 
 ```mermaid
 flowchart LR
@@ -31,6 +35,11 @@ flowchart LR
   Session --> MusicService
   MusicService --> Validation[Music account accepted before dialog success]
   UI --> Queue[Bounded track queue]
+  UI --> Context[Returned collection / playback context]
+  Context --> Queue
+  Desktop[KDE / playerctl / media keys] --> MPRIS[GIO session D-Bus / MPRIS]
+  MPRIS --> UI
+  UI --> MPRIS
   UI --> Resolver[StreamResolver]
   Session --> Resolver
   Resolver --> Offers[Music delivery-info]
@@ -55,14 +64,16 @@ flowchart LR
 | `music` | Typed metadata service, reduced models, bounded transport and token-bound account cache; explicit confirmed writes in `music::interactions` |
 | `auth` / `auth::cassette` | Default Cassette-compatible session provider, bounded attempts/return-state validation and official OAuth session exchange; separate generic code/PKCE fixed-loopback infrastructure |
 | `session` | Zeroizing ephemeral tokens; library-only feature-gated Device Flow without bundled application credentials |
-| `queue` | Bounded order/selection of real track metadata; active source binding remains in the music player |
+| `queue` | Bounded ordered playback context and explicit queue appends from real track metadata; active source binding remains in the music player |
 | `capabilities` | Historical independent diagnostic capability types; not the normal provider or new resolver admission |
 | `playback` / `playback::remote` | Reusable controller, worker-owned `playbin`, local sources and sealed short-lived HTTPS admission/transport policy |
 | `stream` / `stream::resolver` | Metadata-only delivery diagnostic and the separate account-bound legacy full-MP3 resolver; bounded requests and sanitized reports |
 | `audio` | Existing finite synthetic pipeline, EOS/error/timeout handling and resource cleanup |
-| `platform` | Session D-Bus/Secret Service presence diagnostics; reserved future MPRIS identity |
+| `platform` | Session D-Bus/Secret Service presence diagnostics |
+| `mpris` | GIO session-bus adapter for MPRIS root/Player methods, typed snapshots and signals; no audio engine or network resource input |
 | `config` | Non-secret application identity and version |
 | `ui` / `ui::music` / `ui::music::player` | Native catalog/session UI plus explicit playback intents, queue/source binding, snapshot controls and cleanup |
+| `ui::music::system_media` | MPRIS commands/snapshots joined to that same player; worker-acknowledged Seeked and bounded private cover-only files |
 | `ui::auth` | Single-purpose Libadwaita sign-in dialog, ephemeral WebKitGTK6 login and scoped asynchronous cookie handoff |
 | `main` | Concrete composition, application lifecycle and explicit diagnostic CLI modes |
 
@@ -84,6 +95,44 @@ The corrected public sign-in boundary and provider gate are recorded in
 [ADR-0011](adr/0011-cassette-session-auth-prototype.md), superseding the earlier
 [ADR-0010](adr/0010-single-purpose-sign-in-and-provider-gate.md) provider block, and the
 [authentication review](AUTHENTICATION_REVIEW.md).
+
+## Native workspace and unified search
+
+The desktop navigation defaults to a 72-pixel icon rail with an explicit
+expand-labels action. At logical widths of 760 pixels or less, navigation uses
+a native labelled drawer. Ctrl+B expands desktop labels or toggles that drawer.
+Accessible names, tooltips and keyboard activation accompany icons. Diagnostics
+remain in the application menu, outside everyday library/search destinations. A compact native account
+avatar in the HeaderBar uses initials from the validated display name, because
+no profile-photo URI has been verified. Its popover displays only known name/
+session information and the existing safe logout flow. Opening the fixed
+`https://id.yandex.ru/` account page uses the system-browser handler without
+account parameters, cookies or tokens; a launch failure remains local to the
+popover. It does not replace the established WebKit login path.
+
+The initial unified search consumes one `type=all` response and at most one
+existing account-bound track-normalization batch. Tracks, albums, artists and
+playlists have independent typed section results. One malformed/failed section
+does not hide successful sections or become a fictional empty list. Empty
+categories are omitted; an entirely empty successful search has one clear
+message. Show All, section Retry and subsequent pages use only that category's
+existing search path, with the original query and provider paging. Returning to
+All performs a fresh bounded aggregate query. The strict own-ID and
+50-position/50-distinct-ID track contract, bounded requests and account epochs
+remain unchanged. Search and detail navigation preserve their real source
+state; no extra per-row normalization request is introduced. Search playlist
+summaries keep actual owner/kind and optional counts; a generic **Плейлист**
+label for missing/invalid display text is not claimed to be a returned name.
+
+The persistent music bar groups a 56-pixel cover, actual title/artist, a
+44-pixel native Play control, transport, progress/seek, volume and queue.
+Its compact vertical arrangement preserves readable metadata and controls.
+It follows the existing worker snapshots; a
+redesigned control must not invent a new playing state or source. Both the
+workspace's useful density and its keyboard/HiDPI behavior require actual visual
+and structural review, separately from the accepted backend functionality.
+Details remain on their existing page with a distinct action; the optional
+wide information pane is not implemented in this increment.
 
 ## Read-only music and session lifecycle
 
@@ -182,13 +231,60 @@ errors occupy one plain-language retry state; optional safe diagnostic details
 do not compete with normal results or duplicate a global error banner.
 
 The ordinary application retains its window/controller through close; signal
-handlers reference controllers weakly. Queue selection is silent before an
-explicit Play; during active playback it is bound to the selected source. The
-music player has one running/latest-pending resolver intent, independent of
+handlers reference controllers weakly. Activating a playable track row by mouse,
+Enter or Space creates/selects its `PlaybackContext` and starts real resolution
+immediately; opening details is a separate explicit action. A context retains
+the collection source kind/identity, actually loaded ordered tracks and selected
+position. Liked tracks, playlist/album contents and search results do not become
+an invented complete collection: Next/Previous/EOS use the returned context and
+skip unavailable loaded items, preserving paused/stopped intent. Contexts retain
+exact clicked positions and duplicates within the existing 500-position bound.
+Manual appends follow that context; starting another context drops old extra
+appends. Partial data is marked without unbounded collection fetching.
+Queue changes and view navigation must not cause an older context or pending
+resolver intent to replace newer user work. The music player has one
+running/latest-pending resolver intent, independent of
 catalog lanes. Track ID, session and intent serial prevent stale completion from
 restarting old audio. Stop, removing a playing selection, logout and close cancel
 resolution and retire the controller off GTK. The existing generated-WAV
 diagnostic remains a separate developer tool.
+
+## MPRIS and the existing player
+
+`mpris` owns `org.mpris.MediaPlayer2.io.github.tracerxbrhd.Karin` and exports root
+and Player interfaces at `/org/mpris/MediaPlayer2` using GIO on the session bus.
+It receives typed snapshots and emits PropertiesChanged/Seeked; native UI bridge
+callbacks dispatch commands to the same context, resolver and PlaybackController
+as native controls. There is no second GStreamer pipeline or provider. Raise/
+Quit, Play/Pause/PlayPause/Stop, Next/Previous, Seek/SetPosition and Volume retain
+actual lifecycle/capability checks. Position and length use microseconds; track
+object paths are opaque and generation-bound, so a stale SetPosition cannot seek
+a new selection. Next/Previous preserve paused/stopped intent.
+Seeked waits for a matching worker acknowledgement, rather than assuming
+successful delivery when the old position happens to be close to the target.
+
+PlaybackStatus, Can* properties and metadata reflect actual state. Only known
+title/artist/album/length and optional validated local-file cover artwork are
+exported. `LocalArtwork` validates an absolute regular non-symlink file. The UI
+bridge writes only an already bounded, decoded cover as a PNG of at most 256
+pixels, into a private random directory under the user's cache directory;
+directory/file modes are 0700/0600. RAII removes both on replacement, logout
+and close. At most three local artwork-worker Busy admission attempts are
+permitted; they do not retry HTTP. No music content is cached.
+No audio resource/CDN URL, OAuth, cookie, query, raw response or `xesam:url`
+crosses the bus. OpenUri is unsupported; no TrackList, repeat or shuffle
+properties are advertised. Rate stays 1.0 (minimum/maximum 1.0); the standard
+Rate=0 action pauses rather than enabling speed control. Shutdown unregisters
+interfaces and releases the owned name; logout instead publishes Stopped and
+empty metadata while the application stays open.
+
+The Flatpak manifest needs only the exact MPRIS own-name permission; broad
+session-bus/filesystem access is unnecessary. Secret Service remains ungranted.
+An isolated bus fixture and a synthetic native-player bridge fixture can verify
+methods, properties, signals, stale IDs, capability changes and cleanup. Actual
+KDE integration, hardware media keys and `playerctl` controlling an audible
+Music track remain a separate Fedora acceptance check; a complete current
+Flatpak build/install/sandbox result also remains separate.
 
 ## Confirmed library interactions
 
@@ -211,7 +307,14 @@ cannot preempt a blocked call inside a native plugin.
 
 The controller exposes Idle, Loading, Ready, Playing, Paused, Stopped, Ended and
 Error states. Snapshots include position, duration, seekability, volume, a safe
-error category and worker completion status. Prepare, play, pause/resume, stop,
+error category and worker completion status. Numeric `seek_serial` and
+`seek_position` telemetry advance only after the existing native `seek_simple`
+succeeds. The MPRIS bridge captures the counter before enqueueing and waits for
+a matching acknowledged target before emitting Seeked. This adds observability
+without changing source admission, resolution or GStreamer seek semantics.
+Shared native/MPRIS Play also consumes outstanding Ready preparation/resume
+state, preventing a late preparation result from leaving playback stuck.
+Prepare, play, pause/resume, stop,
 volume and seek all use the same real `playbin` path. EOS and errors update
 state explicitly; seeking is permitted only when the source reports support.
 
@@ -298,13 +401,12 @@ flow. The owner verified token/ID binding; both Music account methods returned
 403. See ADR-0008 and the dated [API evidence](API_FEASIBILITY.md).
 Automated OAuth fixtures use loopback only and require no account or browser.
 
-`org.mpris.MediaPlayer2.Karin` remains reserved and unexported. Gate A does not
-implement MPRIS or My Wave. The music interface now has a guarded legacy remote
-player, but real service audio and target-desktop acceptance remain pending.
-MPRIS must not export fictional service playback.
-Flatpak permissions omit Secret Service and MPRIS ownership because neither is
-used. The existing sandbox grants suffice for generated local media and explicit
-system-output diagnostics. The prototype manifest explicitly enables Cassette/WebKit authentication and
+The earlier Gate A MPRIS reservation and later audio-only deferral are historical;
+ADR-0017 defines the scoped bridge to the now accepted player. My Wave and
+persistent Secret Service sessions remain unimplemented. Actual service-audio
+acceptance at `8f1b09d` and preservation at `f0aa2bb` do not by themselves pass
+the new workspace/MPRIS or current Flatpak. The exact MPRIS own-name grant does
+not enable Secret Service access. The prototype manifest explicitly enables Cassette/WebKit authentication and
 excludes the legacy Device Flow feature. Dependency availability and synthetic
 fixtures do not establish a live accepted provider session or public-release
 permission. Smoke/capture modes inject an offline provider and never contact

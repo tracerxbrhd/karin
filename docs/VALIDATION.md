@@ -6,7 +6,32 @@ This report separates initial cloud checks, user-reported Fedora acceptance,
 revised UI checks and compiler compatibility. A result for one environment or
 revision is not evidence that another has passed.
 
-## Owner Fedora acceptance and search/UX correction (2026-10-31)
+## Owner Fedora acceptance at `f0aa2bb` and remaining UI work (2026-10-31)
+
+The owner's next PR #13 run at **`f0aa2bb`** reports **Search PASS, Account
+PASS and Playback PASS**, while **UI FAIL** remains a blocking manual result.
+This is real Fedora 44 / KDE Plasma / Wayland / PipeWire evidence: corrected
+track search and safe account actions have now been accepted, and actual Yandex
+Music playback still works. It supersedes the earlier live-search failure and
+pending account/search acceptance below; it does not turn the rejected interface
+into an accepted UI or imply that a later revision has passed.
+
+| Owner result at `f0aa2bb` | Status |
+| --- | --- |
+| Corrected track search | **Fedora PASS** |
+| Account actions, including the deliberate logout flow | **Fedora PASS** |
+| Preservation of real service playback | **Fedora PASS** |
+| Overall music interface | **Fedora FAIL**; further UI work and fresh manual acceptance required |
+| New playback-context/MPRIS/UI increment | Not yet accepted; implementation checks and the next owner run must be recorded separately |
+| Current Flatpak artifact and public registration/service-distribution permission | Separate unresolved gates |
+
+Keep the accepted search normalization, voluntary authentication and guarded
+GStreamer/resolver path intact. New navigation, playback-context and desktop
+integration checks must exercise those real paths rather than substitute
+synthetic audio, UI-only state or a different login. No user session, resource
+address, private library or raw log belongs in Cloud/CI evidence.
+
+## Historical owner acceptance and search/UX correction through `f0aa2bb` (2026-10-31)
 
 The owner's [technical conclusion for PR #13 at `8f1b09d`](https://github.com/tracerxbrhd/karin/pull/13#issuecomment-6539311586)
 records **real service playback PASS** on Fedora 44 / KDE Plasma / Wayland /
@@ -46,7 +71,7 @@ layout density across sizes/themes/HiDPI.
 | Real Music audio, controls, queue and logout/close at `8f1b09d` | **Owner Fedora PASS** |
 | Track search at `8f1b09d` | **Owner Fedora FAIL**; HTTP 200 / `track-wire` / `track-fields-unsupported` |
 | New batch-search and native account/UX regression checks | Prepared stable 1.99.1: all-feature Clippy, 39 backend checks, native search/Retry/density, account mouse/keyboard/default-Cancel and search→detail→synthetic-MP3 checks passed; complete compiler/CI results are recorded by immutable revision in PR #13 |
-| New build: real track search → detail → audible playback; logout Cancel/confirm; density | Pending owner Fedora acceptance; prior audio PASS remains valid for its revision |
+| Corrected build at `f0aa2bb`: search, account actions and preserved playback | **Owner Fedora PASS**; overall UI **FAIL**, as recorded above |
 | Full current Flatpak artifact and public service/registration distribution approval | Separate unresolved gates |
 
 An isolated `8f1b09d` regression with a valid own ID and synthetic unusual/duplicate
@@ -62,7 +87,8 @@ and stable paint-frame allocations; screenshots cannot supply that readiness.
 Use the [single updated Fedora guide](BUILDING.md#v02-catalog-and-delivery-info-acceptance-on-fedora).
 No new PR, base change, merge, branch deletion or closure of ancestor PRs is part
 of this correction. The dated sections below preserve earlier evidence; their
-pre-acceptance audio status is superseded by the owner report above.
+pre-acceptance audio/search status is superseded by the revision-specific owner
+reports above.
 
 ## Historical guarded legacy MP3 resolver and remote player checks (2026-10-30)
 
@@ -1594,7 +1620,12 @@ It does not replace target-desktop accessibility or rendering acceptance.
 | Reproducible dependency/build workflow | Cargo.lock, `--locked` commands, CI definition and vendored offline Flatpak source preparation |
 | CI | GitHub Actions workflow provided; hosted-runner outcome must be read from the PR checks, not inferred from local results |
 
-## Unrun/manual acceptance
+## Historical initial-cloud manual gaps
+
+This final foundation record describes what had not been exercised at that
+initial baseline. Later revision-specific owner reports above supersede its
+login/library/search/audio gaps; the current UI/context/MPRIS and exact Flatpak
+acceptance status is recorded at the top of this document.
 
 Full Flatpak package build/install, repeat visual acceptance of the revised UI on
 Fedora 44/KDE/Wayland, HiDPI and accessibility acceptance remain unverified. The

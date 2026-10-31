@@ -61,10 +61,11 @@ nonfunctional controls. Playlist writes require revision/conflict handling and
 read-after-write confirmation. Media caching/offline rights and persistent
 credentials require separate review.
 
-The owner has now accepted the core audible path at `8f1b09d`. A new delivery
+The owner accepted the core audible path at `8f1b09d` and reports **Search PASS,
+Account PASS and Playback PASS at `f0aa2bb`**, with **UI FAIL**. A new delivery
 refusal must still identify its exact stage/category without changing identity,
 region, TLS or protection handling. Preserve the working integration and use
-Library playback as a regression check while repairing search and UX; do not
+Library/search playback as a regression check while repairing the interface; do not
 replace accepted audio with a generated signal or a new provider experiment.
 
 ## Release conditions
@@ -93,19 +94,30 @@ and queue, and correct logout/close. This is the core service-audio PASS, not a
 synthetic fixture result. The accepted resolver/player and current sign-in
 provider must be preserved.
 
-Track search still fails with HTTP 200 / `track-wire` /
-`track-fields-unsupported`. The current correction replaces coupled search
-metadata decoding with a minimal validated identity hit and one account-bound
+The earlier track-search failure with HTTP 200 / `track-wire` /
+`track-fields-unsupported` is superseded by owner **Search PASS at `f0aa2bb`**.
+The correction replaces coupled search metadata decoding with a minimal
+validated identity hit and one account-bound
 `/tracks` batch of at most 50 distinct IDs within a 50-position page, with original
-order/pagination and
-explicit partial data. The account menu requires an explicitly labelled logout
+order/pagination and explicit partial data. The account menu requires an explicitly labelled logout
 and native Cancel-default confirmation. Search errors/retry, row Play/details,
 Back, queue actions and everyday layout density receive targeted UX correction;
-no unrelated redesign or inert feature controls are added.
+no inert feature controls are added.
 
-The full v0.2 release is still blocked by live corrected search and UX, current
-Flatpak verification and independently unresolved public OAuth-registration/
-service-distribution conditions. MPRIS/media keys remain outside this correction.
+The same `f0aa2bb` run accepts account actions and preserved actual playback,
+but rejects the overall UI. The next correction must improve the native music
+workspace and playback context while preserving these accepted paths; MPRIS
+must report/control that same player rather than invent a second audio engine.
+The [next accepted design decision](adr/0017-playback-context-unified-workspace-and-mpris.md)
+adds row-to-sound playback contexts from actual loaded collections, explicit
+manual appends, four-section unified search, the default icon rail/compact
+drawer, a round account avatar and a coherent persistent player. MPRIS uses the
+existing GIO/session bus and actual player capabilities, with only an exact
+Flatpak own-name grant. The implementation, fresh visual review and real Fedora
+KDE/media-key/context acceptance must be reported separately from this scope.
+The full v0.2 release remains blocked by UI acceptance, playback-context/desktop
+integration checks, current Flatpak verification and independently unresolved
+public OAuth-registration/service-distribution conditions.
 Use [one updated Fedora build](BUILDING.md#v02-catalog-and-delivery-info-acceptance-on-fedora)
 for search-to-play, safe logout and preservation of the accepted sound path.
 

@@ -3,14 +3,14 @@
 # Karin
 
 An independent native Linux client for Yandex Music, built with Rust, GTK4,
-Libadwaita and GStreamer. The owner's [Fedora acceptance at `8f1b09d`](https://github.com/tracerxbrhd/karin/pull/13#issuecomment-6539311586)
-confirms **audible real Yandex Music, working playback controls and queue, and
-correct stopping on logout/close** on Fedora 44 / KDE Plasma / Wayland / PipeWire.
-Track search still failed with HTTP 200 / `track-wire` /
-`track-fields-unsupported`. The current correction separates search identity
-from display metadata and expands track IDs through the existing batched lookup.
-Search and account UX still require owner acceptance; the audio success does not
-settle Flatpak or public-distribution permission. Karin is not affiliated with Yandex.
+Libadwaita and GStreamer. The owner's Fedora 44 / KDE Plasma / Wayland / PipeWire
+run at **`f0aa2bb`** reports **Search PASS, Account PASS and Playback PASS**, while
+**UI FAIL** remains blocking. The earlier [real-audio acceptance at `8f1b09d`](https://github.com/tracerxbrhd/karin/pull/13#issuecomment-6539311586)
+is preserved: an actual Yandex Music track was heard, with working controls,
+queue and stopping on logout/close. The next correction improves the native
+workspace, playback context and media-system controls while retaining that
+integration. New-build acceptance, current Flatpak and public-distribution
+permission remain separate. Karin is not affiliated with Yandex.
 
 [Issue #9](https://github.com/tracerxbrhd/karin/issues/9) tracks this stage. Its
 starting Fedora run found that search and opening personal playlists failed.
@@ -23,18 +23,22 @@ the new build's playback regression check.
 
 - A typed `MusicService` for authenticated account status, liked tracks, personal
   playlists and their contents, track/album details, and paged search for tracks,
-  albums and artists. Its identity-neutral transport has bounded responses,
-  deadlines, fixed errors and no automatic retries or redirects.
+  albums, artists and playlists. Its identity-neutral transport has bounded
+  responses, deadlines, fixed errors and no automatic retries or redirects.
 - Track search reads minimal validated IDs and retrieves normalized track models
   in one bounded batch, preserving result order and provider pagination. Missing
   tracks are reported as partial data; unavailable returned tracks stay visible
   with disabled playback. Search display fields do not gate otherwise valid IDs.
+  Unified search exposes independent real-data sections with category paging and
+  Retry; the initial search makes at most one GET and one normalization batch.
 - A native music interface with loading/error/empty/session states, library and
-  search results, detail navigation and a bounded metadata queue. Only returned
+  search results, detail navigation and a bounded playback context. Only returned
   service data is displayed; no demonstration catalog is shipped.
-- A desktop sidebar/compact drawer, Home with working destinations, readable
-  music rows and context actions, detail covers and a persistent selected-track
-  bar. Account logout is an explicitly labelled menu action with a native
+- A default desktop icon rail with expandable labels and a compact drawer,
+  readable music rows, detail covers and a persistent player bar. Activating a
+  track starts its actual loaded collection context; details have a separate
+  action. The round account avatar uses known-name initials, with an external
+  account-page action. Logout is an explicitly labelled menu action with a native
   confirmation and Cancel as the safe default. Public cover images use bounded
   asynchronous loading and a memory cache;
   malformed or missing art has a native placeholder. Theme preferences support
@@ -62,6 +66,16 @@ the new build's playback regression check.
   Next/Previous, queue selection and EOS use actual worker snapshots. Protected,
   preview, unknown-origin and expired sources fail visibly; no generated audio
   is substituted for a service track.
+- Playback contexts preserve loaded order, duplicate positions and the selected
+  occurrence within the 500-track queue limit. Manual appends follow the context;
+  a new context replaces old extras. Next/Previous/EOS skip unavailable loaded
+  tracks, without pretending a partial page is a complete remote collection.
+- MPRIS 2.2 uses the existing player through GIO session D-Bus, with truthful
+  capabilities, transport, worker-acknowledged seek, volume and locally known
+  metadata. Optional cover artwork uses a private temporary cover-only PNG,
+  removed on replacement/logout/close. No media
+  address, OAuth or cookie is exported. KDE/media-key and current Flatpak
+  acceptance of this new bridge still require the owner's local run.
 - Metadata and media use separate credential boundaries: OAuth goes only to the
   fixed Music API; descriptor/CDN requests receive no OAuth or cookies. Remote
   playback preserves TLS verification, rejects redirects/manifests and stores no
@@ -91,19 +105,22 @@ provider prohibition is inferred. See [the scoped decision](docs/adr/0011-casset
 The default build and Flatpak enable this real provider; a no-feature compatibility
 build deliberately omits it. Device Flow remains a library-only optional experiment.
 The owner's Fedora reports establish real login, Music account, liked tracks,
-playlist-list access and the core audible path at `8f1b09d`. Cloud fixtures alone
+playlist-list access and the core audible path at `8f1b09d`, followed by accepted
+track search/account actions/preserved playback at `f0aa2bb`. Cloud fixtures alone
 do not establish those results. [Fresh local Fedora acceptance](docs/BUILDING.md#v02-catalog-and-delivery-info-acceptance-on-fedora)
-must verify corrected search, safe account actions and preservation of that
-working audio path. Failures identify return/state, session-cookie collection,
+must verify the revised workspace, row-to-sound contexts, unified search,
+desktop controls and preservation of those working paths. Failures identify
+return/state, session-cookie collection,
 OAuth exchange or Music validation rather than a generic provider block.
 Session tokens are memory-only; logout clears local session/data and does not revoke the server
 grant. Persistent sessions require a separately verified Secret Service lifecycle.
-Playlist editing, My Wave and MPRIS are not enabled.
+Playlist editing and My Wave are not enabled.
 Like/unlike writes are explicit and require confirmed membership; no success is
 inferred from a missing response. The earlier MP3 offer/descriptor refusal is
 historical: the owner subsequently heard an actual track through this resolver
 and player. Use the [single Fedora acceptance guide](docs/BUILDING.md#v02-catalog-and-delivery-info-acceptance-on-fedora)
-to check the new search-to-play journey and guard against audio regressions.
+to check the new workspace/context/media-control journey and guard against audio
+regressions.
 The historical legacy checksum is assessed separately from modern extracted
 signing keys and DRM; the latter are not implemented. See
 [ADR-0015](docs/adr/0015-guarded-legacy-mp3-playback.md).

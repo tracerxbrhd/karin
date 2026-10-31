@@ -31,6 +31,7 @@ pub struct MainWindow {
     header_items: Vec<gtk::Widget>,
     split: adw::OverlaySplitView,
     sidebar_toggle: gtk::ToggleButton,
+    sidebar_expand: gtk::ToggleButton,
     sidebar: gtk::ListBox,
     scrolls: Vec<gtk::ScrolledWindow>,
     lifetime_refs: Vec<glib::WeakRef<gtk::Widget>>,
@@ -169,6 +170,9 @@ impl MainWindow {
         }
         if !compact && !self.split.shows_sidebar() {
             return Err("Desktop sidebar is hidden".into());
+        }
+        if !compact && !self.sidebar_expand.is_active() && self.split.min_sidebar_width() > 80.0 {
+            return Err("Desktop icon rail was not restored".into());
         }
         for scroll in &self.scrolls {
             let adjustment = scroll.hadjustment();
@@ -357,9 +361,9 @@ fn build_with_music_pane(
     let title = adw::WindowTitle::new("Karin", "");
     header.set_title_widget(Some(&title));
     let split = adw::OverlaySplitView::builder()
-        .min_sidebar_width(200.0)
-        .max_sidebar_width(240.0)
-        .sidebar_width_fraction(0.22)
+        .min_sidebar_width(72.0)
+        .max_sidebar_width(72.0)
+        .sidebar_width_fraction(0.1)
         .build();
     let focus_epoch = Rc::new(Cell::new(0_u64));
     split.connect_show_sidebar_notify({
@@ -403,7 +407,7 @@ fn build_with_music_pane(
     let sidebar_header = adw::HeaderBar::new();
     sidebar_header.set_show_start_title_buttons(false);
     sidebar_header.set_show_end_title_buttons(false);
-    let brand = gtk::Label::new(Some("Karin"));
+    let brand = gtk::Label::new(Some("K"));
     brand.add_css_class("title-3");
     sidebar_header.set_title_widget(Some(&brand));
     sidebar_toolbar.add_top_bar(&sidebar_header);
@@ -412,6 +416,7 @@ fn build_with_music_pane(
     destinations.add_css_class("navigation-sidebar");
     destinations.set_selection_mode(gtk::SelectionMode::Single);
     destinations.set_widget_name("music-sidebar");
+    let mut navigation_labels = Vec::new();
     for (name, label, icon) in [
         ("music-home", "Главная", "go-home-symbolic"),
         ("music-library", "Библиотека", "folder-music-symbolic"),
@@ -421,16 +426,81 @@ fn build_with_music_pane(
         let row = gtk::ListBoxRow::new();
         let content = gtk::Box::new(gtk::Orientation::Horizontal, 12);
         margins(&content, 10);
-        content.append(&gtk::Image::from_icon_name(icon));
+        let glyph = gtk::Image::from_icon_name(icon);
+        glyph.set_pixel_size(20);
+        content.append(&glyph);
         let text = gtk::Label::new(Some(label));
         text.set_xalign(0.0);
+        text.set_visible(false);
+        navigation_labels.push(text.downgrade());
         content.append(&text);
+        row.set_tooltip_text(Some(label));
+        row.update_property(&[gtk::accessible::Property::Label(label)]);
         row.set_child(Some(&content));
         row.set_action_name(Some(&format!("win.{name}")));
         row.set_widget_name(name);
         destinations.append(&row);
     }
+    let sidebar_expand = gtk::ToggleButton::builder()
+        .icon_name("sidebar-show-symbolic")
+        .tooltip_text("Развернуть навигацию")
+        .halign(gtk::Align::Center)
+        .build();
+    sidebar_expand.set_widget_name("navigation-expand");
+    sidebar_expand.update_property(&[gtk::accessible::Property::Label(
+        "Развернуть или свернуть навигацию",
+    )]);
     sidebar_content.append(&destinations);
+    let navigation_space = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    navigation_space.set_vexpand(true);
+    sidebar_content.append(&navigation_space);
+    sidebar_content.append(&sidebar_expand);
+    let update_navigation: Rc<dyn Fn()> = {
+        let split = split.downgrade();
+        let button = sidebar_expand.downgrade();
+        let brand = brand.downgrade();
+        Rc::new(move || {
+            let (Some(split), Some(button)) = (split.upgrade(), button.upgrade()) else {
+                return;
+            };
+            let expanded = split.is_collapsed() || button.is_active();
+            for label in &navigation_labels {
+                if let Some(label) = label.upgrade() {
+                    label.set_visible(expanded);
+                }
+            }
+            if let Some(brand) = brand.upgrade() {
+                brand.set_text(if expanded { "Karin" } else { "K" });
+            }
+            if expanded {
+                split.set_max_sidebar_width(240.0);
+                split.set_min_sidebar_width(200.0);
+            } else {
+                split.set_min_sidebar_width(72.0);
+                split.set_max_sidebar_width(72.0);
+            }
+            button.set_visible(!split.is_collapsed());
+            button.set_icon_name(if expanded {
+                "sidebar-hide-symbolic"
+            } else {
+                "sidebar-show-symbolic"
+            });
+            button.set_tooltip_text(Some(if expanded {
+                "Свернуть навигацию"
+            } else {
+                "Развернуть навигацию"
+            }));
+        })
+    };
+    sidebar_expand.connect_toggled({
+        let update = update_navigation.clone();
+        move |_| update()
+    });
+    split.connect_collapsed_notify({
+        let update = update_navigation.clone();
+        move |_| update()
+    });
+    update_navigation();
     sidebar_toolbar.set_content(Some(&sidebar_content));
     split.set_sidebar(Some(&sidebar_toolbar));
 
@@ -562,7 +632,11 @@ fn build_with_music_pane(
     compact_navigation.add_setter(&split, "collapsed", Some(&true.to_value()));
     compact_navigation.add_setter(&split, "show-sidebar", Some(&false.to_value()));
     compact_navigation.add_setter(&sidebar_toggle, "visible", Some(&true.to_value()));
-    compact_navigation.add_setter(&music.account_caption(), "visible", Some(&false.to_value()));
+    compact_navigation.add_setter(
+        &music.player_main(),
+        "orientation",
+        Some(&gtk::Orientation::Vertical.to_value()),
+    );
     compact_navigation.add_setter(
         &diagnostic_columns,
         "orientation",
@@ -599,10 +673,15 @@ fn build_with_music_pane(
     let sidebar_action = gio::SimpleAction::new("sidebar", None);
     let weak_split = split.downgrade();
     let weak_destinations = destinations.downgrade();
+    let weak_expand = sidebar_expand.downgrade();
     sidebar_action.connect_activate(move |_, _| {
-        if let Some(split) = weak_split.upgrade()
-            && split.is_collapsed()
-        {
+        if let Some(split) = weak_split.upgrade() {
+            if !split.is_collapsed() {
+                if let Some(expand) = weak_expand.upgrade() {
+                    expand.set_active(!expand.is_active());
+                }
+                return;
+            }
             split.set_show_sidebar(!split.shows_sidebar());
             if split.shows_sidebar()
                 && let Some(list) = weak_destinations.upgrade()
@@ -898,6 +977,7 @@ fn build_with_music_pane(
         ],
         split,
         sidebar_toggle,
+        sidebar_expand,
         sidebar: destinations,
         scrolls: vec![home_scroll, diagnostics_scroll],
         lifetime_refs,
@@ -944,9 +1024,13 @@ fn scroll_page(content: &gtk::Box) -> gtk::ScrolledWindow {
         .tightening_threshold(760)
         .child(content)
         .build();
+    let viewport = gtk::Viewport::builder()
+        .scroll_to_focus(true)
+        .child(&clamp)
+        .build();
     gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::Never)
-        .child(&clamp)
+        .child(&viewport)
         .build()
 }
 

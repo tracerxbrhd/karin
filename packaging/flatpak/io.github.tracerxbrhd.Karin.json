@@ -11,7 +11,8 @@
     "--socket=wayland",
     "--socket=fallback-x11",
     "--socket=pulseaudio",
-    "--device=dri"
+    "--device=dri",
+    "--own-name=org.mpris.MediaPlayer2.io.github.tracerxbrhd.Karin"
   ],
   "build-options": {
     "append-path": "/usr/lib/sdk/rust-stable/bin",

@@ -3,7 +3,25 @@
 
 use super::super::tests::{capture_native, pump_until};
 use super::*;
-use std::time::{Duration, Instant};
+use std::{
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+    time::{Duration, Instant},
+};
+
+static ACCOUNT_BROWSER_OPENS: AtomicUsize = AtomicUsize::new(0);
+static ACCOUNT_BROWSER_FAILURE: AtomicBool = AtomicBool::new(false);
+
+fn account_browser_fixture(uri: &str) -> Result<(), AuthError> {
+    // No real browser/account is opened by this native input test. Any other
+    // destination, account identifier or added query is a test failure.
+    assert_eq!(uri, ACCOUNT_URI);
+    ACCOUNT_BROWSER_OPENS.fetch_add(1, Ordering::SeqCst);
+    if ACCOUNT_BROWSER_FAILURE.load(Ordering::SeqCst) {
+        Err(AuthError::BrowserLoad)
+    } else {
+        Ok(())
+    }
+}
 
 fn input(arguments: &[&str]) {
     assert!(
@@ -138,6 +156,8 @@ fn synthetic_track() -> Track {
 #[test]
 #[ignore = "requires an isolated GTK/X11 display and xdotool; run explicitly under Xvfb"]
 fn native_account_menu_logout_cancel_default_confirm_and_stale_session() {
+    ACCOUNT_BROWSER_OPENS.store(0, Ordering::SeqCst);
+    ACCOUNT_BROWSER_FAILURE.store(false, Ordering::SeqCst);
     gtk::init().unwrap();
     adw::init().unwrap();
     let app = adw::Application::builder()
@@ -154,7 +174,7 @@ fn native_account_menu_logout_cancel_default_confirm_and_stale_session() {
                 window,
                 None,
                 Arc::new(OfflineProvider),
-                launch_system_browser,
+                account_browser_fixture,
             )
         },
     );
@@ -170,6 +190,17 @@ fn native_account_menu_logout_cancel_default_confirm_and_stale_session() {
         model.queue.append(synthetic_track()).unwrap();
     }
     this.widgets.account.set_text("Synthetic account");
+    let avatar = this
+        .widgets
+        .account_menu
+        .child()
+        .and_downcast::<adw::Avatar>()
+        .expect("account action is a circular native Avatar");
+    assert_eq!(avatar.size(), 28);
+    assert!(avatar.shows_initials());
+    assert_eq!(avatar.text().as_deref(), Some("Synthetic account"));
+    assert!(avatar.custom_image().is_none());
+    assert!(!this.widgets.account_menu.must_always_show_arrow());
     this.render_controls();
     this.render_queue();
     window.present();
@@ -225,7 +256,36 @@ fn native_account_menu_logout_cancel_default_confirm_and_stale_session() {
         assert_eq!(this.model.borrow().generation, original_generation);
         assert!(!token.is_expired());
         assert_eq!(this.model.borrow().queue.items().len(), 1);
+        assert!(!this.widgets.account_launch_error.is_visible());
+        assert!(
+            this.widgets
+                .account_open
+                .is_ancestor(&this.widgets.account_menu.popover().unwrap())
+        );
         capture_native(&format!("account-menu-{name}"));
+        if name == "compact" {
+            // Only the explicit browser action launches an external page;
+            // account-menu opening and failed launches never end the session.
+            ACCOUNT_BROWSER_FAILURE.store(true, Ordering::SeqCst);
+            click(window, id, &this.widgets.account_open);
+            pump_until(|| this.widgets.account_launch_error.is_visible());
+            assert_eq!(ACCOUNT_BROWSER_OPENS.load(Ordering::SeqCst), 1);
+            assert!(this.widgets.account_menu.popover().unwrap().is_visible());
+            assert!(this.logout_confirmation.borrow().is_none());
+            assert!(!token.is_expired());
+            assert_eq!(this.model.borrow().queue.items().len(), 1);
+            assert_eq!(this.model.borrow().generation, original_generation);
+            capture_native("account-browser-retry-compact");
+            ACCOUNT_BROWSER_FAILURE.store(false, Ordering::SeqCst);
+            click(window, id, &this.widgets.account_open);
+            pump_until(|| !this.widgets.account_menu.popover().unwrap().is_visible());
+            assert_eq!(ACCOUNT_BROWSER_OPENS.load(Ordering::SeqCst), 2);
+            assert!(!this.widgets.account_launch_error.is_visible());
+            assert!(!token.is_expired());
+            assert_eq!(this.model.borrow().queue.items().len(), 1);
+            click(window, id, &this.widgets.account_menu);
+            pump_until(|| this.widgets.account_menu.popover().unwrap().is_visible());
+        }
         click(window, id, &this.widgets.logout);
         let old = confirmation(this, &format!("{name}-default-cancel"));
         assert_eq!(old.dialog.default_response().as_deref(), Some("cancel"));
@@ -304,6 +364,12 @@ fn native_account_menu_logout_cancel_default_confirm_and_stale_session() {
     assert!(!this.model.borrow().account_valid);
     assert!(this.model.borrow().queue.items().is_empty());
     assert!(!this.widgets.account_menu.is_visible());
+    let launches = ACCOUNT_BROWSER_OPENS.load(Ordering::SeqCst);
+    this.widgets.account_open.emit_clicked();
+    assert_eq!(ACCOUNT_BROWSER_OPENS.load(Ordering::SeqCst), launches);
+    assert!(!this.widgets.account_launch_error.is_visible());
     ui.music.close();
+    this.widgets.account_open.emit_clicked();
+    assert_eq!(ACCOUNT_BROWSER_OPENS.load(Ordering::SeqCst), launches);
     window.close();
 }

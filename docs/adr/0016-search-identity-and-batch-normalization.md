@@ -2,7 +2,7 @@
 
 # ADR-0016: Minimal search identity and batched track normalization
 
-Status: Accepted for the PR #13 correction; live corrected-search acceptance pending
+Status: Accepted; owner Fedora corrected-search PASS at `f0aa2bb` (2026-10-31)
 Date: 2026-10-31
 
 ## Context

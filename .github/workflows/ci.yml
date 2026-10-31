@@ -44,7 +44,8 @@ jobs:
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
             gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
             libssl-dev libdbus-1-dev libsecret-1-dev libwebkitgtk-6.0-dev dbus-x11 xvfb xauth \
-            librsvg2-common openbox imagemagick xdotool wmctrl x11-utils apparmor
+            librsvg2-common openbox imagemagick xdotool wmctrl x11-utils apparmor \
+            playerctl libglib2.0-bin
       - name: Install selected Rust toolchain
         run: |
           rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
@@ -90,6 +91,12 @@ jobs:
           assert all("--all-features" not in command and "experimental-device-auth" not in command for command in commands)
           assert all("--experimental-music" not in command for command in commands)
           assert not any(arg.startswith("--filesystem=") or "org.freedesktop.secrets" in arg for arg in manifest["finish-args"])
+          finish_args = manifest["finish-args"]
+          assert [arg for arg in finish_args if arg.startswith("--own-name=")] == [
+              "--own-name=org.mpris.MediaPlayer2.io.github.tracerxbrhd.Karin"
+          ], "Expose only Karin's exact MPRIS name"
+          assert "--socket=session-bus" not in finish_args
+          assert not any(arg.startswith("--talk-name=") or arg.startswith("--system-talk-name=") for arg in finish_args)
           PY
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -104,6 +111,11 @@ jobs:
           cargo clippy --workspace --all-targets --no-default-features --locked -- -D warnings
           cargo test --workspace --no-default-features --locked
           cargo build --workspace --no-default-features --locked
+      - name: MPRIS methods, properties, signals and shutdown on an isolated session bus
+        run: |
+          command -v playerctl
+          command -v gdbus
+          dbus-run-session -- cargo test --lib --all-features --locked native_mpris_session_bus_methods_properties_signals_and_shutdown -- --ignored --test-threads=1
       - name: Native Music session and catalog against loopback fixtures
         env:
           GTK_A11Y: none
@@ -180,6 +192,17 @@ jobs:
           dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_music_playback_resolver_queue_controls_and_logout -- --ignored --test-threads=1
           dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_music_playback_queue_races_remove_and_close -- --ignored --test-threads=1
           dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_music_playback_media_error_visibility_stop_retry_and_catalog_preservation -- --ignored --test-threads=1
+      - name: Playback context occurrences and shared transport against loopback
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+          GSK_DEBUG: full-redraw
+        run: |
+          if [ '${{ matrix.lane }}' = stable ]; then
+            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
+          fi
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_music_playback_context_occurrences_and_shared_transport -- --ignored --test-threads=1
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_music_context_mpris_shared_player_and_cleanup -- --ignored --test-threads=1
       - name: Signed-in search and safe account actions at HiDPI
         env:
           GTK_A11Y: none
@@ -369,11 +392,12 @@ jobs:
             printf 'Binary SHA256: '; sha256sum target/release/karin
           } > "$artifact/BUILD-INFO.txt"
           cat > "$artifact/README.txt" <<'EOF'
-          Karin v0.2 track-search and account-UX acceptance build for Fedora 44.
+          Karin v0.2 playback-context, unified-search, account-UX and MPRIS acceptance build for Fedora 44.
           Verify the downloaded archive with: sha256sum -c SHA256SUMS
           Extract the archive and enter karin-fedora-prototype-1.98.1.
           Install Fedora runtime packages if needed:
           sudo dnf install gtk4 libadwaita gstreamer1 gstreamer1-plugins-base gstreamer1-plugins-good webkitgtk6.0 librsvg2
+          Optional tool for the manual MPRIS check: sudo dnf install playerctl
           Disable core dumps for this local session, then run the ordinary client:
           ulimit -c 0
           ./karin
@@ -382,21 +406,30 @@ jobs:
           Source build and acceptance instructions: docs/BUILDING.md at the exact source commit in BUILD-INFO.txt.
           This is an Ubuntu 24.04 x86_64 build; Fedora acceptance for this exact artifact is pending.
           It is not a Flatpak, a production release or proof of live Music API access.
-          Only Music account validation can finish login. Select an entitled real Library track and explicitly press Play.
-          Real core Music playback, controls, queue and shutdown passed owner Fedora acceptance at 8f1b09d.
-          This revision needs a search/UX acceptance run and a regression check of that working audio.
-          Search tracks using Enter and Find; open a result and play it. Check paging, unavailable items and Retry.
-          Open the account menu: Выйти из аккаунта must ask for confirmation, with Отмена as the default.
+          Only Music account validation can finish login. Activate an entitled real track row to start playback.
+          Owner Fedora acceptance at f0aa2bb confirmed search, account actions and real Music playback; UI acceptance failed.
+          This revision's UX, playback contexts and MPRIS are pending a new Fedora acceptance run.
+          Play from a library, search or playlist context; check that Next/Previous/EOS follow that list and skip unavailable items.
+          Verify track duplicates retain their own positions; manual queue additions remain after the loaded context.
+          Open details with the separate details action; check the row context menu and explicit queue actions.
+          Search Latin/Cyrillic names in the unified workspace; check tracks, albums, artists, paging, missing items and Retry.
+          Check the compact icon rail, wide sidebar, readable titles and persistent player at 420x720, 900x650, 1440x900 and maximized.
+          Check both themes, HiDPI, keyboard focus and real list density, including Back navigation and details.
+          Open the account avatar menu: verify the account name and Yandex ID browser action.
+          Выйти из аккаунта must ask for confirmation, with Отмена as the default.
           Cancel/Escape must preserve account, queue and audio. Only explicit confirmation signs out.
           Check pause/resume, progress/seek, volume, next/previous/queue/EOS, Stop and clean close.
           Also check actual playlist contents and Latin/Cyrillic track/album/artist search and details.
+          During real playback, check playerctl --player=io.github.tracerxbrhd.Karin status and play-pause/next/previous/stop.
+          Check KDE media keys and external position/volume changes, Stop, unavailable actions and clean shutdown.
+          Cloud D-Bus fixtures and playerctl checks do not establish KDE/Wayland/PipeWire media-key acceptance.
           Optional ./karin --delivery-diagnostic remains metadata-only and fetches no audio.
           The reused application identity's public-distribution permission is unresolved.
           Report only the build revision, anonymized PASS/FAIL, and fixed stage/category/HTTP support codes.
           Do not record a full terminal transcript or enable network/GStreamer debugging.
           Session cookies/tokens stay in memory. Do not share raw JSON, parameterized URLs, tokens or personal screenshots.
           CI uses original synthetic MP3 and loopback fixtures, never a real account or service recording.
-          This build is ready for the search/account-UX and sound-regression run; this new revision is not yet owner-accepted.
+          This build is prepared for the new UX/context/MPRIS and sound-regression run; this revision is not yet owner-accepted.
           See BUILD-INFO.txt and licenses.
           EOF
           tar -C build -czf build/karin-fedora-prototype-1.98.1.tar.gz karin-fedora-prototype-1.98.1

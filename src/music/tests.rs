@@ -117,6 +117,7 @@ fn assert_redacted(value: impl fmt::Debug) {
         "synthetic-private-title",
         "synthetic-private-artist",
         "synthetic-private-album",
+        "synthetic-private-playlist",
         "synthetic-private-request",
     ] {
         assert!(!visible.contains(private));
@@ -1648,10 +1649,18 @@ fn search_requires_the_cached_account_and_token_before_any_request() {
         service.search(&token(), "synthetic", SearchKind::Tracks, 0),
         Err(MusicError::Unauthenticated)
     );
+    assert_eq!(
+        service.search_all(&token(), "synthetic"),
+        Err(MusicError::Unauthenticated)
+    );
     seed_search_account(&service);
     let another = AccessToken::for_test("synthetic-other-token", Duration::from_secs(60));
     assert_eq!(
         service.search(&another, "synthetic", SearchKind::Tracks, 0),
+        Err(MusicError::Unauthenticated)
+    );
+    assert_eq!(
+        service.search_all(&another, "synthetic"),
         Err(MusicError::Unauthenticated)
     );
     let expired = token();
@@ -1660,64 +1669,75 @@ fn search_requires_the_cached_account_and_token_before_any_request() {
         service.search(&expired, "synthetic", SearchKind::Tracks, 0),
         Err(MusicError::Unauthenticated)
     );
+    assert_eq!(
+        service.search_all(&expired, "synthetic"),
+        Err(MusicError::Unauthenticated)
+    );
     assert!(complete(server, listener).is_empty());
 }
 
 #[test]
 fn search_binding_epoch_survives_neither_logout_nor_same_token_revalidation() {
-    for invalidate_during_lookup in [false, true] {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
-        let retained = listener.try_clone().unwrap();
-        let service = MusicService::for_test(&format!("http://{address}/"));
-        seed_search_account(&service);
-        let (reached, wait) = std::sync::mpsc::channel();
-        let (release, ready) = std::sync::mpsc::channel();
-        let server = thread::spawn(move || {
-            let mut requests = Vec::new();
-            let mut first = accept(&listener);
-            requests.push(read_request(&mut first));
-            if !invalidate_during_lookup {
-                reached.send(()).unwrap();
-                ready.recv_timeout(Duration::from_secs(4)).unwrap();
-            }
-            // Cache invalidation may make the client close immediately after
-            // headers; a cancelled fixture response need not finish writing.
-            let body = r#"{"result":{"tracks":{"total":1,"results":[{"id":42}]}}}"#;
-            let _ = write!(
-                first,
-                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                body.len()
-            );
-            if invalidate_during_lookup {
-                let mut second = accept(&listener);
-                requests.push(read_request(&mut second));
-                reached.send(()).unwrap();
-                ready.recv_timeout(Duration::from_secs(4)).unwrap();
-                let body =
-                    r#"{"result":[{"id":42,"title":"synthetic-private-title","available":true}]}"#;
+    for aggregate in [false, true] {
+        for invalidate_during_lookup in [false, true] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let retained = listener.try_clone().unwrap();
+            let service = MusicService::for_test(&format!("http://{address}/"));
+            seed_search_account(&service);
+            let (reached, wait) = std::sync::mpsc::channel();
+            let (release, ready) = std::sync::mpsc::channel();
+            let server = thread::spawn(move || {
+                let mut requests = Vec::new();
+                let mut first = accept(&listener);
+                requests.push(read_request(&mut first));
+                if !invalidate_during_lookup {
+                    reached.send(()).unwrap();
+                    ready.recv_timeout(Duration::from_secs(4)).unwrap();
+                }
+                // Cache invalidation may make the client close immediately after
+                // headers; a cancelled fixture response need not finish writing.
+                let body = r#"{"result":{"tracks":{"total":1,"results":[{"id":42}]}}}"#;
                 let _ = write!(
-                    second,
+                    first,
                     "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                     body.len()
                 );
-            }
-            requests
-        });
-        let worker_service = service.clone();
-        let worker = thread::spawn(move || {
-            worker_service.search(&token(), "synthetic", SearchKind::Tracks, 0)
-        });
-        wait.recv_timeout(Duration::from_secs(4)).unwrap();
-        service.clear_session();
-        // Represents successful revalidation with the same credential; an old
-        // operation must still fail its captured cache epoch instead of joining
-        // the new session merely because token/UID happen to compare equal.
-        seed_search_account(&service);
-        release.send(()).unwrap();
-        assert_eq!(worker.join().unwrap(), Err(MusicError::Unauthenticated));
-        let requests = complete(server, retained);
-        assert_eq!(requests.len(), if invalidate_during_lookup { 2 } else { 1 });
+                if invalidate_during_lookup {
+                    let mut second = accept(&listener);
+                    requests.push(read_request(&mut second));
+                    reached.send(()).unwrap();
+                    ready.recv_timeout(Duration::from_secs(4)).unwrap();
+                    let body = r#"{"result":[{"id":42,"title":"synthetic-private-title","available":true}]}"#;
+                    let _ = write!(
+                        second,
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                }
+                requests
+            });
+            let worker_service = service.clone();
+            let worker = thread::spawn(move || {
+                if aggregate {
+                    worker_service.search_all(&token(), "synthetic").map(|_| ())
+                } else {
+                    worker_service
+                        .search(&token(), "synthetic", SearchKind::Tracks, 0)
+                        .map(|_| ())
+                }
+            });
+            wait.recv_timeout(Duration::from_secs(4)).unwrap();
+            service.clear_session();
+            // Represents successful revalidation with the same credential; an old
+            // operation must still fail its captured cache epoch instead of joining
+            // the new session merely because token/UID happen to compare equal.
+            seed_search_account(&service);
+            release.send(()).unwrap();
+            assert_eq!(worker.join().unwrap(), Err(MusicError::Unauthenticated));
+            let requests = complete(server, retained);
+            assert_eq!(requests.len(), if invalidate_during_lookup { 2 } else { 1 });
+        }
     }
 }
 
@@ -1747,59 +1767,379 @@ fn search_lookup_http_errors_keep_the_observed_status_without_metadata_fallback(
 
 #[test]
 fn search_lookup_transport_failure_does_not_reuse_search_http_200() {
-    for delayed in [false, true] {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
-        let service = MusicService {
-            client: Client::builder()
-                .no_proxy()
-                .timeout(Duration::from_secs(1))
-                .redirect(Policy::none())
-                .retry(reqwest::retry::never())
-                .build()
-                .unwrap(),
-            origin: Url::parse(&format!("http://{address}/")).unwrap(),
-            account: Arc::new(Mutex::new(AccountCache::default())),
-        };
-        seed_search_account(&service);
-        let server = thread::spawn(move || {
-            let mut first = accept(&listener);
-            let search = read_request(&mut first);
-            assert!(search.starts_with("GET /search?"));
-            let body = r#"{"result":{"tracks":{"total":1,"results":[{"id":42}]}}}"#;
-            write!(
-                first,
-                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                body.len()
-            )
-            .unwrap();
-            let mut second = accept(&listener);
-            let lookup = read_request(&mut second);
-            assert!(lookup.starts_with("POST /tracks "));
-            if delayed {
-                thread::sleep(Duration::from_millis(1500));
-            }
-            drop(second);
-            listener.set_nonblocking(true).unwrap();
-            assert_eq!(
-                listener.accept().unwrap_err().kind(),
-                std::io::ErrorKind::WouldBlock
-            );
-        });
-        let error = service
-            .search(&token(), "synthetic", SearchKind::Tracks, 0)
-            .unwrap_err();
-        assert_eq!(
-            error,
-            if delayed {
-                MusicError::Timeout
+    for aggregate in [false, true] {
+        for delayed in [false, true] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let service = MusicService {
+                client: Client::builder()
+                    .no_proxy()
+                    .timeout(Duration::from_secs(1))
+                    .redirect(Policy::none())
+                    .retry(reqwest::retry::never())
+                    .build()
+                    .unwrap(),
+                origin: Url::parse(&format!("http://{address}/")).unwrap(),
+                account: Arc::new(Mutex::new(AccountCache::default())),
+            };
+            seed_search_account(&service);
+            let server = thread::spawn(move || {
+                let mut first = accept(&listener);
+                let search = read_request(&mut first);
+                assert!(search.starts_with("GET /search?"));
+                let body = r#"{"result":{"tracks":{"total":1,"results":[{"id":42}]}}}"#;
+                write!(
+                    first,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .unwrap();
+                let mut second = accept(&listener);
+                let lookup = read_request(&mut second);
+                assert!(lookup.starts_with("POST /tracks "));
+                if delayed {
+                    thread::sleep(Duration::from_millis(1500));
+                }
+                drop(second);
+                listener.set_nonblocking(true).unwrap();
+                assert_eq!(
+                    listener.accept().unwrap_err().kind(),
+                    std::io::ErrorKind::WouldBlock
+                );
+            });
+            let error = if aggregate {
+                let result = service.search_all(&token(), "synthetic").unwrap();
+                assert_eq!(result.http_status, 200);
+                result.tracks.unwrap_err()
             } else {
-                MusicError::Network
+                service
+                    .search(&token(), "synthetic", SearchKind::Tracks, 0)
+                    .unwrap_err()
+            };
+            assert_eq!(
+                error,
+                if delayed {
+                    MusicError::Timeout
+                } else {
+                    MusicError::Network
+                }
+            );
+            assert_eq!(error.http_status(), None);
+            assert_eq!(error.diagnostic_stage(), None);
+            assert_redacted(error);
+            server.join().unwrap();
+        }
+    }
+}
+
+fn unified_wire() -> serde_json::Value {
+    json!({"result":{
+        "text":"synthetic-private-query",
+        "tracks":{"total":3,"perPage":1,"results":[{"id":42,"artists":{"ignored":"synthetic-private-person"}}]},
+        "albums":{"total":1,"perPage":20,"results":[{"id":7,"title":"synthetic-private-album"}]},
+        "artists":{"total":2,"perPage":1,"results":[{"id":11,"name":"synthetic-private-artist"}]},
+        "playlists":{"total":2,"perPage":1,"results":[{"owner":{"uid":4321},"kind":8,"title":"synthetic-private-playlist","cover":{"uri":"avatars.yandex.net/get-music-content/synthetic/%%"}}]}
+    }})
+}
+
+#[test]
+fn unified_search_uses_one_all_request_and_one_normalized_track_batch() {
+    let (service, server, listener) = search_fixture(vec![
+        (200, unified_wire().to_string()),
+        (200, format!("{{\"result\":[{TRACK}]}}")),
+    ]);
+    let result = service
+        .search_all(&token(), "synthetic-private-query")
+        .unwrap();
+    assert_eq!(result.http_status, 200);
+    let tracks = result.tracks.as_ref().unwrap();
+    assert_eq!(tracks.items[0].title, "synthetic-private-title");
+    assert!(tracks.items[0].available);
+    assert!(tracks.has_more);
+    assert_eq!(tracks.omitted, 0);
+    let albums = result.albums.as_ref().unwrap();
+    assert_eq!(albums.items[0].id, "7");
+    assert!(!albums.has_more);
+    assert!(result.artists.as_ref().unwrap().has_more);
+    let playlists = result.playlists.as_ref().unwrap();
+    assert_eq!(playlists.items[0].id.owner, "4321");
+    assert_eq!(playlists.items[0].id.kind, "8");
+    assert_eq!(playlists.items[0].track_count, None);
+    assert!(playlists.items[0].cover.is_some());
+    assert!(playlists.has_more);
+    assert_redacted(&result);
+    assert_redacted(tracks);
+    assert_redacted(&playlists.items[0]);
+    let requests = complete(server, listener);
+    assert_eq!(requests.len(), 2);
+    assert!(requests[0].contains("&type=all&page=0&"));
+    assert!(requests[1].starts_with("POST /tracks HTTP/1.1"));
+    assert!(requests[1].ends_with("track-ids=42"));
+}
+
+#[test]
+fn unified_sections_fail_independently_and_retry_only_the_requested_category() {
+    let cases = [
+        (
+            SearchKind::Tracks,
+            "tracks",
+            json!({"total":1,"results":[{"id":{"bad":true}}]}),
+            SearchParseStage::TrackWireShape(SearchSchemaShape::IdentityType),
+        ),
+        (
+            SearchKind::Albums,
+            "albums",
+            json!({"total":1,"results":[{"title":"synthetic-private-album"}]}),
+            SearchParseStage::AlbumNormalization,
+        ),
+        (
+            SearchKind::Artists,
+            "artists",
+            json!({"total":1,"results":[{"id":11,"name":false}]}),
+            SearchParseStage::ArtistWire,
+        ),
+        (
+            SearchKind::Playlists,
+            "playlists",
+            json!({"total":1,"results":[{"owner":{"uid":4321},"title":"synthetic-private-playlist"}]}),
+            SearchParseStage::PlaylistWire,
+        ),
+    ];
+    for (kind, key, bad, stage) in cases {
+        let mut wire = unified_wire();
+        wire["result"][key] = bad;
+        let good_section = unified_wire()["result"][key].clone();
+        let mut retry = serde_json::Map::new();
+        retry.insert(key.into(), good_section);
+        let mut responses = vec![(200, wire.to_string())];
+        if kind != SearchKind::Tracks {
+            responses.push((200, format!("{{\"result\":[{TRACK}]}}")));
+        }
+        responses.push((200, json!({"result":retry}).to_string()));
+        if kind == SearchKind::Tracks {
+            responses.push((200, format!("{{\"result\":[{TRACK}]}}")));
+        }
+        let (service, server, listener) = search_fixture(responses);
+        let result = service.search_all(&token(), "synthetic").unwrap();
+        match kind {
+            SearchKind::Tracks => {
+                assert_eq!(
+                    result.tracks.as_ref().unwrap_err(),
+                    &search_contract(stage, 200)
+                );
+                assert_eq!(result.albums.as_ref().unwrap().items.len(), 1);
             }
+            SearchKind::Albums => assert_eq!(
+                result.albums.as_ref().unwrap_err(),
+                &search_contract(stage, 200)
+            ),
+            SearchKind::Artists => assert_eq!(
+                result.artists.as_ref().unwrap_err(),
+                &search_contract(stage, 200)
+            ),
+            SearchKind::Playlists => assert_eq!(
+                result.playlists.as_ref().unwrap_err(),
+                &search_contract(stage, 200)
+            ),
+        }
+        if kind != SearchKind::Tracks {
+            assert_eq!(result.tracks.as_ref().unwrap().items.len(), 1);
+        }
+        if kind != SearchKind::Playlists {
+            assert_eq!(result.playlists.as_ref().unwrap().items.len(), 1);
+        }
+        assert_redacted(&result);
+        let retry = service.search(&token(), "synthetic", kind, 0).unwrap();
+        match kind {
+            SearchKind::Tracks => assert_eq!(retry.tracks.len(), 1),
+            SearchKind::Albums => assert_eq!(retry.albums.len(), 1),
+            SearchKind::Artists => assert_eq!(retry.artists.len(), 1),
+            SearchKind::Playlists => assert_eq!(retry.playlists.len(), 1),
+        }
+        let requests = complete(server, listener);
+        assert_eq!(requests.len(), 3);
+        let retry_index = if kind == SearchKind::Tracks { 1 } else { 2 };
+        assert!(requests[retry_index].starts_with("GET /search?"));
+        assert!(!requests[retry_index].contains("&type=all&"));
+    }
+}
+
+#[test]
+fn unified_track_lookup_refusal_preserves_other_sections_and_does_not_retry() {
+    for (status, error) in [
+        (403, MusicError::Forbidden),
+        (429, MusicError::RateLimited),
+        (500, MusicError::Http(500)),
+    ] {
+        let (service, server, listener) = search_fixture(vec![
+            (200, unified_wire().to_string()),
+            (
+                status,
+                r#"{"error":{"message":"synthetic-private-person"}}"#.into(),
+            ),
+        ]);
+        let result = service
+            .search_all(&token(), "synthetic-private-query")
+            .unwrap();
+        assert_eq!(result.tracks, Err(error));
+        assert_eq!(result.albums.as_ref().unwrap().items.len(), 1);
+        assert_eq!(result.artists.as_ref().unwrap().items.len(), 1);
+        assert_eq!(result.playlists.as_ref().unwrap().items.len(), 1);
+        assert_redacted(result);
+        assert_eq!(complete(server, listener).len(), 2);
+    }
+    let (service, server, listener) = search_fixture(vec![
+        (200, unified_wire().to_string()),
+        (401, "synthetic-private-person".into()),
+    ]);
+    assert_eq!(
+        service.search_all(&token(), "synthetic"),
+        Err(MusicError::AccessDenied)
+    );
+    assert_eq!(complete(server, listener).len(), 2);
+}
+
+#[test]
+fn unified_missing_normalized_tracks_preserve_original_section_pagination() {
+    let (service,server,listener)=search_fixture(vec![
+        (200,unified_wire().to_string()),(200,r#"{"result":[null]}"#.into()),
+        (200,r#"{"result":{"playlists":{"total":2,"perPage":1,"results":[{"uid":4567,"kind":9,"title":"Other real selector","trackCount":null}]}}}"#.into()),
+        (200,r#"{"result":{"trackCount":1,"tracks":[{"id":42}]}}"#.into()),
+        (200,format!("{{\"result\":[{TRACK}]}}")),
+    ]);
+    let result = service.search_all(&token(), "synthetic").unwrap();
+    let tracks = result.tracks.unwrap();
+    assert!(tracks.items.is_empty());
+    assert_eq!(tracks.omitted, 1);
+    assert!(tracks.has_more);
+    let playlists = service
+        .search(&token(), "synthetic", SearchKind::Playlists, 1)
+        .unwrap();
+    assert!(!playlists.has_more);
+    assert_eq!(playlists.playlists[0].track_count, None);
+    let tracks = service
+        .playlist_tracks(&token(), &playlists.playlists[0].id, 0)
+        .unwrap();
+    assert_eq!(tracks.items.len(), 1);
+    assert!(tracks.items[0].available);
+    let requests = complete(server, listener);
+    assert_eq!(requests.len(), 5);
+    assert!(requests[2].contains("&type=playlist&page=1&"));
+    assert!(requests[3].starts_with("GET /users/4567/playlists/9?richTracks=true HTTP/1.1"));
+    assert!(requests[4].starts_with("POST /tracks HTTP/1.1"));
+}
+
+#[test]
+fn unified_oversized_track_section_does_not_discard_other_categories() {
+    let mut wire = unified_wire();
+    wire["result"]["tracks"] =
+        json!({"total":100,"perPage":51,"results":vec![json!({"id":42});51]});
+    let (service, server, listener) = search_fixture(vec![(200, wire.to_string())]);
+    let result = service.search_all(&token(), "synthetic").unwrap();
+    assert_eq!(
+        result.tracks,
+        Err(search_failure(
+            MusicError::ResponseTooLarge,
+            SearchParseStage::TrackLookup,
+            200
+        ))
+    );
+    assert_eq!(result.albums.unwrap().items.len(), 1);
+    assert_eq!(result.artists.unwrap().items.len(), 1);
+    assert_eq!(result.playlists.unwrap().items.len(), 1);
+    assert_eq!(complete(server, listener).len(), 1);
+}
+
+#[test]
+fn unified_unrecognized_envelopes_fail_but_explicit_empty_results_are_valid() {
+    for body in [
+        r#"{"result":{}}"#,
+        r#"{"result":{"unexpected":"synthetic-private-person"}}"#,
+    ] {
+        let (service, server, listener) = search_fixture(vec![(200, body.into())]);
+        assert_eq!(
+            service.search_all(&token(), "synthetic"),
+            Err(search_contract(SearchParseStage::Section, 200))
         );
-        assert_eq!(error.http_status(), None);
-        assert_eq!(error.diagnostic_stage(), None);
+        assert_eq!(complete(server, listener).len(), 1);
+    }
+    for body in [
+        r#"{"result":{"text":"synthetic-private-query"}}"#,
+        r#"{"result":{"tracks":{"total":0}}}"#,
+    ] {
+        let (service, server, listener) = search_fixture(vec![(200, body.into())]);
+        let result = service.search_all(&token(), "synthetic").unwrap();
+        assert!(result.tracks.unwrap().items.is_empty());
+        assert!(result.albums.unwrap().items.is_empty());
+        assert!(result.artists.unwrap().items.is_empty());
+        assert!(result.playlists.unwrap().items.is_empty());
+        assert_eq!(complete(server, listener).len(), 1);
+    }
+    let (service, server, listener) = search_fixture(vec![(
+        200,
+        r#"{"result":{"text":"valid"},"error":{"message":"synthetic-private-person"}}"#.into(),
+    )]);
+    assert_eq!(
+        service.search_all(&token(), "synthetic"),
+        Err(search_contract(SearchParseStage::Envelope, 200))
+    );
+    assert_eq!(complete(server, listener).len(), 1);
+}
+
+#[test]
+fn playlist_search_retains_real_selector_and_tolerates_optional_display_metadata() {
+    let body = r#"{"result":{"playlists":{"total":3,"perPage":20,"results":[{"owner":{"uid":4321,"name":{"ignored":true}},"kind":8,"title":false,"trackCount":{"unknown":true},"cover":false},{"uid":4567,"kind":9,"title":"Known empty","trackCount":0},{"uid":4567,"kind":10,"title":"ambiguous one","title":"ambiguous two","trackCount":5}]}}}"#;
+    let (service, server, listener) = search_fixture(vec![(200, body.into())]);
+    let result = service
+        .search(&token(), "synthetic", SearchKind::Playlists, 0)
+        .unwrap();
+    assert_eq!(result.playlists.len(), 3);
+    assert_eq!(result.playlists[0].id.owner, "4321");
+    assert_eq!(result.playlists[0].id.kind, "8");
+    assert_eq!(result.playlists[0].title, "Без названия");
+    assert_eq!(result.playlists[0].track_count, None);
+    assert_eq!(result.playlists[1].track_count, Some(0));
+    assert_eq!(result.playlists[2].id.kind, "10");
+    assert_eq!(result.playlists[2].title, "Без названия");
+    assert_eq!(result.playlists[2].track_count, None);
+    assert!(!result.has_more);
+    assert!(result.tracks.is_empty());
+    assert_redacted(result);
+    let requests = complete(server, listener);
+    assert_eq!(requests.len(), 1);
+    assert!(requests[0].contains("&type=playlist&page=0&"));
+}
+
+#[test]
+fn playlist_search_identity_failure_is_section_local_and_never_uses_personal_metadata() {
+    for item in [
+        r#"{"owner":{"uid":"invalid/private"},"kind":8}"#,
+        r#"{"owner":{"uid":4321},"uid":4567,"kind":8}"#,
+        r#"{"owner":[4321],"kind":8}"#,
+        r#"{"kind":8,"title":"synthetic-private-person"}"#,
+        r#"{"uid":4321,"kind":8,"kind":9}"#,
+        r#"[4321,8]"#,
+    ] {
+        let mut wire = unified_wire();
+        wire["result"]["tracks"] = json!({"total":0});
+        let base = wire["result"].as_object_mut().unwrap();
+        base.remove("playlists");
+        let mut body = wire.to_string();
+        body.pop();
+        body.pop();
+        body.push_str(&format!(
+            r#", "playlists":{{"total":1,"results":[{item}]}}}}}}"#
+        ));
+        let (service, server, listener) = search_fixture(vec![(200, body)]);
+        let result = service.search_all(&token(), "synthetic").unwrap();
+        let error = result.playlists.as_ref().unwrap_err();
+        assert!(matches!(
+            error.diagnostic_stage(),
+            Some("playlist-wire" | "playlist-normalization")
+        ));
         assert_redacted(error);
-        server.join().unwrap();
+        assert_eq!(result.albums.unwrap().items.len(), 1);
+        assert_eq!(result.artists.unwrap().items.len(), 1);
+        assert_eq!(complete(server, listener).len(), 1);
     }
 }

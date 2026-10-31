@@ -22,6 +22,8 @@ mod requests;
 mod row_activation_tests;
 #[cfg(test)]
 mod search_tests;
+mod search_view;
+mod system_media;
 #[cfg(test)]
 mod test_input;
 use requests::{Operation, Requests};
@@ -30,7 +32,8 @@ type PendingJob = Box<dyn FnOnce(&Rc<Controller>, u64)>;
 /// The row owns its typed action; removing/replacing it also removes the
 /// action's captured metadata. The list has one user-activation dispatcher.
 enum RowAction {
-    Track(String),
+    Track(PlaybackContext),
+    SearchPlaylist(crate::music::SearchPlaylist),
     Playlist(Playlist),
     Album(String),
     Artist(Artist),
@@ -45,7 +48,7 @@ use crate::{
     artwork::{ArtworkLoader, CoverArt},
     auth::{AuthAttempt, AuthError, AuthProvider, BrowserMode},
     music::{Album, Artist, MusicError, MusicService, Page, Playlist, SearchKind, Track},
-    queue::MusicQueue,
+    queue::{ContextKind, MusicQueue, PlaybackContext},
     session::AccessToken,
 };
 pub(super) struct MusicPane {
@@ -68,6 +71,7 @@ struct Model {
     delivery_cancellation: Option<crate::stream::DeliveryCancellation>,
     library_page: u32,
     search_page: u32,
+    search_scope: Option<SearchKind>,
     queue: MusicQueue,
     attempt: Option<Arc<AuthAttempt>>,
     liked: Option<Result<Page<Track>, MusicError>>,
@@ -78,7 +82,8 @@ struct Model {
 struct Widgets {
     account_bar: gtk::Box,
     account_menu: gtk::MenuButton,
-    account_caption: gtk::Label,
+    account_open: gtk::Button,
+    account_launch_error: gtk::Label,
     account: gtk::Label,
     notice: gtk::Label,
     login: gtk::Button,
@@ -100,7 +105,9 @@ struct Widgets {
     library_previous: gtk::Button,
     library_next: gtk::Button,
     search: gtk::SearchEntry,
-    search_kind: gtk::DropDown,
+    search_sections: gtk::Box,
+    search_all: gtk::Button,
+    search_scope_title: gtk::Label,
     search_button: gtk::Button,
     search_feedback: gtk::Box,
     search_rows: gtk::ListBox,
@@ -112,6 +119,7 @@ struct Widgets {
     current: gtk::Label,
     current_artist: gtk::Label,
     current_art: gtk::Box,
+    player_main: gtk::Box,
     position: gtk::Label,
     player_status: gtk::Label,
     play: gtk::Button,
@@ -138,6 +146,7 @@ struct Controller {
     mutation_busy: Cell<bool>,
     artwork: Option<ArtworkLoader>,
     player: RefCell<player::MusicPlayback>,
+    system_media: RefCell<system_media::SystemMedia>,
 }
 
 struct OfflineProvider;
@@ -212,7 +221,8 @@ impl MusicPane {
         let account = account_controls.name.clone();
         account.set_widget_name("music-account");
         let account_menu = account_controls.menu;
-        let account_caption = account_controls.caption;
+        let account_open = account_controls.open_account;
+        let account_launch_error = account_controls.launch_error;
         let logout = account_controls.logout;
         let login = gtk::Button::with_label("Войти");
         login.set_widget_name("music-login");
@@ -339,44 +349,46 @@ impl MusicPane {
 
         // The HeaderBar already names this page. Give the entry and results
         // priority; wide windows place both control groups on one native row.
-        let search_page = gtk::Box::new(gtk::Orientation::Vertical, 10);
-        let search_tools = gtk::FlowBox::new();
-        search_tools.set_selection_mode(gtk::SelectionMode::None);
-        search_tools.set_min_children_per_line(1);
-        search_tools.set_max_children_per_line(2);
-        search_tools.set_column_spacing(12);
-        search_tools.set_row_spacing(8);
+        let search_page = gtk::Box::new(gtk::Orientation::Vertical, 12);
+        let search_tools = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         let search = gtk::SearchEntry::new();
-        search.set_placeholder_text(Some("Треки, альбомы и исполнители"));
+        search.set_placeholder_text(Some("Что хотите послушать?"));
         search.set_hexpand(true);
-        search.set_width_request(220);
+        search.set_width_request(120);
         search.set_widget_name("music-search");
-        search.update_property(&[gtk::accessible::Property::Label("Поиск в Яндекс Музыке")]);
-        search_tools.insert(&search, -1);
-        let search_controls = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-        let search_kind = gtk::DropDown::from_strings(&["Треки", "Альбомы", "Исполнители"]);
-        search_kind.set_hexpand(true);
-        search_kind.update_property(&[gtk::accessible::Property::Label("Тип результатов")]);
+        search.update_property(&[gtk::accessible::Property::Label("Поиск музыки")]);
         let search_button = gtk::Button::with_label("Найти");
         search_button.set_widget_name("music-search-button");
         search_button.add_css_class("suggested-action");
-        search_controls.append(&search_kind);
-        search_controls.append(&search_button);
-        search_tools.insert(&search_controls, -1);
-        for child in [search.parent(), search_controls.parent()]
-            .into_iter()
-            .flatten()
-        {
-            child.set_focusable(false);
-        }
+        search_tools.append(&search);
+        search_tools.append(&search_button);
         search_page.append(&search_tools);
+        let scope_header = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        let search_all = gtk::Button::with_label("Все результаты");
+        search_all.set_widget_name("music-search-all");
+        search_all.set_icon_name("go-previous-symbolic");
+        search_all.set_tooltip_text(Some("Вернуться ко всем результатам поиска"));
+        search_all.set_visible(false);
+        let search_scope_title = text("", "heading");
+        search_scope_title.set_wrap(false);
+        search_scope_title.set_hexpand(false);
+        search_scope_title.set_visible(false);
+        scope_header.append(&search_all);
+        scope_header.append(&search_scope_title);
+        search_tools.prepend(&scope_header);
         let search_feedback = gtk::Box::new(gtk::Orientation::Vertical, 8);
         search_feedback.set_widget_name("music-search-feedback");
         search_feedback.set_visible(false);
         search_page.append(&search_feedback);
+        let search_sections = gtk::Box::new(gtk::Orientation::Vertical, 20);
+        search_sections.set_widget_name("music-search-sections");
         let search_rows = list();
-        set_empty(&search_rows, "Введите запрос и нажмите Enter или «Найти».");
-        search_page.append(&search_rows);
+        set_empty(
+            &search_rows,
+            "Найдите музыку по названию, исполнителю или настроению.",
+        );
+        search_sections.append(&search_rows);
+        search_page.append(&search_sections);
         let search_pages = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         let search_previous = gtk::Button::with_label("Назад");
         search_previous.set_tooltip_text(Some("Предыдущая страница поиска"));
@@ -384,7 +396,6 @@ impl MusicPane {
         let search_next = gtk::Button::with_label("Далее");
         search_next.set_tooltip_text(Some("Следующая страница поиска"));
         search_next.set_visible(false);
-        search_next.set_halign(gtk::Align::Start);
         search_pages.append(&search_previous);
         search_pages.append(&search_next);
         search_page.append(&search_pages);
@@ -407,9 +418,14 @@ impl MusicPane {
         let player_bar = gtk::Box::new(gtk::Orientation::Vertical, 6);
         player_bar.set_widget_name("music-player-bar");
         super::margins(&player_bar, 12);
-        let player_top = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        let player_top = gtk::Box::new(gtk::Orientation::Horizontal, 16);
+        player_top.set_widget_name("music-player-main");
+        let player_metadata = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+        player_metadata.set_hexpand(true);
+        let player_actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        player_actions.set_halign(gtk::Align::Center);
         let current_art = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-        player_top.append(&current_art);
+        player_metadata.append(&current_art);
         let playing = gtk::Box::new(gtk::Orientation::Vertical, 2);
         playing.set_hexpand(true);
         let current = text("Трек не выбран", "heading");
@@ -430,7 +446,8 @@ impl MusicPane {
         player_status.set_width_chars(1);
         player_status.set_visible(false);
         playing.append(&player_status);
-        player_top.append(&playing);
+        player_metadata.append(&playing);
+        player_top.append(&player_metadata);
         let previous = icon_button("media-skip-backward-symbolic", "Предыдущий трек");
         let play = icon_button(
             "media-playback-start-symbolic",
@@ -438,18 +455,21 @@ impl MusicPane {
         );
         play.set_widget_name("music-play");
         play.set_sensitive(false);
+        play.add_css_class("circular");
+        play.add_css_class("suggested-action");
+        play.set_size_request(44, 44);
         let stop = icon_button("media-playback-stop-symbolic", "Остановить воспроизведение");
         stop.set_widget_name("music-stop");
         stop.set_sensitive(false);
         let next = icon_button("media-skip-forward-symbolic", "Следующий трек");
-        player_top.append(&previous);
-        player_top.append(&play);
-        player_top.append(&next);
-        player_top.append(&stop);
+        player_actions.append(&previous);
+        player_actions.append(&play);
+        player_actions.append(&next);
+        player_actions.append(&stop);
         let queue = icon_button("view-list-symbolic", "Открыть очередь");
         queue.set_action_name(Some("win.music-queue"));
-        player_top.append(&queue);
-        player_bar.append(&player_top);
+        player_actions.append(&queue);
+
         let timeline = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         let progress = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 1.0, 0.01);
         progress.set_draw_value(false);
@@ -465,7 +485,7 @@ impl MusicPane {
         timeline.append(&position);
         let volume_icon = gtk::Image::from_icon_name("audio-volume-high-symbolic");
         volume_icon.set_pixel_size(16);
-        timeline.append(&volume_icon);
+        player_actions.append(&volume_icon);
         let volume = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 1.0, 0.01);
         volume.set_draw_value(false);
         volume.set_value(0.7);
@@ -476,13 +496,16 @@ impl MusicPane {
         volume.update_property(&[gtk::accessible::Property::Label(
             "Громкость воспроизведения",
         )]);
-        timeline.append(&volume);
+        player_actions.append(&volume);
+        player_top.append(&player_actions);
+        player_bar.append(&player_top);
         player_bar.append(&timeline);
 
         let widgets = Widgets {
             account_bar,
             account_menu,
-            account_caption,
+            account_open,
+            account_launch_error,
             account,
             notice,
             login,
@@ -504,7 +527,9 @@ impl MusicPane {
             library_previous,
             library_next,
             search,
-            search_kind,
+            search_sections,
+            search_all,
+            search_scope_title,
             search_button,
             search_feedback,
             search_rows,
@@ -516,6 +541,7 @@ impl MusicPane {
             current,
             current_artist,
             current_art,
+            player_main: player_top,
             position,
             player_status,
             play,
@@ -549,6 +575,7 @@ impl MusicPane {
                 delivery_cancellation: None,
                 library_page: 0,
                 search_page: 0,
+                search_scope: None,
                 queue: MusicQueue::new(),
                 attempt: None,
                 liked: None,
@@ -559,9 +586,11 @@ impl MusicPane {
             mutation_busy: Cell::new(false),
             artwork: ArtworkLoader::new().ok(),
             player: RefCell::new(player::MusicPlayback::default()),
+            system_media: RefCell::new(system_media::SystemMedia::default()),
         });
         controller.connect(window);
         controller.connect_music_player();
+        controller.connect_system_media();
         controller.render_controls();
         controller.render_queue();
         Self {
@@ -601,10 +630,8 @@ impl MusicPane {
         self.controller.widgets.account_menu.clone()
     }
 
-    /// The compact HeaderBar keeps the avatar and menu arrow while its native
-    /// breakpoint hides this caption, leaving room for the full page title.
-    pub fn account_caption(&self) -> gtk::Label {
-        self.controller.widgets.account_caption.clone()
+    pub fn player_main(&self) -> gtk::Box {
+        self.controller.widgets.player_main.clone()
     }
 
     pub fn close(&self) {
@@ -1316,14 +1343,10 @@ impl Controller {
             }
         });
         let weak = Rc::downgrade(self);
-        self.widgets.search_kind.connect_selected_notify(move |_| {
+        self.widgets.search_all.connect_clicked(move |_| {
             if let Some(this) = weak.upgrade() {
-                this.invalidate_search();
-                if this.model.borrow().account_valid
-                    && !this.widgets.search.text().trim().is_empty()
-                {
-                    this.search(0);
-                }
+                this.model.borrow_mut().search_scope = None;
+                this.search(0);
             }
         });
         let weak = Rc::downgrade(self);
@@ -1425,9 +1448,6 @@ impl Controller {
         self.widgets
             .search
             .set_sensitive(model.account_valid && !model.closed);
-        self.widgets
-            .search_kind
-            .set_sensitive(model.account_valid && !model.closed);
         self.widgets.search_button.set_sensitive(ready);
         self.widgets.library_next.set_sensitive(ready);
         self.widgets.library_previous.set_sensitive(ready);
@@ -1468,6 +1488,7 @@ impl Controller {
         }
         self.dismiss_logout_confirmation();
         self.stop_music();
+        self.clear_system_media();
         self.mutation_busy.set(false);
         self.clear_text_focus();
         self.requests.borrow_mut().invalidate_all();
@@ -1492,6 +1513,7 @@ impl Controller {
         }
         drop(model);
         self.dismiss_login();
+        self.shutdown_system_media();
         if let Some(service) = &self.service {
             service.clear_session();
         }
@@ -1500,6 +1522,7 @@ impl Controller {
     fn logout(self: &Rc<Self>) {
         self.dismiss_logout_confirmation();
         self.stop_music();
+        self.clear_system_media();
         self.mutation_busy.set(false);
         self.clear_text_focus();
         self.requests.borrow_mut().invalidate_all();
@@ -1522,6 +1545,7 @@ impl Controller {
             model.playlists = None;
             model.library_page = 0;
             model.search_page = 0;
+            model.search_scope = None;
             model.library_touched = false;
             if let Some(attempt) = model.attempt.take() {
                 attempt.cancel();
@@ -1567,7 +1591,9 @@ impl Controller {
         let mut model = self.model.borrow_mut();
         model.view_generation += 1;
         model.search_page = 0;
+        model.search_scope = None;
         drop(model);
+        self.reset_search_sections();
         self.widgets.search_next.set_visible(false);
         self.widgets.search_previous.set_visible(false);
         if self.model.borrow().account_valid {
@@ -1783,10 +1809,14 @@ impl Controller {
         }
         match result {
             Some(Ok(page)) if !page.items.is_empty() => {
-                clear_list(&self.widgets.home_preview);
-                for track in page.items.into_iter().take(5) {
-                    self.track_row(&self.widgets.home_preview, track);
-                }
+                self.tracks_from(
+                    &self.widgets.home_preview,
+                    page.items,
+                    ContextKind::LikedTracks,
+                    None,
+                    page.has_more,
+                    0..5,
+                );
             }
             Some(Ok(_)) => set_empty(
                 &self.widgets.home_preview,
@@ -1810,7 +1840,14 @@ impl Controller {
         match result {
             Ok(result) => {
                 self.model.borrow_mut().library_page = page;
-                self.tracks(&self.widgets.library_rows, result.items);
+                self.tracks_from(
+                    &self.widgets.library_rows,
+                    result.items,
+                    ContextKind::LikedTracks,
+                    None,
+                    page > 0 || result.has_more,
+                    0..usize::MAX,
+                );
                 self.widgets.library_next.set_visible(result.has_more);
                 self.widgets.library_previous.set_visible(page > 0);
                 if self.widgets.stack.visible_child_name().as_deref() == Some("library") {
@@ -1925,86 +1962,6 @@ impl Controller {
         }
     }
 
-    fn search(self: &Rc<Self>, page: u32) {
-        {
-            let model = self.model.borrow();
-            if !model.account_valid || model.closed {
-                return;
-            }
-        }
-        let query = self.widgets.search.text().trim().to_owned();
-        if query.is_empty() {
-            self.clear_search_feedback();
-            set_empty(&self.widgets.search_rows, "Введите поисковый запрос.");
-            return;
-        }
-        self.clear_search_feedback();
-        clear_list(&self.widgets.search_rows);
-        let loading = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-        let spinner = gtk::Spinner::new();
-        spinner.set_spinning(true);
-        loading.append(&spinner);
-        loading.append(&text("Ищем в каталоге…", "dim-label"));
-        self.widgets.search_feedback.append(&loading);
-        self.widgets.search_feedback.set_visible(true);
-        self.widgets.search_next.set_visible(false);
-        self.widgets.search_previous.set_visible(false);
-        let kind = match self.widgets.search_kind.selected() {
-            1 => SearchKind::Albums,
-            2 => SearchKind::Artists,
-            _ => SearchKind::Tracks,
-        };
-        self.widgets.stack.set_visible_child_name("search");
-        self.run(
-            Operation::Search,
-            move |service, token| service.search(&token, &query, kind, page),
-            move |this, result| match result {
-                Ok(result) => {
-                    this.clear_search_feedback();
-                    write_catalog_line(catalog_line(
-                        Operation::Search,
-                        CatalogPhase::Result,
-                        "success",
-                        Some(result.http_status),
-                        None,
-                    ));
-                    this.model.borrow_mut().search_page = page;
-                    clear_list(&this.widgets.search_rows);
-                    for track in result.tracks {
-                        this.track_row(&this.widgets.search_rows, track);
-                    }
-                    for album in result.albums {
-                        this.album_row(&this.widgets.search_rows, album);
-                    }
-                    for artist in result.artists {
-                        this.artist_row(&this.widgets.search_rows, artist);
-                    }
-                    if this.widgets.search_rows.first_child().is_none() {
-                        set_empty(
-                            &this.widgets.search_rows,
-                            if result.omitted_tracks > 0 {
-                                "Найденные треки сейчас недоступны. Попробуйте другой запрос или следующую страницу."
-                            } else {
-                                "Ничего не найдено. Попробуйте другой запрос."
-                            },
-                        );
-                    } else if result.omitted_tracks > 0 {
-                        this.widgets.search_feedback.append(&text(
-                            "Часть найденных треков сейчас недоступна.",
-                            "dim-label",
-                        ));
-                        this.widgets.search_feedback.set_visible(true);
-                    }
-                    this.widgets.search_next.set_visible(result.has_more);
-                    this.widgets.search_previous.set_visible(page > 0);
-                }
-                Err(error) => {
-                    this.search_error(error, page);
-                }
-            },
-        );
-    }
-
     fn clear_search_feedback(&self) {
         clear_box(&self.widgets.search_feedback);
         self.widgets.search_feedback.set_visible(false);
@@ -2066,17 +2023,46 @@ impl Controller {
         self.widgets.search_feedback.set_visible(true);
     }
 
-    fn tracks(self: &Rc<Self>, list: &gtk::ListBox, tracks: Vec<Track>) {
+    fn tracks_from(
+        self: &Rc<Self>,
+        list: &gtk::ListBox,
+        tracks: Vec<Track>,
+        kind: ContextKind,
+        source: Option<String>,
+        partial: bool,
+        range: std::ops::Range<usize>,
+    ) {
         clear_list(list);
-        for track in tracks {
-            self.track_row(list, track);
-        }
-        if list.first_child().is_none() {
+        if tracks.is_empty() {
             set_empty(list, "Треков пока нет.");
+            return;
+        }
+        let Ok(context) = PlaybackContext::new(kind, source, tracks, range.start, partial) else {
+            set_empty(
+                list,
+                "Этот источник превышает размер очереди. Откройте отдельную страницу.",
+            );
+            return;
+        };
+        for (index, track) in context
+            .items()
+            .iter()
+            .enumerate()
+            .skip(range.start)
+            .take(range.end.saturating_sub(range.start))
+        {
+            if let Some(selected) = context.with_current_index(index) {
+                self.track_row_context(list, track.clone(), selected);
+            }
         }
     }
 
-    fn track_row(self: &Rc<Self>, list: &gtk::ListBox, track: Track) {
+    fn track_row_context(
+        self: &Rc<Self>,
+        list: &gtk::ListBox,
+        track: Track,
+        context: PlaybackContext,
+    ) {
         let mut subtitle = track.artists.join(", ");
         if track.explicit {
             subtitle.push_str(" · Explicit");
@@ -2085,11 +2071,12 @@ impl Controller {
             subtitle.push_str(" · Недоступен");
         }
         let (row, body) = item(&track.title, &subtitle);
-        row.set_tooltip_text(Some("Открыть сведения о треке"));
+        row.set_tooltip_text(Some("Воспроизвести трек"));
         row.update_property(&[gtk::accessible::Property::Label(&format!(
-            "Открыть сведения: {}",
+            "Воспроизвести: {}",
             track.title
         ))]);
+        row.set_activatable(track.available);
         body.prepend(&cover_widget(
             self.artwork.as_ref(),
             track.cover.as_ref(),
@@ -2101,16 +2088,17 @@ impl Controller {
             label.set_wrap(false);
             body.append(&label);
         }
-        let play = self.track_play_button(&track, true);
+        let play = self.context_play_button(&track, true, context.clone());
         play.add_css_class("suggested-action");
         body.append(&play);
-        body.append(&self.track_menu(&track));
-        self.row_action(&row, RowAction::Track(track.id));
+        body.append(&self.track_menu_context(&track, Some(context.clone())));
+        self.row_action(&row, RowAction::Track(context));
+        row.set_activatable(track.available);
         list.append(&row);
     }
 
     fn playlist_row(self: &Rc<Self>, list: &gtk::ListBox, playlist: Playlist) {
-        let (row, body) = item(&playlist.title, &format!("{} треков", playlist.track_count));
+        let (row, body) = item(&playlist.title, &track_count_text(playlist.track_count));
         body.prepend(&cover_widget(
             self.artwork.as_ref(),
             playlist.cover.as_ref(),
@@ -2156,12 +2144,15 @@ impl Controller {
                 return;
             }
             match &action {
-                RowAction::Track(id) => this.open_track(id.clone()),
+                RowAction::Track(context) => this.play_music_context(context.clone()),
+                RowAction::SearchPlaylist(playlist) => {
+                    this.open_search_playlist(playlist.clone(), 0)
+                }
                 RowAction::Playlist(playlist) => this.open_playlist(playlist.clone(), 0),
                 RowAction::Album(id) => this.open_album(id.clone()),
                 RowAction::Artist(artist) => this.open_artist(artist.clone(), 0),
                 RowAction::Queue(index) => {
-                    this.select_music_queue(*index);
+                    this.play_music_queue(*index);
                 }
             }
         });
@@ -2264,7 +2255,11 @@ impl Controller {
         self.widgets.detail.insert_child_after(&header, Some(&back));
     }
 
-    fn track_menu(self: &Rc<Self>, track: &Track) -> gtk::MenuButton {
+    fn track_menu_context(
+        self: &Rc<Self>,
+        track: &Track,
+        context: Option<PlaybackContext>,
+    ) -> gtk::MenuButton {
         let button = gtk::MenuButton::builder().label("Ещё").build();
         button.set_valign(gtk::Align::Center);
         button.set_tooltip_text(Some("Действия с треком"));
@@ -2277,12 +2272,13 @@ impl Controller {
         let weak = Rc::downgrade(self);
         let close = popover.downgrade();
         let id = track.id.clone();
+        let detail_context = context.clone();
         detail.connect_clicked(move |_| {
             if let Some(popover) = close.upgrade() {
                 popover.popdown();
             }
             if let Some(this) = weak.upgrade() {
-                this.open_track(id.clone());
+                this.open_track_context(id.clone(), detail_context.clone());
             }
         });
         actions.append(&detail);
@@ -2297,7 +2293,11 @@ impl Controller {
                 popover.popdown();
             }
             if let Some(this) = weak.upgrade() {
-                this.play_music_track(selected.clone());
+                if let Some(context) = context.clone() {
+                    this.play_music_context(context);
+                } else {
+                    this.play_music_track(selected.clone());
+                }
             }
         });
         actions.append(&play);
@@ -2382,7 +2382,8 @@ impl Controller {
         self.widgets.detail.append(&failure);
     }
 
-    fn open_track(self: &Rc<Self>, id: String) {
+    fn open_track_context(self: &Rc<Self>, id: String, context: Option<PlaybackContext>) {
+        let retry_context = context.clone();
         self.detail_loading("Сведения о треке", "Загрузка трека…");
         let retry_id = id.clone();
         self.run(
@@ -2404,9 +2405,12 @@ impl Controller {
                             .detail
                             .append(&text("Сервис пометил трек как недоступный.", "dim-label"));
                     }
-                    this.widgets
-                        .detail
-                        .append(&this.track_play_button(&track, false));
+                    let button = if let Some(context) = context.clone() {
+                        this.context_play_button(&track, false, context)
+                    } else {
+                        this.track_play_button(&track, false)
+                    };
+                    this.widgets.detail.append(&button);
                     let add = gtk::Button::with_label("Добавить в очередь");
                     add.set_halign(gtk::Align::Start);
                     let weak = Rc::downgrade(this);
@@ -2442,9 +2446,9 @@ impl Controller {
                     }
                     this.widgets.status.set_title("Сведения о треке получены.");
                 }
-                Err(error) => {
-                    this.detail_error(error, move |this| this.open_track(retry_id.clone()))
-                }
+                Err(error) => this.detail_error(error, move |this| {
+                    this.open_track_context(retry_id.clone(), retry_context.clone())
+                }),
             },
         );
     }
@@ -2473,16 +2477,31 @@ impl Controller {
         self.detail_cover(album.cover.as_ref());
         let rows = list();
         let offset = page.saturating_mul(ROWS);
-        self.tracks(
-            &rows,
-            album
-                .tracks
-                .iter()
-                .skip(offset)
-                .take(ROWS)
-                .cloned()
-                .collect(),
-        );
+        if album.tracks.len() <= 500 {
+            self.tracks_from(
+                &rows,
+                album.tracks.clone(),
+                ContextKind::Album,
+                Some(album.id.clone()),
+                false,
+                offset..offset.saturating_add(ROWS),
+            );
+        } else {
+            self.tracks_from(
+                &rows,
+                album
+                    .tracks
+                    .iter()
+                    .skip(offset)
+                    .take(ROWS)
+                    .cloned()
+                    .collect(),
+                ContextKind::Album,
+                Some(album.id.clone()),
+                true,
+                0..ROWS,
+            );
+        }
         self.widgets.detail.append(&rows);
         let pages = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         if page > 0 {
@@ -2527,7 +2546,14 @@ impl Controller {
                     );
                     this.detail_cover(playlist.cover.as_ref());
                     let rows = list();
-                    this.tracks(&rows, result.items);
+                    this.tracks_from(
+                        &rows,
+                        result.items,
+                        ContextKind::Playlist,
+                        Some(format!("{}:{}", playlist.id.owner, playlist.id.kind)),
+                        page > 0 || result.has_more,
+                        0..usize::MAX,
+                    );
                     this.widgets.detail.append(&rows);
                     let pages = gtk::Box::new(gtk::Orientation::Horizontal, 8);
                     if page > 0 {
@@ -2578,7 +2604,14 @@ impl Controller {
                     );
                     this.detail_cover(artist.cover.as_ref());
                     let rows = list();
-                    this.tracks(&rows, result.items);
+                    this.tracks_from(
+                        &rows,
+                        result.items,
+                        ContextKind::Artist,
+                        Some(artist.id.clone()),
+                        page > 0 || result.has_more,
+                        0..usize::MAX,
+                    );
                     this.widgets.detail.append(&rows);
                     let pages = gtk::Box::new(gtk::Orientation::Horizontal, 8);
                     if page > 0 {
@@ -2677,9 +2710,32 @@ impl Controller {
         self.guard_music_binding();
         clear_list(&self.widgets.queue_rows);
         let model = self.model.borrow();
-        self.widgets
-            .queue_count
-            .set_text(&format!("Треков в очереди: {}", model.queue.items().len()));
+        let source = model
+            .queue
+            .context()
+            .map(|context| match context.source_kind() {
+                ContextKind::LikedTracks => "Понравившиеся треки",
+                ContextKind::Album => "Альбом",
+                ContextKind::Playlist => "Плейлист",
+                ContextKind::Search => "Результаты поиска",
+                ContextKind::Artist => "Исполнитель",
+                ContextKind::SingleTrack => "Выбранный трек",
+                ContextKind::Queue => "Ваша очередь",
+            })
+            .unwrap_or("Очередь");
+        let partial = model
+            .queue
+            .context()
+            .is_some_and(PlaybackContext::is_partial);
+        self.widgets.queue_count.set_text(&format!(
+            "{source} · {}{}",
+            track_count_text(model.queue.items().len() as u64),
+            if partial {
+                " · загруженная часть"
+            } else {
+                ""
+            }
+        ));
         let current = model
             .queue
             .current()
@@ -2718,14 +2774,17 @@ impl Controller {
         self.widgets.current_art.append(&cover_widget(
             self.artwork.as_ref(),
             selected.and_then(|track| track.cover.as_ref()),
-            40,
+            56,
         ));
         self.widgets
             .home_queue
             .set_text(&if model.queue.items().is_empty() {
                 "Очередь пуста".into()
             } else {
-                format!("В очереди: {} треков", model.queue.items().len())
+                format!(
+                    "В очереди: {}",
+                    track_count_text(model.queue.items().len() as u64)
+                )
             });
         self.widgets.current.set_tooltip_text(Some(current));
         self.widgets
@@ -2758,15 +2817,26 @@ impl Controller {
                 track.cover.as_ref(),
                 40,
             ));
-            let play = self.track_play_button(track, true);
+            let play = icon_button("media-playback-start-symbolic", "Воспроизвести трек");
+            play.set_sensitive(track.available);
+            let weak = Rc::downgrade(self);
+            play.connect_clicked(move |_| {
+                if let Some(this) = weak.upgrade() {
+                    this.play_music_queue(index);
+                }
+            });
             play.add_css_class("suggested-action");
             body.append(&play);
             let details = icon_button("dialog-information-symbolic", "Сведения о треке");
             let weak = Rc::downgrade(self);
             let id = track.id.clone();
+            let context = model
+                .queue
+                .context()
+                .and_then(|context| context.with_current_index(index));
             details.connect_clicked(move |_| {
                 if let Some(this) = weak.upgrade() {
-                    this.open_track(id.clone());
+                    this.open_track_context(id.clone(), context.clone());
                 }
             });
             body.append(&details);
@@ -2824,6 +2894,19 @@ fn cover_widget(
             fallback.upcast()
         }
     }
+}
+
+fn track_count_text(count: u64) -> String {
+    let word = if (11..=14).contains(&(count % 100)) {
+        "треков"
+    } else {
+        match count % 10 {
+            1 => "трек",
+            2..=4 => "трека",
+            _ => "треков",
+        }
+    };
+    format!("{count} {word}")
 }
 
 fn format_duration(ms: u64) -> String {
@@ -3786,7 +3869,14 @@ mod tests {
         this.widgets.stack.set_visible_child_name("queue");
         capture_native("queue");
         this.widgets.stack.set_visible_child_name("search");
-        activate_first(&this.widgets.search_rows);
+        menu.popup();
+        pump_until(|| menu.popover().unwrap().is_visible());
+        button_with_label(
+            menu.popover().unwrap().upcast_ref(),
+            "Открыть сведения о треке",
+        )
+        .unwrap()
+        .emit_clicked();
         pump_until(|| !this.model.borrow().busy);
         this.widgets
             .detail

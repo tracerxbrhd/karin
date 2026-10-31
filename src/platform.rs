@@ -39,8 +39,8 @@ pub fn inspect_session() -> PlatformReport {
     }
 }
 
-/// Reserved identity, not an advertised MPRIS service in v0.0.
-pub const MPRIS_BUS_NAME: &str = "org.mpris.MediaPlayer2.Karin";
+/// Exact identity exported by the in-process player adapter.
+pub const MPRIS_BUS_NAME: &str = crate::mpris::BUS_NAME;
 
 #[cfg(test)]
 mod tests {

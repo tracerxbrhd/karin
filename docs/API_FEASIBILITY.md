@@ -7,7 +7,16 @@ Gate A official-document review: **2026-10-25**. Initial anonymous cloud probes:
 **2026-10-24**, approximately **11:40 UTC**; retained below with their original scope.
 Authentication source/document recheck and product correction: **2026-10-29**.
 
-## Current owner evidence, 31 October — real audio accepted; track search blocked
+## Current owner evidence, 31 October — search/account/playback accepted; UI rejected
+
+The owner's subsequent **`f0aa2bb`** run reports **Search PASS, Account PASS and
+Playback PASS**, with **UI FAIL**. The prior HTTP 200 search-wire failure below
+is historical, not the current search outcome. Preserve the accepted provider,
+MusicService and guarded audio path while correcting the workspace and playback
+context. The new unified four-section search and MPRIS bridge require their own
+checks; the owner has not yet accepted that later revision. No full current
+Flatpak or public OAuth-registration/service-distribution approval follows from
+these technical results.
 
 The owner's [PR #13 acceptance at `8f1b09d`](https://github.com/tracerxbrhd/karin/pull/13#issuecomment-6539311586)
 confirms actual audible Yandex Music on Fedora 44 / KDE Plasma / Wayland /
@@ -16,7 +25,7 @@ sign-in, Music account/library access, real track details and album search also
 work. This is owner-local technical interoperability, not a synthetic tone or
 an approval to publicly distribute the OAuth registration/service integration.
 
-Track search still returns HTTP 200 / `track-wire` /
+At `8f1b09d`, track search still returned HTTP 200 / `track-wire` /
 `track-fields-unsupported`: own ID passes initial validation, but remaining
 search metadata cannot deserialize. No specific private field or raw response
 was supplied. The current correction reads minimal typed search IDs and expands
@@ -24,8 +33,18 @@ them once through the working account-bound `/tracks` lookup, bounded to 50
 raw hit positions and 50 distinct IDs, preserving order/composite identities and
 provider pagination.
 See [ADR-0016](adr/0016-search-identity-and-batch-normalization.md).
-Live corrected-search/UX acceptance and current Flatpak verification remain
-separate from the accepted audio path and unresolved distribution conditions.
+Minimal-ID search normalization was subsequently accepted at `f0aa2bb`.
+Unified search retains the same track bounds and one batch, with independently
+typed tracks/albums/artists/playlists sections and per-category paging. Playlist
+summaries keep a strict actual owner/kind; an absent count remains unknown rather
+than becoming zero. Revised UI/context/MPRIS and current Flatpak verification
+remain separate from accepted playback and unresolved distribution conditions.
+The `all`/playlist contract is reviewed against pinned
+[yamuse search](https://github.com/flxxxxddd/yamuse/blob/368c74646520e8bcd30c44a9887e1bf99cb58172/src/api/search.rs)
+and its typed optional playlist result. Pinned yamu exposes the All/Playlist
+enum but keeps playlist results in extra fields. Cassette v0.2.4's empty mixed-
+search helpers do not prove a working unified-search contract. These source
+facts support the implementation; they are not a live new-query acceptance.
 The dated sections below preserve their original, narrower evidence.
 
 Karin uses an unofficial service interface. A successful HTTP response establishes

@@ -6,10 +6,15 @@ use super::*;
 #[cfg(test)]
 mod tests;
 
+// Account management is intentionally a fixed external destination. Never add
+// an account ID, token or session cookie to this URI.
+const ACCOUNT_URI: &str = "https://id.yandex.ru/";
+
 pub(super) struct AccountMenu {
     pub menu: gtk::MenuButton,
-    pub caption: gtk::Label,
     pub name: gtk::Label,
+    pub open_account: gtk::Button,
+    pub launch_error: gtk::Label,
     pub logout: gtk::Button,
 }
 
@@ -17,25 +22,45 @@ impl AccountMenu {
     pub fn new() -> Self {
         let menu = gtk::MenuButton::new();
         menu.set_widget_name("music-account-menu");
-        let identity = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-        let avatar = gtk::Image::from_icon_name("avatar-default-symbolic");
-        avatar.set_pixel_size(16);
-        identity.append(&avatar);
-        let caption = gtk::Label::new(Some("Аккаунт"));
-        caption.set_widget_name("music-account-caption");
-        identity.append(&caption);
-        menu.set_child(Some(&identity));
-        menu.set_always_show_arrow(true);
+        let avatar = adw::Avatar::new(28, None, true);
+        avatar.set_widget_name("music-account-avatar");
+        menu.set_child(Some(&avatar));
+        menu.set_always_show_arrow(false);
+        menu.set_has_frame(false);
+        menu.set_size_request(36, 36);
+        menu.add_css_class("circular");
         menu.set_tooltip_text(Some("Меню аккаунта"));
         menu.update_property(&[gtk::accessible::Property::Label("Меню аккаунта")]);
-        let content = gtk::Box::new(gtk::Orientation::Vertical, 6);
-        super::super::margins(&content, 8);
+        let content = gtk::Box::new(gtk::Orientation::Vertical, 10);
+        super::super::margins(&content, 12);
         let name = text("Ваш аккаунт Яндекса", "heading");
         name.set_widget_name("music-account");
         name.set_max_width_chars(28);
         name.set_wrap(true);
+        // Only the Music account's already validated display name supplies the
+        // initials. No unverified avatar endpoint, extra HTTP or browser cookies.
+        name.bind_property("label", &avatar, "text")
+            .sync_create()
+            .build();
         content.append(&name);
+        let info = text("Яндекс Музыка · вход выполнен", "dim-label");
+        info.set_widget_name("music-account-summary");
+        content.append(&info);
         content.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        let open_account = gtk::Button::with_label("Открыть аккаунт в браузере");
+        open_account.set_widget_name("music-account-open-browser");
+        open_account.add_css_class("flat");
+        if let Some(label) = open_account.child().and_downcast::<gtk::Label>() {
+            label.set_wrap(true);
+            label.set_xalign(0.0);
+        }
+        content.append(&open_account);
+        let launch_error = text("Не удалось открыть браузер. Попробуйте ещё раз.", "error");
+        launch_error.set_widget_name("music-account-browser-error");
+        launch_error.set_max_width_chars(28);
+        launch_error.set_wrap(true);
+        launch_error.set_visible(false);
+        content.append(&launch_error);
         let logout = gtk::Button::with_label("Выйти из аккаунта");
         logout.set_widget_name("music-account-logout");
         logout.add_css_class("flat");
@@ -45,11 +70,18 @@ impl AccountMenu {
         content.append(&logout);
         let popover = gtk::Popover::new();
         popover.set_child(Some(&content));
+        let error = launch_error.downgrade();
+        popover.connect_closed(move |_| {
+            if let Some(error) = error.upgrade() {
+                error.set_visible(false);
+            }
+        });
         menu.set_popover(Some(&popover));
         Self {
             menu,
-            caption,
             name,
+            open_account,
+            launch_error,
             logout,
         }
     }
@@ -118,6 +150,29 @@ impl LogoutConfirmation {
 
 impl Controller {
     pub(super) fn connect_account_menu(self: &Rc<Self>) {
+        let weak = Rc::downgrade(self);
+        self.widgets.account_open.connect_clicked(move |_| {
+            let Some(this) = weak.upgrade() else { return };
+            {
+                let model = this.model.borrow();
+                if model.closed
+                    || !model.account_valid
+                    || model.token.as_ref().is_none_or(AccessToken::is_expired)
+                {
+                    return;
+                }
+            }
+            this.widgets.account_launch_error.set_visible(false);
+            // GIO launches the system default browser, including the desktop
+            // portal when sandboxed. This never enters the sign-in WebView.
+            // The existing injected launcher lets fixtures avoid opening a
+            // real browser while exercising the same account action/guards.
+            if (this.launch_browser)(ACCOUNT_URI).is_ok() {
+                this.widgets.account_menu.popdown();
+            } else {
+                this.widgets.account_launch_error.set_visible(true);
+            }
+        });
         let weak = Rc::downgrade(self);
         self.widgets.logout.connect_clicked(move |_| {
             if let Some(this) = weak.upgrade() {

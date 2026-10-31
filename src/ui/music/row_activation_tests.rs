@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Real X11 input through rendered GTK rows, not direct detail calls/signals.
+//! Real X11 track playback activation and explicit detail/navigation actions.
 
 use super::tests::{capture_native, contains_text, pump_until};
 use super::*;
@@ -97,9 +97,14 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
                 let mut bytes = Vec::new();
                 let mut byte = [0];
                 while !bytes.ends_with(b"\r\n\r\n") {
-                    assert_eq!(stream.read(&mut byte).unwrap(), 1);
+                    if stream.read(&mut byte).unwrap() == 0 {
+                        break;
+                    }
                     bytes.push(byte[0]);
                     assert!(bytes.len() < 16 * 1024);
+                }
+                if !bytes.ends_with(b"\r\n\r\n") {
+                    continue;
                 }
                 let request = String::from_utf8(bytes).unwrap();
                 assert!(request.contains("authorization: OAuth synthetic-row-input-token"));
@@ -137,6 +142,9 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
                     "/users/1234/likes/playlists" => json!({"result":[{"playlist":{"kind":9,"title":"Synthetic liked playlist","trackCount":1,"owner":{"uid":4321}}}]}),
                     "/users/1234/playlists/3" | "/users/4321/playlists/9" => json!({"result":{"kind":3,"trackCount":1,"tracks":[{"id":42,"track":track}]}}),
                     "/tracks" => json!({"result":[track]}),
+                    // Deliberately unavailable local delivery: these input tests
+                    // prove the playback intent/context, never a live service sound.
+                    "/tracks/42/download-info" | "/tracks/43/download-info" => json!({"result":[]}),
                     "/search" => {
                         let kind = url.query_pairs().find(|(key,_)| key == "type").unwrap().1.into_owned();
                         match kind.as_str() {
@@ -157,7 +165,19 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
                     "/artists/11/tracks" => json!({"result":{"tracks":[track],"pager":{"page":0,"perPage":20,"total":1}}}),
                     _ => panic!("unexpected synthetic input fixture route"),
                 }.to_string();
-                write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).unwrap();
+                if let Err(error) = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                ) {
+                    assert!(
+                        matches!(
+                            error.kind(),
+                            std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset
+                        ),
+                        "unexpected synthetic fixture write failure"
+                    );
+                }
             }
         })
     };
@@ -189,6 +209,12 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
     window.present();
     let pane = &ui.music;
     let this = &pane.controller;
+    let fixture_origin = format!("http://{address}/");
+    this.set_fixture_resolver_for_test(crate::stream::StreamResolver::for_test(
+        &fixture_origin,
+        &fixture_origin,
+        &fixture_origin,
+    ));
     {
         let mut model = this.model.borrow_mut();
         model.token = Some(token);
@@ -247,7 +273,8 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
 
     for key in [None, Some("Return"), Some("space")] {
         eprintln!("Karin synthetic input: target=library-track method={key:?}");
-        let before = count("/tracks");
+        let before = count("/tracks/42/download-info");
+        let detail_requests = count("/tracks");
         let row = first(&this.widgets.library_rows);
         if let Some(key) = key {
             assert!(row.grab_focus());
@@ -255,62 +282,75 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
         } else {
             click(window, id, &row);
         }
-        pump_until(|| {
-            this.widgets.stack.visible_child_name().as_deref() == Some("detail")
-                && !this.model.borrow().busy
-        });
+        pump_until(|| count("/tracks/42/download-info") == before + 1 && !this.music_requested());
+        assert_eq!(
+            this.widgets.stack.visible_child_name().as_deref(),
+            Some("library")
+        );
         assert_eq!(
             count("/tracks"),
-            before + 1,
-            "one real row input sends one detail request"
+            detail_requests,
+            "playing a row must not navigate through a detail lookup"
         );
-        assert!(contains_text(
-            this.widgets.detail.upcast_ref(),
-            "Synthetic input track"
-        ));
-        let delivery = named_button(this.widgets.detail.upcast_ref(), "music-delivery-probe")
-            .expect("actual row navigation must reach the opt-in delivery action");
-        assert!(delivery.is_sensitive());
-        pump_until(|| delivery.is_mapped());
-        // The real player adds another action above the diagnostic. Reach it
-        // with actual Tab input so the scroller must expose the whole button,
-        // rather than accepting a mapped but partly obscured footer edge.
-        for _ in 0..16 {
-            if delivery.has_focus() {
-                break;
-            }
-            input(&["key", "--clearmodifiers", "Tab"]);
-            settle();
+        let model = this.model.borrow();
+        assert_eq!(model.queue.current_index(), Some(0));
+        assert_eq!(model.queue.current().unwrap().id, "42");
+        assert_eq!(
+            model.queue.context().unwrap().source_kind(),
+            ContextKind::LikedTracks
+        );
+        assert_eq!(this.widgets.current.text(), "Synthetic input track");
+        drop(model);
+        this.stop_music();
+    }
+
+    // Details remain an explicit independent action, not the track's primary
+    // click. Exercise the real native menu and verify the diagnostic is reachable.
+    let before = count("/tracks");
+    let row = first(&this.widgets.library_rows);
+    let menu = descendants(row.upcast_ref())
+        .into_iter()
+        .find_map(|widget| widget.downcast::<gtk::MenuButton>().ok())
+        .unwrap();
+    click(window, id, &menu);
+    pump_until(|| menu.popover().unwrap().is_visible());
+    let details = descendants(menu.popover().unwrap().upcast_ref())
+        .into_iter()
+        .filter_map(|widget| widget.downcast::<gtk::Button>().ok())
+        .find(|button| button.label().as_deref() == Some("Открыть сведения о треке"))
+        .unwrap();
+    click(window, id, &details);
+    pump_until(|| {
+        this.widgets.stack.visible_child_name().as_deref() == Some("detail")
+            && !this.model.borrow().busy
+    });
+    assert_eq!(count("/tracks"), before + 1);
+    let delivery = named_button(this.widgets.detail.upcast_ref(), "music-delivery-probe")
+        .expect("explicit track details retain the opt-in metadata diagnostic");
+    assert!(delivery.is_sensitive());
+    for _ in 0..32 {
+        if delivery.has_focus() {
+            break;
         }
-        assert!(
-            delivery.has_focus(),
-            "delivery action is keyboard reachable"
-        );
-        pump_until(|| {
-            let action = delivery.compute_bounds(window);
-            let footer = pane.player_bar.compute_bounds(window);
-            action.zip(footer).is_some_and(|(action, footer)| {
+        input(&["key", "--clearmodifiers", "Tab"]);
+        settle();
+    }
+    assert!(
+        delivery.has_focus(),
+        "delivery diagnostic remains keyboard reachable"
+    );
+    pump_until(|| {
+        delivery
+            .compute_bounds(window)
+            .zip(pane.player_bar.compute_bounds(window))
+            .is_some_and(|(action, footer)| {
                 action.y() >= 0.0 && action.y() + action.height() <= footer.y() + 1.0
             })
-        });
-        // Do not activate it: its production network client is intentionally
-        // not supplied real credentials or a real track in Cloud/CI.
-        capture_native("input-track-detail-delivery");
-        let back = this.widgets.detail.first_child().unwrap();
-        for _ in 0..16 {
-            if back.has_focus() {
-                break;
-            }
-            input(&["key", "--clearmodifiers", "shift+Tab"]);
-            settle();
-        }
-        assert!(
-            back.has_focus(),
-            "Back remains keyboard reachable after scrolling"
-        );
-        click(window, id, &back);
-        pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("library"));
-    }
+    });
+    // Do not activate the diagnostic: no provider session/media is used here.
+    capture_native("input-track-detail-delivery");
+    input(&["key", "--clearmodifiers", "alt+Left"]);
+    pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("library"));
 
     // Refresh replaces rows; the one parent dispatcher must not accumulate
     // handlers. Both owned and liked playlists keep their actual owner path.
@@ -354,20 +394,35 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
         pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("library"));
     }
     for (kind, enter, path, title) in [
-        (0, true, "/tracks", "Synthetic input track"),
-        (0, false, "/tracks", "Synthetic input track"),
-        (1, false, "/albums/7/with-tracks", "Synthetic input album"),
-        (2, false, "/artists/11/tracks", "Synthetic input artist"),
+        (SearchKind::Tracks, true, "/tracks", "Synthetic input track"),
+        (
+            SearchKind::Tracks,
+            false,
+            "/tracks",
+            "Synthetic input track",
+        ),
+        (
+            SearchKind::Albums,
+            false,
+            "/albums/7/with-tracks",
+            "Synthetic input album",
+        ),
+        (
+            SearchKind::Artists,
+            false,
+            "/artists/11/tracks",
+            "Synthetic input artist",
+        ),
     ] {
         this.widgets.stack.set_visible_child_name("search");
-        this.widgets.search_kind.set_selected(kind);
-        // Test actual SearchEntry Return as well as the actual Find button;
-        // neither path invokes Controller::search or emits activate directly.
         this.widgets.search.set_text(if enter {
             "Синтетический ввод"
         } else {
             "Synthetic input"
         });
+        this.model.borrow_mut().search_scope = Some(kind);
+        // Exercise actual entry Return/Find. Section selection itself is covered
+        // by the independent unified Show All mouse fixture.
         if enter {
             assert!(this.widgets.search.grab_focus());
             input(&["key", "--clearmodifiers", "Return"]);
@@ -378,13 +433,50 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
         pump_until(|| {
             !this.model.borrow().busy && contains_text(this.widgets.search_rows.upcast_ref(), title)
         });
-        let before = count(path);
-        click(window, id, &first(&this.widgets.search_rows));
-        pump_until(|| {
-            this.widgets.stack.visible_child_name().as_deref() == Some("detail")
-                && !this.model.borrow().busy
-        });
-        assert_eq!(count(path), before + 1);
+        if kind == SearchKind::Tracks {
+            let before = count("/tracks/42/download-info");
+            click(window, id, &first(&this.widgets.search_rows));
+            pump_until(|| {
+                count("/tracks/42/download-info") == before + 1 && !this.music_requested()
+            });
+            assert_eq!(
+                this.model.borrow().queue.context().unwrap().source_kind(),
+                ContextKind::Search
+            );
+            assert_eq!(this.widgets.current.text(), "Synthetic input track");
+            assert_eq!(
+                this.widgets.stack.visible_child_name().as_deref(),
+                Some("search")
+            );
+            this.stop_music();
+            let row = first(&this.widgets.search_rows);
+            let menu = descendants(row.upcast_ref())
+                .into_iter()
+                .find_map(|widget| widget.downcast::<gtk::MenuButton>().ok())
+                .unwrap();
+            click(window, id, &menu);
+            pump_until(|| menu.popover().unwrap().is_visible());
+            let details = descendants(menu.popover().unwrap().upcast_ref())
+                .into_iter()
+                .filter_map(|widget| widget.downcast::<gtk::Button>().ok())
+                .find(|button| button.label().as_deref() == Some("Открыть сведения о треке"))
+                .unwrap();
+            let before = count(path);
+            click(window, id, &details);
+            pump_until(|| {
+                this.widgets.stack.visible_child_name().as_deref() == Some("detail")
+                    && !this.model.borrow().busy
+            });
+            assert_eq!(count(path), before + 1);
+        } else {
+            let before = count(path);
+            click(window, id, &first(&this.widgets.search_rows));
+            pump_until(|| {
+                this.widgets.stack.visible_child_name().as_deref() == Some("detail")
+                    && !this.model.borrow().busy
+            });
+            assert_eq!(count(path), before + 1);
+        }
         assert!(contains_text(
             this.widgets.detail.upcast_ref(),
             "Synthetic input track"
@@ -406,7 +498,8 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
     );
     assert!(!first(&this.widgets.search_rows).is_activatable());
 
-    // Queue rows use the same parent dispatch without starting audio.
+    // Queue rows start the existing playback intent at the selected occurrence.
+    // The explicit loopback resolver returns no audio; no sound is claimed here.
     this.enqueue(Track {
         id: "43".into(),
         title: "Synthetic second queued track".into(),

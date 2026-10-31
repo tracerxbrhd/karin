@@ -540,8 +540,11 @@ fn remove_queue_row(this: &Controller, index: i32) {
 }
 
 fn native_click(window: &adw::ApplicationWindow, widget: &impl IsA<gtk::Widget>) {
-    let widget = widget.as_ref();
-    pump_until(|| widget.is_mapped() && widget.width() > 0 && widget.height() > 0);
+    let (x, y) = super::super::test_input::pointer(
+        window,
+        widget,
+        super::super::test_input::Target::Leading,
+    );
     let found = std::process::Command::new("xdotool")
         .args([
             "search",
@@ -554,9 +557,8 @@ fn native_click(window: &adw::ApplicationWindow, widget: &impl IsA<gtk::Widget>)
     assert!(found.status.success());
     let id = String::from_utf8(found.stdout).unwrap();
     let id = id.lines().next().unwrap();
-    let rect = widget.compute_bounds(window).unwrap();
-    let x = ((rect.x() + rect.width().min(140.0) / 2.0) as i32).to_string();
-    let y = ((rect.y() + rect.height() / 2.0) as i32).to_string();
+    let x = x.to_string();
+    let y = y.to_string();
     for arguments in [
         vec!["windowfocus", "--sync", id],
         vec!["mousemove", "--sync", "--window", id, &x, &y],
@@ -570,20 +572,6 @@ fn native_click(window: &adw::ApplicationWindow, widget: &impl IsA<gtk::Widget>)
                 .success()
         );
     }
-}
-
-fn named_play(widget: &gtk::Widget) -> Option<gtk::Button> {
-    if widget.widget_name() == "music-track-play" {
-        return widget.clone().downcast().ok();
-    }
-    let mut child = widget.first_child();
-    while let Some(widget) = child {
-        if let Some(button) = named_play(&widget) {
-            return Some(button);
-        }
-        child = widget.next_sibling();
-    }
-    None
 }
 
 #[test]
@@ -612,21 +600,16 @@ fn native_music_playback_resolver_queue_controls_and_logout() {
         "one batched normalization request for a search page"
     );
     native_click(&ui.window, &this.widgets.search_rows.first_child().unwrap());
-    pump_until(|| {
-        !this.model.borrow().busy && named_play(this.widgets.detail.upcast_ref()).is_some()
-    });
+    wait_playing(this, 0);
     assert_eq!(
         fixture.counts.lock().unwrap().lookups,
-        2,
-        "opening details uses the shared working MusicService lookup"
+        1,
+        "activating a normalized search hit plays without a second detail lookup"
     );
-    assert!(!this.widgets.progress.is_sensitive());
-    assert!(!this.widgets.position.text().contains("0:00"));
-    native_click(
-        &ui.window,
-        &named_play(this.widgets.detail.upcast_ref()).unwrap(),
+    assert_eq!(
+        this.model.borrow().queue.context().unwrap().source_kind(),
+        crate::queue::ContextKind::Search
     );
-    wait_playing(this, 0);
     for id in ["43", "44"] {
         this.enqueue(track(id));
     }
@@ -765,6 +748,195 @@ fn native_music_playback_resolver_queue_controls_and_logout() {
     }
     pane.close();
     ui.window.close();
+}
+
+#[test]
+#[ignore = "requires an isolated GTK display and GStreamer HTTP/MP3 plugins; run under Xvfb"]
+fn native_music_playback_context_occurrences_and_shared_transport() {
+    use crate::queue::{ContextKind, PlaybackContext};
+
+    gtk::init().unwrap();
+    adw::init().unwrap();
+    let fixture = Fixture::new();
+    let (_app, ui) = player_window(&fixture);
+    let this = &ui.music.controller;
+    let mut unavailable = track("43");
+    unavailable.available = false;
+    let mut clicked = track("42");
+    clicked.title = "Synthetic selected duplicate occurrence".into();
+    let context = PlaybackContext::new(
+        ContextKind::Search,
+        None,
+        vec![track("42"), unavailable, track("44"), clicked],
+        3,
+        true,
+    )
+    .unwrap();
+    eprintln!("Karin synthetic context phase=play-clicked-duplicate");
+    this.play_music_context(context);
+    assert_eq!(this.model.borrow().queue.current_index(), Some(3));
+    assert_eq!(
+        this.widgets.current.text(),
+        "Synthetic selected duplicate occurrence"
+    );
+    assert!(this.player.borrow().requested);
+    assert!(this.model.borrow().queue.context().unwrap().is_partial());
+    let serial = this.player.borrow().serial;
+    this.play_music();
+    this.play_music();
+    assert_eq!(
+        this.player.borrow().serial,
+        serial,
+        "Play is idempotent while resolving"
+    );
+    wait_playing(this, 3);
+    assert_eq!(fixture.offers(0), 1);
+    assert_eq!(fixture.offers(1), 0);
+
+    eprintln!("Karin synthetic context phase=pause-current");
+    this.pause_music();
+    pump_until(|| {
+        this.music_snapshot()
+            .is_some_and(|state| state.state == PlaybackState::Paused)
+    });
+    this.pause_music();
+    eprintln!("Karin synthetic context phase=previous-while-paused");
+    this.skip_music(false, false);
+    pump_until(|| {
+        this.model.borrow().queue.current_index() == Some(2)
+            && this
+                .music_snapshot()
+                .is_some_and(|state| state.state == PlaybackState::Ready)
+    });
+    assert_eq!(fixture.offers(2), 1);
+    assert!(!this.player.borrow().requested);
+    eprintln!("Karin synthetic context phase=play-prepared-previous");
+    pump_until(|| {
+        this.music_snapshot()
+            .is_some_and(|snapshot| snapshot.state == PlaybackState::Ready && snapshot.seekable)
+    });
+    let before_seek = this.music_snapshot().unwrap().seek_serial;
+    // Deterministically model a Ready worker observed before the GUI poll has
+    // consumed its pending preparation. Explicit Play must consume the flag
+    // and retain its resume position before the worker becomes Playing.
+    this.player.borrow_mut().preparing = Some((false, Some(Duration::from_secs(1))));
+    this.play_music();
+    assert!(this.player.borrow().preparing.is_none());
+    wait_playing(this, 2);
+    pump_until(|| {
+        this.music_snapshot().is_some_and(|snapshot| {
+            snapshot.seek_serial > before_seek
+                && snapshot.seek_position == Some(Duration::from_secs(1))
+        })
+    });
+    assert_eq!(
+        fixture.offers(2),
+        1,
+        "Play resumes the prepared context item"
+    );
+    eprintln!("Karin synthetic context phase=skip-unavailable-previous");
+    this.skip_music(false, false);
+    wait_playing(this, 0);
+    assert_eq!(
+        fixture.offers(1),
+        0,
+        "unavailable context items are not resolved"
+    );
+
+    eprintln!("Karin synthetic context phase=next-while-stopped");
+    this.stop_music();
+    let offers = fixture.offers(2);
+    this.skip_music(true, false);
+    assert_eq!(this.model.borrow().queue.current_index(), Some(2));
+    assert!(!this.music_requested());
+    assert!(this.music_snapshot().is_none());
+    assert_eq!(
+        fixture.offers(2),
+        offers,
+        "Next preserves stopped transport"
+    );
+    eprintln!("Karin synthetic context phase=play-next-from-stopped");
+    this.play_music();
+    wait_playing(this, 2);
+
+    eprintln!("Karin synthetic context phase=replace-playlist-context");
+    this.play_music_context(
+        PlaybackContext::new(
+            ContextKind::Playlist,
+            Some("77".into()),
+            vec![track("43"), track("44")],
+            0,
+            true,
+        )
+        .unwrap(),
+    );
+    wait_playing(this, 0);
+    this.enqueue(track("42"));
+    {
+        let model = this.model.borrow();
+        let context = model.queue.context().unwrap();
+        assert_eq!(context.source_kind(), ContextKind::Playlist);
+        assert_eq!(context.loaded_items_len(), 2);
+        assert_eq!(model.queue.items().len(), 3);
+    }
+    eprintln!("Karin synthetic context phase=playlist-eos-next-loaded");
+    pump_until(|| this.widgets.progress.is_sensitive());
+    this.seek_music(Duration::from_millis(3_800));
+    wait_playing(this, 1);
+    eprintln!("Karin synthetic context phase=playlist-eos-manual-addition");
+    pump_until(|| this.widgets.progress.is_sensitive());
+    this.seek_music(Duration::from_millis(3_800));
+    wait_playing(this, 2);
+    assert_eq!(this.model.borrow().queue.current().unwrap().id, "42");
+
+    let mut second = track("42");
+    second.title = "Synthetic exact queued duplicate".into();
+    eprintln!("Karin synthetic context phase=replace-album-context");
+    this.play_music_context(
+        PlaybackContext::new(
+            ContextKind::Album,
+            Some("78".into()),
+            vec![track("42"), second],
+            0,
+            false,
+        )
+        .unwrap(),
+    );
+    wait_playing(this, 0);
+    eprintln!("Karin synthetic context phase=play-exact-queued-duplicate");
+    this.play_music_queue(1);
+    wait_playing(this, 1);
+    assert_eq!(
+        this.widgets.current.text(),
+        "Synthetic exact queued duplicate"
+    );
+    assert_eq!(this.model.borrow().queue.items().len(), 2);
+    let selected = this.model.borrow().queue.current_index();
+    let mut unavailable = track("44");
+    unavailable.available = false;
+    eprintln!("Karin synthetic context phase=refuse-unavailable-context");
+    this.play_music_context(
+        PlaybackContext::new(ContextKind::SingleTrack, None, vec![unavailable], 0, false).unwrap(),
+    );
+    assert_eq!(this.model.borrow().queue.current_index(), selected);
+    assert_eq!(
+        this.widgets.current.text(),
+        "Synthetic exact queued duplicate"
+    );
+
+    eprintln!("Karin synthetic context phase=shared-volume");
+    this.set_music_volume(0.41);
+    pump_until(|| {
+        this.music_snapshot()
+            .is_some_and(|state| (state.volume - 0.41).abs() < 0.001)
+    });
+    this.set_music_volume(f64::NAN);
+    assert_eq!(this.music_volume(), 0.41);
+    let closing = this.player.borrow().controller.clone().unwrap();
+    eprintln!("Karin synthetic context phase=close-context");
+    ui.window.close();
+    pump_until(|| !closing.snapshot().worker_running);
+    assert!(this.model.borrow().queue.context().is_none());
 }
 
 #[test]
@@ -1021,4 +1193,454 @@ fn native_music_playback_media_error_visibility_stop_retry_and_catalog_preservat
     pump_until(|| !catalog_failed.snapshot().worker_running);
     assert!(this.widgets.player_status.tooltip_text().is_none());
     ui.window.close();
+}
+
+/// External D-Bus clients must never wait on the thread serving Karin's bus
+/// callbacks. Each bounded client operation runs elsewhere while GTK is pumped.
+fn desktop_background<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> T {
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    let worker = thread::spawn(move || {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work));
+        sender.send(result).unwrap();
+    });
+    let mut result = None;
+    pump_until(|| {
+        result = receiver.try_recv().ok();
+        result.is_some()
+    });
+    worker.join().unwrap();
+    match result.unwrap() {
+        Ok(value) => value,
+        Err(error) => std::panic::resume_unwind(error),
+    }
+}
+
+fn desktop_cli(program: &str, arguments: &[&str]) -> String {
+    static NEXT_COMMAND: AtomicU64 = AtomicU64::new(0);
+    let program = program.to_owned();
+    let arguments = arguments
+        .iter()
+        .map(|value| (*value).to_owned())
+        .collect::<Vec<_>>();
+    desktop_background(move || {
+        let operation = arguments
+            .iter()
+            .find_map(|argument| match argument.as_str() {
+                "status" => Some("status"),
+                "pause" => Some("pause"),
+                "play" => Some("play"),
+                "play-pause" => Some("play-pause"),
+                "volume" => Some("volume"),
+                "position" => Some("position"),
+                "next" => Some("next"),
+                "previous" => Some("previous"),
+                "stop" => Some("stop"),
+                "metadata" => Some("metadata"),
+                "introspect" => Some("introspect"),
+                "call" => Some("call"),
+                _ => None,
+            })
+            .unwrap_or("unknown-operation");
+        let step = NEXT_COMMAND.fetch_add(1, Ordering::Relaxed) + 1;
+        eprintln!("Karin synthetic desktop command: step={step} operation={operation}");
+        let output = std::process::Command::new("timeout")
+            .arg("5")
+            .arg(&program)
+            .args(arguments)
+            .env("LC_ALL", "C")
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let category = if output.status.code() == Some(124) {
+            "client-timeout"
+        } else if stderr.contains("No players found") || stderr.contains("ServiceUnknown") {
+            "player-not-found"
+        } else if stderr.contains("does not support") || stderr.contains("NotSupported") {
+            "unsupported-operation"
+        } else if stderr.contains("GDBus.Error") || stderr.contains("org.freedesktop.DBus.Error") {
+            "dbus-error"
+        } else if stderr.is_empty() {
+            "empty-stderr"
+        } else {
+            "unclassified-client-error"
+        };
+        assert!(
+            output.status.success(),
+            "synthetic desktop client failed: program={program} step={step} operation={operation} exit={:?} category={category}",
+            output.status.code(),
+        );
+        String::from_utf8(output.stdout).unwrap()
+    })
+}
+
+fn desktop_property(name: &str) -> glib::Variant {
+    let name = name.to_owned();
+    desktop_background(move || {
+        let bus = gio::bus_get_sync(gio::BusType::Session, gio::Cancellable::NONE).unwrap();
+        bus.call_sync(
+            Some(crate::mpris::BUS_NAME),
+            "/org/mpris/MediaPlayer2",
+            "org.freedesktop.DBus.Properties",
+            "Get",
+            Some(&("org.mpris.MediaPlayer2.Player", name).to_variant()),
+            None,
+            gio::DBusCallFlags::NO_AUTO_START,
+            3_000,
+            gio::Cancellable::NONE,
+        )
+        .unwrap()
+        .get::<(glib::Variant,)>()
+        .unwrap()
+        .0
+    })
+}
+
+fn desktop_method(method: &str, parameters: glib::Variant) {
+    let method = method.to_owned();
+    desktop_background(move || {
+        let bus = gio::bus_get_sync(gio::BusType::Session, gio::Cancellable::NONE).unwrap();
+        bus.call_sync(
+            Some(crate::mpris::BUS_NAME),
+            "/org/mpris/MediaPlayer2",
+            "org.mpris.MediaPlayer2.Player",
+            &method,
+            Some(&parameters),
+            None,
+            gio::DBusCallFlags::NO_AUTO_START,
+            3_000,
+            gio::Cancellable::NONE,
+        )
+        .unwrap();
+    });
+}
+
+#[test]
+#[ignore = "requires isolated dbus-run-session, Xvfb, playerctl, gdbus and GStreamer HTTP/MP3 plugins"]
+fn native_music_context_mpris_shared_player_and_cleanup() {
+    use crate::queue::{ContextKind, PlaybackContext};
+    use std::collections::BTreeMap;
+
+    const PLAYER: &str = "io.github.tracerxbrhd.Karin";
+    gtk::init().unwrap();
+    adw::init().unwrap();
+    let fixture = Fixture::new();
+    let (_app, ui) = player_window(&fixture);
+    let this = &ui.music.controller;
+    pump_until(|| this.system_media_available());
+    this.play_music_context(
+        PlaybackContext::new(
+            ContextKind::Playlist,
+            Some("synthetic-playlist".into()),
+            vec![track("42"), track("43"), track("44")],
+            0,
+            true,
+        )
+        .unwrap(),
+    );
+    wait_playing(this, 0);
+    let original = this.player.borrow().controller.clone().unwrap();
+    assert_eq!(
+        desktop_cli("playerctl", &["--player", PLAYER, "status"]).trim(),
+        "Playing"
+    );
+    desktop_cli("playerctl", &["--player", PLAYER, "pause"]);
+    pump_until(|| {
+        original.snapshot().state == PlaybackState::Paused
+            && this.widgets.player_status.text() == "Пауза"
+    });
+    assert_eq!(this.widgets.player_status.text(), "Пауза");
+    assert_eq!(desktop_property("PlaybackStatus").str(), Some("Paused"));
+
+    let metadata = desktop_property("Metadata")
+        .get::<BTreeMap<String, glib::Variant>>()
+        .unwrap();
+    assert_eq!(
+        metadata["xesam:title"].str(),
+        Some("Synthetic remote player track")
+    );
+    assert_eq!(
+        metadata["xesam:artist"].get::<Vec<String>>(),
+        Some(vec!["Synthetic artist".into()])
+    );
+    assert_eq!(metadata["mpris:length"].get::<i64>(), Some(4_000_000));
+    let original_path = metadata["mpris:trackid"]
+        .get::<glib::variant::ObjectPath>()
+        .unwrap();
+    assert!(
+        original_path
+            .as_str()
+            .starts_with("/org/mpris/MediaPlayer2/Track/t")
+    );
+    assert!(!metadata.contains_key("xesam:url"));
+    let printable = metadata.to_variant().print(true);
+    for forbidden in [
+        "synthetic-native-music-token",
+        "synthetic-server-input",
+        "127.0.0.1",
+        "get-mp3",
+        "download-info",
+        "storage.yandex.net",
+        "OAuth",
+    ] {
+        assert!(!printable.contains(forbidden));
+    }
+    let introspection = desktop_cli(
+        "gdbus",
+        &[
+            "introspect",
+            "--session",
+            "--dest",
+            crate::mpris::BUS_NAME,
+            "--object-path",
+            "/org/mpris/MediaPlayer2",
+        ],
+    );
+    assert!(introspection.contains("org.mpris.MediaPlayer2.Player"));
+    assert!(introspection.contains("Seeked"));
+    let bus = desktop_background(|| {
+        gio::bus_get_sync(gio::BusType::Session, gio::Cancellable::NONE).unwrap()
+    });
+    let volume_changes = Rc::new(RefCell::new(Vec::<f64>::new()));
+    let observed_volume = volume_changes.clone();
+    let volume_subscription = bus.subscribe_to_signal(
+        Some(crate::mpris::BUS_NAME),
+        Some("org.freedesktop.DBus.Properties"),
+        Some("PropertiesChanged"),
+        Some("/org/mpris/MediaPlayer2"),
+        None,
+        gio::DBusSignalFlags::NONE,
+        move |signal| {
+            let (interface, properties, _) = signal
+                .parameters
+                .get::<(String, BTreeMap<String, glib::Variant>, Vec<String>)>()
+                .unwrap();
+            if interface == "org.mpris.MediaPlayer2.Player"
+                && let Some(value) = properties
+                    .get("Volume")
+                    .and_then(|value| value.get::<f64>())
+            {
+                observed_volume.borrow_mut().push(value);
+            }
+        },
+    );
+    desktop_cli("playerctl", &["--player", PLAYER, "volume", "0.23"]);
+    pump_until(|| (original.snapshot().volume - 0.23).abs() < 0.001);
+    pump_until(|| {
+        volume_changes
+            .borrow()
+            .iter()
+            .any(|volume| (*volume - 0.23).abs() < 0.001)
+    });
+    assert!((this.widgets.volume.value() - 0.23).abs() < 0.001);
+    assert_eq!(desktop_property("Volume").get::<f64>(), Some(0.23));
+
+    let seeks = Rc::new(RefCell::new(Vec::<i64>::new()));
+    let observed = seeks.clone();
+    let acknowledgments = Rc::new(RefCell::new(Vec::<(i64, u64, Option<Duration>)>::new()));
+    let observed_acknowledgments = acknowledgments.clone();
+    let seek_worker = original.clone();
+    let subscription = bus.subscribe_to_signal(
+        Some(crate::mpris::BUS_NAME),
+        Some("org.mpris.MediaPlayer2.Player"),
+        Some("Seeked"),
+        Some("/org/mpris/MediaPlayer2"),
+        None,
+        gio::DBusSignalFlags::NONE,
+        move |signal| {
+            let position = signal.parameters.get::<(i64,)>().unwrap().0;
+            observed.borrow_mut().push(position);
+            let snapshot = seek_worker.snapshot();
+            observed_acknowledgments.borrow_mut().push((
+                position,
+                snapshot.seek_serial,
+                snapshot.seek_position,
+            ));
+        },
+    );
+    pump_until(|| this.widgets.progress.is_sensitive());
+    let before_seek = original.snapshot().seek_serial;
+    desktop_cli("playerctl", &["--player", PLAYER, "position", "1"]);
+    pump_until(|| {
+        original.snapshot().position.is_some_and(|position| {
+            position.abs_diff(Duration::from_secs(1)) < Duration::from_millis(150)
+        })
+    });
+    pump_until(|| seeks.borrow().contains(&1_000_000));
+    assert!(
+        acknowledgments
+            .borrow()
+            .iter()
+            .any(|(position, serial, target)| *position == 1_000_000
+                && *serial > before_seek
+                && *target == Some(Duration::from_secs(1)))
+    );
+    eprintln!("Karin synthetic MPRIS phase=near-position-seek-native-ack");
+    let before_near_seek = original.snapshot().seek_serial;
+    desktop_cli("playerctl", &["--player", PLAYER, "position", "1.05"]);
+    pump_until(|| {
+        original.snapshot().seek_serial > before_near_seek
+            && original.snapshot().seek_position == Some(Duration::from_millis(1_050))
+    });
+    pump_until(|| seeks.borrow().contains(&1_050_000));
+    assert!(
+        acknowledgments
+            .borrow()
+            .iter()
+            .any(|(position, serial, target)| *position == 1_050_000
+                && *serial > before_near_seek
+                && *target == Some(Duration::from_millis(1_050)))
+    );
+    assert!(
+        original.snapshot().worker_running,
+        "desktop commands use the existing GStreamer worker"
+    );
+    eprintln!("Karin synthetic MPRIS phase=resume-existing-worker");
+    desktop_cli("playerctl", &["--player", PLAYER, "play"]);
+    wait_playing(this, 0);
+    assert_eq!(original.snapshot().state, PlaybackState::Playing);
+    desktop_cli("playerctl", &["--player", PLAYER, "pause"]);
+    pump_until(|| {
+        original.snapshot().state == PlaybackState::Paused
+            && this.widgets.player_status.text() == "Пауза"
+    });
+
+    desktop_cli("playerctl", &["--player", PLAYER, "next"]);
+    pump_until(|| {
+        this.model.borrow().queue.current_index() == Some(1)
+            && this
+                .music_snapshot()
+                .is_some_and(|snapshot| snapshot.state == PlaybackState::Ready)
+            && this.widgets.player_status.text() == "Готово к воспроизведению"
+    });
+    pump_until(|| !original.snapshot().worker_running);
+    assert_eq!(
+        desktop_cli("playerctl", &["--player", PLAYER, "status"]).trim(),
+        "Paused"
+    );
+    assert_eq!(fixture.offers(1), 1);
+    let seek_count = seeks.borrow().len();
+    desktop_method("SetPosition", (original_path, 2_700_000_i64).to_variant());
+    assert!(
+        this.music_snapshot().unwrap().position.unwrap_or_default() < Duration::from_millis(500)
+    );
+    assert_eq!(
+        seeks.borrow().len(),
+        seek_count,
+        "a stale desktop track identity cannot seek a replacement"
+    );
+    desktop_cli("playerctl", &["--player", PLAYER, "previous"]);
+    pump_until(|| {
+        this.model.borrow().queue.current_index() == Some(0)
+            && this
+                .music_snapshot()
+                .is_some_and(|snapshot| snapshot.state == PlaybackState::Ready)
+            && this.widgets.player_status.text() == "Готово к воспроизведению"
+    });
+    eprintln!("Karin synthetic MPRIS phase=play-prepared-previous");
+    desktop_cli("playerctl", &["--player", PLAYER, "play"]);
+    wait_playing(this, 0);
+    let stopped = this.player.borrow().controller.clone().unwrap();
+    desktop_cli("playerctl", &["--player", PLAYER, "stop"]);
+    pump_until(|| this.music_snapshot().is_none() && !stopped.snapshot().worker_running);
+    assert_eq!(
+        desktop_cli("playerctl", &["--player", PLAYER, "status"]).trim(),
+        "Stopped"
+    );
+    assert_eq!(desktop_property("Position").get::<i64>(), Some(0));
+    eprintln!("Karin synthetic MPRIS phase=play-pause-from-stopped");
+    desktop_cli("playerctl", &["--player", PLAYER, "play-pause"]);
+    wait_playing(this, 0);
+    pump_until(|| this.widgets.progress.is_sensitive());
+
+    // Arm an acknowledgment for the old worker, then synchronously Stop before
+    // GTK can observe it. Restarting the same queue occurrence must not publish
+    // that discarded seek when its new pipeline begins near zero again.
+    let seek_count = seeks.borrow().len();
+    this.note_music_seek(Duration::ZERO);
+    this.stop_music();
+    assert!(this.music_snapshot().is_none());
+    eprintln!("Karin synthetic MPRIS phase=restart-after-cancelled-seek");
+    desktop_cli("playerctl", &["--player", PLAYER, "play-pause"]);
+    wait_playing(this, 0);
+    pump_until(|| this.widgets.progress.is_sensitive());
+    super::super::test_input::wait_for_layout(&ui.window, &this.widgets.progress);
+    assert!(desktop_property("Position").get::<i64>().is_some());
+    assert_eq!(
+        seeks.borrow().len(),
+        seek_count,
+        "Stop discards a pending seek before the same occurrence restarts"
+    );
+    desktop_cli("playerctl", &["--player", PLAYER, "stop"]);
+    pump_until(|| this.music_snapshot().is_none());
+    let offers = fixture.offers(1);
+    desktop_cli("playerctl", &["--player", PLAYER, "next"]);
+    assert_eq!(this.model.borrow().queue.current_index(), Some(1));
+    assert!(this.music_snapshot().is_none());
+    assert_eq!(
+        fixture.offers(1),
+        offers,
+        "desktop Next preserves stopped transport"
+    );
+    eprintln!("Karin synthetic MPRIS phase=play-next-from-stopped");
+    desktop_cli("playerctl", &["--player", PLAYER, "play"]);
+    wait_playing(this, 1);
+    pump_until(|| this.widgets.progress.is_sensitive());
+    desktop_cli("playerctl", &["--player", PLAYER, "position", "3.8"]);
+    wait_playing(this, 2);
+    assert_eq!(
+        fixture.offers(2),
+        1,
+        "actual worker EOS advances the same context once"
+    );
+    let closing = this.player.borrow().controller.clone().unwrap();
+    this.widgets.logout.emit_clicked();
+    pump_until(|| {
+        this.logout_confirmation
+            .borrow()
+            .as_ref()
+            .is_some_and(|confirmation| {
+                confirmation.dialog.is_mapped() && confirmation.dialog.can_close()
+            })
+    });
+    this.respond_logout_for_test("logout");
+    pump_until(|| this.model.borrow().token.is_none() && !closing.snapshot().worker_running);
+    assert!(
+        desktop_property("Metadata")
+            .get::<BTreeMap<String, glib::Variant>>()
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(desktop_property("Position").get::<i64>(), Some(0));
+    assert_eq!(desktop_property("CanPlay").get::<bool>(), Some(false));
+    assert_eq!(desktop_property("CanGoNext").get::<bool>(), Some(false));
+    assert_eq!(
+        desktop_cli("playerctl", &["--player", PLAYER, "status"]).trim(),
+        "Stopped"
+    );
+    eprintln!("Karin synthetic MPRIS phase=reject-play-after-logout");
+    // playerctl may reject this locally because CanPlay is false. Exercise
+    // the server method directly to prove it cannot revive the signed-out
+    // session, while preserving the explicit false-capability assertions.
+    desktop_method("Play", ().to_variant());
+    assert!(this.music_snapshot().is_none());
+    assert!(this.model.borrow().queue.items().is_empty());
+    drop(subscription);
+    drop(volume_subscription);
+    ui.window.close();
+    pump_until(|| !this.system_media_available());
+    let owned = desktop_cli(
+        "gdbus",
+        &[
+            "call",
+            "--session",
+            "--dest",
+            "org.freedesktop.DBus",
+            "--object-path",
+            "/org/freedesktop/DBus",
+            "--method",
+            "org.freedesktop.DBus.NameHasOwner",
+            crate::mpris::BUS_NAME,
+        ],
+    );
+    assert_eq!(owned.trim(), "(false,)");
 }
