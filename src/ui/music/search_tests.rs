@@ -124,6 +124,34 @@ fn reveal_by_wheel(window: &adw::ApplicationWindow, id: &str, widget: &impl IsA<
 fn click(window: &adw::ApplicationWindow, id: &str, widget: &impl IsA<gtk::Widget>) {
     reveal_by_wheel(window, id, widget);
     let (x, y) = super::test_input::pointer(window, widget, super::test_input::Target::Leading);
+    let widget = widget.as_ref();
+    if widget.native().and_then(|native| native.surface()) == window.surface() {
+        // Allocation alone is insufficient: a pinned nonmodal pane can still
+        // cover a catalog action. Check GTK's real event target before sending
+        // XTest input; popup targets have their own native coordinate system.
+        let scale = f64::from(window.scale_factor());
+        let (dx, dy) = window.surface_transform();
+        let picked = window.pick(
+            f64::from(x) / scale - dx,
+            f64::from(y) / scale - dy,
+            gtk::PickFlags::DEFAULT,
+        );
+        let reaches_target = picked
+            .as_ref()
+            .is_some_and(|picked| picked == widget || picked.is_ancestor(widget));
+        if !reaches_target {
+            capture_native("search-native-action-occluded");
+        }
+        assert!(
+            reaches_target,
+            "native click target {} ({}) is covered by {:?}",
+            widget.widget_name(),
+            widget.type_().name(),
+            picked
+                .as_ref()
+                .map(|picked| (picked.widget_name(), picked.type_().name())),
+        );
+    }
     input(&[
         "mousemove",
         "--sync",
@@ -192,13 +220,6 @@ fn section(this: &Rc<Controller>, name: &str) -> gtk::Box {
         .expect("rendered unified section")
 }
 
-fn section_rows(section: &gtk::Box) -> gtk::ListBox {
-    descendants(section.upcast_ref())
-        .into_iter()
-        .find_map(|widget| widget.downcast().ok())
-        .expect("section result rows")
-}
-
 fn labelled_button(widget: &gtk::Widget, label: &str) -> gtk::Button {
     descendants(widget)
         .into_iter()
@@ -210,12 +231,15 @@ fn labelled_button(widget: &gtk::Widget, label: &str) -> gtk::Button {
 fn open_details(window: &adw::ApplicationWindow, id: &str, row: &gtk::ListBoxRow) {
     assert!(row.grab_focus());
     settle();
+    reveal_by_wheel(window, id, row);
     let menu = descendants(row.upcast_ref())
         .into_iter()
         .find_map(|widget| widget.downcast::<gtk::MenuButton>().ok())
         .unwrap();
     click(window, id, &menu);
-    pump_until(|| menu.popover().unwrap().is_visible());
+    wait_for_step("track-actions-open", || {
+        menu.popover().unwrap().is_visible()
+    });
     let details = labelled_button(
         menu.popover().unwrap().upcast_ref(),
         "Открыть сведения о треке",
@@ -615,6 +639,18 @@ fn native_search_retry_normalized_results_and_density() {
     this.widgets.search.grab_focus();
     settle();
     let footer = pane.player_bar.compute_bounds(window).unwrap();
+    let viewport = {
+        let mut parent = this.widgets.search_rows.parent();
+        let mut viewport = None;
+        while let Some(widget) = parent {
+            if widget.is::<gtk::ScrolledWindow>() {
+                viewport = widget.compute_bounds(window);
+                break;
+            }
+            parent = widget.parent();
+        }
+        viewport.expect("search tracks are inside the ordinary scroll viewport")
+    };
     assert!(!this.widgets.cache_notice.is_revealed());
     assert!(
         !this.widgets.cache_notice.is_visible(),
@@ -623,8 +659,10 @@ fn native_search_retry_normalized_results_and_density() {
     let visible = result_rows
         .iter()
         .filter(|row| {
-            row.compute_bounds(window)
-                .is_some_and(|b| b.y() >= 0.0 && b.y() + b.height() <= footer.y())
+            row.compute_bounds(window).is_some_and(|b| {
+                b.y() >= viewport.y() - 1.0
+                    && b.y() + b.height() <= footer.y().min(viewport.y() + viewport.height()) + 1.0
+            })
         })
         .count();
     assert!(
@@ -632,6 +670,10 @@ fn native_search_retry_normalized_results_and_density() {
         "900x650 should expose at least six complete track rows, got {visible}"
     );
     for row in result_rows.iter().take(visible) {
+        assert!(
+            (60..=72).contains(&row.height()),
+            "song row height must preserve the approved compact music rhythm"
+        );
         let play = named_button(row.upcast_ref(), "music-track-play");
         let target = play.compute_bounds(window).unwrap();
         assert!(
@@ -678,6 +720,10 @@ fn native_search_retry_normalized_results_and_density() {
         );
         this.stop_music();
     }
+    assert!(
+        this.info_is_open(),
+        "the ordinary pinned medium pane remains open while catalog actions stay usable"
+    );
     assert_eq!(
         counts.lock().unwrap().batches.len(),
         2,
@@ -741,16 +787,22 @@ fn native_search_retry_normalized_results_and_density() {
         ("music-results-playlists", ContextKind::Playlist, "1234:3"),
     ] {
         let group = section(this, name);
-        let row = section_rows(&group).row_at_index(0).unwrap();
-        assert!(row.grab_focus());
+        let tile_name = match kind {
+            ContextKind::Album => "music-search-album-tile",
+            ContextKind::Artist => "music-search-artist-tile",
+            ContextKind::Playlist => "music-search-playlist-tile",
+            _ => unreachable!("only collection result sections are exercised here"),
+        };
+        let tile = named_button(group.upcast_ref(), tile_name);
+        assert!(tile.grab_focus());
         settle();
         eprintln!(
             "Karin synthetic section: phase={name} bounds={:?} focused={} focusable={}",
-            row.compute_bounds(window),
-            row.has_focus(),
-            row.is_focusable(),
+            tile.compute_bounds(window),
+            tile.has_focus(),
+            tile.is_focusable(),
         );
-        click(window, id, &row);
+        click(window, id, &tile);
         pump_until(|| {
             this.widgets.stack.visible_child_name().as_deref() == Some("detail")
                 && !this.model.borrow().busy
@@ -785,7 +837,9 @@ fn native_search_retry_normalized_results_and_density() {
     input(&["key", "--clearmodifiers", "ctrl+a"]);
     input(&["type", "--clearmodifiers", "partial-query"]);
     input(&["key", "--clearmodifiers", "Return"]);
-    pump_until(|| counts.lock().unwrap().searches.len() == 6 && !this.model.borrow().busy);
+    wait_for_step("partial-unified-search", || {
+        counts.lock().unwrap().searches.len() == 6 && !this.model.borrow().busy
+    });
     assert!(this.model.borrow().search_scope.is_none());
     assert_eq!(rows(&this.widgets.search_rows).len(), 5);
     assert!(!this.widgets.search_feedback.is_visible());
@@ -812,7 +866,9 @@ fn native_search_retry_normalized_results_and_density() {
     capture_native("search-partial-section-retry");
     let batches = counts.lock().unwrap().batches.len();
     click(window, id, &retry);
-    pump_until(|| counts.lock().unwrap().searches.len() == 7 && !this.model.borrow().busy);
+    wait_for_step("partial-album-retry", || {
+        counts.lock().unwrap().searches.len() == 7 && !this.model.borrow().busy
+    });
     assert_eq!(this.model.borrow().search_scope, Some(SearchKind::Albums));
     assert!(contains_text(
         this.widgets.search_rows.upcast_ref(),
@@ -823,6 +879,36 @@ fn native_search_retry_normalized_results_and_density() {
         counts.lock().unwrap().searches.last().unwrap(),
         &("album".into(), 0)
     );
+    // The compact collection card remains a real keyboard target after a
+    // section-specific Retry; the inert wrapping row must never consume Play.
+    let album = named_button(
+        this.widgets.search_rows.upcast_ref(),
+        "music-search-album-tile",
+    );
+    assert!(album.grab_focus());
+    settle();
+    input(&["key", "--clearmodifiers", "space"]);
+    wait_for_step("retried-album-keyboard-open", || {
+        this.widgets.stack.visible_child_name().as_deref() == Some("detail")
+            && !this.model.borrow().busy
+    });
+    assert!(contains_text(
+        this.widgets.detail.upcast_ref(),
+        "Synthetic search album"
+    ));
+    assert_eq!(this.model.borrow().detail_origin, "search");
+    let before_back = counts.lock().unwrap().searches.len();
+    // Alt+Left is exercised after each earlier detail route. Here use the
+    // visible native Back action after a keyboard-opened refreshed tile: its
+    // old focus owner was removed while replacing loading/detail content.
+    // This also proves the pinned pane does not cover collection navigation.
+    let back = named_button(this.widgets.detail.upcast_ref(), "music-detail-back");
+    click(window, id, &back);
+    wait_for_step("retried-album-native-back", || {
+        this.widgets.stack.visible_child_name().as_deref() == Some("search")
+    });
+    assert_eq!(this.model.borrow().search_scope, Some(SearchKind::Albums));
+    assert_eq!(counts.lock().unwrap().searches.len(), before_back);
     pane.close();
     window.close();
     stop.store(true, Ordering::Release);

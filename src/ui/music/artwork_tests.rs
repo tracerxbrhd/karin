@@ -156,6 +156,85 @@ fn assert_native_cover(overlay: &gtk::Overlay) {
     );
 }
 
+/// Downloading a Picture's own texture proves decode, but cannot prove that
+/// another mapped widget has not painted over it. Snapshot the whole window,
+/// including the information overlay, and inspect the known synthetic coral
+/// image inside the actually visible library row.
+#[track_caller]
+fn assert_composited_library_cover(ui: &crate::ui::MainWindow, cover: &gtk::Overlay) {
+    assert!(cover.is_mapped());
+    let bounds = cover
+        .compute_bounds(&ui.window)
+        .expect("allocated library cover");
+    let scroll = cover
+        .ancestor(gtk::ScrolledWindow::static_type())
+        .expect("the library cover belongs to the scrollable central workspace");
+    let viewport = scroll.compute_bounds(&ui.window).unwrap();
+    assert!(bounds.width() >= 32.0 && bounds.height() >= 32.0);
+    assert!(bounds.x() >= viewport.x() - 1.0 && bounds.y() >= viewport.y() - 1.0);
+    assert!(bounds.x() + bounds.width() <= viewport.x() + viewport.width() + 1.0);
+    assert!(bounds.y() + bounds.height() <= viewport.y() + viewport.height() + 1.0);
+    let (width, height) = (ui.window.width(), ui.window.height());
+    assert!(width > 0 && height > 0);
+    let renderer = ui.window.renderer().expect("realized native renderer");
+    // Keep the paintable registered across native frames. Immediately making
+    // and snapshotting a new paintable can precede GTK's first cached snapshot
+    // after a resize/theme invalidation, even for an already mapped window.
+    let paintable = gtk::WidgetPaintable::new(Some(&ui.window));
+    for scheme in [adw::ColorScheme::ForceLight, adw::ColorScheme::ForceDark] {
+        adw::StyleManager::default().set_color_scheme(scheme);
+        settle();
+        let frame = Rc::new(Cell::new(false));
+        let painted = frame.clone();
+        ui.window.add_tick_callback(move |_, _| {
+            painted.set(true);
+            glib::ControlFlow::Break
+        });
+        ui.window.queue_draw();
+        pump(|| frame.get());
+        let mut node = None;
+        pump(|| {
+            let snapshot = gtk::Snapshot::new();
+            paintable.snapshot(&snapshot, f64::from(width), f64::from(height));
+            node = snapshot.to_node();
+            if node.is_none() {
+                ui.window.queue_draw();
+            }
+            node.is_some()
+        });
+        let node = node.expect("a native frame must produce the composed window render node");
+        let texture = renderer.render_texture(
+            &node,
+            Some(&gtk::graphene::Rect::new(
+                0.0,
+                0.0,
+                width as f32,
+                height as f32,
+            )),
+        );
+        let stride = texture.width() as usize * 4;
+        let mut pixels = vec![0; stride * texture.height() as usize];
+        texture.download(&mut pixels, stride);
+        let scale_x = texture.width() as f32 / width as f32;
+        let scale_y = texture.height() as f32 / height as f32;
+        for (dx, dy) in [(-4.0, -4.0), (0.0, 0.0), (4.0, 4.0)] {
+            let x = ((bounds.x() + bounds.width() / 2.0 + dx) * scale_x).floor() as usize;
+            let y = ((bounds.y() + bounds.height() / 2.0 + dy) * scale_y).floor() as usize;
+            let offset = y * stride + x * 4;
+            // gdk_texture_download uses native-endian CAIRO_FORMAT_ARGB32.
+            let argb = u32::from_ne_bytes(pixels[offset..offset + 4].try_into().unwrap());
+            let channels = [(argb >> 16) & 255, (argb >> 8) & 255, argb & 255];
+            assert!(
+                channels
+                    .iter()
+                    .zip([230_i32, 83, 57])
+                    .all(|(actual, expected)| (*actual as i32 - expected).abs() <= 12),
+                "closed information must not obscure the real composited coral cover: theme={scheme:?} size={width}x{height} rgb={channels:?}"
+            );
+        }
+    }
+}
+
 fn response(stream: &mut TcpStream, status: u16, mime: &str, body: &[u8]) {
     let _ = write!(
         stream,
@@ -504,15 +583,12 @@ fn native_cover_metadata_http_cache_and_render_lifecycle() {
             assert_native_cover(&overlay);
         }
     }
-    if let Some(split) = this
-        .info_split
-        .borrow()
-        .as_ref()
-        .and_then(glib::WeakRef::upgrade)
-    {
-        split.set_show_sidebar(true);
-    }
-    pump(|| !rendered_covers(&this.track_pane.widget).is_empty());
+    assert!(
+        this.info_host.borrow().is_some(),
+        "ordinary shell attaches an information host"
+    );
+    this.set_info_open(true);
+    pump(|| this.info_is_open() && !rendered_covers(&this.track_pane.widget).is_empty());
     for overlay in rendered_covers(&this.track_pane.widget) {
         assert_native_cover(&overlay);
     }
@@ -521,16 +597,11 @@ fn native_cover_metadata_http_cache_and_render_lifecycle() {
     // Real textures in the ordinary shell across the required responsive
     // sizes, themes (capture_native) and maximized state. GDK_SCALE=2 runs this
     // same metadata/HTTP/decode path in a separate native process.
-    if let Some(split) = this
-        .info_split
-        .borrow()
-        .as_ref()
-        .and_then(glib::WeakRef::upgrade)
-    {
-        // Compact captures show the music surface rather than a detail overlay
-        // covering it. The wide populated pane above has already been asserted.
-        split.set_show_sidebar(false);
-    }
+    // Compact captures intentionally show the music surface rather than its
+    // explicit information subview. Close through the controller's open intent,
+    // never the presentation container's incidental mapped/revealed state.
+    this.set_info_open(false);
+    pump(|| !this.info_is_open());
     for (width, height, name) in [
         (420, 720, "compact"),
         (900, 650, "medium"),
@@ -549,16 +620,14 @@ fn native_cover_metadata_http_cache_and_render_lifecycle() {
                 assert_native_cover(&overlay);
             }
         }
+        let visible_library_cover = rendered_covers(&this.widgets.library_rows)
+            .into_iter()
+            .next()
+            .expect("a real metadata/HTTP/decode library thumbnail is visible");
+        assert_composited_library_cover(&ui, &visible_library_cover);
         if name == "wide" {
-            if let Some(split) = this
-                .info_split
-                .borrow()
-                .as_ref()
-                .and_then(glib::WeakRef::upgrade)
-            {
-                split.set_show_sidebar(true);
-            }
-            pump(|| !rendered_covers(&this.track_pane.widget).is_empty());
+            this.set_info_open(true);
+            pump(|| this.info_is_open() && !rendered_covers(&this.track_pane.widget).is_empty());
         }
         capture_native(&format!("cover-http-{name}"));
     }

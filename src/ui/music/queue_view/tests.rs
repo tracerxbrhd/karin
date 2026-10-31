@@ -32,13 +32,12 @@ fn queue_next_marker_follows_actual_available_occurrences() {
 
 #[test]
 fn queue_labels_do_not_invent_listening_history() {
-    assert_eq!(queue_prefix(0, Some(2), Some(3), true), "");
-    assert_eq!(queue_prefix(1, Some(2), Some(3), false), "Недоступен · ");
-    assert_eq!(queue_prefix(2, Some(2), Some(3), true), "Текущий · ");
-    assert_eq!(
-        queue_prefix(2, Some(2), Some(3), false),
-        "Текущий · Недоступен · "
-    );
-    assert_eq!(queue_prefix(3, Some(2), Some(3), true), "Далее · ");
-    assert_eq!(queue_prefix(4, Some(2), Some(3), true), "");
+    // Only the selected and next available occurrence receive state badges.
+    // An earlier position is not proof that the user has listened to it.
+    assert_eq!(queue_badge(0, Some(2), Some(3)), None);
+    assert_eq!(queue_badge(1, Some(2), Some(3)), None);
+    assert_eq!(queue_badge(2, Some(2), Some(3)), Some("Сейчас"));
+    assert_eq!(queue_badge(3, Some(2), Some(3)), Some("Далее"));
+    assert_eq!(queue_badge(4, Some(2), Some(3)), None);
+    assert_eq!(queue_badge(0, None, None), None);
 }

@@ -114,6 +114,69 @@ fn resize(ui: &crate::ui::MainWindow, width: i32, height: i32) {
     settle();
 }
 
+fn resize_logical(ui: &crate::ui::MainWindow, width: i32, height: i32) {
+    resize(ui, width, height);
+    // Breakpoints observe GTK's content size, not the X11 CSD shadow. Measure
+    // that actual difference instead of assuming a decoration width or scale.
+    let outer_width = width + (width - ui.window.width());
+    let outer_height = height + (height - ui.window.height());
+    ui.window.set_default_size(outer_width, outer_height);
+    pump_until(|| ui.window.width() == width && ui.window.height() == height);
+    layout(ui);
+    settle();
+}
+
+fn assert_central_row_actions(
+    ui: &crate::ui::MainWindow,
+    this: &Controller,
+    content: &gtk::Widget,
+) -> gtk::MenuButton {
+    let row = this.widgets.library_rows.row_at_index(0).unwrap();
+    assert!(row.is_mapped() && row.is_activatable());
+    let body = row.child().unwrap();
+    let mut child = body.first_child();
+    let mut actions = Vec::new();
+    let mut menu = None;
+    while let Some(widget) = child {
+        child = widget.next_sibling();
+        if widget.is::<gtk::Button>() || widget.is::<gtk::MenuButton>() {
+            actions.push(widget.clone());
+        }
+        if let Some(button) = widget.downcast_ref::<gtk::MenuButton>() {
+            menu = Some(button.clone());
+        }
+    }
+    assert_eq!(actions.len(), 2, "the playable row exposes Play and More");
+    let center = content.compute_bounds(&ui.window).unwrap();
+    let pane = this.track_pane.widget.compute_bounds(&ui.window).unwrap();
+    for action in actions {
+        assert!(action.is_mapped() && action.is_sensitive());
+        let bounds = action.compute_bounds(&ui.window).unwrap();
+        assert!(bounds.width() >= 24.0 && bounds.height() >= 24.0);
+        assert!(
+            bounds.x() >= center.x()
+                && bounds.x() + bounds.width() <= center.x() + center.width() + 1.0
+        );
+        assert!(
+            bounds.x() + bounds.width() <= pane.x() - 8.0,
+            "the pinned medium pane cannot cover a row action"
+        );
+        let picked = ui
+            .window
+            .pick(
+                f64::from(bounds.x() + bounds.width() / 2.0),
+                f64::from(bounds.y() + bounds.height() / 2.0),
+                gtk::PickFlags::DEFAULT,
+            )
+            .expect("the visible central action has a native hit target");
+        assert!(
+            picked == action || picked.is_ancestor(&action),
+            "native input must reach the central row action, not the information pane"
+        );
+    }
+    menu.unwrap()
+}
+
 fn layout(ui: &crate::ui::MainWindow) {
     let previous = RefCell::new(None);
     pump_until(|| match ui.verify_layout() {
@@ -134,6 +197,34 @@ fn assert_selection(this: &Controller, id: &str, kind: ContextKind, index: usize
     let context = selection.as_ref().unwrap().context.as_ref().unwrap();
     assert_eq!(context.source_kind(), kind);
     assert_eq!(context.current_index(), index);
+}
+
+#[test]
+fn current_occurrence_distinguishes_duplicate_positions_and_source() {
+    let item = track("41", "Synthetic occurrence");
+    let first = PlaybackContext::new(
+        ContextKind::Playlist,
+        Some("7".into()),
+        vec![item.clone(), item.clone()],
+        0,
+        false,
+    )
+    .unwrap();
+    let second = PlaybackContext::new(
+        ContextKind::Playlist,
+        Some("7".into()),
+        vec![item.clone(), item.clone()],
+        1,
+        false,
+    )
+    .unwrap();
+    let other_source =
+        PlaybackContext::new(ContextKind::Album, Some("7".into()), vec![item], 0, false).unwrap();
+    assert!(CurrentOccurrence::from_context(&first) != CurrentOccurrence::from_context(&second));
+    assert!(
+        CurrentOccurrence::from_context(&first) != CurrentOccurrence::from_context(&other_source)
+    );
+    assert!(CurrentOccurrence::from_context(&first) == CurrentOccurrence::from_context(&first));
 }
 
 #[test]
@@ -213,18 +304,22 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
     let found = String::from_utf8(found.stdout).unwrap();
     let id = found.lines().next().unwrap();
     input(&["windowfocus", id]);
-    let split = this
-        .info_split
+    let reveal = this
+        .info_host
         .borrow()
         .as_ref()
-        .and_then(glib::WeakRef::upgrade)
+        .unwrap()
+        .revealer()
         .unwrap();
-    assert!(!split.is_collapsed());
-    assert!(split.shows_sidebar());
+    let content = this.info_host.borrow().as_ref().unwrap().content().unwrap();
+    let presentation = || this.info_host.borrow().as_ref().unwrap().presentation();
+    assert_eq!(presentation(), InfoPresentation::Wide);
+    assert!(this.info_is_open());
     assert_selection(&this, "41", ContextKind::LikedTracks, 0);
     capture_native("workspace-shell-wide-current");
 
-    // An explicit selection is distinct from the actual queue/current item.
+    // Explicit metadata is independent of the queue/player, and harmless
+    // transport updates must preserve it until the actual occurrence changes.
     let selected_context = PlaybackContext::new(
         ContextKind::Album,
         Some("7".into()),
@@ -233,103 +328,258 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
         false,
     )
     .unwrap();
-    this.select_track_info(selected, Some(selected_context), false);
+    this.select_track_info(selected.clone(), Some(selected_context.clone()), false);
+    assert_selection(&this, "43", ContextKind::Album, 0);
+    this.pause_music();
+    this.seek_music(Duration::from_secs(12));
+    this.set_music_volume(0.4);
     assert_selection(&this, "43", ContextKind::Album, 0);
     assert_eq!(this.model.borrow().queue.current().unwrap().id, "41");
-    this.model.borrow_mut().queue.select(1);
-    this.render_music_player();
-    assert_selection(&this, "43", ContextKind::Album, 0);
+    assert!(this.music_snapshot().is_none());
     capture_native("workspace-shell-wide-selected");
 
+    // A new occurrence atomically returns to the current context. A pending
+    // detail response from before that transition cannot overwrite the target.
+    let stale_epoch = this.info_target_epoch();
+    this.model.borrow_mut().queue.select(1);
+    this.render_music_player();
+    assert_selection(&this, "42", ContextKind::LikedTracks, 1);
+    assert!(!this.select_track_info_if_current(
+        stale_epoch,
+        selected.clone(),
+        Some(selected_context.clone())
+    ));
+    assert_selection(&this, "42", ContextKind::LikedTracks, 1);
+    assert!(this.info_is_open());
+
+    // Duplicate IDs at different positions are different occurrences. The
+    // queue retains both; neither a label nor an ID-only test can stand in for it.
+    let duplicate = track("41", "Synthetic duplicate occurrence");
+    let duplicates = PlaybackContext::new(
+        ContextKind::Playlist,
+        Some("9".into()),
+        vec![duplicate.clone(), duplicate],
+        0,
+        false,
+    )
+    .unwrap();
+    this.model.borrow_mut().queue.replace_context(duplicates);
+    this.follow_current_occurrence();
+    this.render_music_player();
+    this.select_track_info(selected.clone(), Some(selected_context.clone()), false);
+    let first_occurrence_epoch = this.info_target_epoch();
+    this.model.borrow_mut().queue.select(1);
+    this.render_music_player();
+    assert_selection(&this, "41", ContextKind::Playlist, 1);
+    assert!(this.info_target_epoch() != first_occurrence_epoch);
+    assert!(this.info_is_open());
+    this.select_track_info(selected.clone(), Some(selected_context.clone()), false);
+    let before_remove_epoch = this.info_target_epoch();
+    this.remove_music_queue(0);
+    assert_eq!(this.model.borrow().queue.current_index(), Some(0));
+    assert_eq!(this.model.borrow().queue.current().unwrap().id, "41");
+    assert_selection(&this, "43", ContextKind::Album, 0);
+    assert_eq!(this.info_target_epoch(), before_remove_epoch);
+    this.model
+        .borrow_mut()
+        .queue
+        .replace_context(context.clone());
+    this.model.borrow_mut().queue.select(1);
+    this.follow_current_occurrence();
+    this.render_queue();
+
     click(&ui.window, id, &this.track_pane.close);
-    pump_until(|| !split.shows_sidebar());
+    pump_until(|| !this.info_is_open());
     assert!(!this.track_info_preference());
     assert!(this.widgets.current_art_button.has_focus());
-    pump_until(|| {
-        split
-            .content()
-            .is_some_and(|content| content.width() >= split.width() - 2)
-    });
+    assert_eq!(content.margin_end(), 0);
     layout(&ui);
     capture_native("workspace-shell-wide-closed-info");
     resize(&ui, 900, 650);
-    assert!(split.is_collapsed());
-    assert!(!split.shows_sidebar());
+    assert_eq!(presentation(), InfoPresentation::Medium);
+    assert!(!this.info_is_open());
     resize(&ui, 1440, 900);
-    assert!(!split.shows_sidebar());
+    assert!(!this.info_is_open());
     assert!(!this.track_info_preference());
     capture_native("workspace-shell-wide-restored-closed-info");
 
-    // Actual accelerator reopens the current occurrence, not the old selection.
+    // The actual accelerator opens current information, then Diagnostics only
+    // suspends presentation. It does not rewrite the user's open intent.
     input(&["key", "--clearmodifiers", "ctrl+i"]);
-    pump_until(|| split.shows_sidebar() && this.track_pane.close.has_focus());
+    pump_until(|| this.info_is_open() && this.track_pane.close.has_focus());
     assert!(this.track_info_preference());
     assert_selection(&this, "42", ContextKind::LikedTracks, 1);
     ui.show_page("diagnostics");
-    pump_until(|| !split.shows_sidebar());
+    pump_until(|| !this.info_is_open());
+    assert!(this.track_info_preference());
     assert!(!this.music_surface_visible.get());
     assert!(!this.track_pane.widget.is_visible());
-    assert!(
-        !ui.window.lookup_action("music-info").unwrap().is_enabled(),
-        "track information must be unavailable on Diagnostics"
-    );
+    assert!(!ui.window.lookup_action("music-info").unwrap().is_enabled());
     input(&["key", "--clearmodifiers", "ctrl+i"]);
     settle();
-    assert!(!split.shows_sidebar());
+    assert!(!this.info_is_open());
     capture_native("workspace-shell-diagnostics-pane-hidden");
     ui.show_page("music-home");
-    pump_until(|| split.shows_sidebar());
-    assert!(this.music_surface_visible.get());
-    assert!(this.track_pane.widget.is_visible());
-    assert!(ui.window.lookup_action("music-info").unwrap().is_enabled());
+    pump_until(|| this.info_is_open());
     assert_selection(&this, "42", ContextKind::LikedTracks, 1);
 
-    for (shape, width, height) in [("compact", 420, 720), ("medium", 900, 650)] {
+    // These are real pointer, scroll and keyboard events outside the medium
+    // pane. No backdrop or automatic close/reopen handler is involved.
+    resize(&ui, 900, 650);
+    assert_eq!(presentation(), InfoPresentation::Medium);
+    assert!(this.info_is_open());
+    assert_eq!(content.margin_end(), 316);
+    click(&ui.window, id, &this.widgets.current);
+    assert!(this.info_is_open());
+    let (x, y) = test_input::pointer(
+        &ui.window,
+        &this.widgets.current,
+        test_input::Target::Center,
+    );
+    input(&[
+        "mousemove",
+        "--window",
+        id,
+        &x.to_string(),
+        &y.to_string(),
+        "click",
+        "5",
+    ]);
+    input(&["key", "--clearmodifiers", "Tab"]);
+    settle();
+    assert!(this.info_is_open());
+    click(&ui.window, id, &ui.sidebar.row_at_index(1).unwrap());
+    pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("library"));
+    assert!(this.info_is_open());
+    let (x, y) = test_input::pointer(
+        &ui.window,
+        &this.widgets.library_mode,
+        test_input::Target::Leading,
+    );
+    input(&[
+        "mousemove",
+        "--window",
+        id,
+        &x.to_string(),
+        &y.to_string(),
+        "click",
+        "5",
+    ]);
+    settle();
+    assert!(
+        this.info_is_open(),
+        "scrolling uncovered music content cannot dismiss information"
+    );
+    // Native motion is retained. Neither outside input nor the end of a close
+    // transition reopens the view; reduced-motion uses the same intent state.
+    assert_eq!(
+        reveal.transition_type(),
+        gtk::RevealerTransitionType::SlideLeft
+    );
+    assert!(reveal.transition_duration() > 0);
+    let settings = gtk::Settings::default().unwrap();
+    settings.set_gtk_enable_animations(true);
+    pump_until(|| reveal.is_child_revealed());
+    this.set_info_open(false);
+    assert!(!this.info_is_open());
+    pump_until(|| !reveal.is_child_revealed());
+    assert!(!this.track_info_preference());
+    this.set_info_open(true);
+    pump_until(|| reveal.is_child_revealed());
+    assert!(this.track_info_preference());
+    settings.set_gtk_enable_animations(false);
+    this.set_info_open(false);
+    pump_until(|| !reveal.is_child_revealed());
+    this.set_info_open(true);
+    pump_until(|| reveal.is_child_revealed());
+    capture_native("workspace-shell-medium-pinned-outside-navigation");
+
+    // Keep real central actions readable and hit-testable even at the exact
+    // 720px medium boundary, rather than merely reporting mapped widgets.
+    this.widgets.library_mode.set_selected(0);
+    this.show_library();
+    for width in [720, 900] {
+        resize_logical(&ui, width, 650);
+        assert_eq!(presentation(), InfoPresentation::Medium);
+        assert!(this.info_is_open());
+        assert_eq!(content.margin_end(), 316);
+        let menu = assert_central_row_actions(&ui, &this, &content);
+        click(&ui.window, id, &menu);
+        let popover = menu.popover().unwrap();
+        pump_until(|| popover.is_mapped());
+        assert!(this.info_is_open());
+        input(&["key", "--clearmodifiers", "Escape"]);
+        pump_until(|| !popover.is_visible());
+        assert!(this.info_is_open());
+        capture_native(&format!("workspace-shell-medium-{width}-central-actions"));
+    }
+    ui.show_page("music-home");
+
+    // A mounted pane survives both directions of every breakpoint. Compact
+    // presents that same component as an explicit subview, not a modal overlay.
+    for (shape, width, height, expected) in [
+        ("compact", 420, 720, InfoPresentation::Compact),
+        ("medium", 900, 650, InfoPresentation::Medium),
+        ("wide", 1440, 900, InfoPresentation::Wide),
+    ] {
+        if expected == InfoPresentation::Compact {
+            assert!(this.widgets.home_liked.grab_focus());
+            assert!(this.widgets.home_liked.has_focus());
+        }
         resize(&ui, width, height);
-        assert!(split.is_collapsed());
-        assert!(
-            !split.shows_sidebar(),
-            "resize must not auto-open an overlay"
+        assert_eq!(presentation(), expected);
+        assert!(this.info_is_open());
+        assert!(this.track_info_preference());
+        assert_eq!(content.is_visible(), expected != InfoPresentation::Compact);
+        if expected == InfoPresentation::Compact {
+            pump_until(|| this.track_pane.close.has_focus());
+            assert!(
+                this.track_pane.close.has_focus(),
+                "hiding a focused music subtree must move focus into the information subview"
+            );
+        }
+        assert_eq!(
+            content.margin_end(),
+            match expected {
+                InfoPresentation::Wide => 340,
+                InfoPresentation::Medium => 316,
+                InfoPresentation::Compact => 0,
+            }
         );
+        assert_selection(&this, "42", ContextKind::LikedTracks, 1);
+        capture_native(&format!("workspace-shell-{shape}-pinned-info"));
         this.model.borrow_mut().queue.select(0);
         this.render_music_player();
-        assert!(
-            !split.shows_sidebar(),
-            "a current-track update is not a popup"
-        );
         assert_selection(&this, "41", ContextKind::LikedTracks, 0);
-        capture_native(&format!("workspace-shell-{shape}-content"));
-        click(&ui.window, id, &this.widgets.current_art_button);
-        pump_until(|| split.shows_sidebar() && this.track_pane.close.has_focus());
-        capture_native(&format!("workspace-shell-{shape}-manual-info"));
-
-        // A compact Details action must expose its destination rather than
-        // leaving the overlay above it. None service gives a local error page;
-        // this tests GTK navigation, not a remote detail/API acceptance.
-        this.track_pane.details.grab_focus();
-        input(&["key", "--clearmodifiers", "Return"]);
-        pump_until(|| {
-            !split.shows_sidebar()
-                && this.widgets.stack.visible_child_name().as_deref() == Some("detail")
-        });
-        assert!(
-            this.track_info_preference(),
-            "compact navigation must preserve the wide preference"
-        );
-        assert_eq!(this.model.borrow().queue.current().unwrap().id, "41");
-        capture_native(&format!("workspace-shell-{shape}-detail-destination"));
-        ui.show_page("music-home");
-        pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("home"));
-        assert!(!split.shows_sidebar());
+        assert!(this.info_is_open());
+        this.model.borrow_mut().queue.select(1);
+        this.render_music_player();
     }
 
+    // Details navigation preserves the pane and audio context. Compact Back is
+    // an explicit close, and a later occurrence must not reopen that intent.
+    resize(&ui, 420, 720);
+    this.track_pane.details.grab_focus();
+    input(&["key", "--clearmodifiers", "Return"]);
+    pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("detail"));
+    assert!(this.info_is_open());
+    assert_eq!(this.model.borrow().queue.current().unwrap().id, "42");
+    click(&ui.window, id, &this.track_pane.close);
+    pump_until(|| !this.info_is_open() && content.is_visible());
+    assert!(!this.track_info_preference());
+    this.model.borrow_mut().queue.select(0);
+    this.render_music_player();
+    assert!(!this.info_is_open());
+    capture_native("workspace-shell-compact-detail-explicit-back");
+    ui.show_page("music-home");
+    input(&["key", "--clearmodifiers", "ctrl+i"]);
+    pump_until(|| this.info_is_open());
     resize(&ui, 1440, 900);
-    assert!(split.shows_sidebar());
     eprintln!("Karin synthetic shell phase: maximize");
     ui.window.maximize();
     pump_until(|| ui.window.is_maximized());
     layout(&ui);
-    assert!(split.shows_sidebar());
+    assert!(this.info_is_open());
     capture_native("workspace-shell-maximized");
     eprintln!("Karin synthetic shell phase: restore");
     ui.window.unmaximize();
@@ -342,6 +592,8 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
     // Exercise the real retry callback after a failed playlist view. Keeping
     // model.borrow() alive across load_library_refresh used to panic here.
     eprintln!("Karin synthetic shell phase: playlist retry");
+    this.set_info_open(false);
+    settle();
     this.widgets.stack.set_visible_child_name("library");
     this.widgets.library_mode.set_selected(1);
     this.playlist_grid.set_error();
@@ -351,9 +603,25 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
     assert_eq!(this.model.borrow().queue.items().len(), 2);
     assert!(this.music_snapshot().is_none());
 
-    drop(split);
+    let logout_epoch = this.info_target_epoch();
+    this.logout();
+    pump_until(|| this.track_pane.selected().is_none() && !this.info_is_open());
+    assert!(!this.select_track_info_if_current(logout_epoch, selected, Some(selected_context)));
+    assert!(!this.track_pane.widget.is_visible());
+
+    drop(reveal);
+    drop(content);
     drop(this);
     eprintln!("Karin synthetic shell phase: close and release");
     let cleaned = ui.close_for_smoke();
-    pump_until(|| cleaned(false));
+    let closing_since = Instant::now();
+    let reported = Cell::new(false);
+    pump_until(|| {
+        let complete = cleaned(false);
+        if !complete && closing_since.elapsed() >= Duration::from_secs(1) && !reported.replace(true)
+        {
+            cleaned(true);
+        }
+        complete
+    });
 }

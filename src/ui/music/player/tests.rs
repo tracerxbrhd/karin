@@ -412,6 +412,18 @@ fn wait_playing(this: &Controller, index: usize) {
     });
 }
 
+fn assert_pinned_track(this: &Controller, id: &str) {
+    assert!(this.track_info_preference());
+    assert!(this.info_is_open());
+    assert_eq!(
+        this.track_pane
+            .selected()
+            .as_ref()
+            .map(|track| track.id.as_str()),
+        Some(id)
+    );
+}
+
 fn change_range(range: &gtk::Scale, value: f64) {
     let _: bool = range.emit_by_name("change-value", &[&gtk::ScrollType::Jump, &value]);
 }
@@ -793,6 +805,13 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
     wait_playing(this, 3);
     assert_eq!(fixture.offers(0), 1);
     assert_eq!(fixture.offers(1), 0);
+    this.set_info_open(true);
+    assert_pinned_track(this, "42");
+    assert_eq!(
+        this.track_pane.selected().unwrap().title,
+        "Synthetic selected duplicate occurrence"
+    );
+    this.select_track_info(track("43"), None, false);
 
     eprintln!("Karin synthetic context phase=pause-current");
     this.pause_music();
@@ -800,6 +819,7 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
         this.music_snapshot()
             .is_some_and(|state| state.state == PlaybackState::Paused)
     });
+    assert_pinned_track(this, "43");
     this.pause_music();
     eprintln!("Karin synthetic context phase=previous-while-paused");
     this.skip_music(false, false);
@@ -810,6 +830,7 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
                 .is_some_and(|state| state.state == PlaybackState::Ready)
     });
     assert_eq!(fixture.offers(2), 1);
+    assert_pinned_track(this, "44");
     assert!(!this.player.borrow().requested);
     eprintln!("Karin synthetic context phase=play-prepared-previous");
     pump_until(|| {
@@ -838,6 +859,7 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
     eprintln!("Karin synthetic context phase=skip-unavailable-previous");
     this.skip_music(false, false);
     wait_playing(this, 0);
+    assert_pinned_track(this, "42");
     assert_eq!(
         fixture.offers(1),
         0,
@@ -884,11 +906,13 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
     pump_until(|| this.widgets.progress.is_sensitive());
     this.seek_music(Duration::from_millis(3_800));
     wait_playing(this, 1);
+    assert_pinned_track(this, "44");
     eprintln!("Karin synthetic context phase=playlist-eos-manual-addition");
     pump_until(|| this.widgets.progress.is_sensitive());
     this.seek_music(Duration::from_millis(3_800));
     wait_playing(this, 2);
     assert_eq!(this.model.borrow().queue.current().unwrap().id, "42");
+    assert_pinned_track(this, "42");
 
     let mut second = track("42");
     second.title = "Synthetic exact queued duplicate".into();
@@ -904,6 +928,7 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
         .unwrap(),
     );
     wait_playing(this, 0);
+    this.select_track_info(track("43"), None, false);
     eprintln!("Karin synthetic context phase=play-exact-queued-duplicate");
     this.play_music_queue(1);
     wait_playing(this, 1);
@@ -912,6 +937,11 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
         "Synthetic exact queued duplicate"
     );
     assert_eq!(this.model.borrow().queue.items().len(), 2);
+    assert_pinned_track(this, "42");
+    assert_eq!(
+        this.track_pane.selected().unwrap().title,
+        "Synthetic exact queued duplicate"
+    );
     let selected = this.model.borrow().queue.current_index();
     let mut unavailable = track("44");
     unavailable.available = false;
@@ -938,6 +968,8 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
     ui.window.close();
     pump_until(|| !closing.snapshot().worker_running);
     assert!(this.model.borrow().queue.context().is_none());
+    assert!(this.track_pane.selected().is_none());
+    assert!(!this.info_is_open());
 }
 
 #[test]
@@ -1043,8 +1075,10 @@ fn native_music_playback_queue_races_remove_and_close() {
 }
 
 fn wait_media_forbidden(this: &Controller) {
+    let window = this.window.upgrade().unwrap();
+    let layout_deadline = Instant::now() + Duration::from_secs(7);
     pump_until(|| {
-        this.music_snapshot().is_some_and(|snapshot| {
+        let ready = this.music_snapshot().is_some_and(|snapshot| {
             snapshot.state == PlaybackState::Error
                 && snapshot.last_error == Some(PlaybackError::RemoteHttp(403))
         }) && this.widgets.status.title() == "Сервер аудио отклонил запрос"
@@ -1053,11 +1087,70 @@ fn wait_media_forbidden(this: &Controller) {
                 .status
                 .subtitle()
                 .is_some_and(|subtitle| subtitle.starts_with("HTTP 403."))
-            && this.widgets.status_revealer.reveals_child()
-            && this.widgets.status_revealer.is_child_revealed()
-            && this.widgets.status_revealer.is_mapped()
-            && this.widgets.status.is_mapped()
+            // The compact information subview intentionally suspends the
+            // central stack. Its model still holds the safe detailed error;
+            // the persistent footer must show the failure and real Retry.
+            && this.widgets.player_status.text() == "Ошибка воспроизведения"
+            && this.widgets.player_status.is_visible()
+            && this.widgets.player_status.is_mapped()
+            && this.widgets.play.is_mapped()
+            && this.widgets.play.is_sensitive()
+            && this.widgets.play.tooltip_text().as_deref()
+                == Some("Получить источник заново и повторить")
+            && (!this.widgets.stack.is_mapped()
+                || (this.widgets.status_revealer.reveals_child()
+                    && this.widgets.status_revealer.is_child_revealed()
+                    && this.widgets.status_revealer.is_mapped()
+                    && this.widgets.status.is_mapped()))
+            && this.widgets.player_status.compute_bounds(&window)
+                .is_some_and(|bounds| bounds.width() > 0.0 && bounds.height() > 0.0);
+        // Error text and visibility can change one GTK frame before the
+        // height-for-width allocation. Wait for the actual readable geometry,
+        // rather than accepting the previous loading caption's allocation.
+        let readable = crate::ui::check_widget_geometry(
+            this.widgets.player_status.upcast_ref(),
+            window.upcast_ref(),
+        )
+        .is_ok();
+        if ready && readable {
+            return true;
+        }
+        if Instant::now() >= layout_deadline {
+            eprintln!(
+                "Karin synthetic player-error phase=unsettled-layout width={} height={} text-height={} main-mapped={} footer-mapped={}",
+                this.widgets.player_status.width(),
+                this.widgets.player_status.height(),
+                this.widgets.player_status.layout().pixel_size().1,
+                this.widgets.stack.is_mapped(),
+                this.widgets.player_status.is_mapped()
+            );
+            capture_native("music-player-error-unsettled-layout");
+            panic!(
+                "the actual media error did not reach readable visible geometry within seven seconds"
+            );
+        }
+        false
     });
+    crate::ui::check_widget_geometry(this.widgets.player_status.upcast_ref(), window.upcast_ref())
+        .expect("the actual visible footer error remains fully readable");
+    let bounds = this.widgets.play.compute_bounds(&window).unwrap();
+    assert!(
+        bounds.x() >= 0.0
+            && bounds.y() >= 0.0
+            && bounds.x() + bounds.width() <= window.width() as f32
+            && bounds.y() + bounds.height() <= window.height() as f32
+    );
+    let target = window
+        .pick(
+            f64::from(bounds.x() + bounds.width() / 2.0),
+            f64::from(bounds.y() + bounds.height() / 2.0),
+            gtk::PickFlags::DEFAULT,
+        )
+        .expect("the real retry control has a native pointer target");
+    assert!(
+        target == this.widgets.play || target.is_ancestor(&this.widgets.play),
+        "the information presentation cannot obscure the persistent Retry action"
+    );
 }
 
 #[test]
@@ -1102,6 +1195,9 @@ fn native_music_playback_media_error_visibility_stop_retry_and_catalog_preservat
     .unwrap();
     capture_native("music-player-media-http403");
     resize_player_window(&ui, 420, 720);
+    eprintln!("Karin synthetic player-error phase=compact-pinned-footer");
+    assert!(this.info_is_open());
+    assert!(!this.widgets.stack.is_mapped());
     wait_media_forbidden(this);
     let compact_layout = Instant::now() + Duration::from_millis(180);
     pump_until(|| Instant::now() >= compact_layout);
@@ -1111,6 +1207,18 @@ fn native_music_playback_media_error_visibility_stop_retry_and_catalog_preservat
     )
     .unwrap();
     capture_native("music-player-media-http403-compact");
+    let compact_retry_offers = fixture.offers(0);
+    native_click(&ui.window, &this.widgets.play);
+    pump_until(|| fixture.offers(0) == compact_retry_offers + 1);
+    wait_media_forbidden(this);
+    assert!(this.info_is_open());
+    eprintln!("Karin synthetic player-error phase=compact-main-inline-error");
+    this.set_info_open(false);
+    pump_until(|| this.widgets.stack.is_mapped());
+    wait_media_forbidden(this);
+    assert!(this.widgets.status.is_mapped());
+    capture_native("music-player-media-http403-compact-main");
+    this.set_info_open(true);
     resize_player_window(&ui, 900, 650);
     let offers = fixture.offers(0);
     let media_requests = fixture.counts.lock().unwrap().media[0];
@@ -1340,6 +1448,9 @@ fn native_music_context_mpris_shared_player_and_cleanup() {
     );
     wait_playing(this, 0);
     let original = this.player.borrow().controller.clone().unwrap();
+    this.set_info_open(true);
+    assert_pinned_track(this, "42");
+    this.select_track_info(track("44"), None, false);
     assert_eq!(
         desktop_cli("playerctl", &["--player", PLAYER, "status"]).trim(),
         "Playing"
@@ -1351,6 +1462,45 @@ fn native_music_context_mpris_shared_player_and_cleanup() {
     });
     assert_eq!(this.widgets.player_status.text(), "Пауза");
     assert_eq!(desktop_property("PlaybackStatus").str(), Some("Paused"));
+    assert_pinned_track(this, "44");
+
+    // Exercise the real mounted pane while a real HTTP/MP3 worker is paused.
+    // Changing presentation cannot resolve again or replace/restart its source.
+    let presentation_serial = this.player.borrow().serial;
+    let source_generation = original.snapshot().generation;
+    let presentation_offers = fixture.offers(0);
+    this.set_info_open(false);
+    native_click(&ui.window, &this.widgets.current_art_button);
+    // Intent changes at the start of the slide. Wait for actual completed
+    // native allocation before targeting the close button with the mouse.
+    pump_until(|| {
+        this.info_is_open()
+            && this
+                .info_host
+                .borrow()
+                .as_ref()
+                .and_then(|host| host.revealer())
+                .is_some_and(|view| view.is_child_revealed())
+    });
+    assert_pinned_track(this, "42");
+    native_click(&ui.window, &this.track_pane.close);
+    pump_until(|| !this.info_is_open());
+    native_click(&ui.window, &this.widgets.current_art_button);
+    pump_until(|| {
+        this.info_is_open()
+            && this
+                .info_host
+                .borrow()
+                .as_ref()
+                .and_then(|host| host.revealer())
+                .is_some_and(|view| view.is_child_revealed())
+    });
+    assert_eq!(this.player.borrow().serial, presentation_serial);
+    assert_eq!(fixture.offers(0), presentation_offers);
+    assert_eq!(original.snapshot().generation, source_generation);
+    assert_eq!(original.snapshot().state, PlaybackState::Paused);
+    assert!(original.snapshot().worker_running);
+    this.select_track_info(track("44"), None, false);
 
     let metadata = desktop_property("Metadata")
         .get::<BTreeMap<String, glib::Variant>>()
@@ -1434,6 +1584,50 @@ fn native_music_context_mpris_shared_player_and_cleanup() {
     });
     assert!((this.widgets.volume.value() - 0.23).abs() < 0.001);
     assert_eq!(desktop_property("Volume").get::<f64>(), Some(0.23));
+    assert_pinned_track(this, "44");
+
+    // The compact bar exposes its actual shared volume through a native
+    // popover. A keyboard adjustment reaches the same worker and D-Bus value;
+    // Escape dismisses only that popover, never the pinned information subview.
+    resize_player_window(&ui, 420, 720);
+    let volume_menu = this
+        .widgets
+        .volume
+        .ancestor(gtk::MenuButton::static_type())
+        .and_downcast::<gtk::MenuButton>()
+        .unwrap();
+    assert_eq!(volume_menu.widget_name(), "music-volume-menu");
+    native_click(&ui.window, &volume_menu);
+    let volume_popover = volume_menu.popover().unwrap();
+    pump_until(|| volume_popover.is_mapped() && this.widgets.volume.is_mapped());
+    assert!(this.widgets.volume.grab_focus());
+    let before_volume = original.snapshot().volume;
+    assert!(
+        std::process::Command::new("xdotool")
+            .args(["key", "--clearmodifiers", "Right"])
+            .status()
+            .unwrap()
+            .success()
+    );
+    pump_until(|| original.snapshot().volume > before_volume + 0.005);
+    assert_pinned_track(this, "44");
+    assert_eq!(this.player.borrow().serial, presentation_serial);
+    assert_eq!(original.snapshot().generation, source_generation);
+    capture_native("player-compact-volume-popover-pinned");
+    assert!(
+        std::process::Command::new("xdotool")
+            .args(["key", "--clearmodifiers", "Escape"])
+            .status()
+            .unwrap()
+            .success()
+    );
+    pump_until(|| !volume_popover.is_visible());
+    assert_pinned_track(this, "44");
+    resize_player_window(&ui, 900, 650);
+    assert_pinned_track(this, "44");
+    assert_eq!(fixture.offers(0), presentation_offers);
+    desktop_cli("playerctl", &["--player", PLAYER, "volume", "0.23"]);
+    pump_until(|| (original.snapshot().volume - 0.23).abs() < 0.001);
 
     let seeks = Rc::new(RefCell::new(Vec::<i64>::new()));
     let observed = seeks.clone();
@@ -1467,6 +1661,7 @@ fn native_music_context_mpris_shared_player_and_cleanup() {
         })
     });
     pump_until(|| seeks.borrow().contains(&1_000_000));
+    assert_pinned_track(this, "44");
     assert!(
         acknowledgments
             .borrow()
@@ -1483,6 +1678,7 @@ fn native_music_context_mpris_shared_player_and_cleanup() {
             && original.snapshot().seek_position == Some(Duration::from_millis(1_050))
     });
     pump_until(|| seeks.borrow().contains(&1_050_000));
+    assert_pinned_track(this, "44");
     assert!(
         acknowledgments
             .borrow()
@@ -1499,6 +1695,7 @@ fn native_music_context_mpris_shared_player_and_cleanup() {
     desktop_cli("playerctl", &["--player", PLAYER, "play"]);
     wait_playing(this, 0);
     assert_eq!(original.snapshot().state, PlaybackState::Playing);
+    assert_pinned_track(this, "44");
     desktop_cli("playerctl", &["--player", PLAYER, "pause"]);
     pump_until(|| {
         original.snapshot().state == PlaybackState::Paused
@@ -1519,6 +1716,7 @@ fn native_music_context_mpris_shared_player_and_cleanup() {
         "Paused"
     );
     assert_eq!(fixture.offers(1), 1);
+    assert_pinned_track(this, "43");
     let seek_count = seeks.borrow().len();
     desktop_method("SetPosition", (original_path, 2_700_000_i64).to_variant());
     assert!(
@@ -1538,6 +1736,7 @@ fn native_music_context_mpris_shared_player_and_cleanup() {
             && this.widgets.player_status.text() == "Готово к воспроизведению"
     });
     eprintln!("Karin synthetic MPRIS phase=play-prepared-previous");
+    assert_pinned_track(this, "42");
     desktop_cli("playerctl", &["--player", PLAYER, "play"]);
     wait_playing(this, 0);
     let stopped = this.player.borrow().controller.clone().unwrap();
@@ -1593,6 +1792,7 @@ fn native_music_context_mpris_shared_player_and_cleanup() {
         1,
         "actual worker EOS advances the same context once"
     );
+    assert_pinned_track(this, "44");
     let closing = this.player.borrow().controller.clone().unwrap();
     this.widgets.logout.emit_clicked();
     pump_until(|| {
@@ -1605,6 +1805,8 @@ fn native_music_context_mpris_shared_player_and_cleanup() {
     });
     this.respond_logout_for_test("logout");
     pump_until(|| this.model.borrow().token.is_none() && !closing.snapshot().worker_running);
+    assert!(this.track_pane.selected().is_none());
+    assert!(!this.info_is_open());
     assert!(
         desktop_property("Metadata")
             .get::<BTreeMap<String, glib::Variant>>()

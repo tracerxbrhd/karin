@@ -80,6 +80,7 @@ fn buttons(grid: &PlaylistGrid) -> Vec<gtk::Button> {
 fn native_workspace_playlist_grid_input_states_and_resize() {
     gtk::init().unwrap();
     adw::init().unwrap();
+    crate::ui::style::install();
     let app = adw::Application::builder()
         .application_id("io.github.tracerxbrhd.Karin.PlaylistGridFixture")
         .flags(gio::ApplicationFlags::NON_UNIQUE)
@@ -139,6 +140,17 @@ fn native_workspace_playlist_grid_input_states_and_resize() {
     input(&["windowfocus", id]);
     let tiles = buttons(&grid);
     assert_eq!(tiles.len(), 3);
+    for tile in &tiles {
+        assert!(
+            tile.width() <= 224,
+            "a tile must not become a stretched card"
+        );
+        let content = tile.child().unwrap().downcast::<gtk::Box>().unwrap();
+        let cover = content.first_child().unwrap();
+        assert_eq!((cover.width(), cover.height()), (160, 160));
+        assert!(tile.has_css_class("karin-playlist-tile"));
+        assert!(!tile.has_css_class("card"));
+    }
     let (x, y) = test_input::pointer(&window, &tiles[1], test_input::Target::Center);
     input(&[
         "mousemove",
@@ -151,12 +163,14 @@ fn native_workspace_playlist_grid_input_states_and_resize() {
     ]);
     pump_until(|| events.borrow().len() == 1);
     assert_eq!(events.borrow().as_slice(), &["3"]);
+    assert!(tiles[1].state_flags().contains(gtk::StateFlags::PRELIGHT));
     tiles[2].grab_focus();
     input(&["key", "Return"]);
     pump_until(|| events.borrow().len() == 2);
     tiles[0].grab_focus();
     input(&["key", "space"]);
     pump_until(|| events.borrow().len() == 3);
+    assert!(tiles[0].has_focus());
     assert_eq!(events.borrow().as_slice(), &["3", "4", "create"]);
     capture_native("workspace-playlist-grid-medium");
     window.set_default_size(420, 720);
@@ -220,6 +234,30 @@ fn native_workspace_playlist_grid_input_states_and_resize() {
     assert!(grid.feedback.is_visible());
     grid.set_playlists(&playlists, false);
     assert_eq!(buttons(&grid).len(), 2);
+    grid.set_playlists(&playlists[..1], false);
+    let sparse = buttons(&grid);
+    assert_eq!(sparse.len(), 1);
+    pump_until(|| sparse[0].is_mapped() && sparse[0].width() > 0);
+    settle();
+    assert!(
+        sparse[0].width() <= 224,
+        "a single playlist keeps natural tile width: tile={} container={} window={}",
+        sparse[0].width(),
+        grid.tiles.width(),
+        window.width(),
+    );
+    let content = sparse[0].child().unwrap().downcast::<gtk::Box>().unwrap();
+    let cover = content.first_child().unwrap();
+    assert_eq!((cover.width(), cover.height()), (160, 160));
+    let cover_bounds = cover.compute_bounds(&sparse[0]).unwrap();
+    assert!(cover_bounds.x() >= 0.0);
+    assert!(cover_bounds.x() + cover_bounds.width() <= sparse[0].width() as f32);
+    capture_native("native-music-playlist-grid-sparse");
+    grid.set_playlists(&[playlist("5", " ")], false);
+    assert_eq!(
+        buttons(&grid)[0].tooltip_text().as_deref(),
+        Some("Плейлист")
+    );
     grid.clear();
     assert!(buttons(&grid).is_empty());
     assert!(!grid.feedback.is_visible());

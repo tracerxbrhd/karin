@@ -44,6 +44,7 @@ impl PlaylistGrid {
         });
         let widget = gtk::Box::new(gtk::Orientation::Vertical, 12);
         widget.set_widget_name("music-playlist-grid");
+        widget.add_css_class("karin-playlist-grid");
         let tiles = gtk::FlowBox::new();
         tiles.set_widget_name("music-playlist-tiles");
         tiles.set_selection_mode(gtk::SelectionMode::None);
@@ -51,7 +52,7 @@ impl PlaylistGrid {
         tiles.set_min_children_per_line(1);
         tiles.set_max_children_per_line(6);
         tiles.set_column_spacing(16);
-        tiles.set_row_spacing(16);
+        tiles.set_row_spacing(24);
         tiles.set_homogeneous(true);
         tiles.set_halign(gtk::Align::Start);
         tiles.set_hexpand(false);
@@ -191,22 +192,29 @@ impl PlaylistGrid {
 
     fn playlist_tile(&self, playlist: &Playlist, generation: u64) -> gtk::Button {
         let button = tile_button("music-playlist-tile");
-        button.set_tooltip_text(Some(&playlist.title));
+        let title = if playlist.title.trim().is_empty() {
+            "Плейлист"
+        } else {
+            &playlist.title
+        };
+        button.set_tooltip_text(Some(title));
         let content = tile_content();
-        let cover = super::cover_widget(self.loader.as_ref(), playlist.cover.as_ref(), 128);
+        let cover = super::cover_widget(self.loader.as_ref(), playlist.cover.as_ref(), 160);
+        cover.set_widget_name("music-playlist-tile-cover");
+        cover.add_css_class("karin-playlist-cover");
         cover.set_halign(gtk::Align::Center);
         content.append(&cover);
-        let title = tile_title(&playlist.title);
-        content.append(&title);
+        content.append(&tile_title(title));
         let count = track_count(playlist.track_count);
         let subtitle = gtk::Label::new(Some(&count));
         subtitle.set_xalign(0.0);
         subtitle.add_css_class("caption");
+        subtitle.add_css_class("dim-label");
         content.append(&subtitle);
         button.set_child(Some(&content));
         button.update_property(&[gtk::accessible::Property::Label(&format!(
             "Открыть плейлист: {} · {count}",
-            playlist.title
+            title
         ))]);
         let playlist = playlist.clone();
         let state = Rc::clone(&self.state);
@@ -220,20 +228,18 @@ impl PlaylistGrid {
 
     fn create_tile(&self, generation: u64) -> gtk::Button {
         let button = tile_button("music-playlist-create");
+        button.add_css_class("karin-playlist-create");
         button.set_tooltip_text(Some("Создать плейлист"));
         button.update_property(&[gtk::accessible::Property::Label("Создать плейлист")]);
         let content = tile_content();
         let icon = gtk::Image::from_icon_name("list-add-symbolic");
-        icon.set_pixel_size(48);
-        icon.set_size_request(128, 128);
+        icon.set_pixel_size(32);
+        icon.set_size_request(160, 160);
+        icon.add_css_class("karin-playlist-cover");
         icon.set_halign(gtk::Align::Center);
         icon.add_css_class("accent");
         content.append(&icon);
         content.append(&tile_title("Создать плейлист"));
-        let caption = gtk::Label::new(Some("Новая подборка"));
-        caption.set_xalign(0.0);
-        caption.add_css_class("caption");
-        content.append(&caption);
         button.set_child(Some(&content));
         let state = Rc::clone(&self.state);
         button.connect_clicked(move |_| {
@@ -248,11 +254,11 @@ impl PlaylistGrid {
 fn tile_button(name: &str) -> gtk::Button {
     let button = gtk::Button::new();
     button.set_widget_name(name);
-    button.set_width_request(148);
-    button.set_hexpand(true);
+    button.set_width_request(176);
+    button.set_hexpand(false);
     button.set_valign(gtk::Align::Start);
     button.add_css_class("flat");
-    button.add_css_class("card");
+    button.add_css_class("karin-playlist-tile");
     button
 }
 
@@ -272,6 +278,8 @@ fn tile_title(title: &str) -> gtk::Label {
     label.set_width_chars(1);
     label.set_max_width_chars(18);
     label.set_tooltip_text(Some(title));
+    label.add_css_class("music-ellipsized-metadata");
+    label.update_property(&[gtk::accessible::Property::Label(title)]);
     label.add_css_class("heading");
     label
 }

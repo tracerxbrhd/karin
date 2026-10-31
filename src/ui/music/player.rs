@@ -137,10 +137,14 @@ impl Controller {
 
     pub(super) fn track_play_button(self: &Rc<Self>, track: &Track, compact: bool) -> gtk::Button {
         let button = Self::music_play_button(track, compact);
+        let generation = self.model.borrow().generation;
         let weak = Rc::downgrade(self);
         let selected = track.clone();
         button.connect_clicked(move |_| {
-            if let Some(this) = weak.upgrade() {
+            if let Some(this) = weak
+                .upgrade()
+                .filter(|this| this.model.borrow().generation == generation)
+            {
                 this.play_music_track(selected.clone());
             }
         });
@@ -154,9 +158,13 @@ impl Controller {
         context: PlaybackContext,
     ) -> gtk::Button {
         let button = Self::music_play_button(track, compact);
+        let generation = self.model.borrow().generation;
         let weak = Rc::downgrade(self);
         button.connect_clicked(move |_| {
-            if let Some(this) = weak.upgrade() {
+            if let Some(this) = weak
+                .upgrade()
+                .filter(|this| this.model.borrow().generation == generation)
+            {
                 this.play_music_context(context.clone());
             }
         });
@@ -203,7 +211,7 @@ impl Controller {
             // implied, and manually appended extras belong to the old context.
             model.queue.replace_context(context);
         }
-        self.info_selection.borrow_mut().take();
+        self.follow_current_occurrence();
         self.render_queue();
         self.request_music(true, None);
     }
@@ -224,7 +232,7 @@ impl Controller {
             }
             model.queue.select(index);
         }
-        self.info_selection.borrow_mut().take();
+        self.follow_current_occurrence();
         self.render_queue();
         self.request_music(true, None);
     }
@@ -263,6 +271,7 @@ impl Controller {
             };
             model.queue.select(index);
         }
+        self.follow_current_occurrence();
         self.render_queue();
         self.request_music(true, None);
     }
@@ -775,7 +784,7 @@ impl Controller {
         if !advanced {
             return;
         }
-        self.info_selection.borrow_mut().take();
+        self.follow_current_occurrence();
         self.render_queue();
         if active {
             self.request_music(autoplay || eos, None);
@@ -793,6 +802,7 @@ impl Controller {
         if !changed {
             return;
         }
+        self.follow_current_occurrence();
         self.render_queue();
         if active {
             self.request_music(autoplay, None);
@@ -807,6 +817,11 @@ impl Controller {
             model.queue.remove(index);
             current
         };
+        if removed_current {
+            self.follow_current_occurrence();
+        } else {
+            self.observe_current_occurrence();
+        }
         self.render_queue();
         if active && removed_current {
             self.stop_music();
@@ -864,7 +879,9 @@ impl Controller {
             }
         };
         self.widgets.player_status.set_text(caption);
-        self.widgets.player_status.set_visible(!caption.is_empty());
+        self.widgets
+            .player_status
+            .set_visible(loading || player.failure.is_some() || state == PlaybackState::Error);
         self.widgets
             .play
             .set_icon_name(if state == PlaybackState::Playing {
@@ -925,6 +942,7 @@ impl Controller {
         drop(model);
         self.publish_mpris();
         self.sync_track_pane();
+        self.sync_catalog_rows();
     }
 }
 

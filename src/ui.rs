@@ -14,6 +14,7 @@ mod auth;
 mod music;
 mod playback;
 mod preferences;
+mod style;
 
 use crate::{
     application::ConnectionService,
@@ -164,7 +165,7 @@ impl MainWindow {
                 ));
             }
         }
-        let compact = width <= 760;
+        let compact = width < 720;
         if self.split.is_collapsed() != compact || self.sidebar_toggle.is_visible() != compact {
             return Err(format!("Navigation does not match width {width}"));
         }
@@ -312,6 +313,7 @@ fn build_with_music_pane(
     service: ConnectionService,
     make_music: impl FnOnce(&adw::Application, &adw::ApplicationWindow) -> music::MusicPane,
 ) -> MainWindow {
+    style::install();
     let window = adw::ApplicationWindow::builder()
         .application(app)
         .title(config::APP_NAME)
@@ -320,6 +322,7 @@ fn build_with_music_pane(
         .width_request(360)
         .height_request(480)
         .build();
+    window.add_css_class("music-shell");
     let toolbar = adw::ToolbarView::new();
     {
         let saved_focus: Rc<RefCell<Option<glib::WeakRef<gtk::Widget>>>> = Rc::default();
@@ -354,6 +357,7 @@ fn build_with_music_pane(
         });
     }
     let header = adw::HeaderBar::builder().height_request(48).build();
+    header.add_css_class("music-header");
     header.set_show_start_title_buttons(false);
     let stack = adw::ViewStack::new();
     stack.set_hhomogeneous(false);
@@ -361,8 +365,8 @@ fn build_with_music_pane(
     let title = adw::WindowTitle::new("Karin", "");
     header.set_title_widget(Some(&title));
     let split = adw::OverlaySplitView::builder()
-        .min_sidebar_width(72.0)
-        .max_sidebar_width(72.0)
+        .min_sidebar_width(80.0)
+        .max_sidebar_width(80.0)
         .sidebar_width_fraction(0.1)
         .build();
     let focus_epoch = Rc::new(Cell::new(0_u64));
@@ -405,6 +409,7 @@ fn build_with_music_pane(
     window.set_content(Some(&split));
 
     let sidebar_toolbar = adw::ToolbarView::new();
+    sidebar_toolbar.add_css_class("music-rail");
     let sidebar_header = adw::HeaderBar::new();
     sidebar_header.set_show_start_title_buttons(false);
     sidebar_header.set_show_end_title_buttons(false);
@@ -425,6 +430,7 @@ fn build_with_music_pane(
         ("music-queue", "Очередь", "view-list-symbolic"),
     ] {
         let row = gtk::ListBoxRow::new();
+        row.add_css_class("music-nav-item");
         let content = gtk::Box::new(gtk::Orientation::Horizontal, 12);
         margins(&content, 10);
         let glyph = gtk::Image::from_icon_name(icon);
@@ -477,8 +483,8 @@ fn build_with_music_pane(
                 split.set_max_sidebar_width(240.0);
                 split.set_min_sidebar_width(200.0);
             } else {
-                split.set_min_sidebar_width(72.0);
-                split.set_max_sidebar_width(72.0);
+                split.set_min_sidebar_width(80.0);
+                split.set_max_sidebar_width(80.0);
             }
             button.set_visible(!split.is_collapsed());
             button.set_tooltip_text(Some(if expanded {
@@ -594,20 +600,33 @@ fn build_with_music_pane(
     diagnostics.append(&runtime_group);
 
     let home = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    home.add_css_class("music-workspace");
     margins(&home, 24);
+    home.set_margin_top(16);
+    home.set_margin_bottom(16);
     let music = make_music(app, &window);
-    let track_info = adw::OverlaySplitView::builder()
-        .sidebar_position(gtk::PackType::End)
-        .min_sidebar_width(280.0)
-        .max_sidebar_width(340.0)
-        .sidebar_width_fraction(0.28)
-        .show_sidebar(false)
-        .content(&stack)
-        .sidebar(&music.track_info_widget())
+    // Keep one information widget mounted. Unlike a collapsed split sidebar,
+    // this native revealer has no modal backdrop or outside-dismiss policy.
+    let track_info = gtk::Overlay::new();
+    track_info.set_child(Some(&stack));
+    track_info.set_widget_name("music-track-info-host");
+    track_info.add_css_class("music-information-host");
+    let information_content = music.track_info_widget();
+    information_content.add_css_class("music-information-view");
+    let information_view = gtk::Revealer::builder()
+        .transition_type(gtk::RevealerTransitionType::SlideLeft)
+        .transition_duration(220)
+        .reveal_child(false)
+        .width_request(320)
+        .halign(gtk::Align::End)
+        .valign(gtk::Align::Fill)
+        .child(&information_content)
         .build();
-    track_info.set_widget_name("music-track-info-split");
+    information_view.set_widget_name("music-track-info-revealer");
+    track_info.add_overlay(&information_view);
+    track_info.set_measure_overlay(&information_view, false);
     toolbar.set_content(Some(&track_info));
-    music.attach_track_info(&track_info);
+    music.attach_track_info(&track_info, &information_view, stack.upcast_ref());
     let music_visibility = music.visibility_callback();
     stack.connect_visible_child_name_notify(move |stack| {
         music_visibility(stack.visible_child_name().as_deref() == Some("home"));
@@ -639,22 +658,25 @@ fn build_with_music_pane(
         .set_icon_name(Some("applications-engineering-symbolic"));
 
     let compact_information = adw::Breakpoint::new(
-        adw::BreakpointCondition::parse("max-width: 1180sp").expect("constant breakpoint"),
+        adw::BreakpointCondition::parse("max-width: 1279sp").expect("constant breakpoint"),
     );
-    compact_information.add_setter(&track_info, "collapsed", Some(&true.to_value()));
+    compact_information.add_setter(
+        &information_view,
+        "width-request",
+        Some(&300_i32.to_value()),
+    );
     window.add_breakpoint(compact_information);
     let compact_navigation = adw::Breakpoint::new(
-        adw::BreakpointCondition::parse("max-width: 760sp").expect("constant breakpoint"),
+        adw::BreakpointCondition::parse("max-width: 719sp").expect("constant breakpoint"),
     );
     compact_navigation.add_setter(&split, "collapsed", Some(&true.to_value()));
-    compact_navigation.add_setter(&track_info, "collapsed", Some(&true.to_value()));
+    compact_navigation.add_setter(
+        &information_view,
+        "width-request",
+        Some(&(-1_i32).to_value()),
+    );
     compact_navigation.add_setter(&split, "show-sidebar", Some(&false.to_value()));
     compact_navigation.add_setter(&sidebar_toggle, "visible", Some(&true.to_value()));
-    compact_navigation.add_setter(
-        &music.player_main(),
-        "orientation",
-        Some(&gtk::Orientation::Vertical.to_value()),
-    );
     compact_navigation.add_setter(
         &diagnostic_columns,
         "orientation",
@@ -1092,14 +1114,17 @@ fn check_widget_geometry(widget: &gtk::Widget, window: &gtk::Widget) -> Result<(
             ));
         }
         if let Some(label) = widget.downcast_ref::<gtk::Label>() {
-            // Track titles in a fixed-height player bar use native ellipsis;
-            // the full metadata must remain available as a tooltip/accessibility
-            // label. Headings, status text and actions still must fit in full.
-            let complete_metadata = matches!(
-                label.widget_name().as_str(),
-                "music-current-title" | "music-current-artist"
-            ) && label.tooltip_text().as_deref()
-                == Some(label.text().as_str());
+            // Bounded music metadata deliberately uses native ellipsis. Its
+            // original text remains available through the label's accessible
+            // name and matching full tooltip. Ordinary headings/status/actions
+            // are not opted in and still must fit in full.
+            let metadata = label.has_css_class("music-ellipsized-metadata")
+                || matches!(
+                    label.widget_name().as_str(),
+                    "music-current-title" | "music-current-artist"
+                );
+            let complete_metadata =
+                metadata && label.tooltip_text().as_deref() == Some(label.text().as_str());
             if label.layout().is_ellipsized() && !complete_metadata {
                 return Err(format!("Text was ellipsized: {}", label.text()));
             }

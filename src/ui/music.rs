@@ -13,7 +13,10 @@ use gtk::{gio, glib};
 mod account;
 #[cfg(test)]
 mod artwork_tests;
+mod catalog_layout;
 mod catalog_view;
+#[cfg(test)]
+mod design_tests;
 #[cfg(test)]
 mod diagnostic_tests;
 mod interactions;
@@ -108,10 +111,12 @@ struct Widgets {
     home_search: gtk::Button,
     home_queue: gtk::Label,
     home_preview: gtk::ListBox,
+    home_collections: gtk::FlowBox,
     stack: gtk::Stack,
     library_mode: gtk::DropDown,
     library_refresh: gtk::Button,
     library_rows: gtk::ListBox,
+    library_hero: gtk::Box,
     cache_notice: adw::Banner,
     cache_hint: gtk::Label,
     library_previous: gtk::Button,
@@ -166,7 +171,10 @@ struct Controller {
     playlist_grid: playlist_grid::PlaylistGrid,
     track_pane: track_pane::TrackPane,
     info_selection: RefCell<Option<workspace::InfoSelection>>,
-    info_split: RefCell<Option<glib::WeakRef<adw::OverlaySplitView>>>,
+    info_host: RefCell<Option<workspace::InfoHost>>,
+    info_observed: RefCell<Option<workspace::CurrentOccurrence>>,
+    info_target_epoch: Cell<u64>,
+    catalog_rows: RefCell<Vec<catalog_layout::CatalogRow>>,
     catalog: RefCell<Option<crate::catalog_cache::CachedCatalog>>,
     playlist_dialog: RefCell<Option<adw::Dialog>>,
     can_create_playlist: Cell<bool>,
@@ -340,10 +348,6 @@ impl MusicPane {
         home.append(&home_signedout);
         let home_signedin = gtk::Box::new(gtk::Orientation::Vertical, 18);
         home_signedin.append(&text("Ваша музыка", "title-1"));
-        home_signedin.append(&text(
-            "Вернитесь к любимым трекам или найдите что-то новое.",
-            "dim-label",
-        ));
         let quick = gtk::FlowBox::new();
         quick.set_selection_mode(gtk::SelectionMode::None);
         quick.set_min_children_per_line(1);
@@ -376,11 +380,23 @@ impl MusicPane {
         set_empty(&home_preview, "Любимые треки появятся после входа.");
         home_signedin.append(&home_preview);
         let home_queue = text("Очередь пуста", "heading");
+        home_queue.set_visible(false);
         home_signedin.append(&home_queue);
         let open_queue = gtk::Button::with_label("Открыть очередь");
         open_queue.set_action_name(Some("win.music-queue"));
         open_queue.set_halign(gtk::Align::Start);
+        open_queue.set_visible(false);
         home_signedin.append(&open_queue);
+        let home_collections = gtk::FlowBox::new();
+        home_collections.set_selection_mode(gtk::SelectionMode::None);
+        home_collections.set_min_children_per_line(1);
+        home_collections.set_max_children_per_line(5);
+        home_collections.set_column_spacing(16);
+        home_collections.set_row_spacing(16);
+        home_collections.set_homogeneous(true);
+        home_collections.set_visible(false);
+        home_collections.add_css_class("music-home-collections");
+        home_signedin.insert_child_after(&home_collections, Some(&quick));
         home.append(&home_signedin);
         stack.add_titled(&home, Some("home"), "Главная");
         stack.set_visible_child_name("home");
@@ -398,6 +414,10 @@ impl MusicPane {
         let library_refresh = icon_button("view-refresh-symbolic", "Обновить библиотеку");
         library_controls.append(&library_refresh);
         library.append(&library_controls);
+        let library_hero = gtk::Box::new(gtk::Orientation::Horizontal, 16);
+        library_hero.set_widget_name("music-library-hero");
+        library_hero.add_css_class("music-collection-hero");
+        library.append(&library_hero);
         let library_rows = list();
         set_empty(&library_rows, "Ваша библиотека появится после входа.");
         library.append(&library_rows);
@@ -474,7 +494,8 @@ impl MusicPane {
         let queue_tools = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         let queue_count = text("Очередь пуста", "dim-label");
         queue_tools.append(&queue_count);
-        let clear_queue = gtk::Button::with_label("Очистить очередь");
+        let clear_queue = icon_button("user-trash-symbolic", "Очистить очередь");
+        clear_queue.set_widget_name("music-clear-queue");
         clear_queue.set_halign(gtk::Align::Start);
         queue_tools.append(&clear_queue);
         queue_page.append(&queue_tools);
@@ -486,13 +507,19 @@ impl MusicPane {
         stack.add_named(&detail, Some("detail"));
         let player_bar = gtk::Box::new(gtk::Orientation::Vertical, 6);
         player_bar.set_widget_name("music-player-bar");
-        super::margins(&player_bar, 12);
-        let player_top = gtk::Box::new(gtk::Orientation::Horizontal, 16);
+        super::margins(&player_bar, 8);
+        player_bar.add_css_class("music-player");
+        let player_top = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        player_top.add_css_class("music-player-main");
         player_top.set_widget_name("music-player-main");
-        let player_metadata = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+        let player_metadata = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         player_metadata.set_hexpand(true);
         let player_actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         player_actions.set_halign(gtk::Align::Center);
+        player_actions.add_css_class("music-transport");
+        let player_utilities = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+        player_utilities.set_hexpand(true);
+        player_utilities.set_halign(gtk::Align::End);
         let current_art = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         let current_art_button = gtk::Button::builder()
             .has_frame(false)
@@ -506,12 +533,14 @@ impl MusicPane {
         let playing = gtk::Box::new(gtk::Orientation::Vertical, 2);
         playing.set_hexpand(true);
         let current = text("Трек не выбран", "heading");
+        current.add_css_class("music-player-title");
         current.set_widget_name("music-current-title");
         current.set_ellipsize(gtk::pango::EllipsizeMode::End);
         current.set_lines(1);
         current.set_wrap(false);
         current.set_width_chars(1);
         let current_artist = text("Выберите трек", "dim-label");
+        current_artist.add_css_class("music-player-artist");
         current_artist.set_widget_name("music-current-artist");
         current_artist.set_ellipsize(gtk::pango::EllipsizeMode::End);
         current_artist.set_lines(1);
@@ -542,12 +571,15 @@ impl MusicPane {
         player_actions.append(&previous);
         player_actions.append(&play);
         player_actions.append(&next);
-        player_actions.append(&stop);
+        stop.add_css_class("flat");
+        player_utilities.append(&stop);
         let queue = icon_button("view-list-symbolic", "Открыть очередь");
         queue.set_action_name(Some("win.music-queue"));
-        player_actions.append(&queue);
+        queue.add_css_class("flat");
+        player_utilities.append(&queue);
 
         let timeline = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        timeline.add_css_class("music-player-timeline");
         let progress = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 1.0, 0.01);
         progress.set_draw_value(false);
         progress.set_hexpand(true);
@@ -560,21 +592,30 @@ impl MusicPane {
         position.set_wrap(false);
         timeline.append(&progress);
         timeline.append(&position);
-        let volume_icon = gtk::Image::from_icon_name("audio-volume-high-symbolic");
-        volume_icon.set_pixel_size(16);
-        player_actions.append(&volume_icon);
+        let volume_menu = gtk::MenuButton::builder()
+            .icon_name("audio-volume-high-symbolic")
+            .tooltip_text("Громкость")
+            .build();
+        volume_menu.set_widget_name("music-volume-menu");
+        volume_menu.add_css_class("flat");
+        volume_menu.update_property(&[gtk::accessible::Property::Label("Громкость")]);
+        let volume_popover = gtk::Popover::new();
+        volume_menu.set_popover(Some(&volume_popover));
         let volume = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 1.0, 0.01);
         volume.set_draw_value(false);
         volume.set_value(0.7);
         volume.set_widget_name("music-volume");
-        volume.set_width_request(72);
+        volume.set_width_request(140);
         volume.set_sensitive(false);
         volume.set_tooltip_text(Some("Громкость"));
         volume.update_property(&[gtk::accessible::Property::Label(
             "Громкость воспроизведения",
         )]);
-        player_actions.append(&volume);
+        super::margins(&volume, 12);
+        volume_popover.set_child(Some(&volume));
+        player_utilities.append(&volume_menu);
         player_top.append(&player_actions);
+        player_top.append(&player_utilities);
         player_bar.append(&player_top);
         player_bar.append(&timeline);
 
@@ -613,10 +654,12 @@ impl MusicPane {
             home_search,
             home_queue,
             home_preview,
+            home_collections,
             stack,
             library_mode,
             library_refresh,
             library_rows,
+            library_hero,
             cache_notice,
             cache_hint,
             library_previous,
@@ -689,7 +732,10 @@ impl MusicPane {
             playlist_grid,
             track_pane,
             info_selection: RefCell::new(None),
-            info_split: RefCell::new(None),
+            info_host: RefCell::new(None),
+            info_observed: RefCell::new(None),
+            info_target_epoch: Cell::new(0),
+            catalog_rows: RefCell::new(Vec::new()),
             catalog: RefCell::new(None),
             playlist_dialog: RefCell::new(None),
             can_create_playlist: Cell::new(true),
@@ -743,10 +789,6 @@ impl MusicPane {
     /// navigation or a direct destructive icon in the music workspace.
     pub fn account_menu(&self) -> gtk::MenuButton {
         self.controller.widgets.account_menu.clone()
-    }
-
-    pub fn player_main(&self) -> gtk::Box {
-        self.controller.widgets.player_main.clone()
     }
 
     pub fn close(&self) {
@@ -1608,7 +1650,6 @@ impl Controller {
             return;
         }
         self.close_persistence();
-        self.clear_workspace();
         self.dismiss_logout_confirmation();
         self.stop_music();
         self.clear_system_media();
@@ -1635,6 +1676,9 @@ impl Controller {
             attempt.cancel();
         }
         drop(model);
+        // Retire the target after stop_music rendered its final worker state.
+        // With the model closed, no subsequent presentation can rehydrate it.
+        self.clear_workspace();
         self.dismiss_login();
         self.shutdown_system_media();
         if let Some(service) = &self.service {
@@ -1860,1091 +1904,6 @@ impl Controller {
         self.widgets.status.set_subtitle(message);
     }
 
-    fn show_library(self: &Rc<Self>) {
-        if !self.model.borrow().account_valid {
-            return;
-        }
-        self.requests.borrow_mut().invalidate(Operation::Library);
-        if self.widgets.library_mode.selected() == 2 {
-            self.load_library(0);
-            return;
-        }
-        let playlists = self.widgets.library_mode.selected() == 1;
-        if playlists {
-            let cached = self.model.borrow().playlists.clone();
-            if let Some(result) = cached {
-                self.render_playlists(result, 0);
-                return;
-            }
-        } else {
-            let cached = self.model.borrow().liked.clone();
-            if let Some(result) = cached {
-                self.render_liked(result, 0);
-                return;
-            }
-        }
-        self.load_library(0);
-    }
-
-    fn render_playlists(self: &Rc<Self>, result: Result<Page<Playlist>, MusicError>, page: u32) {
-        self.widgets.library_rows.set_visible(false);
-        self.playlist_grid.widget.set_visible(true);
-        match result {
-            Ok(result) => {
-                self.model.borrow_mut().library_page = page;
-                self.model.borrow_mut().library_displaying =
-                    Some((self.widgets.library_mode.selected(), page));
-                self.playlist_grid.set_playlists(
-                    &result.items,
-                    self.widgets.library_mode.selected() == 1
-                        && self.can_create_playlist.get()
-                        && self.model.borrow().account_valid,
-                );
-                self.widgets.library_next.set_visible(result.has_more);
-                self.widgets.library_previous.set_visible(page > 0);
-                self.refresh_catalog_notice();
-                if self.widgets.stack.visible_child_name().as_deref() == Some("library") {
-                    self.widgets.status.set_title(&format!(
-                        "{} · страница {}",
-                        if self.widgets.library_mode.selected() == 2 {
-                            "Понравившиеся плейлисты"
-                        } else {
-                            "Мои плейлисты"
-                        },
-                        page + 1
-                    ));
-                    self.widgets.status.set_subtitle("");
-                }
-            }
-            Err(error) => {
-                self.model.borrow_mut().library_displaying = None;
-                self.playlist_grid.set_error();
-                self.show_error(error);
-            }
-        }
-    }
-
-    fn render_home_preview(self: &Rc<Self>) {
-        let (valid, result) = {
-            let model = self.model.borrow();
-            (model.account_valid, model.liked.clone())
-        };
-        if !valid {
-            set_empty(
-                &self.widgets.home_preview,
-                "Любимые треки появятся после входа.",
-            );
-            return;
-        }
-        match result {
-            Some(Ok(page)) if !page.items.is_empty() => {
-                self.tracks_from(
-                    &self.widgets.home_preview,
-                    page.items,
-                    ContextKind::LikedTracks,
-                    None,
-                    page.has_more,
-                    0..5,
-                );
-            }
-            Some(Ok(_)) => set_empty(
-                &self.widgets.home_preview,
-                "Понравившихся треков пока нет. Их можно найти через поиск.",
-            ),
-            Some(Err(error)) => {
-                let (title, _) = music_error_message(error);
-                set_empty(
-                    &self.widgets.home_preview,
-                    &format!("{title}. Откройте библиотеку и повторите обновление."),
-                );
-            }
-            None => set_empty(
-                &self.widgets.home_preview,
-                "Откройте «Все треки», чтобы обновить этот раздел.",
-            ),
-        }
-        self.refresh_catalog_notice();
-    }
-
-    fn render_liked(self: &Rc<Self>, result: Result<Page<Track>, MusicError>, page: u32) {
-        self.widgets.library_rows.set_visible(true);
-        self.playlist_grid.widget.set_visible(false);
-        match result {
-            Ok(result) => {
-                self.model.borrow_mut().library_page = page;
-                self.model.borrow_mut().library_displaying = Some((0, page));
-                self.tracks_from(
-                    &self.widgets.library_rows,
-                    result.items,
-                    ContextKind::LikedTracks,
-                    None,
-                    page > 0 || result.has_more,
-                    0..usize::MAX,
-                );
-                self.widgets.library_next.set_visible(result.has_more);
-                self.widgets.library_previous.set_visible(page > 0);
-                self.refresh_catalog_notice();
-                if self.widgets.stack.visible_child_name().as_deref() == Some("library") {
-                    self.widgets
-                        .status
-                        .set_title(&format!("Понравившиеся треки · страница {}", page + 1));
-                    self.widgets.status.set_subtitle("");
-                }
-            }
-            Err(error) => {
-                self.model.borrow_mut().library_displaying = None;
-                set_empty(
-                    &self.widgets.library_rows,
-                    "Не удалось загрузить треки. Повторите обновление.",
-                );
-                self.show_error(error);
-            }
-        }
-        if page == 0 {
-            self.render_home_preview();
-        }
-    }
-
-    fn load_initial_library(self: &Rc<Self>) {
-        self.load_initial_library_policy(false);
-    }
-
-    fn load_initial_library_policy(self: &Rc<Self>, force: bool) {
-        self.render_home_preview();
-        let catalog = self.cached_catalog();
-        self.run(
-            Operation::InitialLibrary,
-            move |service, token| {
-                let liked = if let Some(catalog) = &catalog {
-                    catalog.liked_tracks(&service, &token, 0, force)
-                } else {
-                    service.liked_tracks(&token, 0).map(catalog_view::network)
-                };
-                let playlists = if let Some(catalog) = &catalog {
-                    catalog.playlists(&service, &token, 0, force)
-                } else {
-                    service.playlists(&token, 0).map(catalog_view::network)
-                };
-                Ok((liked, playlists))
-            },
-            move |this, result| match result {
-                Ok((liked, playlists)) => {
-                    let retired = liked
-                        .as_ref()
-                        .ok()
-                        .and_then(|reply| reply.lease.as_ref())
-                        .is_some_and(|lease| !lease.is_current())
-                        || playlists
-                            .as_ref()
-                            .ok()
-                            .and_then(|reply| reply.lease.as_ref())
-                            .is_some_and(|lease| !lease.is_current());
-                    if retired && !force {
-                        this.load_initial_library_policy(true);
-                        return;
-                    }
-                    let liked_origin = liked
-                        .as_ref()
-                        .map_or(crate::catalog_cache::Provenance::Network, |reply| {
-                            reply.provenance
-                        });
-                    let playlists_origin = playlists
-                        .as_ref()
-                        .map_or(crate::catalog_cache::Provenance::Network, |reply| {
-                            reply.provenance
-                        });
-                    let liked_cache_error = liked
-                        .as_ref()
-                        .is_ok_and(|reply| reply.cache_error.is_some());
-                    let playlists_cache_error = playlists
-                        .as_ref()
-                        .is_ok_and(|reply| reply.cache_error.is_some());
-                    let liked = liked.and_then(|reply| {
-                        if reply
-                            .lease
-                            .as_ref()
-                            .is_some_and(|lease| !lease.is_current())
-                        {
-                            Err(MusicError::Network)
-                        } else {
-                            Ok(reply.value)
-                        }
-                    });
-                    let playlists = playlists.and_then(|reply| {
-                        if reply
-                            .lease
-                            .as_ref()
-                            .is_some_and(|lease| !lease.is_current())
-                        {
-                            Err(MusicError::Network)
-                        } else {
-                            Ok(reply.value)
-                        }
-                    });
-                    if liked
-                        .as_ref()
-                        .err()
-                        .into_iter()
-                        .chain(playlists.as_ref().err())
-                        .any(|error| {
-                            matches!(
-                                error,
-                                MusicError::AccessDenied | MusicError::Unauthenticated
-                            )
-                        })
-                    {
-                        this.logout();
-                        this.show_error(MusicError::AccessDenied);
-                        return;
-                    }
-                    let mut model = this.model.borrow_mut();
-                    let save_liked = model.liked.is_none();
-                    let save_playlists = model.playlists.is_none();
-                    if save_liked {
-                        model.liked = Some(liked);
-                    }
-                    if save_playlists {
-                        model.playlists = Some(playlists);
-                    }
-                    let render = !model.library_touched;
-                    drop(model);
-                    if save_liked {
-                        this.remember_library_origin(0, 0, liked_origin, liked_cache_error);
-                    }
-                    if save_playlists {
-                        this.remember_library_origin(1, 0, playlists_origin, playlists_cache_error);
-                    }
-                    if render {
-                        this.show_library();
-                    }
-                    this.render_home_preview();
-                }
-                Err(error) => this.show_error(error),
-            },
-        );
-    }
-
-    fn load_library(self: &Rc<Self>, page: u32) {
-        self.load_library_policy(page, false);
-    }
-
-    pub(super) fn load_library_refresh(self: &Rc<Self>, page: u32) {
-        self.load_library_policy(page, true);
-    }
-
-    fn load_library_policy(self: &Rc<Self>, page: u32, force: bool) {
-        if !self.model.borrow().account_valid || self.model.borrow().closed {
-            return;
-        }
-        self.model.borrow_mut().library_touched = true;
-        self.model.borrow_mut().library_displaying = None;
-        self.widgets.status.set_title("Загрузка библиотеки…");
-        self.widgets.status.set_subtitle("");
-        self.widgets.cache_notice.set_revealed(false);
-        let mode = self.widgets.library_mode.selected();
-        self.widgets.library_rows.set_visible(mode == 0);
-        self.playlist_grid.widget.set_visible(mode != 0);
-        if mode == 0 {
-            set_empty(&self.widgets.library_rows, "Загрузка библиотеки…");
-        } else {
-            self.playlist_grid.set_loading();
-        }
-        self.widgets.library_next.set_visible(false);
-        self.widgets.library_previous.set_visible(false);
-        if mode == 2 {
-            self.run_catalog(
-                Operation::Library,
-                Some((mode, page)),
-                force,
-                move |service, token, catalog, force| match catalog {
-                    Some(catalog) => catalog.liked_playlists(&service, &token, page, force),
-                    None => service
-                        .liked_playlists(&token, page)
-                        .map(catalog_view::network),
-                },
-                move |this, result| this.render_playlists(result, page),
-            );
-        } else if mode == 1 {
-            self.run_catalog(
-                Operation::Library,
-                Some((mode, page)),
-                force,
-                move |service, token, catalog, force| match catalog {
-                    Some(catalog) => catalog.playlists(&service, &token, page, force),
-                    None => service.playlists(&token, page).map(catalog_view::network),
-                },
-                move |this, result| {
-                    if page == 0 {
-                        this.model.borrow_mut().playlists = Some(result.clone());
-                    }
-                    this.render_playlists(result, page);
-                },
-            );
-        } else {
-            self.run_catalog(
-                Operation::Library,
-                Some((mode, page)),
-                force,
-                move |service, token, catalog, force| match catalog {
-                    Some(catalog) => catalog.liked_tracks(&service, &token, page, force),
-                    None => service
-                        .liked_tracks(&token, page)
-                        .map(catalog_view::network),
-                },
-                move |this, result| {
-                    if page == 0 {
-                        this.model.borrow_mut().liked = Some(result.clone());
-                    }
-                    this.render_liked(result, page);
-                },
-            );
-        }
-    }
-
-    fn clear_search_feedback(&self) {
-        clear_box(&self.widgets.search_feedback);
-        self.widgets.search_feedback.set_visible(false);
-    }
-
-    fn search_error(self: &Rc<Self>, error: MusicError, page: u32) {
-        self.clear_search_feedback();
-        clear_list(&self.widgets.search_rows);
-        if matches!(
-            error,
-            MusicError::AccessDenied | MusicError::Unauthenticated
-        ) {
-            self.show_error(error);
-            return;
-        }
-        let message = friendly_search_error(error);
-        let group = adw::PreferencesGroup::new();
-        let row = adw::ActionRow::builder()
-            .title("Не удалось выполнить поиск")
-            .subtitle(message)
-            .title_lines(0)
-            .subtitle_lines(0)
-            .build();
-        row.set_widget_name("music-search-error");
-        let retry = gtk::Button::with_label("Повторить поиск");
-        retry.set_widget_name("music-search-retry");
-        retry.set_valign(gtk::Align::Center);
-        retry.add_css_class("suggested-action");
-        let weak = Rc::downgrade(self);
-        retry.connect_clicked(move |_| {
-            if let Some(this) = weak.upgrade() {
-                this.search(page);
-            }
-        });
-        row.add_suffix(&retry);
-        group.add(&row);
-        self.widgets.search_feedback.append(&group);
-        // Diagnostics are explicitly disclosed, collapsed and independently
-        // selectable. The everyday error contains no protocol vocabulary.
-        let details = gtk::Expander::new(Some("Сведения для диагностики"));
-        details.set_widget_name("music-search-diagnostics");
-        details.set_expanded(false);
-        let support = text(
-            &format!(
-                "Категория: {}\nЭтап: {}\nФорма: {}\nHTTP: {}",
-                error.category(),
-                error.diagnostic_stage().unwrap_or("none"),
-                error.diagnostic_shape().unwrap_or("none"),
-                error
-                    .http_status()
-                    .map(|value| value.to_string())
-                    .unwrap_or_else(|| "none".into()),
-            ),
-            "monospace",
-        );
-        support.set_selectable(true);
-        details.set_child(Some(&support));
-        self.widgets.search_feedback.append(&details);
-        self.widgets.search_feedback.set_visible(true);
-    }
-
-    fn tracks_from(
-        self: &Rc<Self>,
-        list: &gtk::ListBox,
-        tracks: Vec<Track>,
-        kind: ContextKind,
-        source: Option<String>,
-        partial: bool,
-        range: std::ops::Range<usize>,
-    ) {
-        clear_list(list);
-        if tracks.is_empty() {
-            set_empty(list, "Треков пока нет.");
-            return;
-        }
-        let Ok(context) = PlaybackContext::new(kind, source, tracks, range.start, partial) else {
-            set_empty(
-                list,
-                "Этот источник превышает размер очереди. Откройте отдельную страницу.",
-            );
-            return;
-        };
-        for (index, track) in context
-            .items()
-            .iter()
-            .enumerate()
-            .skip(range.start)
-            .take(range.end.saturating_sub(range.start))
-        {
-            if let Some(selected) = context.with_current_index(index) {
-                self.track_row_context(list, track.clone(), selected);
-            }
-        }
-    }
-
-    fn track_row_context(
-        self: &Rc<Self>,
-        list: &gtk::ListBox,
-        track: Track,
-        context: PlaybackContext,
-    ) {
-        let mut subtitle = track.artists.join(", ");
-        if track.explicit {
-            subtitle.push_str(" · Explicit");
-        }
-        if !track.available {
-            subtitle.push_str(" · Недоступен");
-        }
-        let (row, body) = item(&track.title, &subtitle);
-        row.set_tooltip_text(Some("Воспроизвести трек"));
-        row.update_property(&[gtk::accessible::Property::Label(&format!(
-            "Воспроизвести: {}",
-            track.title
-        ))]);
-        row.set_activatable(track.available);
-        body.prepend(&cover_widget(
-            self.artwork.as_ref(),
-            track.cover.as_ref(),
-            40,
-        ));
-        if let Some(duration) = track.duration_ms {
-            let label = text(&format_duration(duration), "caption");
-            label.set_hexpand(false);
-            label.set_wrap(false);
-            body.append(&label);
-        }
-        let play = self.context_play_button(&track, true, context.clone());
-        play.add_css_class("suggested-action");
-        body.append(&play);
-        body.append(&self.track_menu_context(&track, Some(context.clone())));
-        self.row_action(&row, RowAction::Track(context));
-        row.set_activatable(track.available);
-        list.append(&row);
-    }
-
-    fn album_row(self: &Rc<Self>, list: &gtk::ListBox, album: Album) {
-        let (row, body) = item(&album.title, &album.artists.join(", "));
-        body.prepend(&cover_widget(
-            self.artwork.as_ref(),
-            album.cover.as_ref(),
-            56,
-        ));
-        body.append(&gtk::Image::from_icon_name("go-next-symbolic"));
-        self.row_action(&row, RowAction::Album(album.id));
-        list.append(&row);
-    }
-
-    fn artist_row(self: &Rc<Self>, list: &gtk::ListBox, artist: Artist) {
-        let (row, body) = item(&artist.name, "Открыть треки исполнителя");
-        body.prepend(&cover_widget(
-            self.artwork.as_ref(),
-            artist.cover.as_ref(),
-            56,
-        ));
-        body.append(&gtk::Image::from_icon_name("go-next-symbolic"));
-        self.row_action(&row, RowAction::Artist(artist));
-        list.append(&row);
-    }
-
-    fn row_action(self: &Rc<Self>, row: &gtk::ListBoxRow, action: RowAction) {
-        row.set_activatable(true);
-        let group = gio::SimpleActionGroup::new();
-        let activate = gio::SimpleAction::new("activate", None);
-        let weak = Rc::downgrade(self);
-        activate.connect_activate(move |_, _| {
-            let Some(this) = weak.upgrade() else { return };
-            if this.model.borrow().closed || !this.model.borrow().account_valid {
-                return;
-            }
-            match &action {
-                RowAction::Track(context) => this.play_music_context(context.clone()),
-                RowAction::SearchPlaylist(playlist) => {
-                    this.open_search_playlist(playlist.clone(), 0)
-                }
-                RowAction::Album(id) => this.open_album(id.clone()),
-                RowAction::Artist(artist) => this.open_artist(artist.clone(), 0),
-                RowAction::Queue(index) => {
-                    this.play_music_queue(*index);
-                }
-            }
-        });
-        group.add_action(&activate);
-        // Do not set the row's GtkActionable action-name: the list's actual
-        // user-activation signal is the single dispatch path, for mouse and
-        // keyboard alike. Nested buttons retain their independent actions.
-        row.insert_action_group("catalog-row", Some(&group));
-    }
-
-    fn detail_loading(self: &Rc<Self>, title: &str, subtitle: &str) {
-        self.detail_cache.set(None);
-        self.widgets.cache_notice.set_revealed(false);
-        self.widgets.cache_hint.set_visible(false);
-        self.requests.borrow_mut().invalidate(Operation::LikeRead);
-        if let Some(origin) = self.widgets.stack.visible_child_name()
-            && origin != "detail"
-        {
-            self.model.borrow_mut().detail_origin = origin.to_string();
-        }
-        self.cancel_delivery();
-        self.requests.borrow_mut().invalidate(Operation::Delivery);
-        self.detail_header(title, subtitle);
-        self.widgets.status.set_title("Загрузка выбранных данных…");
-        self.widgets.status.set_subtitle("");
-        let loading = adw::StatusPage::builder()
-            .title("Загрузка…")
-            .description("Можно вернуться назад, не дожидаясь ответа.")
-            .build();
-        let spinner = gtk::Spinner::new();
-        spinner.set_spinning(true);
-        spinner.set_halign(gtk::Align::Center);
-        loading.set_child(Some(&spinner));
-        self.widgets.detail.append(&loading);
-    }
-
-    fn detail_header(self: &Rc<Self>, title: &str, subtitle: &str) {
-        clear_box(&self.widgets.detail);
-        let origin = self.model.borrow().detail_origin.clone();
-        let label = match origin.as_str() {
-            "search" => "Назад к поиску",
-            "queue" => "Назад к очереди",
-            "home" => "Назад на главную",
-            _ => "Назад в библиотеку",
-        };
-        let back = gtk::Button::with_label(label);
-        back.set_widget_name("music-detail-back");
-        let back_content = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-        back_content.append(&gtk::Image::from_icon_name("go-previous-symbolic"));
-        back_content.append(&gtk::Label::new(Some(label)));
-        back.set_child(Some(&back_content));
-        back.update_property(&[gtk::accessible::Property::Label(label)]);
-        back.set_halign(gtk::Align::Start);
-        let weak = Rc::downgrade(self);
-        back.connect_clicked(move |_| {
-            if let Some(this) = weak.upgrade() {
-                this.back_from_detail();
-            }
-        });
-        self.widgets.detail.append(&back);
-        self.widgets.detail.append(&text(title, "title-2"));
-        self.widgets.detail.append(&text(subtitle, "dim-label"));
-        self.widgets.stack.set_visible_child_name("detail");
-    }
-
-    fn back_from_detail(&self) {
-        if self.widgets.stack.visible_child_name().as_deref() != Some("detail") {
-            return;
-        }
-        self.cancel_delivery();
-        self.requests.borrow_mut().invalidate(Operation::Detail);
-        self.model.borrow_mut().view_generation += 1;
-        let origin = self.model.borrow().detail_origin.clone();
-        self.widgets.stack.set_visible_child_name(&origin);
-        match origin.as_str() {
-            "search" => {
-                self.widgets.search.grab_focus();
-            }
-            "queue" => {
-                if let Some(row) = self.widgets.queue_rows.first_child() {
-                    row.grab_focus();
-                }
-            }
-            "home" => {
-                self.widgets.home_liked.grab_focus();
-            }
-            _ => {
-                self.widgets.library_mode.grab_focus();
-            }
-        }
-    }
-
-    fn detail_cover(&self, cover: Option<&CoverArt>) {
-        let Some(back) = self.widgets.detail.first_child() else {
-            return;
-        };
-        let Some(title) = back.next_sibling() else {
-            return;
-        };
-        let header = gtk::Box::new(gtk::Orientation::Horizontal, 16);
-        header.append(&cover_widget(self.artwork.as_ref(), cover, 96));
-        self.widgets.detail.remove(&title);
-        title.set_valign(gtk::Align::Center);
-        header.append(&title);
-        self.widgets.detail.insert_child_after(&header, Some(&back));
-    }
-
-    fn track_menu_context(
-        self: &Rc<Self>,
-        track: &Track,
-        context: Option<PlaybackContext>,
-    ) -> gtk::MenuButton {
-        let button = gtk::MenuButton::builder().label("Ещё").build();
-        button.set_valign(gtk::Align::Center);
-        button.set_tooltip_text(Some("Действия с треком"));
-        button.update_property(&[gtk::accessible::Property::Label("Действия с треком")]);
-        let popover = gtk::Popover::new();
-        let actions = gtk::Box::new(gtk::Orientation::Vertical, 4);
-        super::margins(&actions, 6);
-        let detail = gtk::Button::with_label("Открыть сведения о треке");
-        detail.add_css_class("flat");
-        let weak = Rc::downgrade(self);
-        let close = popover.downgrade();
-        let id = track.id.clone();
-        let detail_context = context.clone();
-        detail.connect_clicked(move |_| {
-            if let Some(popover) = close.upgrade() {
-                popover.popdown();
-            }
-            if let Some(this) = weak.upgrade() {
-                this.open_track_context(id.clone(), detail_context.clone());
-            }
-        });
-        actions.append(&detail);
-        let play = gtk::Button::with_label("Воспроизвести");
-        play.add_css_class("flat");
-        play.set_sensitive(track.available);
-        let weak = Rc::downgrade(self);
-        let close = popover.downgrade();
-        let selected = track.clone();
-        play.connect_clicked(move |_| {
-            if let Some(popover) = close.upgrade() {
-                popover.popdown();
-            }
-            if let Some(this) = weak.upgrade() {
-                if let Some(context) = context.clone() {
-                    this.play_music_context(context);
-                } else {
-                    this.play_music_track(selected.clone());
-                }
-            }
-        });
-        actions.append(&play);
-        let add = gtk::Button::with_label("Добавить в очередь");
-        add.add_css_class("flat");
-        let weak = Rc::downgrade(self);
-        let close = popover.downgrade();
-        let queued = track.clone();
-        add.connect_clicked(move |_| {
-            if let Some(popover) = close.upgrade() {
-                popover.popdown();
-            }
-            if let Some(this) = weak.upgrade() {
-                this.enqueue(queued.clone());
-            }
-        });
-        actions.append(&add);
-        if let Some(id) = &track.album_id {
-            let album = gtk::Button::with_label("Открыть альбом");
-            album.add_css_class("flat");
-            let weak = Rc::downgrade(self);
-            let close = popover.downgrade();
-            let id = id.clone();
-            album.connect_clicked(move |_| {
-                if let Some(popover) = close.upgrade() {
-                    popover.popdown();
-                }
-                if let Some(this) = weak.upgrade() {
-                    this.open_album(id.clone());
-                }
-            });
-            actions.append(&album);
-        }
-        popover.set_child(Some(&actions));
-        button.set_popover(Some(&popover));
-        button
-    }
-
-    fn detail_error(self: &Rc<Self>, error: MusicError, retry: impl Fn(&Rc<Self>) + 'static) {
-        if matches!(
-            error,
-            MusicError::AccessDenied | MusicError::Unauthenticated
-        ) {
-            self.show_error(error);
-            return;
-        }
-        // Retain the selected title and Back action; replace only the content.
-        let subtitle = self
-            .widgets
-            .detail
-            .first_child()
-            .and_then(|child| child.next_sibling())
-            .and_then(|child| child.next_sibling())
-            .and_downcast::<gtk::Label>();
-        if let Some(subtitle) = subtitle {
-            subtitle.set_text("Не удалось загрузить данные.");
-        }
-        let mut content = self.widgets.detail.first_child();
-        for _ in 0..3 {
-            content = content.and_then(|child| child.next_sibling());
-        }
-        while let Some(child) = content {
-            content = child.next_sibling();
-            self.widgets.detail.remove(&child);
-        }
-        let (title, message) = music_error_message(error);
-        let failure = adw::StatusPage::builder()
-            .title(title)
-            .description(message)
-            .icon_name("dialog-warning-symbolic")
-            .build();
-        let button = gtk::Button::with_label("Повторить");
-        button.set_halign(gtk::Align::Center);
-        button.add_css_class("suggested-action");
-        let weak = Rc::downgrade(self);
-        button.connect_clicked(move |_| {
-            if let Some(this) = weak.upgrade() {
-                retry(&this);
-            }
-        });
-        failure.set_child(Some(&button));
-        self.widgets.detail.append(&failure);
-    }
-
-    fn open_track_context(self: &Rc<Self>, id: String, context: Option<PlaybackContext>) {
-        self.open_track_policy(id, context, false);
-    }
-
-    fn open_track_policy(
-        self: &Rc<Self>,
-        id: String,
-        context: Option<PlaybackContext>,
-        force: bool,
-    ) {
-        let retry_context = context.clone();
-        self.detail_loading("Сведения о треке", "Загрузка трека…");
-        let refresh_id = id.clone();
-        let refresh_context = context.clone();
-        self.detail_refresh.replace(Some(Rc::new(move |this| {
-            this.open_track_policy(refresh_id.clone(), refresh_context.clone(), true)
-        })));
-        let retry_id = id.clone();
-        self.run_catalog(
-            Operation::Detail,
-            None,
-            force,
-            move |service, token, catalog, force| match catalog {
-                Some(catalog) => catalog.track(&service, &token, &id, force),
-                None => service.track(&token, &id).map(catalog_view::network),
-            },
-            move |this, result| match result {
-                Ok(track) => {
-                    this.select_track_info(track.clone(), context.clone(), false);
-                    this.detail_header(&track.title, &track.artists.join(", "));
-                    this.detail_cover(track.cover.as_ref());
-                    let duration = track
-                        .duration_ms
-                        .map(|ms| format!("{}:{:02}", ms / 60_000, (ms / 1_000) % 60))
-                        .unwrap_or_else(|| "неизвестна".into());
-                    this.widgets
-                        .detail
-                        .append(&text(&format!("Продолжительность: {duration}"), ""));
-                    if !track.available {
-                        this.widgets
-                            .detail
-                            .append(&text("Сервис пометил трек как недоступный.", "dim-label"));
-                    }
-                    let button = if let Some(context) = context.clone() {
-                        this.context_play_button(&track, false, context)
-                    } else {
-                        this.track_play_button(&track, false)
-                    };
-                    this.widgets.detail.append(&button);
-                    let add = gtk::Button::with_label("Добавить в очередь");
-                    add.set_halign(gtk::Align::Start);
-                    let weak = Rc::downgrade(this);
-                    let queued = track.clone();
-                    add.connect_clicked(move |_| {
-                        if let Some(this) = weak.upgrade() {
-                            this.enqueue(queued.clone());
-                        }
-                    });
-                    this.widgets.detail.append(&add);
-                    this.widgets
-                        .detail
-                        .append(&this.like_controls(track.id.clone()));
-                    if this.model.borrow().delivery_diagnostic {
-                        this.delivery_action(track.id.clone());
-                    }
-                    if let Some(album_id) = track.album_id {
-                        let album = gtk::Button::with_label(
-                            track.album_title.as_deref().unwrap_or("Открыть альбом"),
-                        );
-                        album.set_halign(gtk::Align::Start);
-                        if let Some(label) = album.child().and_downcast::<gtk::Label>() {
-                            label.set_wrap(true);
-                            label.set_wrap_mode(gtk::pango::WrapMode::WordChar);
-                        }
-                        let weak = Rc::downgrade(this);
-                        album.connect_clicked(move |_| {
-                            if let Some(this) = weak.upgrade() {
-                                this.open_album(album_id.clone());
-                            }
-                        });
-                        this.widgets.detail.append(&album);
-                    }
-                    this.widgets.status.set_title("Сведения о треке получены.");
-                }
-                Err(error) => this.detail_error(error, move |this| {
-                    this.open_track_context(retry_id.clone(), retry_context.clone())
-                }),
-            },
-        );
-    }
-
-    fn open_album(self: &Rc<Self>, id: String) {
-        self.open_album_policy(id, false, 0);
-    }
-
-    fn open_album_policy(self: &Rc<Self>, id: String, force: bool, page: usize) {
-        self.detail_loading("Альбом", "Загрузка альбома…");
-        let refresh_id = id.clone();
-        self.detail_refresh.replace(Some(Rc::new(move |this| {
-            this.open_album_policy(refresh_id.clone(), true, page)
-        })));
-        let retry_id = id.clone();
-        self.run_catalog(
-            Operation::Detail,
-            None,
-            force,
-            move |service, token, catalog, force| match catalog {
-                Some(catalog) => catalog.album(&service, &token, &id, force),
-                None => service.album(&token, &id).map(catalog_view::network),
-            },
-            move |this, result| match result {
-                Ok(album) => {
-                    this.render_album(Rc::new(album), page);
-                    this.widgets.status.set_title("Альбом получен.");
-                }
-                Err(error) => this.detail_error(error, move |this| {
-                    this.open_album_policy(retry_id.clone(), true, page)
-                }),
-            },
-        );
-    }
-
-    fn render_album(self: &Rc<Self>, album: Rc<Album>, page: usize) {
-        const ROWS: usize = 50;
-        let page = page.min(album.tracks.len().saturating_sub(1) / ROWS);
-        let id = album.id.clone();
-        self.detail_refresh.replace(Some(Rc::new(move |this| {
-            this.open_album_policy(id.clone(), true, page)
-        })));
-        self.detail_header(&album.title, &album.artists.join(", "));
-        self.detail_cover(album.cover.as_ref());
-        let rows = list();
-        let offset = page.saturating_mul(ROWS);
-        if album.tracks.len() <= 500 {
-            self.tracks_from(
-                &rows,
-                album.tracks.clone(),
-                ContextKind::Album,
-                Some(album.id.clone()),
-                false,
-                offset..offset.saturating_add(ROWS),
-            );
-        } else {
-            self.tracks_from(
-                &rows,
-                album
-                    .tracks
-                    .iter()
-                    .skip(offset)
-                    .take(ROWS)
-                    .cloned()
-                    .collect(),
-                ContextKind::Album,
-                Some(album.id.clone()),
-                true,
-                0..ROWS,
-            );
-        }
-        self.widgets.detail.append(&rows);
-        let pages = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-        if page > 0 {
-            let back = gtk::Button::with_label("Предыдущие");
-            let weak = Rc::downgrade(self);
-            let album = album.clone();
-            back.connect_clicked(move |_| {
-                if let Some(this) = weak.upgrade() {
-                    this.render_album(album.clone(), page - 1);
-                }
-            });
-            pages.append(&back);
-        }
-        if offset.saturating_add(ROWS) < album.tracks.len() {
-            let next = gtk::Button::with_label("Следующие");
-            let weak = Rc::downgrade(self);
-            next.connect_clicked(move |_| {
-                if let Some(this) = weak.upgrade() {
-                    this.render_album(album.clone(), page + 1);
-                }
-            });
-            pages.append(&next);
-        }
-        self.widgets.detail.append(&pages);
-    }
-
-    fn open_playlist(self: &Rc<Self>, playlist: Playlist, page: u32) {
-        self.open_playlist_policy(playlist, page, false);
-    }
-
-    fn open_playlist_policy(self: &Rc<Self>, playlist: Playlist, page: u32, force: bool) {
-        let id = playlist.id.clone();
-        self.detail_loading(
-            &playlist.title,
-            &format!("Загрузка плейлиста · страница {}", page + 1),
-        );
-        let refresh_playlist = playlist.clone();
-        self.detail_refresh.replace(Some(Rc::new(move |this| {
-            this.open_playlist_policy(refresh_playlist.clone(), page, true)
-        })));
-        self.detail_cover(playlist.cover.as_ref());
-        self.run_catalog(
-            Operation::Detail,
-            None,
-            force,
-            move |service, token, catalog, force| match catalog {
-                Some(catalog) => catalog.playlist_tracks(&service, &token, &id, page, force),
-                None => service
-                    .playlist_tracks(&token, &id, page)
-                    .map(catalog_view::network),
-            },
-            move |this, result| match result {
-                Ok(result) => {
-                    this.detail_header(
-                        &playlist.title,
-                        &format!("Плейлист · страница {}", page + 1),
-                    );
-                    this.detail_cover(playlist.cover.as_ref());
-                    let rows = list();
-                    this.tracks_from(
-                        &rows,
-                        result.items,
-                        ContextKind::Playlist,
-                        Some(format!("{}:{}", playlist.id.owner, playlist.id.kind)),
-                        page > 0 || result.has_more,
-                        0..usize::MAX,
-                    );
-                    this.widgets.detail.append(&rows);
-                    let pages = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-                    if page > 0 {
-                        let previous = gtk::Button::with_label("Предыдущая страница");
-                        let weak = Rc::downgrade(this);
-                        let playlist = playlist.clone();
-                        previous.connect_clicked(move |_| {
-                            if let Some(this) = weak.upgrade() {
-                                this.open_playlist(playlist.clone(), page - 1);
-                            }
-                        });
-                        pages.append(&previous);
-                    }
-                    if result.has_more {
-                        let next = gtk::Button::with_label("Следующая страница");
-                        next.set_halign(gtk::Align::Start);
-                        let weak = Rc::downgrade(this);
-                        next.connect_clicked(move |_| {
-                            if let Some(this) = weak.upgrade() {
-                                this.open_playlist(playlist.clone(), page.saturating_add(1));
-                            }
-                        });
-                        pages.append(&next);
-                    }
-                    this.widgets.detail.append(&pages);
-                    this.widgets.status.set_title("Плейлист получен.");
-                    this.widgets.status.set_subtitle("");
-                }
-                Err(error) => this.detail_error(error, move |this| {
-                    this.open_playlist(playlist.clone(), page)
-                }),
-            },
-        );
-    }
-
-    fn open_artist(self: &Rc<Self>, artist: Artist, page: u32) {
-        self.open_artist_policy(artist, page, false);
-    }
-
-    fn open_artist_policy(self: &Rc<Self>, artist: Artist, page: u32, force: bool) {
-        self.detail_loading(&artist.name, "Загрузка треков исполнителя…");
-        let refresh_artist = artist.clone();
-        self.detail_refresh.replace(Some(Rc::new(move |this| {
-            this.open_artist_policy(refresh_artist.clone(), page, true)
-        })));
-        self.detail_cover(artist.cover.as_ref());
-        let id = artist.id.clone();
-        self.run_catalog(
-            Operation::Detail,
-            None,
-            force,
-            move |service, token, catalog, force| match catalog {
-                Some(catalog) => catalog.artist_tracks(&service, &token, &id, page, force),
-                None => service
-                    .artist_tracks(&token, &id, page)
-                    .map(catalog_view::network),
-            },
-            move |this, result| match result {
-                Ok(result) => {
-                    this.detail_header(
-                        &artist.name,
-                        &format!("Треки исполнителя · страница {}", page + 1),
-                    );
-                    this.detail_cover(artist.cover.as_ref());
-                    let rows = list();
-                    this.tracks_from(
-                        &rows,
-                        result.items,
-                        ContextKind::Artist,
-                        Some(artist.id.clone()),
-                        page > 0 || result.has_more,
-                        0..usize::MAX,
-                    );
-                    this.widgets.detail.append(&rows);
-                    let pages = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-                    if page > 0 {
-                        let previous = gtk::Button::with_label("Предыдущая страница");
-                        let weak = Rc::downgrade(this);
-                        let artist = artist.clone();
-                        previous.connect_clicked(move |_| {
-                            if let Some(this) = weak.upgrade() {
-                                this.open_artist(artist.clone(), page - 1);
-                            }
-                        });
-                        pages.append(&previous);
-                    }
-                    if result.has_more {
-                        let next = gtk::Button::with_label("Следующая страница");
-                        let weak = Rc::downgrade(this);
-                        next.connect_clicked(move |_| {
-                            if let Some(this) = weak.upgrade() {
-                                this.open_artist(artist.clone(), page.saturating_add(1));
-                            }
-                        });
-                        pages.append(&next);
-                    }
-                    this.widgets.detail.append(&pages);
-                    this.widgets.status.set_title("Треки исполнителя получены.");
-                    this.widgets.status.set_subtitle("");
-                }
-                Err(error) => {
-                    this.detail_error(error, move |this| this.open_artist(artist.clone(), page))
-                }
-            },
-        );
-    }
-
     fn delivery_action(self: &Rc<Self>, id: String) {
         let action = gtk::Button::with_label("Проверить доставку аудио без загрузки");
         action.set_widget_name("music-delivery-probe");
@@ -3017,7 +1976,8 @@ fn destination(icon: &str, title: &str, subtitle: &str) -> gtk::Button {
     image.add_css_class("accent");
     content.append(&image);
     content.append(&text(title, "heading"));
-    content.append(&text(subtitle, "caption"));
+    button.set_tooltip_text(Some(subtitle));
+    button.add_css_class("music-destination");
     button.set_child(Some(&content));
     button.set_hexpand(true);
     button
