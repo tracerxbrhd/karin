@@ -52,12 +52,20 @@ session prototype below; it requires no end-user OAuth configuration.
 
 ## v0.3 — one Fedora acceptance session
 
-The merged v0.2 baseline is owner-accepted on Fedora 44 / KDE Plasma / Wayland /
-PipeWire, including Flatpak: **17 PASS, 0 FAIL, 1 N/D** (hardware media keys).
-[PR #13](https://github.com/tracerxbrhd/karin/pull/13) is merged; it is not the
-working PR for v0.3. Use the single matching **v0.3 Draft PR to master**, after
-its stable and exact-1.98.1 checks finish. This is a new regression run, not a
-reclassification of earlier failures or a public-release approval.
+The owner accepted v0.3 runtime
+**`02325489d23ead9da4471de9cc35e2c063ac8bab`** on **2026-10-31** on Fedora
+44 / KDE Plasma / Wayland / PipeWire: persistent sign-in/restart restoration,
+real covers in lists/Player Bar/right pane, actual playback, pane mechanics and
+KDE Media Widget cover/metadata. Final Flatpak checks were also reported
+successful for tested authorization, playback and system-integration scenarios.
+See [the exact acceptance scope](VALIDATION.md#final-owner-v03-acceptance-at-0232548-2026-10-31).
+No blocking functional defect was reported. The pane's visual design remains
+unaccepted; substantial UI/UX work moves to a separate iteration.
+
+The procedure below remains the reproducible native/Flatpak regression guide.
+Documentation-only finalization in [PR #14](https://github.com/tracerxbrhd/karin/pull/14)
+does not rename the accepted runtime SHA; final-head CI is tracked on that PR.
+This is functional-prototype acceptance, not a public-release approval.
 
 Check the build's source revision and `SHA256SUMS` before running. A successful
 MSRV CI run supplies `karin-fedora-prototype-1.98.1`, with an archive, build
@@ -80,10 +88,13 @@ Do not use automation's `--ui-fixture` or `--smoke-test` for real acceptance.
 
 ### Focused cover and cache stabilization retest
 
-Draft PR #14 continues from the owner's native `23174b0` test: saved sign-in and
-pane opening/closing passed, but **real covers failed on every surface**. Pane
-redesign is deferred. Use the updated acceptance artifact's exact revision and
-checksums; do not reclassify the old cover failure from synthetic tests alone.
+The native `23174b0` test had a real-cover FAIL. Its repair is owner-accepted at
+`0232548` for lists, Player Bar and right-pane images, with actual KDE Media
+Widget cover/metadata also confirmed. Keep the earlier FAIL as revision history;
+additional surfaces and backend scenarios below are reusable regression checks,
+not invented individual results from the final owner report. Pane redesign is
+deferred. Match the artifact's exact source revision and checksums when repeating
+the procedure.
 
 1. Start ordinary `./karin` on the local Fedora desktop. If a saved session is
    available, confirm it still restores the intended Music account after fresh
@@ -166,12 +177,14 @@ tests establish exact reuse. A queued/deferred image is not a decode success,
 and `pixels-ready` is not yet `gtk-displayed`. An expected missing cover still
 uses its native fallback.
 
-Actual real-cover display is a separate Fedora acceptance gate. New source
-changes do not inherit the owner's old native restore PASS automatically; the
-targeted regression must preserve it. Current Flatpak build/install and its real
-Secret Portal/backend remain separate pending checks unless actually performed.
-Keep the current sandbox permissions. Persistent audio remains intentionally
-absent; see [AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md).
+Actual real-cover display is owner-confirmed for the stated surfaces at
+`0232548`; the final native and Flatpak report remains separate from these
+diagnostic categories. A later runtime change needs its own targeted regression.
+The report does not identify every Secret Portal/backend or prove individual
+failure/deletion cases. Keep the current sandbox permissions. Persistent audio
+remains absent because storage rights are unconfirmed; see
+[AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md). My Wave remains hidden pending
+its full service contract, and public OAuth-distribution rights remain separate.
 
 ### Session and preferences
 
@@ -844,10 +857,10 @@ Keep `Cargo.toml`'s minimum version and the pinned CI lane aligned, and verify c
 and locked dependencies before raising that minimum. Never bypass Cargo's
 version check with `--ignore-rust-version`.
 
-The owner has confirmed the merged v0.2 native and Flatpak prototype on Fedora
-44/KDE/Wayland/PipeWire. This is baseline evidence, not acceptance of a changed
-v0.3 session/cache/workspace or its storage backend. Repeat manual
-checks must cover real system-output playback, pause/resume, seeking, volume,
+The owner has confirmed the v0.3 native runtime and final tested Flatpak
+scenarios at `0232548` on Fedora 44/KDE/Wayland/PipeWire; the supplied scope is
+recorded in VALIDATION. Repeat manual checks for later runtime revisions must
+cover real system-output playback, pause/resume, seeking, volume,
 EOS/error recovery and closing during playback. Visual acceptance must check
 window/title controls, resize/maximize behavior, HiDPI, keyboard/focus,
 accessibility and both themes under [the UI quality gate](UI_QUALITY_GATE.md).
@@ -868,7 +881,7 @@ Inspect asynchronous state, position, duration and errors as well as listening.
 it does not prove PipeWire output, support for other codecs or service streams.
 Music authorization/delivery evidence and the independent developer diagnostic
 are recorded in [API_FEASIBILITY.md](API_FEASIBILITY.md); current owner acceptance
-and v0.3 pending checks are in [VALIDATION.md](VALIDATION.md).
+and remaining acceptance boundaries are in [VALIDATION.md](VALIDATION.md).
 
 For a substantial UI change, also run the screenshot matrix and review it under
 [UI_QUALITY_GATE.md](UI_QUALITY_GATE.md). With the capture tools installed:

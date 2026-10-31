@@ -7,7 +7,25 @@ Gate A official-document review: **2026-10-25**. Initial anonymous cloud probes:
 **2026-10-24**, approximately **11:40 UTC**; retained below with their original scope.
 Authentication source/document recheck and product correction: **2026-10-29**.
 
-## Current merged baseline and v0.3 scope, 31 October
+## Current v0.3 owner acceptance, 31 October
+
+On **2026-10-31**, the owner accepted runtime revision
+**`02325489d23ead9da4471de9cc35e2c063ac8bab`** on **Fedora 44 / KDE Plasma /
+Wayland / PipeWire**. Persistent sign-in and restoration after restart passed.
+Real Music covers now display in lists, Player Bar and the right information
+pane; KDE Media Widget receives the actual cover and metadata through MPRIS.
+Actual Music playback and pane opening/closing passed. The owner also reports
+successful final Flatpak authorization, playback and system-integration checks,
+with no blocking functional defect reported. This fixes the real-cover failure
+at `23174b0`; its historical FAIL is retained in
+[the revision-scoped acceptance record](VALIDATION.md#final-owner-v03-acceptance-at-0232548-2026-10-31).
+
+This is functional prototype acceptance, not a public release or final UI/UX
+approval. The pane's visual design remains unaccepted; substantial UI/UX work
+belongs to the next separate iteration. The report does not supply individual
+new-query, album/playlist-cover, mutation, wallet-deletion or hardware-media-key
+results. Counted automatic tests establish image-cache reuse; perceived Fedora
+speed is not an HTTP-request measurement.
 
 The owner accepted merged v0.2 `master` on Fedora 44 / KDE Plasma / Wayland /
 PipeWire, including the installed Flatpak: **17 PASS, 0 FAIL, 1 N/D** (hardware
@@ -18,7 +36,8 @@ not the current merged-baseline verdict. See [VALIDATION.md](VALIDATION.md).
 
 v0.3 retains that provider, MusicService and guarded resolver/player. It adds
 protected token persistence, bounded metadata/cover cache and workspace
-components; those changes need fresh automated and owner acceptance. Stored
+components; executed checks and the owner's stated acceptance scope are recorded
+in VALIDATION rather than inferred for every individual scenario. Stored
 credentials are validated with MusicService before use. Offline audio rights,
 effective modern Wave lifecycle and public service/registration distribution
 approval remain independent gates, described in

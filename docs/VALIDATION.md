@@ -6,7 +6,67 @@ This report separates initial cloud checks, user-reported Fedora acceptance,
 revised UI checks and compiler compatibility. A result for one environment or
 revision is not evidence that another has passed.
 
-## Owner v0.3 native report at `23174b0` (2026-10-31)
+## Final owner v0.3 acceptance at `0232548` (2026-10-31)
+
+On **2026-10-31**, the owner accepted runtime revision
+**`02325489d23ead9da4471de9cc35e2c063ac8bab`** on **Fedora 44 / KDE Plasma /
+Wayland / PipeWire**, with the following reported results. This is acceptance
+of the functional local prototype, not a public release or final UI/UX approval.
+
+| Owner-reported final v0.3 coverage | Result |
+| --- | --- |
+| Persistent sign-in and session restoration after restart without signing in again | **PASS** |
+| Real Yandex Music covers in lists, Player Bar and right information pane | **PASS** |
+| Real cover and metadata in KDE Media Widget through MPRIS | **PASS** |
+| Actual Music playback | **PASS** |
+| Right information pane opens/closes | **PASS** |
+| Final Flatpak checks, including tested authorization, playback and system-integration scenarios | **Owner reports successful completion** |
+| Blocking functional defects after final acceptance | None reported by the owner |
+| Right pane visual design | Not accepted; substantial UI/UX work is deferred to the next separate iteration |
+
+The real-cover failure at `23174b0` is therefore **fixed and owner-verified at
+`0232548`** for the surfaces listed above. The report does not supply individual
+results for every album/playlist cover surface, exact wallet/portal backend,
+credential-deletion/failure matrix, physical media keys or Fedora GTK version;
+those details are not inferred. The successful final Flatpak report is owner
+evidence, separate from the cloud environment's inability to run that package.
+
+Counted automatic image-cache tests below establish disk reuse without repeated
+HTTP. User-observed speed does not establish request counts, and the earlier
+66 KB metadata observation is not an audio-cache defect. Persistent audio/offline
+remains unimplemented because service storage rights are unconfirmed; My Wave
+stays hidden pending its full service contract. Public distribution rights for
+the reused OAuth identity remain separate from functional acceptance.
+
+Finalization after this accepted runtime revision changes documentation only.
+The final documentation HEAD and squash commit are different source identities;
+their review and source-matched CI results belong to
+[PR #14 and its checks](https://github.com/tracerxbrhd/karin/pull/14). This owner
+report is not relabelled as a new runtime test of either later commit. Historical
+FAIL and then-pending results below retain their original revision and scope.
+
+### Final source review and integration boundary
+
+Manual review covered all **53 changed Rust source/test files** in
+`09f76355684873f32aaf83b8050e047df6077143..02325489d23ead9da4471de9cc35e2c063ac8bab`,
+with independent scoped passes for credentials/session/settings, cache/artwork,
+service/mutation/playback integration and GTK controllers/components. Cargo,
+CI, Flatpak permissions and licensing were checked alongside those sources.
+No confirmed merge-blocking defect was found. Two nonblocking metadata
+consistency follow-ups are recorded in
+[LIMITATIONS.md](LIMITATIONS.md#catalog-workspace-and-playback): populated Home
+previews may survive Refresh, and cache I/O failure can prevent removal of a
+record after an API refusal. Neither cached metadata nor a Home preview is a
+Music authorization or playback entitlement.
+
+The finalization changes documentation and the acceptance archive's README
+text only. Runtime sources, Cargo files, packaging, workflow logic and
+permissions remain identical to the accepted runtime; final-head and post-merge
+CI still run independently. The owner explicitly authorized Ready for Review
+and squash integration of PR #14 after successful review/checks, retaining the
+feature branch. That authorization is separate from a public-release approval.
+
+## Historical owner v0.3 native report at `23174b0` (2026-10-31)
 
 The owner tested native revision
 `23174b045cc228e4108e847e801f9264d7a088f9` on **Fedora 44 / KDE Plasma /
@@ -23,18 +83,18 @@ functional stabilization of existing Draft PR #14.
 | Real cover persistence/reuse across views or restart | **Not confirmed**, blocked by the image-display failure |
 | Initial audio buffering | Observed and expected without persistent audio caching; no new offline-audio claim |
 
-The all-cover failure is a real target-desktop result. Earlier synthetic pixels,
-GTK fixtures and green CI do not contradict it or establish that the complete
-real-metadata-to-render path works. The stabilization work must reproduce and
-repair that path, then leave **actual cover display on Fedora** as its own manual
-acceptance item. At the start of stabilization, no failing stage had been
-established; the investigation below records the subsequently reproduced defect.
+The all-cover failure was a real target-desktop result for that revision.
+Earlier synthetic pixels, GTK fixtures and green CI did not contradict it or
+establish the complete real-metadata-to-render path. At the start of
+stabilization, no failing stage had been established; the investigation below
+records the subsequently reproduced defect. Its later repair and real-cover
+acceptance are recorded separately above, without changing this historical FAIL.
 
-The native restart result confirms that scenario only. Verified remember-off
-deletion, logout/failure/recovery cases, a specific real wallet backend and the
-current Flatpak Secret Portal lifecycle still need their stated checks. Existing
-sign-in, audio, search, queues and MPRIS must be preserved; this task does not
-authorize a broad redesign. The focused changed-function retest is in
+The native restart result confirmed that scenario only. At that point,
+remember-off deletion, logout/failure/recovery, the specific wallet backend and
+current Flatpak lifecycle had not been accepted by that report. The final owner
+report above adds its stated Flatpak scope without inventing those granular
+results. The reusable changed-function procedure is in
 [BUILDING.md](BUILDING.md#focused-cover-and-cache-stabilization-retest).
 
 ## Cover stabilization: confirmed defect and new verification
@@ -100,9 +160,11 @@ must prohibit expired/stale reuse without successful origin revalidation.
 | Auth terminal, GStreamer and GTK smoke | **PASS**, 15 synthetic OAuth pseudo-terminal checks, 40 silent GStreamer buffers, generated-WAV controls/cleanup, and ordinary/opted-in release GTK smoke |
 | Dependency licensing | **PASS**, reproduced inventory unchanged at 207 external crates / 178 Linux-graph crates; no dependency or license-text replacement |
 | Final native session/playback/MPRIS regression suite | **PASS**, 24 selectors explicitly executed at both 1× and 2× on isolated D-Bus/Xvfb; the two loading/interactive WebKit sandbox selectors require the separate hosted run |
-| Updated-head hosted CI and acceptance artifact | Source-matched run conclusions and artifact links are recorded in [Draft PR #14](https://github.com/tracerxbrhd/karin/pull/14) after completion; local success does not establish that hosted result |
-| Actual real-cover display and image-cache reuse on updated Fedora native build | **Owner retest pending** |
-| Current Flatpak build and Secret Portal/backend acceptance | **Not executed**: current Flatpak tooling/installed GNOME 50 SDK unavailable in this execution environment; native offline flags are not a sandbox build |
+| Hosted CI and acceptance artifact | Source-matched run conclusions and artifact links are recorded in [PR #14](https://github.com/tracerxbrhd/karin/pull/14); local success does not establish that hosted result or a later documentation HEAD's result |
+| Actual real-cover display on updated Fedora native build | **Owner PASS at `0232548`** in lists, Player Bar and right pane; KDE Media Widget also receives actual cover and metadata |
+| Image disk reuse | **Automatic counted-fixture PASS** above; no owner request-count measurement is claimed |
+| Final Flatpak authorization/playback/system integration | **Owner reports successful completion at `0232548`**; no detailed backend/failure matrix supplied |
+| Full Flatpak build in this cloud environment | **Not executed here**: tooling/installed GNOME 50 SDK unavailable; native offline flags are not a sandbox build |
 
 The local matrix commands follow [BUILDING.md](BUILDING.md#verification).
 The native fixtures are invoked separately under an isolated bus/display and
@@ -115,9 +177,10 @@ alters production layout. No real account or provider audio was used in these
 automated checks. The two loading/interactive WebKit sandbox fixtures are not
 claimed locally; check their explicit hosted results in the PR.
 
-No new synthetic image or public-CDN probe closes the final real-cover Fedora
-gate. The ordinary online player remains the existing path; persistent audio,
-full Wave and a visual redesign are outside this functional stabilization.
+The final real-cover gate was closed by the owner's `0232548` Fedora report,
+independently of synthetic images and public-CDN probes. The ordinary online
+player remains the existing path; persistent audio, full Wave and a visual
+redesign are outside this functional stabilization.
 
 ## Accepted merged v0.2 baseline and v0.3 status (2026-10-31)
 
@@ -141,28 +204,27 @@ artifact checksum with this acceptance report. Earlier revision-specific failure
 below remain historical evidence, including the old `f0aa2bb` UI failure; they
 are not the current merged-baseline status.
 
-**v0.3 — Seamless Experience is partly owner-tested, not finally accepted.**
-The native observations above qualify the original unaccepted status: restart
-restoration and pane mechanics passed, while real covers failed. Changed code
-still requires new automated checks and focused owner acceptance. Results are
-recorded only after execution. Existing authorization, resolver, player, contexts
-and MPRIS form the regression baseline. No account credentials, private library,
-service audio or user screenshots are supplied to Cloud/CI.
+**v0.3 — Seamless Experience has owner functional acceptance at `0232548`.**
+The final report above supersedes the earlier then-pending acceptance status;
+`23174b0` retains its cover FAIL. Existing authorization, resolver, player,
+contexts and MPRIS remain the regression baseline. UI/UX redesign belongs to a
+separate iteration. No account credentials, private library, service audio or
+user screenshots are supplied to Cloud/CI.
 
 The single current manual procedure is
 [the v0.3 Fedora acceptance guide](BUILDING.md#v03-seamless-experience-acceptance-on-fedora).
-Native secure storage and Flatpak Secret Portal/backend availability are separate
-checks. Neither a running Secret Service nor a portal interface proves that a
-saved token can be restored, validated and deleted. Public service/registration
-permissions and persistent/offline audio rights remain independent of the
-accepted local prototype.
+Native secure storage and Flatpak Secret Portal/backend availability remain
+distinct capabilities. The final owner acceptance establishes only its supplied
+scenarios; neither a service name nor that report proves every backend and
+delete/failure case. Public service/registration permissions and persistent/
+offline audio rights remain independent of the accepted local prototype.
 
 ## v0.3 execution record
 
-This records the preceding implementation's cloud checks. It is not a passing
-result for the new cover stabilization or a replacement for the Fedora failure
-above. New repair evidence belongs in a separate source-matched record after
-the corresponding checks have actually run.
+This historical section records the preceding implementation's cloud checks.
+It is not a passing result for the later cover repair and does not overwrite
+the Fedora failure at `23174b0`. Repair execution and final owner acceptance are
+recorded separately above.
 
 Local verification on **2026-10-31** covers the new implementation and its final
 runtime revision **`57ab96d7c7d3a64a5b0aaa72ac18cc65c3c0b020`**. The compiler
@@ -287,8 +349,8 @@ playlist code was not changed. The failed run remains failed evidence.
 
 The sections below retain their original revision/date, tests and owner findings.
 Statements such as “pending”, “not implemented”, “continue PR #13” or “no new PR”
-refer to that recorded scope, not the current v0.3 task. PR #13 is now merged;
-the current task uses one new v0.3 branch/Draft PR and the guide linked above.
+refer to that recorded scope, not the current v0.3 acceptance. PR #13 is merged;
+v0.3 finalization uses existing PR #14 and the guide linked above.
 Historical failures are not relabelled as passes, and later acceptance is not
 backdated into an earlier fixture run.
 

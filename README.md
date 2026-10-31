@@ -5,17 +5,22 @@
 An independent native Linux client for Yandex Music, built with Rust, GTK4,
 Libadwaita and GStreamer. Karin is not affiliated with Yandex.
 
-**v0.3 — Seamless Experience** develops protected session persistence, bounded
-metadata/artwork caching and an adaptive music workspace in one Draft PR to
-`master`. It preserves the accepted sign-in, MusicService, StreamResolver,
+**v0.3 — Seamless Experience** delivers protected session persistence, bounded
+metadata/artwork caching and an adaptive music workspace through
+[PR #14](https://github.com/tracerxbrhd/karin/pull/14). It preserves the accepted sign-in, MusicService, StreamResolver,
 GStreamer player, contextual queues and MPRIS integration.
 
 The owner accepted the merged v0.2 baseline on Fedora 44 / KDE Plasma / Wayland /
 PipeWire, including Flatpak: **17 PASS, 0 FAIL, 1 N/D** (hardware media keys).
 That includes real sign-in, library/search, actual Music playback, queues,
-transport/seek/volume, KDE Media Widget and shutdown. Executed v0.3 local
-compiler/native/UI checks are recorded separately; fresh owner acceptance
-remains pending. See [validation](docs/VALIDATION.md) and the
+transport/seek/volume, KDE Media Widget and shutdown. On **2026-10-31** the owner
+accepted v0.3 runtime **`02325489d23ead9da4471de9cc35e2c063ac8bab`**: persistent
+sign-in/restart, real covers in lists/Player Bar/right pane, real Music playback,
+pane mechanics and KDE cover/metadata. Final Flatpak authorization, playback
+and system-integration checks were reported successful. The pane's visual design
+is not accepted; substantial UI/UX work belongs to the next separate iteration.
+This is functional-prototype acceptance, not a public release. See
+[validation](docs/VALIDATION.md) and the
 [single Fedora procedure](docs/BUILDING.md#v03-seamless-experience-acceptance-on-fedora).
 
 ## Ordinary sign-in and protected session
@@ -52,9 +57,10 @@ session and permitted cache. Portal forgetting removes Karin's token envelope,
 not the portal's master key or Yandex's remote grant. No refresh or server
 revocation mechanism is claimed.
 
-Actual native keyring and Flatpak portal/backend success must be verified on
-the target desktop. A running service, available library, source listing or
-synthetic fixture alone does not prove that lifecycle. See
+The owner's persistence/restart and Flatpak results do not identify every
+keyring/portal backend or separately confirm its deletion/failure matrix. A
+running service, available library, source listing or synthetic fixture alone
+does not prove those additional lifecycle cases. See
 [ADR-0018](docs/adr/0018-persistent-session-and-settings.md).
 
 ## Music workspace
@@ -87,8 +93,9 @@ synthetic fixture alone does not prove that lifecycle. See
   actual position/capabilities, confirmed seeks, volume and private temporary
   cover-only PNGs are exported; tokens, cookies, account IDs and media URLs are
   not. The exact Flatpak MPRIS own-name permission is retained. Baseline KDE
-  Media Widget/Flatpak integration passed; v0.3 regression and hardware keys are
-  recorded separately.
+  Media Widget/Flatpak integration passed; v0.3 KDE real cover/metadata and final
+  Flatpak system integration are owner-confirmed. Physical media keys were not
+  individually reported.
 
 My Wave, similar-track feeds and offline audio are enabled only with their
 complete real contracts/rights lifecycle. Unsupported functions stay hidden;
@@ -157,10 +164,11 @@ rights, PipeWire audibility or real account acceptance. Smoke/capture modes
 inject offline state and must not restore a personal saved session/cache.
 
 GNOME 50 and the Freedesktop 25.08 Rust extension remain the Flatpak foundation.
-The owner accepted the earlier installed package; every changed package still
-needs its own build/install/storage/audio/UI/MPRIS regression. Source preparation
-and native offline compilation are not a full sandboxed Flatpak build. Xvfb does
-not pass the Fedora Wayland visual gate.
+The owner reported successful final v0.3 Flatpak checks for the accepted runtime;
+the exact supplied scope is recorded in validation. Future changed packages
+still need their own regression. Source preparation and native offline
+compilation are not a full sandboxed Flatpak build. Xvfb does not pass the
+Fedora Wayland visual gate.
 
 ## Documentation and release scope
 
@@ -178,7 +186,8 @@ with GPL notices preserved. Its source-license permission does not establish
 Karin's public OAuth-registration/service-distribution permission or Linux
 embedded-auth approval; no blanket service ban is inferred either. No new
 identity, DRM bypass, extracted delivery key or copyrighted recording is added.
-A v0.3 Draft PR is not a public-release declaration or merge authorization.
+The owner explicitly authorized PR #14's squash integration after final review
+and successful CI. That permission is separate from public-release approval.
 
 Karin's own code and original materials use **GNU GPL-3.0-or-later** unless a file
 states otherwise. [LICENSE](LICENSE) retains the standard full GPLv3 text and

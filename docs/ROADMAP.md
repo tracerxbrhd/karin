@@ -19,12 +19,20 @@ GStreamer worker, 500-position PlaybackContext and in-process MPRIS adapter.
 No generated audio, replacement provider or metadata-only queue may stand in
 for that working service path. A new revision still requires regression checks.
 
-## v0.3 — Seamless Experience
+## v0.3 — Seamless Experience: functional acceptance
 
-Develop one `feature/v0.3-seamless-experience` branch from the accepted `master`
-and one **Draft PR to master**, with logical commits for these cooperating areas.
-There are no separate auth/cache/UI PRs, history rewrites, force pushes, branch
-deletions or automatic merges in this iteration.
+Delivered through one `feature/v0.3-seamless-experience` branch and
+[PR #14](https://github.com/tracerxbrhd/karin/pull/14). On **2026-10-31** the owner
+accepted runtime `02325489d23ead9da4471de9cc35e2c063ac8bab`: persistent sign-in
+and restart restoration, real covers in lists/Player Bar/right pane, actual
+Music playback, pane mechanics and KDE Media Widget cover/metadata. The owner
+also reported successful final Flatpak authorization, playback and system
+integration, with no blocking functional defect reported. Exact scope and
+historical failures remain in [VALIDATION.md](VALIDATION.md).
+
+The owner authorized squash integration after final review and successful CI,
+without deleting the feature branch or rewriting history. The sections below
+record the delivered implementation scope and its continuing constraints.
 
 ### A. Persistent Session and Settings
 
@@ -102,10 +110,21 @@ keyboard/focus, track pane, playlist tiles and preferences. Xvfb does not establ
 Fedora Wayland acceptance. New native and Flatpak runs must check real music,
 session recovery, storage availability, cache behavior and shutdown.
 
-The one Draft PR records implemented code, executed commands/results, inspected
+The integration PR records implemented code, executed commands/results, inspected
 images, actual native/Flatpak storage evidence, blocked service features and
 [one Fedora acceptance procedure](BUILDING.md#v03-seamless-experience-acceptance-on-fedora).
-New code is not owner-accepted merely because the v0.2 baseline passed.
+The separate v0.3 owner report accepts its stated functional scope, not every
+unreported backend/failure case or future code change.
+
+## Next independent iteration: UI/UX
+
+The right pane's opening/closing mechanics are accepted, but its current visual
+design does not satisfy the owner. A substantial UI/UX revision is the next
+separate iteration; it must preserve the accepted authentication, actual audio,
+context queue, MPRIS, protected persistence and bounded cache. No redesign is
+part of PR #14's finalization. Track the source-reviewed nonblocking metadata
+refresh edges in [LIMITATIONS.md](LIMITATIONS.md#catalog-workspace-and-playback)
+alongside that follow-up, without treating them as authorization or playback.
 
 ## Independent release conditions
 
@@ -115,7 +134,9 @@ Keep GPL-3.0-or-later, third-party notices, the GNOME 50 / Freedesktop 25.08
 foundation and Rust 1.98.1 compatibility. No real account or secret enters Cloud,
 CI or GitHub; audio tests use original generated media and loopback fixtures.
 
-v0.3 is not a public-release declaration. Final service-rights review, fresh
-owner acceptance and explicit release/merge authorization remain necessary.
+v0.3 is not a public-release declaration. The supplied functional acceptance and
+explicit PR #14 merge authorization do not establish public OAuth distribution
+rights, offline-audio rights or a later release approval. New runtime changes
+still require their own checks and acceptance.
 Earlier v0.0/v0.1 feasibility decisions and test histories remain in the ADRs and
 validation record; superseded restrictions do not replace the current task.

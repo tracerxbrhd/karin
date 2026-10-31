@@ -29,9 +29,19 @@ PipeWire, including Flatpak: 17 PASS, 0 FAIL and 1 N/D (hardware media keys).
 Library/search, actual Music playback, contextual controls, MPRIS registration,
 KDE Media Widget and shutdown are an accepted baseline. PR #13 is merged. Earlier
 PR #8/#12 failures remain revision-specific history in VALIDATION, not current
-Karin status. New v0.3 persistence/cache/workspace behavior still needs independent
-checks and owner acceptance. Private screenshots, names, IDs and provider
-payloads are intentionally absent from this document.
+Karin status.
+
+On **2026-10-31**, the owner accepted v0.3 runtime revision
+**`02325489d23ead9da4471de9cc35e2c063ac8bab`** on that Fedora desktop: persistent
+sign-in/restart, real covers in lists/Player Bar/right pane, KDE Media Widget
+cover/metadata, actual Music playback and pane opening/closing passed. Final
+Flatpak authorization, playback and system-integration checks were reported
+successful; no blocking functional defect was reported. The pane's visual
+design remains unaccepted and is deferred to a separate UI/UX iteration. See
+[the exact acceptance scope](VALIDATION.md#final-owner-v03-acceptance-at-0232548-2026-10-31),
+which does not infer unreported granular results or public-distribution approval.
+Private screenshots, names, IDs and provider payloads are intentionally absent
+from this document.
 
 ## Capability matrix
 
@@ -39,11 +49,11 @@ payloads are intentionally absent from this document.
 | --- | --- | --- |
 | Ordinary Yandex sign-in and account | [Begin view][begin] and [API client][api] couple WebKit session login to token/account work | **Implemented; owner-verified** sign-in and Music account. Karin retains its own exact-origin/state, ephemeral-session and validation checks; shared-registration distribution conditions remain unresolved. |
 | Plus/subscription handling | [No-Plus dialog][plus] and [player][player] distinguish account/playback constraints | **Partial:** account validation is implemented; no subscription-success badge or playback entitlement is inferred from it. |
-| Liked tracks and personal playlists | [Playlists view][playlists] loads own and liked playlists; [playlist view][playlist] loads tracks | **Implemented; baseline library owner-PASS.** Actual own/liked playlist identities, details and loaded paging are retained; v0.3 cover tiles/cache are a new presentation/storage layer requiring fresh acceptance. |
+| Liked tracks and personal playlists | [Playlists view][playlists] loads own and liked playlists; [playlist view][playlist] loads tracks | **Implemented; baseline library owner-PASS.** Actual own/liked playlist identities, details and loaded paging are retained. v0.3 real covers in lists are owner-PASS at `0232548`; specific playlist-cover surfaces are not separately reported. |
 | Global track/album/artist search | Not established as a shipped v0.2.4 workflow; the wiki places service search in future 0.4 | **Implemented; owner baseline search PASS.** Four independent sections also include playlists. Track hits validate IDs, then use one bounded canonical batch; v0.3 retains that path rather than importing Cassette search stubs. |
-| Track/album details and covers | [Track info][track-info], [cover widget][cover] and [cache][cache] implement metadata/image presentation | **Implemented in code:** typed metadata, paged artist details and bounded scale-aware covers with native placeholders. Prior baseline texture/layout checks are recorded in VALIDATION; the new persistent artwork and right pane require fresh checks and owner acceptance. Returned metadata is not a stream grant. |
-| Play/pause, seek, next/previous, volume, queue, repeat/shuffle/EOS | [Player][player] and [track-list mode][track-list] implement actual transport and queue; playbin receives a resolved resource | **Implemented and owner-accepted for the baseline:** actual entitled Music audio, transport, seek/volume, contextual queues and shutdown. Repeat/shuffle are not implemented. Generated media is only an automated regression source; new v0.3 sound regression remains required. |
-| MPRIS/media keys and now-playing | [MPRIS player][mpris] exposes state, position, volume, queue capabilities and transport | **Implemented; owner baseline registration/KDE Media Widget and Flatpak MPRIS PASS.** Hardware media keys are N/D. Same-player GIO bridge, truthful metadata/capabilities, confirmed seek and cleanup remain; v0.3 requires regression acceptance. |
+| Track/album details and covers | [Track info][track-info], [cover widget][cover] and [cache][cache] implement metadata/image presentation | **Implemented; v0.3 owner-PASS for covers in lists, Player Bar and right pane at `0232548`.** Pane opening/closing also passed; its visual design remains unaccepted. Album/playlist-cover surfaces are not individually confirmed by that report. Counted fixtures establish disk reuse separately. Returned metadata is not a stream grant. |
+| Play/pause, seek, next/previous, volume, queue, repeat/shuffle/EOS | [Player][player] and [track-list mode][track-list] implement actual transport and queue; playbin receives a resolved resource | **Implemented and owner-accepted for the baseline; actual Music playback reconfirmed at v0.3 `0232548`.** The owner reports successful final Flatpak playback checks without a per-control result matrix. Repeat/shuffle are not implemented. Generated media remains only an automated regression source. |
+| MPRIS/media keys and now-playing | [MPRIS player][mpris] exposes state, position, volume, queue capabilities and transport | **Implemented; v0.3 owner-PASS for actual KDE Media Widget cover and metadata at `0232548`.** Final Flatpak system integration was reported successful. The baseline's hardware-media-key N/D is not upgraded to PASS; no new physical-key result was supplied. Same-player GIO bridge, truthful capabilities, confirmed seek and cleanup remain. |
 | My Wave/stations and feedback | [Flow mode][flow] creates a radio session, obtains batches and sends lifecycle feedback; [stations view][stations] selects stations | **Hidden in normal UI; source-backed backend implemented for v0.3.** Modern session/batch/feedback methods and an observed-Playing coordinator are separate from a shipped radio experience. Effective Karin session/tracks/feedback plus real listening are unverified; no fake ordinary-queue Wave appears. See the [current capability review](#v03-service-capability-review). |
 | Track likes/dislikes | [Track like/dislike buttons][like], [likes controller][likes] and [API methods][api] implement changes/state | **Implemented for like/unlike:** exact account membership, one deliberate write and independent revision/membership confirmation; conflicts and ambiguous outcomes require GET-only refresh. Native loopback controls are tested; live acceptance is pending. Dislike is not exposed. |
 | Playlist creation, track insertion/removal, deletion and visibility | [Create button][create], [track-playlist menu][track-playlist], [playlist view][playlist] and API mutation methods provide concrete actions | **v0.3 creation extension:** implement only the source-confirmed create contract with one explicit POST and independent server confirmation. Lost/ambiguous outcomes are not local success or automatic retries. Broader playlist insertion/removal/deletion are not claimed by a Create tile; live v0.3 acceptance remains pending. |
@@ -52,8 +62,8 @@ payloads are intentionally absent from this document.
 | Text/synced lyrics | [Lyrics panel][lyrics] renders text and time-synchronized lines; the API request obtains a signed lyrics resource | **Blocked for the reviewed implementation:** the inspected lyrics paths rely on official-client extracted signing material. Karin does not import it. A separately permitted plain-text source is not yet established. |
 | Explicit/child/replaced/unavailable metadata | [Info marks][marks], filtering and preferences distinguish these flags | **Partial:** availability is represented; richer metadata markers/filtering need typed models and fixture/live verification. Never silently substitute a different track. |
 | Cache/offline playlist or album media | [Cache subsystem][cache] and playlist controls save/delete media | **Audio blocked / not established:** no permitted Karin third-party persistent-audio/offline-entitlement lifecycle is established. Official-client offline behavior and a subscription do not supply that contract. Metadata and explicitly cacheable normalized covers are a separate v0.3 implementation; see AUDIO_CACHE_REVIEW. |
-| Theme, adaptive panels, preferences and notifications | [Preferences][preferences], [theme switcher][theme] and player/sidebar widgets implement settings and presentation | **Accepted baseline shell; v0.3 extends it:** persisted system/light/dark settings, adaptive right track information, native playlist tiles and storage/session preferences. Notifications are not claimed. New implementation, actual screenshots and Fedora/Flatpak acceptance are recorded separately. |
-| Persistent account session | Cassette uses its own storage/session lifecycle | **v0.3 protected lifecycle:** native Secret Service or available Flatpak Secret Portal, Music validation before use/save, durable forget barrier and verified deletion. No cookie/profile import, plaintext fallback, refresh or remote-revocation claim. Real wallet/portal acceptance remains distinct from synthetic fixture success. |
+| Theme, adaptive panels, preferences and notifications | [Preferences][preferences], [theme switcher][theme] and player/sidebar widgets implement settings and presentation | **Accepted baseline shell; v0.3 pane mechanics owner-PASS at `0232548`.** Persisted appearance, playlist tiles and storage/session preferences are implemented. The pane's visual design is not accepted; further UI/UX work is a separate iteration. Notifications are not claimed. Detailed checks remain revision-scoped in VALIDATION. |
+| Persistent account session | Cassette uses its own storage/session lifecycle | **v0.3 owner-PASS for persistent sign-in and restart at `0232548`.** Native Secret Service or available Flatpak Secret Portal, Music validation before use/save, durable forget barrier and verified deletion are implemented. Final Flatpak auth checks were reported successful, without granular wallet/portal/deletion outcomes. No cookie/profile import, plaintext fallback, refresh or remote-revocation claim. |
 
 ## v0.3 service capability review
 
@@ -113,9 +123,11 @@ Karin continues using its own small service adapter. See
 [RUST_API_CLIENT_REVIEW.md](RUST_API_CLIENT_REVIEW.md) and
 [STREAM_DELIVERY_REVIEW.md](STREAM_DELIVERY_REVIEW.md).
 
-The accepted v0.2 delivery/search implementation is preserved. v0.3 proceeds
-in one Draft PR from master: protected session/settings, bounded metadata/cover
-cache, then information/playlist UX and joint regression. Audio persistence,
+The accepted v0.2 delivery/search implementation is preserved. v0.3's single
+PR #14 contains protected session/settings, bounded metadata/cover cache and
+information/playlist components; final owner acceptance at `0232548` has the
+scope recorded above. It is not acceptance of the current visual design or a
+public release. Audio persistence,
 My Wave, similar tracks and lyrics have independent permission/contract gates;
 unsupported functions remain hidden rather than replaced with a generated queue.
 

@@ -197,7 +197,7 @@ copyright files were reviewed for the principal components below.
 | glibc and GCC runtime | glibc is principally LGPL-2.1-or-later; libgcc uses GPLv3 with GCC Runtime Library Exception. These are native runtime components, not relicensed by Karin. |
 | OpenSSL 3 in the development environment | Apache-2.0. Karin's HTTP implementation uses rustls/ring, not reqwest's OpenSSL backend. An installed development package is not proof that it is shipped or linked. Old OpenSSL versions would require their own review. |
 | Rust standard library/toolchain, GNOME SDK, Blueprint and build tools | Build tools are not automatically part of the shipped application. Rust's distributed components include their own MIT/Apache/LLVM-related notices; retain applicable notices for linked runtime pieces. The SDK and its tools retain their own component licenses. |
-| GNOME Flatpak runtime | A separately managed runtime with many component licenses. The initial manifest is not a complete runtime SBOM. A full Flatpak build is blocked in this cloud container, so final runtime/extension/license-content validation remains a release prerequisite. |
+| GNOME Flatpak runtime | A separately managed runtime with many component licenses. The manifest is not a complete runtime SBOM. The owner reports successful final v0.3 Flatpak functional checks; this cloud container did not run that package. Exact shipped runtime/extension/license-content validation remains a release prerequisite. |
 
 Do not add codec bundles, proprietary media, third-party artwork, or runtime
 libraries to a release merely because they are installed in a developer machine.
@@ -227,7 +227,10 @@ alone is not a universal substitute. Preserve runtime/library distributors'
 notices and satisfy their applicable obligations. Source generated from a worktree
 must be reviewed before distribution, including licenses and unintended files.
 
-The owner accepted the merged v0.2 native and Flatpak prototype; that does not certify a new v0.3 package or its protected-storage backend. This iteration does not publish a release. GPL grants
+The owner accepted v0.3 runtime `0232548` and reported successful final Flatpak
+authorization/playback/system integration on 2026-10-31. This does not supply an
+exact backend failure matrix or a release SBOM. This iteration does not publish
+a release. GPL grants
 rights in software, **not** permission to access Yandex Music, use its API or
 trademarks, or distribute its audio. Service terms, account rights and the
 blockers in [API_FEASIBILITY.md](API_FEASIBILITY.md) remain separate.

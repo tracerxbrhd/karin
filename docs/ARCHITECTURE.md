@@ -8,7 +8,11 @@ The merged v0.2 `master` (`09f7635`) has owner-reported native and Flatpak
 acceptance: 17 PASS, 0 FAIL, 1 N/D (hardware media keys). v0.3 extends protected
 session/settings persistence, bounded metadata/artwork cache and information/
 playlist presentation around those accepted service and engine boundaries.
-New behavior requires fresh checks and owner acceptance; see
+The owner accepted v0.3 runtime `0232548` on 2026-10-31 for persistent login/
+restart, real covers, actual music, pane mechanics and KDE cover/metadata, and
+reported successful final Flatpak auth/playback/system integration. The pane's
+visual design remains for a separate UI/UX iteration; unreported backend/failure
+cases are not inferred. Future behavior requires its own checks; see
 [validation](VALIDATION.md) and ADRs [0017](adr/0017-playback-context-unified-workspace-and-mpris.md),
 [0018](adr/0018-persistent-session-and-settings.md),
 [0019](adr/0019-bounded-account-cache.md) and
@@ -452,6 +456,10 @@ network first. Only Network/Timeout may fall back to a saved/stale record,
 re-read with a current lease after the failure. Authorization/policy/rate/schema
 refusals and other HTTP errors remove the record and never fall back. Cached
 values never establish authentication, membership/revision or write success.
+Removal is currently best effort if cache I/O itself fails; the previously
+fresh metadata may then survive a refusal. The final review records this
+nonblocking consistency edge in [limitations](LIMITATIONS.md#catalog-workspace-and-playback),
+separately from live session validation and stream resolution.
 Explicit Refresh bypasses fresh hits. UI rechecks cache-derived leases before
 presentation; fresh network replies carry no cache lease so clearing/disable
 does not discard otherwise valid server data. Library mutations invalidate metadata for every outcome,
@@ -545,8 +553,8 @@ The earlier Gate A MPRIS reservation and later audio-only deferral are historica
 ADR-0017 defines the bridge accepted in the merged v0.2 baseline. v0.3 adds the
 protected-session lifecycle without changing that provider/player. My Wave stays
 hidden unless its complete service-session/feedback capability is established.
-The baseline's desktop and Flatpak acceptance does not pass new v0.3 persistence,
-cache or workspace behavior. The exact MPRIS own-name grant does not enable direct
+The separate owner v0.3 report supplies its stated functional acceptance; it does
+not individually certify every cache, wallet or portal failure case. The exact MPRIS own-name grant does not enable direct
 Secret Service access; Flatpak selects Secret Portal and a safe unavailable
 result instead of silently widening the sandbox. The prototype manifest explicitly enables Cassette/WebKit authentication and
 excludes the legacy Device Flow feature. Dependency availability and synthetic

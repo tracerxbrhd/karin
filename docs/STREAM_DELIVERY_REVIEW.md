@@ -6,9 +6,17 @@ Updated: 2026-10-31, for [Issue #9][issue9] and its [P0 follow-up][p0].
 **Merged v0.2 is owner-accepted on Fedora 44 / KDE Plasma / Wayland / PipeWire,
 including Flatpak: 17 PASS, 0 FAIL, 1 N/D (hardware media keys).** Actual Music
 playback, contextual controls, search, KDE Media Widget and shutdown are the
-regression baseline. PR #13 is merged; v0.3 develops protected sessions/cache and
-workspace components in one new Draft PR while preserving this resolver/player.
-New checks and owner acceptance are recorded in [VALIDATION.md](VALIDATION.md).
+regression baseline. PR #13 is merged; v0.3 preserves this resolver/player.
+
+**Final v0.3 owner acceptance, 2026-10-31:** runtime revision
+**`02325489d23ead9da4471de9cc35e2c063ac8bab`** plays actual Music on that Fedora
+desktop. Persistent sign-in/restart, real covers in lists/Player Bar/right pane,
+KDE Media Widget cover/metadata and pane opening/closing also passed. The owner
+reports successful final Flatpak authorization, playback and system-integration
+checks, with no blocking functional defect reported. This is functional local
+prototype acceptance; the pane's visual design is unaccepted and deferred to the
+next UI/UX iteration. Granular unreported scenarios are not inferred. See
+[the acceptance record](VALIDATION.md#final-owner-v03-acceptance-at-0232548-2026-10-31).
 No real account, token, private response or music entered Cloud/CI.
 
 ## Historical owner evidence at `8f1b09d`
@@ -136,8 +144,8 @@ controls/EOS/cleanup and URI-log privacy. Their executed results and exact CI
 artifacts belong in [VALIDATION.md](VALIDATION.md) and the audio PR; they must not
 be inferred from this implementation description.
 
-Use [one combined v0.3 Fedora run](BUILDING.md#v03-seamless-experience-acceptance-on-fedora)
-with the current Draft PR build: ordinary sign-in or validated restore → track
+The reusable [combined v0.3 Fedora procedure](BUILDING.md#v03-seamless-experience-acceptance-on-fedora)
+guards this path in later revisions: ordinary sign-in or validated restore → track
 search → row activation → **hear it**, then details, queue/transport and cancelled/confirmed
 logout. A Library-track playback check guards the accepted path independently
 of search. If any stage fails,
@@ -147,8 +155,10 @@ CI or GitHub. A refusal is not a reason to change identity, region, TLS or acces
 controls.
 
 Track search and MPRIS are implemented and included in the merged owner-accepted
-baseline; hardware media keys remain N/D. New v0.3 code still needs regression
-checks with audible music and the current Flatpak. Protected persistence does
+baseline. The owner reconfirmed audible Music, KDE cover/metadata and successful
+final Flatpak checks at v0.3 `0232548`; no individual new-query or physical-media-key
+results were supplied. The baseline's hardware-media-key N/D is retained rather
+than upgraded by the broad system-integration report. Protected persistence does
 not alter the stream contract or turn a short-lived source into an offline
 grant. Persistent audio remains disabled: service permission plus a verifiable
 offline-entitlement lifecycle are not established in

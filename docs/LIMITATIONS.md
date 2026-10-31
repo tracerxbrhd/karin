@@ -11,38 +11,44 @@ Widget and shutdown form the regression baseline. Hardware media keys are N/D.
 PR #13 is merged. Earlier search/UI/audio/packaging failures remain history for
 those exact revisions, not the current baseline.
 
-v0.3 is a new protected-session/cache/workspace iteration. Code implementation,
-automated checks, actual desktop/backend acceptance and public-release rights
-are separate statuses. The baseline PASS does not accept the new revision; only
-executed results belong in [VALIDATION.md](VALIDATION.md). Use the
+The owner accepted v0.3 runtime
+`02325489d23ead9da4471de9cc35e2c063ac8bab` on **2026-10-31**, including
+persistent sign-in/restart restoration, real covers in lists/Player Bar/right
+pane, real playback, pane mechanics and KDE Media Widget cover/metadata. The
+owner also reported successful final Flatpak authorization, playback and
+system-integration checks, with no blocking functional defect reported.
+Automated checks, that desktop acceptance and public-release rights remain
+separate statuses; the documentation-only finalization HEAD is not a new runtime
+acceptance revision. Exact provenance belongs in [VALIDATION.md](VALIDATION.md).
+Use the
 [single Fedora procedure](BUILDING.md#v03-seamless-experience-acceptance-on-fedora).
 
 ## Current v0.3 functional stabilization
 
-At native revision `23174b045cc228e4108e847e801f9264d7a088f9`, the owner confirmed
-saved sign-in across restart and the right pane's opening/closing mechanics on
-Fedora 44 / KDE Plasma / Wayland / PipeWire. The pane's visual design is not
-accepted; its redesign belongs to the next UI/UX iteration, not this repair.
+At native revision `23174b045cc228e4108e847e801f9264d7a088f9`, saved sign-in
+and pane mechanics passed, while every cover surface failed. That historical
+FAIL remains recorded. The repair is owner-verified at `0232548` for real covers
+in lists, Player Bar and the right pane, plus KDE Media Widget cover/metadata.
+Pane mechanics are accepted; its visual design remains unsatisfactory to the
+owner. Substantial UI/UX redesign belongs to the next separate iteration.
 
-**Real covers are a P0 failure on that revision:** lists, album views, playlist
-tiles, Player Bar, track information and other image surfaces show only fallback
-icons. A synthetic texture test or successful CI cannot pass real cover display.
-The URL-generation cause has been reproduced independently: internal raster
+The URL-generation cause was reproduced independently: internal raster
 buckets 128/256/512 were sent as CDN sizes; two published public resources
 returned 404 for those sizes and 200 decoded JPEG for presets 200/400/1000.
 The correction keeps the internal buckets/limits and existing exact HTTPS
 origin. Published protocol-relative and narrowly numeric playlist-revision
 variants do not justify arbitrary sources, queries, MIME types or redirects.
 Core stable/MSRV checks, counted image-cache tests and extended native GTK
-fixtures pass at 1×/2×. Hosted conclusions are tracked on the updated PR, and
-a separate owner retest remains required. Public-sample HTTP results and these
-fixtures do not prove the updated Fedora render path. The focused procedure is
+fixtures pass at 1×/2×. Hosted conclusions are tracked on PR #14. Public-sample
+HTTP and synthetic fixtures remain separate from the owner's final render-path
+acceptance; neither proves every unreported album/playlist surface. The reusable
+focused procedure is
 [the cover/cache stabilization retest](BUILDING.md#focused-cover-and-cache-stabilization-retest).
 
 The observed metadata cache of about **66 KB after six tracks is not a defect by
 itself**. The 256 MiB default is a size ceiling, not a preallocation or expected
-music-file size. The owner's image-cache reuse remains unconfirmed until the
-fixed build is tested.
+music-file size. Disk reuse is established by existing automatic counted-image
+fixtures, not inferred HTTP-request counts from user-observed loading speed.
 Initial stream buffering remains expected; persistent audio/offline and the full
 Wave lifecycle retain their independent documented blockers.
 
@@ -53,9 +59,10 @@ identify a particular private image or expose a full request trace. Successful
 raster marked no-stale cannot supply network-error fallback. Other documented
 HTTP cache restrictions remain in force.
 The malformed-TLS loopback test is a negative handshake/no-downgrade check,
-not a claim about a real CDN certificate chain. The current execution lacks
-Flatpak tooling/an installed GNOME 50 SDK; a full updated package and its
-Secret Portal/backend have not been tested here.
+not a claim about a real CDN certificate chain. This cloud execution lacked
+Flatpak tooling/an installed GNOME 50 SDK and did not test the package here.
+The final owner's Flatpak success is separate evidence; it does not provide a
+granular Secret Portal/backend deletion/failure matrix.
 
 ## Session and system storage
 
@@ -65,9 +72,10 @@ Secret Portal/backend have not been tested here.
   storage permits ordinary process-only sign-in without plaintext fallback.
   Active cleanup I/O settles first; after a failed result, memory-only login can
   continue while restoration/new persistent writes/cache remain barred.
-  The owner's native restart PASS does not identify or accept every wallet
-  operation. Synthetic protocol fixtures do not establish real verified deletion,
-  failure recovery, a KWallet/GNOME lifecycle or current Flatpak portal support.
+  The owner's persistent-login/restart and final Flatpak PASS do not identify
+  or accept every wallet operation/backend. Synthetic protocol fixtures do not
+  establish real verified deletion or failure recovery on each KWallet/GNOME/
+  Secret Portal installation; no granular owner matrix was supplied.
 - **Only a Music-validated token may be remembered/restored as authenticated.**
   A loaded credential, Yandex ID, previous account or cached library is not fresh
   Music authorization. Restore and validation run off GTK, with generations and
@@ -129,6 +137,19 @@ Secret Portal/backend have not been tested here.
 
 ## Catalog, workspace and playback
 
+- **Home refresh can retain an existing preview.** Final source review found
+  that Home's refresh fetches new liked/playlist page zero but only assigns it
+  when the corresponding model is empty (`load_initial_library_policy`). An
+  already populated preview may therefore remain unchanged. Library/detail
+  Refresh follows its separate path. This is a nonblocking metadata-presentation
+  follow-up, not a replacement for the live account or audio checks.
+- **Refusal-driven cache removal can fail.** `CachedCatalog::read` returns a
+  non-transport API refusal, but removal of the previous record is best effort.
+  If cache I/O returns Busy/unavailable, a later stable read may still find the
+  earlier fresh metadata. This source-reviewed failure edge is not covered by
+  the successful-removal fixture. It does not authorize a session or supply a
+  playback resource; track it as a nonblocking cache-consistency follow-up.
+
 - **The API is unofficial and changeable.** Strict own identifiers/account binding
   and bounded requests remain. Track search accepts at most 50 raw hit positions
   and one canonical batch of at most 50 distinct IDs, preserving duplicate order,
@@ -166,8 +187,9 @@ Secret Portal/backend have not been tested here.
   optional private local PNG are exposed on the user's session bus, never media
   URLs, credentials or account IDs. Native seeks require actual worker
   acknowledgement. No second engine or arbitrary OpenUri is introduced.
-  Baseline KDE/Flatpak success does not automatically accept new cache/pane/
-  lifecycle interactions; physical media keys remain N/D until exercised.
+  The owner confirmed actual cover/metadata in KDE Media Widget at `0232548`
+  and reported successful final Flatpak system integration. Physical media keys
+  remain N/D without a separate reported test.
 
 ## Evidence and release scope
 

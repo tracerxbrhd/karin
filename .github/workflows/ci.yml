@@ -503,14 +503,15 @@ jobs:
           ./karin
           No experimental flag, Client ID/secret, token, URL copying or application registration is required.
           Read docs/BUILDING.md#v03-seamless-experience-acceptance-on-fedora at the exact source commit in BUILD-INFO.txt.
-          For this repair, use its focused-cover-and-cache-stabilization-retest subsection first.
-          Owner-tested 23174b0 preserved native login across restart and pane mechanics, but every real cover failed.
-          This build corrects CDN rendition sizes; verify recognizable real covers across all music surfaces and disk reuse after restart.
+          Its focused-cover-and-cache-stabilization-retest subsection remains a reusable regression guide.
+          Owner accepted runtime 02325489d23ead9da4471de9cc35e2c063ac8bab on 2026-10-31: persistent login/restart, real list/player/pane covers, actual music, pane mechanics and KDE cover/metadata.
+          Final Flatpak authorization/playback/system-integration checks were also reported successful; individual backend/deletion/media-key results were not supplied.
+          Earlier all-cover failure at 23174b0 remains historical; finalization changes documentation and artifact guidance, not that accepted runtime.
           If needed, close the app and run ./karin --artwork-diagnostic alone for bounded fixed image-stage categories.
           Share only Karin artwork: category lines, never complete logs or resource addresses; normal startup keeps this disabled.
           Baseline: owner accepted merged master 09f7635 on Fedora 44 / KDE / Wayland / PipeWire: 17 PASS, 0 FAIL, 1 not assessed.
           The baseline included native and Flatpak Music playback, queues, MPRIS, KDE media widget and clean exit.
-          Hardware media keys were not assessed. That previous result does not accept this new v0.3 artifact.
+          Hardware media keys were not individually reported. Build source identities and owner-tested runtime remain distinct.
           Unlock the normal desktop keyring. Karin must report whether protected session storage is usable.
           Click Войти, finish the real Yandex dialog and wait for Music account validation and the actual library.
           With Запоминать вход enabled and usable protected storage, close and restart: restoration must validate Music asynchronously.
@@ -548,7 +549,8 @@ jobs:
           Report exact revision and anonymized PASS/FAIL or not-assessed results only.
           Do not enable network/GStreamer debugging, record complete logs, or share raw JSON, metadata dumps, URLs, credentials, cookies, private screenshots or audio.
           CI uses synthetic data, isolated D-Bus fixtures and original generated media; it never uses a real account.
-          This entire new v0.3 iteration remains pending owner acceptance and public-release approval.
+          Functional v0.3 acceptance does not approve public release or settle shared-registration distribution rights.
+          The pane's visual design remains unaccepted; a separate UI/UX iteration follows this functional baseline.
           See BUILD-INFO.txt, licenses and the single Fedora guide.
           EOF
           tar -C build -czf build/karin-fedora-prototype-1.98.1.tar.gz karin-fedora-prototype-1.98.1

@@ -187,6 +187,13 @@ A successful build does not prove GTK runtime, audio, or Yandex API integration.
 The owner accepted merged master 09f7635 with 17 PASS, 0 FAIL and 1 N/D;
 that evidence is a baseline, not acceptance of subsequent v0.3 changes. Distinguish
 authored code, executed fixture checks, owner acceptance and blocked functionality.
+The owner subsequently accepted v0.3 runtime 02325489d23ead9da4471de9cc35e2c063ac8bab
+on 2026-10-31: persistence/restart, real covers in lists/player/pane, audible Music,
+pane mechanics, KDE cover/metadata and the reported final Flatpak auth/playback/
+system integration. Do not invent unreported backend/deletion/media-key details.
+Keep historical FAILs intact. The pane's visual design is not accepted and moves
+to a separate UI/UX iteration. Functional acceptance and the explicit PR #14
+squash authorization are not public-release or service-distribution permission.
 Do not claim a full current Flatpak build or a real wallet/portal test from source
 inspection, host-library checks or synthetic D-Bus fixtures.
 
