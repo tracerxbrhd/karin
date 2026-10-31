@@ -31,7 +31,7 @@ until its corresponding source-matched check actually runs.
 | Stable 1.99.1 and exact 1.98.1 strict Clippy | **PASS**, default/all/minimal all-target checks with `-D warnings` on both compilers |
 | Stable and exact 1.98.1 default/all/minimal tests and debug builds | **PASS**, **349 / 357 / 335** library tests plus **4 CLI tests** per configuration/compiler; ignored native fixtures are separate |
 | Formatting and offline MSRV release | **PASS**, both formatters; ordinary `cassette-auth` and all-feature offline/locked release builds; CLI boundaries, GStreamer and GTK startup/shutdown |
-| Complete local native fixture matrix | **PASS**, 26 named cases at each scale; compact media-error case retested after waiting for its actual height-for-width frame, retaining strict visible-error/native-Retry assertions |
+| Complete local native fixture matrix | **PASS**, 26 named cases at each scale during implementation; final cover/empty-current interactions retested at both scales. The compact media-error test waits for actual GTK layout while retaining strict visible-error/native-Retry assertions |
 | WebKit | Construction/cancel lifecycle **PASS** locally; the two navigating sandboxed fixtures require host namespaces and run in hosted CI, without disabling the sandbox |
 | Persistence/cache, MPRIS and licenses | **PASS**, isolated protocol/lifecycle/cache/cover fixtures at 1×/2× and unchanged dependency-license inventory |
 | Full v0.4 Flatpak package | **Unavailable here**: Flatpak 1.16.6 / Builder 1.4.4 installed, GNOME SDK 50 absent. Offline MSRV release is not a full sandbox build; manifest/runtime/permissions unchanged |

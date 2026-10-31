@@ -39,6 +39,8 @@ The following native input/state checks are mandatory:
   Both desktop sizes reserve central content width (wide 320+20 pixels; medium
   300+16), so the pane must not conceal track-row More menus or other actions.
   Exercise those controls after row Play with the default open preference.
+  Repeated current-cover activation must keep information open and show the
+  current track without restarting audio; it is not a second close action.
 - Open intent is distinct from widget visibility. Diagnostics may suspend
   presentation without forgetting that intent; logout retires personal data and
   asynchronous artwork/metadata work immediately.

@@ -316,6 +316,17 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
     assert_eq!(presentation(), InfoPresentation::Wide);
     assert!(this.info_is_open());
     assert_selection(&this, "41", ContextKind::LikedTracks, 0);
+    let queue_before_cover = this.model.borrow().queue.context().cloned();
+    click(&ui.window, id, &this.widgets.current_art_button);
+    assert!(
+        this.info_is_open(),
+        "the footer cover opens information; a repeat outside click cannot close it"
+    );
+    assert_selection(&this, "41", ContextKind::LikedTracks, 0);
+    assert_eq!(
+        this.model.borrow().queue.context(),
+        queue_before_cover.as_ref()
+    );
     capture_native("workspace-shell-wide-current");
 
     // Explicit metadata is independent of the queue/player, and harmless
@@ -337,6 +348,17 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
     assert_eq!(this.model.borrow().queue.current().unwrap().id, "41");
     assert!(this.music_snapshot().is_none());
     capture_native("workspace-shell-wide-selected");
+    // Cover is an explicit show-current action, even while another track is
+    // being inspected. It neither closes the pane nor changes playback.
+    click(&ui.window, id, &this.widgets.current_art_button);
+    assert!(this.info_is_open());
+    assert_selection(&this, "41", ContextKind::LikedTracks, 0);
+    assert_eq!(
+        this.model.borrow().queue.context(),
+        queue_before_cover.as_ref()
+    );
+    assert!(this.music_snapshot().is_none());
+    this.select_track_info(selected.clone(), Some(selected_context.clone()), false);
 
     // A new occurrence atomically returns to the current context. A pending
     // detail response from before that transition cannot overwrite the target.
@@ -602,6 +624,58 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
     assert!(this.model.borrow().account_valid);
     assert_eq!(this.model.borrow().queue.items().len(), 2);
     assert!(this.music_snapshot().is_none());
+
+    // Details can be the first music action, before any playing/queued track.
+    // Ctrl+I must preserve that explicit metadata target across close/reopen,
+    // rather than replacing it with a nonexistent current occurrence.
+    eprintln!("Karin synthetic shell phase: explicit-information-without-queue");
+    this.model.borrow_mut().queue.clear();
+    this.render_music_player();
+    this.select_track_info(selected.clone(), Some(selected_context.clone()), false);
+    assert!(!this.widgets.current_art_button.is_sensitive());
+    assert!(!this.info_is_open());
+    input(&["key", "--clearmodifiers", "ctrl+i"]);
+    pump_until(|| this.info_is_open() && this.track_pane.close.has_focus());
+    assert_selection(&this, "43", ContextKind::Album, 0);
+    assert!(this.info_selection.borrow().as_ref().unwrap().target == InfoTarget::ExplicitSelection);
+    assert!(this.model.borrow().queue.context().is_none());
+    assert!(this.music_snapshot().is_none());
+    input(&["key", "--clearmodifiers", "ctrl+i"]);
+    pump_until(|| {
+        !this.info_is_open()
+            && gtk::prelude::GtkWindowExt::focus(&ui.window).is_some_and(|focus| {
+                focus.is_mapped()
+                    && focus.is_sensitive()
+                    && (focus == *this.widgets.stack.upcast_ref::<gtk::Widget>()
+                        || focus.is_ancestor(&this.widgets.stack))
+            })
+    });
+    assert_selection(&this, "43", ContextKind::Album, 0);
+    input(&["key", "--clearmodifiers", "ctrl+i"]);
+    pump_until(|| this.info_is_open() && this.track_pane.close.has_focus());
+    assert_selection(&this, "43", ContextKind::Album, 0);
+    assert!(this.info_selection.borrow().as_ref().unwrap().target == InfoTarget::ExplicitSelection);
+    capture_native("workspace-shell-explicit-information-no-queue-open");
+    click(&ui.window, id, &this.track_pane.close);
+    pump_until(|| {
+        !this.info_is_open()
+            && gtk::prelude::GtkWindowExt::focus(&ui.window).is_some_and(|focus| {
+                focus.is_mapped()
+                    && focus.is_sensitive()
+                    && (focus == *this.widgets.stack.upcast_ref::<gtk::Widget>()
+                        || focus.is_ancestor(&this.widgets.stack))
+            })
+    });
+    assert_selection(&this, "43", ContextKind::Album, 0);
+    assert!(this.model.borrow().queue.context().is_none());
+    assert!(this.music_snapshot().is_none());
+    capture_native("workspace-shell-explicit-information-no-queue-closed");
+    this.model
+        .borrow_mut()
+        .queue
+        .replace_context(context.clone());
+    this.follow_current_occurrence();
+    this.render_queue();
 
     let logout_epoch = this.info_target_epoch();
     this.logout();

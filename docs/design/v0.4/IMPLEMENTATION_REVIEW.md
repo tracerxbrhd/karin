@@ -30,8 +30,7 @@ show seven complete rows compact, six medium and all eight fixture rows wide
 and maximized.
 
 The preserved current capture executable has SHA-256
-`be5b842cfead7ba8a795aa3d10e9180f5820ae4c60e5d81893d5ebe7eb18aeb8`.
-Later fixture-only readiness assertions do not alter production composition.
+`7e4c827ec647ea51eb612185358084e6a3ece78a4d4d6d7760735e1f1d578998`.
 Hosted artifacts record their own immutable source/executable fingerprints;
 a newly built binary need not have this local test executable's hash.
 
@@ -39,6 +38,11 @@ The reproducible baseline helper was also executed with the final shared
 harness: all 32 fresh baseline matrix images were byte-identical to the
 reviewed baseline above. It forces a fresh archive compilation to prevent
 same-package Cargo-output reuse from becoming false current evidence.
+
+The final information-action corrections were followed by fresh captures of
+all 32 current matrix cases and 40 supplements. These were compared with the
+reviewed preceding captures; differences were limited to the native hover row
+and blinking insertion caret, with no layout/artwork/metadata change.
 
 ## Inspected composition and corrections
 
@@ -56,9 +60,19 @@ real widgets and themed colors; synthetic striped covers demonstrate image
 placement, not real service art. Composition review does not certify contrast
 or readability for every accessibility setting or very large personal library.
 Native pointer/keyboard tests additionally check 720/900-width central actions,
-compact focus and weak-reference cleanup; the focused run passed in 16 seconds.
+compact focus and weak-reference cleanup. Real repeated current-cover clicks
+keep information open, return from explicit selection to current metadata and
+preserve queue, worker generation, playback serial and resolver requests.
+Explicit metadata remains reopenable through Ctrl+I before any track has played;
+closing it returns focus to actual main-page controls when the footer is disabled.
 Generated-media audio/EOS/MPRIS-follow and full-scale regressions are separately
 recorded in [VALIDATION.md](../../VALIDATION.md).
+
+Long two-line metadata can put the action row just below the initial medium
+pane fold; the pane retains ordinary vertical scrolling. The additional
+no-current/explicit-selection screenshots show this nonblocking case. Fedora
+review should include wheel/keyboard access to these actions with actual fonts
+and long personal titles, rather than treating below-fold content as truncation.
 
 ## Matched actual GTK examples
 

@@ -63,7 +63,10 @@ Keep four concepts separate:
   player's occurrence-change hook distinguishing repeated IDs. The target is
   owned by the workspace controller, not the view or GStreamer worker.
 
-Cover activation/Ctrl+I opens current information. Explicit Details may select
+Cover activation always shows current information and keeps an already open
+pane open; it is not an outside-click dismissal. Ctrl+I is the explicit toggle. If there is no current queue item, it preserves
+usable explicit metadata; closing returns focus to the music page when the
+current-cover control is disabled. Explicit Details may select
 another track without changing PlaybackContext or audio. Pause, seek and volume
 do not erase that choice. A new actual current occurrence from direct Play,
 queue selection, Next/Previous, EOS or MPRIS returns to `FollowingCurrent` and

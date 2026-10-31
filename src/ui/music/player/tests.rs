@@ -1483,6 +1483,26 @@ fn native_music_context_mpris_shared_player_and_cleanup() {
                 .is_some_and(|view| view.is_child_revealed())
     });
     assert_pinned_track(this, "42");
+    // Unlike Ctrl+I, the footer cover only opens/shows current information.
+    // Finish actual GTK input frames before checking a repeated click: simply
+    // waiting for an already-true intent would miss the old toggle regression.
+    native_click(&ui.window, &this.widgets.current_art_button);
+    super::super::test_input::wait_for_layout(&ui.window, &this.widgets.current_art_button);
+    assert_pinned_track(this, "42");
+    assert_eq!(this.player.borrow().serial, presentation_serial);
+    assert_eq!(fixture.offers(0), presentation_offers);
+    assert_eq!(original.snapshot().generation, source_generation);
+    assert_eq!(original.snapshot().state, PlaybackState::Paused);
+    this.select_track_info(track("44"), None, false);
+    assert_pinned_track(this, "44");
+    native_click(&ui.window, &this.widgets.current_art_button);
+    super::super::test_input::wait_for_layout(&ui.window, &this.widgets.current_art_button);
+    assert_pinned_track(this, "42");
+    assert_eq!(this.model.borrow().queue.current().unwrap().id, "42");
+    assert_eq!(this.player.borrow().serial, presentation_serial);
+    assert_eq!(fixture.offers(0), presentation_offers);
+    assert_eq!(original.snapshot().generation, source_generation);
+    assert_eq!(original.snapshot().state, PlaybackState::Paused);
     native_click(&ui.window, &this.track_pane.close);
     pump_until(|| !this.info_is_open());
     native_click(&ui.window, &this.widgets.current_art_button);

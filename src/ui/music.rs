@@ -524,11 +524,14 @@ impl MusicPane {
         let current_art_button = gtk::Button::builder()
             .has_frame(false)
             .child(&current_art)
-            .tooltip_text("Сведения о треке")
+            .tooltip_text("Показать сведения о текущем треке")
             .sensitive(false)
             .build();
         current_art_button.add_css_class("flat");
         current_art_button.set_widget_name("music-current-info");
+        current_art_button.update_property(&[gtk::accessible::Property::Label(
+            "Показать сведения о текущем треке",
+        )]);
         player_metadata.append(&current_art_button);
         let playing = gtk::Box::new(gtk::Orientation::Vertical, 2);
         playing.set_hexpand(true);

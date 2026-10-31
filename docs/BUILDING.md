@@ -68,7 +68,9 @@ owner reviews actual Fedora behavior and visuals; do not merge or create a new P
    density, concise labels, reachable Back/Retry and clearly different Play and
    Details actions. Missing art/data and errors must stay honest; no decorative
    recommendation or unsupported feature should appear.
-3. Open information with the current cover or Ctrl+I. Click the main view,
+3. Open information with the current cover or Ctrl+I. Click the current cover
+   again: keep information open and show the current track without restarting
+   audio. Click the main view,
    scroll, navigate and resize wide→medium→compact→wide: keep it open without
    a dismissing scrim or close/reopen flicker. Close explicitly with X/Ctrl+I
    or compact Back and check focus return. Opening/closing must not restart sound.
@@ -88,7 +90,9 @@ owner reviews actual Fedora behavior and visuals; do not merge or create a new P
    and at least six complete rows at 900×650 with information closed where
    accessibility permits. Compare the actual baseline/current GTK captures;
    design SVGs do not establish implementation quality.
-6. Recheck search/detail/paging, contextual duplicates/manual queue edits,
+6. Before playing any track, open real track Details, close/reopen information
+   with Ctrl+I and check the selection and usable main-page focus after X.
+   Recheck search/detail/paging, contextual duplicates/manual queue edits,
    transport/Seek/Volume/EOS, KDE Media Widget cover/metadata and supported
    `playerctl` controls. Exercise physical media keys and report their result
    separately. Cache-off/Clear, Preferences and information/navigation must

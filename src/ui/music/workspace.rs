@@ -133,7 +133,7 @@ impl Controller {
         let weak = Rc::downgrade(self);
         self.widgets.current_art_button.connect_clicked(move |_| {
             if let Some(this) = weak.upgrade() {
-                this.toggle_track_info();
+                this.show_current_track_info();
             }
         });
         if let Some(window) = self.window.upgrade() {
@@ -522,6 +522,21 @@ impl Controller {
             .is_some_and(InfoHost::is_open)
     }
 
+    /// The footer cover shows current information; it is not an outside-click
+    /// dismissal or a second close control. Ctrl+I retains the explicit toggle.
+    fn show_current_track_info(self: &Rc<Self>) {
+        if !self.music_surface_visible.get() || self.model.borrow().queue.current().is_none() {
+            return;
+        }
+        self.follow_current_occurrence();
+        self.sync_track_pane();
+        if self.info_selection.borrow().is_none() {
+            return;
+        }
+        self.set_info_open(true);
+        self.track_pane.close.grab_focus();
+    }
+
     fn toggle_track_info(self: &Rc<Self>) {
         if !self.music_surface_visible.get() {
             return;
@@ -531,7 +546,7 @@ impl Controller {
             return;
         }
         let show = !self.track_info_preference();
-        if show {
+        if show && self.model.borrow().queue.current().is_some() {
             self.follow_current_occurrence();
             self.sync_track_pane();
         }
@@ -539,7 +554,17 @@ impl Controller {
         if show {
             self.track_pane.close.grab_focus();
         } else {
-            self.widgets.current_art_button.grab_focus();
+            self.return_information_focus();
+        }
+    }
+
+    fn return_information_focus(&self) {
+        if !self.widgets.current_art_button.grab_focus() {
+            // Explicit metadata may exist before a queue/current cover does.
+            // Return to the first real control of the visible music page.
+            self.widgets
+                .stack
+                .child_focus(gtk::DirectionType::TabForward);
         }
     }
 
@@ -548,7 +573,7 @@ impl Controller {
         if matches!(action, PaneAction::Close) {
             self.clear_text_focus();
             self.set_info_open(false);
-            self.widgets.current_art_button.grab_focus();
+            self.return_information_focus();
             return;
         }
         if !self.model.borrow().account_valid || self.model.borrow().closed {
