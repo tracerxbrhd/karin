@@ -57,15 +57,18 @@ metadata-only XML classification. Its MIT option is compatible with Karin's
 GPL-3.0-or-later distribution; retain the supplied upstream license and notice.
 This parser performs no external entity resolution, signing, decryption or media
 delivery. The refreshed inventory contains **207 external crates**, **178** in
-the Linux graph. The older counts below describe the preceding lockfile review.
+the Linux graph.
 
 Catalog repair, the delivery probe and subsequent original navigation/artwork
 code retain Karin SPDX notices. Endpoint/model analysis cites pinned sources;
 no new Cassette artwork, graphical assets, checksum prefix, media-signing key,
 protected media or OAuth identity is imported. Public source licensing does not
 settle the existing experimental registration or service-distribution conditions.
-Fetched cover images are remote service material, not relicensed Karin assets;
-they must remain bounded memory-only presentation, with no bundled private art.
+Fetched cover images are remote service material, not relicensed Karin assets.
+Presentation remains bounded, with no bundled private art. MPRIS additionally
+exports a decoded cover-only PNG in a temporary private app-cache directory
+(directory 0700, file 0600), removed on replacement, logout and normal shutdown.
+It contains no source URL or original embedded metadata; music is not cached.
 
 ## License text and scope
 
@@ -87,8 +90,8 @@ No third-party source or license text is overwritten with a Karin SPDX header.
 
 ## Locked Rust dependencies
 
-[`DEPENDENCY_LICENSES.md`](DEPENDENCY_LICENSES.md) records **206 external crates**
-across the resolved all-feature lockfile graph and **177** in Cargo's
+[`DEPENDENCY_LICENSES.md`](DEPENDENCY_LICENSES.md) records **207 external crates**
+across the resolved all-feature lockfile graph and **178** in Cargo's
 `x86_64-unknown-linux-gnu` graph, including build dependencies. This includes
 platform alternatives/build tools and is not a claim that every resolved package
 is linked into the Linux executable. No crate is missing a reviewed declaration.
@@ -159,7 +162,7 @@ copyright files were reviewed for the principal components below.
 | --- | --- |
 | GTK4, Libadwaita, GLib/GIO and libsecret | Principally LGPL-2.1-or-later; individual bundled files/materials have their own notices. Dynamic use is compatible with the GPLv3 application, while native-library source/relinking and notice duties remain with distributors. libsecret presence is inspected over D-Bus; Karin currently does not link a credential-storage implementation. |
 | Optional WebKitGTK6, JavaScriptCore and libsoup | Native components have their own LGPL-2.1-or-later/BSD-style and per-file terms, separate from the MIT Rust bindings. They are supplied by the host or GNOME 50 runtime; no extra native module/runtime version or sandbox grant is introduced. Distributors must preserve the exact components' notices and satisfy applicable source/relinking obligations. Review the actual runtime revision and bundled subcomponents before a release; the Cargo inventory is not that review. |
-| GStreamer core and installed base/good plugins | Principally LGPL-2.0-or-later / LGPL-2.1-or-later with per-file exceptions. The current pipeline uses a synthetic source, conversion/resampling and a sink, not a downloaded codec pack. Additional plugins/codecs must be reviewed for their actual licenses and applicable patent/distribution constraints. |
+| GStreamer core and installed base/good plugins | Principally LGPL-2.0-or-later / LGPL-2.1-or-later with per-file exceptions. The real player uses host-provided playbin, HTTPS source, MP3 decoding and output plugins; separate diagnostics use synthetic/local media. No codec pack or service recording is bundled. Additional plugins/codecs must be reviewed for their actual licenses and applicable patent/distribution constraints. |
 | D-Bus | The installed shared library offers `GPL-2.0-or-later OR AFL-2.1`; the GPL-later route permits GPLv3 combination. Karin currently uses GIO's D-Bus implementation and does not bundle a bus daemon. Separate utility/package files can have different terms. |
 | glibc and GCC runtime | glibc is principally LGPL-2.1-or-later; libgcc uses GPLv3 with GCC Runtime Library Exception. These are native runtime components, not relicensed by Karin. |
 | OpenSSL 3 in the development environment | Apache-2.0. Karin's HTTP implementation uses rustls/ring, not reqwest's OpenSSL backend. An installed development package is not proof that it is shipped or linked. Old OpenSSL versions would require their own review. |

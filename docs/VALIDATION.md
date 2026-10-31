@@ -31,6 +31,45 @@ integration checks must exercise those real paths rather than substitute
 synthetic audio, UI-only state or a different login. No user session, resource
 address, private library or raw log belongs in Cloud/CI evidence.
 
+## Context, unified workspace and MPRIS implementation checks (2026-10-31)
+
+The local implementation matrix at `fea02c3` passed on Rust stable **1.99.1**
+and exact **1.98.1**: formatting, warning-free default/all-feature/minimal Clippy,
+tests and builds. The library test counts were **248 default**, **256 with all
+features** and **234 without default features**, plus four CLI tests per mode.
+All 16 all-feature native fixtures were also executed, including actual mouse
+and keyboard rows, contextual playback, independent search sections, confirmed
+logout and isolated MPRIS controls. These checks used synthetic records and
+original generated media only.
+
+The same GStreamer worker was exercised through GTK and real `playerctl`/D-Bus
+calls: transport, volume, near-position seek acknowledgement, stale SetPosition,
+paused/stopped Next/Previous, EOS, manual additions, logout and bus-name cleanup.
+The tests reproduced and fixed a Ready-to-Play UI race that retained preparation
+state after playback began. Seeked now follows the worker's successful native
+seek observation rather than a queued request or elapsed-time approximation.
+
+An empty-Cargo-cache vendored MSRV offline release passed version, generated
+audio, local playback-controller and GTK lifecycle checks. License review
+verified 207 package checksums, 11,669 vendored file hashes and 377 packaged
+Rust notice files. This is a source/native artifact check, not a complete
+GNOME SDK 50 Flatpak build or distribution-permission assessment.
+
+The `fea02c3` PR and push CI matrices both passed. Their 238 real Xvfb PNGs were
+reviewed in light/dark themes at 1×/2×, including populated fixtures. Review found
+an unavailable expanded-navigation icon; `2367d87` keeps the installed native
+sidebar glyph in both states, retaining the toggle state and distinct tooltip.
+Formatting and both compilers' all-feature Clippy passed after that correction.
+Final revision-specific CI, captures and native build hashes are recorded in
+PR #13. A GTK 4.14 Xvfb black rectangle around the account popover remains a
+capture qualification, not a confirmed Fedora defect. Lower unified-search
+sections are covered structurally; individual top-of-page captures do not show
+all four categories at once.
+
+The owner's `f0aa2bb` PASS/FAIL table above remains the latest real Fedora
+evidence. New UI acceptance, live unified search, contextual playback regression,
+KDE media widget/physical media keys and current Flatpak are still pending.
+
 ## Historical owner acceptance and search/UX correction through `f0aa2bb` (2026-10-31)
 
 The owner's [technical conclusion for PR #13 at `8f1b09d`](https://github.com/tracerxbrhd/karin/pull/13#issuecomment-6539311586)
