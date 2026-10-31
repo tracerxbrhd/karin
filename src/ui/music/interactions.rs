@@ -218,9 +218,23 @@ impl Controller {
         // Clear known UI state while the one explicit write and its confirming
         // read are in flight. Repeated clicks cannot enqueue another POST.
         widgets.unknown("Сохранение и проверка отметки…", false);
+        self.requests.borrow_mut().invalidate(Operation::Library);
+        self.requests
+            .borrow_mut()
+            .invalidate(Operation::InitialLibrary);
+        let cache = self.persistent_cache();
         self.run(
             Operation::Mutation,
-            move |service, token| Ok(service.set_track_liked(&token, &id, !liked)),
+            move |service, token| {
+                let result = service.set_track_liked(&token, &id, !liked);
+                if !token.is_expired()
+                    && service.cache_scope(&token).is_ok()
+                    && let Some(cache) = cache
+                {
+                    let _ = cache.invalidate_metadata();
+                }
+                Ok(result)
+            },
             move |this, result| {
                 this.mutation_busy.set(false);
                 let result = result.unwrap_or_else(|error| Err(InteractionError::Music(error)));
@@ -229,6 +243,10 @@ impl Controller {
                 // response was lost. Invalidate the local library cache in all
                 // outcomes; the next library read must ask Music again.
                 this.model.borrow_mut().liked = None;
+                this.requests.borrow_mut().invalidate(Operation::Library);
+                this.requests
+                    .borrow_mut()
+                    .invalidate(Operation::InitialLibrary);
                 this.render_home_preview();
                 if let Err(InteractionError::Music(
                     error @ (MusicError::AccessDenied | MusicError::Unauthenticated),

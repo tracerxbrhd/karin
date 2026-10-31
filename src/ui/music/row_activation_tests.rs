@@ -63,6 +63,14 @@ fn first(list: &gtk::ListBox) -> gtk::ListBoxRow {
     list.first_child().unwrap().downcast().unwrap()
 }
 
+fn playlist_tile(this: &Controller, title: &str) -> Option<gtk::Button> {
+    descendants(this.playlist_grid.widget.upcast_ref())
+        .into_iter()
+        .filter(|widget| widget.widget_name() == "music-playlist-tile")
+        .filter_map(|widget| widget.downcast::<gtk::Button>().ok())
+        .find(|button| contains_text(button.upcast_ref(), title))
+}
+
 fn settle() {
     let deadline = Instant::now() + Duration::from_millis(120);
     pump_until(|| Instant::now() >= deadline);
@@ -360,10 +368,7 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
     ] {
         eprintln!("Karin synthetic input: target=playlist mode={mode}");
         this.widgets.library_mode.set_selected(mode);
-        pump_until(|| {
-            !this.model.borrow().busy
-                && contains_text(this.widgets.library_rows.upcast_ref(), title)
-        });
+        pump_until(|| !this.model.borrow().busy && playlist_tile(this, title).is_some());
         for _ in 0..2 {
             let refresh_path = if mode == 1 {
                 "/users/1234/playlists/list"
@@ -374,24 +379,35 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
             click(window, id, &this.widgets.library_refresh);
             pump_until(|| count(refresh_path) > before_refresh && !this.model.borrow().busy);
         }
-        let before = count(path);
-        click(window, id, &first(&this.widgets.library_rows));
-        pump_until(|| {
-            this.widgets.stack.visible_child_name().as_deref() == Some("detail")
-                && !this.model.borrow().busy
-        });
-        settle();
-        assert_eq!(
-            count(path),
-            before + 1,
-            "refresh must not duplicate row dispatch"
-        );
-        assert!(contains_text(
-            this.widgets.detail.upcast_ref(),
-            "Synthetic input track"
-        ));
-        click(window, id, &this.widgets.detail.first_child().unwrap());
-        pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("library"));
+        for method in [None, Some("Return"), Some("space")] {
+            let before = count(path);
+            // Select the actual playlist by title, not the leading functional
+            // Create tile in the owned-playlists grid.
+            let tile = playlist_tile(this, title).expect("real playlist tile");
+            assert!(tile.is_visible() && tile.is_sensitive());
+            if let Some(key) = method {
+                assert!(tile.grab_focus());
+                input(&["key", "--clearmodifiers", key]);
+            } else {
+                click(window, id, &tile);
+            }
+            pump_until(|| {
+                this.widgets.stack.visible_child_name().as_deref() == Some("detail")
+                    && !this.model.borrow().busy
+            });
+            settle();
+            assert_eq!(
+                count(path),
+                before + 1,
+                "refresh must not duplicate actual tile dispatch"
+            );
+            assert!(contains_text(
+                this.widgets.detail.upcast_ref(),
+                "Synthetic input track"
+            ));
+            click(window, id, &this.widgets.detail.first_child().unwrap());
+            pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("library"));
+        }
     }
     for (kind, enter, path, title) in [
         (SearchKind::Tracks, true, "/tracks", "Synthetic input track"),
@@ -504,6 +520,7 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
         id: "43".into(),
         title: "Synthetic second queued track".into(),
         artists: vec![],
+        artist_links: Vec::new(),
         album_id: None,
         album_title: None,
         duration_ms: None,

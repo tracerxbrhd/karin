@@ -1,0 +1,293 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//! Adaptive playlist tiles. The controller remains the source of catalog truth.
+
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
+
+use adw::prelude::*;
+
+use crate::{artwork::ArtworkLoader, music::Playlist};
+
+#[derive(Clone)]
+pub(super) enum PlaylistAction {
+    Open(Playlist),
+    Create,
+    Retry,
+}
+
+struct State {
+    generation: Cell<u64>,
+    create_allowed: Cell<bool>,
+    action: Rc<dyn Fn(PlaylistAction)>,
+}
+
+pub(super) struct PlaylistGrid {
+    pub widget: gtk::Box,
+    pub tiles: gtk::FlowBox,
+    pub retry: gtk::Button,
+    state: Rc<State>,
+    loader: Option<ArtworkLoader>,
+    feedback: gtk::Box,
+    spinner: gtk::Spinner,
+    message: gtk::Label,
+    create_tile: RefCell<Option<gtk::glib::WeakRef<gtk::FlowBoxChild>>>,
+}
+
+impl PlaylistGrid {
+    pub fn new(loader: Option<ArtworkLoader>, action: Rc<dyn Fn(PlaylistAction)>) -> Self {
+        let state = Rc::new(State {
+            generation: Cell::new(0),
+            create_allowed: Cell::new(false),
+            action,
+        });
+        let widget = gtk::Box::new(gtk::Orientation::Vertical, 12);
+        widget.set_widget_name("music-playlist-grid");
+        let tiles = gtk::FlowBox::new();
+        tiles.set_widget_name("music-playlist-tiles");
+        tiles.set_selection_mode(gtk::SelectionMode::None);
+        tiles.set_focusable(false);
+        tiles.set_min_children_per_line(1);
+        tiles.set_max_children_per_line(6);
+        tiles.set_column_spacing(16);
+        tiles.set_row_spacing(16);
+        tiles.set_homogeneous(true);
+        tiles.set_halign(gtk::Align::Start);
+        tiles.set_hexpand(false);
+        tiles.set_valign(gtk::Align::Start);
+        widget.append(&tiles);
+        let feedback = gtk::Box::new(gtk::Orientation::Vertical, 10);
+        feedback.set_halign(gtk::Align::Start);
+        let spinner = gtk::Spinner::new();
+        spinner.set_halign(gtk::Align::Start);
+        spinner.set_visible(false);
+        feedback.append(&spinner);
+        let message = gtk::Label::new(None);
+        message.set_widget_name("music-playlist-grid-status");
+        message.set_xalign(0.0);
+        message.set_wrap(true);
+        message.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+        message.set_width_chars(1);
+        message.add_css_class("dim-label");
+        feedback.append(&message);
+        let retry = gtk::Button::with_label("Повторить загрузку");
+        retry.set_widget_name("music-playlist-grid-retry");
+        retry.set_halign(gtk::Align::Start);
+        retry.set_visible(false);
+        retry.connect_clicked({
+            let state = Rc::clone(&state);
+            move |_| (state.action)(PlaylistAction::Retry)
+        });
+        feedback.append(&retry);
+        widget.append(&feedback);
+        let result = Self {
+            widget,
+            tiles,
+            retry,
+            state,
+            loader,
+            feedback,
+            spinner,
+            message,
+            create_tile: RefCell::new(None),
+        };
+        result.set_playlists(&[], false);
+        result
+    }
+
+    pub fn set_playlists(&self, playlists: &[Playlist], allow_create: bool) {
+        self.reset();
+        let generation = self.state.generation.get();
+        if allow_create {
+            self.state.create_allowed.set(true);
+            let button = self.create_tile(generation);
+            self.append_tile(&button);
+            if let Some(child) = button.parent().and_downcast::<gtk::FlowBoxChild>() {
+                self.create_tile.replace(Some(child.downgrade()));
+            }
+        }
+        for playlist in playlists {
+            let button = self.playlist_tile(playlist, generation);
+            self.append_tile(&button);
+        }
+        self.tiles
+            .set_visible(allow_create || !playlists.is_empty());
+        self.feedback.set_visible(playlists.is_empty());
+        if playlists.is_empty() {
+            self.message.set_text(if allow_create {
+                "Плейлистов пока нет. Создайте первую подборку."
+            } else {
+                "Плейлистов пока нет."
+            });
+        }
+    }
+
+    pub fn set_loading(&self) {
+        self.reset();
+        self.feedback.set_visible(true);
+        self.message.set_text("Загрузка плейлистов…");
+        self.spinner.set_visible(true);
+        self.spinner.set_spinning(true);
+    }
+
+    pub fn set_error(&self) {
+        self.reset();
+        self.feedback.set_visible(true);
+        self.message
+            .set_text("Не удалось загрузить плейлисты. Попробуйте ещё раз.");
+        self.retry.set_visible(true);
+    }
+
+    pub fn clear(&self) {
+        self.reset();
+        self.feedback.set_visible(false);
+    }
+
+    /// Remove only a refused capability. Existing playlist actions keep their
+    /// generation, while an already queued old Create event is rejected.
+    pub fn hide_create(&self) {
+        self.state.create_allowed.set(false);
+        let child = self
+            .create_tile
+            .borrow_mut()
+            .take()
+            .and_then(|child| child.upgrade());
+        let Some(child) = child else {
+            return;
+        };
+        self.tiles.remove(&child);
+        if self.tiles.first_child().is_none() {
+            self.tiles.set_visible(false);
+            self.feedback.set_visible(true);
+            self.message.set_text("Плейлистов пока нет.");
+        }
+    }
+
+    fn reset(&self) {
+        self.state
+            .generation
+            .set(self.state.generation.get().wrapping_add(1));
+        self.state.create_allowed.set(false);
+        self.create_tile.borrow_mut().take();
+        while let Some(child) = self.tiles.first_child() {
+            self.tiles.remove(&child);
+        }
+        self.tiles.set_visible(false);
+        self.spinner.set_spinning(false);
+        self.spinner.set_visible(false);
+        self.retry.set_visible(false);
+        self.message.set_text("");
+    }
+
+    fn append_tile(&self, button: &gtk::Button) {
+        self.tiles.insert(button, -1);
+        if let Some(parent) = button.parent() {
+            // The actual Button is the one keyboard/mouse activation target.
+            // Do not add a second tab stop on FlowBox's wrapper child.
+            parent.set_focusable(false);
+        }
+    }
+
+    fn playlist_tile(&self, playlist: &Playlist, generation: u64) -> gtk::Button {
+        let button = tile_button("music-playlist-tile");
+        button.set_tooltip_text(Some(&playlist.title));
+        let content = tile_content();
+        let cover = super::cover_widget(self.loader.as_ref(), playlist.cover.as_ref(), 128);
+        cover.set_halign(gtk::Align::Center);
+        content.append(&cover);
+        let title = tile_title(&playlist.title);
+        content.append(&title);
+        let count = track_count(playlist.track_count);
+        let subtitle = gtk::Label::new(Some(&count));
+        subtitle.set_xalign(0.0);
+        subtitle.add_css_class("caption");
+        content.append(&subtitle);
+        button.set_child(Some(&content));
+        button.update_property(&[gtk::accessible::Property::Label(&format!(
+            "Открыть плейлист: {} · {count}",
+            playlist.title
+        ))]);
+        let playlist = playlist.clone();
+        let state = Rc::clone(&self.state);
+        button.connect_clicked(move |_| {
+            if state.generation.get() == generation {
+                (state.action)(PlaylistAction::Open(playlist.clone()));
+            }
+        });
+        button
+    }
+
+    fn create_tile(&self, generation: u64) -> gtk::Button {
+        let button = tile_button("music-playlist-create");
+        button.set_tooltip_text(Some("Создать плейлист"));
+        button.update_property(&[gtk::accessible::Property::Label("Создать плейлист")]);
+        let content = tile_content();
+        let icon = gtk::Image::from_icon_name("list-add-symbolic");
+        icon.set_pixel_size(48);
+        icon.set_size_request(128, 128);
+        icon.set_halign(gtk::Align::Center);
+        icon.add_css_class("accent");
+        content.append(&icon);
+        content.append(&tile_title("Создать плейлист"));
+        let caption = gtk::Label::new(Some("Новая подборка"));
+        caption.set_xalign(0.0);
+        caption.add_css_class("caption");
+        content.append(&caption);
+        button.set_child(Some(&content));
+        let state = Rc::clone(&self.state);
+        button.connect_clicked(move |_| {
+            if state.generation.get() == generation && state.create_allowed.get() {
+                (state.action)(PlaylistAction::Create);
+            }
+        });
+        button
+    }
+}
+
+fn tile_button(name: &str) -> gtk::Button {
+    let button = gtk::Button::new();
+    button.set_widget_name(name);
+    button.set_width_request(148);
+    button.set_hexpand(true);
+    button.set_valign(gtk::Align::Start);
+    button.add_css_class("flat");
+    button.add_css_class("card");
+    button
+}
+
+fn tile_content() -> gtk::Box {
+    let content = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    super::super::margins(&content, 8);
+    content
+}
+
+fn tile_title(title: &str) -> gtk::Label {
+    let label = gtk::Label::new(Some(title));
+    label.set_xalign(0.0);
+    label.set_wrap(true);
+    label.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+    label.set_lines(2);
+    label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    label.set_width_chars(1);
+    label.set_max_width_chars(18);
+    label.set_tooltip_text(Some(title));
+    label.add_css_class("heading");
+    label
+}
+
+fn track_count(count: u64) -> String {
+    let word = if (11..=14).contains(&(count % 100)) {
+        "треков"
+    } else {
+        match count % 10 {
+            1 => "трек",
+            2..=4 => "трека",
+            _ => "треков",
+        }
+    };
+    format!("{count} {word}")
+}
+
+#[cfg(test)]
+mod tests;

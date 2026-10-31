@@ -389,6 +389,8 @@ fn build_with_music_pane(
     header.pack_start(&sidebar_toggle);
     let menu = gio::Menu::new();
     menu.append(Some("Настройки"), Some("win.preferences"));
+    menu.append(Some("Сведения о треке"), Some("win.music-info"));
+    menu.append(Some("Обновить данные"), Some("win.music-refresh"));
     menu.append(Some("Диагностика"), Some("win.diagnostics"));
     menu.append(Some("О Karin"), Some("app.about"));
     menu.append(Some("Закрыть Karin"), Some("app.quit"));
@@ -399,7 +401,6 @@ fn build_with_music_pane(
         .build();
     header.pack_end(&menu_button);
     toolbar.add_top_bar(&header);
-    toolbar.set_content(Some(&stack));
     split.set_content(Some(&toolbar));
     window.set_content(Some(&split));
 
@@ -572,7 +573,7 @@ fn build_with_music_pane(
     desktop_group.add(&desktop_row);
     desktop_group.add(&row(
         "Интеграция",
-        "Постоянное хранение токенов пока не подключено",
+        "Состояние защищённого хранения и запоминание входа доступны в настройках",
     ));
     diagnostic_columns.append(&desktop_group);
     diagnostics.append(&diagnostic_columns);
@@ -595,6 +596,22 @@ fn build_with_music_pane(
     let home = gtk::Box::new(gtk::Orientation::Vertical, 0);
     margins(&home, 24);
     let music = make_music(app, &window);
+    let track_info = adw::OverlaySplitView::builder()
+        .sidebar_position(gtk::PackType::End)
+        .min_sidebar_width(280.0)
+        .max_sidebar_width(340.0)
+        .sidebar_width_fraction(0.28)
+        .show_sidebar(false)
+        .content(&stack)
+        .sidebar(&music.track_info_widget())
+        .build();
+    track_info.set_widget_name("music-track-info-split");
+    toolbar.set_content(Some(&track_info));
+    music.attach_track_info(&track_info);
+    let music_visibility = music.visibility_callback();
+    stack.connect_visible_child_name_notify(move |stack| {
+        music_visibility(stack.visible_child_name().as_deref() == Some("home"));
+    });
     let account_menu = music.account_menu();
     header.pack_end(&account_menu);
     home.append(&music.widget);
@@ -621,10 +638,16 @@ fn build_with_music_pane(
         .add_titled(&diagnostics_scroll, Some("diagnostics"), "Диагностика")
         .set_icon_name(Some("applications-engineering-symbolic"));
 
+    let compact_information = adw::Breakpoint::new(
+        adw::BreakpointCondition::parse("max-width: 1180sp").expect("constant breakpoint"),
+    );
+    compact_information.add_setter(&track_info, "collapsed", Some(&true.to_value()));
+    window.add_breakpoint(compact_information);
     let compact_navigation = adw::Breakpoint::new(
         adw::BreakpointCondition::parse("max-width: 760sp").expect("constant breakpoint"),
     );
     compact_navigation.add_setter(&split, "collapsed", Some(&true.to_value()));
+    compact_navigation.add_setter(&track_info, "collapsed", Some(&true.to_value()));
     compact_navigation.add_setter(&split, "show-sidebar", Some(&false.to_value()));
     compact_navigation.add_setter(&sidebar_toggle, "visible", Some(&true.to_value()));
     compact_navigation.add_setter(
@@ -657,11 +680,9 @@ fn build_with_music_pane(
         window.add_action(&action);
     }
     let preferences = gio::SimpleAction::new("preferences", None);
-    let weak_window = window.downgrade();
+    let show_preferences = music.preferences_callback();
     preferences.connect_activate(move |_, _| {
-        if let Some(window) = weak_window.upgrade() {
-            self::preferences::present(&window);
-        }
+        show_preferences();
     });
     window.add_action(&preferences);
     app.set_accels_for_action("win.preferences", &["<Primary>comma"]);
