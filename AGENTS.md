@@ -91,9 +91,29 @@ Do not introduce Electron or web-based application shells.
   opaque track object paths and decoded local cover files only. Never expose an
   OAuth value, cookie, account ID or signed media URL on D-Bus. Advertise only
   supported capabilities and retain the exact Flatpak MPRIS own-name permission.
-- Logout/close clears local data and invalidates stale UI work. No plaintext
-  credential store, persistent token or refresh/revocation claim before a
-  verified Secret Service lifecycle. Keep PKCE and developer audio independent.
+- v0.3's protected session lifecycle is specified in ADR-0018. Persist only the
+  Music-validated access token through native Secret Service or a Secret Portal
+  master secret plus an authenticated encrypted envelope. Never use a plaintext
+  fallback or add broad session-bus permissions. Probe, restore, validate, save
+  and delete off the GTK thread; unavailable storage must allow memory-only
+  sign-in. Do not invent token refresh or server revocation. Retain the current
+  Cassette-compatible provider and keep the PKCE diagnostic independent.
+- Normal close preserves the permitted stored session and cache. Explicit logout
+  invalidates pending work, stops playback, clears personal views, verifies secret
+  deletion and purges personal metadata/covers. An unresolved deletion or purge
+  must stay visible and must not be reported as a completed durable logout.
+  Turning off remember-login deletes stored credentials without stopping the
+  active in-memory session or audio. Test late writes, cancellation, restart and
+  replacement windows before claiming these transitions safe.
+- ADR-0019 defines the bounded, account-isolated XDG metadata/cover cache. Keep
+  mutable likes and playlist membership network authoritative; label network-error
+  fallback as saved data. Recheck cache leases at the UI boundary. Disabling
+  caching stops persistent reads/writes; clearing it must leave session and current
+  playback intact. Never persist OAuth values, cookies, signed media URLs or audio.
+- Persistent audio/offline playback requires an established service permission
+  and offline entitlement lifecycle, not just a working MP3 URL. Follow
+  docs/AUDIO_CACHE_REVIEW.md; hide unsupported offline and recommendation actions
+  rather than presenting nonfunctional controls.
 
 ## User Experience
 - Cassette by Rirusha is an aesthetic reference and, for the explicitly scoped
@@ -117,6 +137,11 @@ Do not introduce Electron or web-based application shells.
 - Never add user screenshots containing personal information or desktop elements
   to a public repository without separate permission. Prefer clean cloud captures
   of Karin only, with no account data or unrelated desktop content.
+- ADR-0020 covers the adaptive track pane, playlist grid and persistent preferences.
+  Preserve the accepted player bar, context queue and click/Enter/Space playback.
+  Mutation UI must wait for server confirmation, never fabricate local success or
+  automatically repeat an ambiguous POST. The current Fedora acceptance guide is
+  docs/BUILDING.md#v03-seamless-experience-acceptance-on-fedora.
 
 ## Licensing
 
@@ -159,6 +184,11 @@ and never use `--ignore-rust-version` to bypass a compiler requirement.
 
 Report executed checks, results, limitations, and remaining blockers.
 A successful build does not prove GTK runtime, audio, or Yandex API integration.
+The owner accepted merged master 09f7635 with 17 PASS, 0 FAIL and 1 N/D;
+that evidence is a baseline, not acceptance of subsequent v0.3 changes. Distinguish
+authored code, executed fixture checks, owner acceptance and blocked functionality.
+Do not claim a full current Flatpak build or a real wallet/portal test from source
+inspection, host-library checks or synthetic D-Bus fixtures.
 
 ## Working Environment
 - Primary validation: Fedora 44, KDE Plasma, Wayland, PipeWire, x86_64.

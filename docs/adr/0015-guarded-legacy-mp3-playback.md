@@ -8,6 +8,13 @@ MPRIS deferral superseded by [ADR-0017](0017-playback-context-unified-workspace-
 Supersedes: ADR-0007's local-only source restriction and ADR-0012's metadata-only
 implementation boundary for the explicit Play path
 
+Subsequent acceptance: the owner reports merged v0.2 native and Flatpak Music
+playback, controls, contexts, KDE Media Widget and shutdown PASS (17 PASS overall,
+0 FAIL, hardware media keys N/D). Earlier pending packaging/search/UI statements
+below remain dated history. v0.3 preserves this resolver/transport; metadata/cover
+cache does not change its no-music-persistence rule. Persistent audio requires
+the separate [rights/lifecycle review](../AUDIO_CACHE_REVIEW.md).
+
 ## Context
 
 Issue #9 makes actual audible Yandex Music mandatory for v0.2. The owner has

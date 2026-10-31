@@ -2,7 +2,7 @@
 
 # Cassette v0.2.4 capability audit
 
-Reviewed 2026-10-29 for [Issue #9](https://github.com/tracerxbrhd/karin/issues/9).
+Source audit reviewed 2026-10-29; Karin status refreshed 2026-10-31 for v0.3, following [Issue #9](https://github.com/tracerxbrhd/karin/issues/9).
 This is a source audit, not a live test of Cassette or a claim that its service
 permissions transfer to Karin. The reference is tag `v0.2.4`, resolved to
 [`9d34251d01bcd414ffbec2bef7931090d33c9124`][cassette]. Source links below use that
@@ -24,11 +24,14 @@ release; global search is Karin's own addition, not claimed v0.2.4 parity.
 - **Blocked:** a specific delivery, protection, permission or lifecycle gate
   prevents enabling the workflow; an untested endpoint is not a confirmed denial.
 
-The owner's Issue #9 report establishes real Karin sign-in, Music account
-validation, liked tracks and personal-playlist listing on Fedora, at PR #8's
-`797ba3a` baseline. Search and opening personal playlists failed in that run.
-No actual Karin service audio was heard. Private screenshots, names, IDs and
-provider payloads are intentionally absent from this document.
+The owner accepted the merged v0.2 `master` on Fedora 44 / KDE Plasma / Wayland /
+PipeWire, including Flatpak: 17 PASS, 0 FAIL and 1 N/D (hardware media keys).
+Library/search, actual Music playback, contextual controls, MPRIS registration,
+KDE Media Widget and shutdown are an accepted baseline. PR #13 is merged. Earlier
+PR #8/#12 failures remain revision-specific history in VALIDATION, not current
+Karin status. New v0.3 persistence/cache/workspace behavior still needs independent
+checks and owner acceptance. Private screenshots, names, IDs and provider
+payloads are intentionally absent from this document.
 
 ## Capability matrix
 
@@ -36,21 +39,69 @@ provider payloads are intentionally absent from this document.
 | --- | --- | --- |
 | Ordinary Yandex sign-in and account | [Begin view][begin] and [API client][api] couple WebKit session login to token/account work | **Implemented; owner-verified** sign-in and Music account. Karin retains its own exact-origin/state, ephemeral-session and validation checks; shared-registration distribution conditions remain unresolved. |
 | Plus/subscription handling | [No-Plus dialog][plus] and [player][player] distinguish account/playback constraints | **Partial:** account validation is implemented; no subscription-success badge or playback entitlement is inferred from it. |
-| Liked tracks and personal playlists | [Playlists view][playlists] loads own and liked playlists; [playlist view][playlist] loads tracks | **Partial:** real liked tracks and personal-playlist list verified. Personal-playlist detail failed at baseline; repaired contract/dispatch/navigation and liked-playlist listing now have native loopback workflows. A new Fedora run must verify both content paths. |
-| Global track/album/artist search | Not established as a shipped v0.2.4 workflow; the wiki places service search in future 0.4 | **Partial:** typed search/detail code exists, but the baseline Fedora search failed. Contract/dispatch fixes need a fresh real query test. |
-| Track/album details and covers | [Track info][track-info], [cover widget][cover] and [cache][cache] implement metadata/image presentation | **Implemented in code:** typed metadata, paged artist details and bounded scale-aware cover loading/cache with native placeholders. Texture/layout tests pass; actual provider art/catalog acceptance remains owner-local. Returned metadata is not a stream grant. |
-| Play/pause, seek, next/previous, volume, queue, repeat/shuffle/EOS | [Player][player] and [track-list mode][track-list] implement actual transport and queue; playbin receives a resolved resource | **Partial/blocked:** real local-file GStreamer controller exists; the Music queue is metadata-only until a permitted service resource is resolved. **v0.2 audible acceptance is NOT MET.** Synthetic WAV does not change that result. |
-| MPRIS/media keys and now-playing | [MPRIS player][mpris] exposes state, position, volume, queue capabilities and transport | **Not present** for Music. Add only when the Music controller can publish truthful actual playback state. |
-| My Wave/stations and feedback | [Flow mode][flow] creates a radio session, obtains batches and sends lifecycle feedback; [stations view][stations] selects stations | **Not present:** a station list alone would not implement My Wave. Session feedback must follow actual listening. `rotor_station_info` and `rotor_station_stream` in the v0.2.4 API client are empty methods, unlike its implemented session endpoints. |
+| Liked tracks and personal playlists | [Playlists view][playlists] loads own and liked playlists; [playlist view][playlist] loads tracks | **Implemented; baseline library owner-PASS.** Actual own/liked playlist identities, details and loaded paging are retained; v0.3 cover tiles/cache are a new presentation/storage layer requiring fresh acceptance. |
+| Global track/album/artist search | Not established as a shipped v0.2.4 workflow; the wiki places service search in future 0.4 | **Implemented; owner baseline search PASS.** Four independent sections also include playlists. Track hits validate IDs, then use one bounded canonical batch; v0.3 retains that path rather than importing Cassette search stubs. |
+| Track/album details and covers | [Track info][track-info], [cover widget][cover] and [cache][cache] implement metadata/image presentation | **Implemented in code:** typed metadata, paged artist details and bounded scale-aware covers with native placeholders. Prior baseline texture/layout checks are recorded in VALIDATION; the new persistent artwork and right pane require fresh checks and owner acceptance. Returned metadata is not a stream grant. |
+| Play/pause, seek, next/previous, volume, queue, repeat/shuffle/EOS | [Player][player] and [track-list mode][track-list] implement actual transport and queue; playbin receives a resolved resource | **Implemented and owner-accepted for the baseline:** actual entitled Music audio, transport, seek/volume, contextual queues and shutdown. Repeat/shuffle are not implemented. Generated media is only an automated regression source; new v0.3 sound regression remains required. |
+| MPRIS/media keys and now-playing | [MPRIS player][mpris] exposes state, position, volume, queue capabilities and transport | **Implemented; owner baseline registration/KDE Media Widget and Flatpak MPRIS PASS.** Hardware media keys are N/D. Same-player GIO bridge, truthful metadata/capabilities, confirmed seek and cleanup remain; v0.3 requires regression acceptance. |
+| My Wave/stations and feedback | [Flow mode][flow] creates a radio session, obtains batches and sends lifecycle feedback; [stations view][stations] selects stations | **Hidden in normal UI; source-backed backend implemented for v0.3.** Modern session/batch/feedback methods and an observed-Playing coordinator are separate from a shipped radio experience. Effective Karin session/tracks/feedback plus real listening are unverified; no fake ordinary-queue Wave appears. See the [current capability review](#v03-service-capability-review). |
 | Track likes/dislikes | [Track like/dislike buttons][like], [likes controller][likes] and [API methods][api] implement changes/state | **Implemented for like/unlike:** exact account membership, one deliberate write and independent revision/membership confirmation; conflicts and ambiguous outcomes require GET-only refresh. Native loopback controls are tested; live acceptance is pending. Dislike is not exposed. |
-| Playlist creation, track insertion/removal, deletion and visibility | [Create button][create], [track-playlist menu][track-playlist], [playlist view][playlist] and API mutation methods provide concrete actions | **Not present** at baseline. Revision-aware changes must not replay positional edits after a conflict. Destructive actions require a native confirmation. |
+| Playlist creation, track insertion/removal, deletion and visibility | [Create button][create], [track-playlist menu][track-playlist], [playlist view][playlist] and API mutation methods provide concrete actions | **v0.3 creation extension:** implement only the source-confirmed create contract with one explicit POST and independent server confirmation. Lost/ambiguous outcomes are not local success or automatic retries. Broader playlist insertion/removal/deletion are not claimed by a Create tile; live v0.3 acceptance remains pending. |
 | Playlist rename/reorder/playlist-like controls | API methods and models exist, but the [playlist view][playlist] comments out rename and explicitly blocks edit/like buttons as `NOT_IMPLEMENTED` | **Not present.** Do not equate an API helper, commented handler or visible disabled button with a shipped workflow, in either application. |
 | Recommendations | API client implements playlist recommendations; My Wave has its separate flow | **Not present:** no fabricated recommendation feed. Playlist recommendations remain a candidate; My Wave requires its real listening/feedback lifecycle. Neither is represented as a shipped Karin feed. |
 | Text/synced lyrics | [Lyrics panel][lyrics] renders text and time-synchronized lines; the API request obtains a signed lyrics resource | **Blocked for the reviewed implementation:** the inspected lyrics paths rely on official-client extracted signing material. Karin does not import it. A separately permitted plain-text source is not yet established. |
 | Explicit/child/replaced/unavailable metadata | [Info marks][marks], filtering and preferences distinguish these flags | **Partial:** availability is represented; richer metadata markers/filtering need typed models and fixture/live verification. Never silently substitute a different track. |
-| Cache/offline playlist or album media | [Cache subsystem][cache] and playlist controls save/delete media | **Blocked:** no Karin service-media cache or offline claim. Neither Cassette source nor a subscription alone establishes Karin's download/storage rights. Cover thumbnails are a distinct non-audio concern. |
-| Theme, adaptive panels, preferences and notifications | [Preferences][preferences], [theme switcher][theme] and player/sidebar widgets implement settings and presentation | **Implemented in code:** music-first sidebar/drawer/Home, current-process theme preferences, bounded artwork and actual keyboard/HiDPI tests. Notifications and persistent preferences are not claimed. Xvfb is not Fedora/KDE/Wayland sign-off. |
-| Persistent account session | Cassette uses its own storage/session lifecycle | **Not present by design:** Karin's token/session stays in memory; persistent credentials require a verified Secret Service/refresh/revocation lifecycle. Do not copy another app's cookie storage. |
+| Cache/offline playlist or album media | [Cache subsystem][cache] and playlist controls save/delete media | **Audio blocked / not established:** no permitted Karin third-party persistent-audio/offline-entitlement lifecycle is established. Official-client offline behavior and a subscription do not supply that contract. Metadata and explicitly cacheable normalized covers are a separate v0.3 implementation; see AUDIO_CACHE_REVIEW. |
+| Theme, adaptive panels, preferences and notifications | [Preferences][preferences], [theme switcher][theme] and player/sidebar widgets implement settings and presentation | **Accepted baseline shell; v0.3 extends it:** persisted system/light/dark settings, adaptive right track information, native playlist tiles and storage/session preferences. Notifications are not claimed. New implementation, actual screenshots and Fedora/Flatpak acceptance are recorded separately. |
+| Persistent account session | Cassette uses its own storage/session lifecycle | **v0.3 protected lifecycle:** native Secret Service or available Flatpak Secret Portal, Music validation before use/save, durable forget barrier and verified deletion. No cookie/profile import, plaintext fallback, refresh or remote-revocation claim. Real wallet/portal acceptance remains distinct from synthetic fixture success. |
+
+## v0.3 service capability review
+
+Reviewed 2026-10-31 against the same pinned Cassette source and the existing
+pinned Rust-client reviews. These are protocol/source facts and synthetic-test
+implementation scope, not a live account or permission result.
+
+**Playlist creation** follows the explicit create method in
+[Cassette's API client](https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/api/yam-client.vala)
+and the pinned yamu/yamuse mutation contracts. Karin sends one account-bound
+`POST /users/{uid}/playlists/create` with bounded title/visibility, then independently
+reads `/users/{uid}/playlists/{kind}`. Own identity/title and explicit requested
+visibility must agree before success. A lost response, missing privacy or failed
+confirmation remains unknown/unconfirmed, with no optimistic tile or POST replay.
+Broader playlist editing is not enabled by this method. New live creation still
+requires the owner's consenting local test.
+
+**Modern Wave** uses the pinned Cassette API/model/flow chain:
+
+- `POST /rotor/session/new` with the actual user-wave seed and track/model request.
+- `POST /rotor/session/{id}/tracks` with a bounded actual queue.
+- `POST /rotor/session/{id}/feedback` with the original batch marker and event,
+  ISO8601 UTC timestamp and the neutral protocol source `unofficial-client-own`.
+
+Source references are the same API client, its
+[rotor objects](https://github.com/Rirusha/Cassette/tree/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/api/objects/rotor),
+[flow mode](https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/player/mods/flow.vala)
+and [client utilities](https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/utils.vala).
+The `from` label is not a replacement OAuth identity or official-client header.
+Pinned yamu instead implements old station-track GETs; pinned yamuse supplies
+old station-feedback form payloads with numeric timestamps. Those route/payload
+contracts are not silently mixed with modern session JSON.
+
+Karin's `music::wave` backend has bounded session/batch/feedback operations and a
+pure coordinator driven by actual `PlaybackState::Playing` and monotonic heard
+time. Selection/Ready/Loading, seek distance and declared duration cannot invent
+listening. Duplicate occurrences and their original batch markers remain distinct;
+uncertain POSTs are not replayed. Session IDs/markers are memory-only, redacted,
+nonserializable and excluded from cache/MPRIS/support output. No second player,
+startup radio request or normal Wave destination is enabled.
+
+The missing product gate is one consenting local Karin run confirming the modern
+session, track batch and required feedback access, followed by integration of
+those events with the same real player for a heard track. Source code and a
+successful ordinary library session do not prove that capability. Until it is
+established, the prepared backend remains hidden and no radio/recommendation UI
+claims support. Persistent audio has its independent
+[rights/entitlement blocker](AUDIO_CACHE_REVIEW.md), unrelated to these API routes.
 
 ## Rust-client comparison and implementation order
 
@@ -62,20 +113,11 @@ Karin continues using its own small service adapter. See
 [RUST_API_CLIENT_REVIEW.md](RUST_API_CLIENT_REVIEW.md) and
 [STREAM_DELIVERY_REVIEW.md](STREAM_DELIVERY_REVIEW.md).
 
-The issue's development order is intentional:
-
-1. Repair search and playlist-detail contract/dispatch/navigation, **in parallel**
-   with a bounded owner-local authenticated delivery-info experiment. Supply a
-   testable application, not only this matrix.
-2. If an eligible source is confirmed, connect its resolver to the existing
-   GStreamer worker immediately and verify an actual library/search track on
-   Fedora. Source resolution, actual playing state and audible output are
-   separate checks. If source authorization/protection blocks this, record the
-   exact failed stage and keep the overall sound criterion open.
-3. Add covers, music-first adaptive navigation and the best-validated likes/
-   playlist actions in coherent subsequent PRs, with image/structural checks.
-   My Wave/lyrics/offline/persistence remain explicit capabilities, not decorative
-   buttons masking unsupported APIs.
+The accepted v0.2 delivery/search implementation is preserved. v0.3 proceeds
+in one Draft PR from master: protected session/settings, bounded metadata/cover
+cache, then information/playlist UX and joint regression. Audio persistence,
+My Wave, similar tracks and lyrics have independent permission/contract gates;
+unsupported functions remain hidden rather than replaced with a generated queue.
 
 This matrix records observed implementation boundaries. Executed checks and
 revision-specific acceptance belong in [VALIDATION.md](VALIDATION.md); current

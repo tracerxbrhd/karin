@@ -2,9 +2,15 @@
 
 # ADR-0011: Cassette-compatible browser-session authentication prototype
 
-Status: Accepted for implementation and consented local Fedora validation; live acceptance pending
+Status: Accepted; ordinary provider accepted in merged v0.2 owner baseline; public service/distribution conditions remain unresolved
 Date: 2026-10-29
 Supersedes: ADR-0010's requirement to keep all real providers blocked pending a Karin-owned registration
+
+The owner subsequently accepted native and Flatpak sign-in/library/search and
+actual Music playback in the merged v0.2 baseline. v0.3 extends only protected
+session persistence through [ADR-0018](0018-persistent-session-and-settings.md),
+retaining this provider identity/return/cookie/Music-validation contract. Dated
+pre-acceptance consequences below describe the original implementation scope.
 
 ## Context
 

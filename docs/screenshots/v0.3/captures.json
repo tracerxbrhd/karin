@@ -1,0 +1,108 @@
+{
+  "environment": "Debian13;GTK4.18.6;Libadwaita1.7.6;GStreamer1.26.2;Xvfb/Openbox;cairo",
+  "data": "synthetic fixtures only; no real provider account or artwork",
+  "images": [
+    {
+      "file": "cache-detail-stale-after-background-library-light.png",
+      "sha256": "e62dbb8733a5bb7b322859eae958eed1f640003c679c1662caa8db030e380d82",
+      "runtime_revision": "44b00a3f98e05704cb5a5240a382e3b9dbb01fbd",
+      "gdk_scale": 1
+    },
+    {
+      "file": "hidpi/preferences-seamless-compact-operation-error-dark.png",
+      "sha256": "782187a50b461da7bc7aefebe79a775ad7681f62447bd25f4920b25aec1bc1f3",
+      "runtime_revision": "44b00a3f98e05704cb5a5240a382e3b9dbb01fbd",
+      "gdk_scale": 2
+    },
+    {
+      "file": "hidpi/workspace-shell-compact-manual-info-light.png",
+      "sha256": "946fed460dd53aedfd823cdadff71dceec295d53eb7eff2583a30657c28fe14d",
+      "runtime_revision": "57ab96d7c7d3a64a5b0aaa72ac18cc65c3c0b020",
+      "gdk_scale": 2
+    },
+    {
+      "file": "hidpi/workspace-shell-maximized-light.png",
+      "sha256": "d57ed8f14f0a89c22a9377f2f080eba72c70b27ba7c3af4148e691459e2cccae",
+      "runtime_revision": "57ab96d7c7d3a64a5b0aaa72ac18cc65c3c0b020",
+      "gdk_scale": 2
+    },
+    {
+      "file": "hidpi/workspace-shell-wide-current-dark.png",
+      "sha256": "ef75851e0fc027ff75e2633ea8d84c494341048d376db3139b6585f60958035e",
+      "runtime_revision": "57ab96d7c7d3a64a5b0aaa72ac18cc65c3c0b020",
+      "gdk_scale": 2
+    },
+    {
+      "file": "playlist-create-uncertain-dark.png",
+      "sha256": "584444996b70604c2549d0b05d1c9b9a189e04b7c45949bc214f66b54d84aa1b",
+      "runtime_revision": "44b00a3f98e05704cb5a5240a382e3b9dbb01fbd",
+      "gdk_scale": 1
+    },
+    {
+      "file": "preferences-seamless-compact-operation-error-light.png",
+      "sha256": "04235a2ffb96820a3d64986bd85b172c1949f19aafbf4605b496ed71a3bd2a60",
+      "runtime_revision": "44b00a3f98e05704cb5a5240a382e3b9dbb01fbd",
+      "gdk_scale": 1
+    },
+    {
+      "file": "preferences-seamless-compact-save-error-dark.png",
+      "sha256": "7f0ae32d2676b57c1125f6337236ad1a1fc3fa1c353b85d610cffe6b1ffad4d8",
+      "runtime_revision": "44b00a3f98e05704cb5a5240a382e3b9dbb01fbd",
+      "gdk_scale": 1
+    },
+    {
+      "file": "search-normalized-dense-medium-dark.png",
+      "sha256": "c46701f7608e440a546488da7f811654c4c82f5d4629dcbe6a8db4355b482e7d",
+      "runtime_revision": "44b00a3f98e05704cb5a5240a382e3b9dbb01fbd",
+      "gdk_scale": 1
+    },
+    {
+      "file": "search-normalized-dense-medium-light.png",
+      "sha256": "bc2498ade4e57156b87751726942283b1b859825dbafb66384eb407faad9111f",
+      "runtime_revision": "44b00a3f98e05704cb5a5240a382e3b9dbb01fbd",
+      "gdk_scale": 1
+    },
+    {
+      "file": "workspace-playlist-grid-compact-light.png",
+      "sha256": "66982b4a8b8be7874bc5f3fe9f6eee61dadf09f32de45eb8da32eaa01333acf9",
+      "runtime_revision": "44b00a3f98e05704cb5a5240a382e3b9dbb01fbd",
+      "gdk_scale": 1
+    },
+    {
+      "file": "workspace-shell-compact-manual-info-dark.png",
+      "sha256": "3e35d0d128c07721288c3c9bde8da95626e410d3c5d357fb5def9e25948ae9b1",
+      "runtime_revision": "57ab96d7c7d3a64a5b0aaa72ac18cc65c3c0b020",
+      "gdk_scale": 1
+    },
+    {
+      "file": "workspace-shell-maximized-light.png",
+      "sha256": "42a1f4d223f32821911081512c62a3d3a59ba9208b0fd0025bc9aac126c38f1c",
+      "runtime_revision": "57ab96d7c7d3a64a5b0aaa72ac18cc65c3c0b020",
+      "gdk_scale": 1
+    },
+    {
+      "file": "workspace-shell-medium-manual-info-light.png",
+      "sha256": "64b542169633a117ea314962469695e8038ee776b07dae297860c96815fc92ab",
+      "runtime_revision": "57ab96d7c7d3a64a5b0aaa72ac18cc65c3c0b020",
+      "gdk_scale": 1
+    },
+    {
+      "file": "workspace-shell-wide-current-dark.png",
+      "sha256": "907e1650657b49c5bd408dd33e725ba0e05f7c6fc35f7e91df134f4ee67e14c4",
+      "runtime_revision": "57ab96d7c7d3a64a5b0aaa72ac18cc65c3c0b020",
+      "gdk_scale": 1
+    },
+    {
+      "file": "workspace-shell-wide-current-light.png",
+      "sha256": "f1f8747ee461e1a336a32747d32d2276ff2eca731d2b9d5a185cf1999fb46448",
+      "runtime_revision": "57ab96d7c7d3a64a5b0aaa72ac18cc65c3c0b020",
+      "gdk_scale": 1
+    },
+    {
+      "file": "workspace-shell-wide-selected-light.png",
+      "sha256": "e22aec772e77b775b8e96395c764070452a132fc6130a410f4a1fd1a91992503",
+      "runtime_revision": "57ab96d7c7d3a64a5b0aaa72ac18cc65c3c0b020",
+      "gdk_scale": 1
+    }
+  ]
+}

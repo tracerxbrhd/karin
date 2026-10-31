@@ -3,15 +3,17 @@
 # Service-audio delivery contract and implementation
 
 Updated: 2026-10-31, for [Issue #9][issue9] and its [P0 follow-up][p0].
-**The owner accepted real Music audibility, controls, queue and cleanup at
-`8f1b09d` on Fedora 44 / KDE Plasma / Wayland / PipeWire.** This is a real
-service-track result, not a synthetic GStreamer test. Preserve this integration
-while correcting search and UX in existing PR #13. No real account, token,
-private response or music entered Cloud/CI.
+**Merged v0.2 is owner-accepted on Fedora 44 / KDE Plasma / Wayland / PipeWire,
+including Flatpak: 17 PASS, 0 FAIL, 1 N/D (hardware media keys).** Actual Music
+playback, contextual controls, search, KDE Media Widget and shutdown are the
+regression baseline. PR #13 is merged; v0.3 develops protected sessions/cache and
+workspace components in one new Draft PR while preserving this resolver/player.
+New checks and owner acceptance are recorded in [VALIDATION.md](VALIDATION.md).
+No real account, token, private response or music entered Cloud/CI.
 
-## Observed owner evidence
+## Historical owner evidence at `8f1b09d`
 
-The [owner's latest acceptance](https://github.com/tracerxbrhd/karin/pull/13#issuecomment-6539311586)
+The [owner's earlier acceptance](https://github.com/tracerxbrhd/karin/pull/13#issuecomment-6539311586)
 confirms a heard entitled Yandex Music track, working controls and queue, and
 correct stopping on logout/close through the implemented path. Login, Music
 account/library access, track details/liked state and album search/details also
@@ -134,9 +136,9 @@ controls/EOS/cleanup and URI-log privacy. Their executed results and exact CI
 artifacts belong in [VALIDATION.md](VALIDATION.md) and the audio PR; they must not
 be inferred from this implementation description.
 
-Use [one combined Fedora run](BUILDING.md#v02-catalog-and-delivery-info-acceptance-on-fedora)
-with the updated PR #13 build: normal sign-in → corrected track search → details
-→ explicit Play → **hear it**, then queue/transport and cancelled/confirmed
+Use [one combined v0.3 Fedora run](BUILDING.md#v03-seamless-experience-acceptance-on-fedora)
+with the current Draft PR build: ordinary sign-in or validated restore → track
+search → row activation → **hear it**, then details, queue/transport and cancelled/confirmed
 logout. A Library-track playback check guards the accepted path independently
 of search. If any stage fails,
 report only its fixed stage/category/numeric HTTP and anonymized outcome. No
@@ -144,13 +146,14 @@ private URL, raw response, title/ID, token, cookie or audio is needed in Cloud,
 CI or GitHub. A refusal is not a reason to change identity, region, TLS or access
 controls.
 
-The current blocking live workflow is **track search and its UX**, not the
-already accepted core audio path or the unrelated own-client Music 403. The new
-build still needs a playback regression check, and the full v0.2 release is not
-accepted by this single audio result. MPRIS/media keys remain unimplemented in
-this focused correction. Public OAuth identity/distribution approval, current
-Flatpak verification, persistent sessions and offline caching remain separate
-gates.
+Track search and MPRIS are implemented and included in the merged owner-accepted
+baseline; hardware media keys remain N/D. New v0.3 code still needs regression
+checks with audible music and the current Flatpak. Protected persistence does
+not alter the stream contract or turn a short-lived source into an offline
+grant. Persistent audio remains disabled: service permission plus a verifiable
+offline-entitlement lifecycle are not established in
+[AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md). Public OAuth registration/service
+distribution approval remains a separate question from local interoperability.
 
 [issue9]: https://github.com/tracerxbrhd/karin/issues/9
 [p0]: https://github.com/tracerxbrhd/karin/issues/9#issuecomment-6524404858

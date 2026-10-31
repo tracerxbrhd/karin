@@ -2,6 +2,20 @@
 
 # Authentication contract review
 
+Current status, **2026-10-31**: the retained provider's real sign-in, Music
+account/library/search and playback are part of the owner-accepted merged v0.2
+native/Flatpak baseline (**17 PASS, 0 FAIL, 1 N/D**, hardware media keys).
+PR #13 is merged. v0.3 preserves this browser/session grant and adds protected
+token persistence under [ADR-0018](adr/0018-persistent-session-and-settings.md);
+browser cookies remain ephemeral. New persistence/backend/workspace checks and
+owner acceptance are separate, recorded in [VALIDATION.md](VALIDATION.md).
+
+The research below retains its **29 October** scope, source pins and concrete
+navigation findings. Statements that the real chain was unverified or the token
+was memory-only describe that earlier revision, not the current merged status
+or v0.3 storage policy. Public service/registration distribution conditions and
+the embedded-agent standards concern remain unresolved by technical acceptance.
+
 Reviewed **2026-10-29** for PR #8, including the owner's subsequent scope
 correction permitting adaptation of Cassette's published working auth chain
 without requiring a Karin-owned registration. Research and automated validation
