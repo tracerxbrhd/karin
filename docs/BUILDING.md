@@ -52,8 +52,11 @@ session prototype below; it requires no end-user OAuth configuration.
 ## v0.2 workspace, playback context and desktop-control acceptance on Fedora
 
 Use **one updated build from the existing PR #13**, after its matching stable
-and MSRV CI checks pass. The owner accepted **Search PASS, Account PASS and
-Playback PASS at `f0aa2bb`**, but **UI FAIL** remains blocking. Preserve those
+and MSRV CI checks pass. The owner accepted **Search PASS, Account PASS and Playback PASS** at
+`f0aa2bb`. On 2026-10-31 the owner also accepted the revised native UI as a
+sufficient **integration baseline**, with further visual refinements deferred.
+That is not a claim that KDE MPRIS/media keys, every revised source context
+or the current Flatpak passed owner-local acceptance. Preserve those
 working service paths while checking the next interface revision. The earlier
 `8f1b09d` run established real audio but still failed track search; it is
 historical evidence, not the latest search result.
@@ -185,17 +188,19 @@ service-distribution questions. Actual Music audibility is already accepted
 for the recorded baseline. See [validation](VALIDATION.md), the
 [delivery contract](STREAM_DELIVERY_REVIEW.md) and [ADR-0015](adr/0015-guarded-legacy-mp3-playback.md).
 
-### After owner acceptance: one integration PR
+### Integration into master — approved prototype scope
 
-Keep the existing branch and PR #13 throughout this correction. Search, account
-actions and preserved sound were accepted at `f0aa2bb`; the revised interface,
-playback context and desktop integration still need their own acceptance.
-After that acceptance, propose these actions for explicit
-approval: retarget this same PR #13 to `master` with its ancestor commits intact;
-rerun the full CI and review the resulting complete diff against `master`; then
-squash-merge once if authorized. Close the superseded #6, #8, #10, #11 and #12
-only with explicit approval and cross-links to #13. No new branch/PR, automatic
-base change, closure, branch deletion or history rewrite is required now.
+On 2026-10-31 the owner approved consolidating the existing #6 → #8 → #10 →
+#11 → #12 → #13 development stack through **PR #13 only**, as one squash commit
+on `master`. Preserve discussion/history and do not create another PR.
+Review the complete `master` diff and validate the actual final source with
+stable and Rust 1.98.1 CI before merging. Close the five superseded PRs with
+cross-links after the squash merge, retaining their branches and conversations.
+This integration approves a working development prototype, **not** a public
+service release: current Flatpak build/install, KDE MPRIS/hardware media keys,
+revised end-to-end contextual playback, Secret Service persistence and the
+shared OAuth-registration/service-distribution permissions remain separately
+documented follow-up gates. Do not mark those checks as passed.
 
 ## Music sign-in and Fedora acceptance
 
