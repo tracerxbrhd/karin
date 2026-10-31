@@ -166,6 +166,10 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
     ui.window.set_title(Some("Karin synthetic HTTP fixture"));
     ui.window.set_default_size(1440, 900);
     let this = Rc::clone(&ui.music.controller);
+    assert!(
+        !this.track_pane.widget.is_visible(),
+        "the unavailable pane must not be allocated during initial breakpoints"
+    );
     let first = track("41", "Synthetic current track");
     let second = track("42", "Synthetic next track");
     let selected = track("43", "Synthetic selected album track");
@@ -256,10 +260,12 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
     ui.show_page("diagnostics");
     pump_until(|| !split.shows_sidebar());
     assert!(!this.music_surface_visible.get());
+    assert!(!this.track_pane.widget.is_visible());
     capture_native("workspace-shell-diagnostics-pane-hidden");
     ui.show_page("music-home");
     pump_until(|| split.shows_sidebar());
     assert!(this.music_surface_visible.get());
+    assert!(this.track_pane.widget.is_visible());
     assert_selection(&this, "42", ContextKind::LikedTracks, 1);
 
     for (shape, width, height) in [("compact", 420, 720), ("medium", 900, 650)] {

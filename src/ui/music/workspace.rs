@@ -235,6 +235,9 @@ impl Controller {
                 && self.music_surface_visible.get()
                 && self.info_selection.borrow().is_some()
         };
+        // The split may transiently allocate its hidden child during a
+        // breakpoint. An unavailable pane has nothing to measure or display.
+        self.track_pane.widget.set_visible(available);
         if !available {
             split.set_show_sidebar(false);
         } else if !split.is_collapsed() {
