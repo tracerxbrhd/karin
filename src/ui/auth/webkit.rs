@@ -1235,6 +1235,8 @@ mod tests {
             let server_posts = token_posts.clone();
             let metadata = Arc::new(AtomicUsize::new(0));
             let server_metadata = metadata.clone();
+            let track_batches = Arc::new(AtomicUsize::new(0));
+            let server_track_batches = track_batches.clone();
             let server_origin = origin.clone();
             let server = thread::spawn(move || {
                 let deadline = Instant::now() + Duration::from_secs(12);
@@ -1340,8 +1342,40 @@ mod tests {
                             r#"{"result":[]}"#.to_owned()
                         }
                         "/search" => {
+                            assert!(headers.starts_with("GET /search?"));
                             server_metadata.fetch_add(1, Ordering::AcqRel);
-                            r#"{"result":{"text":"Synthetic","tracks":{"total":1,"perPage":20,"page":0,"results":[{"id":42,"title":"Synthetic track","artists":[],"albums":[],"available":true}]}}}"#.to_owned()
+                            // Search supplies identity, not a canonical Track.
+                            // Only the subsequent bounded lookup supplies UI data.
+                            r#"{"result":{"text":"Synthetic","tracks":{"total":1,"perPage":20,"page":0,"results":[{"id":42,"title":{"ignored":true},"artists":null,"albums":false,"available":[true],"explicit":{"ignored":true}}]}}}"#.to_owned()
+                        }
+                        "/tracks" => {
+                            assert!(headers.starts_with("POST /tracks HTTP/1.1\r\n"));
+                            assert!(url.query().is_none());
+                            assert!(headers.lines().any(|line| line.trim_end()
+                                == "content-type: application/x-www-form-urlencoded"));
+                            let length: usize = headers
+                                .lines()
+                                .find_map(|line| {
+                                    line.to_ascii_lowercase()
+                                        .strip_prefix("content-length:")
+                                        .map(|value| value.trim().parse().unwrap())
+                                })
+                                .unwrap();
+                            assert!(length > 0 && length < 4096);
+                            let mut body = vec![0; length];
+                            stream.read_exact(&mut body).unwrap();
+                            let form = reqwest::Url::parse(&format!(
+                                "http://localhost/?{}",
+                                String::from_utf8(body).unwrap()
+                            ))
+                            .unwrap();
+                            let pairs = form.query_pairs().collect::<Vec<_>>();
+                            assert_eq!(pairs.len(), 1);
+                            assert_eq!(pairs[0].0, "track-ids");
+                            assert_eq!(pairs[0].1, "42");
+                            server_track_batches.fetch_add(1, Ordering::AcqRel);
+                            server_metadata.fetch_add(1, Ordering::AcqRel);
+                            r#"{"result":[{"id":42,"title":"Normalized synthetic session track","artists":[],"albums":[],"available":true}]}"#.to_owned()
                         }
                         _ => panic!("unexpected session fixture route"),
                     };
@@ -1398,14 +1432,17 @@ mod tests {
                             service.account(&token).unwrap();
                             assert!(service.liked_tracks(&token, 0).unwrap().items.is_empty());
                             assert!(service.playlists(&token, 0).unwrap().items.is_empty());
+                            let search = service
+                                .search(&token, "Synthetic", SearchKind::Tracks, 0)
+                                .unwrap();
+                            assert_eq!(search.tracks.len(), 1);
+                            assert_eq!(search.tracks[0].id, "42");
                             assert_eq!(
-                                service
-                                    .search(&token, "Synthetic", SearchKind::Tracks, 0)
-                                    .unwrap()
-                                    .tracks
-                                    .len(),
-                                1
+                                search.tracks[0].title,
+                                "Normalized synthetic session track"
                             );
+                            assert!(search.tracks[0].available);
+                            assert_eq!(search.omitted_tracks, 0);
                         })
                         .await
                         .unwrap();
@@ -1472,7 +1509,8 @@ mod tests {
                     );
                     assert!(error.get().is_none());
                     assert_eq!(token_posts.load(Ordering::Acquire), 1);
-                    assert_eq!(metadata.load(Ordering::Acquire), 4);
+                    assert_eq!(metadata.load(Ordering::Acquire), 5);
+                    assert_eq!(track_batches.load(Ordering::Acquire), 1);
                 }
                 "missing-state" => assert_eq!(error.get(), Some(AuthError::SessionStateMissing)),
                 "wrong-state" => assert_eq!(error.get(), Some(AuthError::SessionStateMismatch)),
@@ -1486,6 +1524,7 @@ mod tests {
             if scenario != "success" {
                 assert_eq!(token_posts.load(Ordering::Acquire), 0);
                 assert_eq!(metadata.load(Ordering::Acquire), 0);
+                assert_eq!(track_batches.load(Ordering::Acquire), 0);
             }
         }
     }
