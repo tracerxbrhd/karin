@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-label="Karin Native Music: широкий светлый макет"><title>Karin Native Music: широкий светлый макет</title><defs>
+ <linearGradient id="a1" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#4F4DA2"/><stop offset="0.57" stop-color="#9652A0"/><stop offset="1" stop-color="#E38E9B"/></linearGradient>
+ <linearGradient id="a2" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#236B8D"/><stop offset="0.62" stop-color="#439CA2"/><stop offset="1" stop-color="#9ED2B9"/></linearGradient>
+ <linearGradient id="a3" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#AF584D"/><stop offset="1" stop-color="#E9B87E"/></linearGradient>
+ <linearGradient id="a4" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#354566"/><stop offset="1" stop-color="#8499C4"/></linearGradient>
+ <linearGradient id="a5" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#2B5848"/><stop offset="1" stop-color="#B2C984"/></linearGradient>
+ </defs><g font-family="DejaVu Sans, Noto Sans, Cantarell, sans-serif">
+<rect x="0" y="0" width="1440" height="900" rx="0" fill="#F6F7FB" />
+<rect x="0" y="0" width="78" height="808" rx="0" fill="#E9ECF3" /><text x="39" y="40" fill="#1F2430" font-size="22" font-weight="700" text-anchor="middle">K</text><g transform="translate(27.5,107.5) scale(0.9583333333333334)" fill="none" stroke="#626D7E" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:#626D7E"><path d="M3 10.5 12 3l9 7.5V21h-6v-7H9v7H3z"/></g><rect x="13" y="154" width="52" height="48" rx="14" fill="#DEE7FF" /><g transform="translate(27.5,166.5) scale(0.9583333333333334)" fill="none" stroke="#496DC7" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:#496DC7"><path d="M3 5h18v14H3zM7 5v14M3 11h18"/></g><g transform="translate(27.5,225.5) scale(0.9583333333333334)" fill="none" stroke="#626D7E" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:#626D7E"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></g><g transform="translate(27.5,284.5) scale(0.9583333333333334)" fill="none" stroke="#626D7E" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:#626D7E"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3.5" cy="6" r="1"/><circle cx="3.5" cy="12" r="1"/><circle cx="3.5" cy="18" r="1"/></g><g transform="translate(27.5,752.5) scale(0.9583333333333334)" fill="none" stroke="#626D7E" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:#626D7E"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.2 2.2M16.2 16.2l2.2 2.2M18.4 5.6l-2.2 2.2M7.8 16.2l-2.2 2.2"/><circle cx="12" cy="12" r="4"/></g>
+<rect x="78" y="0" width="1362" height="64" rx="0" fill="#FFFFFF" />
+<line x1="78" y1="63" x2="1440" y2="63" stroke="#DDE1E9" stroke-width="1" />
+<text x="124" y="40" fill="#1F2430" font-size="15" font-weight="650" >Библиотека</text>
+<g transform="translate(1201,23) scale(0.75)" fill="none" stroke="#626D7E" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:#626D7E"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></g>
+<rect x="1245" y="15" width="34" height="34" rx="10" fill="#EEF1F7" /><g transform="translate(1253,23) scale(0.75)" fill="none" stroke="#1F2430" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:#1F2430"><circle cx="5" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.2" fill="currentColor" stroke="none"/></g>
+<circle cx="1377" cy="32" r="18" fill="#DEE7FF" />
+<text x="1377" y="37" fill="#1F2430" font-size="13" font-weight="700" text-anchor="middle">D</text>
+<text x="126" y="105" fill="#626D7E" font-size="11" font-weight="600" letter-spacing="1.05">МОИ ПЛЕЙЛИСТЫ  /  ПОДБОРКА</text>
+<g><rect x="126" y="135" width="145" height="145" rx="14" fill="url(#a1)" /><svg x="126" y="135" width="145" height="145" viewBox="0 0 100 100" overflow="hidden">
+ <circle cx="29" cy="27" r="34" fill="#FFFFFF" opacity=".10"/>
+ <circle cx="70" cy="66" r="28" fill="none" stroke="#FFFFFF" stroke-width="6" opacity=".36"/>
+ <circle cx="70" cy="66" r="12" fill="#FFFFFF" opacity=".16"/>
+ <path d="M-6 73 Q34 39 106 20" stroke="#FFFFFF" stroke-width="9" opacity=".19" fill="none"/>
+ <path d="M-10 93 Q49 49 110 62" stroke="#FFFFFF" stroke-width="4" opacity=".26" fill="none"/></svg></g>
+<text x="293" y="180" fill="#1F2430" font-size="32" font-weight="730" >Вечерний маршрут</text>
+<text x="293" y="210" fill="#626D7E" font-size="13" font-weight="400" >24 трека  ·  Личная коллекция</text>
+<rect x="293" y="231" width="137" height="41" rx="13" fill="#496DC7" />
+<g transform="translate(306,243) scale(0.6666666666666666)" fill="none" stroke="#FFFFFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:#FFFFFF"><path d="m8 5 12 7-12 7z" fill="currentColor" stroke="none"/></g>
+<text x="336" y="257" fill="#FFFFFF" font-size="14" font-weight="700" >Слушать</text>
+<rect x="443" y="233" width="37" height="37" rx="10" fill="#EEF1F7" /><g transform="translate(452.5,242.5) scale(0.75)" fill="none" stroke="#1F2430" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:#1F2430"><circle cx="5" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.2" fill="currentColor" stroke="none"/></g>
+<line x1="126" y1="312" x2="1056" y2="312" stroke="#DDE1E9" stroke-width="1" />
+<text x="128" y="348" fill="#1F2430" font-size="20" font-weight="700" >Композиции</text>
+<text x="1039" y="345" fill="#8A94A3" font-size="12" font-weight="600" text-anchor="end">24</text>
+<rect x="118" y="365" width="940" height="62" rx="12" fill="#DEE7FF" /><g><rect x="136" y="374" width="44" height="44" rx="7" fill="url(#a1)" /><svg x="136" y="374" width="44" height="44" viewBox="0 0 100 100" overflow="hidden">
+ <circle cx="29" cy="27" r="34" fill="#FFFFFF" opacity=".10"/>
+ <circle cx="70" cy="66" r="28" fill="none" stroke="#FFFFFF" stroke-width="6" opacity=".36"/>
+ <circle cx="70" cy="66" r="12" fill="#FFFFFF" opacity=".16"/>
+ <path d="M-6 73 Q34 39 106 20" stroke="#FFFFFF" stroke-width="9" opacity=".19" fill="none"/>
+ <path d="M-10 93 Q49 49 110 62" stroke="#FFFFFF" stroke-width="4" opacity=".26" fill="none"/></svg></g><text x="195" y="394" fill="#1F2430" font-size="14" font-weight="600" >Горизонт</text><text x="195" y="411" fill="#626D7E" font-size="12" font-weight="400" >Aster Field</text><text x="951" y="401" fill="#626D7E" font-size="12" font-weight="400" >3:37</text><g transform="translate(1022,388) scale(0.75)" fill="none" stroke="#626D7E" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:#626D7E"><circle cx="5" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.2" fill="currentColor" stroke="none"/></g>
+<g><rect x="136" y="444" width="44" height="44" rx="7" fill="url(#a2)" /><svg x="136" y="444" width="44" height="44" viewBox="0 0 100 100" overflow="hidden">
+ <circle cx="38" cy="35" r="36" fill="#FFFFFF" opacity=".10"/>
+ <circle cx="70" cy="66" r="27" fill="none" stroke="#FFFFFF" stroke-width="6" opacity=".36"/>
+ <circle cx="70" cy="66" r="12" fill="#FFFFFF" opacity=".16"/>
+ <path d="M-6 73 Q34 43 106 20" stroke="#FFFFFF" stroke-width="9" opacity=".19" fill="none"/>
+ <path d="M-10 93 Q49 49 110 62" stroke="#FFFFFF" stroke-width="4" opacity=".26" fill="none"/></svg></g><text x="195" y="464" fill="#1F2430" font-size="14" font-weight="600" >Тихие улицы</text><text x="195" y="481" fill="#626D7E" font-size="12" font-weight="400" >Mira Vale</text><text x="951" y="471" fill="#626D7E" font-size="12" font-weight="400" >4:05</text><g transform="translate(1022,458) scale(0.75)" fill="none" stroke="#626D7E" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:#626D7E"><circle cx="5" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.2" fill="currentColor" stroke="none"/></g>
+<g><rect x="136" y="514" width="44" height="44" rx="7" fill="url(#a3)" /><svg x="136" y="514" width="44" height="44" viewBox="0 0 100 100" overflow="hidden">
+ <circle cx="47" cy="43" r="38" fill="#FFFFFF" opacity=".10"/>
+ <circle cx="70" cy="66" r="26" fill="none" stroke="#FFFFFF" stroke-width="6" opacity=".36"/>
+ <circle cx="70" cy="66" r="12" fill="#FFFFFF" opacity=".16"/>
+ <path d="M-6 73 Q34 47 106 20" stroke="#FFFFFF" stroke-width="9" opacity=".19" fill="none"/>
+ <path d="M-10 93 Q49 49 110 62" stroke="#FFFFFF" stroke-width="4" opacity=".26" fill="none"/></svg></g><text x="195" y="534" fill="#1F2430" font-size="14" font-weight="600" >После заката</text><text x="195" y="551" fill="#626D7E" font-size="12" font-weight="400" >Новая глава</text><text x="951" y="541" fill="#626D7E" font-size="12" font-weight="400" >2:58</text><g transform="translate(1022,528) scale(0.75)" fill="none" stroke="#626D7E" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:#626D7E"><circle cx="5" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.2" fill="currentColor" stroke="none"/></g>
+<g><rect x="136" y="584" width="44" height="44" rx="7" fill="url(#a4)" /><svg x="136" y="584" width="44" height="44" viewBox="0 0 100 100" overflow="hidden">
+ <circle cx="56" cy="51" r="40" fill="#FFFFFF" opacity=".10"/>
+ <circle cx="70" cy="66" r="25" fill="none" stroke="#FFFFFF" stroke-width="6" opacity=".36"/>
+ <circle cx="70" cy="66" r="12" fill="#FFFFFF" opacity=".16"/>
+ <path d="M-6 73 Q34 51 106 20" stroke="#FFFFFF" stroke-width="9" opacity=".19" fill="none"/>
+ <path d="M-10 93 Q49 49 110 62" stroke="#FFFFFF" stroke-width="4" opacity=".26" fill="none"/></svg></g><text x="195" y="604" fill="#1F2430" font-size="14" font-weight="600" >Океан сигналов</text><text x="195" y="621" fill="#626D7E" font-size="12" font-weight="400" >Aster Field</text><text x="951" y="611" fill="#626D7E" font-size="12" font-weight="400" >3:51</text><g transform="translate(1022,598) scale(0.75)" fill="none" stroke="#626D7E" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:#626D7E"><circle cx="5" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.2" fill="currentColor" stroke="none"/></g>
+<g><rect x="136" y="654" width="44" height="44" rx="7" fill="url(#a5)" /><svg x="136" y="654" width="44" height="44" viewBox="0 0 100 100" overflow="hidden">
+ <circle cx="65" cy="59" r="42" fill="#FFFFFF" opacity=".10"/>
+ <circle cx="70" cy="66" r="24" fill="none" stroke="#FFFFFF" stroke-width="6" opacity=".36"/>
+ <circle cx="70" cy="66" r="12" fill="#FFFFFF" opacity=".16"/>
+ <path d="M-6 73 Q34 55 106 20" stroke="#FFFFFF" stroke-width="9" opacity=".19" fill="none"/>
+ <path d="M-10 93 Q49 49 110 62" stroke="#FFFFFF" stroke-width="4" opacity=".26" fill="none"/></svg></g><text x="195" y="674" fill="#1F2430" font-size="14" font-weight="600" >Пульс</text><text x="195" y="691" fill="#626D7E" font-size="12" font-weight="400" >Elian</text><text x="951" y="681" fill="#626D7E" font-size="12" font-weight="400" >4:23</text><g transform="translate(1022,668) scale(0.75)" fill="none" stroke="#626D7E" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:#626D7E"><circle cx="5" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.2" fill="currentColor" stroke="none"/></g>
+<g><rect x="136" y="724" width="44" height="44" rx="7" fill="url(#a1)" /><svg x="136" y="724" width="44" height="44" viewBox="0 0 100 100" overflow="hidden">
+ <circle cx="29" cy="27" r="34" fill="#FFFFFF" opacity=".10"/>
+ <circle cx="70" cy="66" r="28" fill="none" stroke="#FFFFFF" stroke-width="6" opacity=".36"/>
+ <circle cx="70" cy="66" r="12" fill="#FFFFFF" opacity=".16"/>
+ <path d="M-6 73 Q34 39 106 20" stroke="#FFFFFF" stroke-width="9" opacity=".19" fill="none"/>
+ <path d="M-10 93 Q49 49 110 62" stroke="#FFFFFF" stroke-width="4" opacity=".26" fill="none"/></svg></g><text x="195" y="744" fill="#1F2430" font-size="14" font-weight="600" >Северный свет</text><text x="195" y="761" fill="#626D7E" font-size="12" font-weight="400" >Mira Vale</text><text x="951" y="751" fill="#626D7E" font-size="12" font-weight="400" >3:30</text><g transform="translate(1022,738) scale(0.75)" fill="none" stroke="#626D7E" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:#626D7E"><circle cx="5" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.2" fill="currentColor" stroke="none"/></g>
+<rect x="1094" y="64" width="346" height="744" rx="0" fill="#FFFFFF" />
+<line x1="1094" y1="64" x2="1094" y2="808" stroke="#DDE1E9" stroke-width="1" />
+<text x="1125" y="104" fill="#1F2430" font-size="15" font-weight="650" >О треке</text>
+<rect x="1379" y="78" width="36" height="36" rx="10" fill="#EEF1F7" /><g transform="translate(1388,87) scale(0.75)" fill="none" stroke="#1F2430" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:#1F2430"><path d="M5 5 19 19M19 5 5 19"/></g>
+<g><rect x="1131" y="132" width="272" height="272" rx="16" fill="url(#a2)" /><svg x="1131" y="132" width="272" height="272" viewBox="0 0 100 100" overflow="hidden">
+ <circle cx="38" cy="35" r="36" fill="#FFFFFF" opacity=".10"/>
+ <circle cx="70" cy="66" r="27" fill="none" stroke="#FFFFFF" stroke-width="6" opacity=".36"/>
+ <circle cx="70" cy="66" r="12" fill="#FFFFFF" opacity=".16"/>
+ <path d="M-6 73 Q34 43 106 20" stroke="#FFFFFF" stroke-width="9" opacity=".19" fill="none"/>
+ <path d="M-10 93 Q49 49 110 62" stroke="#FFFFFF" stroke-width="4" opacity=".26" fill="none"/></svg></g>
+<text x="1127" y="451" fill="#1F2430" font-size="24" font-weight="750" >Горизонт</text>
+<text x="1127" y="477" fill="#626D7E" font-size="14" font-weight="400" >Aster Field</text>
+<line x1="1127" y1="504" x2="1403" y2="504" stroke="#DDE1E9" stroke-width="1" />
+<text x="1127" y="529" fill="#626D7E" font-size="12" font-weight="400" >Тихие улицы  ·  2026</text>
+<rect x="1127" y="559" width="36" height="36" rx="10" fill="#EEF1F7" /><g transform="translate(1136,568) scale(0.75)" fill="none" stroke="#1F2430" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:#1F2430"><path d="M20.8 8.8c0 4.3-8.8 10-8.8 10s-8.8-5.7-8.8-10a5 5 0 0 1 8.8-3.1 5 5 0 0 1 8.8 3.1z"/></g>
+<rect x="1173" y="559" width="36" height="36" rx="10" fill="#EEF1F7" /><g transform="translate(1182,568) scale(0.75)" fill="none" stroke="#1F2430" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:#1F2430"><path d="M12 4v16M4 12h16"/></g>
+<rect x="1219" y="559" width="36" height="36" rx="10" fill="#EEF1F7" /><g transform="translate(1228,568) scale(0.75)" fill="none" stroke="#1F2430" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:#1F2430"><circle cx="5" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.2" fill="currentColor" stroke="none"/></g>
+<rect x="1265" y="559" width="36" height="36" rx="10" fill="#EEF1F7" /><g transform="translate(1274,568) scale(0.75)" fill="none" stroke="#1F2430" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:#1F2430"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></g>
+<text x="1127" y="632" fill="#8A94A3" font-size="11" font-weight="400" >Обложка и информация обновляются</text>
+<text x="1127" y="650" fill="#8A94A3" font-size="11" font-weight="400" >при переключении композиции</text>
+<rect x="78" y="808" width="1362" height="92" rx="0" fill="#FFFFFF" /><line x1="78" y1="808" x2="1440" y2="808" stroke="#DDE1E9" stroke-width="1" /><g><rect x="105" y="825" width="52" height="52" rx="8" fill="url(#a1)" /><svg x="105" y="825" width="52" height="52" viewBox="0 0 100 100" overflow="hidden">
+ <circle cx="29" cy="27" r="34" fill="#FFFFFF" opacity=".10"/>
+ <circle cx="70" cy="66" r="28" fill="none" stroke="#FFFFFF" stroke-width="6" opacity=".36"/>
+ <circle cx="70" cy="66" r="12" fill="#FFFFFF" opacity=".16"/>
+ <path d="M-6 73 Q34 39 106 20" stroke="#FFFFFF" stroke-width="9" opacity=".19" fill="none"/>
+ <path d="M-10 93 Q49 49 110 62" stroke="#FFFFFF" stroke-width="4" opacity=".26" fill="none"/></svg></g><text x="174" y="847" fill="#1F2430" font-size="14" font-weight="650" >Горизонт</text><text x="174" y="866" fill="#626D7E" font-size="12" font-weight="400" >Aster Field</text><g transform="translate(652.5,834.5) scale(0.7916666666666666)" fill="none" stroke="#626D7E" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:#626D7E"><path d="M6 5v14M18 5 7.5 12 18 19z"/></g><circle cx="719" cy="845" r="23" fill="#496DC7" /><g transform="translate(709,835) scale(0.8333333333333334)" fill="none" stroke="#FFFFFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:#FFFFFF"><path d="M8 5v14M16 5v14"/></g><g transform="translate(766.5,834.5) scale(0.7916666666666666)" fill="none" stroke="#626D7E" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:#626D7E"><path d="M18 5v14M6 5 16.5 12 6 19z"/></g><text x="537" y="887" fill="#626D7E" font-size="11" font-weight="400" >0:42</text><line x1="588" y1="884" x2="938" y2="884" stroke="#C5CBD6" stroke-width="4" stroke-linecap="round"/><line x1="588" y1="884" x2="692" y2="884" stroke="#496DC7" stroke-width="4" stroke-linecap="round"/><circle cx="692" cy="884" r="5" fill="#496DC7" /><text x="960" y="887" fill="#626D7E" font-size="11" font-weight="400" >3:37</text><g transform="translate(1193.5,838.5) scale(0.875)" fill="none" stroke="#626D7E" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:#626D7E"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3.5" cy="6" r="1"/><circle cx="3.5" cy="12" r="1"/><circle cx="3.5" cy="18" r="1"/></g><g transform="translate(1255.5,838.5) scale(0.875)" fill="none" stroke="#626D7E" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:#626D7E"><path d="M4 9h4l5-4v14l-5-4H4zM16 9c1.8 1 1.8 5 0 6M19 6c3.5 3 3.5 9 0 12"/></g><line x1="1298" y1="849" x2="1391" y2="849" stroke="#C5CBD6" stroke-width="4" stroke-linecap="round"/><line x1="1298" y1="849" x2="1360" y2="849" stroke="#496DC7" stroke-width="4" stroke-linecap="round"/><circle cx="1360" cy="849" r="5" fill="#496DC7" />
+</g></svg>
