@@ -191,7 +191,7 @@ xdotool key --clearmodifiers ctrl+End
 # expose it as well; keyboard focus/activation is captured separately above.
 # Keep the pointer within the scrollable content, above the compact player bar.
 xdotool mousemove --window "$window" "$(( 350 * capture_scale ))" "$(( 400 * capture_scale ))"
-xdotool click --repeat 8 --delay 60 5
+xdotool click --repeat 24 --delay 60 5
 capture compact-diagnostics-bottom
 xdotool key --clearmodifiers ctrl+q
 attempt=0
