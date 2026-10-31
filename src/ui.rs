@@ -480,11 +480,6 @@ fn build_with_music_pane(
                 split.set_max_sidebar_width(72.0);
             }
             button.set_visible(!split.is_collapsed());
-            button.set_icon_name(if expanded {
-                "sidebar-hide-symbolic"
-            } else {
-                "sidebar-show-symbolic"
-            });
             button.set_tooltip_text(Some(if expanded {
                 "Свернуть навигацию"
             } else {
