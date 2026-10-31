@@ -54,6 +54,13 @@ track-row density threshold at 900×650. Missing-cover icons demonstrate fallbac
 layout; these images do not accept real-provider cover appearance or every
 large-library composition.
 
+An initial hosted geometry check at `1ffed2b` misclassified Libadwaita 1.5's
+mapped, translated closed wide pane as clipping. The follow-up helper uses the
+native sidebar visibility state at every width; it retains open-pane checks and
+adds closed-content-width/resize assertions, with local 1×/2× reruns passing.
+The published image revisions remain those in `captures.json`; final hosted
+verification of that helper is tracked in the Draft PR checks/artifacts.
+
 Two earlier GTK measurement/allocation warnings were traced to an unavailable
 pane participating in breakpoint layout. Final runtime `57ab96d` excludes it;
 the exact-1.98.1 offline release passed GTK smoke with

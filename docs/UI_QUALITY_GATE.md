@@ -217,6 +217,11 @@ GStreamer diagnostic. Structural checks must cover actual window/widget
 allocation, adaptive navigation visibility, page selection and normal close/
 resource release. Check that widgets remain inside the content area and that
 scrolling exposes diagnostics on short windows.
+For `OverlaySplitView`, use its public `shows_sidebar()` state at every width:
+Libadwaita may keep a closed sidebar mapped outside the viewport. Always check
+main content and assert that it reclaims the closed pane's width; keep all
+geometry checks for an open sidebar. A mapped closed pane alone is not visible
+clipping, and the correction must not skip open-pane or content assertions.
 
 Screenshots supplement these assertions by revealing hierarchy, clipping and
 focus problems that structure tests cannot judge. Conversely, a plausible image

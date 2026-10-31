@@ -141,6 +141,19 @@ wallet/portal prompts, PipeWire audibility or KDE hardware media keys. Follow
 [the single native/Flatpak Fedora guide](BUILDING.md#v03-seamless-experience-acceptance-on-fedora)
 and leave all unperformed owner checks pending.
 
+### Hosted geometry-check follow-up
+
+The initial hosted run at `1ffed2b` failed the geometry helper on Ubuntu's
+Libadwaita 1.5: a closed wide sidebar remained mapped and translated outside the
+viewport (x=1442). The helper excluded closed compact sidebars only, so it
+mistook that native closed state for clipped visible content. The follow-up
+uses `OverlaySplitView::shows_sidebar()` at every width, always checks the main
+content and preserves all open-sidebar geometry checks. The full-shell fixture
+also asserts that content reclaims the closed pane's width, including resize
+away and back. Its local 1×/2× reruns passed. This corrects the validation helper;
+it does not redesign the product layout or turn the failed hosted run into a
+pass. Source-matched hosted results remain in the Draft PR checks/artifacts.
+
 ## Reading the historical records
 
 The sections below retain their original revision/date, tests and owner findings.
