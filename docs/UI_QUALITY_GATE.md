@@ -9,6 +9,11 @@ fictional music catalogs, recommendations or player controls.
 
 <a id="v04-native-music-gate"></a>
 
+For popover geometry across `GtkNative` boundaries, use the existing bounded
+[test input coordinate helper](../src/ui/music/test_input.rs) and stable actual
+layout. GTK 4.14 may return no direct `compute_bounds` to the window; do not skip
+the containment assertion or substitute guessed coordinates.
+
 ## v0.4 complete music-experience gate
 
 The owner's [current specification](design/v0.4/DESIGN_SPEC.md) supersedes the

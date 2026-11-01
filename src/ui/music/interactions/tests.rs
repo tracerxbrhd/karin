@@ -454,11 +454,15 @@ fn native_library_interactions_confirmed_fixture() {
     });
     assert!(!liked.load(Ordering::Acquire));
     assert!(!contains_text(&footer_controls, "В любимом"));
-    let popup_settled = Instant::now() + Duration::from_millis(220);
-    pump_until(|| Instant::now() >= popup_settled);
-    let popup_bounds = footer_controls.compute_bounds(&window).unwrap();
+    super::super::test_input::wait_for_layout(&window, &footer_controls);
+    // GTK 4.14 cannot compute_bounds across the native popover boundary. Use
+    // the same actual popup ancestry as pointer input, in window coordinates.
+    let popup_bounds = super::super::test_input::bounds_in_window(&window, &footer_controls)
+        .expect("the settled footer popover shares the main surface ancestry");
     assert!(
-        popup_bounds.y() >= 0.0
+        popup_bounds.x() >= 0.0
+            && popup_bounds.x() + popup_bounds.width() <= window.width() as f32
+            && popup_bounds.y() >= 0.0
             && popup_bounds.y() + popup_bounds.height() <= window.height() as f32,
         "the actual footer popover must open above the footer inside the window: {popup_bounds:?}"
     );

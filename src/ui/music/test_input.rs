@@ -51,6 +51,23 @@ fn geometry(window: &adw::ApplicationWindow, widget: &gtk::Widget) -> Option<(f6
     None
 }
 
+/// Bounds in the main window widget's logical coordinates, including widgets
+/// inside native popovers. Keep the surface translation shared with real input
+/// tests, then remove the main native's CSD offset for widget-bound assertions.
+pub(super) fn bounds_in_window(
+    window: &adw::ApplicationWindow,
+    widget: &impl IsA<gtk::Widget>,
+) -> Option<gtk::graphene::Rect> {
+    let (x, y, width, height) = geometry(window, widget.as_ref())?;
+    let (dx, dy) = window.surface_transform();
+    Some(gtk::graphene::Rect::new(
+        (x - dx) as f32,
+        (y - dy) as f32,
+        width as f32,
+        height as f32,
+    ))
+}
+
 pub(super) fn wait_for_layout(window: &adw::ApplicationWindow, widget: &impl IsA<gtk::Widget>) {
     let widget = widget.as_ref();
     pump_until(|| geometry(window, widget).is_some());

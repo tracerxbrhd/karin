@@ -35,7 +35,7 @@ No new result is PASS until the corresponding source-matched check runs.
 | Fresh eight-geometry × light/dark × 1×/2× × three-mode matrix; populated/error/state supplements | **PASS, C10 local**: 96 source-matched base cases plus 84 state images; equal-size a9 before counterparts and actual maximize |
 | Occurrence-based Shuffle/history, Repeat Off/Queue/One, combinations, unavailable/removal/partial/500-position cases | **PASS, C10 local**: seeded exact-occurrence unit cases and generated-MP3 EOS/queue/mode integration at 1×/2×, actual compact overflow input, same-occurrence Repeat One, single-refusal failure boundary and no presentation-triggered restart |
 | Writable MPRIS Shuffle/LoopStatus, PropertiesChanged, capability synchronization, existing Stop/Seek/Volume/metadata/lifecycle | **PASS, C10 local**: isolated session-bus methods/properties/signals and native shared-policy/real-worker bridge at 1×/2×; external writes/invalid values, capability updates, Stop/seek and cleanup retained |
-| Stable and exact Rust 1.98.1 formatting, strict Clippy, default/all/minimal tests/builds and exact-MSRV release | **PASS, final C15 local**: stable 1.99.1 and exact 1.98.1; 359/367/345 library plus four CLI tests per configuration/compiler; strict three-configuration Clippy/builds and ordinary/all-feature offline MSRV release |
+| Stable and exact Rust 1.98.1 formatting, strict Clippy, default/all/minimal tests/builds and exact-MSRV release | **PASS, final C16 local**: stable 1.99.1 and exact 1.98.1; 359/367/345 library plus four CLI tests per configuration/compiler; strict three-configuration Clippy/builds and ordinary/all-feature offline MSRV release |
 | GTK, WebKit sandbox lifecycle, GStreamer, protected session/cache and license regressions | **PASS, C10 local**: 29 available named selectors × 2 scales = 58 executions, including construction/cancel and joined player/storage/cache lifecycle; two fully navigating sandboxed WebKit fixtures remain unavailable locally and belong to hosted CI, with sandbox enabled |
 | Hosted CI and source-matched native Fedora archive | See immutable per-head [PR #15 checks/artifacts](https://github.com/tracerxbrhd/karin/pull/15/checks) and the PR description for hosted conclusions and downloaded-archive verification; local PASS does not establish hosted success |
 | Current full Flatpak build/runtime | **Unavailable locally**: Flatpak 1.16.6/Builder 1.4.4 installed, runtime list empty and GNOME SDK 50 absent; final current package/runtime remains untested here |
@@ -49,7 +49,7 @@ panel. Synthetic metadata/artwork and generated local audio never establish
 new real-account or audible-Music acceptance. Full SDK/runtime availability is
 separate from a successful offline Rust release.
 
-### Final C14 measured-motion scope and C15 regular checks
+### C14 measured-motion scope and final regular checks
 
 Production code remains byte-identical to runtime commit
 `37379a72285ffab525f59fa6789727ad2bbdbbf5`. The final changes are test-only
@@ -222,6 +222,24 @@ recording provenance ([push](https://github.com/tracerxbrhd/karin/actions/runs/4
 trusts only the exact checked-out `$GITHUB_WORKSPACE` in the modern container;
 there is no wildcard trust or change to Rust, application behavior or assertions.
 This bootstrap failure is separate from animation results.
+
+At `c1278e6`, all four modern visual jobs across
+[push](https://github.com/tracerxbrhd/karin/actions/runs/41293372090) and
+[PR](https://github.com/tracerxbrhd/karin/actions/runs/41293374955) completed
+successfully, including matched baseline captures. The Ubuntu jobs reached the
+confirmed-library fixture: actual Like reads/writes succeeded, then GTK 4.14
+returned no `compute_bounds` across the separate popover native surface. The
+test now reuses the validated pointer ancestry translation, removes the main
+CSD offset and waits for stable layout. Strict X/Y containment remains required;
+no missing rectangle is skipped and production code is unchanged. Four actual
+Like fixtures passed at 1×/2× on GTK 4.14 and 4.18 with fatal GTK warnings.
+
+The final **C16** regular Rust matrix was repeated after this test-only fix:
+formatting, strict default/all/minimal Clippy, **359 / 367 / 345** library plus
+**4 CLI** tests per configuration/compiler, all builds, exact-MSRV offline
+releases, terminal/GTK/GStreamer checks and license inventory passed. Final
+hosted conclusions and the downloaded native archive remain per-head records
+in PR #15, rather than a success inferred from the earlier run.
 
 ### Historical C6 checkpoint before final UI polish
 
