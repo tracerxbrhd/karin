@@ -641,6 +641,10 @@ jobs:
           printf 'XDG_DATA_HOME=%s/build/ci-ui-xdg/data\n' "$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
           printf 'XDG_STATE_HOME=%s/build/ci-ui-xdg/state\n' "$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6, Node.js 24
+      - name: Trust only the checked-out container workspace
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          test "$(git rev-parse --show-toplevel)" = "$GITHUB_WORKSPACE"
       - name: Install selected Rust toolchain
         run: |
           rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal

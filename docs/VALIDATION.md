@@ -215,6 +215,14 @@ renderer observations. New test-only diagnostics and this CI definition need
 their own executed per-head checks; the current conclusion stays with the
 immutable PR records rather than being inferred from C10 local evidence.
 
+The next hosted revision `7624037` compiled both modern fixture binaries but
+failed before visual execution: container Git rejected checkout ownership while
+recording provenance ([push](https://github.com/tracerxbrhd/karin/actions/runs/41293022480),
+[PR](https://github.com/tracerxbrhd/karin/actions/runs/41293026336)). The correction
+trusts only the exact checked-out `$GITHUB_WORKSPACE` in the modern container;
+there is no wildcard trust or change to Rust, application behavior or assertions.
+This bootstrap failure is separate from animation results.
+
 ### Historical C6 checkpoint before final UI polish
 
 The C6 working-tree candidate completed stable **1.99.1** and exact **1.98.1**
