@@ -1262,8 +1262,106 @@ fn wait_media_forbidden(this: &Controller) {
     );
 }
 
+fn inline_transport_controls(this: &Controller) -> [gtk::Widget; 5] {
+    [
+        this.widgets.shuffle.clone().upcast(),
+        this.widgets.previous.clone().upcast(),
+        this.widgets.play.clone().upcast(),
+        this.widgets.next.clone().upcast(),
+        this.widgets.repeat.clone().upcast(),
+    ]
+}
+
+fn inline_transport_target_ready(ui: &crate::ui::MainWindow, widget: &gtk::Widget) -> bool {
+    // GtkWidget::width/height exclude CSS padding; the actual native button
+    // bounds, also used by pointer input, define its full 44px hit target.
+    widget.is_mapped()
+        && super::super::test_input::bounds_in_window(&ui.window, widget)
+            .is_some_and(|bounds| bounds.width() >= 44.0 && bounds.height() >= 44.0)
+}
+
+fn assert_inline_transport_target(ui: &crate::ui::MainWindow, widget: &gtk::Widget) {
+    let bounds = super::super::test_input::bounds_in_window(&ui.window, widget);
+    assert!(
+        inline_transport_target_ready(ui, widget),
+        "inline control name={} mapped={} content={}x{} bounds={bounds:?}",
+        widget.widget_name(),
+        widget.is_mapped(),
+        widget.width(),
+        widget.height()
+    );
+    let bounds = bounds.unwrap();
+    let flags = if widget.is_sensitive() {
+        gtk::PickFlags::DEFAULT
+    } else {
+        gtk::PickFlags::INSENSITIVE
+    };
+    let target = ui.window.pick(
+        f64::from(bounds.x() + bounds.width() / 2.0),
+        f64::from(bounds.y() + bounds.height() / 2.0),
+        flags,
+    );
+    assert!(
+        target.is_some_and(|target| target == *widget || target.is_ancestor(widget)),
+        "inline control has no native pointer target: name={} bounds={bounds:?}",
+        widget.widget_name()
+    );
+}
+
+fn inline_transport_layout_ready(ui: &crate::ui::MainWindow) -> bool {
+    let this = &ui.music.controller;
+    this.widgets.player_revealer.is_child_revealed()
+        && this.widgets.player_revealer.child().is_some_and(|content| {
+            let available =
+                ui.music.player_bar.width() - content.margin_start() - content.margin_end();
+            available > 0 && content.has_css_class("music-player-compact") == (available < 720)
+        })
+        && inline_transport_controls(this)
+            .iter()
+            .all(|widget| inline_transport_target_ready(ui, widget))
+        && ui.verify_layout().is_ok()
+}
+
+/// A GDK resize notification precedes its descendant allocation. Observe the
+/// actual responsive mode, usable controls and completed native frames before
+/// asserting or sending pointer input; mapping alone is already true in wide.
+fn wait_inline_transport_layout(ui: &crate::ui::MainWindow) {
+    let this = &ui.music.controller;
+    let previous = RefCell::new(None);
+    pump_until(|| {
+        let ready = inline_transport_layout_ready(ui);
+        let controls = inline_transport_controls(this)
+            .iter()
+            .map(|widget| {
+                format!(
+                    "{} mapped={} content={}x{} bounds={:?}",
+                    widget.widget_name(),
+                    widget.is_mapped(),
+                    widget.width(),
+                    widget.height(),
+                    super::super::test_input::bounds_in_window(&ui.window, widget),
+                )
+            })
+            .collect::<Vec<_>>();
+        if previous.borrow().as_ref() != Some(&controls) {
+            eprintln!(
+                "Karin synthetic inline transport: ready={ready} window={}x{} controls={controls:?}",
+                ui.window.width(),
+                ui.window.height()
+            );
+            previous.replace(Some(controls));
+        }
+        ready
+    });
+    for widget in inline_transport_controls(this) {
+        super::super::test_input::wait_for_layout(&ui.window, &widget);
+        assert_inline_transport_target(ui, &widget);
+    }
+    pump_until(|| inline_transport_layout_ready(ui));
+}
+
 /// Wait on actual native state, not an arbitrary delay: the panel must finish
-/// sliding and the footer must finish its responsive first-frame reparenting.
+/// sliding and the footer must finish its responsive timeline allocation.
 /// The shared input helper then observes two stable completed frame-clock ticks
 /// for each measured control before the before/after anchoring comparison.
 fn wait_settled_player_error_layout(ui: &crate::ui::MainWindow) {
@@ -1275,29 +1373,10 @@ fn wait_settled_player_error_layout(ui: &crate::ui::MainWindow) {
             .as_ref()
             .and_then(|host| host.revealer())
             .is_some_and(|panel| panel.is_child_revealed());
-        let compact = ui.music.player_bar.width() < 720;
-        let mode_parent = this
-            .widgets
-            .shuffle
-            .ancestor(gtk::MenuButton::static_type())
-            .and_downcast::<gtk::MenuButton>();
-        let footer_ready =
-            ui.music.player_bar.width() > 0
-                && this.widgets.player_revealer.is_child_revealed()
-                && this.widgets.player_revealer.child().is_some_and(|content| {
-                    content.has_css_class("music-player-compact") == compact
-                })
-                && if compact {
-                    mode_parent.is_some_and(|menu| menu.is_mapped())
-                        && !this.widgets.shuffle.is_mapped()
-                } else {
-                    mode_parent.is_none()
-                        && this.widgets.shuffle.is_mapped()
-                        && this.widgets.repeat.is_mapped()
-                };
-        panel_ready && footer_ready && ui.verify_layout().is_ok()
+        panel_ready && inline_transport_layout_ready(ui)
     };
     pump_until(ready);
+    wait_inline_transport_layout(ui);
     super::super::test_input::wait_for_layout(&ui.window, &this.widgets.play);
     super::super::test_input::wait_for_layout(&ui.window, &this.widgets.progress);
     pump_until(ready);
@@ -2301,9 +2380,9 @@ fn native_music_shuffle_repeat_mpris_shared_policy_and_eos() {
     assert!(context.is_partial());
     drop(source);
 
-    // Prove the real 420px control path, rather than treating an unmapped
-    // desktop control as usable. The same mode widgets live in the upward
-    // native overflow, and pointer/Space input reaches the shared policy.
+    // Prove the actual 420px path: all five transport controls now fit one
+    // native group. Pointer/Space still dispatch to the same policy and never
+    // replace or restart the paused worker while the layout adapts.
     desktop_cli("playerctl", &["--player", PLAYER, "pause"]);
     pump_until(|| {
         this.music_snapshot()
@@ -2315,28 +2394,14 @@ fn native_music_shuffle_repeat_mpris_shared_policy_and_eos() {
     let compact_index = this.model.borrow().queue.current_index();
     let compact_offers = fixture.counts.lock().unwrap().offers;
     resize_player_window(&ui, 420, 720);
-    pump_until(|| {
-        this.widgets
-            .shuffle
-            .ancestor(gtk::MenuButton::static_type())
-            .is_some()
-            && !this.widgets.shuffle.is_mapped()
-    });
+    wait_inline_transport_layout(&ui);
     {
-        let menu = this
-            .widgets
-            .shuffle
-            .ancestor(gtk::MenuButton::static_type())
-            .and_downcast::<gtk::MenuButton>()
-            .expect("420px modes use the native overflow");
-        assert_eq!(menu.widget_name(), "music-playback-modes");
-        native_click(&ui.window, &menu);
-        let popover = menu.popover().unwrap();
-        pump_until(|| {
-            popover.is_mapped()
-                && this.widgets.shuffle.is_mapped()
-                && this.widgets.repeat.is_mapped()
-        });
+        let transport = this.widgets.shuffle.parent().unwrap();
+        assert_eq!(transport.widget_name(), "music-transport");
+        assert_eq!(this.widgets.repeat.parent().as_ref(), Some(&transport));
+        for widget in inline_transport_controls(this) {
+            assert_inline_transport_target(&ui, &widget);
+        }
         native_click(&ui.window, &this.widgets.shuffle);
         pump_until(|| !this.model.borrow().queue.shuffle());
         assert_eq!(desktop_property("Shuffle").get::<bool>(), Some(false));
@@ -2348,7 +2413,7 @@ fn native_music_shuffle_repeat_mpris_shared_policy_and_eos() {
             assert_eq!(badge.text(), "1");
             assert!(
                 badge.is_mapped(),
-                "Repeat One is visible inside the actual overflow"
+                "Repeat One remains visible in the compact transport"
             );
         }
         capture_native("music-player-modes-compact-repeat-one");
@@ -2380,9 +2445,15 @@ fn native_music_shuffle_repeat_mpris_shared_policy_and_eos() {
                 .unwrap()
                 .success()
         );
-        pump_until(|| !popover.is_visible());
+        assert_eq!(
+            this.panel_mode.get(),
+            super::super::workspace::PanelMode::Queue
+        );
+        assert_eq!(this.widgets.shuffle.parent().as_ref(), Some(&transport));
+        assert!(this.widgets.shuffle.is_mapped() && this.widgets.repeat.is_mapped());
     }
     resize_player_window(&ui, 900, 650);
+    wait_inline_transport_layout(&ui);
     assert_eq!(
         this.panel_mode.get(),
         super::super::workspace::PanelMode::Queue
@@ -2396,6 +2467,32 @@ fn native_music_shuffle_repeat_mpris_shared_policy_and_eos() {
         compact_offers,
         "compact mode input and resize cannot resolve or restart audio"
     );
+    // The seek control is the same native widget in both timeline placements.
+    // Resizing while it owns keyboard focus must neither drop that focus nor
+    // resolve/restart the already paused source.
+    resize_player_window(&ui, 850, 750);
+    wait_inline_transport_layout(&ui);
+    assert!(this.widgets.progress.is_sensitive());
+    assert!(this.widgets.progress.grab_focus());
+    super::super::test_input::wait_for_layout(&ui.window, &this.widgets.progress);
+    for (width, height) in [(420, 720), (850, 750)] {
+        resize_player_window(&ui, width, height);
+        wait_inline_transport_layout(&ui);
+        super::super::test_input::wait_for_layout(&ui.window, &this.widgets.progress);
+        assert!(
+            gtk::prelude::GtkWindowExt::focus(&ui.window).is_some_and(|focus| {
+                focus == this.widgets.progress || focus.is_ancestor(&this.widgets.progress)
+            }),
+            "responsive seek lost focus at {width}x{height}: focus={:?}",
+            gtk::prelude::GtkWindowExt::focus(&ui.window)
+                .map(|focus| (focus.type_().name(), focus.widget_name().to_string()))
+        );
+        assert_eq!(this.player.borrow().serial, compact_serial);
+        assert_eq!(compact_worker.snapshot().generation, compact_generation);
+        assert_eq!(compact_worker.snapshot().state, PlaybackState::Paused);
+        assert_eq!(this.model.borrow().queue.current_index(), compact_index);
+        assert_eq!(fixture.counts.lock().unwrap().offers, compact_offers);
+    }
     drop(compact_worker);
     drop(subscription);
     drop(seek_subscription);

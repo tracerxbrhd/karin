@@ -282,7 +282,12 @@ pub(super) fn exercise_parallel_more() {
         released,
         thread: Some(server_thread),
     };
-    let service = MusicService::for_test(&format!("http://{address}/"));
+    // The first response is deliberately held while a real user scrolls past
+    // both 50-tile collections. A two-second unit-fixture deadline would test
+    // mouse traversal speed instead of independent request admission. Keep the
+    // production-equivalent finite 15s client budget and the strict 12s server
+    // gate; all one-read, simultaneous, ordering and stale-control guards stay.
+    let service = MusicService::for_native_input_test(&format!("http://{address}/"));
     let token = AccessToken::for_test(
         "synthetic-parallel-playlists-token",
         Duration::from_secs(120),

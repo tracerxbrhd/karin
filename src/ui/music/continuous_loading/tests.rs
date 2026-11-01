@@ -36,7 +36,7 @@ fn continuous_source_windows_keep_exact_499_500_1999_positions_and_bound_queue()
         let context = view.context(index).unwrap();
         assert_eq!(context.items().len(), 500);
         assert_eq!(context.current_index(), local);
-        assert_eq!(context.source_position(local), Some(local));
+        assert_eq!(context.source_position(local), Some(index));
         assert!(
             context.is_partial(),
             "a source window is not the complete remote collection"
@@ -49,9 +49,10 @@ fn continuous_source_windows_keep_exact_499_500_1999_positions_and_bound_queue()
             "the visible 2000-item cap never expands the live queue cap"
         );
     }
-    assert_ne!(
+    assert_eq!(
         view.context(499).unwrap().source_id(),
-        view.context(1999).unwrap().source_id()
+        view.context(1999).unwrap().source_id(),
+        "window changes preserve the stable source identity; original positions distinguish occurrences"
     );
     assert!(view.context(2000).is_none());
 }
@@ -207,4 +208,106 @@ fn repeated_marker_queries_share_at_most_four_immutable_track_windows() {
         "accepted append cannot mutate a playing window snapshot"
     );
     assert_eq!(expanded.items().len(), 100);
+}
+
+#[test]
+fn filtered_contexts_keep_visible_order_absolute_duplicates_and_live_queue_immutable() {
+    let mut view = LoadedTracks::new(ContextKind::Playlist, Some("synthetic-owner:7".into()), 51);
+    let values = (0..1_002)
+        .map(|index| {
+            let mut value = track();
+            value.title = if index % 2 == 0 {
+                "Ёлка"
+            } else {
+                "Другой"
+            }
+            .into();
+            value
+        })
+        .collect();
+    view.append(
+        0,
+        Page {
+            items: values,
+            has_more: true,
+        },
+    );
+    let unfiltered = view.context(100).unwrap();
+    let mut queue = MusicQueue::new();
+    queue.replace_context(unfiltered.clone());
+    assert!(view.set_filter("ёЛКА"));
+    assert!(
+        view.context(499).is_none(),
+        "a hidden row cannot be activated through an old menu"
+    );
+    let first = view.context(0).unwrap();
+    let boundary = view.context(1_000).unwrap();
+    assert_eq!(first.items().len(), 500);
+    assert_eq!(first.source_position(499), Some(998));
+    assert_eq!(boundary.current_index(), 0);
+    assert_eq!(boundary.source_position(0), Some(1_000));
+    assert_eq!(first.source_id(), boundary.source_id());
+    assert!(first.is_partial() && boundary.is_partial());
+    assert_eq!(queue.context(), Some(&unfiltered));
+    assert!(view.matches_current(100, &unfiltered));
+    assert!(!view.matches_current(0, &unfiltered));
+    queue.remove(0);
+    assert!(view.matches_current(100, queue.context().unwrap()));
+    let selected = boundary.clone();
+    view.append(
+        1,
+        Page {
+            items: vec![track()],
+            has_more: false,
+        },
+    );
+    assert_eq!(selected.source_position(0), Some(1_000));
+    assert_eq!(
+        selected.items().len(),
+        1,
+        "a retained playing window remains an immutable snapshot"
+    );
+    assert!(view.set_filter(""));
+    assert_eq!(view.context(500).unwrap().source_position(0), Some(500));
+    assert_eq!(view.context(500).unwrap().source_id(), selected.source_id());
+    let new_source = LoadedTracks::new(ContextKind::Playlist, Some("synthetic-owner:8".into()), 52);
+    assert!(!new_source.filter.active());
+    assert!(!new_source.matches_current(500, &selected));
+}
+
+#[test]
+fn filtering_is_bounded_cached_and_cannot_create_provider_requests() {
+    let mut view = LoadedTracks::new(ContextKind::LikedTracks, None, 61);
+    view.append(0, page(VIEW_LIMIT, true));
+    let next_page = view.next_page;
+    for query in ["Synthetic", "repeated", "NO MATCH", "", "synthetic"] {
+        view.set_filter(query);
+        assert_eq!(view.next_page, next_page);
+        assert_eq!(view.items.len(), VIEW_LIMIT);
+        assert!(view.at_limit());
+        assert!(!view.can_request());
+    }
+    let snapshots = [0, 500, 1000, 1500].map(|index| view.context(index).unwrap());
+    for index in 0..VIEW_LIMIT {
+        let context = view.context(index).unwrap();
+        assert_eq!(
+            context.items().as_ptr(),
+            snapshots[index / 500].items().as_ptr()
+        );
+        assert!(view.matches_current(index, &context));
+    }
+    assert_eq!(view.contexts.borrow().len(), 4);
+    view.set_filter("different");
+    assert!(view.contexts.borrow().is_empty());
+    assert!(view.first_playable().is_none());
+    assert!(view.context(0).is_none());
+    view.set_filter("");
+    view.items[0].available = false;
+    assert_eq!(view.first_playable(), Some(1));
+    let count = view.filter.visible().len();
+    view.loading = true;
+    view.error = Some(MusicError::Network);
+    view.append(0, page(50, true));
+    assert_eq!(view.filter.visible().len(), count);
+    assert!(view.loading && view.error.is_some());
 }

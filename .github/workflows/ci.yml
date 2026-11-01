@@ -150,6 +150,8 @@ jobs:
               'native_music_playback_resolver_queue_controls_and_logout',
               'native_design_matched_matrix_and_populated_surfaces',
               'native_universal_panel_whole_surface_motion_and_mode_switch',
+              'native_first_footer_reveal_after_startup_without_graphics_initialization',
+              'native_collection_filter_continuation_and_exact_occurrences',
               'native_music_shuffle_repeat_mpris_shared_policy_and_eos',
               'native_queue_space_mouse_enter_dispatch_exact_occurrence_once',
               'native_workspace_playlist_grid_input_states_and_resize',
@@ -166,12 +168,13 @@ jobs:
           main, modern = workflow.split('\n  native_ui:', 1)
           pattern = r'cargo test --lib --all-features --locked ([a-z_0-9]+) -- --ignored'
           visual = {'native_design_matched_matrix_and_populated_surfaces',
-                    'native_universal_panel_whole_surface_motion_and_mode_switch'}
+                    'native_universal_panel_whole_surface_motion_and_mode_switch',
+                    'native_first_footer_reveal_after_startup_without_graphics_initialization'}
           main_runs = set(re.findall(pattern, main))
           modern_runs = set(re.findall(pattern, modern))
           assert set(selectors) - visual <= main_runs, 'A functional native selector was removed from Ubuntu'
           assert not visual & main_runs, 'Strict visual selectors belong to the modern quality runtime'
-          assert visual <= modern_runs, 'The modern job must execute both strict visual fixtures'
+          assert visual <= modern_runs, 'The modern job must execute every visual fixture'
           print(f'Compiled {len(compiled)} selectors: {len(compiled - visual)} Ubuntu functional + {len(visual)} modern visual, in both Rust lanes')
           PY
       - name: MPRIS methods, properties, signals and shutdown on an isolated session bus
@@ -225,6 +228,7 @@ jobs:
               export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/native-music-$scale"
             fi
             GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_catalog_native_music_layout -- --ignored --test-threads=1
+            G_DEBUG=fatal-warnings GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_collection_filter_continuation_and_exact_occurrences -- --ignored --test-threads=1
             G_DEBUG=fatal-warnings GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_music_shuffle_repeat_mpris_shared_policy_and_eos -- --ignored --test-threads=1
             GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_queue_space_mouse_enter_dispatch_exact_occurrence_once -- --ignored --test-threads=1
           done
@@ -550,16 +554,19 @@ jobs:
           No experimental flag or developer credentials required. Keep the desktop keyring unlocked.
           Follow docs/BUILDING.md#v04-native-music-acceptance-on-fedora at the source commit in BUILD-INFO.txt.
           Test the real account/library/search/playlists/context queue, audible Music playback and KDE MPRIS.
-          Inspect light/dark, HiDPI, 420x720,720x650,900x650,1280x800,1440x900,1650x930,1920x1080 and maximized.
+          Inspect light/dark, HiDPI, 420x720,850x750,720x650,900x650,1280x800,1440x900,1650x930,1920x1080 and maximized.
           Open Track Info or Queue in the same right panel; outside click/scroll/navigation must not close it.
           Check the entire surface slides together and switching Track Info/Queue never closes/reopens it.
           Test Shuffle, Repeat Queue/One, previous-history, actual upcoming order and external playerctl modes.
           Queue is reached from the Player Bar/Ctrl+J; no separate queue navigation or visible Stop remains.
           Before Play the footer is hidden; real Play reveals it from below, Pause retains it, Stop/clear/logout hides it.
           Click cover/title/artist/metadata space or press Enter/Space to open Track Info; Like remains independent.
-          Use Wave (explicitly unimplemented), Liked and Playlists tabs and the adjacent unified Search action.
+          Use Home (working shortcuts, compact unavailable Wave), Liked and Playlists tabs and the adjacent unified Search action.
           Scroll track collections continuously; exercise loading/end/error/Retry without manual track pages.
           More than 2000 loaded source positions requires search or another source; new playback uses a bounded 500-position context.
+          In Liked/opened playlists type title/artist/album locally; typing must not fetch collection pages or replace the playing Queue.
+          Partial coverage is explicit; search the next bounded part deliberately and verify duplicate occurrences in filtered playback.
+          Inspect the heart hero/truthful duration, larger playlist covers and tight centered footer at 850x750 and compact/wide sizes.
           Direct Like must read membership and confirm the server result; unconfirmed Dislike is hidden.
           Next/Previous/EOS/MPRIS must follow the actual occurrence without closing/reopening.
           Explicit other-track selection must survive pause/seek/volume; current occurrence changes resume following.
@@ -675,7 +682,8 @@ jobs:
 
           listed = Path('/tmp/karin-native-quality-fixtures.txt').read_text().splitlines()
           for selector in ['native_design_matched_matrix_and_populated_surfaces',
-                           'native_universal_panel_whole_surface_motion_and_mode_switch']:
+                           'native_universal_panel_whole_surface_motion_and_mode_switch',
+                           'native_first_footer_reveal_after_startup_without_graphics_initialization']:
               assert any(line.endswith(f'::{selector}: test') for line in listed), f'Missing compiled visual fixture: {selector}'
           artifacts = [json.loads(line) for line in Path('/tmp/karin-native-quality-artifacts.jsonl').read_text().splitlines()]
           binaries = [item['executable'] for item in artifacts
@@ -707,14 +715,25 @@ jobs:
             printf 'Motion PNGs render complete real after-paint scene nodes; this is not framebuffer-damage or cold-latency acceptance.\n'
             printf 'Normal 240ms motion is measured after a separately recorded graphics initialization cycle; cold latency is not accepted.\n'
           } > build/ui-captures/native-quality-environment.txt
-      - name: Strict populated matrix and normal motion after graphics initialization at both scales
+      - name: Fresh startup footer, populated matrix and initialized motion at both scales
         env:
+          G_DEBUG: fatal-warnings
           GTK_A11Y: none
           GSK_RENDERER: ngl
           GSK_DEBUG: full-redraw
           GDK_DPI_SCALE: 1
           KARIN_V04_ASSERT_DENSITY: 1
         run: |
+          # Observe fresh-process startup first, in its own profile. Neither
+          # scale inherits settings/shader caches from the static/motion suite.
+          for scale in 1 2; do
+            if [ "$scale" = 1 ]; then screen=1920x1080x24; else screen=3840x2160x24; fi
+            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/native-music-$scale"
+            cold_profile="$GITHUB_WORKSPACE/build/ci-ui-cold-$scale"
+            test ! -e "$cold_profile"
+            mkdir -p "$cold_profile/config" "$cold_profile/cache" "$cold_profile/data" "$cold_profile/state"
+            env -u GSK_DEBUG GDK_SCALE="$scale" XDG_CONFIG_HOME="$cold_profile/config" XDG_CACHE_HOME="$cold_profile/cache" XDG_DATA_HOME="$cold_profile/data" XDG_STATE_HOME="$cold_profile/state" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_first_footer_reveal_after_startup_without_graphics_initialization -- --ignored --test-threads=1
+          done
           for scale in 1 2; do
             if [ "$scale" = 1 ]; then screen=1920x1080x24; else screen=3840x2160x24; fi
             export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/native-music-$scale"
@@ -730,7 +749,7 @@ jobs:
           KARIN_CAPTURE_SCALE: 2
           KARIN_CAPTURE_RENDERER: ngl
         run: scripts/capture-ui.sh build/ui-captures/hidpi
-      - name: Matched a70bbf7 refinement baseline GTK captures (isolated target)
+      - name: Matched 2e3ae41 refinement baseline GTK captures (isolated target)
         env:
           KARIN_CAPTURE_RENDERER: ngl
         run: scripts/capture-native-music-baseline.sh build/ui-captures
@@ -743,6 +762,9 @@ jobs:
             build/ui-captures/**/*.png
             build/ui-captures/**/*.geometry.txt
             build/ui-captures/**/*.jsonl
+            build/ui-captures/**/*.json
+            build/ui-captures/baseline-source.json
+            build/ui-captures/baseline-geometry-adapter.patch
             build/ui-captures/native-quality-source.json
             build/ui-captures/native-quality-environment.txt
             build/ui-captures/comparison-info.txt

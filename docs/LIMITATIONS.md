@@ -23,7 +23,42 @@ acceptance revision. Exact provenance belongs in [VALIDATION.md](VALIDATION.md).
 Use the
 [current Fedora procedure](BUILDING.md#v04-native-music-acceptance-on-fedora).
 
-## Current refinement from `a70bbf7`
+## Final Cassette-inspired refinement from `2e3ae41`
+
+The latest iteration retains accepted service/audio boundaries and refines Home,
+Liked hero/local search, covers and footer composition. New automated evidence
+and Fedora acceptance must be recorded for the actual candidate; prior green
+checks do not accept these pixels or first-use performance.
+
+Collection search covers already admitted title/artist/album fields only. No
+verified scoped server-search endpoint exists in Karin. Typing performs no collection-metadata requests;
+remote-prefix coverage stays visible, and deliberate continuation uses existing
+bounded reads. Global catalog search is not substituted for collection membership.
+Views remain capped at 2,000 positions/100 pages, new playback at 500 visible
+occurrences. Filter/view changes do not grow the active queue. Total duration is
+omitted unless admitted collection data is complete and every duration known.
+Partial-prefix sorting is omitted rather than presented as complete remote order.
+
+Wave, Dislike, lyrics and persistent audio remain behind their documented gates.
+Cloud fixtures do not establish real Music account/Like mutations, KDE hardware
+media keys, current full Flatpak or Fedora visual acceptance. Cold footer/panel
+smoothness remains unaccepted: the historical 116,669 μs gap and hosted motion
+FAILs below are preserved, with no claimed driver diagnosis or production fix.
+
+The final C14 separate empty-queue startup observer records **0.90 s / 0.85 s** maximum
+adjacent native paint gaps at 1×/2× under cloud NGL/LP2 and fresh profiles, with
+only one intermediate footer allocation each. Functional first Play/Pause/Stop
+success does not accept that appearance. It is not the same protocol as the
+historical 117 ms post-static first-map observation. The cause is unknown;
+Fedora hardware/default-renderer first appearance remains pending. Do not
+attribute it to the independently corrected responsive-padding sizing warning.
+Earlier C12 **1.03/0.87 s** and C13 **1.07/0.90 s** traces remain history;
+these runs do not establish a performance improvement or its cause.
+Manual queue additions retain the earlier physical-index Info/MPRIS identity
+fallback: removing a preceding row can rotate that opaque identity without
+restarting audio. Original source occurrences now keep their absolute identity.
+
+## Previous refinement from `a70bbf7` (historical)
 
 The latest owner request replaces mandatory Home/Search/Library primary routes,
 a permanently visible idle footer and explicit track pagination with lightweight

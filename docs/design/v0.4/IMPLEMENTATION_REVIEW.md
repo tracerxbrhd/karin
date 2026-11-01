@@ -1,10 +1,209 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 
-# Cassette-like refinement — implementation and review
+# Final collection refinement — current task
+
+This task continues existing Draft PR #15 from the comparison revision
+**`2e3ae41a8480b8f5f437f739c02cb925af69e884`**. The complete
+[current owner task](CODEX_TASK.md) requests targeted collection, local-search,
+footer, grid and Home polish. It does not authorize another application,
+rewriting the working service/audio path, a new PR or merge. The
+[current specification](DESIGN_SPEC.md) supersedes the previous Wave-only
+landing and tiny liked-summary target while preserving their historical proof.
+
+## Implemented scope and current evidence boundary
+
+| Work | Implemented contract |
+| --- | --- |
+| Liked identity | Original native heart hero; title, truthful loaded/complete facts and existing Play/Refresh grouped beside art; actual-width 192/144/88-pixel cover tiers |
+| Collection filter | Reusable search within opened Liked/playlist tracks, Unicode-aware title/artist/album matching, clear/empty/partial states and exact duplicate occurrence playback |
+| Continuous data | Existing 2000-position/100-page view and 500-position playback bounds; no whole-library load per keystroke and no queue replacement from filtering/append |
+| Transport | Same hidden/SlideUp/paused/Stop lifecycle, full metadata Info target, confirmed heart action near metadata, centered controls and coherent progress/time |
+| Playlists | Larger actual-width covers, owned/liked sections, sparse natural card size, confirmed creation/open and existing real artwork |
+| Home | Primary tab renamed **Главная**, useful real Liked/Playlists/Search entry points and modest truthful unavailable Wave status; no fake recommendations |
+
+The implemented footer keeps three equal wide columns, associates Like with the
+natural-size metadata target and places the bounded timeline/time under the
+five central controls. Compact reuses those same five inline controls in its
+second row. The stock theme heart retains confirmed active/unknown/loading
+semantics, with a native fallback when unavailable. Current cloud-native evidence
+below verifies its recorded source; Fedora acceptance remains separate.
+
+The implemented shared filter uses NFKC → GLib Unicode casefold → NFKC over known title,
+artist and album text, with all query tokens matched against one bounded index
+per admitted Track. Typing changes retained-row visibility without collection/
+metadata requests or whole-collection loading. The existing bounded thumbnail
+loader can still load art when a retained row becomes visible; no claim of zero
+traffic of every kind is inferred from a cover-free service fixture.
+A partial query can request one more bounded portion
+through **Искать в следующей части** or actual forward scroll intent. Playback
+snapshots visible provider order with original absolute occurrence positions;
+editing/clearing a query never changes the already playing immutable queue.
+No remote/global collection sort is claimed or added.
+
+The two private screenshots compare Cassette at left with Karin at right. The
+primary agent inspected their composition. They are not copied or published,
+and contributors without those pixels do not claim an independent image audit.
+Current application captures must compare equal logical sizes, including the new
+850×750 case, and use synthetic metadata/original test artwork only.
+
+The new `collection_hero` source is a small persistent GTK presentation component
+around caller-owned Play/Refresh buttons. It introduces no requests, controller,
+engine or remote schema. It updates from **all admitted source occurrences**;
+partial data says **Загружено**, and total duration requires a complete source,
+every known duration and checked addition, counting legitimate duplicates.
+Unknown/overflow totals are omitted. The caller retains action sensitivity,
+source completion, account/request epochs and cleanup ownership. Weak local
+width-tier observation adapts the original theme-native heart without retaining
+private removed views or reentering the controller during map/layout.
+
+## Executed C14 native evidence and current acceptance boundary
+
+The final native-test executable SHA-256 is
+`c927b8e1dfa405398c8c2dc68ca402d3cd899e7867f08cbfc2aa08bf54331bb5`;
+its **111-entry source-manifest** hash is
+`3faefc3e5d8e69ce475e148ffef92cecb5ccbaf6631ac14661993cbbf1db7bf4`.
+The [current gallery](evidence-final-refinement/README.md) records unchanged PNGs,
+image hashes, source/baseline archive proof, native ledger and hardened audit.
+Every current image is newly collected from C14. Older checkpoints and USER-CSS
+diagnostic controls are not relabeled as current source.
+
+The source-matched native output passes six fatal-warning-clean stages: two
+fresh-profile startup lifecycle observations and static/strict panel motion at
+both scales. It contains **260 static PNGs**, **108 matched actual GTK/PNG
+before/current dimension pairs**, **240 initialized selected panel frames / 48
+trajectories**, and **478 moving raw records**. Every strict trajectory has five
+distinct native frame times/indices. The full artifact separately retains 17
+static-fixture raw footer images; the selected gallery includes 18 genuinely
+retained fresh-process first-Play/Stop/paused originals. No raw sequence is padded
+or relabeled five quarter phases.
+
+The renderer is `GskGLRenderer`, with explicit test-only `LP_NUM_THREADS=2`.
+Static PNGs are X11 window captures under full redraw. Motion/raw-footer PNGs
+render retained native after-paint root scene nodes under ordinary GTK damage.
+These do not prove direct framebuffer-damage or Fedora performance. Strict panel
+proof includes its bounded test graphics initialization; fresh-process startup
+has no such prior cycle. No production prewarming or renderer override is added.
+
+All **69 selected public originals** are individually opened across A/C/D/E,
+with exact reviewed SHA-256 matching provenance: **A: 21 / C: 12 / D: 8 / E: 28**. This
+includes all six executed input photographs and the seven freshly reopened baseline images.
+The [machine-checkable coverage record](evidence-final-refinement/metadata/current/team-published-image-review.json)
+links every original, reviewer and hash. Native heart hierarchy, 192/144/88 cover
+tiers, grouped real actions, quiet 64-pixel rows, local query/clear/empty states,
+full compact transport, Info action fit, Queue, Home/grid and actual motion
+images show no new separate structural P0/P1. The known first-use temporal FAIL
+remains explicit. This does not claim all 260 full-output static images were
+manually reviewed, or infer unperformed Fedora/live-service behavior.
+
+### Corrected regressions and retained intermediate failures
+
+C12's complete 56-execution local native sweep was **48 PASS / 8 nonpassing**.
+Its [source, ledger, summary and failed logs](evidence-final-refinement/metadata/history/candidate-12/c12-full-native-summary.json)
+remain historical. A passed static matrix and regular C12 compiler checks did not
+accept that broader run. The follow-up separated actual product behavior from
+stale test assumptions rather than weakening evidence:
+
+- A closed `GtkRevealer` still advertised its invisible wide child's horizontal
+  request. The inner player content now starts hidden and is hidden again only
+  at the fully closed endpoint. Real reveal applies actual host layout before
+  showing it; partial opening/Stop keeps the closing frames. Native startup/Stop
+  checks require child, Revealer and outer host horizontal minimum/natural (0, 0).
+  The existing 240 ms reveal, controls, audio intent and engine remain the same.
+- The artwork fixture cached sample coordinates before responsive hero/theme
+  relayout. It now waits for three completed native frames with stable geometry
+  and a closed panel, then uses cover/viewport bounds and root node from the
+  same final after-paint frame. Both themes' fully-in-viewport guards and all
+  three exact coral-pixel checks remain; there is no loop waiting for a desired
+  pixel color, arbitrary sleep extension or forced thumbnail visibility.
+- Native navigation/row fixtures were migrated to the actual current hero and
+  shared-pane intent. Genuine mouse/keyboard and mapped target checks remain.
+  Deliberately held local HTTP input fixtures use a finite matching request
+  budget; production network policy is unchanged.
+
+C13's [12 targeted regressions](evidence-final-refinement/metadata/history/candidate-13/targeted-regressions-results.jsonl)
+and [six-stage audit](evidence-final-refinement/metadata/history/candidate-13/e-final-proof.json)
+pass on their own source, but remain historical. A later read-only review found
+that casefold-before-NFKC missed compatibility capitals such as mathematical
+**𝐀** against plain **a**. C14 normalizes **NFKC → casefold → NFKC**, with a pure
+regression preserving distinct original occurrences and clear-query behavior.
+Final regular checks and **all 56 native executions run again on C14**; C13's 12
+are not combined with later cases to manufacture a final complete result.
+
+Collection-source provenance remains distinct from manual queue entries. The
+pre-existing physical-index fallback can change a manual entry's opaque Info/
+MPRIS identity when an earlier row is deleted, without restarting audio. Stable
+manual-entry IDs are outside this refinement, as explicitly recorded in
+[ADR-0025](../../adr/0025-loaded-collection-search-and-playback-provenance.md).
+Local filter/clear/append still preserve the active immutable source context and
+working audio; this limitation is not represented as a newly solved capability.
+
+### Completed local checks and remaining first-use limitation
+
+The [current regular matrix](evidence-final-refinement/metadata/current/regular-result.json)
+passed in 290.98 seconds with all 111 source hashes unchanged, on stable Rust
+**1.99.1** and exact Rust **1.98.1**. Formatting, strict Clippy and debug builds
+passed for default, all-feature and minimal-feature configurations. Library tests
+passed in those configurations (379, 387 and 365 respectively), plus four CLI
+tests for each configuration and compiler. Locked offline ordinary/all-feature
+MSRV release builds, 15 terminal diagnostics, 40 silent GStreamer checks,
+generated-WAV transport/EOS/cleanup and ordinary/experimental GTK smoke checks
+passed. The license inventory remains unchanged: 207 lockfile packages, including
+178 for Linux. The ordinary local release SHA-256 is
+`dd23e54ba569601771a182fa9f43b89f5e2631d7408c752f69633b695285847a`;
+this does not validate a downloaded Fedora artifact or real Music playback.
+
+The complete local C14 native functional set **passes 56/56**: all 28 selectors
+at both scales, no warnings or failures, and all unique expected pairs present.
+The [hardened summary](evidence-final-refinement/metadata/current/functional-summary.json)
+and [complete ledger](evidence-final-refinement/metadata/current/functional-results.jsonl)
+verify the same binary and all 111 source hashes, with every log SHA-256 checked.
+Summed process time is 857.43 seconds. This entire set ran again on C14; no C13
+cases are combined with later results. Functional fixtures use Cairo, separately
+from the recorded `GskGLRenderer` visual/motion stages.
+
+The collection-filter selector passed at **1× in 85.04 seconds** and **2× in
+86.50 seconds**. Its six individually reviewed 1× partial/Retry/append originals,
+result and safe log are in the
+[gallery](evidence-final-refinement/README.md#executed-c14-local-filter-input-partial-continuation-and-retry).
+Loaded scope stays truthful (50 → 100); unknown total duration is omitted and
+four matched Cyrillic duplicate occurrences remain distinct.
+
+Two navigating WebKit fixtures are unsupported locally and remain hosted-required:
+`webkit_auth_interactive_navigation_frames_and_first_rejection` and
+`webkit_auth_local_startup_cookie_isolation_and_cancel`. They are explicitly
+outside the local 28-selector set, without disabling the sandbox. **At documentation
+freeze, hosted CI and downloaded Fedora archive validation remain pending**.
+Their actual exact-revision outcomes belong in
+[PR #15](https://github.com/tracerxbrhd/karin/pull/15/checks). Neither the complete
+local set nor older checkpoints certify those gates or real Fedora music.
+
+**Fresh-process first-footer smoothness remains unaccepted.** An ordinary loaded
+library process with empty queue/Info receives its first actual mouse Play,
+without previous footer/panel cycles, forced post-map close or renderer priming.
+C14 at 1×/2× records **900,018 μs / 850,017 μs** maximum adjacent native gaps,
+only **one intermediate each**, and observer maxima **518 μs / 282 μs**. Lifecycle,
+zero height reversals and released hidden horizontal requests pass; cadence/
+latency does not. Cause is unknown. Prior C12 gaps (1,033,354 / 866,684 μs), C13 gaps (about 1.067 / 0.900 s),
+the older 116,669 μs observation and earlier strict sampling failures remain
+recorded. No longer animation, delay or production prewarming conceals them.
+
+Cloud fixtures and screenshots do not accept ordinary Fedora first appearance,
+live account/Like/library, audible Music/PipeWire, hardware media keys or current
+Flatpak. PR #15 remains Draft; no merge is authorized.
+
+## Historical refinement through 2e3ae41 — retained evidence only
+
+Everything below describes the previous a70-based refinement and its immutable
+checkpoints. Its task, source fingerprints, results, failures and cold/warm
+limits remain historical and do not accept this new task.
+
+---
+
+# Cassette-like refinement — historical implementation and review
 
 This iteration starts at **`a70bbf714e3d7ea775c03839eb01f0b1d9dd4f62`** in
-existing Draft PR #15. The [latest task](CODEX_TASK.md) and
-[current specification](DESIGN_SPEC.md) supersede previous permanent-footer,
+existing Draft PR #15. Its [task at 2e3](https://github.com/tracerxbrhd/karin/blob/2e3ae41a8480b8f5f437f739c02cb925af69e884/docs/design/v0.4/CODEX_TASK.md) and
+[specification at 2e3](https://github.com/tracerxbrhd/karin/blob/2e3ae41a8480b8f5f437f739c02cb925af69e884/docs/design/v0.4/DESIGN_SPEC.md) superseded previous permanent-footer,
 rail/dropdown and track-page-button assumptions. This is refinement of the
 working engine and integrations, not a new application.
 

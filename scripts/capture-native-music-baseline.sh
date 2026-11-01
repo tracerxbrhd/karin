@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Use a separate target directory: manifest roots must not share crate outputs.
-# The refinement baseline is the exact PR head before this iteration, a70bbf7.
-# Its existing source and synthetic test harness are archived without adaptation.
+# The refinement baseline is the exact PR head before this iteration, 2e3ae41.
+# Its production source is unchanged; one documented test-only 850x750 tuple
+# supplements the old matrix, with original/adapted hashes and patch retained.
 # No user account or remote API is used.
 set -euo pipefail
 repository=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 output=$(realpath -m "${1:-$repository/build/ui-captures}")
-baseline_revision=a70bbf714e3d7ea775c03839eb01f0b1d9dd4f62
+baseline_revision=2e3ae41a8480b8f5f437f739c02cb925af69e884
 baseline_target=${CARGO_TARGET_DIR:-$repository/target/native-music-baseline}
 capture_renderer=${KARIN_CAPTURE_RENDERER:-cairo}
 motion_only=${KARIN_BASELINE_MOTION_ONLY:-0}
@@ -19,8 +20,45 @@ if ! git cat-file -e "$baseline_revision^{commit}" 2>/dev/null; then
     git fetch --no-tags --depth=1 origin "$baseline_revision"
 fi
 git archive "$baseline_revision" | tar -x -C "$temporary"
-# Keep the archived composition and the complete initialized-motion fixture.
-# Copying the new harness into it would no longer demonstrate the old UI.
+# Adapt only the missing owner-reference geometry. Preserve old widgets, all
+# assertions and the complete original strict initialized-motion fixture.
+python3 - "$temporary" "$output" "$baseline_revision" <<'PYBASE'
+import difflib
+import hashlib
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+archive, output, revision = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
+relative = 'src/ui/music/design_tests.rs'
+harness = archive / relative
+original = harness.read_bytes()
+needle = '        (720, 650, "narrow"),\n        (900, 650, "medium"),'
+text = original.decode()
+assert text.count(needle) == 1, 'Unexpected archived geometry contract'
+adapted = text.replace(needle, '        (720, 650, "narrow"),\n        (850, 750, "reference"),\n        (900, 650, "medium"),', 1).encode()
+harness.write_bytes(adapted)
+files = {}
+for name in subprocess.check_output(['git', 'ls-tree', '-r', '--name-only', revision], text=True).splitlines():
+    path = archive / name
+    if not path.is_file():
+        continue
+    old = subprocess.check_output(['git', 'show', revision + ':' + name])
+    actual = path.read_bytes()
+    assert name == relative or old == actual, name
+    files[name] = {'original_sha256': hashlib.sha256(old).hexdigest(),
+                   'archived_sha256': hashlib.sha256(actual).hexdigest()}
+patch = ''.join(difflib.unified_diff(text.splitlines(True), adapted.decode().splitlines(True),
+                                   fromfile='baseline-original/' + relative,
+                                   tofile='baseline-geometry-only/' + relative))
+(output / 'baseline-geometry-adapter.patch').write_text(patch)
+(output / 'baseline-source.json').write_text(json.dumps({
+    'baseline_revision': revision, 'production_source_unchanged': True,
+    'test_harness_unmodified': False,
+    'adapter_scope': 'One 850x750 static matrix tuple only; strict motion and production unchanged',
+    'files': files}, indent=2) + '\n')
+PYBASE
 # Force the archived crate to compile even when its copied timestamps predate a
 # cached output. Its isolated target cannot replace the current application.
 touch "$temporary/src/lib.rs"
@@ -42,11 +80,18 @@ for line in (temporary / 'artifacts.jsonl').read_text().splitlines():
 assert len(executables) == 1
 shutil.copy2(executables[0], temporary / 'baseline-tests')
 PY
+# A fresh archive-specific profile prevents the current checkout's settings or
+# shader/art caches from leaking into before evidence. Keep it for every scale
+# and stage; do not reset it to retry a failed observation.
+baseline_profile="$temporary/xdg"
+mkdir -p "$baseline_profile/config" "$baseline_profile/cache" "$baseline_profile/data" "$baseline_profile/state"
+export XDG_CONFIG_HOME="$baseline_profile/config" XDG_CACHE_HOME="$baseline_profile/cache"
+export XDG_DATA_HOME="$baseline_profile/data" XDG_STATE_HOME="$baseline_profile/state"
 {
     printf 'Previous-iteration baseline production/test source: %s\n' "$baseline_revision"
     printf 'Current checkout (working-tree status follows): '; git rev-parse HEAD
     git status --short
-    printf 'Unmodified archived test harness:\n'
+    printf 'Archived test harness with disclosed 850x750 geometry-only adaptation:\n'
     sha256sum "$temporary/src/ui/music/design_tests.rs"
     printf 'Rebuilt baseline test executable:\n'
     sha256sum "$temporary/baseline-tests"
@@ -54,11 +99,12 @@ PY
     if [ "$motion_only" = 1 ]; then
         printf 'Motion-only observation; the separately retained static matrix is not regenerated.\n'
     else
-        printf '96 matched before cases: eight geometries, two themes, two scales, closed/track/queue.\n'
+        printf '108 matched before cases: nine geometries, two themes, two scales, closed/track/queue.\n'
     fi
     printf 'Requested capture renderer: %s; motion JSON records the actual native class.\n' "$capture_renderer"
     printf 'Software Mesa raster worker limit: LP_NUM_THREADS=%s (unset means Mesa default).\n' "${LP_NUM_THREADS:-unset}"
     printf 'Static captures force full redraw; normal-motion checks unset GSK_DEBUG for ordinary damage tracking.\n'
+    printf 'Fresh isolated baseline XDG profile shared across all four stages; no cross-revision profile or per-stage reset.\n'
     printf 'Baseline Queue is captured in its existing pinned universal panel.\n'
     printf 'Baseline motion also measures a normal cycle after separately recorded graphics initialization; cold responsiveness is unaccepted.\n'
     printf 'True maximization: isolated Openbox; neither screenshots nor fixtures accept Fedora.\n'

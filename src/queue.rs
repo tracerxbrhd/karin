@@ -115,6 +115,28 @@ impl PlaybackContext {
         })
     }
 
+    /// Admit a bounded UI projection without renumbering its original source
+    /// occurrences. Filtering keeps provider order and may omit positions;
+    /// equal track IDs at different positions remain independent occurrences.
+    pub(crate) fn with_source_positions(
+        source_kind: ContextKind,
+        source_id: Option<String>,
+        items: Vec<Track>,
+        current_index: usize,
+        partial: bool,
+        positions: Vec<usize>,
+    ) -> Result<Self, ContextError> {
+        if positions.len() != items.len()
+            || positions.iter().any(|position| *position >= 2_000)
+            || positions.windows(2).any(|pair| pair[0] >= pair[1])
+        {
+            return Err(ContextError::InvalidSource);
+        }
+        let mut context = Self::new(source_kind, source_id, items, current_index, partial)?;
+        context.source_positions = Arc::new(positions.into_iter().map(Some).collect());
+        Ok(context)
+    }
+
     pub fn source_kind(&self) -> ContextKind {
         self.source_kind
     }
@@ -1124,5 +1146,38 @@ mod tests {
         assert_eq!(queue.context().unwrap().source_position(0), None);
         queue.replace_context(source.with_current_index(1).unwrap());
         assert_eq!(queue.context().unwrap().source_position(1), Some(1));
+    }
+    #[test]
+    fn projected_context_positions_validate_bounds_and_keep_occurrences_immutable() {
+        let values = vec![track("42"), track("42")];
+        for positions in [vec![0], vec![0, 0], vec![7, 6], vec![0, 2_000]] {
+            assert_eq!(
+                PlaybackContext::with_source_positions(
+                    ContextKind::Playlist,
+                    Some("projection".into()),
+                    values.clone(),
+                    0,
+                    true,
+                    positions
+                ),
+                Err(ContextError::InvalidSource)
+            );
+        }
+        let source = PlaybackContext::with_source_positions(
+            ContextKind::Playlist,
+            Some("projection".into()),
+            values,
+            1,
+            true,
+            vec![499, 1_999],
+        )
+        .unwrap();
+        let mut queue = MusicQueue::new();
+        queue.replace_context(source.clone());
+        queue.remove(0);
+        assert_eq!(queue.context().unwrap().source_position(0), Some(1_999));
+        assert_eq!(source.source_position(0), Some(499));
+        queue.append(track("42")).unwrap();
+        assert_eq!(queue.context().unwrap().source_position(1), None);
     }
 }

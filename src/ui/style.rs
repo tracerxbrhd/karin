@@ -30,6 +30,7 @@ pub(super) fn install() {
             .music-unavailable { opacity: .55; }
             .music-row-badge { font-size: .85em; color: @accent_color; }
             .music-collection-title { font-size: 1.65em; font-weight: 700; }
+            .music-liked-cover { background: alpha(@accent_bg_color, .14); color: @accent_color; border-radius: 16px; }
             .music-collection-facts { font-size: .92em; }
             .music-catalog-tile, .karin-playlist-tile { padding: 8px; border-radius: 12px; }
             .music-catalog-tile:hover, .karin-playlist-tile:hover { background: alpha(@theme_fg_color, .055); }
@@ -51,6 +52,7 @@ pub(super) fn install() {
             .music-player-main button.flat { padding: 4px; }
             .music-player-main .music-transport button { min-width: 24px; }
             .music-player-title { font-weight: 600; }
+            #music-current-like.liked { color: @accent_color; background: alpha(@accent_bg_color, .10); border-radius: 999px; }
             .music-player-artist { font-size: .9em; }
             .music-player-timeline scale { padding-top: 0; padding-bottom: 0; }
             .music-player-timeline label { font-size: .85em; color: alpha(@theme_fg_color, .7); }
@@ -58,7 +60,7 @@ pub(super) fn install() {
             .music-transport button:checked, #music-repeat.active { color: @accent_color; background: alpha(@accent_bg_color, .12); }
             .music-player-compact .music-player-main { min-height: 60px; }
             .music-repeat-one-badge { font-size: .75em; font-weight: 800; color: @accent_color; background: @window_bg_color; border-radius: 3px; padding: 0 1px; }
-            .music-player-compact #music-current-info { padding: 0; }
+            #music-current-info { padding: 0; }
         "#);
         gtk::style_context_add_provider_for_display(&display, &provider, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
     });

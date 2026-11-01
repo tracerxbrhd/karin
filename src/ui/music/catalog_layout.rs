@@ -3,9 +3,12 @@
 
 use super::*;
 
+pub(super) type CatalogMarker = Rc<dyn Fn(&PlaybackContext) -> bool>;
+
 pub(super) struct CatalogRow {
     row: glib::WeakRef<gtk::ListBoxRow>,
     context: Rc<dyn Fn() -> Option<PlaybackContext>>,
+    marker: Option<CatalogMarker>,
 }
 
 #[cfg(test)]
@@ -147,6 +150,9 @@ impl Controller {
                 return false;
             };
             let selected = current.is_some_and(|current| {
+                if let Some(marker) = &binding.marker {
+                    return marker(current);
+                }
                 binding.context.as_ref()().is_some_and(|context| {
                     if context
                         .source_id()
@@ -173,49 +179,6 @@ impl Controller {
             })]);
             true
         });
-    }
-
-    fn library_heading(
-        &self,
-        title: &str,
-        cover: Option<&CoverArt>,
-        facts: &str,
-        play: Option<gtk::Button>,
-    ) {
-        clear_box(&self.widgets.library_hero);
-        // The selector already identifies this collection. Keep its summary
-        // compact; full cover heroes belong to album/playlist detail pages.
-        self.widgets
-            .library_hero
-            .remove_css_class("music-collection-hero");
-        self.widgets
-            .library_hero
-            .add_css_class("music-library-summary");
-        self.widgets.library_hero.set_spacing(12);
-        if cover.is_some() {
-            self.widgets
-                .library_hero
-                .append(&cover_widget(self.artwork.as_ref(), cover, 36));
-        }
-        let labels = gtk::Box::new(gtk::Orientation::Vertical, 2);
-        labels.set_hexpand(true);
-        labels.set_valign(gtk::Align::Center);
-        labels.append(&text(title, "heading"));
-        if !facts.is_empty() {
-            let facts = text(facts, "dim-label");
-            facts.add_css_class("caption");
-            labels.append(&facts);
-        }
-        self.widgets.library_hero.append(&labels);
-        if let Some(play) = play {
-            play.remove_css_class("pill");
-            play.set_valign(gtk::Align::Center);
-            self.widgets.library_hero.append(&play);
-        }
-        self.widgets.library_refresh.set_valign(gtk::Align::Center);
-        self.widgets
-            .library_hero
-            .append(&self.widgets.library_refresh);
     }
 
     fn render_home_collections(self: &Rc<Self>) {
@@ -339,13 +302,7 @@ impl Controller {
                     &self.widgets.library_rows,
                     &self.widgets.library_feedback,
                 );
-                let cover = result.items.first().and_then(|track| track.cover.as_ref());
-                self.library_heading(
-                    "Любимые треки",
-                    cover,
-                    &track_count_text(result.items.len() as u64),
-                    Some(self.feed_play_button(&feed)),
-                );
+                self.install_liked_hero(&feed);
                 if let Some((_, _, origin, error)) = self
                     .model
                     .borrow()
@@ -360,7 +317,6 @@ impl Controller {
                 self.refresh_catalog_notice();
             }
             Err(error) => {
-                self.library_heading("Любимые треки", None, "", None);
                 let feed = self.new_track_feed(
                     continuous_loading::FeedSource::Liked,
                     ContextKind::LikedTracks,
@@ -368,6 +324,7 @@ impl Controller {
                     &self.widgets.library_rows,
                     &self.widgets.library_feedback,
                 );
+                self.install_liked_hero(&feed);
                 feed.data.borrow_mut().error = Some(error);
                 self.refresh_feed_status(&feed);
                 if matches!(
@@ -524,12 +481,7 @@ impl Controller {
             &self.widgets.library_rows,
             &self.widgets.library_feedback,
         );
-        self.library_heading(
-            "Любимые треки",
-            None,
-            "",
-            Some(self.feed_play_button(&feed)),
-        );
+        self.install_liked_hero(&feed);
         self.request_track_feed(&feed, force);
     }
 
@@ -640,6 +592,16 @@ impl Controller {
         track: Track,
         context: Rc<dyn Fn() -> Option<PlaybackContext>>,
     ) {
+        self.track_row_bound(list, track, context, None);
+    }
+
+    pub(super) fn track_row_bound(
+        self: &Rc<Self>,
+        list: &gtk::ListBox,
+        track: Track,
+        context: Rc<dyn Fn() -> Option<PlaybackContext>>,
+        marker: Option<CatalogMarker>,
+    ) {
         song_list(list);
         let subtitle = track.artists.join(", ");
         let (row, body) = catalog_item(&track.title, &subtitle);
@@ -701,6 +663,7 @@ impl Controller {
         self.catalog_rows.borrow_mut().push(CatalogRow {
             row: row.downgrade(),
             context: context.clone(),
+            marker,
         });
         self.row_action(&row, RowAction::LoadedTrack(context));
         row.set_activatable(track.available);
@@ -782,7 +745,7 @@ impl Controller {
         let label = match origin.as_str() {
             "search" => "Назад к поиску",
             "queue" => "Назад к очереди",
-            "home" => "Назад к Моей волне",
+            "home" => "На главную",
             "playlists" => "Назад к плейлистам",
             _ => "Назад в библиотеку",
         };

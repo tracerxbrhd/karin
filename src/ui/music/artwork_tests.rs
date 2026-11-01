@@ -163,46 +163,106 @@ fn assert_native_cover(overlay: &gtk::Overlay) {
 #[track_caller]
 fn assert_composited_library_cover(ui: &crate::ui::MainWindow, cover: &gtk::Overlay) {
     assert!(cover.is_mapped());
-    let bounds = cover
-        .compute_bounds(&ui.window)
-        .expect("allocated library cover");
     let scroll = cover
         .ancestor(gtk::ScrolledWindow::static_type())
         .expect("the library cover belongs to the scrollable central workspace");
-    let viewport = scroll.compute_bounds(&ui.window).unwrap();
-    assert!(bounds.width() >= 32.0 && bounds.height() >= 32.0);
-    assert!(bounds.x() >= viewport.x() - 1.0 && bounds.y() >= viewport.y() - 1.0);
-    assert!(bounds.x() + bounds.width() <= viewport.x() + viewport.width() + 1.0);
-    assert!(bounds.y() + bounds.height() <= viewport.y() + viewport.height() + 1.0);
-    let (width, height) = (ui.window.width(), ui.window.height());
-    assert!(width > 0 && height > 0);
+    let panel = ui
+        .music
+        .controller
+        .info_host
+        .borrow()
+        .as_ref()
+        .and_then(|host| host.revealer())
+        .expect("the ordinary shell's native information surface");
+    assert!(!panel.reveals_child(), "the fixture explicitly closed Info");
     let renderer = ui.window.renderer().expect("realized native renderer");
-    // Keep the paintable registered across native frames. Immediately making
-    // and snapshotting a new paintable can precede GTK's first cached snapshot
-    // after a resize/theme invalidation, even for an already mapped window.
-    let paintable = gtk::WidgetPaintable::new(Some(&ui.window));
+
+    struct ComposedFrame {
+        time: i64,
+        width: i32,
+        height: i32,
+        bounds: gtk::graphene::Rect,
+        viewport: gtk::graphene::Rect,
+        panel_closed: bool,
+        node: Option<gtk::gsk::RenderNode>,
+    }
+    fn same_rect(left: &gtk::graphene::Rect, right: &gtk::graphene::Rect) -> bool {
+        [left.x(), left.y(), left.width(), left.height()]
+            .into_iter()
+            .zip([right.x(), right.y(), right.width(), right.height()])
+            .all(|(left, right)| (left - right).abs() < 0.01)
+    }
+
     for scheme in [adw::ColorScheme::ForceLight, adw::ColorScheme::ForceDark] {
         adw::StyleManager::default().set_color_scheme(scheme);
-        settle();
-        let frame = Rc::new(Cell::new(false));
-        let painted = frame.clone();
-        ui.window.add_tick_callback(move |_, _| {
-            painted.set(true);
-            glib::ControlFlow::Break
-        });
-        ui.window.queue_draw();
-        pump(|| frame.get());
-        let mut node = None;
-        pump(|| {
+        // A responsive hero changes its size request from a tick callback. A
+        // mapped/decoded thumbnail or the new window width alone does not prove
+        // that the resulting allocation has painted. Observe three completed
+        // native frames with stable geometry, not a longer arbitrary sleep or
+        // a loop that waits until a coral pixel happens to appear.
+        let frames = Rc::new(RefCell::new((None::<ComposedFrame>, 0_u8)));
+        let captured = frames.clone();
+        let window = ui.window.clone();
+        let observed_cover = cover.clone();
+        let observed_scroll = scroll.clone();
+        let observed_panel = panel.clone();
+        let clock = ui.window.frame_clock().expect("mapped native frame clock");
+        let handler = clock.connect_after_paint(move |clock| {
+            let (width, height) = (window.width(), window.height());
+            let bounds = observed_cover
+                .compute_bounds(&window)
+                .expect("allocated library cover after native paint");
+            let viewport = observed_scroll
+                .compute_bounds(&window)
+                .expect("allocated library viewport after native paint");
+            // As in the native motion observer, take a fresh root paintable in
+            // after-paint. The retained node and its sample bounds then belong
+            // to this same completed allocation, not pre-resize cached bounds.
+            let paintable = gtk::WidgetPaintable::new(Some(&window));
             let snapshot = gtk::Snapshot::new();
             paintable.snapshot(&snapshot, f64::from(width), f64::from(height));
-            node = snapshot.to_node();
-            if node.is_none() {
-                ui.window.queue_draw();
-            }
-            node.is_some()
+            let current = ComposedFrame {
+                time: clock.frame_time(),
+                width,
+                height,
+                bounds,
+                viewport,
+                panel_closed: !observed_panel.reveals_child() && observed_panel.progress() == 0.0,
+                node: snapshot.to_node(),
+            };
+            let mut frames = captured.borrow_mut();
+            let stable = frames.0.as_ref().is_some_and(|previous| {
+                current.time > previous.time
+                    && current.width == previous.width
+                    && current.height == previous.height
+                    && same_rect(&current.bounds, &previous.bounds)
+                    && same_rect(&current.viewport, &previous.viewport)
+                    && current.panel_closed
+                    && previous.panel_closed
+            });
+            frames.1 = if stable { frames.1 + 1 } else { 0 };
+            frames.0 = Some(current);
         });
-        let node = node.expect("a native frame must produce the composed window render node");
+        let tick = ui.window.add_tick_callback(|window, _| {
+            window.queue_draw();
+            glib::ControlFlow::Continue
+        });
+        ui.window.queue_draw();
+        pump(|| frames.borrow().1 >= 2);
+        tick.remove();
+        clock.disconnect(handler);
+        let frame = frames.borrow_mut().0.take().unwrap();
+        let (width, height) = (frame.width, frame.height);
+        let (bounds, viewport) = (frame.bounds, frame.viewport);
+        assert!(width > 0 && height > 0 && frame.panel_closed);
+        assert!(cover.is_mapped());
+        assert!(bounds.width() >= 32.0 && bounds.height() >= 32.0);
+        assert!(bounds.x() >= viewport.x() - 1.0 && bounds.y() >= viewport.y() - 1.0);
+        assert!(bounds.x() + bounds.width() <= viewport.x() + viewport.width() + 1.0);
+        assert!(bounds.y() + bounds.height() <= viewport.y() + viewport.height() + 1.0);
+        let node = frame
+            .node
+            .expect("the settled native frame must produce the composed window render node");
         let texture = renderer.render_texture(
             &node,
             Some(&gtk::graphene::Rect::new(
@@ -229,7 +289,8 @@ fn assert_composited_library_cover(ui: &crate::ui::MainWindow, cover: &gtk::Over
                     .iter()
                     .zip([230_i32, 83, 57])
                     .all(|(actual, expected)| (*actual as i32 - expected).abs() <= 12),
-                "closed information must not obscure the real composited coral cover: theme={scheme:?} size={width}x{height} rgb={channels:?}"
+                "closed information must not obscure the real composited coral cover: theme={scheme:?} size={width}x{height} frame={} bounds={bounds:?} viewport={viewport:?} rgb={channels:?}",
+                frame.time
             );
         }
     }

@@ -6,9 +6,141 @@ This report separates initial cloud checks, user-reported Fedora acceptance,
 revised UI checks and compiler compatibility. A result for one environment or
 revision is not evidence that another has passed.
 
+## Final v0.4 Cassette-inspired refinement from `2e3ae41`
+
+Date: **2026-11-02**, owner timezone Europe/Samara. Starting revision:
+`2e3ae41a8480b8f5f437f739c02cb925af69e884`, existing Draft PR #15 only.
+The owner requests a larger Liked hero, loaded-collection search, useful Home,
+substantial playlist covers and more coherent footer. Earlier audio/session
+acceptance is the regression baseline, not acceptance of this new UI.
+
+Final source-frozen C14 native executable SHA-256:
+`c927b8e1dfa405398c8c2dc68ca402d3cd899e7867f08cbfc2aa08bf54331bb5`.
+Its **111-entry** Rust/Cargo manifest SHA-256 is
+`3faefc3e5d8e69ce475e148ffef92cecb5ccbaf6631ac14661993cbbf1db7bf4`.
+The [current native gallery](design/v0.4/evidence-final-refinement/README.md)
+contains exact source hashes, original images and raw observations.
+
+The six final-source visual/raw executions passed once: cold1/2 **5.37/7.66 s**,
+static1/2 **67.07/94.63 s**, initialized motion1/2 **34.91/47.49 s**. They retain
+fatal GTK warnings, normal 240 ms transitions, test-only `LP_NUM_THREADS=2`,
+static full-redraw and ordinary-damage motion/cold. The audit verifies **260
+static originals, 108 equal-size 2e3/current pairs and 240 selected initialized
+panel frames / 48 trajectories**. Hidden footer child/Revealer/host measure
+zero horizontal minimum/natural width; positive closing frames keep content.
+This accepts those structural/static/initialized scopes, not cold smoothness.
+Compiler, complete functional, hosted CI and downloaded-archive outcomes are
+recorded separately below and in the immutable PR checks/artifact record.
+The before archive is exact 2e3 production code with one disclosed harness-only
+850×750 tuple adapter; original/adapted hashes and patch are retained. Never
+claim that harness is unmodified. Preserve all older failures and their scope.
+
+Loaded search is local to admitted data and performs no collection-metadata HTTP on typing. Existing bounded artwork loading can resume for newly visible covers. It
+uses Unicode normalization/casefold, explicit partial coverage and bounded
+continuation, with original-position provenance and immutable active queues
+(ADR-0025). Duration requires complete data and known checked values. These
+are implemented contracts, not an inference of real-account success.
+
+The new iteration's development failures are retained separately from final
+results. A first static run waited for a lazily deferred liked-playlist cover
+below the viewport; its fixture now visits the wide section before asserting
+decoded covers, retaining the same art-count guards. Another first-map assertion
+inspected a newly mounted empty hero before allocation; the shared native
+allocation-frame helper now precedes its unchanged square/bounds checks.
+Actual PNG inspection also found a missing Home shortcut icon, a one-column
+compact playlist grid and a stretched Like background; those have targeted
+native-layout fixes and regression guards.
+
+Real focused-Seek input exposed delayed compact-panel focus stealing; the
+bounded weak-reference request now respects current mapped footer focus. The
+1×/2× counted filter and shared-worker/MPRIS policy fixtures subsequently passed
+at the earlier source checkpoint. Their new Unicode proof is genuine native
+clipboard paste plus ASCII per-key typing; a headless XTest Unicode-layout
+timeout is not called a service or normalization failure.
+
+Repeated fatal-warning checks attributed a GTK minimum64/natural56 mismatch to
+the metadata box. A same-binary, separately labelled USER-CSS control made the
+metadata-button padding consistently zero and completed the full static1×
+sequence in **65.37 s** with fatal warnings and unchanged geometry guards.
+Production now uses the same consistent padding. C13 and final C14 each
+completed all six ordinary-source stages without USER CSS or GTK warnings. Official GTK4.18.6
+measurement code supports the sizing analysis; the precise internal cache race
+remains an inference. This does not explain or accept any cold paint gap.
+
+The later C12 full functional sweep retained **48 PASS / 8 FAIL** across 56
+executions. Four selectors failed at both scales: cover sampling across an
+unsettled allocation, a legacy tiny-summary density assertion, a 2 s fixture
+request expiring while genuine scrolling reached larger playlist tiles, and a
+real hidden-footer cross-axis minimum of 736 px during wide-to-compact resize.
+The last case has a production fix: conceal the existing inner footer only at
+the native fully-closed endpoint and show/arrange it before opening, retaining
+all closing frames and the same 240 ms Revealer. The other changes preserve
+pixel/concurrency/request guards while observing one stable frame, measuring
+the actual hero and using the existing production-equivalent 15 s deadline in
+that one loopback-only fixture. C13's 12 targeted executions and six visual/raw
+stages passed; those outcomes do not retroactively turn C12 into a full PASS.
+
+A final read-only Unicode review reproduced one compatibility edge directly
+with the installed GLib: casefold-before-NFKC mapped mathematical capital `𝐀`
+and modifier capital `ᴬ` to uppercase ASCII after folding. Final C14 uses
+NFKC → casefold → NFKC with a regression retaining duplicate occurrence order.
+It does not modify transport, dependencies or the audio path.
+
+The separate fresh-process startup observer starts with an empty queue and
+no selected/mapped Info surface, without changing preferences or closing a pane
+after mapping. Its first genuine row click traverses the real fixture resolver,
+generated MP3 and shared GStreamer worker, then Pause/Stop. Both lifecycle cases
+pass, but **cold smoothness is not accepted**. Final C14 retains native
+after-paint gaps of **900,018 µs (1×)** and **850,017 µs (2×)**, with one
+intermediate footer frame each and no missing nodes/height reversals. Earlier
+C12 retained **1,033,354/866,684 µs** (observer cost ≤156 µs), and C13
+**1,066,688/900,018 µs**; those observations remain scoped history.
+This fresh-start protocol differs from the older matrix first-map capture after
+hidden static images; do not infer an improvement/regression ratio against its
+117 ms result. The cause remains unattributed. No production prewarming,
+duration/renderer override or relaxed phase guard hides these observations.
+
+### Final-source compiler and integration scope
+
+The complete regular matrix passed in **290.98 s**, retaining all 111 frozen
+Rust/Cargo hashes. Stable **1.99.1** and exact **1.98.1** each passed fmt,
+strict Clippy for default/all/minimal features, **379 / 387 / 365** library
+and **4 CLI** tests per configuration, and all corresponding debug builds.
+Ignored native tests are not counted as passed by those commands. Both ordinary
+`cassette-auth` and all-feature MSRV releases passed `--offline --locked`; the
+ordinary release was restored, SHA-256
+`dd23e54ba569601771a182fa9f43b89f5e2631d7408c752f69633b695285847a`.
+Terminal15, silent40-buffer GStreamer, generated-WAV transport/seek/volume/EOS/
+cleanup, ordinary/all-feature GTK smoke and unchanged **207-package lockfile /
+178-package Linux** license inventory passed.
+
+The full **56-execution / 28-selector** local interactive sweep at 1×/2×
+passed **56/56**, with fatal GTK warnings, no failures and all unique expected
+selector/scale pairs audited against the same C14 binary and 111 source hashes
+(**857.43 s** summed process time). The current gallery retains its complete
+ledger and summary; this is a fresh full run, not the 12 C13 regressions.
+The two navigating WebKit fixtures require nested namespaces unavailable in
+the local container and must execute sandbox-enabled in hosted Ubuntu CI.
+There are **33 compiled native selectors**: 30 functional, including those two,
+and three modern visual/raw observers; all earlier registrations are retained.
+
+The local verification stack is GTK4 **4.18.6**, Libadwaita **1.7.6**,
+GStreamer **1.26.2**, WebKitGTK **2.54.0**. Flatpak **1.16.6**, Builder **1.4.4**
+and Blueprint Compiler **0.16.0** are installed, but the runtime list is empty
+and GNOME SDK50 is absent. Packaging manifest, Runtime/SDK versions and narrow
+MPRIS own-name permission are unchanged. A host release and a JSON/policy check
+are not a current full Flatpak build. Exact-head hosted CI and verification of
+the downloaded Fedora ELF are published in the immutable PR artifact record;
+never infer those outcomes from the locally compiled release.
+
+New Fedora/KDE/Wayland/PipeWire visual acceptance, ordinary first-cold footer/
+panel smoothness, real Like/service regressions and the current full Flatpak
+remain pending. The historical 116,669 μs footer gap has no established cause;
+new raw observations cannot retroactively erase it. PR stays Draft.
+
 <a id="v04-cassette-like-refinement"></a>
 
-## Current v0.4 refinement from `a70bbf7`
+## Previous v0.4 refinement from `a70bbf7` (historical)
 
 Starting revision: `a70bbf714e3d7ea775c03839eb01f0b1d9dd4f62`.
 

@@ -1,0 +1,175 @@
+{
+  "activation_started_us": 66,
+  "after_paint_count": 6,
+  "animations_enabled": true,
+  "baseline_frame_before_activation": false,
+  "cold_first_use_latency_accepted": false,
+  "concealed_child_heights": [
+    0
+  ],
+  "final_hidden_geometry": null,
+  "frames": [
+    {
+      "callback_enter_us": 112793,
+      "child": [
+        0.0,
+        890.0,
+        0.0,
+        0.0
+      ],
+      "child_mapped": false,
+      "child_revealed": false,
+      "child_visible": false,
+      "frame_time": 47601741818,
+      "has_render_node": true,
+      "height": 0,
+      "native_frame_gap_us": null,
+      "native_frame_index": 0,
+      "observation_duration_us": 282,
+      "requested": false
+    },
+    {
+      "callback_enter_us": 127963,
+      "child": [
+        0.0,
+        890.0,
+        0.0,
+        0.0
+      ],
+      "child_mapped": false,
+      "child_revealed": false,
+      "child_visible": false,
+      "frame_time": 47601841820,
+      "has_render_node": true,
+      "height": 0,
+      "native_frame_gap_us": 100002,
+      "native_frame_index": 1,
+      "observation_duration_us": 41,
+      "requested": false
+    },
+    {
+      "callback_enter_us": 183743,
+      "child": [
+        0.0,
+        890.0,
+        0.0,
+        0.0
+      ],
+      "child_mapped": false,
+      "child_revealed": false,
+      "child_visible": true,
+      "frame_time": 47601891821,
+      "has_render_node": true,
+      "height": 0,
+      "native_frame_gap_us": 50001,
+      "native_frame_index": 2,
+      "observation_duration_us": 50,
+      "requested": true
+    },
+    {
+      "callback_enter_us": 1032786,
+      "child": [
+        12.0,
+        869.0,
+        1406.0,
+        64.0
+      ],
+      "child_mapped": true,
+      "child_revealed": false,
+      "child_visible": true,
+      "frame_time": 47601925155,
+      "has_render_node": true,
+      "height": 29,
+      "native_frame_gap_us": 33334,
+      "native_frame_index": 3,
+      "observation_duration_us": 83,
+      "requested": true
+    },
+    {
+      "callback_enter_us": 1146845,
+      "child": [
+        12.0,
+        818.0,
+        1406.0,
+        64.0
+      ],
+      "child_mapped": true,
+      "child_revealed": true,
+      "child_visible": true,
+      "frame_time": 47602775172,
+      "has_render_node": true,
+      "height": 80,
+      "native_frame_gap_us": 850017,
+      "native_frame_index": 4,
+      "observation_duration_us": 118,
+      "requested": true
+    },
+    {
+      "callback_enter_us": 1316029,
+      "child": [
+        12.0,
+        818.0,
+        1406.0,
+        64.0
+      ],
+      "child_mapped": true,
+      "child_revealed": true,
+      "child_visible": true,
+      "frame_time": 47602891841,
+      "has_render_node": true,
+      "height": 80,
+      "native_frame_gap_us": 116669,
+      "native_frame_index": 5,
+      "observation_duration_us": 86,
+      "requested": true
+    }
+  ],
+  "graphics_initialization_before_play": false,
+  "initial_height": 0,
+  "initial_hidden_geometry": {
+    "child_horizontal": [
+      0,
+      0
+    ],
+    "child_mapped": false,
+    "child_revealed": false,
+    "child_visible": false,
+    "height": 0,
+    "host_horizontal": [
+      0,
+      0
+    ],
+    "requested": false,
+    "revealer_horizontal": [
+      0,
+      0
+    ]
+  },
+  "initial_requested": false,
+  "intermediate_evidence_available": true,
+  "intermediate_frame_count": 1,
+  "natural_child_heights": [
+    0,
+    64
+  ],
+  "node_none_count": 0,
+  "observed_height_reversal_count": 0,
+  "renderer": "GskGLRenderer",
+  "reversal_capture_limit": 4,
+  "saved_frame_indices": [
+    0,
+    3,
+    5
+  ],
+  "scale": 2,
+  "scope": "raw-first-start-or-stop-observation",
+  "selected_reversal_frame_pairs": [],
+  "selection_coordinate": "nearest-observed-allocation-height-not-animation-time-or-progress",
+  "synthetic_frames": false,
+  "transition": "startup-first-start",
+  "transition_duration_ms": 240,
+  "transition_type": "SlideUp",
+  "visible_child_heights": [
+    64
+  ]
+}

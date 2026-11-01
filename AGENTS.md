@@ -121,6 +121,19 @@ Do not introduce Electron or web-based application shells.
   playback, radio-session progress or endpoint support.
 
 ## User Experience
+- The final Cassette-inspired refinement starts at `2e3ae41` in Draft PR #15.
+  Its latest owner task supersedes the earlier Wave-only landing: primary tabs
+  are “Главная”, “Нравится” and “Плейлисты”. Home uses real working shortcuts
+  and a compact truthful unavailable Wave section, never invented recommendations.
+  Liked has an original native heart collection hero and a reusable loaded-track
+  search shared by opened playlists and compatible collection views. Case-fold
+  and normalize Unicode; typing must not fetch all remote pages. Label incomplete
+  coverage, preserve source occurrences and active playback, and admit any next
+  portion only within existing network/view limits. Total duration is shown only
+  for complete admitted data with every duration known and a checked sum.
+  Filtered Play snapshots matching original occurrences in provider order, at
+  most 500; view/query changes never rewrite the playing queue. Preserve the
+  normal 240 ms SlideUp, pinned Info/Queue, confirmed Like and exact MPRIS identity.
 - Cassette by Rirusha is an aesthetic reference and, for the explicitly scoped
   authentication prototype, a GPL-licensed protocol implementation reference.
   Preserve notices for adapted components; do not copy its persistent cookie
@@ -131,7 +144,7 @@ Do not introduce Electron or web-based application shells.
 - Prioritize responsiveness and clarity over decorative effects.
 - Every substantial UI change must pass the visual and structural checks in
   [docs/UI_QUALITY_GATE.md](docs/UI_QUALITY_GATE.md) before being called ready.
-- Inspect actual application screenshots at approximately 420×720, 900×650,
+- Inspect actual application screenshots at approximately 420×720, 850×750, 900×650,
   1440×900 and maximized, in light and dark themes. Check navigation adaptation,
   HeaderBar/title/window controls, spacing, text wrapping, scrolling and focus.
 - Exercise keyboard navigation and resize transitions. Screenshots supplement
@@ -167,12 +180,11 @@ Do not introduce Electron or web-based application shells.
 - Current v0.4 work follows the owner's complete music-experience redesign in
   [DESIGN_SPEC.md](docs/design/v0.4/DESIGN_SPEC.md), superseding conflicting older
   mockups: three navigation destinations, real music-led content, one universal
-  right panel and functional local playback modes. The latest refinement from
-  `a70bbf7` supersedes the earlier mandatory Home/Search/Library rail and
-  permanently visible footer: primary tabs are “Моя волна”, “Нравится” and
-  “Плейлисты”, with an accessible unified Search action. Do not use a dropdown
-  as their primary switcher. “Моя волна” is the explicitly requested honest
-  unimplemented placeholder, not a working radio service.
+  right panel and functional local playback modes. The current final refinement from
+  `2e3ae41` retains the earlier activity-dependent footer and native tabs, with
+  “Главная”, “Нравится” and “Плейлисты” plus accessible unified Search. Do not
+  use a dropdown as their primary switcher. The unavailable Wave section is a
+  compact honest part of Home, not a working radio service.
   The Player Bar is initially hidden with no playback intent, reveals natively
   from below on a real playback request, remains through Pause and retryable
   request failure, and hides after explicit Stop/logout/queue clear. Selection
@@ -184,7 +196,7 @@ Do not introduce Electron or web-based application shells.
   epochs, explicit retry and the active context's 500-position/partial boundary.
   UI appends must not silently replace the active playback context. Follow
   [ADR-0024](docs/adr/0024-bounded-continuous-track-views.md): keep bounded source
-  position provenance, compare source/window+original occurrence after queue
+  position provenance, compare stable feed identity+absolute original occurrence after queue
   edits, and mark manual additions separately instead of matching by Track ID.
   Retain meaningful errors, confirmations, tooltips and accessible labels. Original design SVGs
   are not running GTK screenshots or production artwork. First-map Like reads
@@ -205,7 +217,8 @@ Do not introduce Electron or web-based application shells.
   Cold NGL/Vulkan failures on both old/modern stacks remain recorded; Fedora first
   appearance after ordinary fresh start is a separate unaccepted gate for both
   panel and footer. Raw footer frames with no height reversal do not prove smooth
-  cold appearance: retain the C9 116,669 μs first-paint gap and unknown cause.
+  cold appearance: retain the C9 116,669 μs first-paint gap, the separate
+  fresh-process observations in VALIDATION.md and their unknown causes.
   Record test-only Mesa worker settings explicitly. Motion fixtures unset
   `GSK_DEBUG` to use ordinary GTK damage; static resize captures retain
   `full-redraw`. Preserve the separate local full-redraw PASS, hosted `144492f`
@@ -261,7 +274,10 @@ selectors, compiler/package checks and both navigating WebKit fixtures, plus
 both strict visual selectors on Debian 13 at both scales/compilers. Add the
 refinement's actual-input/continuous/footer/membership regressions to the compiled
 registration partition; the historical 31 = 29 + 2 count is not a ceiling or a
-reason to omit new cases. Report the current executed selector set.
+reason to omit new cases. The final refinement registers 33 selectors: 30
+functional (including collection-filter input) plus three modern visual/raw
+observers (including separate fresh-start footer capture). Report the actual
+executed set, including the locally blocked navigating WebKit cases.
 The recorded `709f5b3` GTK 4.14/Adwaita 1.5/Mesa strict-motion FAIL remains
 scoped evidence, not a reason to drop tests or weaken timing/progress checks.
 Modern test placement does not change production minimums, renderer or SDK.

@@ -5,19 +5,22 @@
 An independent native Linux client for Yandex Music, built with Rust, GTK4,
 Libadwaita and GStreamer. Karin is not affiliated with Yandex.
 
-**v0.4 — Native Music** is the current UI iteration in existing
-[Draft PR #15](https://github.com/tracerxbrhd/karin/pull/15): a compact expandable
-rail, cover-led music workspace, one nonmodal Track Info / Queue panel and a
-centered Player Bar with real local Shuffle/Repeat modes. The owner's
-[complete redesign brief](docs/design/v0.4/CODEX_TASK.md) supersedes the initial
-visual direction: `a9eed45` passed cloud checks but its Fedora UI was not
-accepted. The [current specification](docs/design/v0.4/DESIGN_SPEC.md) keeps
-visible prose concise and preserves the accepted sign-in, MusicService,
-StreamResolver, GStreamer player, contextual queues, protected session/cache
-and MPRIS. Implementation checks and Fedora visual acceptance remain separate;
-the [SVG references](docs/design/v0.4/README.md) are illustrations, not GTK captures.
-See the [fresh actual GTK before/after and motion gallery](docs/design/v0.4/evidence-redesign/README.md)
-for the current redesign.
+**v0.4 — Native Music** continues in existing
+[Draft PR #15](https://github.com/tracerxbrhd/karin/pull/15): Home/Liked/Playlists
+navigation, a musical Liked hero with collection-local search, larger playlist
+covers, one pinned Track Info / Queue panel and an activity-dependent centered
+Player Bar with real Shuffle/Repeat. The [current brief](docs/design/v0.4/CODEX_TASK.md)
+and [specification](docs/design/v0.4/DESIGN_SPEC.md) refine `2e3ae41` while preserving
+the accepted sign-in, MusicService, StreamResolver, GStreamer, contextual queue,
+protected session/cache and MPRIS. Local filtering searches admitted data only;
+partial coverage is explicit and typing does not fetch the entire collection.
+Implementation checks and new Fedora visual acceptance remain separate. Earlier
+`a9eed45` passed cloud checks but failed the owner's visual review; historical
+[captures](docs/design/v0.4/evidence-redesign/README.md) retain their original scope.
+The [current GTK before/after gallery](docs/design/v0.4/evidence-final-refinement/README.md)
+shows source-matched native captures and their limitations. The
+[design inputs](docs/design/v0.4/README.md) distinguish illustrations, private
+references and actual GTK evidence.
 
 **v0.3 — Seamless Experience** is merged through
 [PR #14](https://github.com/tracerxbrhd/karin/pull/14) at `5e85e8d`, delivering
@@ -80,9 +83,11 @@ does not prove those additional lifecycle cases. See
 
 ## Music workspace
 
-- The accepted compact expandable icon rail/drawer, circular account avatar,
-  external account-page action, four-section unified search and persistent
-  player bar are retained. Appearance and other real preferences persist.
+- Native Home/Liked/Playlists tabs and adjacent unified catalog search lead
+  to the real collection views. The circular account avatar and external
+  account-page action are retained. The player appears on actual playback
+  intent, remains through Pause and hides after Stop/clear/logout. Appearance
+  and other real preferences persist.
 - A track row starts its exact loaded-context occurrence by mouse, Enter or
   Space. Liked tracks, albums, playlists and search retain their real ordering,
   duplicates and partial-collection boundary within 500 queue positions. Manual

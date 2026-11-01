@@ -445,6 +445,26 @@ fn native_library_interactions_confirmed_fixture() {
     pump_until(|| reads.load(Ordering::Acquire) == 6 && footer_heart.is_sensitive());
     assert!(this.widgets.player_revealer.reveals_child());
     assert!(footer_heart.is_mapped());
+    let footer_icon = footer_heart
+        .child()
+        .and_downcast::<gtk::Overlay>()
+        .unwrap()
+        .child()
+        .and_downcast::<gtk::Image>()
+        .unwrap();
+    assert_eq!(
+        footer_icon.icon_name().as_deref(),
+        Some(like_icon_name(Some(true)))
+    );
+    assert!(footer_icon.has_css_class("accent") && footer_heart.has_css_class("liked"));
+    let theme = gtk::IconTheme::for_display(&gtk::gdk::Display::default().unwrap());
+    assert!(theme.has_icon(&footer_icon.icon_name().unwrap()));
+    if theme.has_icon("emote-love-symbolic") || theme.has_icon("love-symbolic") {
+        assert!(matches!(
+            footer_icon.icon_name().as_deref(),
+            Some("emote-love-symbolic" | "love-symbolic")
+        ));
+    }
     assert!(
         footer_heart
             .tooltip_text()
@@ -464,6 +484,11 @@ fn native_library_interactions_confirmed_fixture() {
             && footer_heart.is_sensitive()
     });
     assert!(!liked.load(Ordering::Acquire));
+    assert!(!footer_icon.has_css_class("accent") && !footer_heart.has_css_class("liked"));
+    assert_eq!(
+        footer_icon.icon_name().as_deref(),
+        Some(like_icon_name(Some(false)))
+    );
     assert!(
         footer_heart
             .tooltip_text()

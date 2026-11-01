@@ -1,0 +1,345 @@
+{
+  "reviewer": "E /root/v04r_qa",
+  "scope": "All28 E-assigned published originals, opened one at a time at original resolution. Not a claim that all260 static originals were manually reviewed by E.",
+  "result": "PASS-selected-original-structure-with-known-cold-temporal-FAIL-retained",
+  "binary_sha256": "c927b8e1dfa405398c8c2dc68ca402d3cd899e7867f08cbfc2aa08bf54331bb5",
+  "source_manifest_sha256": "3faefc3e5d8e69ce475e148ffef92cecb5ccbaf6631ac14661993cbbf1db7bf4",
+  "partition_sha256": "76413abd4ca14f3500bfb0a01de5c4b8aa2f33fec7d9888d374079a4262893c4",
+  "reviewed_images": 28,
+  "published_to_original_sha256_matches": 28,
+  "initialized_panel_images": 10,
+  "startup_stop_paused_images": 18,
+  "new_separate_structural_p0_p1": [],
+  "known_unaccepted_finding": {
+    "category": "cold-first-use-frame-cadence",
+    "status": "FAIL / not accepted",
+    "max_adjacent_native_frame_gap_us": {
+      "scale1": 900018,
+      "scale2": 850017
+    },
+    "intermediate_frames": {
+      "scale1": 1,
+      "scale2": 1
+    },
+    "cause_established": false,
+    "fresh_application_and_synthetic_disk_cache": true
+  },
+  "hidden_footer_cross_axis_lifecycle_verified_by_raw_audit": true,
+  "additional_header_check": {
+    "file": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/static-scale1/matrix-reference-panel-closed-scale1-dark.png",
+    "sha256": "3e8266359214c83961f476a39636b09cbfad1cc5197a7b6fa88c7abb68161856",
+    "actual_single_original_observation": "Full title/header/avatar/menu/window controls present. Prior multi-image presentation suspicion withdrawn; no GTK defect established."
+  },
+  "cold_first_use_latency_accepted": false,
+  "fedora_acceptance": false,
+  "images": [
+    {
+      "published": "current/motion-scale1/animation-medium-dark-track-opening-000-scale1.png",
+      "original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/motion-scale1/animation-medium-dark-track-opening-000-scale1.png",
+      "sha256": "220b7541b9535cfbfa75e3e2ddfb478cf087449b7a70d46fb90ff4d1856f2436",
+      "png_size": [
+        890,
+        640
+      ],
+      "visually_reviewed_at_original_resolution": true,
+      "observation": "Original viewed individually: rigid native panel surface/content remain consistently translated and clipped. No separate structural P0/P1 observed."
+    },
+    {
+      "published": "current/motion-scale1/animation-medium-dark-track-opening-025-scale1.png",
+      "original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/motion-scale1/animation-medium-dark-track-opening-025-scale1.png",
+      "sha256": "85118560d0aedfe6babcc1c2b00ae5ff3faabd42486ecae20db541393acdfaba",
+      "png_size": [
+        890,
+        640
+      ],
+      "visually_reviewed_at_original_resolution": true,
+      "observation": "Original viewed individually: rigid native panel surface/content remain consistently translated and clipped. No separate structural P0/P1 observed."
+    },
+    {
+      "published": "current/motion-scale1/animation-medium-dark-track-opening-050-scale1.png",
+      "original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/motion-scale1/animation-medium-dark-track-opening-050-scale1.png",
+      "sha256": "f530231ca63df51dadefec034177288448117ed410d82e18f71485662372c908",
+      "png_size": [
+        890,
+        640
+      ],
+      "visually_reviewed_at_original_resolution": true,
+      "observation": "Original viewed individually: rigid native panel surface/content remain consistently translated and clipped. No separate structural P0/P1 observed."
+    },
+    {
+      "published": "current/motion-scale1/animation-medium-dark-track-opening-075-scale1.png",
+      "original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/motion-scale1/animation-medium-dark-track-opening-075-scale1.png",
+      "sha256": "c05fee5724d1772c80a15036852e7805aad1b3ea6da777c1a9763fe7c064b349",
+      "png_size": [
+        890,
+        640
+      ],
+      "visually_reviewed_at_original_resolution": true,
+      "observation": "Original viewed individually: rigid native panel surface/content remain consistently translated and clipped. No separate structural P0/P1 observed."
+    },
+    {
+      "published": "current/motion-scale1/animation-medium-dark-track-opening-100-scale1.png",
+      "original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/motion-scale1/animation-medium-dark-track-opening-100-scale1.png",
+      "sha256": "0a0a9b458a48c6f2b1b15e34774334d0ed074a8b7b131cd0f608476c84e69676",
+      "png_size": [
+        890,
+        640
+      ],
+      "visually_reviewed_at_original_resolution": true,
+      "observation": "Original viewed individually: rigid native panel surface/content remain consistently translated and clipped. No separate structural P0/P1 observed."
+    },
+    {
+      "published": "current/motion-scale2/animation-compact-light-queue-closing-000-scale2.png",
+      "original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/motion-scale2/animation-compact-light-queue-closing-000-scale2.png",
+      "sha256": "a628fea6299543391e715357e9101b17a6f4ee9aaecb114d1f311d6ed0666b3c",
+      "png_size": [
+        820,
+        1420
+      ],
+      "visually_reviewed_at_original_resolution": true,
+      "observation": "Original viewed individually: rigid native panel surface/content remain consistently translated and clipped. No separate structural P0/P1 observed."
+    },
+    {
+      "published": "current/motion-scale2/animation-compact-light-queue-closing-025-scale2.png",
+      "original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/motion-scale2/animation-compact-light-queue-closing-025-scale2.png",
+      "sha256": "80c5c8d698497ce1bfe4938305e9a02360155333a6d7047a721688ef13af5a09",
+      "png_size": [
+        820,
+        1420
+      ],
+      "visually_reviewed_at_original_resolution": true,
+      "observation": "Original viewed individually: rigid native panel surface/content remain consistently translated and clipped. No separate structural P0/P1 observed."
+    },
+    {
+      "published": "current/motion-scale2/animation-compact-light-queue-closing-050-scale2.png",
+      "original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/motion-scale2/animation-compact-light-queue-closing-050-scale2.png",
+      "sha256": "fd974762c663dff9c673503b2a3791ff8f35ec98af3b9f67d9d679a99f18a179",
+      "png_size": [
+        820,
+        1420
+      ],
+      "visually_reviewed_at_original_resolution": true,
+      "observation": "Original viewed individually: rigid native panel surface/content remain consistently translated and clipped. No separate structural P0/P1 observed."
+    },
+    {
+      "published": "current/motion-scale2/animation-compact-light-queue-closing-075-scale2.png",
+      "original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/motion-scale2/animation-compact-light-queue-closing-075-scale2.png",
+      "sha256": "111c1bff50dab75a61cf9b7d89dc88885b266bd6d13be367120eded1eb289894",
+      "png_size": [
+        820,
+        1420
+      ],
+      "visually_reviewed_at_original_resolution": true,
+      "observation": "Original viewed individually: rigid native panel surface/content remain consistently translated and clipped. No separate structural P0/P1 observed."
+    },
+    {
+      "published": "current/motion-scale2/animation-compact-light-queue-closing-100-scale2.png",
+      "original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/motion-scale2/animation-compact-light-queue-closing-100-scale2.png",
+      "sha256": "7c6aeefbc8af15739b67430f70641b78beefa449fe9b1cc8f98d976d2223d8a4",
+      "png_size": [
+        820,
+        1420
+      ],
+      "visually_reviewed_at_original_resolution": true,
+      "observation": "Original viewed individually: rigid native panel surface/content remain consistently translated and clipped. No separate structural P0/P1 observed."
+    },
+    {
+      "published": "current/cold-scale1/footer-startup-explicit-stop-frame000-scale1.png",
+      "original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/cold-scale1/footer-startup-explicit-stop-frame000-scale1.png",
+      "sha256": "7e88de3ba0f296cbec214058ef3f921f9e396b1e38379a833e1dc8804948b6a8",
+      "png_size": [
+        1430,
+        890
+      ],
+      "visually_reviewed_at_original_resolution": true,
+      "observation": "Original viewed individually: actual partial closing allocation or fully hidden endpoint; main list gains freed space, Info remains coherent."
+    },
+    {
+      "published": "current/cold-scale1/footer-startup-explicit-stop-frame002-scale1.png",
+      "original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/cold-scale1/footer-startup-explicit-stop-frame002-scale1.png",
+      "sha256": "2afca2974649c5e8879b2f23a07704b870f2d0c6049f4a9f5a8341bd290c528d",
+      "png_size": [
+        1430,
+        890
+      ],
+      "visually_reviewed_at_original_resolution": true,
+      "observation": "Original viewed individually: actual partial closing allocation or fully hidden endpoint; main list gains freed space, Info remains coherent."
+    },
+    {
+      "published": "current/cold-scale1/footer-startup-explicit-stop-frame004-scale1.png",
+      "original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/cold-scale1/footer-startup-explicit-stop-frame004-scale1.png",
+      "sha256": "81230d921c81ccc03c3b069aec3b2551f1b276ff31b1bcc8298c723217ca5587",
+      "png_size": [
+        1430,
+        890
+      ],
+      "visually_reviewed_at_original_resolution": true,
+      "observation": "Original viewed individually: actual partial closing allocation or fully hidden endpoint; main list gains freed space, Info remains coherent."
+    },
+    {
+      "published": "current/cold-scale1/footer-startup-explicit-stop-frame008-scale1.png",
+      "original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/cold-scale1/footer-startup-explicit-stop-frame008-scale1.png",
+      "sha256": "506e3251a25eac7d290e40ff0f589c29a9f13725c0b4562e3cb64cc4f8b4d16f",
+      "png_size": [
+        1430,
+        890
+      ],
+      "visually_reviewed_at_original_resolution": true,
+      "observation": "Original viewed individually: actual partial closing allocation or fully hidden endpoint; main list gains freed space, Info remains coherent."
+    },
+    {
+      "published": "current/cold-scale1/footer-startup-first-start-frame000-scale1.png",
+      "original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/cold-scale1/footer-startup-first-start-frame000-scale1.png",
+      "sha256": "6f1cd48b51141d3819db04e42c2d9b28c17731a0128a826880ce4e6d11208744",
+      "png_size": [
+        1430,
+        890
+      ],
+      "visually_reviewed_at_original_resolution": true,
+      "observation": "Original viewed individually: actual initial hidden state or first native reveal sample, with honest asynchronous art/membership loading. Cold cadence is not accepted."
+    },
+    {
+      "published": "current/cold-scale1/footer-startup-first-start-frame003-scale1.png",
+      "original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/cold-scale1/footer-startup-first-start-frame003-scale1.png",
+      "sha256": "09ed86a411587a5c3007017a280a2f299ea8ba00833ba2ad2cdb6304ff181edc",
+      "png_size": [
+        1430,
+        890
+      ],
+      "visually_reviewed_at_original_resolution": true,
+      "observation": "Original viewed individually: actual initial hidden state or first native reveal sample, with honest asynchronous art/membership loading. Cold cadence is not accepted."
+    },
+    {
+      "published": "current/cold-scale1/footer-startup-first-start-frame005-scale1.png",
+      "original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/cold-scale1/footer-startup-first-start-frame005-scale1.png",
+      "sha256": "61da7a54efc22d2b34b7cc92f2d88ef4b7e3ce4417e5f3976dea5ca773a7cac9",
+      "png_size": [
+        1430,
+        890
+      ],
+      "visually_reviewed_at_original_resolution": true,
+      "observation": "Original viewed individually: actual initial hidden state or first native reveal sample, with honest asynchronous art/membership loading. Cold cadence is not accepted."
+    },
+    {
+      "published": "current/cold-scale1/startup-footer-paused-scale1-dark.png",
+      "original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/cold-scale1/startup-footer-paused-scale1-dark.png",
+      "sha256": "d66a4603e0d20171768f62a7b1c706a64fd5347b5e952445099f978dab1041b2",
+      "png_size": [
+        1440,
+        900
+      ],
+      "visually_reviewed_at_original_resolution": true,
+      "observation": "Original viewed individually: paused footer remains visible, with decoded art, confirmed circular heart, centered native controls/timeline and accessible Queue/Volume."
+    },
+    {
+      "published": "current/cold-scale1/startup-footer-paused-scale1-light.png",
+      "original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/cold-scale1/startup-footer-paused-scale1-light.png",
+      "sha256": "a22d102994e9c8aa83d2490a76fcb6d636a036d35c4f2e2e038870db694308fb",
+      "png_size": [
+        1440,
+        900
+      ],
+      "visually_reviewed_at_original_resolution": true,
+      "observation": "Original viewed individually: paused footer remains visible, with decoded art, confirmed circular heart, centered native controls/timeline and accessible Queue/Volume."
+    },
+    {
+      "published": "current/cold-scale2/footer-startup-explicit-stop-frame000-scale2.png",
+      "original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/cold-scale2/footer-startup-explicit-stop-frame000-scale2.png",
+      "sha256": "bf94d2c506f18bf3b336eed0c2e07d460baa32d4f93c6c30c21497b15644d7ba",
+      "png_size": [
+        2860,
+        1780
+      ],
+      "visually_reviewed_at_original_resolution": true,
+      "observation": "Original viewed individually: actual partial closing allocation or fully hidden endpoint; main list gains freed space, Info remains coherent."
+    },
+    {
+      "published": "current/cold-scale2/footer-startup-explicit-stop-frame002-scale2.png",
+      "original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/cold-scale2/footer-startup-explicit-stop-frame002-scale2.png",
+      "sha256": "5252b5fb23d2979ffe31b0f153b41d43ae06313507bb7b33757d9910490bd4a4",
+      "png_size": [
+        2860,
+        1780
+      ],
+      "visually_reviewed_at_original_resolution": true,
+      "observation": "Original viewed individually: actual partial closing allocation or fully hidden endpoint; main list gains freed space, Info remains coherent."
+    },
+    {
+      "published": "current/cold-scale2/footer-startup-explicit-stop-frame003-scale2.png",
+      "original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/cold-scale2/footer-startup-explicit-stop-frame003-scale2.png",
+      "sha256": "a101460781cf6a0aa85d5575bdc1e4d21da21814c1885372c42e6576ebd89f07",
+      "png_size": [
+        2860,
+        1780
+      ],
+      "visually_reviewed_at_original_resolution": true,
+      "observation": "Original viewed individually: actual partial closing allocation or fully hidden endpoint; main list gains freed space, Info remains coherent."
+    },
+    {
+      "published": "current/cold-scale2/footer-startup-explicit-stop-frame007-scale2.png",
+      "original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/cold-scale2/footer-startup-explicit-stop-frame007-scale2.png",
+      "sha256": "61d5f9b88fd0b4c427f5b21b4c99123b127ffdad89676c5a9e87a7a652b237f6",
+      "png_size": [
+        2860,
+        1780
+      ],
+      "visually_reviewed_at_original_resolution": true,
+      "observation": "Original viewed individually: actual partial closing allocation or fully hidden endpoint; main list gains freed space, Info remains coherent."
+    },
+    {
+      "published": "current/cold-scale2/footer-startup-first-start-frame000-scale2.png",
+      "original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/cold-scale2/footer-startup-first-start-frame000-scale2.png",
+      "sha256": "881b080d6809fddc3aeeaa963655518a881d4a8184ec270864c0c40edd08d8c1",
+      "png_size": [
+        2860,
+        1780
+      ],
+      "visually_reviewed_at_original_resolution": true,
+      "observation": "Original viewed individually: actual initial hidden state or first native reveal sample, with honest asynchronous art/membership loading. Cold cadence is not accepted."
+    },
+    {
+      "published": "current/cold-scale2/footer-startup-first-start-frame003-scale2.png",
+      "original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/cold-scale2/footer-startup-first-start-frame003-scale2.png",
+      "sha256": "394cf09dce36bc04fad6c3e3116c37310674992e1fb45c5c5b2dba373dd6b98e",
+      "png_size": [
+        2860,
+        1780
+      ],
+      "visually_reviewed_at_original_resolution": true,
+      "observation": "Original viewed individually: actual initial hidden state or first native reveal sample, with honest asynchronous art/membership loading. Cold cadence is not accepted."
+    },
+    {
+      "published": "current/cold-scale2/footer-startup-first-start-frame005-scale2.png",
+      "original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/cold-scale2/footer-startup-first-start-frame005-scale2.png",
+      "sha256": "79691409dbcbf6dde1a0998eb8d0a809891249f21d7813a67e4a52d931248694",
+      "png_size": [
+        2860,
+        1780
+      ],
+      "visually_reviewed_at_original_resolution": true,
+      "observation": "Original viewed individually: actual initial hidden state or first native reveal sample, with honest asynchronous art/membership loading. Cold cadence is not accepted."
+    },
+    {
+      "published": "current/cold-scale2/startup-footer-paused-scale2-dark.png",
+      "original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/cold-scale2/startup-footer-paused-scale2-dark.png",
+      "sha256": "b5c9ae843f7e541edcad00203ffa62edbc04ba2792b236ea3d761cd17c1fa0c8",
+      "png_size": [
+        2880,
+        1800
+      ],
+      "visually_reviewed_at_original_resolution": true,
+      "observation": "Original viewed individually: paused footer remains visible, with decoded art, confirmed circular heart, centered native controls/timeline and accessible Queue/Volume."
+    },
+    {
+      "published": "current/cold-scale2/startup-footer-paused-scale2-light.png",
+      "original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/cold-scale2/startup-footer-paused-scale2-light.png",
+      "sha256": "1c38fe4e39ee96eb4af95e9b8dc7c09ec8aa61b3781a2270d6e687ca68f4ed0b",
+      "png_size": [
+        2880,
+        1800
+      ],
+      "visually_reviewed_at_original_resolution": true,
+      "observation": "Original viewed individually: paused footer remains visible, with decoded art, confirmed circular heart, centered native controls/timeline and accessible Queue/Volume."
+    }
+  ]
+}

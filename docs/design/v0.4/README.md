@@ -1,19 +1,29 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 
-# Karin v0.4 — Cassette-like refinement
+# Karin v0.4 — final Cassette-inspired collection refinement
 
 Current authority is the [latest full owner task](CODEX_TASK.md) and
 [DESIGN_SPEC.md](DESIGN_SPEC.md), starting from
-`a70bbf714e3d7ea775c03839eb01f0b1d9dd4f62` in existing **Draft PR #15**.
+`2e3ae41a8480b8f5f437f739c02cb925af69e884` in existing **Draft PR #15**.
 This refines the working client; it does not restart the application or replace
 its music, session, queue or audio architecture. No new PR or automatic merge.
 
 ## Current direction
 
-- Light native **Моя волна / Нравится / Плейлисты** tabs, coherent Search access,
+- Light native **Главная / Нравится / Плейлисты** tabs, coherent Search access,
   no dropdown as the main destination switch.
-- An explicitly unavailable Wave product placeholder, real liked music and
-  owned/liked playlist sections. No invented radio, related songs or catalog.
+- An expressive Liked collection hero with an original native heart, honest
+  loaded/complete counts and duration only when every complete-source value is
+  known. Quiet 64-pixel rows stay compact and useful.
+- A reusable local track filter inside Liked and each opened playlist, distinct
+  from global service search. Partial coverage, continued batches, duplicate
+  occurrence identity and the already playing queue remain explicit and safe.
+  Typing issues no MusicService/collection-metadata reads or whole-library drain;
+  the existing bounded cover loader may resume for newly visible retained rows.
+- A useful Home with existing real music routes and a modest unavailable Wave
+  status, rather than a giant empty placeholder. No invented radio or catalog.
+- Larger responsive owned/liked playlist covers with unchanged confirmed
+  creation/open behavior; a sparse item retains natural size.
 - Continuous track loading with bounded service batches, stable scroll and
   inline loading/end/Retry instead of track Previous/Next page buttons.
 - One pinned Track Info / Queue panel, visually composed as a musical sidebar;
@@ -27,46 +37,68 @@ its music, session, queue or audio architecture. No new PR or automatic merge.
 - Preserve real Shuffle/Repeat, numeric Repeat One, MPRIS, protected session,
   cache, playlist creation and the existing GStreamer/StreamResolver path.
 
-The private Cassette screenshot supplied in chat is a composition reference:
-light upper segments, clean collection hero/rows, coherent centered information
-and compact transport. The primary agent inspected it; it is **not copied into
-this repository**. Do not copy its service art, personal content, branding or
-literal layout. GTK theme metrics and Karin's supported behavior determine the
-implementation.
+Footer refinement associates the native heart action with current metadata,
+keeps transport genuinely centered, groups progress/time with it and retains
+the same five reachable transport controls in the compact two-row presentation.
+It is one existing player model, not another engine.
+
+The two private side-by-side Cassette/Karin screenshots supplied for this task
+are composition evidence, especially collection identity, playlist covers and
+transport grouping. The primary agent inspected them; they are **not copied
+into this repository**. Contributors who did not receive their pixels do not
+claim independent inspection. Do not copy service art, personal content,
+branding or literal layout. GTK theme metrics and Karin's supported behavior
+determine the implementation.
 
 ## Evidence and acceptance
 
-[IMPLEMENTATION_REVIEW.md](IMPLEMENTATION_REVIEW.md) separates the new refinement
-from prior a70/C10 and a9 checks. Existing screenshots and green CI are historical
-before evidence; they do not prove the hidden-player, full metadata click area,
-new navigation or continuous-list behavior. Fresh source-matched GTK captures
-and real mouse/keyboard/scroll/lifecycle checks are required.
+The [current actual GTK gallery](evidence-final-refinement/README.md) records
+source-frozen **C14**, its 111-entry source manifest, seven equal-size Karin
+before/current comparisons and untouched selected originals. The complete native
+output has **260 static images**, **108 matched actual GTK/PNG dimension pairs**
+and **240 strict initialized panel frames / 48 trajectories**. Six native stages
+pass with fatal GTK warnings enabled. The exact 2e3 before production has one
+fully disclosed additional 850×750 test case in the before harness. Static PNGs are X11 window captures
+under full redraw; motion/raw-footer images render retained native after-paint
+scene nodes. These are different from direct ordinary framebuffer-damage or
+Fedora performance acceptance.
 
-The current implementation uses a fixed native segment row, quiet 64-pixel
-liked-track rows, owned/liked playlist sections, height-adaptive centered Info,
-an initially hidden footer and a separate direct Like action. The
-[current review](IMPLEMENTATION_REVIEW.md#c9-current-visual-evidence) identifies
-the exact C9 source, native evidence audit and 11-original final-source visual
-review separately from the broader C7 checkpoint; it does not silently transfer
-old results to a newer revision. The
-[selected actual GTK gallery](evidence-refinement/README.md) identifies its own
-source and capture scope. Prior sketches remain historical below.
+[IMPLEMENTATION_REVIEW.md](IMPLEMENTATION_REVIEW.md) records current implemented
+composition and executed image review separately from prior checkpoints. C12's
+complete local native run had **48 PASS / 8 nonpassing**; those exact failed logs/
+source/results remain visible. C13 passed 12 targeted regressions and its own
+six-stage proof. Its results are historical. C14
+[regular checks](evidence-final-refinement/metadata/current/regular-result.json)
+pass on stable Rust 1.99.1 and exact Rust 1.98.1: formatting, strict Clippy,
+builds and tests (379 default, 387 all-feature and 365 minimal-feature library
+tests, plus four CLI tests for each configuration/compiler). Locked offline MSRV
+release, terminal/GStreamer/generated-media/GTK smoke checks and the unchanged
+license inventory (207 lockfile packages; 178 for Linux) also pass.
+**All 56 local native executions on C14 pass**: 28 selectors at both scales,
+with a [verified full ledger](evidence-final-refinement/metadata/current/functional-results.jsonl)
+and [summary](evidence-final-refinement/metadata/current/functional-summary.json).
+Two navigating WebKit fixtures remain unsupported locally and hosted-required.
+Hosted CI and downloaded Fedora archive validation are pending at documentation
+freeze; their actual revision-specific outcomes remain in the PR record. All 56
+current cases ran on C14; older green results are not relabeled final. The
+[previous gallery](evidence-refinement/README.md) likewise remains historical.
 
-Show idle/active/paused/error player states, footer appearance/disappearance,
-Info/Queue transitions, Wave/Liked/Playlists/Search, continuous append/Retry/end,
-compact/light/dark/HiDPI and the established geometry matrix. Inspect actual
-intermediate motion frames with honest renderer/initialization provenance.
-Earlier cold first-paint failures and warm-proof limitations remain recorded;
-do not turn them into a cold-start PASS or add production prewarming.
-The C7 default 2× motion phase miss is retained separately from the qualified
-paired 1×/2× `LP_NUM_THREADS=2` initialized-renderer pass. The latter is a test
-resource-control result, not an application workaround or cold-start acceptance.
-C9 repeats the complete strict panel scope with fresh source-matched artifacts;
-its raw first footer reveal still records a 116.7 ms paint gap, so cold first-use
-smoothness is explicitly not accepted.
+**Fresh-process first-footer smoothness is still unaccepted.** C14's actual
+first mouse Play records **900,018 μs / 850,017 μs** adjacent native gaps at 1×/2×,
+with only one intermediate each and observer maxima 518/282 μs. Lifecycle and
+released hidden horizontal requests pass; neither is a smoothness PASS. Cause
+is unknown. No delay, longer animation or production prewarming is added.
+Earlier C12/C13 cadence, 116,669 μs observations and strict sampling failures
+remain preserved, not overwritten.
 
 Cloud/Xvfb does not accept Fedora/KDE/Wayland/PipeWire, real Music, physical media
 keys, account writes or current Flatpak. Keep PR #15 Draft for owner review.
+
+The C14 collection-filter selector passes at **1× in 85.04 seconds** and
+**2× in 86.50 seconds**, with six actual partial/Retry/append photos and exact source/log/result proof.
+All **69 selected public originals** are individually opened across A/C/D/E,
+with no new separate structural P0/P1; see the [gallery review](evidence-final-refinement/README.md#independent-original-image-review-and-remaining-acceptance).
+This does not infer hosted CI or Fedora acceptance, or accept cold cadence.
 
 ## Historical original sketches
 

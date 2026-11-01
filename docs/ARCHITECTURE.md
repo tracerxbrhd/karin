@@ -23,7 +23,8 @@ See
 [0021](adr/0021-controlled-nonmodal-track-information.md),
 [0022](adr/0022-universal-music-panel.md) and
 [0023](adr/0023-local-playback-order-and-mpris-modes.md) and
-[0024](adr/0024-bounded-continuous-track-views.md).
+[0024](adr/0024-bounded-continuous-track-views.md) and
+[0025](adr/0025-loaded-collection-search-and-playback-provenance.md).
 
 ```mermaid
 flowchart LR
@@ -139,12 +140,12 @@ The corrected public sign-in boundary and provider gate are recorded in
 Primary navigation uses lightweight native tabs/segments with accessible names,
 keyboard activation and responsive placement rather than dropdown selection.
 The older three-route rail is not a current product requirement. Diagnostics
-remain in the application menu. The current primary tabs are “Моя волна”,
+remain in the application menu. The current primary tabs are “Главная”,
 “Нравится” and “Плейлисты”; accessible unified Search remains available as an
 explicit action. These owner-authorized refinement routes replace the earlier
 Home/Search/Library primary rail, not the underlying typed search service.
-The Wave tab is an honest unimplemented landing without radio/network/playback
-claims. Queue is opened from the Player Bar/Ctrl+J in the universal
+Home offers real Liked/Playlists/Search shortcuts and a compact, explicitly
+unavailable Wave section without radio/network/playback claims. Queue is opened from the Player Bar/Ctrl+J in the universal
 right panel, not as a separate primary route. A compact native account
 avatar in the HeaderBar uses initials from the validated display name, because
 no profile-photo URI has been verified. Its popover displays only known name/
@@ -182,6 +183,10 @@ control and never a nested interactive child. No visible Stop button is presente
 PlaybackController/MPRIS command for external control and lifecycle cleanup.
 Metadata width must not push the central transport off center. The bar consumes
 existing worker snapshots and the queue's policy, never a second playback state.
+A delayed compact-panel focus request rechecks the actual currently mapped,
+sensitive footer and pane targets before focusing Close. A responsive resize
+must not steal keyboard focus restored to the same Seek control; weak references
+keep this bounded presentation request independent of player/session ownership.
 Loading uses a stable native spinner inside the existing Play button, including
 held delivery and preparation, with an accessible label and tooltip. It does
 not add/remove a loading-caption row that changes footer height mid-reveal;
@@ -190,7 +195,7 @@ actual failures retain the ordinary full-width error/Retry presentation.
 Liked and Playlists pages use real loaded tracks/collections as musical content,
 not duplicate oversized navigation cards or invented recommendations. User and
 liked playlists use meaningful sections rather than a primary dropdown. The
-older Home composition is superseded by this refinement. Collection,
+large empty Wave landing is superseded by this useful compact Home. Collection,
 playlist/album heroes, native cover tiles, track rows and independent four-part
 search use the same hierarchy and bounded typed models. Missing art/data,
 loading, errors/Retry and server-confirmed playlist creation remain honest.
@@ -207,9 +212,10 @@ Each feed has at most 2,000 rendered positions and 100 provider-page admissions,
 using the existing 50-position portions; it is bounded GtkListBox content, not
 unbounded virtualization. Initial viewport prefill is bounded to three provider
 pages total. Then real forward wheel/scroll or PageDown/End admits one read near
-the lower threshold, even for sparse content with no scroll range. No manual
-Continue or track-page control remains, and empty pages cannot auto-drain the
-source. Repeated threshold notifications cannot grow request queues. Late
+the lower threshold, even for sparse content with no scroll range. Unfiltered lists have no manual
+track-page switch, and empty pages cannot auto-drain the source. An active local
+collection filter suppresses automatic layout/prefill admission and provides an
+explicit bounded next-part search action, distinct from global pagination. Repeated threshold notifications cannot grow request queues. Late
 replies are retired by source/session generations. Explicit read Retry preserves prior rows
 and does not silently replay writes. Visible track page buttons are removed,
 not the provider's internal pagination or batch-normalization limits.
@@ -224,15 +230,36 @@ cache replies are checked before admission; clearing storage does not itself
 erase a snapshot that was already accepted into the current view.
 
 Actual context selection still has at most 500 positions. UI growth alone does
-not extend/replace that context; later explicit Play snapshots the loaded
-500-position block containing the selected index, with opaque feed epoch/window
-offset and a partial flag when loaded/remote items are outside it. Four shared
-Arc windows at most are cached, rather than cloning 500 tracks for every row on
-each snapshot tick. A bounded parallel original-position mapping in PlaybackContext
-survives removal/reindexing, with manual additions marked outside the original
-source. Row-current matching uses source/window and original occurrence rather
-than mutable queue index or Track ID, including duplicate IDs. This narrow
-provenance addition leaves the playback engine and Shuffle/Repeat policy intact.
+not extend/replace that context. Collection search uses one Unicode case-folded,
+normalized index over the admitted title/artist/album fields and an ordered
+original-position projection; typing performs no collection-metadata requests. Retained rows are shown
+or hidden without cloning whole models or rebuilding the active queue. Partial
+coverage, no loaded matches, next-part loading, stale membership, Retry and the
+local limit remain explicit. A different feed starts with an empty query.
+
+[ADR-0025](adr/0025-loaded-collection-search-and-playback-provenance.md) adds a
+validated original-position constructor to PlaybackContext. Explicit Play
+snapshots an aligned window of at most 500 visible matches in provider order;
+up to four shared windows are materialized lazily. Every item carries its
+absolute original admitted position (below 2,000), while the source identity
+binds the stable feed rather than the query or window offset. Manual additions
+remain separately tagged. Current-row, followed Info and MPRIS identity compare
+that source occurrence, so duplicate IDs at original positions 0 and 500 do not
+alias at physical queue index zero. Structural removal/reindexing preserves
+original source identity. Manual additions retain the earlier physical-index
+fallback; removing an earlier row can change their opaque Info/MPRIS identity
+without restarting playback. No queue policy, resolver, transport or worker is replaced.
+
+The Liked hero owns an original native heart composition, existing Play/Refresh
+actions and facts computed from the admitted collection. It shows total duration
+only after remote completion, every duration is known and a checked sum succeeds.
+Playlist covers resize in place from actual available width, retaining their
+existing image/cache binding. The footer uses equal native grid wings around
+five tightly grouped controls, with the confirmed heart beside metadata and a
+centered timeline. At the fully closed native endpoint its inner content is
+invisible, releasing the horizontal minimum of a previous wide arrangement;
+opening lays out and shows that same content before paint, and closing frames
+retain it until zero. This is presentation over the same snapshots and controller.
 
 ### Direct current-track membership
 

@@ -28,15 +28,33 @@ enum InfoTarget {
 pub(super) struct CurrentOccurrence {
     kind: ContextKind,
     source: Option<String>,
-    index: usize,
+    position: OccurrencePosition,
     id: String,
 }
+
+/// Queue indices are presentation positions; a filtered result at local zero
+/// can refer to original occurrence 500. Keep manual additions in another
+/// namespace so an equal numeric fallback cannot impersonate a source item.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum OccurrencePosition {
+    Source(usize),
+    Manual(usize),
+}
+
+impl OccurrencePosition {
+    pub(super) fn from_context(context: &PlaybackContext) -> Self {
+        context
+            .source_position(context.current_index())
+            .map_or_else(|| Self::Manual(context.current_index()), Self::Source)
+    }
+}
+
 impl CurrentOccurrence {
     fn from_context(context: &PlaybackContext) -> Self {
         Self {
             kind: context.source_kind(),
             source: context.source_id().map(str::to_owned),
-            index: context.current_index(),
+            position: OccurrencePosition::from_context(context),
             id: context.items()[context.current_index()].id.clone(),
         }
     }
@@ -538,17 +556,19 @@ impl Controller {
         let reveal = reveal.downgrade();
         let content = content.downgrade();
         let close = self.track_pane.close.downgrade();
+        let footer = self.widgets.player_revealer.downgrade();
         glib::spawn_future_local(async move {
             // A breakpoint can hide the old tree before the subview has a
             // native allocation. Keep only weak references during this bounded
             // request; a later close, resize, dialog or user focus wins.
             for _ in 0..20 {
                 glib::timeout_future(std::time::Duration::from_millis(25)).await;
-                let (Some(window), Some(reveal), Some(content), Some(close)) = (
+                let (Some(window), Some(reveal), Some(content), Some(close), Some(footer)) = (
                     window.upgrade(),
                     reveal.upgrade(),
                     content.upgrade(),
                     close.upgrade(),
+                    footer.upgrade(),
                 ) else {
                     return;
                 };
@@ -581,13 +601,16 @@ impl Controller {
                 // GTK can automatically assign HeaderBar focus while the old
                 // content disappears. That is not deliberate input and must
                 // not cancel this one transition request. An already focused
-                // pane control remains valid; pre-transition footer focus was
-                // excluded before scheduling the request.
+                // pane control remains valid. Responsive reparenting can also
+                // restore footer focus after this request was scheduled: that
+                // actual current input wins over a delayed automatic transfer.
                 if focus.is_some_and(|focus| {
                     focus.is_mapped()
                         && focus.is_sensitive()
                         && (focus == *reveal.upcast_ref::<gtk::Widget>()
-                            || focus.is_ancestor(&reveal))
+                            || focus.is_ancestor(&reveal)
+                            || focus == *footer.upcast_ref::<gtk::Widget>()
+                            || focus.is_ancestor(&footer))
                 }) {
                     return;
                 }

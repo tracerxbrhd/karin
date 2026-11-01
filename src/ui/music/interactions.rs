@@ -9,6 +9,25 @@ use gtk::glib;
 use super::{Controller, MusicError, Operation, text};
 use crate::music::interactions::{InteractionError, LikeState};
 
+/// Prefer an actual native-theme heart; Adwaita and Breeze use different
+/// published names. Unusual themes retain a functional native fallback rather
+/// than an absent glyph. This is presentation only, never membership evidence.
+pub(super) fn like_icon_name(liked: Option<bool>) -> &'static str {
+    if let Some(display) = gtk::gdk::Display::default() {
+        let theme = gtk::IconTheme::for_display(&display);
+        for name in ["emote-love-symbolic", "love-symbolic"] {
+            if theme.has_icon(name) {
+                return name;
+            }
+        }
+    }
+    if liked == Some(true) {
+        "starred-symbolic"
+    } else {
+        "non-starred-symbolic"
+    }
+}
+
 #[derive(Clone)]
 struct LikeWidgets {
     button: glib::WeakRef<gtk::Button>,
@@ -33,6 +52,10 @@ impl LikeWidgets {
         self.confirmed.set(None);
         if let Some(button) = self.button.upgrade() {
             button.set_sensitive(false);
+            button.remove_css_class("liked");
+            button.update_state(&[gtk::accessible::State::Pressed(
+                gtk::AccessibleTristate::Mixed,
+            )]);
             button.set_tooltip_text(Some("Сначала обновите состояние отметки"));
             button.update_property(&[gtk::accessible::Property::Label(
                 "Отметка «Нравится» не проверена",
@@ -45,9 +68,9 @@ impl LikeWidgets {
             icon.remove_css_class("accent");
             icon.add_css_class("dim-label");
             if self.compact {
-                icon.set_icon_name(Some("non-starred-symbolic"));
                 icon.set_opacity(if refresh { 1.0 } else { 0.0 });
             }
+            icon.set_icon_name(Some(like_icon_name(None)));
         }
         if let Some(spinner) = self.spinner.upgrade() {
             spinner.set_visible(!refresh);
@@ -79,6 +102,16 @@ impl LikeWidgets {
         };
         if let Some(button) = self.button.upgrade() {
             button.set_sensitive(mutable);
+            if liked {
+                button.add_css_class("liked");
+            } else {
+                button.remove_css_class("liked");
+            }
+            button.update_state(&[gtk::accessible::State::Pressed(if liked {
+                gtk::AccessibleTristate::True
+            } else {
+                gtk::AccessibleTristate::False
+            })]);
             button.set_tooltip_text(Some(action));
             button.update_property(&[gtk::accessible::Property::Label(action)]);
         }
@@ -90,12 +123,8 @@ impl LikeWidgets {
             });
         }
         if let Some(icon) = self.icon.upgrade() {
+            icon.set_icon_name(Some(like_icon_name(Some(liked))));
             if self.compact {
-                icon.set_icon_name(Some(if liked {
-                    "starred-symbolic"
-                } else {
-                    "non-starred-symbolic"
-                }));
                 icon.set_opacity(1.0);
             }
             if liked {
@@ -158,9 +187,11 @@ impl Controller {
         let Some((generation, id)) = key else { return };
         let container = gtk::Box::new(gtk::Orientation::Horizontal, 2);
         container.set_widget_name("music-current-like-controls");
+        container.set_valign(gtk::Align::Center);
         let button = gtk::Button::new();
         button.set_widget_name("music-current-like");
         button.set_size_request(44, 44);
+        button.set_valign(gtk::Align::Center);
         button.add_css_class("flat");
         button.set_sensitive(false);
         button.set_tooltip_text(Some("Проверяем отметку «Нравится»"));
@@ -168,7 +199,7 @@ impl Controller {
             "Отметка «Нравится» не проверена",
         )]);
         let surface = gtk::Overlay::new();
-        let icon = gtk::Image::from_icon_name("non-starred-symbolic");
+        let icon = gtk::Image::from_icon_name(like_icon_name(None));
         icon.set_widget_name("music-current-like-icon");
         icon.set_pixel_size(16);
         icon.add_css_class("dim-label");
@@ -295,7 +326,7 @@ impl Controller {
         button.set_widget_name("music-like-toggle");
         button.set_sensitive(false);
         let content = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-        let icon = gtk::Image::from_icon_name("starred-symbolic");
+        let icon = gtk::Image::from_icon_name(like_icon_name(None));
         icon.add_css_class("dim-label");
         let label = text("Проверка отметки…", "");
         content.append(&icon);

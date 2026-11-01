@@ -17,7 +17,13 @@ use std::{
 #[derive(Default)]
 pub(super) struct SystemMedia {
     bus: Option<Mpris>,
-    binding: Option<(u64, usize, String, ContextKind, Option<String>)>,
+    binding: Option<(
+        u64,
+        workspace::OccurrencePosition,
+        String,
+        ContextKind,
+        Option<String>,
+    )>,
     serial: u64,
     repeat_restart: Option<u64>,
     snapshot: Snapshot,
@@ -218,11 +224,14 @@ impl Controller {
             && !model.closed
             && model.token.as_ref().is_some_and(|t| !t.is_expired());
         let selected = if ready { model.queue.current() } else { None };
-        let current = model.queue.current_index().unwrap_or(0);
-        let key = selected.map(|track| {
+        let position = model
+            .queue
+            .context()
+            .map(workspace::OccurrencePosition::from_context);
+        let key = selected.zip(position).map(|(track, position)| {
             (
                 model.generation,
-                current,
+                position,
                 track.id.clone(),
                 model
                     .queue

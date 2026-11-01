@@ -6,6 +6,7 @@ Status: Accepted for the v0.4 refinement; executed checks and owner acceptance r
 Date: 2026-11-01
 Extends: ADR-0016's bounded normalization and ADR-0017's exact PlaybackContext occurrences
 Supersedes: Visible track-page navigation in the earlier v0.4 workspace
+Updated by: ADR-0025 for collection filtering, explicit filtered continuation and stable feed/absolute occurrence identity
 
 ## Context
 

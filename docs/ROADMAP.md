@@ -2,6 +2,17 @@
 
 # Karin Roadmap
 
+## Current v0.4 final UX refinement — Draft PR #15
+
+Continue `feature/v0.4-native-music-ui` from `2e3ae41` without replacing the
+working account, MusicService or playback path. The current scope is musical
+Liked hierarchy, honest loaded-collection search, useful Home, larger covers and
+a tightly grouped native footer, retaining the pinned Info/Queue surface and
+MPRIS. ADR-0025 defines original occurrence identity for filtered contexts.
+Source-matched stable/MSRV/native/visual/CI and downloaded Fedora build evidence
+must precede owner review. Real Fedora visual/cold-first-use/full Flatpak gates
+remain separate. Keep the existing PR Draft; no new branch/PR or merge is authorized.
+
 ## Accepted v0.2 foundation
 
 [PR #13](https://github.com/tracerxbrhd/karin/pull/13) is merged into `master` at

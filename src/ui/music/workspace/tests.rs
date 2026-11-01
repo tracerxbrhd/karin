@@ -126,6 +126,30 @@ fn resize_logical(ui: &crate::ui::MainWindow, width: i32, height: i32) {
     settle();
 }
 
+fn assert_idle_footer_has_no_horizontal_minimum(ui: &crate::ui::MainWindow) {
+    let this = &ui.music.controller;
+    let revealer = &this.widgets.player_revealer;
+    assert!(!revealer.reveals_child() && !revealer.is_child_revealed());
+    assert!(this.music_snapshot().is_none());
+    assert!(
+        revealer
+            .child()
+            .is_some_and(|content| !content.is_visible()),
+        "fully concealed content must not retain the desktop grid's cross-axis request"
+    );
+    let (minimum, natural, _, _) = ui
+        .music
+        .player_bar
+        .measure(gtk::Orientation::Horizontal, -1);
+    assert_eq!(
+        (minimum, natural),
+        (0, 0),
+        "an idle mounted footer must not constrain native resizing: allocated={}x{} minimum={minimum} natural={natural}",
+        ui.music.player_bar.width(),
+        ui.music.player_bar.height()
+    );
+}
+
 fn assert_central_row_actions(
     ui: &crate::ui::MainWindow,
     this: &Controller,
@@ -354,6 +378,48 @@ fn current_occurrence_distinguishes_duplicate_positions_and_source() {
 }
 
 #[test]
+fn projected_occurrence_keys_preserve_absolute_duplicates_across_result_windows() {
+    let item = track("41", "Synthetic duplicate");
+    let project = |positions: Vec<usize>, selected| {
+        PlaybackContext::with_source_positions(
+            ContextKind::LikedTracks,
+            Some("continuous-synthetic-feed".into()),
+            vec![item.clone(); positions.len()],
+            selected,
+            true,
+            positions,
+        )
+        .unwrap()
+    };
+    let first = project(vec![0], 0);
+    let later = project(vec![500], 0);
+    assert!(CurrentOccurrence::from_context(&first) != CurrentOccurrence::from_context(&later));
+    assert_eq!(
+        OccurrencePosition::from_context(&later),
+        OccurrencePosition::Source(500)
+    );
+    let wider = project(vec![0, 500], 1);
+    assert!(CurrentOccurrence::from_context(&wider) == CurrentOccurrence::from_context(&later));
+    let mut queue = MusicQueue::new();
+    queue.replace_context(wider);
+    queue.remove(0);
+    assert!(
+        CurrentOccurrence::from_context(queue.context().unwrap())
+            == CurrentOccurrence::from_context(&later)
+    );
+    queue.append(item.clone()).unwrap();
+    queue.select(1);
+    assert_eq!(
+        OccurrencePosition::from_context(queue.context().unwrap()),
+        OccurrencePosition::Manual(1)
+    );
+    assert_ne!(
+        OccurrencePosition::from_context(&project(vec![1], 0)),
+        OccurrencePosition::Manual(1)
+    );
+}
+
+#[test]
 #[ignore = "requires isolated Xvfb, xdotool, Openbox and GTK; synthetic metadata only"]
 fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() {
     gtk::init().unwrap();
@@ -417,6 +483,7 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
     ui.window.present();
     pump_until(|| ui.window.is_mapped());
     resize(&ui, 1440, 900);
+    assert_idle_footer_has_no_horizontal_minimum(&ui);
     let found = Command::new("xdotool")
         .args([
             "search",
@@ -749,6 +816,7 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
             eprintln!("Karin synthetic shell phase: mapped-library-control-focused-before-compact");
         }
         resize(&ui, width, height);
+        assert_idle_footer_has_no_horizontal_minimum(&ui);
         assert_eq!(presentation(), expected);
         assert!(this.info_is_open());
         assert!(this.track_info_preference());
@@ -812,6 +880,7 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
     // Details navigation preserves the pane and audio context. Compact Back is
     // an explicit close, and a later occurrence must not reopen that intent.
     resize(&ui, 420, 720);
+    assert_idle_footer_has_no_horizontal_minimum(&ui);
     this.track_pane.details.grab_focus();
     input(&["key", "--clearmodifiers", "Return"]);
     pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("detail"));

@@ -33,6 +33,7 @@ pub(super) struct PlaylistGrid {
     spinner: gtk::Spinner,
     message: gtk::Label,
     create_tile: RefCell<Option<gtk::glib::WeakRef<gtk::FlowBoxChild>>>,
+    cover_size: Rc<Cell<i32>>,
 }
 
 impl PlaylistGrid {
@@ -82,6 +83,27 @@ impl PlaylistGrid {
         });
         feedback.append(&retry);
         widget.append(&feedback);
+        // Use the actual section viewport, not the FlowBox's natural width:
+        // one sparse tile must not turn itself into a full-width cover. Resize
+        // the already mounted thumbnails without rebuilding tiles or refetching
+        // art. The only closure reference into the widget tree is weak.
+        let cover_size = Rc::new(Cell::new(160));
+        let weak_tiles = tiles.downgrade();
+        widget.add_tick_callback({
+            let cover_size = Rc::clone(&cover_size);
+            move |host, _| {
+                if host.width() <= 0 {
+                    return gtk::glib::ControlFlow::Continue;
+                }
+                let size = cover_size_for_width(host.width());
+                if cover_size.replace(size) != size
+                    && let Some(tiles) = weak_tiles.upgrade()
+                {
+                    resize_tiles(&tiles, size);
+                }
+                gtk::glib::ControlFlow::Continue
+            }
+        });
         let result = Self {
             widget,
             tiles,
@@ -92,6 +114,7 @@ impl PlaylistGrid {
             spinner,
             message,
             create_tile: RefCell::new(None),
+            cover_size,
         };
         result.set_playlists(&[], false);
         result
@@ -191,7 +214,8 @@ impl PlaylistGrid {
     }
 
     fn playlist_tile(&self, playlist: &Playlist, generation: u64) -> gtk::Button {
-        let button = tile_button("music-playlist-tile");
+        let size = self.cover_size.get();
+        let button = tile_button("music-playlist-tile", size);
         let title = if playlist.title.trim().is_empty() {
             "Плейлист"
         } else {
@@ -199,15 +223,19 @@ impl PlaylistGrid {
         };
         button.set_tooltip_text(Some(title));
         let content = tile_content();
-        let cover = super::cover_widget(self.loader.as_ref(), playlist.cover.as_ref(), 160);
+        let cover = super::cover_widget(self.loader.as_ref(), playlist.cover.as_ref(), 196);
         cover.set_widget_name("music-playlist-tile-cover");
+        resize_cover(&cover, size);
         cover.add_css_class("karin-playlist-cover");
         cover.set_halign(gtk::Align::Center);
         content.append(&cover);
-        content.append(&tile_title(title));
+        content.append(&tile_title(title, size));
         let count = track_count(playlist.track_count);
         let subtitle = gtk::Label::new(Some(&count));
         subtitle.set_xalign(0.0);
+        subtitle.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        subtitle.set_width_chars(1);
+        subtitle.set_tooltip_text(Some(&count));
         subtitle.add_css_class("caption");
         subtitle.add_css_class("dim-label");
         content.append(&subtitle);
@@ -227,19 +255,20 @@ impl PlaylistGrid {
     }
 
     fn create_tile(&self, generation: u64) -> gtk::Button {
-        let button = tile_button("music-playlist-create");
+        let size = self.cover_size.get();
+        let button = tile_button("music-playlist-create", size);
         button.add_css_class("karin-playlist-create");
         button.set_tooltip_text(Some("Создать плейлист"));
         button.update_property(&[gtk::accessible::Property::Label("Создать плейлист")]);
         let content = tile_content();
         let icon = gtk::Image::from_icon_name("list-add-symbolic");
-        icon.set_pixel_size(32);
-        icon.set_size_request(160, 160);
+        icon.set_pixel_size(40);
+        icon.set_size_request(size, size);
         icon.add_css_class("karin-playlist-cover");
         icon.set_halign(gtk::Align::Center);
         icon.add_css_class("accent");
         content.append(&icon);
-        content.append(&tile_title("Создать плейлист"));
+        content.append(&tile_title("Создать плейлист", size));
         button.set_child(Some(&content));
         let state = Rc::clone(&self.state);
         button.connect_clicked(move |_| {
@@ -251,11 +280,61 @@ impl PlaylistGrid {
     }
 }
 
-fn tile_button(name: &str) -> gtk::Button {
+// Insets include the button/content padding and native FlowBoxChild wrapper.
+// Leave explicit room for them when fitting two small-window columns.
+const TILE_HORIZONTAL_BUDGET: i32 = 40;
+
+fn cover_size_for_width(width: i32) -> i32 {
+    match width {
+        1100.. => 196,
+        600.. => 160,
+        300.. => ((width - 16) / 2 - TILE_HORIZONTAL_BUDGET).clamp(96, 160),
+        _ => (width - TILE_HORIZONTAL_BUDGET).clamp(64, 160),
+    }
+}
+
+fn resize_cover(cover: &gtk::Widget, size: i32) {
+    cover.set_size_request(size, size);
+    if let Some(fallback) = cover
+        .downcast_ref::<gtk::Overlay>()
+        .and_then(gtk::Overlay::child)
+        .and_downcast::<gtk::Image>()
+    {
+        fallback.set_pixel_size((size / 2).max(16));
+    } else if let Some(image) = cover.downcast_ref::<gtk::Image>()
+        && cover.widget_name() == "music-playlist-tile-cover"
+    {
+        image.set_pixel_size((size / 2).max(16));
+    }
+}
+
+fn resize_tiles(tiles: &gtk::FlowBox, size: i32) {
+    let mut child = tiles.first_child();
+    while let Some(wrapper) = child {
+        child = wrapper.next_sibling();
+        if let Some(button) = wrapper
+            .downcast_ref::<gtk::FlowBoxChild>()
+            .and_then(gtk::FlowBoxChild::child)
+            .and_downcast::<gtk::Button>()
+            && let Some(content) = button.child()
+            && let Some(cover) = content.first_child()
+        {
+            button.set_width_request(size + 32);
+            resize_cover(&cover, size);
+            if let Some(title) = cover.next_sibling().and_downcast::<adw::Clamp>() {
+                title.set_maximum_size(size);
+                title.set_tightening_threshold(size);
+            }
+        }
+    }
+}
+
+fn tile_button(name: &str, size: i32) -> gtk::Button {
     let button = gtk::Button::new();
     button.set_widget_name(name);
-    button.set_width_request(176);
+    button.set_width_request(size + 32);
     button.set_hexpand(false);
+    button.set_halign(gtk::Align::Start);
     button.set_valign(gtk::Align::Start);
     button.add_css_class("flat");
     button.add_css_class("karin-playlist-tile");
@@ -268,7 +347,7 @@ fn tile_content() -> gtk::Box {
     content
 }
 
-fn tile_title(title: &str) -> gtk::Label {
+fn tile_title(title: &str, size: i32) -> adw::Clamp {
     let label = gtk::Label::new(Some(title));
     label.set_xalign(0.0);
     label.set_wrap(true);
@@ -276,12 +355,21 @@ fn tile_title(title: &str) -> gtk::Label {
     label.set_lines(2);
     label.set_ellipsize(gtk::pango::EllipsizeMode::End);
     label.set_width_chars(1);
-    label.set_max_width_chars(18);
     label.set_tooltip_text(Some(title));
     label.add_css_class("music-ellipsized-metadata");
     label.update_property(&[gtk::accessible::Property::Label(title)]);
     label.add_css_class("heading");
-    label
+    // A character-count natural width can exceed the smaller cover even with
+    // wrapping enabled. FlowBox then chooses one oversized column although
+    // two cover-sized tiles fit the viewport. Bound native natural width in
+    // actual logical pixels without changing font size, wrapping or semantics.
+    let clamp = adw::Clamp::builder()
+        .maximum_size(size)
+        .tightening_threshold(size)
+        .child(&label)
+        .build();
+    clamp.set_widget_name("music-playlist-title-clamp");
+    clamp
 }
 
 fn track_count(count: u64) -> String {

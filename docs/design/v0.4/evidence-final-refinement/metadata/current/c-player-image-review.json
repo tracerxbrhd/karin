@@ -1,0 +1,233 @@
+{
+  "candidate": "C14",
+  "reviewer": "C-playerbar",
+  "reviewed_at_utc": "2026-11-01T23:06:57.778167+00:00",
+  "binary_sha256": "c927b8e1dfa405398c8c2dc68ca402d3cd899e7867f08cbfc2aa08bf54331bb5",
+  "source_manifest_sha256": "3faefc3e5d8e69ce475e148ffef92cecb5ccbaf6631ac14661993cbbf1db7bf4",
+  "reviewed_originals": 12,
+  "method": "Each exact assigned C14 published original was opened in its own view call; current PNG dimensions and SHA were then verified against the corresponding frozen candidate-14 file. No image, source, gallery or native-runtime change was performed.",
+  "overall": "No composition P0/P1 observed in these twelve C14 originals. This is a new C14 review, not reused C12 acceptance.",
+  "limits": [
+    "Static screenshot review does not establish cold animation smoothness. C14 cold first appearance remains unaccepted: reported consecutive native paint gaps 900018us and850017us.",
+    "GTK/Xvfb synthetic account/catalog/artwork and loopback media do not establish Fedora/KDE/Wayland/PipeWire acceptance or live Music API playback.",
+    "The corrected C12 missing-chrome misreading remains history in c-final-visual-review-c12.json and is not treated as a product defect."
+  ],
+  "files": [
+    {
+      "file": "/workspace/karin/docs/design/v0.4/evidence-final-refinement/current/static-scale1/matrix-medium-panel-track-scale1-dark.png",
+      "sha256": "c9a362f7503e684a512de04b4996d9edc0e5f7ede835326f40eabd9e949b7e85",
+      "candidate_original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/static-scale1/matrix-medium-panel-track-scale1-dark.png",
+      "public_copy_matches_candidate": true,
+      "physical_size": [
+        900,
+        650
+      ],
+      "expected_physical_size": [
+        900,
+        650
+      ],
+      "role": "medium-info-dark",
+      "opened_original_individually": true,
+      "result": "no-composition-p0-p1-observed",
+      "observation": "Medium dark Info: adaptive cover and the complete title/artist/album/action group fit above the footer. Heart is circular and adjacent. Five controls and time/progress are legible and the transport is centered."
+    },
+    {
+      "file": "/workspace/karin/docs/design/v0.4/evidence-final-refinement/current/static-scale1/matrix-owner-wide-panel-queue-scale1-light.png",
+      "sha256": "aebe3a01641ce5f76f154fdec54e76133c1755b38823afa46fb272971f2370a0",
+      "candidate_original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/static-scale1/matrix-owner-wide-panel-queue-scale1-light.png",
+      "public_copy_matches_candidate": true,
+      "physical_size": [
+        1650,
+        930
+      ],
+      "expected_physical_size": [
+        1650,
+        930
+      ],
+      "role": "owner-wide-queue-light",
+      "opened_original_individually": true,
+      "result": "no-composition-p0-p1-observed",
+      "observation": "Owner-wide light Queue: pinned source/count/Clear, current and next labels and actual rows are readable. Footer transport is centered over the full window; metadata/heart and right utilities remain separate."
+    },
+    {
+      "file": "/workspace/karin/docs/design/v0.4/evidence-final-refinement/current/static-scale1/matrix-wide-panel-track-scale1-dark.png",
+      "sha256": "732489ecfbd7f38d7af605450ff2e5a5a88a9d72fc016fa6119ed427cf399bc1",
+      "candidate_original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/static-scale1/matrix-wide-panel-track-scale1-dark.png",
+      "public_copy_matches_candidate": true,
+      "physical_size": [
+        1440,
+        900
+      ],
+      "expected_physical_size": [
+        1440,
+        900
+      ],
+      "role": "wide-info-dark",
+      "opened_original_individually": true,
+      "result": "no-composition-p0-p1-observed",
+      "observation": "Wide dark Info: complete native chrome, centered music-information cluster and all actions; no footer or pane overlap. The current-track button, nearby heart and timeline remain clear."
+    },
+    {
+      "file": "/workspace/karin/docs/design/v0.4/evidence-final-refinement/current/static-scale1/surface-keyboard-focus-scale1-dark.png",
+      "sha256": "56f0466e86f8d72e2052326f4f4ca77a9c24df672f19a91c1b235faf83bf0d2b",
+      "candidate_original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/static-scale1/surface-keyboard-focus-scale1-dark.png",
+      "public_copy_matches_candidate": true,
+      "physical_size": [
+        1440,
+        900
+      ],
+      "expected_physical_size": [
+        1440,
+        900
+      ],
+      "role": "search-keyboard-focus-dark",
+      "opened_original_individually": true,
+      "result": "no-composition-p0-p1-observed",
+      "observation": "Dark keyboard-focus state: the search entry has a visible native blue focus outline, sections and result actions are readable, and the paused footer remains available."
+    },
+    {
+      "file": "/workspace/karin/docs/design/v0.4/evidence-final-refinement/current/static-scale1/surface-player-hidden-wide-scale1-dark.png",
+      "sha256": "6057372b9a0c1416d9184f1abf376312e62737aa3558a4862cfd54901356ecd6",
+      "candidate_original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/static-scale1/surface-player-hidden-wide-scale1-dark.png",
+      "public_copy_matches_candidate": true,
+      "physical_size": [
+        1440,
+        900
+      ],
+      "expected_physical_size": [
+        1440,
+        900
+      ],
+      "role": "idle-wide-dark",
+      "opened_original_individually": true,
+      "result": "no-composition-p0-p1-observed",
+      "observation": "Wide idle state: no player or empty player-height reservation; collection rows use the additional vertical space. Native chrome and primary navigation are present."
+    },
+    {
+      "file": "/workspace/karin/docs/design/v0.4/evidence-final-refinement/current/static-scale1/surface-player-shuffle-repeat-one-scale1-dark.png",
+      "sha256": "b0c7a9365ea1798bba15f733f91cd886aa3e45b94fdbe08a0aa8f8361b69cfc9",
+      "candidate_original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/static-scale1/surface-player-shuffle-repeat-one-scale1-dark.png",
+      "public_copy_matches_candidate": true,
+      "physical_size": [
+        1440,
+        900
+      ],
+      "expected_physical_size": [
+        1440,
+        900
+      ],
+      "role": "shuffle-repeat-one-dark",
+      "opened_original_individually": true,
+      "result": "no-composition-p0-p1-observed",
+      "observation": "Dark Shuffle/Repeat One: active mode backgrounds are visible, literal numeric 1 is visible on Repeat, and the Queue has a distinct current row and contextual after-skip label."
+    },
+    {
+      "file": "/workspace/karin/docs/design/v0.4/evidence-final-refinement/current/static-scale1/surface-player-shuffle-repeat-queue-scale1-light.png",
+      "sha256": "7def6e0a9482ad2592ce35c59357b516fbf3fd9f2e0f270a114b358178576d4b",
+      "candidate_original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/static-scale1/surface-player-shuffle-repeat-queue-scale1-light.png",
+      "public_copy_matches_candidate": true,
+      "physical_size": [
+        1440,
+        900
+      ],
+      "expected_physical_size": [
+        1440,
+        900
+      ],
+      "role": "shuffle-repeat-queue-light",
+      "opened_original_individually": true,
+      "result": "no-composition-p0-p1-observed",
+      "observation": "Light Shuffle/Repeat Queue: active mode backgrounds and Queue next label are visible; no numeric-one badge is shown. Current metadata/heart, transport and timeline do not collide."
+    },
+    {
+      "file": "/workspace/karin/docs/design/v0.4/evidence-final-refinement/current/static-scale1/surface-player-visible-paused-scale1-light.png",
+      "sha256": "622d571f88cc5e0b5d331e5fbdf6ef6db0ad3230ee48c2e24af114531b6fc412",
+      "candidate_original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/static-scale1/surface-player-visible-paused-scale1-light.png",
+      "public_copy_matches_candidate": true,
+      "physical_size": [
+        1440,
+        900
+      ],
+      "expected_physical_size": [
+        1440,
+        900
+      ],
+      "role": "paused-wide-light",
+      "opened_original_individually": true,
+      "result": "no-composition-p0-p1-observed",
+      "observation": "Light paused state: the existing player remains visible with Play affordance, clear current metadata, adjacent heart, progress/time and right utilities; no visible Stop or decorative dead control."
+    },
+    {
+      "file": "/workspace/karin/docs/design/v0.4/evidence-final-refinement/current/static-scale1/surface-search-error-retry-scale1-light.png",
+      "sha256": "75937709be43fb90fc430c0225171b2f2ad2cc72ac9ac8645701fae6c8acb454",
+      "candidate_original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/static-scale1/surface-search-error-retry-scale1-light.png",
+      "public_copy_matches_candidate": true,
+      "physical_size": [
+        1440,
+        900
+      ],
+      "expected_physical_size": [
+        1440,
+        900
+      ],
+      "role": "search-error-retry-light",
+      "opened_original_individually": true,
+      "result": "no-composition-p0-p1-observed",
+      "observation": "Light search-error state: one clear error block, prominent Retry and collapsed diagnostics; no technical status/code in the main message. The retained footer is independent of the search failure."
+    },
+    {
+      "file": "/workspace/karin/docs/design/v0.4/evidence-final-refinement/current/static-scale2/matrix-narrow-panel-track-scale2-light.png",
+      "sha256": "4bd3032ddad6dc354266d9f9e4b0f064b6f0b7f4a1ed3f8192437744aad1dc67",
+      "candidate_original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/static-scale2/matrix-narrow-panel-track-scale2-light.png",
+      "public_copy_matches_candidate": true,
+      "physical_size": [
+        1440,
+        1300
+      ],
+      "expected_physical_size": [
+        1440,
+        1300
+      ],
+      "role": "hidpi-narrow-info-light",
+      "opened_original_individually": true,
+      "result": "no-composition-p0-p1-observed",
+      "observation": "HiDPI narrow light Info: all short-metadata actions fit above the compact footer; real cover is height-adaptive. Metadata/heart, all five controls, timeline and utilities fit without overlap."
+    },
+    {
+      "file": "/workspace/karin/docs/design/v0.4/evidence-final-refinement/current/static-scale2/surface-long-metadata-compact-information-scale2-light.png",
+      "sha256": "68ae60feaf9be197de4dd8f66081ad791a9c8ccb5e900ac0fd559abc061eba45",
+      "candidate_original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/static-scale2/surface-long-metadata-compact-information-scale2-light.png",
+      "public_copy_matches_candidate": true,
+      "physical_size": [
+        840,
+        1440
+      ],
+      "expected_physical_size": [
+        840,
+        1440
+      ],
+      "role": "hidpi-long-metadata-compact-info-light",
+      "opened_original_individually": true,
+      "result": "no-composition-p0-p1-observed",
+      "observation": "HiDPI long-metadata compact light: full title wraps, selectable text is visibly selected, secondary artist information and actual actions remain visible. Footer text uses intentional ellipsis and the independent heart/transport/utilities remain clear."
+    },
+    {
+      "file": "/workspace/karin/docs/design/v0.4/evidence-final-refinement/current/static-scale2/surface-player-hidden-compact-scale2-light.png",
+      "sha256": "853e399f3f8828aadc2c9937d895054341173a4cd10b4402509752ec0853ead3",
+      "candidate_original": "/workspace/karin-environment/v04-cassette-refinement/candidate-14/static-scale2/surface-player-hidden-compact-scale2-light.png",
+      "public_copy_matches_candidate": true,
+      "physical_size": [
+        840,
+        1440
+      ],
+      "expected_physical_size": [
+        840,
+        1440
+      ],
+      "role": "hidpi-idle-compact-light",
+      "opened_original_individually": true,
+      "result": "no-composition-p0-p1-observed",
+      "observation": "HiDPI compact idle: the footer is absent and collection rows use the remaining height. Original was reopened individually; unchanged native pixels confirm avatar, menu, window controls and primary tabs are present, as is the focused collection filter. No missing-chrome finding is made."
+    }
+  ]
+}

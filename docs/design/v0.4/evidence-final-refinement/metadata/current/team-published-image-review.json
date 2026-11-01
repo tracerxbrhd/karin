@@ -1,0 +1,504 @@
+{
+  "candidate": "candidate-14",
+  "test_binary_sha256": "c927b8e1dfa405398c8c2dc68ca402d3cd899e7867f08cbfc2aa08bf54331bb5",
+  "source_manifest_sha256": "3faefc3e5d8e69ce475e148ffef92cecb5ccbaf6631ac14661993cbbf1db7bf4",
+  "published_originals": 69,
+  "individually_opened_unique_originals": 69,
+  "per_reviewer": {
+    "A": 21,
+    "C": 12,
+    "D": 8,
+    "E": 28
+  },
+  "method": "Each published original opened individually with view_image across four reviewers; each reviewed SHA256 equals exact gallery provenance. No montage substitute. Baseline7 freshly reopened too.",
+  "new_separate_structural_p0_p1_found": false,
+  "known_temporal_failure": "Fresh-process first-footer cadence remains unaccepted:900018us1x/850017us2x adjacent gaps, one intermediate each; cause unknown.",
+  "cold_first_use_latency_accepted": false,
+  "fedora_acceptance": false,
+  "scope_limit": "All69 selected public originals reviewed, not all260 full static output or live account/physical Music/Wayland/KDE/Flatpak acceptance.",
+  "images": [
+    {
+      "file": "before/static-scale1/matrix-compact-panel-closed-scale1-dark.png",
+      "sha256": "bd4a6fe78a34c77d28b96cde827d5f35642b68c0abbcc3455a4a22e9e74cd43a",
+      "reviewers": [
+        "A"
+      ]
+    },
+    {
+      "file": "before/static-scale1/matrix-owner-wide-panel-closed-scale1-light.png",
+      "sha256": "d41e68c8b9fb75c7fb86fc99dcae1939bf93ff64b84633548d8865f0dc81123c",
+      "reviewers": [
+        "A"
+      ]
+    },
+    {
+      "file": "before/static-scale1/matrix-reference-panel-closed-scale1-light.png",
+      "sha256": "a7c3f924388d070d33f46fd49aa39957c87f4a95d8f12cce6ca63e76b655e733",
+      "reviewers": [
+        "A"
+      ]
+    },
+    {
+      "file": "before/static-scale1/matrix-wide-panel-closed-scale1-dark.png",
+      "sha256": "d6c1cc36f6d7ec68260b1602f16b151d8745bebe448db398d8cfa8eb26255123",
+      "reviewers": [
+        "A"
+      ]
+    },
+    {
+      "file": "before/static-scale1/surface-playlists-tab-scale1-light.png",
+      "sha256": "1fd635e6593fd6be6dbbbf197be65a29e9f34123ed51d78d32384918644b1af3",
+      "reviewers": [
+        "D"
+      ]
+    },
+    {
+      "file": "before/static-scale1/surface-wave-placeholder-scale1-dark.png",
+      "sha256": "1b937dbe478f1a30179230346457a59eec05607b5ebeaa3b468ffa963593a7a4",
+      "reviewers": [
+        "D"
+      ]
+    },
+    {
+      "file": "before/static-scale2/matrix-reference-panel-closed-scale2-dark.png",
+      "sha256": "93942f5b12831c86df2805e302dd8c456bc7c7225bb993e5cdd195c973a34c23",
+      "reviewers": [
+        "A"
+      ]
+    },
+    {
+      "file": "current/cold-scale1/footer-startup-explicit-stop-frame000-scale1.png",
+      "sha256": "7e88de3ba0f296cbec214058ef3f921f9e396b1e38379a833e1dc8804948b6a8",
+      "reviewers": [
+        "E"
+      ]
+    },
+    {
+      "file": "current/cold-scale1/footer-startup-explicit-stop-frame002-scale1.png",
+      "sha256": "2afca2974649c5e8879b2f23a07704b870f2d0c6049f4a9f5a8341bd290c528d",
+      "reviewers": [
+        "E"
+      ]
+    },
+    {
+      "file": "current/cold-scale1/footer-startup-explicit-stop-frame004-scale1.png",
+      "sha256": "81230d921c81ccc03c3b069aec3b2551f1b276ff31b1bcc8298c723217ca5587",
+      "reviewers": [
+        "E"
+      ]
+    },
+    {
+      "file": "current/cold-scale1/footer-startup-explicit-stop-frame008-scale1.png",
+      "sha256": "506e3251a25eac7d290e40ff0f589c29a9f13725c0b4562e3cb64cc4f8b4d16f",
+      "reviewers": [
+        "E"
+      ]
+    },
+    {
+      "file": "current/cold-scale1/footer-startup-first-start-frame000-scale1.png",
+      "sha256": "6f1cd48b51141d3819db04e42c2d9b28c17731a0128a826880ce4e6d11208744",
+      "reviewers": [
+        "E"
+      ]
+    },
+    {
+      "file": "current/cold-scale1/footer-startup-first-start-frame003-scale1.png",
+      "sha256": "09ed86a411587a5c3007017a280a2f299ea8ba00833ba2ad2cdb6304ff181edc",
+      "reviewers": [
+        "E"
+      ]
+    },
+    {
+      "file": "current/cold-scale1/footer-startup-first-start-frame005-scale1.png",
+      "sha256": "61da7a54efc22d2b34b7cc92f2d88ef4b7e3ce4417e5f3976dea5ca773a7cac9",
+      "reviewers": [
+        "E"
+      ]
+    },
+    {
+      "file": "current/cold-scale1/startup-footer-paused-scale1-dark.png",
+      "sha256": "d66a4603e0d20171768f62a7b1c706a64fd5347b5e952445099f978dab1041b2",
+      "reviewers": [
+        "E"
+      ]
+    },
+    {
+      "file": "current/cold-scale1/startup-footer-paused-scale1-light.png",
+      "sha256": "a22d102994e9c8aa83d2490a76fcb6d636a036d35c4f2e2e038870db694308fb",
+      "reviewers": [
+        "E"
+      ]
+    },
+    {
+      "file": "current/cold-scale2/footer-startup-explicit-stop-frame000-scale2.png",
+      "sha256": "bf94d2c506f18bf3b336eed0c2e07d460baa32d4f93c6c30c21497b15644d7ba",
+      "reviewers": [
+        "E"
+      ]
+    },
+    {
+      "file": "current/cold-scale2/footer-startup-explicit-stop-frame002-scale2.png",
+      "sha256": "5252b5fb23d2979ffe31b0f153b41d43ae06313507bb7b33757d9910490bd4a4",
+      "reviewers": [
+        "E"
+      ]
+    },
+    {
+      "file": "current/cold-scale2/footer-startup-explicit-stop-frame003-scale2.png",
+      "sha256": "a101460781cf6a0aa85d5575bdc1e4d21da21814c1885372c42e6576ebd89f07",
+      "reviewers": [
+        "E"
+      ]
+    },
+    {
+      "file": "current/cold-scale2/footer-startup-explicit-stop-frame007-scale2.png",
+      "sha256": "61d5f9b88fd0b4c427f5b21b4c99123b127ffdad89676c5a9e87a7a652b237f6",
+      "reviewers": [
+        "E"
+      ]
+    },
+    {
+      "file": "current/cold-scale2/footer-startup-first-start-frame000-scale2.png",
+      "sha256": "881b080d6809fddc3aeeaa963655518a881d4a8184ec270864c0c40edd08d8c1",
+      "reviewers": [
+        "E"
+      ]
+    },
+    {
+      "file": "current/cold-scale2/footer-startup-first-start-frame003-scale2.png",
+      "sha256": "394cf09dce36bc04fad6c3e3116c37310674992e1fb45c5c5b2dba373dd6b98e",
+      "reviewers": [
+        "E"
+      ]
+    },
+    {
+      "file": "current/cold-scale2/footer-startup-first-start-frame005-scale2.png",
+      "sha256": "79691409dbcbf6dde1a0998eb8d0a809891249f21d7813a67e4a52d931248694",
+      "reviewers": [
+        "E"
+      ]
+    },
+    {
+      "file": "current/cold-scale2/startup-footer-paused-scale2-dark.png",
+      "sha256": "b5c9ae843f7e541edcad00203ffa62edbc04ba2792b236ea3d761cd17c1fa0c8",
+      "reviewers": [
+        "E"
+      ]
+    },
+    {
+      "file": "current/cold-scale2/startup-footer-paused-scale2-light.png",
+      "sha256": "1c38fe4e39ee96eb4af95e9b8dc7c09ec8aa61b3781a2270d6e687ca68f4ed0b",
+      "reviewers": [
+        "E"
+      ]
+    },
+    {
+      "file": "current/functional-scale1/collection-filter-append-dark.png",
+      "sha256": "3ba34c7a5aa1a5059201b031f6b80c3f6c981da3cb2d96c3de7e09646468c58d",
+      "reviewers": [
+        "A"
+      ]
+    },
+    {
+      "file": "current/functional-scale1/collection-filter-append-light.png",
+      "sha256": "4e4c3f9a437da684e0cc140457c6b638e84c4289dde1c49278329776d719a232",
+      "reviewers": [
+        "A"
+      ]
+    },
+    {
+      "file": "current/functional-scale1/collection-filter-partial-dark.png",
+      "sha256": "e790e417a228f2c799772ecbd3416637499402aa3c1d7a8f9988f0d34b2646f1",
+      "reviewers": [
+        "A"
+      ]
+    },
+    {
+      "file": "current/functional-scale1/collection-filter-partial-light.png",
+      "sha256": "de4c5b08d3a9c1fba059216ce366a04a7c895c2457492db7d03397533558f4ee",
+      "reviewers": [
+        "A"
+      ]
+    },
+    {
+      "file": "current/functional-scale1/collection-filter-retry-dark.png",
+      "sha256": "18c2c0d6641087688c2d0a70c94dfe891466703de728d7c4a095e539a7702446",
+      "reviewers": [
+        "A"
+      ]
+    },
+    {
+      "file": "current/functional-scale1/collection-filter-retry-light.png",
+      "sha256": "dde968ba0b5db9f5e5d61982b02285fff31fc83660e28b56e08197fb0b8e463f",
+      "reviewers": [
+        "A"
+      ]
+    },
+    {
+      "file": "current/motion-scale1/animation-medium-dark-track-opening-000-scale1.png",
+      "sha256": "220b7541b9535cfbfa75e3e2ddfb478cf087449b7a70d46fb90ff4d1856f2436",
+      "reviewers": [
+        "E"
+      ]
+    },
+    {
+      "file": "current/motion-scale1/animation-medium-dark-track-opening-025-scale1.png",
+      "sha256": "85118560d0aedfe6babcc1c2b00ae5ff3faabd42486ecae20db541393acdfaba",
+      "reviewers": [
+        "E"
+      ]
+    },
+    {
+      "file": "current/motion-scale1/animation-medium-dark-track-opening-050-scale1.png",
+      "sha256": "f530231ca63df51dadefec034177288448117ed410d82e18f71485662372c908",
+      "reviewers": [
+        "E"
+      ]
+    },
+    {
+      "file": "current/motion-scale1/animation-medium-dark-track-opening-075-scale1.png",
+      "sha256": "c05fee5724d1772c80a15036852e7805aad1b3ea6da777c1a9763fe7c064b349",
+      "reviewers": [
+        "E"
+      ]
+    },
+    {
+      "file": "current/motion-scale1/animation-medium-dark-track-opening-100-scale1.png",
+      "sha256": "0a0a9b458a48c6f2b1b15e34774334d0ed074a8b7b131cd0f608476c84e69676",
+      "reviewers": [
+        "E"
+      ]
+    },
+    {
+      "file": "current/motion-scale2/animation-compact-light-queue-closing-000-scale2.png",
+      "sha256": "a628fea6299543391e715357e9101b17a6f4ee9aaecb114d1f311d6ed0666b3c",
+      "reviewers": [
+        "E"
+      ]
+    },
+    {
+      "file": "current/motion-scale2/animation-compact-light-queue-closing-025-scale2.png",
+      "sha256": "80c5c8d698497ce1bfe4938305e9a02360155333a6d7047a721688ef13af5a09",
+      "reviewers": [
+        "E"
+      ]
+    },
+    {
+      "file": "current/motion-scale2/animation-compact-light-queue-closing-050-scale2.png",
+      "sha256": "fd974762c663dff9c673503b2a3791ff8f35ec98af3b9f67d9d679a99f18a179",
+      "reviewers": [
+        "E"
+      ]
+    },
+    {
+      "file": "current/motion-scale2/animation-compact-light-queue-closing-075-scale2.png",
+      "sha256": "111c1bff50dab75a61cf9b7d89dc88885b266bd6d13be367120eded1eb289894",
+      "reviewers": [
+        "E"
+      ]
+    },
+    {
+      "file": "current/motion-scale2/animation-compact-light-queue-closing-100-scale2.png",
+      "sha256": "7c6aeefbc8af15739b67430f70641b78beefa449fe9b1cc8f98d976d2223d8a4",
+      "reviewers": [
+        "E"
+      ]
+    },
+    {
+      "file": "current/static-scale1/matrix-compact-panel-closed-scale1-dark.png",
+      "sha256": "9c05a247fe4d972e5bd286f24afbb504343d8316b01cf0f4afd003a115024b72",
+      "reviewers": [
+        "A"
+      ]
+    },
+    {
+      "file": "current/static-scale1/matrix-medium-panel-track-scale1-dark.png",
+      "sha256": "c9a362f7503e684a512de04b4996d9edc0e5f7ede835326f40eabd9e949b7e85",
+      "reviewers": [
+        "C"
+      ]
+    },
+    {
+      "file": "current/static-scale1/matrix-owner-wide-panel-closed-scale1-light.png",
+      "sha256": "d9b12590fb36ba0d405ba10d024b69f7b75bbaf4be5db7ea5815031e19e57217",
+      "reviewers": [
+        "A"
+      ]
+    },
+    {
+      "file": "current/static-scale1/matrix-owner-wide-panel-queue-scale1-light.png",
+      "sha256": "aebe3a01641ce5f76f154fdec54e76133c1755b38823afa46fb272971f2370a0",
+      "reviewers": [
+        "C"
+      ]
+    },
+    {
+      "file": "current/static-scale1/matrix-reference-panel-closed-scale1-light.png",
+      "sha256": "491dd30c6a432eab6975024605cf529cea482da4ed1fc8b77ca981d426f24a85",
+      "reviewers": [
+        "A"
+      ]
+    },
+    {
+      "file": "current/static-scale1/matrix-wide-panel-closed-scale1-dark.png",
+      "sha256": "4e139d9e71e8ef9e8510beeefd56344db0c17c313dc328e151345b05025a4042",
+      "reviewers": [
+        "A"
+      ]
+    },
+    {
+      "file": "current/static-scale1/matrix-wide-panel-track-scale1-dark.png",
+      "sha256": "732489ecfbd7f38d7af605450ff2e5a5a88a9d72fc016fa6119ed427cf399bc1",
+      "reviewers": [
+        "C"
+      ]
+    },
+    {
+      "file": "current/static-scale1/surface-home-compact-scale1-light.png",
+      "sha256": "bc0e49dc336d53f02c9f827892f8c93403b572b3617d47d8bcc800854b0c8115",
+      "reviewers": [
+        "D"
+      ]
+    },
+    {
+      "file": "current/static-scale1/surface-home-wide-scale1-dark.png",
+      "sha256": "bbee3a0ba2101ba467084d4df022f481e35540e045da42b12eb585d86c7af991",
+      "reviewers": [
+        "D"
+      ]
+    },
+    {
+      "file": "current/static-scale1/surface-keyboard-focus-scale1-dark.png",
+      "sha256": "56f0466e86f8d72e2052326f4f4ca77a9c24df672f19a91c1b235faf83bf0d2b",
+      "reviewers": [
+        "C"
+      ]
+    },
+    {
+      "file": "current/static-scale1/surface-liked-filter-empty-scale1-light.png",
+      "sha256": "02736e884140516a59f433ea36728d056d9e556334ef1369f3e7e9d36a17ab38",
+      "reviewers": [
+        "A"
+      ]
+    },
+    {
+      "file": "current/static-scale1/surface-liked-filter-reference-scale1-dark.png",
+      "sha256": "ba78c511ed244c6a3625d94ea8bc92192d924cbf14c647366316509aeac1aa1d",
+      "reviewers": [
+        "A"
+      ]
+    },
+    {
+      "file": "current/static-scale1/surface-player-hidden-wide-scale1-dark.png",
+      "sha256": "6057372b9a0c1416d9184f1abf376312e62737aa3558a4862cfd54901356ecd6",
+      "reviewers": [
+        "C"
+      ]
+    },
+    {
+      "file": "current/static-scale1/surface-player-shuffle-repeat-one-scale1-dark.png",
+      "sha256": "b0c7a9365ea1798bba15f733f91cd886aa3e45b94fdbe08a0aa8f8361b69cfc9",
+      "reviewers": [
+        "C"
+      ]
+    },
+    {
+      "file": "current/static-scale1/surface-player-shuffle-repeat-queue-scale1-light.png",
+      "sha256": "7def6e0a9482ad2592ce35c59357b516fbf3fd9f2e0f270a114b358178576d4b",
+      "reviewers": [
+        "C"
+      ]
+    },
+    {
+      "file": "current/static-scale1/surface-player-visible-paused-scale1-light.png",
+      "sha256": "622d571f88cc5e0b5d331e5fbdf6ef6db0ad3230ee48c2e24af114531b6fc412",
+      "reviewers": [
+        "C"
+      ]
+    },
+    {
+      "file": "current/static-scale1/surface-playlist-filter-reference-scale1-light.png",
+      "sha256": "936505a159efd1e6237bf2acae6da65f6d1a4338d3e1dd45d4f58fbf971b38d3",
+      "reviewers": [
+        "A"
+      ]
+    },
+    {
+      "file": "current/static-scale1/surface-playlists-tab-reference-scale1-light.png",
+      "sha256": "0511ac11848d635cc826cbe772420373166cf57ccd142a91282b4e9d3f30a443",
+      "reviewers": [
+        "D"
+      ]
+    },
+    {
+      "file": "current/static-scale1/surface-playlists-tab-wide-scale1-light.png",
+      "sha256": "27012b0c5bd61f7e9006b14d8b2262e308c086674b8206876aeedf3979884812",
+      "reviewers": [
+        "D"
+      ]
+    },
+    {
+      "file": "current/static-scale1/surface-search-error-retry-scale1-light.png",
+      "sha256": "75937709be43fb90fc430c0225171b2f2ad2cc72ac9ac8645701fae6c8acb454",
+      "reviewers": [
+        "C"
+      ]
+    },
+    {
+      "file": "current/static-scale2/matrix-narrow-panel-track-scale2-light.png",
+      "sha256": "4bd3032ddad6dc354266d9f9e4b0f064b6f0b7f4a1ed3f8192437744aad1dc67",
+      "reviewers": [
+        "C"
+      ]
+    },
+    {
+      "file": "current/static-scale2/matrix-reference-panel-closed-scale2-dark.png",
+      "sha256": "f966b138c55d3033058397604a3c1e40c99be2ce1e5e2cb3c594f99b2338ec92",
+      "reviewers": [
+        "A"
+      ]
+    },
+    {
+      "file": "current/static-scale2/surface-home-reference-scale2-dark.png",
+      "sha256": "68c47e4a5ab133865cc0a886e05bb8a5032ad22ac389367f0dee89c20eb3adcf",
+      "reviewers": [
+        "D"
+      ]
+    },
+    {
+      "file": "current/static-scale2/surface-liked-filter-compact-scale2-light.png",
+      "sha256": "96a6580275b852d2caf02c22c1089e912ec3e4d7967d1406d9ef04fcc142c875",
+      "reviewers": [
+        "A"
+      ]
+    },
+    {
+      "file": "current/static-scale2/surface-long-metadata-compact-information-scale2-light.png",
+      "sha256": "68ae60feaf9be197de4dd8f66081ad791a9c8ccb5e900ac0fd559abc061eba45",
+      "reviewers": [
+        "C"
+      ]
+    },
+    {
+      "file": "current/static-scale2/surface-player-hidden-compact-scale2-light.png",
+      "sha256": "853e399f3f8828aadc2c9937d895054341173a4cd10b4402509752ec0853ead3",
+      "reviewers": [
+        "C"
+      ]
+    },
+    {
+      "file": "current/static-scale2/surface-playlist-filter-compact-scale2-dark.png",
+      "sha256": "7d9a8545703ac7ab591d4bc249e4c176c18413fcdfc9a2b99f2a9977502b1225",
+      "reviewers": [
+        "A"
+      ]
+    },
+    {
+      "file": "current/static-scale2/surface-playlists-tab-compact-scale2-dark.png",
+      "sha256": "ce96e98d9bbb931c1bd24c94f6b2e96f408454fe4616271ec2d1939f4e02b0f1",
+      "reviewers": [
+        "D"
+      ]
+    }
+  ]
+}

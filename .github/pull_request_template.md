@@ -49,7 +49,7 @@ Describe the concrete behavior and why it is needed.
 Follow `docs/UI_QUALITY_GATE.md`. If there is no UI change,
 state that explicitly; do not mark unexecuted visual checks as passed.
 
-- [ ] Real screenshots inspected at about 420×720, 900×650 and 1440×900
+- [ ] Real screenshots inspected at about 420×720, 850×750, 900×650 and 1440×900
 - [ ] Actual maximized window inspected, or the environment limitation recorded
 - [ ] Light and dark themes covered for overview and diagnostics
 - [ ] Resize transitions, selected-page preservation and adaptive navigation checked
@@ -70,11 +70,16 @@ state that explicitly; do not mark unexecuted visual checks as passed.
 ## Native Music v0.4 (when changed)
 
 - [ ] Existing Draft PR #15 and its branch retained; no automatic merge
-- [ ] Current task/references guide independent composition; 96 matched actual GTK before/after size/theme/scale/panel cases reviewed with source hashes and true maximize
-- [ ] Wave/Liked/Playlists native tabs and accessible unified Search replace primary dropdowns/rail
+- [ ] Current task/references guide independent composition; 108 matched actual GTK before/after size/theme/scale/panel cases reviewed with source hashes and true maximize
+- [ ] Home/Liked/Playlists native tabs and accessible unified Search replace primary dropdowns/rail
 - [ ] Idle footer allocates no strip; actual Play reveals it from below, Pause retains it, Stop/clear/logout hide it; normal raw first-start/Stop frames and reduced motion checked separately
 - [ ] Whole cover/title/artist/metadata area opens Track Info with mouse/Enter/Space; direct Like is separate, server-confirmed and never repeats an uncertain POST
 - [ ] Continuous track batches preserve rows/scroll/occurrences, show loading/end/partial/error/Retry, reject retired work and retain 2000-position/100-page UI and 500-position queue bounds
+- [ ] Liked heart hero shows truthful loaded/complete count and complete-only checked duration; inspect actual density, not just clipping
+- [ ] Collection-local Unicode/title/artist/album search works in Liked and opened own/liked/search playlists; typing performs no collection-metadata requests and partial coverage/continuation/Retry stay honest
+- [ ] Filter/clear/append/reset preserves active Queue/worker; explicit Play retains visible order, absolute duplicate provenance and 500-position windows without N+1
+- [ ] Metadata-adjacent confirmed heart, centered five-button transport/timeline and Queue/Volume fit actual compact/850/wide layouts; playlist cover sizes and single/create tiles verified
+- [ ] First-footer raw paint observation runs separately without pre-capture/resize/graphics initialization; historical 117 ms gap and pending Fedora cold acceptance retained
 - [ ] Independent playlist-section refresh/continuation and Like/Liked reads do not strand loading; logout removes collection artwork/count/actions as well as rows
 - [ ] Actual normal panel phase/geometry evidence records renderer, software-Mesa worker setting and graphics initialization; failed observations and cold first-use limits remain explicit
 - [ ] Pinned information survives outside clicks, scroll, navigation and resize; X/Ctrl+I/compact Back are explicit closes

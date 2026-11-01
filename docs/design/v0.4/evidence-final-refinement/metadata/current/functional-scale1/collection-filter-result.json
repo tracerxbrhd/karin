@@ -1,0 +1,9 @@
+{
+  "selector": "ui::music::collection_filter::native_tests::native_collection_filter_continuation_and_exact_occurrences",
+  "scale": 1,
+  "binary_sha256": "c927b8e1dfa405398c8c2dc68ca402d3cd899e7867f08cbfc2aa08bf54331bb5",
+  "returncode": 0,
+  "single_selected_test_passed": true,
+  "duration_seconds": 85.04,
+  "log_sha256": "feb43d40876a3524b2d37faf31ae0ae2ffa7136fe904d63b7fc27ad98a9417be"
+}

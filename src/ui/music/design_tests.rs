@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Matched native a70bbf7/current refinement evidence. All account/catalog/artwork data below is
+//! Matched native 2e3ae41/current refinement evidence. All account/catalog/artwork data below is
 //! original synthetic loopback data; no fixture is compiled into production.
 
 use super::*;
@@ -584,6 +584,7 @@ fn assert_footer_geometry(ui: &crate::ui::MainWindow) {
     );
     if !this.widgets.player_revealer.reveals_child() {
         assert!(!this.widgets.player_revealer.is_child_revealed());
+        assert_hidden_footer_geometry(ui);
         for control in [
             this.widgets.play.upcast_ref::<gtk::Widget>(),
             this.widgets.current_art_button.upcast_ref(),
@@ -670,15 +671,57 @@ fn assert_footer_geometry(ui: &crate::ui::MainWindow) {
             "footer control escaped its allocated surface: {name} {rect:?} / {footer:?}"
         );
     }
-    let modes = named_widget(&ui.music.player_bar, "music-playback-modes");
-    if ui.music.player_bar.width() < 720 {
+    // All five real transport controls fit the new compact two-row bar. They
+    // remain one set of buttons over the existing queue/controller, rather
+    // than hiding its playback modes behind an otherwise unnecessary menu.
+    for control in [
+        this.widgets.shuffle.upcast_ref::<gtk::Widget>(),
+        this.widgets.previous.upcast_ref(),
+        this.widgets.play.upcast_ref(),
+        this.widgets.next.upcast_ref(),
+        this.widgets.repeat.upcast_ref(),
+    ] {
         assert!(
-            modes.is_mapped(),
-            "compact shuffle/repeat popover entry must remain reachable"
+            control.is_mapped(),
+            "all five transport actions remain visible"
         );
-    } else {
-        assert!(!modes.is_visible());
-        assert!(this.widgets.shuffle.is_mapped() && this.widgets.repeat.is_mapped());
+        let rect = control.compute_bounds(&ui.window).unwrap();
+        assert!(
+            rect.width() >= 44.0 && rect.height() >= 44.0,
+            "transport actions need usable native pointer targets: {rect:?}"
+        );
+        assert!(
+            rect.x() >= footer.x() - 1.0
+                && rect.y() >= footer.y() - 1.0
+                && rect.x() + rect.width() <= footer.x() + footer.width() + 1.0
+                && rect.y() + rect.height() <= footer.y() + footer.height() + 1.0,
+            "compact transport must fit the actual footer: {rect:?}/{footer:?}"
+        );
+    }
+    assert!(
+        descendants(ui.music.player_bar.upcast_ref())
+            .iter()
+            .all(|widget| widget.widget_name() != "music-playback-modes" || !widget.is_mapped()),
+        "an obsolete playback-modes menu must not duplicate the visible controls"
+    );
+    let metadata = this
+        .widgets
+        .current_art_button
+        .compute_bounds(&ui.window)
+        .unwrap();
+    let like = named_widget(&ui.music.player_bar, "music-current-like")
+        .compute_bounds(&ui.window)
+        .unwrap();
+    assert!(
+        (like.width() - like.height()).abs() <= 1.0,
+        "the confirmed circular Like target must not stretch into a capsule: {like:?}"
+    );
+    let like_gap = like.x() - metadata.x() - metadata.width();
+    assert!(
+        (-1.0..=16.0).contains(&like_gap),
+        "confirmed Like must stay adjacent to the track block: {like:?}/{metadata:?}"
+    );
+    if ui.music.player_bar.width() >= 720 {
         let transport = named_widget(&ui.music.player_bar, "music-transport")
             .compute_bounds(&ui.window)
             .unwrap();
@@ -689,6 +732,36 @@ fn assert_footer_geometry(ui: &crate::ui::MainWindow) {
             "wide transport must stay visually centered, independent of metadata: transport={transport:?} main={center:?} footer={footer:?}"
         );
     }
+}
+
+// A SlideUp Revealer alone may retain its concealed child's horizontal
+// minimum. A fully closed player must release that minimum as well as its
+// height, without hiding the child during a still-visible closing frame.
+fn hidden_footer_geometry(ui: &crate::ui::MainWindow) -> serde_json::Value {
+    let reveal = &ui.music.controller.widgets.player_revealer;
+    let child = reveal.child().expect("one actual native footer child");
+    let horizontal = |widget: &gtk::Widget| {
+        let (minimum, natural, _, _) = widget.measure(gtk::Orientation::Horizontal, -1);
+        [minimum, natural]
+    };
+    json!({
+        "requested":reveal.reveals_child(),"child_revealed":reveal.is_child_revealed(),
+        "height":reveal.height(),"child_visible":child.is_visible(),
+        "child_mapped":child.is_mapped(),"child_horizontal":horizontal(&child),
+        "revealer_horizontal":horizontal(reveal.upcast_ref()),
+        "host_horizontal":horizontal(ui.music.player_bar.upcast_ref())
+    })
+}
+
+fn assert_hidden_footer_geometry(ui: &crate::ui::MainWindow) {
+    let geometry = hidden_footer_geometry(ui);
+    assert_eq!(geometry["requested"], false, "{geometry}");
+    assert_eq!(geometry["child_revealed"], false, "{geometry}");
+    assert_eq!(geometry["height"], 0, "{geometry}");
+    assert_eq!(geometry["child_visible"], false, "{geometry}");
+    assert_eq!(geometry["child_mapped"], false, "{geometry}");
+    assert_eq!(geometry["revealer_horizontal"], json!([0, 0]), "{geometry}");
+    assert_eq!(geometry["host_horizontal"], json!([0, 0]), "{geometry}");
 }
 
 // The normal matrix contains one short title, one artist and one album.
@@ -715,8 +788,135 @@ fn assert_short_info_actions_visible(ui: &crate::ui::MainWindow) {
     }
 }
 
+fn current_collection_search(ui: &crate::ui::MainWindow) -> gtk::SearchEntry {
+    let page = ui
+        .music
+        .controller
+        .widgets
+        .stack
+        .visible_child()
+        .expect("real visible collection page");
+    descendants(&page)
+        .into_iter()
+        .find_map(|widget| {
+            (widget.widget_name() == "music-collection-search" && widget.is_mapped())
+                .then(|| widget.downcast::<gtk::SearchEntry>().unwrap())
+        })
+        .expect("the actual collection has one native, mapped track-search entry")
+}
+
+fn visible_collection_tracks(ui: &crate::ui::MainWindow) -> usize {
+    let page = ui.music.controller.widgets.stack.visible_child().unwrap();
+    descendants(&page)
+        .into_iter()
+        .filter(|widget| widget.widget_name() == "music-track-row" && widget.is_mapped())
+        .count()
+}
+
+// Use the real SearchEntry signal path. Account/service/continuation and exact
+// duplicate activation have their own input-driven regression fixture; these
+// captures additionally prove the actual filtered composition at each width.
+fn set_collection_query(ui: &crate::ui::MainWindow, text: &str, expected: usize) {
+    let this = &ui.music.controller;
+    let context = this.model.borrow().queue.context().cloned();
+    current_collection_search(ui).set_text(text);
+    pump(|| visible_collection_tracks(ui) == expected);
+    assert_eq!(
+        this.model.borrow().queue.context(),
+        context.as_ref(),
+        "changing the displayed collection filter must not replace the active queue"
+    );
+    assert_eq!(
+        this.music_snapshot().map(|snapshot| snapshot.state),
+        Some(crate::playback::PlaybackState::Paused),
+        "filter presentation must not resume or restart actual paused media"
+    );
+}
+
+fn responsive_collection_evidence(ui: &crate::ui::MainWindow, name: &str) {
+    for (width, height, shape) in [
+        (420, 720, "compact"),
+        (850, 750, "reference"),
+        (1440, 900, "wide"),
+    ] {
+        resize(ui, width, height);
+        evidence(ui, &format!("{name}-{shape}"));
+    }
+}
+
+fn collection_layout(ui: &crate::ui::MainWindow) -> Value {
+    let page = ui.music.controller.widgets.stack.visible_child().unwrap();
+    let widgets = descendants(&page);
+    let hero = widgets
+        .iter()
+        .find(|widget| widget.widget_name() == "music-liked-hero" && widget.is_mapped());
+    let art = widgets
+        .iter()
+        .find(|widget| widget.widget_name() == "music-liked-cover" && widget.is_mapped());
+    if let (Some(hero), Some(art)) = (hero, art) {
+        // A freshly replaced empty/feed hero can map before its first GTK
+        // allocation. Observe actual stable native layout rather than assert
+        // against its transient zero rectangle or skip the artwork guard.
+        super::test_input::wait_for_layout(&ui.window, art);
+        let surface = hero.compute_bounds(&ui.window).unwrap();
+        let cover = art.compute_bounds(&ui.window).unwrap();
+        assert!(
+            cover.width() >= 80.0 && (cover.width() - cover.height()).abs() <= 1.0,
+            "Liked collection artwork must remain a readable native square: {cover:?}"
+        );
+        assert!(
+            cover.x() >= surface.x() - 1.0
+                && cover.y() >= surface.y() - 1.0
+                && cover.x() + cover.width() <= surface.x() + surface.width() + 1.0
+                && cover.y() + cover.height() <= surface.y() + surface.height() + 1.0,
+            "Liked artwork must fit its actual responsive hero: {cover:?}/{surface:?}"
+        );
+        assert!(
+            surface.height() <= ui.window.height() as f32 * 0.32,
+            "the expressive collection hero must not dominate a short window: {surface:?}"
+        );
+        let title = widgets
+            .iter()
+            .find(|widget| widget.widget_name() == "music-liked-title")
+            .unwrap()
+            .downcast_ref::<gtk::Label>()
+            .unwrap();
+        assert!(
+            !title.layout().is_ellipsized(),
+            "the collection heading must stay readable, unlike bounded track metadata"
+        );
+    }
+    let filters: Vec<_> = widgets
+        .iter()
+        .filter(|widget| widget.widget_name() == "music-collection-search" && widget.is_mapped())
+        .collect();
+    assert!(
+        filters.len() <= 1,
+        "one reusable filter per visible collection"
+    );
+    for filter in &filters {
+        let rect = filter.compute_bounds(&ui.window).unwrap();
+        assert!(
+            rect.width() >= 120.0 && rect.height() <= 56.0,
+            "collection search must remain usable and compact: {rect:?}"
+        );
+        assert!(
+            rect.x() >= -1.0 && rect.x() + rect.width() <= ui.window.width() as f32 + 1.0,
+            "collection search must not horizontally overflow the window: {rect:?}"
+        );
+    }
+    json!({
+        "liked_hero_size":hero.map(|widget| [widget.width(),widget.height()]),
+        "liked_cover_size":art.map(|widget| [widget.width(),widget.height()]),
+        "filter_size":filters.first().map(|widget| [widget.width(),widget.height()]),
+        "filter_active":filters.first().is_some_and(|widget| !widget.downcast_ref::<gtk::SearchEntry>().unwrap().text().is_empty()),
+        "visible_track_rows":visible_collection_tracks(ui),
+    })
+}
+
 fn evidence(ui: &crate::ui::MainWindow, name: &str) {
     assert_footer_geometry(ui);
+    let collection = collection_layout(ui);
     assert!(
         descendants(ui.music.widget.upcast_ref())
             .into_iter()
@@ -727,7 +927,7 @@ fn evidence(ui: &crate::ui::MainWindow, name: &str) {
     let name = format!("{name}-scale{scale}");
     super::tests::capture_native(&name);
     if std::env::var_os("KARIN_TEST_COMPARE_RENDER_READBACK").is_some()
-        && (name.starts_with("surface-wave-placeholder-scale")
+        && (name.starts_with("surface-home-wide-scale")
             || name.starts_with("matrix-wide-panel-track-scale"))
     {
         compare_render_readback(ui, &name);
@@ -751,7 +951,7 @@ fn evidence(ui: &crate::ui::MainWindow, name: &str) {
             .open(path)
             .unwrap();
         for theme in ["light", "dark"] {
-            writeln!(file,"{}",json!({"capture":format!("{name}-{theme}.png"),"logical_width":ui.window.width(),"logical_height":ui.window.height(),"scale":scale,"maximized":ui.window.is_maximized(),"pane_open":pane_open(&ui.music.controller),"panel_mode":format!("{:?}",ui.music.controller.panel_mode.get()),"renderer":ui.window.renderer().unwrap().type_().name(),"rows":heights,"fully_visible_rows":visible,"source":"synthetic-loopback-musicservice-http-decoded-artwork","tracks":8,"footer_art_hit":[ui.music.controller.widgets.current_art_button.width(),ui.music.controller.widgets.current_art_button.height()],"footer_track_hit":[ui.music.controller.widgets.current_art_button.width(),ui.music.controller.widgets.current_art_button.height()],"footer_cover_size":[ui.music.controller.widgets.current_art.width(),ui.music.controller.widgets.current_art.height()],"footer_like_mapped":ui.music.controller.widgets.current_like_slot.is_mapped(),"footer_title_width":ui.music.controller.widgets.current.width(),"player_requested_visible":ui.music.controller.widgets.player_revealer.reveals_child(),"player_child_revealed":ui.music.controller.widgets.player_revealer.is_child_revealed(),"player_height":ui.music.player_bar.height(),"player_state":format!("{:?}",ui.music.controller.music_snapshot().map(|snapshot|snapshot.state))})).unwrap();
+            writeln!(file,"{}",json!({"capture":format!("{name}-{theme}.png"),"logical_width":ui.window.width(),"logical_height":ui.window.height(),"scale":scale,"maximized":ui.window.is_maximized(),"pane_open":pane_open(&ui.music.controller),"panel_mode":format!("{:?}",ui.music.controller.panel_mode.get()),"renderer":ui.window.renderer().unwrap().type_().name(),"rows":heights,"fully_visible_rows":visible,"collection":collection,"source":"synthetic-loopback-musicservice-http-decoded-artwork","tracks":8,"footer_art_hit":[ui.music.controller.widgets.current_art_button.width(),ui.music.controller.widgets.current_art_button.height()],"footer_track_hit":[ui.music.controller.widgets.current_art_button.width(),ui.music.controller.widgets.current_art_button.height()],"footer_cover_size":[ui.music.controller.widgets.current_art.width(),ui.music.controller.widgets.current_art.height()],"footer_like_mapped":ui.music.controller.widgets.current_like_slot.is_mapped(),"footer_title_width":ui.music.controller.widgets.current.width(),"player_requested_visible":ui.music.controller.widgets.player_revealer.reveals_child(),"player_child_revealed":ui.music.controller.widgets.player_revealer.is_child_revealed(),"player_height":ui.music.player_bar.height(),"player_state":format!("{:?}",ui.music.controller.music_snapshot().map(|snapshot|snapshot.state))})).unwrap();
         }
     }
 }
@@ -815,6 +1015,19 @@ fn populated_window(
     Page<Track>,
     Album,
 ) {
+    populated_window_with_initial_selection(active, true)
+}
+
+fn populated_window_with_initial_selection(
+    active: bool,
+    select_initial: bool,
+) -> (
+    Fixture,
+    adw::Application,
+    crate::ui::MainWindow,
+    Page<Track>,
+    Album,
+) {
     let fixture = Fixture::new();
     let service = MusicService::for_test(&fixture.origin);
     let token = AccessToken::for_test(TOKEN, Duration::from_secs(600));
@@ -823,14 +1036,16 @@ fn populated_window(
     let playlists = service.playlists(&token, 0).unwrap();
     let album = service.album(&token, "7").unwrap();
     assert_eq!(liked.items.len(), 8);
-    let context = PlaybackContext::new(
-        ContextKind::LikedTracks,
-        None,
-        liked.items.clone(),
-        0,
-        false,
-    )
-    .unwrap();
+    let context = select_initial.then(|| {
+        PlaybackContext::new(
+            ContextKind::LikedTracks,
+            None,
+            liked.items.clone(),
+            0,
+            false,
+        )
+        .unwrap()
+    });
     let app = adw::Application::builder()
         .application_id("io.github.tracerxbrhd.Karin.DesignFixture")
         .flags(gio::ApplicationFlags::NON_UNIQUE)
@@ -861,14 +1076,18 @@ fn populated_window(
         model.account_valid = true;
         model.liked = Some(Ok(liked.clone()));
         model.playlists = Some(Ok(playlists));
-        model.queue.replace_context(context.clone());
+        if let Some(context) = &context {
+            model.queue.replace_context(context.clone());
+        }
     }
     this.widgets.account.set_text("Synthetic design account");
     this.render_controls();
     this.render_queue();
     this.render_home_preview();
     this.render_liked(Ok(liked.clone()), 0);
-    this.select_track_info(liked.items[0].clone(), Some(context), true);
+    if let Some(context) = context {
+        this.select_track_info(liked.items[0].clone(), Some(context), true);
+    }
     this.widgets.stack.set_visible_child_name("library");
     this.widgets.nav_liked.set_active(true);
     this.set_fixture_resolver_for_test(crate::stream::StreamResolver::for_test(
@@ -881,6 +1100,7 @@ fn populated_window(
     ui.window.present();
     pump(|| textures(&this.widgets.library_rows) >= 6);
     assert_decoded_artwork(&this.widgets.library_rows);
+    diagnose_box_identities(&ui.window);
     if active {
         activate_design_player(&ui, &fixture);
     }
@@ -905,6 +1125,45 @@ fn populated_window(
         }
     }
     (fixture, app, ui, liked, album)
+}
+
+// Opt-in, bounded synthetic-fixture diagnosis. GTK's measure warning names a
+// native object pointer; match it to a real widget/ancestry without logging
+// labels, catalog fields, request values or any application session data.
+fn diagnose_box_identities(window: &adw::ApplicationWindow) {
+    if std::env::var_os("KARIN_TEST_BOX_IDENTITIES").is_none() {
+        return;
+    }
+    const LIMIT: usize = 512;
+    let boxes = descendants(window.upcast_ref())
+        .into_iter()
+        .filter(|widget| widget.is::<gtk::Box>())
+        .collect::<Vec<_>>();
+    eprintln!(
+        "Karin synthetic GtkBox identities: total={} logged={} limit={LIMIT}",
+        boxes.len(),
+        boxes.len().min(LIMIT)
+    );
+    for widget in boxes.iter().take(LIMIT) {
+        let mut ancestry = Vec::new();
+        let mut parent = widget.parent();
+        for _ in 0..6 {
+            let Some(ancestor) = parent else {
+                break;
+            };
+            ancestry.push(format!(
+                "{}:{}",
+                ancestor.type_().name(),
+                ancestor.widget_name().chars().take(96).collect::<String>()
+            ));
+            parent = ancestor.parent();
+        }
+        eprintln!(
+            "Karin synthetic GtkBox identity: ptr={:p} name={} ancestors={ancestry:?}",
+            widget.as_ptr(),
+            widget.widget_name().chars().take(96).collect::<String>()
+        );
+    }
 }
 
 fn activate_design_player(ui: &crate::ui::MainWindow, fixture: &Fixture) {
@@ -942,6 +1201,7 @@ fn activate_design_player_observed(ui: &crate::ui::MainWindow, fixture: &Fixture
     });
     assert_decoded_artwork(&this.widgets.current_art);
     settle();
+    diagnose_box_identities(&ui.window);
 }
 
 #[test]
@@ -970,12 +1230,14 @@ fn native_design_matched_matrix_and_populated_surfaces() {
         .set_gtk_enable_animations(true);
     activate_design_player_observed(&ui, &fixture, true);
     evidence(&ui, "surface-player-visible-paused");
-    // Eight geometries × three genuine panel modes × two themes × two
-    // separate scale processes =96 current images, matched to the archived
-    // a70 baseline's actual panel representations at the same outer dimensions.
+    // Nine geometries × three genuine panel modes × two themes × two
+    // separate scale processes =108 current images. The archived 2e3 baseline
+    // adds only this reference-size tuple to its original test harness; its
+    // application source and complete motion checks remain unchanged.
     for (width, height, name) in [
         (420, 720, "compact"),
         (720, 650, "narrow"),
+        (850, 750, "reference"),
         (900, 650, "medium"),
         (1280, 800, "desktop"),
         (1440, 900, "wide"),
@@ -1004,9 +1266,13 @@ fn native_design_matched_matrix_and_populated_surfaces() {
                 && std::env::var_os("KARIN_V04_ASSERT_DENSITY").is_some()
             {
                 let (_, visible) = row_metrics(&ui);
+                // The owner now requests a real 144px collection cover plus
+                // its native search row, replacing the earlier 64px summary.
+                // Preserve useful visible music without shrinking typography
+                // or artwork to imitate the obsolete six-row composition.
                 assert!(
-                    visible >= 6,
-                    "900x650 library must show at least six whole track rows; observed {visible}"
+                    visible >= 3,
+                    "900x650 collection hero/search must leave at least three whole track rows; observed {visible}"
                 );
             }
         }
@@ -1032,16 +1298,28 @@ fn native_design_matched_matrix_and_populated_surfaces() {
     resize(&ui, 1440, 900);
 
     primary_destination(&ui, "home");
-    evidence(&ui, "surface-wave-placeholder");
+    responsive_collection_evidence(&ui, "surface-home");
     primary_destination(&ui, "library");
     evidence(&ui, "surface-liked-tab");
+    set_collection_query(&ui, "гОриЗоНт", 1);
+    responsive_collection_evidence(&ui, "surface-liked-filter");
+    set_collection_query(&ui, "Нет такой синтетической композиции", 0);
+    resize(&ui, 850, 750);
+    evidence(&ui, "surface-liked-filter-empty");
+    set_collection_query(&ui, "", 8);
+    // At the reference width the four owned/Create tiles wrap, placing the
+    // liked section below the viewport. Its artwork correctly waits for real
+    // visibility before HTTP. Admit all four decoded covers in the wide view
+    // first; the following responsive captures still exercise the smaller
+    // layouts without weakening the decoded-artwork assertions.
+    resize(&ui, 1440, 900);
     primary_destination(&ui, "playlists");
     pump(|| {
         !this.model.borrow().busy
             && textures(&this.playlist_grid.widget) >= 3
             && textures(&this.liked_playlist_grid.widget) >= 1
     });
-    evidence(&ui, "surface-playlists-tab");
+    responsive_collection_evidence(&ui, "surface-playlists-tab");
     let playlist = this
         .model
         .borrow()
@@ -1055,6 +1333,9 @@ fn native_design_matched_matrix_and_populated_surfaces() {
     this.open_playlist(playlist, 0);
     pump(|| !this.model.borrow().busy && textures(&this.widgets.detail) >= 6);
     evidence(&ui, "surface-playlist");
+    set_collection_query(&ui, "mIRA", 2);
+    responsive_collection_evidence(&ui, "surface-playlist-filter");
+    set_collection_query(&ui, "", 8);
     this.render_album(Rc::new(album), 0);
     pump(|| textures(&this.widgets.detail) >= 6);
     evidence(&ui, "surface-album");
@@ -1252,6 +1533,70 @@ fn native_design_matched_matrix_and_populated_surfaces() {
     settle();
 }
 
+#[test]
+#[ignore = "fresh-process native first-footer observation; ordinary damage, no graphics initialization"]
+fn native_first_footer_reveal_after_startup_without_graphics_initialization() {
+    gtk::init().unwrap();
+    adw::init().unwrap();
+    gtk::Settings::default()
+        .unwrap()
+        .set_gtk_enable_animations(true);
+    let _manager = WindowManager::start();
+    // Only normal startup readiness (mapped library rows/decoded visible art)
+    // precedes Play. In particular there is no static capture, resize, settle,
+    // initialized-panel fixture or offscreen renderer call before this click.
+    let (fixture, _app, ui, _, _) = populated_window_with_initial_selection(false, false);
+    let this = &ui.music.controller;
+    assert!(this.model.borrow().queue.context().is_none());
+    assert!(this.model.borrow().queue.items().is_empty());
+    assert!(this.music_snapshot().is_none());
+    assert!(this.info_selection.borrow().is_none());
+    let panel = this
+        .info_host
+        .borrow()
+        .as_ref()
+        .unwrap()
+        .revealer()
+        .unwrap();
+    // A retained preference may still express TrackInfo intent. Without any
+    // selected/current occurrence, actual information is unavailable and its
+    // surface must stay closed; the first real Play may reveal it naturally.
+    assert!(!panel.reveals_child());
+    assert!(panel.progress() <= f64::EPSILON);
+    assert!(!panel.surface().unwrap().is_mapped());
+    assert!(!this.widgets.player_revealer.reveals_child());
+    assert_eq!(this.widgets.player_revealer.height(), 0);
+    assert_hidden_footer_geometry(&ui);
+    let first = this.widgets.library_rows.row_at_index(0).unwrap();
+    observe_footer_transition_with_baseline(&ui, "startup-first-start", true, false, || {
+        native_click(&ui, &first)
+    });
+    pump(|| {
+        this.music_snapshot()
+            .is_some_and(|snapshot| snapshot.state == crate::playback::PlaybackState::Playing)
+    });
+    assert!(fixture.media_requests.load(Ordering::Acquire) > 0);
+    this.toggle_music();
+    pump(|| {
+        this.music_snapshot()
+            .is_some_and(|snapshot| snapshot.state == crate::playback::PlaybackState::Paused)
+    });
+    assert!(this.widgets.player_revealer.is_child_revealed());
+    super::tests::capture_native(&format!(
+        "startup-footer-paused-scale{}",
+        ui.window.scale_factor()
+    ));
+    gtk::Settings::default()
+        .unwrap()
+        .set_gtk_enable_animations(true);
+    observe_footer_transition(&ui, "startup-explicit-stop", false, || this.stop_music());
+    assert_eq!(this.widgets.player_revealer.height(), 0);
+    assert!(!this.widgets.play.is_mapped());
+    ui.music.close();
+    ui.window.close();
+    settle();
+}
+
 // Raw first-use evidence is intentionally separate from the initialized panel
 // quality gate. Never turn a missing cold intermediate into a synthetic frame,
 // alter the normal reveal duration, or describe this as a cold-latency PASS.
@@ -1261,11 +1606,25 @@ fn observe_footer_transition(
     opening: bool,
     activate: impl FnOnce(),
 ) {
+    observe_footer_transition_with_baseline(ui, name, opening, true, activate);
+}
+
+fn observe_footer_transition_with_baseline(
+    ui: &crate::ui::MainWindow,
+    name: &str,
+    opening: bool,
+    capture_initial_frame: bool,
+    activate: impl FnOnce(),
+) {
     struct Frame {
         time: i64,
+        callback_enter_us: u128,
+        observation_duration_us: u128,
         height: i32,
         requested: bool,
         revealed: bool,
+        child_visible: bool,
+        child_mapped: bool,
         child: Option<gtk::graphene::Rect>,
         node: Option<gtk::gsk::RenderNode>,
     }
@@ -1281,7 +1640,13 @@ fn observe_footer_transition(
     let window = ui.window.clone();
     let observed = reveal.clone();
     let clock = window.frame_clock().unwrap();
+    let started = Instant::now();
+    let initial_height = reveal.height();
+    let initial_requested = reveal.reveals_child();
+    let initial_hidden_geometry =
+        (initial_height == 0 && !initial_requested).then(|| hidden_footer_geometry(ui));
     let handler = clock.connect_after_paint(move |clock| {
+        let entered = started.elapsed().as_micros();
         let paintable = gtk::WidgetPaintable::new(Some(&window));
         let snapshot = gtk::Snapshot::new();
         paintable.snapshot(
@@ -1289,19 +1654,27 @@ fn observe_footer_transition(
             f64::from(window.width()),
             f64::from(window.height()),
         );
+        let node = snapshot.to_node();
+        let child_widget = observed.child().expect("one actual native footer child");
+        let child = child_widget.compute_bounds(&window);
         captured.borrow_mut().push(Frame {
             time: clock.frame_time(),
+            callback_enter_us: entered,
+            observation_duration_us: started.elapsed().as_micros() - entered,
             height: observed.height(),
             requested: observed.reveals_child(),
             revealed: observed.is_child_revealed(),
-            child: observed
-                .child()
-                .and_then(|child| child.compute_bounds(&window)),
-            node: snapshot.to_node(),
+            child_visible: child_widget.is_visible(),
+            child_mapped: child_widget.is_mapped(),
+            child,
+            node,
         });
     });
-    ui.window.queue_draw();
-    pump(|| !frames.borrow().is_empty());
+    if capture_initial_frame {
+        ui.window.queue_draw();
+        pump(|| !frames.borrow().is_empty());
+    }
+    let activation_started_us = started.elapsed().as_micros();
     activate();
     pump(|| {
         reveal.reveals_child() == opening
@@ -1315,6 +1688,7 @@ fn observe_footer_transition(
     let endpoint_count = frames.borrow().len();
     pump(|| frames.borrow().len() > endpoint_count);
     clock.disconnect(handler);
+    let final_hidden_geometry = (!opening).then(|| hidden_footer_geometry(ui));
     let frames = frames.borrow();
     let maximum_height = frames.iter().map(|frame| frame.height).max().unwrap();
     let intermediate: Vec<_> = frames
@@ -1337,7 +1711,10 @@ fn observe_footer_transition(
         .map(|(index, frame)| {
             json!({
                 "native_frame_index":index,"frame_time":frame.time,"height":frame.height,
+                "callback_enter_us":frame.callback_enter_us,"observation_duration_us":frame.observation_duration_us,
+                "native_frame_gap_us":index.checked_sub(1).map(|previous|frame.time-frames[previous].time),
                 "requested":frame.requested,"child_revealed":frame.revealed,
+                "child_visible":frame.child_visible,"child_mapped":frame.child_mapped,
                 "child":frame.child.map(|rect|[rect.x(),rect.y(),rect.width(),rect.height()]),
                 "has_render_node":frame.node.is_some()
             })
@@ -1373,15 +1750,32 @@ fn observe_footer_transition(
         .iter()
         .filter_map(|frame| frame.child.map(|rect| rect.height() as i32))
         .collect::<std::collections::BTreeSet<_>>();
+    let visible_child_heights = frames
+        .iter()
+        .filter(|frame| frame.child_visible && frame.child_mapped && frame.height > 0)
+        .filter_map(|frame| frame.child.filter(|rect| rect.height() > 0.0))
+        .map(|rect| rect.height() as i32)
+        .collect::<std::collections::BTreeSet<_>>();
+    let concealed_child_heights = frames
+        .iter()
+        .filter(|frame| !frame.child_visible || !frame.child_mapped || frame.height == 0)
+        .filter_map(|frame| frame.child.map(|rect| rect.height() as i32))
+        .collect::<std::collections::BTreeSet<_>>();
     let summary = json!({"transition":name,"scope":"raw-first-start-or-stop-observation",
         "cold_first_use_latency_accepted":false,"synthetic_frames":false,
         "animations_enabled":gtk::Settings::default().unwrap().is_gtk_enable_animations(),
         "transition_type":"SlideUp","transition_duration_ms":240,
+        "baseline_frame_before_activation":capture_initial_frame,
+        "initial_height":initial_height,"initial_requested":initial_requested,
+        "initial_hidden_geometry":initial_hidden_geometry,"final_hidden_geometry":final_hidden_geometry,
+        "activation_started_us":activation_started_us,
+        "graphics_initialization_before_play":false,
         "scale":scale,"renderer":ui.window.renderer().unwrap().type_().name(),
         "after_paint_count":frames.len(),"intermediate_frame_count":intermediate.len(),
         "node_none_count":frames.iter().filter(|frame|frame.node.is_none()).count(),
         "intermediate_evidence_available":!intermediate.is_empty(),"frames":records,
         "natural_child_heights":natural_child_heights,"saved_frame_indices":selected,
+        "visible_child_heights":visible_child_heights,"concealed_child_heights":concealed_child_heights,
         "observed_height_reversal_count":reversals.len(),"reversal_capture_limit":4,
         "selected_reversal_frame_pairs":saved_reversals,
         "selection_coordinate":"nearest-observed-allocation-height-not-animation-time-or-progress"});
@@ -1411,6 +1805,39 @@ fn observe_footer_transition(
         texture
             .save_to_png(directory.join(format!("footer-{name}-frame{index:03}-scale{scale}.png")))
             .unwrap();
+    }
+    // Keep the full raw evidence even when a real lifecycle invariant fails.
+    // Concealed/unmapped allocations are deliberately excluded from the
+    // visible child's stable height; GTK may retain an old allocation there.
+    assert_eq!(
+        visible_child_heights.len(),
+        1,
+        "normal visible footer content must keep its native height: {summary}"
+    );
+    for frame in frames
+        .iter()
+        .filter(|frame| !frame.requested && frame.height > 0)
+    {
+        assert!(
+            frame.child_visible,
+            "a positive-height closing frame must retain its actual visible child: {summary}"
+        );
+    }
+    if let Some(geometry) = initial_hidden_geometry.as_ref() {
+        assert_eq!(geometry["child_revealed"], false, "{geometry}");
+        assert_eq!(geometry["child_visible"], false, "{geometry}");
+        assert_eq!(geometry["child_mapped"], false, "{geometry}");
+        assert_eq!(geometry["revealer_horizontal"], json!([0, 0]), "{geometry}");
+        assert_eq!(geometry["host_horizontal"], json!([0, 0]), "{geometry}");
+    }
+    if !opening {
+        let endpoint = frames.last().unwrap();
+        assert_eq!(endpoint.height, 0, "{summary}");
+        assert!(
+            !endpoint.child_visible && !endpoint.child_mapped,
+            "{summary}"
+        );
+        assert_hidden_footer_geometry(ui);
     }
 }
 

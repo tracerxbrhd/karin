@@ -15,6 +15,8 @@ mod account;
 mod artwork_tests;
 mod catalog_layout;
 mod catalog_view;
+mod collection_filter;
+mod collection_hero;
 mod continuous_loading;
 #[cfg(test)]
 mod design_tests;
@@ -355,7 +357,7 @@ impl MusicPane {
         segments.set_hexpand(true);
         navigation.set_halign(gtk::Align::Center);
         navigation.set_size_request(-1, 42);
-        let nav_wave = gtk::ToggleButton::with_label("Моя волна");
+        let nav_wave = gtk::ToggleButton::with_label("Главная");
         let nav_liked = gtk::ToggleButton::with_label("Нравится");
         let nav_playlists = gtk::ToggleButton::with_label("Плейлисты");
         nav_liked.set_group(Some(&nav_wave));
@@ -401,15 +403,7 @@ impl MusicPane {
             home_preview,
             home_collections,
         } = home::HomeParts::new();
-        clear_box(&home_signedin);
-        let wave = adw::StatusPage::builder()
-            .title("Моя волна")
-            .description("Персональная волна пока не подключена. Ваша музыка — в разделах «Нравится», «Плейлисты» и поиске.")
-            .icon_name("radio-symbolic")
-            .build();
-        wave.set_widget_name("music-wave-placeholder");
-        home_signedin.append(&wave);
-        stack.add_titled(&home, Some("home"), "Моя волна");
+        stack.add_titled(&home, Some("home"), "Главная");
         stack.set_visible_child_name("home");
 
         let library = gtk::Box::new(gtk::Orientation::Vertical, 10);
@@ -1526,6 +1520,7 @@ impl Controller {
             .connect_visible_child_name_notify(move |_| {
                 if let Some(this) = weak.upgrade() {
                     let route = this.widgets.stack.visible_child_name();
+                    this.reset_collection_filters();
                     this.widgets
                         .nav_wave
                         .set_active(route.as_deref() == Some("home"));
@@ -1704,11 +1699,11 @@ impl Controller {
         model.liked = None;
         model.playlists = None;
         model.liked_playlists = None;
-        self.track_feeds.borrow_mut().clear();
         if let Some(attempt) = model.attempt.take() {
             attempt.cancel();
         }
         drop(model);
+        self.clear_track_feeds();
         clear_box(&self.widgets.library_hero);
         clear_box(&self.widgets.library_feedback);
         // Retire the target after stop_music rendered its final worker state.
@@ -1750,7 +1745,6 @@ impl Controller {
             model.liked = None;
             model.playlists = None;
             model.liked_playlists = None;
-            self.track_feeds.borrow_mut().clear();
             model.library_origins.clear();
             model.library_displaying = None;
             model.library_page = 0;
@@ -1761,6 +1755,7 @@ impl Controller {
                 attempt.cancel();
             }
         }
+        self.clear_track_feeds();
         self.dismiss_login();
         self.clear_workspace();
         if let Some(service) = &self.service {

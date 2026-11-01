@@ -342,21 +342,132 @@ fn native_catalog_native_music_layout() {
                     .into_iter()
                     .filter_map(|child| child.downcast::<gtk::ListBoxRow>().ok())
                     .collect::<Vec<_>>();
+                // This collection now has the required native 144px artwork
+                // and its own reusable search row. Preserve useful tracks and
+                // readable actions rather than imposing the retired 44px text
+                // summary/six-row composition. Global search above keeps its
+                // independent six-whole-row density gate.
+                let hero_widgets = children(&this.widgets.library_hero);
+                let hero = hero_widgets
+                    .iter()
+                    .find(|widget| widget.widget_name() == "music-liked-hero")
+                    .unwrap();
+                let art = hero_widgets
+                    .iter()
+                    .find(|widget| widget.widget_name() == "music-liked-cover")
+                    .unwrap();
+                super::super::test_input::wait_for_layout(window, art);
+                let hero_bounds = hero.compute_bounds(window).unwrap();
+                let cover = art.compute_bounds(window).unwrap();
+                assert!(
+                    cover.width() >= 80.0 && (cover.width() - cover.height()).abs() <= 1.0,
+                    "the real collection identity remains a readable native square: {cover:?}"
+                );
+                assert!(
+                    hero_bounds.height() <= window.height() as f32 * 0.32,
+                    "the expressive hero must leave useful music visible: {hero_bounds:?}"
+                );
+                for widget in &hero_widgets {
+                    if [
+                        "music-liked-cover",
+                        "music-liked-title",
+                        "music-liked-facts",
+                        "music-collection-play",
+                    ]
+                    .contains(&widget.widget_name().as_str())
+                    {
+                        let bounds = widget.compute_bounds(window).unwrap();
+                        assert!(
+                            widget.is_mapped() && bounds.width() > 0.0 && bounds.height() > 0.0
+                        );
+                        assert!(
+                            bounds.x() >= hero_bounds.x() - 1.0
+                                && bounds.y() >= hero_bounds.y() - 1.0
+                                && bounds.x() + bounds.width()
+                                    <= hero_bounds.x() + hero_bounds.width() + 1.0
+                                && bounds.y() + bounds.height()
+                                    <= hero_bounds.y() + hero_bounds.height() + 1.0,
+                            "native collection content fits its whole hero: {bounds:?}/{hero_bounds:?}"
+                        );
+                    }
+                }
+                let title = hero_widgets
+                    .iter()
+                    .find(|widget| widget.widget_name() == "music-liked-title")
+                    .unwrap()
+                    .downcast_ref::<gtk::Label>()
+                    .unwrap();
+                assert!(
+                    !title.layout().is_ellipsized(),
+                    "the collection title must stay readable"
+                );
+                let feed = this
+                    .track_feeds
+                    .borrow()
+                    .iter()
+                    .find(|feed| feed.rows == this.widgets.library_rows)
+                    .unwrap()
+                    .clone();
+                let filter = &feed.filter_ui.as_ref().unwrap().search;
+                assert!(filter.is_mapped() && filter.is_sensitive());
+                let search_bounds = filter.compute_bounds(window).unwrap();
+                assert!(
+                    search_bounds.width() >= 120.0 && search_bounds.height() <= 56.0,
+                    "the real collection search remains usable without dominating the list: {search_bounds:?}"
+                );
+                let play = hero_widgets
+                    .iter()
+                    .find(|widget| widget.widget_name() == "music-collection-play")
+                    .unwrap()
+                    .downcast_ref::<gtk::Button>()
+                    .unwrap();
+                for action in [
+                    play.upcast_ref::<gtk::Widget>(),
+                    this.widgets.library_refresh.upcast_ref(),
+                    filter.upcast_ref(),
+                ] {
+                    let bounds = action.compute_bounds(window).unwrap();
+                    assert!(
+                        action.is_mapped()
+                            && action.is_sensitive()
+                            && bounds.x() >= 0.0
+                            && bounds.y() >= 0.0
+                            && bounds.x() + bounds.width() <= window.width() as f32
+                            && bounds.y() + bounds.height() <= bottom,
+                        "collection actions must remain exposed above the footer: {bounds:?}"
+                    );
+                    let picked = window.pick(
+                        f64::from(bounds.x() + bounds.width() / 2.0),
+                        f64::from(bounds.y() + bounds.height() / 2.0),
+                        gtk::PickFlags::DEFAULT,
+                    );
+                    assert!(
+                        picked
+                            .as_ref()
+                            .is_some_and(|picked| picked == action || picked.is_ancestor(action)),
+                        "the native collection target must not be covered"
+                    );
+                }
+                let viewport = this
+                    .content_scroll
+                    .borrow()
+                    .upgrade()
+                    .unwrap()
+                    .compute_bounds(window)
+                    .unwrap();
                 let visible = library_rows
                     .iter()
                     .filter(|row| {
                         row.compute_bounds(window).is_some_and(|bounds| {
-                            bounds.y() >= 0.0 && bounds.y() + bounds.height() <= bottom
+                            bounds.y() >= viewport.y()
+                                && bounds.y() + bounds.height()
+                                    <= bottom.min(viewport.y() + viewport.height())
                         })
                     })
                     .count();
                 assert!(
-                    this.widgets.library_hero.height() <= 44,
-                    "library summary must stay compact"
-                );
-                assert!(
-                    visible >= 6,
-                    "medium library should expose six complete songs; got {visible}"
+                    visible >= 3,
+                    "medium library hero/search must expose three complete songs; got {visible}"
                 );
                 capture_native(&format!("native-music-library-{theme}-medium"));
                 this.widgets.stack.set_visible_child_name("search");
