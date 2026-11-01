@@ -1,0 +1,405 @@
+{
+  "activation_started_us": 23101,
+  "after_paint_count": 18,
+  "animations_enabled": true,
+  "baseline_frame_before_activation": true,
+  "cold_first_use_latency_accepted": false,
+  "concealed_child_heights": [
+    0
+  ],
+  "final_hidden_geometry": {
+    "child_horizontal": [
+      0,
+      0
+    ],
+    "child_mapped": false,
+    "child_revealed": false,
+    "child_visible": false,
+    "height": 0,
+    "host_horizontal": [
+      0,
+      0
+    ],
+    "requested": false,
+    "revealer_horizontal": [
+      0,
+      0
+    ]
+  },
+  "frames": [
+    {
+      "callback_enter_us": 23032,
+      "child": [
+        12.0,
+        818.0,
+        1406.0,
+        64.0
+      ],
+      "child_mapped": true,
+      "child_revealed": true,
+      "child_visible": true,
+      "frame_time": 47673359492,
+      "has_render_node": true,
+      "height": 80,
+      "native_frame_gap_us": null,
+      "native_frame_index": 0,
+      "observation_duration_us": 49,
+      "requested": true
+    },
+    {
+      "callback_enter_us": 32482,
+      "child": [
+        12.0,
+        818.0,
+        1406.0,
+        64.0
+      ],
+      "child_mapped": true,
+      "child_revealed": true,
+      "child_visible": true,
+      "frame_time": 47673392826,
+      "has_render_node": true,
+      "height": 80,
+      "native_frame_gap_us": 33334,
+      "native_frame_index": 1,
+      "observation_duration_us": 48,
+      "requested": false
+    },
+    {
+      "callback_enter_us": 52311,
+      "child": [
+        12.0,
+        833.0,
+        1406.0,
+        64.0
+      ],
+      "child_mapped": true,
+      "child_revealed": true,
+      "child_visible": true,
+      "frame_time": 47673409493,
+      "has_render_node": true,
+      "height": 65,
+      "native_frame_gap_us": 16667,
+      "native_frame_index": 2,
+      "observation_duration_us": 39,
+      "requested": false
+    },
+    {
+      "callback_enter_us": 72199,
+      "child": [
+        12.0,
+        846.0,
+        1406.0,
+        64.0
+      ],
+      "child_mapped": true,
+      "child_revealed": true,
+      "child_visible": true,
+      "frame_time": 47673426160,
+      "has_render_node": true,
+      "height": 52,
+      "native_frame_gap_us": 16667,
+      "native_frame_index": 3,
+      "observation_duration_us": 39,
+      "requested": false
+    },
+    {
+      "callback_enter_us": 87347,
+      "child": [
+        12.0,
+        858.0,
+        1406.0,
+        64.0
+      ],
+      "child_mapped": true,
+      "child_revealed": true,
+      "child_visible": true,
+      "frame_time": 47673442827,
+      "has_render_node": true,
+      "height": 40,
+      "native_frame_gap_us": 16667,
+      "native_frame_index": 4,
+      "observation_duration_us": 31,
+      "requested": false
+    },
+    {
+      "callback_enter_us": 101650,
+      "child": [
+        12.0,
+        867.0,
+        1406.0,
+        64.0
+      ],
+      "child_mapped": true,
+      "child_revealed": true,
+      "child_visible": true,
+      "frame_time": 47673459494,
+      "has_render_node": true,
+      "height": 31,
+      "native_frame_gap_us": 16667,
+      "native_frame_index": 5,
+      "observation_duration_us": 39,
+      "requested": false
+    },
+    {
+      "callback_enter_us": 121305,
+      "child": [
+        12.0,
+        875.0,
+        1406.0,
+        64.0
+      ],
+      "child_mapped": true,
+      "child_revealed": true,
+      "child_visible": true,
+      "frame_time": 47673476161,
+      "has_render_node": true,
+      "height": 23,
+      "native_frame_gap_us": 16667,
+      "native_frame_index": 6,
+      "observation_duration_us": 42,
+      "requested": false
+    },
+    {
+      "callback_enter_us": 136295,
+      "child": [
+        12.0,
+        882.0,
+        1406.0,
+        64.0
+      ],
+      "child_mapped": true,
+      "child_revealed": true,
+      "child_visible": true,
+      "frame_time": 47673492828,
+      "has_render_node": true,
+      "height": 16,
+      "native_frame_gap_us": 16667,
+      "native_frame_index": 7,
+      "observation_duration_us": 88,
+      "requested": false
+    },
+    {
+      "callback_enter_us": 155722,
+      "child": [
+        12.0,
+        887.0,
+        1406.0,
+        64.0
+      ],
+      "child_mapped": true,
+      "child_revealed": true,
+      "child_visible": true,
+      "frame_time": 47673509495,
+      "has_render_node": true,
+      "height": 11,
+      "native_frame_gap_us": 16667,
+      "native_frame_index": 8,
+      "observation_duration_us": 38,
+      "requested": false
+    },
+    {
+      "callback_enter_us": 170845,
+      "child": [
+        12.0,
+        890.0,
+        1406.0,
+        64.0
+      ],
+      "child_mapped": true,
+      "child_revealed": true,
+      "child_visible": true,
+      "frame_time": 47673526162,
+      "has_render_node": true,
+      "height": 8,
+      "native_frame_gap_us": 16667,
+      "native_frame_index": 9,
+      "observation_duration_us": 39,
+      "requested": false
+    },
+    {
+      "callback_enter_us": 185228,
+      "child": [
+        12.0,
+        893.0,
+        1406.0,
+        64.0
+      ],
+      "child_mapped": true,
+      "child_revealed": true,
+      "child_visible": true,
+      "frame_time": 47673542829,
+      "has_render_node": true,
+      "height": 5,
+      "native_frame_gap_us": 16667,
+      "native_frame_index": 10,
+      "observation_duration_us": 35,
+      "requested": false
+    },
+    {
+      "callback_enter_us": 204464,
+      "child": [
+        12.0,
+        895.0,
+        1406.0,
+        64.0
+      ],
+      "child_mapped": true,
+      "child_revealed": true,
+      "child_visible": true,
+      "frame_time": 47673559496,
+      "has_render_node": true,
+      "height": 3,
+      "native_frame_gap_us": 16667,
+      "native_frame_index": 11,
+      "observation_duration_us": 36,
+      "requested": false
+    },
+    {
+      "callback_enter_us": 218448,
+      "child": [
+        12.0,
+        896.0,
+        1406.0,
+        64.0
+      ],
+      "child_mapped": true,
+      "child_revealed": true,
+      "child_visible": true,
+      "frame_time": 47673576163,
+      "has_render_node": true,
+      "height": 2,
+      "native_frame_gap_us": 16667,
+      "native_frame_index": 12,
+      "observation_duration_us": 34,
+      "requested": false
+    },
+    {
+      "callback_enter_us": 237538,
+      "child": [
+        12.0,
+        897.0,
+        1406.0,
+        64.0
+      ],
+      "child_mapped": true,
+      "child_revealed": true,
+      "child_visible": true,
+      "frame_time": 47673592830,
+      "has_render_node": true,
+      "height": 1,
+      "native_frame_gap_us": 16667,
+      "native_frame_index": 13,
+      "observation_duration_us": 38,
+      "requested": false
+    },
+    {
+      "callback_enter_us": 252504,
+      "child": [
+        12.0,
+        897.0,
+        1406.0,
+        64.0
+      ],
+      "child_mapped": true,
+      "child_revealed": true,
+      "child_visible": true,
+      "frame_time": 47673609497,
+      "has_render_node": true,
+      "height": 1,
+      "native_frame_gap_us": 16667,
+      "native_frame_index": 14,
+      "observation_duration_us": 31,
+      "requested": false
+    },
+    {
+      "callback_enter_us": 271301,
+      "child": [
+        12.0,
+        897.0,
+        1406.0,
+        64.0
+      ],
+      "child_mapped": true,
+      "child_revealed": true,
+      "child_visible": true,
+      "frame_time": 47673626164,
+      "has_render_node": true,
+      "height": 1,
+      "native_frame_gap_us": 16667,
+      "native_frame_index": 15,
+      "observation_duration_us": 44,
+      "requested": false
+    },
+    {
+      "callback_enter_us": 285248,
+      "child": [
+        0.0,
+        890.0,
+        0.0,
+        0.0
+      ],
+      "child_mapped": false,
+      "child_revealed": false,
+      "child_visible": false,
+      "frame_time": 47673642831,
+      "has_render_node": true,
+      "height": 0,
+      "native_frame_gap_us": 16667,
+      "native_frame_index": 16,
+      "observation_duration_us": 82,
+      "requested": false
+    },
+    {
+      "callback_enter_us": 316419,
+      "child": [
+        0.0,
+        890.0,
+        0.0,
+        0.0
+      ],
+      "child_mapped": false,
+      "child_revealed": false,
+      "child_visible": false,
+      "frame_time": 47673659498,
+      "has_render_node": true,
+      "height": 0,
+      "native_frame_gap_us": 16667,
+      "native_frame_index": 17,
+      "observation_duration_us": 44,
+      "requested": false
+    }
+  ],
+  "graphics_initialization_before_play": false,
+  "initial_height": 80,
+  "initial_hidden_geometry": null,
+  "initial_requested": true,
+  "intermediate_evidence_available": true,
+  "intermediate_frame_count": 14,
+  "natural_child_heights": [
+    0,
+    64
+  ],
+  "node_none_count": 0,
+  "observed_height_reversal_count": 0,
+  "renderer": "GskGLRenderer",
+  "reversal_capture_limit": 4,
+  "saved_frame_indices": [
+    0,
+    2,
+    4,
+    6,
+    17
+  ],
+  "scale": 1,
+  "scope": "raw-first-start-or-stop-observation",
+  "selected_reversal_frame_pairs": [],
+  "selection_coordinate": "nearest-observed-allocation-height-not-animation-time-or-progress",
+  "synthetic_frames": false,
+  "transition": "explicit-stop",
+  "transition_duration_ms": 240,
+  "transition_type": "SlideUp",
+  "visible_child_heights": [
+    64
+  ]
+}

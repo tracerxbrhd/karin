@@ -2,6 +2,17 @@
 
 # Karin Roadmap
 
+## Current v0.4 final UX refinement — Draft PR #15
+
+Continue `feature/v0.4-native-music-ui` from `2e3ae41` without replacing the
+working account, MusicService or playback path. The current scope is musical
+Liked hierarchy, honest loaded-collection search, useful Home, larger covers and
+a tightly grouped native footer, retaining the pinned Info/Queue surface and
+MPRIS. ADR-0025 defines original occurrence identity for filtered contexts.
+Source-matched stable/MSRV/native/visual/CI and downloaded Fedora build evidence
+must precede owner review. Real Fedora visual/cold-first-use/full Flatpak gates
+remain separate. Keep the existing PR Draft; no new branch/PR or merge is authorized.
+
 ## Accepted v0.2 foundation
 
 [PR #13](https://github.com/tracerxbrhd/karin/pull/13) is merged into `master` at
@@ -30,9 +41,10 @@ also reported successful final Flatpak authorization, playback and system
 integration, with no blocking functional defect reported. Exact scope and
 historical failures remain in [VALIDATION.md](VALIDATION.md).
 
-The owner authorized squash integration after final review and successful CI,
-without deleting the feature branch or rewriting history. The sections below
-record the delivered implementation scope and its continuing constraints.
+PR #14 is merged into `master` at `5e85e8d`; its accepted runtime remains the
+separately identified `0232548` above. The feature branch was retained. The
+sections below record the delivered implementation scope and its continuing
+constraints; new v0.4 code still needs its own verification and owner acceptance.
 
 ### A. Persistent Session and Settings
 
@@ -116,15 +128,50 @@ images, actual native/Flatpak storage evidence, blocked service features and
 The separate v0.3 owner report accepts its stated functional scope, not every
 unreported backend/failure case or future code change.
 
-## Next independent iteration: UI/UX
+## v0.4 — refinement of the existing music experience
 
-The right pane's opening/closing mechanics are accepted, but its current visual
-design does not satisfy the owner. A substantial UI/UX revision is the next
-separate iteration; it must preserve the accepted authentication, actual audio,
-context queue, MPRIS, protected persistence and bounded cache. No redesign is
-part of PR #14's finalization. Track the source-reviewed nonblocking metadata
-refresh edges in [LIMITATIONS.md](LIMITATIONS.md#catalog-workspace-and-playback)
-alongside that follow-up, without treating them as authorization or playback.
+Continue existing [Draft PR #15](https://github.com/tracerxbrhd/karin/pull/15) on
+`feature/v0.4-native-music-ui` from `a70bbf7`; no new PR, merge or branch deletion
+is authorized. The latest owner request refines that implementation rather than
+starting another concept. It supersedes the earlier mandatory three-route
+Home/Search/Library rail, permanently visible footer and visible track paging.
+The previous [complete redesign](design/v0.4/CODEX_TASK.md) remains history where
+its requirements conflict with the current refinement specification.
+
+- Use lightweight “Моя волна”, “Нравится” and “Плейлисты” tabs/segments, with
+  accessible unified Search. Wave is the explicitly requested unimplemented
+  landing only; do not invent radio activity or recommendations.
+- Hide the Player Bar before a real playback request; reveal it natively from
+  below, retain it during Pause, replayable ended state and retryable failure,
+  and hide it for explicit Stop/logout/cleared context. Full current metadata
+  opens Track Info; confirmed Like is a separate real action. Dislike remains
+  hidden until Karin's contract is established, rather than masquerading as
+  Unlike or a working decoration.
+- Retain one pinned TrackInfo/Queue surface, controlled mode, occurrence-based
+  following, whole-surface presentation, exact queue/modes and MPRIS. Refine
+  real artwork/metadata grouping without fake related-content blocks.
+- Replace visible track page controls with bounded continuous loading, safe
+  single-flight read/retry/end states and stable scrolling. Keep the existing
+  active PlaybackContext immutable under catalog append and preserve its
+  500-position and visible partial-source limits.
+
+Fresh equal-size before evidence must use the unchanged `a70bbf7` production
+and test harness, not a9 or renamed prior after images. New active-footer
+captures use a real fixture resolver, generated MP3 and paused PlaybackController;
+selection alone or a forced visibility flag is not active-player proof.
+Follow the [quality gate](UI_QUALITY_GATE.md#v04-native-music-gate), updated
+[design/task](design/v0.4/README.md), stable/exact-1.98.1/native regressions and
+[single Fedora guide](BUILDING.md#v04-native-music-acceptance-on-fedora).
+The refinement implements these routes, real active-footer/Like presentation,
+bounded continuous views, original-occurrence provenance and cached immutable
+500-position playback windows. Current cache-origin warnings follow retained
+content, not the last completed reply. Local compiler/fixture evidence remains
+candidate-specific; later lifecycle fixes require their own checks.
+Old CI/cold-paint failures, initialized-motion scope and accepted service/audio
+history remain in [VALIDATION.md](VALIDATION.md). A controlled modern-Mesa worker
+setting does not replace a default-environment sampling FAIL or prove
+cold-first-use responsiveness. Keep PR #15 Draft pending new
+owner review; public service-distribution and offline-audio gates remain separate.
 
 ## Independent release conditions
 

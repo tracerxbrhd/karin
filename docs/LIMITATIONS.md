@@ -21,7 +21,172 @@ Automated checks, that desktop acceptance and public-release rights remain
 separate statuses; the documentation-only finalization HEAD is not a new runtime
 acceptance revision. Exact provenance belongs in [VALIDATION.md](VALIDATION.md).
 Use the
-[single Fedora procedure](BUILDING.md#v03-seamless-experience-acceptance-on-fedora).
+[current Fedora procedure](BUILDING.md#v04-native-music-acceptance-on-fedora).
+
+## Final Cassette-inspired refinement from `2e3ae41`
+
+The latest iteration retains accepted service/audio boundaries and refines Home,
+Liked hero/local search, covers and footer composition. New automated evidence
+and Fedora acceptance must be recorded for the actual candidate; prior green
+checks do not accept these pixels or first-use performance.
+
+Collection search covers already admitted title/artist/album fields only. No
+verified scoped server-search endpoint exists in Karin. Typing performs no collection-metadata requests;
+remote-prefix coverage stays visible, and deliberate continuation uses existing
+bounded reads. Global catalog search is not substituted for collection membership.
+Views remain capped at 2,000 positions/100 pages, new playback at 500 visible
+occurrences. Filter/view changes do not grow the active queue. Total duration is
+omitted unless admitted collection data is complete and every duration known.
+Partial-prefix sorting is omitted rather than presented as complete remote order.
+
+Wave, Dislike, lyrics and persistent audio remain behind their documented gates.
+Cloud fixtures do not establish real Music account/Like mutations, KDE hardware
+media keys, current full Flatpak or Fedora visual acceptance. Cold footer/panel
+smoothness remains unaccepted: the historical 116,669 μs gap and hosted motion
+FAILs below are preserved, with no claimed driver diagnosis or production fix.
+
+The final C14 separate empty-queue startup observer records **0.90 s / 0.85 s** maximum
+adjacent native paint gaps at 1×/2× under cloud NGL/LP2 and fresh profiles, with
+only one intermediate footer allocation each. Functional first Play/Pause/Stop
+success does not accept that appearance. It is not the same protocol as the
+historical 117 ms post-static first-map observation. The cause is unknown;
+Fedora hardware/default-renderer first appearance remains pending. Do not
+attribute it to the independently corrected responsive-padding sizing warning.
+Earlier C12 **1.03/0.87 s** and C13 **1.07/0.90 s** traces remain history;
+these runs do not establish a performance improvement or its cause.
+Manual queue additions retain the earlier physical-index Info/MPRIS identity
+fallback: removing a preceding row can rotate that opaque identity without
+restarting audio. Original source occurrences now keep their absolute identity.
+
+## Previous refinement from `a70bbf7` (historical)
+
+The latest owner request replaces mandatory Home/Search/Library primary routes,
+a permanently visible idle footer and explicit track pagination with lightweight
+Wave/Liked/Playlists, accessible unified Search, actual-state footer reveal and
+bounded continuous reads. This is a new refinement request, not a fabricated
+owner acceptance result for a70. Earlier cloud/first-paint records remain below.
+
+- **Wave is an authorized placeholder, not radio support.** The user explicitly
+  requests this unimplemented landing. It must not invent stations, tracks,
+  recommendations, playback or a working radio-session lifecycle. This narrow
+  exception supersedes earlier instructions to hide the entire Wave destination;
+  actual radio functionality remains behind its separate contract gate.
+- **Dislike is unconfirmed for Karin, not absent from the service.** Published
+  Cassette/yamuse implementations use differing Dislike forms/paths. Their state,
+  side effects and compatibility with Karin's current session are not verified.
+  Hide the control rather than fake it or treat removal of Like as Dislike.
+  Like reuses existing account-bound membership/revision reads, one explicit
+  add/remove write and independent confirmation. Unknown and failed confirmation
+  remain visible states; ambiguous POST is not automatically repeated.
+- **A remembered login is not restored playback.** No active track is fabricated
+  at startup. The footer begins hidden without actual playback intent; Pause,
+  a retained ended source or a retryable active-request failure may keep it
+  available. Actual Stop/logout/queue clear hide it. Session restoration must
+  not be confused with an audio worker being active.
+- **Continuous does not mean unbounded.** A track feed retains at most 2,000
+  rendered GtkListBox positions and admits at most 100 provider pages of up to
+  50 positions. It is not an unlimited virtualized library. Local bounds are
+  labelled partial, not remote end; legitimate duplicate IDs retain their exact
+  occurrences. The current Play snapshots one aligned 500-position block, not
+  all 2,000 rendered positions or an entire remote collection. Appending catalog
+  data never silently expands an active queue. A sparse unscrollable fragment
+  is handled without a manual page button: at most three initial provider pages
+  fill the viewport, then actual wheel/PageDown/End admits another bounded read.
+  The same 100-page budget prevents an empty-page drain. Owned/liked playlist
+  entity Show More remains distinct from removed track-page controls.
+
+Current evidence is candidate-specific. Final C9 has a successful regular
+compiler matrix and source-matched native visual checks at both scales: 204
+static originals, 19 raw footer images with no observed height reversal, and
+48 initialized panel trajectories / 240 distinct selected motion frames under
+explicit test-only `LP_NUM_THREADS=2`. C7's default-environment 2× strict panel
+sampling **failed** after a roughly 66 ms gap; no geometry failure was reported.
+Both that FAIL and the controlled PASS remain recorded. C9's actual cold 1×
+footer first appearance also has a 116,669 μs native paint gap and a 16→73 logical
+pixel allocation jump despite zero reversals. Its cause is unknown. Raw footer
+intermediates do not prove smooth cold first appearance; **footer and panel cold
+responsiveness remain unaccepted**. There is no production prewarm, timing or
+renderer override. None of these fixtures establishes driver causation,
+physical-GPU/Wayland performance or Fedora acceptance.
+Hosted head `144492f` subsequently failed two modern strict 2× jobs while the
+other two passed. Wide/light/Queue closing missed the 75% quarter; the inspected
+adjacent after-paint gap was 50,001 μs, while 100,002 μs describes the larger
+first-retained-to-first-moving interval. Both FAILs remain recorded. One same-C9
+control unset only motion's debug `full-redraw` override; ordinary GTK damage
+passed at both scales under unchanged LP2/cache/backend/240 ms/setup/guards.
+Static captures retain full-redraw. Fresh full render-node proof is not direct
+native-framebuffer damage validation, a causal explanation or hosted acceptance.
+New exact-head CI results belong to PR #15, not an assumed replacement PASS.
+
+C8 corrects retained personal hero/feedback cleanup and playlist-refresh lane
+ownership; final C9 changes only three ignored fixtures for the actual spinner
+and hidden-footer input contract. C9's complete regular matrix and eight
+priority native runs pass; exact-head complete functional, hosted CI and native
+archive results are published in [PR #15](https://github.com/tracerxbrhd/karin/pull/15).
+The preceding C8 sweep's 48 PASS / 6 stale-fixture FAIL remains recorded; see the
+[current validation record](VALIDATION.md#v04-cassette-like-refinement).
+
+## Previous complete-redesign boundaries retained for this refinement
+
+The owner rejected the Fedora UI/UX of `a9eed4514802df84d73b0608dd1a62930fc1af76`:
+partial panel animation, weak content hierarchy, poor wide-space use, a separate
+queue route and a primitive footer. Its earlier successful cloud checks remain
+historical evidence, not acceptance of those pixels. The current redesign in
+Draft PR #15 requires fresh matched GTK captures, whole-surface motion frames,
+functional local playback modes and a new owner-local acceptance using the
+[v0.4 guide](BUILDING.md#v04-native-music-acceptance-on-fedora).
+
+Track Info and Queue share one logical panel; Queue is local to Karin's loaded
+PlaybackContext, not a synchronized Yandex cloud queue. Shuffle and Repeat act
+on those admitted available occurrences only, preserve duplicate positions and
+never fetch the rest of a remote collection. Modes are app-local policy, retained across queue clear/new context but reset
+on explicit logout/account change and close; they are not stored on disk, a new
+Music API permission or a persistent offline capability. Repeat One renews
+a source only when natural EOS requires another actual playback; a failed
+resolution remains failed instead of automatically cycling requests. Stop stays
+available through MPRIS/controller even though the visible footer omits it.
+
+Fresh cloud evidence and live Fedora/KDE/Wayland/PipeWire/Flatpak results must
+remain separate. Full Flatpak/namespace availability and exact executed tests
+are recorded in [VALIDATION.md](VALIDATION.md), not assumed from source review.
+
+- **Cold first-use responsiveness is not accepted.** Initial hosted GTK 4.14/
+  Libadwaita 1.5/Mesa 25.2 llvmpipe strict sampling failed in all four `709f5b3`
+  jobs; matching local observation saw roughly 915 ms before the first reveal
+  paint. The actual old renderer class was `GskNglRenderer`. Cold GTK 4.18 NGL
+  and `GskVulkanRenderer` also failed strict phases, with observed gaps from
+  about 84.6 to 339 ms. Snapshots remained present; observer work was small.
+  Internal shader/driver causation is unattributed, and neither backend nor
+  distribution change alone is a proven fix. Earlier Cairo 2× frame gaps also
+  remain failed sampling evidence.
+- **Motion PASS has a graphics-initialized scope.** The final test records one
+  unconditional normal 240 ms open/close per geometry/theme/mode, with six
+  bounded native offscreen renders of the actual mapped panel while open.
+  Setup fractions `.137/.317/.533/.787/.941/1` do not mutate UI progress/clock,
+  save PNGs or count as phase evidence; raw initialization quarters are explicitly
+  not assessed. Only the subsequent real native 240 ms cycle passes the original
+  five-distinct-frame/progress/geometry checks. There is no conditional retry,
+  reduced-motion shortcut or production prewarming/backend override. This proof
+  must not be called a cold performance PASS; fresh-start Fedora first appearance
+  remains a separate owner gate. Mesa/Xvfb also proves neither physical GPU nor
+  Wayland behavior.
+- **Long information remains scrollable.** Long multi-line track/artist/album
+  metadata can put verified actions below the initial pane fold. Ordinary wheel
+  and keyboard scrolling must retain access; Fedora review should test actual
+  fonts/long titles instead of interpreting below-fold content as clipping.
+  This is a nonblocking reachability check, not permission to truncate errors
+  or conceal controls.
+- **Minimum-width footer metadata is compact.** At 420 logical pixels a long
+  track title can show only a few characters before native ellipsis; the artist
+  remains readable and the complete title remains available through its tooltip,
+  accessible label and Track Info. The final cloud review treats this as a
+  nonblocking small-width tradeoff, not evidence that every font/long title is
+  accepted. The owner should judge the balance on Fedora at the minimum width.
+- **Current cloud Flatpak/runtime gaps are explicit.** Flatpak 1.16.6 and Builder
+  1.4.4 are installed, but the runtime list is empty and GNOME SDK 50 is absent.
+  Host offline release does not establish a full current Flatpak build. Nested
+  user namespaces also block the two navigating WebKit fixtures locally; hosted
+  CI must exercise them with sandboxing enabled.
 
 ## Current v0.3 functional stabilization
 
@@ -164,11 +329,12 @@ granular Secret Portal/backend deletion/failure matrix.
   verified identities, not guessed names. Native playlist tiles permit bounded
   two-line title ellipsis only with full tooltip/accessibility/detail text.
   Creation requires independent server confirmation; ambiguous writes are not
-  replayed. Broader playlist editing, repeat/shuffle, TrackList, variable speed,
+  replayed. Broader playlist editing, TrackList, variable speed,
   notifications and unrelated library features are not implied.
 - **My Wave/similar tracks/lyrics have separate gates.** A station list or normal
-  queue is not a radio-session/listening-feedback implementation. Keep My Wave
-  hidden until its full current session/capability is established. Do not publish
+  queue is not a radio-session/listening-feedback implementation. Keep functional
+  My Wave hidden until its full session/capability is established; the latest
+  explicitly unimplemented landing is the sole placeholder exception. Do not publish
   fabricated recommendations. The reviewed lyrics implementations use extracted
   official-client signing material; Karin imports none, and no separately
   permitted plain-text source is established. See [CASSETTE_PARITY.md](CASSETTE_PARITY.md).

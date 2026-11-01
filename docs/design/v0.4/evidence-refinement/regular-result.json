@@ -1,0 +1,23 @@
+{
+  "source_manifest": "source.json",
+  "source_manifest_sha256": "42b3d65135bbd5703a3c7a7c36cafe4d7fdf9b1ac94913d17eee7a8f639a0636",
+  "test_executable_sha256": "1dfb1167c73fef4b7d8a2fdd2d7e917e360e1fc2611a314de43d7504c9be16c0",
+  "exit_code": 0,
+  "source_files_unchanged": 108,
+  "rust": [
+    "stable 1.99.1",
+    "1.98.1"
+  ],
+  "library_tests_default_all_minimal": [
+    369,
+    377,
+    355
+  ],
+  "cli_tests_per_configuration": 4,
+  "fmt_clippy_tests_builds": "PASS in default/all/minimal for both compilers",
+  "msrv_locked_offline_releases": "ordinary + all-features + ordinary restored",
+  "cli_terminal_gstreamer_wav_gtk_license_inventory": "PASS; not actual Fedora/Music/Flatpak acceptance",
+  "ordinary_release_sha256": "9416aed52e89bba2ebf0b09fe443f3a798dae60c4d861cde13dc70914576a2af",
+  "ordinary_release_identical_to_c8": true,
+  "log_sha256": "492d774b845b2d9d48db125624d8f9b7f7984bc45fa768f89385ae7fc932681f"
+}

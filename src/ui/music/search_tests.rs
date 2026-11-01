@@ -124,6 +124,34 @@ fn reveal_by_wheel(window: &adw::ApplicationWindow, id: &str, widget: &impl IsA<
 fn click(window: &adw::ApplicationWindow, id: &str, widget: &impl IsA<gtk::Widget>) {
     reveal_by_wheel(window, id, widget);
     let (x, y) = super::test_input::pointer(window, widget, super::test_input::Target::Leading);
+    let widget = widget.as_ref();
+    if widget.native().and_then(|native| native.surface()) == window.surface() {
+        // Allocation alone is insufficient: a pinned nonmodal pane can still
+        // cover a catalog action. Check GTK's real event target before sending
+        // XTest input; popup targets have their own native coordinate system.
+        let scale = f64::from(window.scale_factor());
+        let (dx, dy) = window.surface_transform();
+        let picked = window.pick(
+            f64::from(x) / scale - dx,
+            f64::from(y) / scale - dy,
+            gtk::PickFlags::DEFAULT,
+        );
+        let reaches_target = picked
+            .as_ref()
+            .is_some_and(|picked| picked == widget || picked.is_ancestor(widget));
+        if !reaches_target {
+            capture_native("search-native-action-occluded");
+        }
+        assert!(
+            reaches_target,
+            "native click target {} ({}) is covered by {:?}",
+            widget.widget_name(),
+            widget.type_().name(),
+            picked
+                .as_ref()
+                .map(|picked| (picked.widget_name(), picked.type_().name())),
+        );
+    }
     input(&[
         "mousemove",
         "--sync",
@@ -192,13 +220,6 @@ fn section(this: &Rc<Controller>, name: &str) -> gtk::Box {
         .expect("rendered unified section")
 }
 
-fn section_rows(section: &gtk::Box) -> gtk::ListBox {
-    descendants(section.upcast_ref())
-        .into_iter()
-        .find_map(|widget| widget.downcast().ok())
-        .expect("section result rows")
-}
-
 fn labelled_button(widget: &gtk::Widget, label: &str) -> gtk::Button {
     descendants(widget)
         .into_iter()
@@ -210,12 +231,15 @@ fn labelled_button(widget: &gtk::Widget, label: &str) -> gtk::Button {
 fn open_details(window: &adw::ApplicationWindow, id: &str, row: &gtk::ListBoxRow) {
     assert!(row.grab_focus());
     settle();
+    reveal_by_wheel(window, id, row);
     let menu = descendants(row.upcast_ref())
         .into_iter()
         .find_map(|widget| widget.downcast::<gtk::MenuButton>().ok())
         .unwrap();
     click(window, id, &menu);
-    pump_until(|| menu.popover().unwrap().is_visible());
+    wait_for_step("track-actions-open", || {
+        menu.popover().unwrap().is_visible()
+    });
     let details = labelled_button(
         menu.popover().unwrap().upcast_ref(),
         "Открыть сведения о треке",
@@ -325,6 +349,9 @@ fn native_search_retry_normalized_results_and_density() {
                             .1
                             .parse::<u32>()
                             .unwrap();
+                        let sparse = url
+                            .query_pairs()
+                            .any(|(k, v)| k == "text" && v == "sparse-query");
                         let partial = url
                             .query_pairs()
                             .any(|(k, v)| k == "text" && v == "partial-query");
@@ -333,13 +360,23 @@ fn native_search_retry_normalized_results_and_density() {
                             c.searches.push((kind.clone(), page));
                             c.searches.len() == 1
                         };
-                        if first {
+                        let append_failure = kind == "track"
+                            && page == 1
+                            && counts
+                                .lock()
+                                .unwrap()
+                                .searches
+                                .iter()
+                                .filter(|(kind, page)| kind == "track" && *page == 1)
+                                .count()
+                                == 1;
+                        if first || append_failure {
                             (
                                 503,
                                 json!({"error":{"name":"synthetic-private-search-name","message":"synthetic-private-search-response"}}),
                             )
                         } else {
-                            let track_section = json!({"page":page,"perPage":20,"total":40,"results":fixture_hits(page)});
+                            let track_section = json!({"page":page,"perPage":20,"total":if sparse{80}else{40},"results":if sparse && page<3{vec![json!({"id":54})]}else{fixture_hits(page)}});
                             let album_section = json!({"page":page,"perPage":20,"total":1,"results":[{"id":7,"title":"Synthetic search album","artists":[]}]});
                             let artist_section = json!({"page":page,"perPage":20,"total":1,"results":[{"id":11,"name":"Synthetic search artist"}]});
                             // No trackCount is deliberately different from an empty playlist.
@@ -606,15 +643,33 @@ fn native_search_retry_normalized_results_and_density() {
             track_id != 47
         );
     }
-    assert!(contains_text(
-        this.widgets.search_feedback.upcast_ref(),
-        "Часть найденных треков сейчас недоступна"
-    ));
-    assert!(this.widgets.search_next.is_visible());
+    assert!(
+        this.track_feeds
+            .borrow()
+            .iter()
+            .find(|feed| feed.rows == this.widgets.search_rows)
+            .unwrap()
+            .data
+            .borrow()
+            .incomplete
+    );
+    assert!(!this.widgets.search_next.is_visible());
     assert!(!this.widgets.search_previous.is_visible());
     this.widgets.search.grab_focus();
     settle();
     let footer = pane.player_bar.compute_bounds(window).unwrap();
+    let viewport = {
+        let mut parent = this.widgets.search_rows.parent();
+        let mut viewport = None;
+        while let Some(widget) = parent {
+            if widget.is::<gtk::ScrolledWindow>() {
+                viewport = widget.compute_bounds(window);
+                break;
+            }
+            parent = widget.parent();
+        }
+        viewport.expect("search tracks are inside the ordinary scroll viewport")
+    };
     assert!(!this.widgets.cache_notice.is_revealed());
     assert!(
         !this.widgets.cache_notice.is_visible(),
@@ -623,8 +678,15 @@ fn native_search_retry_normalized_results_and_density() {
     let visible = result_rows
         .iter()
         .filter(|row| {
-            row.compute_bounds(window)
-                .is_some_and(|b| b.y() >= 0.0 && b.y() + b.height() <= footer.y())
+            row.compute_bounds(window).is_some_and(|b| {
+                b.y() >= viewport.y() - 1.0
+                    && b.y() + b.height()
+                        <= if this.widgets.player_revealer.reveals_child() {
+                            footer.y().min(viewport.y() + viewport.height()) + 1.0
+                        } else {
+                            viewport.y() + viewport.height() + 1.0
+                        }
+            })
         })
         .count();
     assert!(
@@ -632,6 +694,10 @@ fn native_search_retry_normalized_results_and_density() {
         "900x650 should expose at least six complete track rows, got {visible}"
     );
     for row in result_rows.iter().take(visible) {
+        assert!(
+            (60..=72).contains(&row.height()),
+            "song row height must preserve the approved compact music rhythm"
+        );
         let play = named_button(row.upcast_ref(), "music-track-play");
         let target = play.compute_bounds(window).unwrap();
         assert!(
@@ -640,6 +706,71 @@ fn native_search_retry_normalized_results_and_density() {
         );
     }
     capture_native("search-normalized-dense-medium");
+    // Actual downward wheel input requests one append. A failed page keeps
+    // the same rows/context/cursor, and the native Retry appends without a
+    // replacement ListBox or jumping the viewport back to its beginning.
+    let feed = this
+        .track_feeds
+        .borrow()
+        .iter()
+        .find(|feed| feed.rows == this.widgets.search_rows)
+        .unwrap()
+        .clone();
+    this.model
+        .borrow_mut()
+        .queue
+        .replace_context(feed.data.borrow().context(0).unwrap());
+    let live_before = this.model.borrow().queue.context().unwrap().clone();
+    reveal_by_wheel(window, id, result_rows.last().unwrap());
+    let scroll = this.content_scroll.borrow().upgrade().unwrap();
+    let (x, y) = super::test_input::pointer(window, &scroll, super::test_input::Target::Center);
+    input(&[
+        "mousemove",
+        "--window",
+        id,
+        &x.to_string(),
+        &y.to_string(),
+        "click",
+        "5",
+    ]);
+    wait_for_step("continuous-append-inline-error", || {
+        counts.lock().unwrap().searches.len() == 4 && !this.model.borrow().busy
+    });
+    assert_eq!(rows(&this.widgets.search_rows).len(), 13);
+    assert!(feed.data.borrow().error.is_some());
+    assert_eq!(this.model.borrow().queue.context(), Some(&live_before));
+    let retry = named_button(
+        this.widgets.search_feedback.upcast_ref(),
+        "music-feed-retry",
+    );
+    reveal_by_wheel(window, id, &retry);
+    let anchor = scroll.vadjustment().value();
+    click(window, id, &retry);
+    wait_for_step("continuous-append-retry", || {
+        counts.lock().unwrap().searches.len() == 5 && !this.model.borrow().busy
+    });
+    assert_eq!(rows(&this.widgets.search_rows).len(), 14);
+    assert_eq!(
+        this.widgets.search_rows.row_at_index(0).as_ref(),
+        Some(&result_rows[0])
+    );
+    assert!(
+        (scroll.vadjustment().value() - anchor).abs() < 1.0,
+        "append preserves scroll position"
+    );
+    assert_eq!(
+        this.model.borrow().queue.context(),
+        Some(&live_before),
+        "loading visible rows never replaces the active queue"
+    );
+    assert!(!feed.data.borrow().has_more);
+    assert!(!this.widgets.search_next.is_visible() && !this.widgets.search_previous.is_visible());
+    assert!(
+        !descendants(this.widgets.search_feedback.upcast_ref())
+            .iter()
+            .any(|widget| widget.widget_name() == "music-feed-continue")
+    );
+    capture_native("search-continuous-append-retry");
     // Mouse/Enter/Space are primary playback actions. In particular a duplicate
     // ID at occurrence12 must not silently select its first occurrence1.
     for (index, key) in [(0, None), (12, Some("Return")), (1, Some("space"))] {
@@ -660,7 +791,7 @@ fn native_search_retry_normalized_results_and_density() {
         });
         let model = this.model.borrow();
         assert_eq!(model.queue.current_index(), Some(index));
-        assert_eq!(model.queue.items().len(), 13);
+        assert_eq!(model.queue.items().len(), 14);
         assert_eq!(model.queue.current().unwrap().id, track_id);
         assert_eq!(
             model.queue.context().unwrap().source_kind(),
@@ -678,9 +809,13 @@ fn native_search_retry_normalized_results_and_density() {
         );
         this.stop_music();
     }
+    assert!(
+        this.info_is_open(),
+        "the ordinary pinned medium pane remains open while catalog actions stay usable"
+    );
     assert_eq!(
         counts.lock().unwrap().batches.len(),
-        2,
+        3,
         "row playback does not do per-row metadata lookup"
     );
     open_details(window, id, &result_rows[0]);
@@ -693,7 +828,7 @@ fn native_search_retry_normalized_results_and_density() {
         "Normalized synthetic track 50"
     ));
     assert!(named_button(this.widgets.detail.upcast_ref(), "music-track-play").is_sensitive());
-    assert_eq!(counts.lock().unwrap().batches.len(), 3);
+    assert_eq!(counts.lock().unwrap().batches.len(), 4);
     capture_native("search-normalized-track-detail");
     input(&["key", "--clearmodifiers", "alt+Left"]);
     pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("search"));
@@ -714,43 +849,34 @@ fn native_search_retry_normalized_results_and_density() {
             .surface()
             .is_some_and(|s| s.width() == 900 && s.height() == 650)
     });
-    let next = this.widgets.search_next.clone();
-    assert!(next.grab_focus());
-    settle();
-    click(window, id, &next);
-    pump_until(|| counts.lock().unwrap().searches.len() == 4 && !this.model.borrow().busy);
-    assert_eq!(this.model.borrow().search_page, 1);
-    assert!(this.widgets.search_previous.is_visible());
-    assert!(!this.widgets.search_next.is_visible());
-    assert_eq!(rows(&this.widgets.search_rows).len(), 1);
-    assert!(contains_text(
-        this.widgets.search_rows.upcast_ref(),
-        "Normalized synthetic track 60"
-    ));
-    assert_eq!(counts.lock().unwrap().batches.len(), 4);
-    assert!(!this.widgets.search_feedback.is_visible());
     assert!(this.widgets.search_all.grab_focus());
     settle();
     click(window, id, &this.widgets.search_all);
-    pump_until(|| counts.lock().unwrap().searches.len() == 5 && !this.model.borrow().busy);
+    pump_until(|| counts.lock().unwrap().searches.len() == 6 && !this.model.borrow().busy);
     assert!(this.model.borrow().search_scope.is_none());
     assert_eq!(counts.lock().unwrap().batches.len(), 5);
-    for (name, kind, source) in [
+    for (name, kind, _source) in [
         ("music-results-albums", ContextKind::Album, "7"),
         ("music-results-artists", ContextKind::Artist, "11"),
         ("music-results-playlists", ContextKind::Playlist, "1234:3"),
     ] {
         let group = section(this, name);
-        let row = section_rows(&group).row_at_index(0).unwrap();
-        assert!(row.grab_focus());
+        let tile_name = match kind {
+            ContextKind::Album => "music-search-album-tile",
+            ContextKind::Artist => "music-search-artist-tile",
+            ContextKind::Playlist => "music-search-playlist-tile",
+            _ => unreachable!("only collection result sections are exercised here"),
+        };
+        let tile = named_button(group.upcast_ref(), tile_name);
+        assert!(tile.grab_focus());
         settle();
         eprintln!(
             "Karin synthetic section: phase={name} bounds={:?} focused={} focusable={}",
-            row.compute_bounds(window),
-            row.has_focus(),
-            row.is_focusable(),
+            tile.compute_bounds(window),
+            tile.has_focus(),
+            tile.is_focusable(),
         );
-        click(window, id, &row);
+        click(window, id, &tile);
         pump_until(|| {
             this.widgets.stack.visible_child_name().as_deref() == Some("detail")
                 && !this.model.borrow().busy
@@ -771,7 +897,14 @@ fn native_search_retry_normalized_results_and_density() {
         {
             let m = this.model.borrow();
             assert_eq!(m.queue.context().unwrap().source_kind(), kind);
-            assert_eq!(m.queue.context().unwrap().source_id(), Some(source));
+            assert!(
+                m.queue
+                    .context()
+                    .unwrap()
+                    .source_id()
+                    .unwrap()
+                    .starts_with("continuous:")
+            );
             assert_eq!(m.queue.current().unwrap().id, "50");
             assert_eq!(m.queue.items().len(), 1);
         }
@@ -785,7 +918,9 @@ fn native_search_retry_normalized_results_and_density() {
     input(&["key", "--clearmodifiers", "ctrl+a"]);
     input(&["type", "--clearmodifiers", "partial-query"]);
     input(&["key", "--clearmodifiers", "Return"]);
-    pump_until(|| counts.lock().unwrap().searches.len() == 6 && !this.model.borrow().busy);
+    wait_for_step("partial-unified-search", || {
+        counts.lock().unwrap().searches.len() == 7 && !this.model.borrow().busy
+    });
     assert!(this.model.borrow().search_scope.is_none());
     assert_eq!(rows(&this.widgets.search_rows).len(), 5);
     assert!(!this.widgets.search_feedback.is_visible());
@@ -812,7 +947,9 @@ fn native_search_retry_normalized_results_and_density() {
     capture_native("search-partial-section-retry");
     let batches = counts.lock().unwrap().batches.len();
     click(window, id, &retry);
-    pump_until(|| counts.lock().unwrap().searches.len() == 7 && !this.model.borrow().busy);
+    wait_for_step("partial-album-retry", || {
+        counts.lock().unwrap().searches.len() == 8 && !this.model.borrow().busy
+    });
     assert_eq!(this.model.borrow().search_scope, Some(SearchKind::Albums));
     assert!(contains_text(
         this.widgets.search_rows.upcast_ref(),
@@ -823,6 +960,103 @@ fn native_search_retry_normalized_results_and_density() {
         counts.lock().unwrap().searches.last().unwrap(),
         &("album".into(), 0)
     );
+    // The compact collection card remains a real keyboard target after a
+    // section-specific Retry; the inert wrapping row must never consume Play.
+    let album = named_button(
+        this.widgets.search_rows.upcast_ref(),
+        "music-search-album-tile",
+    );
+    assert!(album.grab_focus());
+    settle();
+    input(&["key", "--clearmodifiers", "space"]);
+    wait_for_step("retried-album-keyboard-open", || {
+        this.widgets.stack.visible_child_name().as_deref() == Some("detail")
+            && !this.model.borrow().busy
+    });
+    assert!(contains_text(
+        this.widgets.detail.upcast_ref(),
+        "Synthetic search album"
+    ));
+    assert_eq!(this.model.borrow().detail_origin, "search");
+    let before_back = counts.lock().unwrap().searches.len();
+    // Alt+Left is exercised after each earlier detail route. Here use the
+    // visible native Back action after a keyboard-opened refreshed tile: its
+    // old focus owner was removed while replacing loading/detail content.
+    // This also proves the pinned pane does not cover collection navigation.
+    let back = named_button(this.widgets.detail.upcast_ref(), "music-detail-back");
+    click(window, id, &back);
+    wait_for_step("retried-album-native-back", || {
+        this.widgets.stack.visible_child_name().as_deref() == Some("search")
+    });
+    assert_eq!(this.model.borrow().search_scope, Some(SearchKind::Albums));
+    assert_eq!(counts.lock().unwrap().searches.len(), before_back);
+    // Raw hits with missing canonical track54 normalize to empty pages while
+    // keeping a valid provider continuation. They must neither dead-end nor
+    // drain the remote collection. Three bounded viewport-fill reads stop;
+    // the next page requires an actual user wheel gesture, not a More button.
+    let before_sparse = counts.lock().unwrap().searches.len();
+    click(window, id, &this.widgets.search);
+    input(&["key", "--clearmodifiers", "ctrl+a"]);
+    input(&["type", "--clearmodifiers", "sparse-query"]);
+    input(&["key", "--clearmodifiers", "Return"]);
+    wait_for_step("sparse-unified-empty-section", || {
+        counts.lock().unwrap().searches.len() == before_sparse + 1 && !this.model.borrow().busy
+    });
+    let sparse_group = section(this, "music-results-tracks");
+    let show_all = named_button(sparse_group.upcast_ref(), "music-search-show-all");
+    click(window, id, &show_all);
+    wait_for_step("sparse-bounded-prefill", || {
+        this.track_feeds
+            .borrow()
+            .iter()
+            .find(|feed| feed.rows == this.widgets.search_rows)
+            .is_some_and(|feed| feed.data.borrow().next_page == 3)
+            && !this.model.borrow().busy
+    });
+    settle();
+    let sparse_feed = this
+        .track_feeds
+        .borrow()
+        .iter()
+        .find(|feed| feed.rows == this.widgets.search_rows)
+        .unwrap()
+        .clone();
+    assert!(sparse_feed.data.borrow().items.is_empty());
+    assert!(sparse_feed.data.borrow().has_more);
+    assert_eq!(counts.lock().unwrap().searches.len(), before_sparse + 4);
+    let no_drain = Instant::now() + Duration::from_millis(350);
+    pump_until(|| Instant::now() >= no_drain);
+    assert_eq!(
+        counts.lock().unwrap().searches.len(),
+        before_sparse + 4,
+        "an empty collection cannot spin through every provider page"
+    );
+    assert!(
+        !descendants(this.widgets.search_feedback.upcast_ref())
+            .iter()
+            .any(|widget| widget.is::<gtk::Button>()),
+        "no manual track pagination or fake end action"
+    );
+    let scroll = this.content_scroll.borrow().upgrade().unwrap();
+    assert!(scroll.vadjustment().upper() <= scroll.vadjustment().page_size() + 1.0);
+    let (x, y) = super::test_input::pointer(window, &scroll, super::test_input::Target::Center);
+    input(&[
+        "mousemove",
+        "--window",
+        id,
+        &x.to_string(),
+        &y.to_string(),
+        "click",
+        "5",
+    ]);
+    wait_for_step("sparse-wheel-continuation", || {
+        sparse_feed.data.borrow().next_page == 4 && !this.model.borrow().busy
+    });
+    assert_eq!(rows(&this.widgets.search_rows).len(), 1);
+    assert_eq!(sparse_feed.data.borrow().items[0].id, "60");
+    assert!(!sparse_feed.data.borrow().has_more);
+    assert_eq!(counts.lock().unwrap().searches.len(), before_sparse + 5);
+    capture_native("search-continuous-sparse-wheel");
     pane.close();
     window.close();
     stop.store(true, Ordering::Release);

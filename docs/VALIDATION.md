@@ -6,6 +6,663 @@ This report separates initial cloud checks, user-reported Fedora acceptance,
 revised UI checks and compiler compatibility. A result for one environment or
 revision is not evidence that another has passed.
 
+## Final v0.4 Cassette-inspired refinement from `2e3ae41`
+
+Date: **2026-11-02**, owner timezone Europe/Samara. Starting revision:
+`2e3ae41a8480b8f5f437f739c02cb925af69e884`, existing Draft PR #15 only.
+The owner requests a larger Liked hero, loaded-collection search, useful Home,
+substantial playlist covers and more coherent footer. Earlier audio/session
+acceptance is the regression baseline, not acceptance of this new UI.
+
+Final source-frozen C14 native executable SHA-256:
+`c927b8e1dfa405398c8c2dc68ca402d3cd899e7867f08cbfc2aa08bf54331bb5`.
+Its **111-entry** Rust/Cargo manifest SHA-256 is
+`3faefc3e5d8e69ce475e148ffef92cecb5ccbaf6631ac14661993cbbf1db7bf4`.
+The [current native gallery](design/v0.4/evidence-final-refinement/README.md)
+contains exact source hashes, original images and raw observations.
+
+The six final-source visual/raw executions passed once: cold1/2 **5.37/7.66 s**,
+static1/2 **67.07/94.63 s**, initialized motion1/2 **34.91/47.49 s**. They retain
+fatal GTK warnings, normal 240 ms transitions, test-only `LP_NUM_THREADS=2`,
+static full-redraw and ordinary-damage motion/cold. The audit verifies **260
+static originals, 108 equal-size 2e3/current pairs and 240 selected initialized
+panel frames / 48 trajectories**. Hidden footer child/Revealer/host measure
+zero horizontal minimum/natural width; positive closing frames keep content.
+This accepts those structural/static/initialized scopes, not cold smoothness.
+Compiler, complete functional, hosted CI and downloaded-archive outcomes are
+recorded separately below and in the immutable PR checks/artifact record.
+The before archive is exact 2e3 production code with one disclosed harness-only
+850×750 tuple adapter; original/adapted hashes and patch are retained. Never
+claim that harness is unmodified. Preserve all older failures and their scope.
+
+Loaded search is local to admitted data and performs no collection-metadata HTTP on typing. Existing bounded artwork loading can resume for newly visible covers. It
+uses Unicode normalization/casefold, explicit partial coverage and bounded
+continuation, with original-position provenance and immutable active queues
+(ADR-0025). Duration requires complete data and known checked values. These
+are implemented contracts, not an inference of real-account success.
+
+The new iteration's development failures are retained separately from final
+results. A first static run waited for a lazily deferred liked-playlist cover
+below the viewport; its fixture now visits the wide section before asserting
+decoded covers, retaining the same art-count guards. Another first-map assertion
+inspected a newly mounted empty hero before allocation; the shared native
+allocation-frame helper now precedes its unchanged square/bounds checks.
+Actual PNG inspection also found a missing Home shortcut icon, a one-column
+compact playlist grid and a stretched Like background; those have targeted
+native-layout fixes and regression guards.
+
+Real focused-Seek input exposed delayed compact-panel focus stealing; the
+bounded weak-reference request now respects current mapped footer focus. The
+1×/2× counted filter and shared-worker/MPRIS policy fixtures subsequently passed
+at the earlier source checkpoint. Their new Unicode proof is genuine native
+clipboard paste plus ASCII per-key typing; a headless XTest Unicode-layout
+timeout is not called a service or normalization failure.
+
+Repeated fatal-warning checks attributed a GTK minimum64/natural56 mismatch to
+the metadata box. A same-binary, separately labelled USER-CSS control made the
+metadata-button padding consistently zero and completed the full static1×
+sequence in **65.37 s** with fatal warnings and unchanged geometry guards.
+Production now uses the same consistent padding. C13 and final C14 each
+completed all six ordinary-source stages without USER CSS or GTK warnings. Official GTK4.18.6
+measurement code supports the sizing analysis; the precise internal cache race
+remains an inference. This does not explain or accept any cold paint gap.
+
+The later C12 full functional sweep retained **48 PASS / 8 FAIL** across 56
+executions. Four selectors failed at both scales: cover sampling across an
+unsettled allocation, a legacy tiny-summary density assertion, a 2 s fixture
+request expiring while genuine scrolling reached larger playlist tiles, and a
+real hidden-footer cross-axis minimum of 736 px during wide-to-compact resize.
+The last case has a production fix: conceal the existing inner footer only at
+the native fully-closed endpoint and show/arrange it before opening, retaining
+all closing frames and the same 240 ms Revealer. The other changes preserve
+pixel/concurrency/request guards while observing one stable frame, measuring
+the actual hero and using the existing production-equivalent 15 s deadline in
+that one loopback-only fixture. C13's 12 targeted executions and six visual/raw
+stages passed; those outcomes do not retroactively turn C12 into a full PASS.
+
+A final read-only Unicode review reproduced one compatibility edge directly
+with the installed GLib: casefold-before-NFKC mapped mathematical capital `𝐀`
+and modifier capital `ᴬ` to uppercase ASCII after folding. Final C14 uses
+NFKC → casefold → NFKC with a regression retaining duplicate occurrence order.
+It does not modify transport, dependencies or the audio path.
+
+The separate fresh-process startup observer starts with an empty queue and
+no selected/mapped Info surface, without changing preferences or closing a pane
+after mapping. Its first genuine row click traverses the real fixture resolver,
+generated MP3 and shared GStreamer worker, then Pause/Stop. Both lifecycle cases
+pass, but **cold smoothness is not accepted**. Final C14 retains native
+after-paint gaps of **900,018 µs (1×)** and **850,017 µs (2×)**, with one
+intermediate footer frame each and no missing nodes/height reversals. Earlier
+C12 retained **1,033,354/866,684 µs** (observer cost ≤156 µs), and C13
+**1,066,688/900,018 µs**; those observations remain scoped history.
+This fresh-start protocol differs from the older matrix first-map capture after
+hidden static images; do not infer an improvement/regression ratio against its
+117 ms result. The cause remains unattributed. No production prewarming,
+duration/renderer override or relaxed phase guard hides these observations.
+
+### Final-source compiler and integration scope
+
+The complete regular matrix passed in **290.98 s**, retaining all 111 frozen
+Rust/Cargo hashes. Stable **1.99.1** and exact **1.98.1** each passed fmt,
+strict Clippy for default/all/minimal features, **379 / 387 / 365** library
+and **4 CLI** tests per configuration, and all corresponding debug builds.
+Ignored native tests are not counted as passed by those commands. Both ordinary
+`cassette-auth` and all-feature MSRV releases passed `--offline --locked`; the
+ordinary release was restored, SHA-256
+`dd23e54ba569601771a182fa9f43b89f5e2631d7408c752f69633b695285847a`.
+Terminal15, silent40-buffer GStreamer, generated-WAV transport/seek/volume/EOS/
+cleanup, ordinary/all-feature GTK smoke and unchanged **207-package lockfile /
+178-package Linux** license inventory passed.
+
+The full **56-execution / 28-selector** local interactive sweep at 1×/2×
+passed **56/56**, with fatal GTK warnings, no failures and all unique expected
+selector/scale pairs audited against the same C14 binary and 111 source hashes
+(**857.43 s** summed process time). The current gallery retains its complete
+ledger and summary; this is a fresh full run, not the 12 C13 regressions.
+The two navigating WebKit fixtures require nested namespaces unavailable in
+the local container and must execute sandbox-enabled in hosted Ubuntu CI.
+There are **33 compiled native selectors**: 30 functional, including those two,
+and three modern visual/raw observers; all earlier registrations are retained.
+
+The local verification stack is GTK4 **4.18.6**, Libadwaita **1.7.6**,
+GStreamer **1.26.2**, WebKitGTK **2.54.0**. Flatpak **1.16.6**, Builder **1.4.4**
+and Blueprint Compiler **0.16.0** are installed, but the runtime list is empty
+and GNOME SDK50 is absent. Packaging manifest, Runtime/SDK versions and narrow
+MPRIS own-name permission are unchanged. A host release and a JSON/policy check
+are not a current full Flatpak build. Exact-head hosted CI and verification of
+the downloaded Fedora ELF are published in the immutable PR artifact record;
+never infer those outcomes from the locally compiled release.
+
+New Fedora/KDE/Wayland/PipeWire visual acceptance, ordinary first-cold footer/
+panel smoothness, real Like/service regressions and the current full Flatpak
+remain pending. The historical 116,669 μs footer gap has no established cause;
+new raw observations cannot retroactively erase it. PR stays Draft.
+
+<a id="v04-cassette-like-refinement"></a>
+
+## Previous v0.4 refinement from `a70bbf7` (historical)
+
+Starting revision: `a70bbf714e3d7ea775c03839eb01f0b1d9dd4f62`.
+
+The owner requests a focused continuation of existing Draft PR #15: an initially
+hidden animated player, full current-track metadata activation, honest direct
+Like/unsupported Dislike, lightweight Wave/Liked/Playlists navigation and bounded
+continuous track lists. These requirements supersede conflicting previous
+permanent-footer, Home/Search/Library and visible track-page-control rules.
+This is a new request, not an invented Fedora PASS or FAIL for `a70bbf7`.
+
+The implemented refinement uses the existing authentication, MusicService,
+StreamResolver and GStreamer path. It adds activity-dependent native transport,
+whole-metadata activation, confirmed direct Like, responsive music tabs and
+bounded continuous views with original-occurrence provenance. Source review
+also found two lifecycle defects after C7: personal library hero data surviving
+logout, and a Like invalidation stranding playlist-refresh loading state. C8
+clears the retained hero/feedback during logout/close and adds the independent
+`PlaylistSections` lane (12 total); creation retires that refresh and resets its
+flags. Final C9 retains that production code and corrects three legacy native
+fixtures for the new actual spinner/hidden-idle-footer contract. C9 regular
+checks and eight priority actual-input executions pass; complete exact-head
+functional, hosted CI and archive results belong to the immutable PR #15 record.
+Fresh C9 native visual evidence is recorded below; C7 results retain their own
+source and environment scope.
+
+| Refinement evidence gate | Result |
+| --- | --- |
+| Wave/Liked/Playlists primary tabs; accessible unified Search; no primary dropdown | Implemented; C9 priority actual-input navigation/search regressions **PASS** at both scales; fresh final visual evidence is recorded separately |
+| Initially hidden footer; real request SlideUp; Pause/failure/replay visibility; Stop/logout/clear cleanup | C8 functional playback/lifecycle fixtures **PASS** at both scales; C9 production release is byte-identical. C7 raw first-Play/Stop observation has no height reversal; final source-matched visual record is separate |
+| Whole metadata-zone mouse/Enter/Space opens TrackInfo; Like has independent focus/action | C8 genuine-worker functional fixtures **PASS** at both scales, including title/artist mouse regions and keyboard activation; C9 production is unchanged |
+| Confirmed direct Like, unknown/loading/errors/late-session handling; unconfirmed Dislike absent | C8 counted HTTP/GTK regressions **PASS**, including 420-pixel error popup at 1×/2× and no ambiguous POST replay; C9 production unchanged. Actual service mutation remains owner-local |
+| Bounded continuous portions; retry/end/scroll/duplicate/context and retained cache-origin safety | Implemented with 2,000-position/100-page UI bounds and immutable 500-position playback windows. C9 regular domain tests and priority actual-input search/row regressions **PASS**; exact-head complete selector ledger belongs to PR #15 |
+| Pinned TrackInfo/Queue, occurrence following, Shuffle/Repeat and MPRIS regression | C8 shared-worker/modes/MPRIS fixtures **PASS** at both scales; C9 same-runtime native Queue input regressions **PASS**. Complete exact-head results are published with PR #15 |
+| Fresh exact a70 before evidence | Static 1×/2× **PASS**; original default-environment initialized motion 1× **PASS**, 2× **FAIL** with a missing 75% quarter. Distinguish the 50,001 μs adjacent after-paint gap from the 100,002 μs first-retained-to-first-moving interval; the latter is not one consecutive native gap. One explicit LP2/full-redraw pair **PASS** (33.05 s / 47.41 s) with unchanged archived source/harness/guards; all outcomes retained |
+| Fresh C7 visible/hidden active-player matrix | **PASS, C7 local**: 204 static originals plus 20 raw footer images, including 96 equal-size a70/current matrix pairs; actual maximize, both themes/scales and genuine fixture playback |
+| C7 strict initialized right-panel motion, default environment | 1× **PASS**; 2× **FAIL**: a 66,668 μs native gap omitted the 75%-openness frame during compact/light/Queue closing. No geometry failure reported; the full default-environment 240-image gate did not pass |
+| C7 controlled strict motion, `LP_NUM_THREADS=2` | **PASS, both scales**: one controlled run each, 48 trajectories / 240 distinct selected native frames; original 240 ms, setup/phase/geometry guards unchanged. This is environment-scoped initialized motion, not cold responsiveness or a causal driver diagnosis |
+| Final C9 matched static/footer and strict LP2/full-redraw panel evidence | **PASS in recorded scopes, four source-matched local runs**: 204 static originals + 19 raw footer images, 96 equal-size a70/current matrix pairs; initialized normal panel motion 48 trajectories / 240 distinct selected frames at 1×/2×. Raw footer has no height reversals, but its cold 1× first appearance has a 116,669 μs paint gap; smooth cold footer/panel appearance remains unaccepted |
+| Hosted strict visual checks at `144492f` | **FAIL retained**: push Native MSRV job 124951532684 and PR Native stable job 124951549179 missed the 75% quarter during 2× wide/light/Queue closing; the other two modern visual jobs passed. No all-hosted-PASS claim |
+| Same-C9 controlled motion with ordinary GTK damage (`GSK_DEBUG` unset) | **PASS locally**, one pair only: 34.49 s / 48.01 s, 48 trajectories / 240 selected native frames, 472 moving raw frames audited; original source, LP2, cache, renderer, 240 ms/setup and guards unchanged. New hosted results belong to the exact-head PR record |
+| Stable/exact Rust 1.98.1 regular compiler, release and smoke checks | **PASS for final C9**: stable 1.99.1/exact 1.98.1, fmt, strict default/all/minimal Clippy/tests/builds; 369/377/355 library plus 4 CLI tests per configuration/compiler; ordinary/all-feature offline MSRV releases and GTK/GStreamer/generated-WAV/terminal/license checks |
+| Exact-head complete functional suite, hosted CI and downloaded native archive verification | Results are published in the immutable [PR #15 checks/artifact record](https://github.com/tracerxbrhd/karin/pull/15/checks). At this documentation freeze C9 has eight priority executions; do not infer full-suite/hosted/archive PASS from the regular matrix or prior work |
+| Current full Flatpak build/runtime | Unavailable locally: SDK/runtime absent; host release and old Fedora Flatpak acceptance do not establish a current full package check |
+| New owner Fedora/Wayland/PipeWire, first appearance, real Music/Like/KDE and current Flatpak acceptance | Pending; PR stays Draft |
+
+### Source and execution scope
+
+Final C9's all-feature test executable SHA-256 is
+`1dfb1167c73fef4b7d8a2fdd2d7e917e360e1fc2611a314de43d7504c9be16c0`;
+its 108-source manifest fingerprint is
+`42b3d65135bbd5703a3c7a7c36cafe4d7fdf9b1ac94913d17eee7a8f639a0636`.
+`candidate-9/regular-result.json` records exit 0 and unchanged source hashes
+through both complete compiler matrices: **369 / 377 / 355** library tests
+(default/all/minimal), **4 CLI tests** per configuration/compiler, both fmt,
+strict Clippy and debug builds, ordinary/all-feature locked offline MSRV
+releases and restored ordinary release. Terminal 15, 40-buffer GStreamer,
+generated WAV, ordinary/experimental GTK smoke and the unchanged **207-package
+lockfile / 178-package Linux graph** license inventory pass. Ignored native
+selectors are separately executed, not counted as passed by `cargo test`.
+The ordinary release SHA-256 is
+`9416aed52e89bba2ebf0b09fe443f3a798dae60c4d861cde13dc70914576a2af`;
+it is byte-identical to C8 because only three ignored-fixture files changed:
+`navigation_tests.rs`, `queue_view/tests.rs` and `row_activation_tests.rs`.
+
+The preceding complete C8 native sweep recorded **48 PASS / 6 FAIL**. The six
+failures were three old fixture assumptions at both scales: a literal Loading
+label where the mapped native spinner is now the contract, and two mouse clicks
+on the deliberately hidden idle-footer Queue button. These are retained failed
+executions, not a claim of a new playback defect. C9 uses the actual held mapped
+spinner and native Ctrl+J route without creating playback or forcing visibility;
+query-coalescing and exact duplicate/input guards remain. Those three selectors
+plus Search passed at both scales: **8/8 priority executions**. Complete
+exact-head selector results, hosted checks and source-matched native archive
+verification are published with [PR #15](https://github.com/tracerxbrhd/karin/pull/15),
+rather than inferred from partial local results. Current Fedora/full Flatpak and
+cold-first-use acceptance remain separate.
+
+The fresh C9 visual audit (`candidate-9/e-complete-native-proof.json`) matches
+that same binary and 108-source manifest. Both populated/static and strict
+motion selectors passed locally at both scales with explicit `LP_NUM_THREADS=2`
+and `GSK_DEBUG=full-redraw` (the original C9 gallery):
+process wall times static **52.91 s / 76.97 s**, motion **34.63 s / 48.96 s**
+from `native-execution.json` (including test-process overhead). The audit retains
+**204 static originals**, **19 raw footer images**, **96 same-size a70/current
+matrix pairs**, and **48 normal panel trajectories / 240 distinct selected
+native frames**. Geometry tolerances, phase checks, the normal 240 ms duration
+and unconditional graphics initialization remain unchanged. The maximum
+child-relative geometry error was **0.000123 logical pixels**. The raw first
+Play and Stop records show actual intermediate allocations and **zero observed
+height reversals**; they are raw observations, not relabelled strict panel
+quarters. In particular, the 1× first-Play record retains four distinct selected
+actual frames rather than duplicating one to invent a fifth. The cold first
+1× footer appearance includes an actual **116,669 μs native paint gap** and an
+allocation jump from **16 to 73 logical pixels**. Its cause is unknown; zero
+height reversals and available intermediate frames do **not** establish smooth
+cold first appearance. No production prewarm, timing change or renderer override
+was added. All visual content is synthetic/local generated media. This proof
+accepts neither cold-first-use latency/smoothness of the **footer or panel**,
+real service writes nor Fedora/Wayland/GPU behavior. C7's default 2×
+sampling failure is preserved below.
+
+### Hosted full-redraw failure and one ordinary-damage control
+
+At head `144492ffa4c81d1752d1178e167a1eac6a46c60a`, both hosted runs completed:
+**6/8 jobs passed**, including all four Ubuntu compiler/full-functional/sandboxed
+WebKit/package jobs and two modern visual jobs. Two modern visual jobs failed: [push MSRV
+124951532684](https://github.com/tracerxbrhd/karin/actions/runs/41341249713/job/124951532684)
+and [PR stable 124951549179](https://github.com/tracerxbrhd/karin/actions/runs/41341255501/job/124951549179).
+Both 2× wide/light/Queue-closing records lacked a 75%-openness quarter; first
+moving progress was approximately .488373 / .496166. The inspected raw log has
+an actual adjacent after-paint gap of **50,001 μs**, versus **100,002 μs** from
+the first retained initial frame to first movement. Do not call that retained
+interval one consecutive 100 ms gap. The snapshot extraction took 72 μs for
+the inspected first-moving frame; no internal cause is established. Retain these
+hosted FAILs beside the separate original C9 local full-redraw PASS gallery.
+
+After independent source/log review, exactly one paired control unset only
+`GSK_DEBUG` for motion. It used the same frozen C9 binary/source, LP2, existing
+XDG/cache, backend, normal 240 ms animation, unconditional setup and strict
+phase/geometry/node guards. No cache reset, extra priming or production change
+was made. `normal-damage-control-execution.json` records **34.49 s / 48.01 s**
+process wall times, and `e-default-damage-proof.json` audits **48 trajectories /
+240 selected frames / 472 moving raw frames**, with maximum child-relative
+error **0.000123 logical pixels**. This controlled local initialized-motion
+PASS does not diagnose the hosted failure or establish a new hosted PASS.
+The matching archived-a70 ordinary-damage baseline also completed one pair with
+exit 0: **32.77 s / 46.13 s libtest durations**, after 17.16 s compilation, using
+unchanged archived production source/harness and an isolated target. It neither
+rewrites the original baseline FAIL nor changes the C9 full-redraw gallery.
+
+CI and archived-baseline motion commands now explicitly use `env -u GSK_DEBUG`
+to retain GTK's ordinary on-screen damage processing; static captures still use
+`GSK_DEBUG=full-redraw` for their separate resize-capture path. Each motion
+oracle obtains a fresh full root render node after an actual native after-paint
+callback and renders that node for geometry/pixels. This is not direct native
+framebuffer pixel-damage correctness proof. Ordinary damage is neither a new
+renderer nor a production override; source manifests, timing and all guards
+remain unchanged. Keep the original full-redraw images/results and all cold
+footer/panel limitations. New exact-head hosted and native-archive conclusions
+remain in [PR #15](https://github.com/tracerxbrhd/karin/pull/15/checks).
+
+C7's all-feature test executable SHA-256 is
+`9ea0c6b6b7d6851816b7e3fc34a45fdc09ae20fee74c269068cef1378c980fe4`.
+Its source manifest fingerprint is
+`63c35c78c8402301a701c57d713f00a4eaf06ae8c2e2b90eb270e75cfa8c7977`.
+The local record is under `v04-refinement/candidate-7`; the compiler log is
+`v04-refinement/final-regular-matrix.log` in the prepared environment. The latter
+finished successfully with **368 / 376 / 354** library tests (31 / 31 / 28 named
+native tests ignored for separate execution) and **4 CLI tests** for each
+configuration on each compiler. Both offline MSRV release variants, 15 terminal
+boundary cases, a 40-buffer silent GStreamer diagnostic, generated local WAV
+transport/seek/EOS/cleanup and ordinary/opted-in GTK smokes passed. The reviewed
+license inventory remains **207 external lockfile packages / 178 Linux-graph
+packages**; that graph is not a binary SBOM. A completed compiler run does not
+execute its ignored native fixtures.
+
+C7 static review uses **96 base matrix images + 108 state images**, with 20
+additional untouched raw first-Play/Stop images. There are real intermediate
+footer observations at both scales and zero observed allocation-height
+reversals. Loading uses a stable Play-button spinner rather than a temporary
+caption row, so the former observed six-pixel height dip is absent from this
+record. The C7 matrix and controlled motion cover that exact source; later
+lifecycle fixes must retain their own source identity and checks.
+
+The default-environment 2× sampling failure is retained. In a single controlled
+experiment per scale, only `LP_NUM_THREADS=2` changed the test environment;
+original 240 ms production timing, unconditional graphics initialization,
+±.17 phase tolerances, five-distinct-frame and whole-surface checks remained.
+Both controlled C7 runs passed (**34.42 s / 47.64 s**), yielding 48 trajectories /
+240 selected frames. The archived exact a70 baseline then passed one separately
+recorded LP2 pair (**33.05 s / 47.41 s**) using an isolated target and its original
+production source and harness unchanged. This does not erase its default 2×
+failure or manufacture an old after image. Modern Mesa CI records this explicit test-only setting,
+including for its archived baseline. It supplies neither a production override,
+a reset cache, conditional retry nor proof of the cause of the default failure.
+Cold first-use latency remains unaccepted. The separate historical C5 motion
+record and pre-refinement C14 proof must not be relabelled as current-source
+cold acceptance.
+
+The new before baseline is the archived `a70bbf7` production source **and its
+original test harness unchanged**. Its queue-selected state had no actual worker
+and its old footer was always visible. Current active-bar proof uses actual
+fixture delivery, original generated MP3 and a real paused PlaybackController,
+not selection-only or forced widget visibility. Direct Like and continuous
+views use local synthetic HTTP/account data; they do not establish real Yandex
+write acceptance. No real account, service artwork, user reference screenshot
+or music recording is published.
+
+Retain the old GTK 4.14/4.18 NGL/Vulkan cold failures and scope their separate
+initialized-motion evidence. Owner-local ordinary first appearance, post-Stop
+focus routing, real audible Music/Like/KDE/Wayland and a full current Flatpak
+remain manual gates. PR #15 remains Draft and unmerged.
+
+<a id="v04-complete-music-experience-redesign"></a>
+<a id="v04-native-music-implementation-and-acceptance-record"></a>
+
+## Pre-refinement complete redesign at `a70bbf7` — retained evidence
+
+Work continues in existing [Draft PR #15](https://github.com/tracerxbrhd/karin/pull/15),
+`feature/v0.4-native-music-ui`, starting from
+`a9eed4514802df84d73b0608dd1a62930fc1af76`. The owner reports that this revision
+works technically but **fails Fedora UI/UX acceptance**: the panel does not move
+as one surface, Home/content hierarchy and wide-space use are unsatisfactory,
+queue routing and the Player Bar need redesign. The previous cloud PASS table
+below is retained as evidence for that exact earlier implementation; it does
+not accept the current task or overturn the owner's visual FAIL.
+
+The new [specification](design/v0.4/DESIGN_SPEC.md) and
+[implementation task](design/v0.4/CODEX_TASK.md) supersede conflicting older
+mockups. The expanded [quality gate](UI_QUALITY_GATE.md#v04-native-music-gate)
+and [single Fedora procedure](BUILDING.md#v04-native-music-acceptance-on-fedora)
+separate authored code, executed cloud fixtures and real desktop acceptance.
+No new result is PASS until the corresponding source-matched check runs.
+
+| Pre-refinement redesign evidence gate | Result recorded for that implementation |
+| --- | --- |
+| Native music composition; three primary destinations; redesigned Home/library/search/Player Bar with no visible Stop | **PASS, C10 cloud review**: independent A/B/D reviews of fresh native states/motion found no remaining P0/P1; minimum-width title ellipsis and ordinary long-information scrolling remain documented owner checks |
+| One controlled Closed/TrackInfo/Queue panel; actual input/mode switching/focus/resizing/logout/cleanup | **PASS, C10 local**: actual input and responsive/lifecycle checks at both scales, including the 620-pixel content boundary, outside input, mode switches, queue/current following and weak-reference cleanup |
+| Entire moving surface at normal-motion 0/25/50/75/100%; stable mode switch; separate reduced motion | **PASS only for graphics-initialized measured motion, C14 local**: 48 trajectories / 240 real after-paint frames, five distinct identities each, original 240 ms animation/tolerances. Raw graphics setup is separate and quarter-unassessed; **cold first-use responsiveness remains unaccepted**, including failed GTK 4.14 and 4.18 NGL/Vulkan experiments |
+| Fresh eight-geometry × light/dark × 1×/2× × three-mode matrix; populated/error/state supplements | **PASS, C10 local**: 96 source-matched base cases plus 84 state images; equal-size a9 before counterparts and actual maximize |
+| Occurrence-based Shuffle/history, Repeat Off/Queue/One, combinations, unavailable/removal/partial/500-position cases | **PASS, C10 local**: seeded exact-occurrence unit cases and generated-MP3 EOS/queue/mode integration at 1×/2×, actual compact overflow input, same-occurrence Repeat One, single-refusal failure boundary and no presentation-triggered restart |
+| Writable MPRIS Shuffle/LoopStatus, PropertiesChanged, capability synchronization, existing Stop/Seek/Volume/metadata/lifecycle | **PASS, C10 local**: isolated session-bus methods/properties/signals and native shared-policy/real-worker bridge at 1×/2×; external writes/invalid values, capability updates, Stop/seek and cleanup retained |
+| Stable and exact Rust 1.98.1 formatting, strict Clippy, default/all/minimal tests/builds and exact-MSRV release | **PASS, final C16 local**: stable 1.99.1 and exact 1.98.1; 359/367/345 library plus four CLI tests per configuration/compiler; strict three-configuration Clippy/builds and ordinary/all-feature offline MSRV release |
+| GTK, WebKit sandbox lifecycle, GStreamer, protected session/cache and license regressions | **PASS, C10 local**: 29 available named selectors × 2 scales = 58 executions, including construction/cancel and joined player/storage/cache lifecycle; two fully navigating sandboxed WebKit fixtures remain unavailable locally and belong to hosted CI, with sandbox enabled |
+| Hosted CI and source-matched native Fedora archive | See immutable per-head [PR #15 checks/artifacts](https://github.com/tracerxbrhd/karin/pull/15/checks) and the PR description for hosted conclusions and downloaded-archive verification; local PASS does not establish hosted success |
+| Current full Flatpak build/runtime | **Unavailable locally**: Flatpak 1.16.6/Builder 1.4.4 installed, runtime list empty and GNOME SDK 50 absent; final current package/runtime remains untested here |
+| Real Fedora 44/KDE/Wayland/PipeWire, audible Music, modes, media widget/keys, first-open responsiveness and final visual review | Owner-local retest pending; cold first-use responsiveness is not accepted; PR stays Draft |
+
+The eight geometries include the six explicit sizes in the task, owner-wide
+1650×930 and actual window-manager maximize. The before revision presents Queue
+in its real old central route; current Queue is the same right surface as Track
+Info. Preserve and label that structural difference rather than faking a before
+panel. Synthetic metadata/artwork and generated local audio never establish
+new real-account or audible-Music acceptance. Full SDK/runtime availability is
+separate from a successful offline Rust release.
+
+### C14 measured-motion scope and final regular checks
+
+Production code remains byte-identical to runtime commit
+`37379a72285ffab525f59fa6789727ad2bbdbbf5`. The final changes are test-only
+preparation/diagnostics, detached scope labels and CI placement; they add no
+production prewarming, renderer override, duration change, dependency or SDK
+change. The retained C10 static gallery and functional results below describe
+that same production code, not universal first-paint performance.
+
+For each geometry/theme/mode the motion fixture performs one unconditional
+**real normal 240 ms opening**, records its raw observations with
+`scope: graphics-initialization` and `quarter_phase_acceptance: not-assessed`,
+then, while fully open, performs exactly **six bounded offscreen native GSK
+renders of the actual mapped panel** at fractions
+`.137 / .317 / .533 / .787 / .941 / 1`. These setup renders change neither UI
+progress nor the animation clock, save no PNG and are not animation evidence.
+A real normal closing completes initialization. Only the subsequent actual
+mouse-driven native opening/closing cycle is the strict measured proof.
+
+The strict measured cycle retains the original normal **240 ms** duration,
+original geometry/progress tolerances (±.17), at least three moving observations
+and **five distinct rendered frame times/indices** per trajectory. No
+conditional retry, reduced-motion shortcut, stale/manual frame, fake phase or
+production timing change supplies proof. C14 passed on the first attempt at
+both scales with fresh Mesa/XDG caches: **35.44 s / 49.73 s**, **48 trajectories /
+240 PNGs**. Independent B review inspected all 240 and matched every selected
+frame exactly to its measured raw after-paint record, finding no P0/P1 in this
+**graphics-initialized motion scope**. Cold setup timing is not accepted by
+that result. The C14 executable SHA-256 is
+`04a5d0516cc6b348dd957f858ea6ad13ce17c95fd2a6ce7e7d3cb46635bb1d83`.
+The [current motion gallery](design/v0.4/evidence-redesign/motion/README.md)
+contains 11 untouched selected images, raw initialization, geometry and
+provenance; the earlier C10 gallery remains historical evidence.
+
+C15 adds only three detached manifest scope labels outside measurement. Its
+final regular checks pass on stable **1.99.1** and exact **1.98.1**: both
+formatters, strict default/all/minimal all-target Clippy, **359 / 367 / 345**
+library plus **4 CLI tests** per configuration/compiler, all debug builds,
+locked/offline ordinary and all-feature MSRV releases, terminal boundaries,
+GStreamer/generated local playback, GTK smokes and dependency-license inventory.
+The already completed C10 **54/54 functional executions** remain applicable to
+the unchanged production code; later test setup must not be called a new cold
+responsiveness PASS. New hosted conclusions and archive verification stay with
+the immutable PR head. Full current Flatpak and real Fedora first-use, audio,
+KDE/Wayland and visual acceptance remain pending.
+
+### Retained C10 local verification (observed contexts, not cold acceptance)
+
+The frozen C10 candidate's fresh QA proof verifies its source manifest and test
+executable SHA-256
+`1df39d2998ebfd2182f0224244154bbec3f50e65ba5f4e209299e5965363369b`.
+All **96** current base cases match the original a9 before geometry; **84**
+current state supplements and **240** normal-motion images were inspected.
+The 48 motion trajectories use five distinct rendered frame times/indices
+near the requested progress quarters. The maximum measured translation residual
+was below **0.000069 logical pixels**; maximum child-offset/size residual was
+below **0.000123 logical pixels**. Actual mapped artist/album text participates
+in the same surface motion. These are synthetic GTK/NGL/Mesa/Xvfb results,
+not hardware-GPU, Fedora/Wayland or real-account acceptance.
+
+Independent final reviews are complete: A inspected all 90 current 1× images
+plus 10 error/mode supplements; D inspected all 90 HiDPI static images; B
+inspected all 240 motion images and the 48 HiDPI matrix cases. Their
+source-verified C10 reviews found no remaining P0/P1 defect. E's matrix,
+state/animation and geometry proof is separate from those reviews. At minimum
+420-pixel width a long footer title can still show few characters before native
+ellipsis; its complete text is accessible, the artist remains readable, and
+long Track Info has ordinary vertical scrolling. These nonblocking small-width
+and reachability checks remain in the owner-local guide, not a claim that every
+Fedora font/metadata variant is accepted.
+
+C10 shared-policy/MPRIS/EOS and HTTP-403/Retry/footer-layout fixtures
+pass at both scales with `G_DEBUG=fatal-warnings`, including compact overflow
+input, visible Repeat One “1”, actual generated MP3 and strict Play/progress
+anchoring. The final C10 regular matrix also passed on stable **1.99.1** and exact
+**1.98.1**: both formatters; default/all/minimal all-target Clippy with
+`-D warnings`; **359 / 367 / 345** library tests plus **4 CLI tests** per
+configuration/compiler; all three debug builds; ordinary/all-feature locked,
+offline MSRV release; terminal boundaries; GStreamer/generated local playback;
+GTK smokes; and the unchanged dependency-license inventory. The final native
+batch passed **54/54** functional executions, plus the four static/motion
+executions above: **58 local executions**, or **29 available named
+selectors at both scales**, with no failure. This includes the complete local
+input, queue, MPRIS, persistence/cache, artwork, account and cleanup regressions.
+The hosted workflow retains **31 named ignored selectors per compiler across
+two jobs**. Ubuntu 24.04 runs 29 functional selectors, including the two fully
+navigating WebKit selectors that are namespace-blocked locally, together with
+compiler, package and selected HiDPI checks. Dedicated Debian 13 native-quality
+jobs run the remaining two strict visual selectors at both scales for stable
+and exact 1.98.1. This is not all 31 selectors at both scales in every job, and
+no selector is omitted to avoid the initial environment failure.
+
+Consult PR #15's immutable per-head checks/artifacts and description for hosted
+conclusions and archive-verification records, separately from these local
+results. The current native archive must be downloaded and verified before its
+own runtime checks are reported. Real Fedora/KDE/Wayland/PipeWire,
+current Flatpak and audible Music acceptance remain owner-local and pending.
+
+### Initial hosted strict-motion failure at `709f5b3`
+
+The first hosted redesign revision
+`709f5b3461ee2cf2ffb71e7e5ccf3925c93b6113` failed the unchanged strict-motion
+sampling requirement in all four stable/MSRV jobs across its
+[push run](https://github.com/tracerxbrhd/karin/actions/runs/41285905243) and
+[PR run](https://github.com/tracerxbrhd/karin/actions/runs/41285908664).
+That Ubuntu 24.04 environment used GTK **4.14**, Libadwaita **1.5** and Mesa
+**25.2** llvmpipe/NGL. The later C11 test-only observer reproduced its delayed
+first reveal paint locally in the matching environment: approximately **915 ms**
+before after-paint, while observer work was about **108 µs** and at most
+**208 µs**. The actual GTK 4.14 renderer remained **GskNglRenderer**; no missing
+node or renderer fallback was reported. Those observations do **not** attribute an internal
+shader/driver/library cause, and do not turn the failed strict sample into PASS.
+
+The successful C10 local evidence above used GTK **4.18** / Libadwaita **1.7**
+and remains evidence for that environment and the unchanged production code at
+`37379a72285ffab525f59fa6789727ad2bbdbbf5`. The different library/renderer
+combinations are recorded, not reduced to a claim that one version alone caused
+the gap. No production duration, tolerances, renderer selection, dependency,
+Flatpak SDK or runtime library requirement is changed to hide it. C11 adds only
+test diagnostics and a version-correct legacy GL guard. Subsequent hosted
+conclusions belong to their own immutable head and must be read separately;
+the initial `709f5b3` FAIL remains history.
+
+Separately, four targeted GTK 4.14/Libadwaita 1.5 Cairo functional runs with
+`G_DEBUG=fatal-warnings` passed: shared mode/MPRIS/EOS at 1×/2× and media-error/
+Retry/footer-layout at 1×/2×. They produced no GTK/GSK warning; separate libEGL
+DRI3 notices are not presented as GTK warnings. These checks establish their
+functional/input/layout scope, not strict NGL quarter coverage or an internal
+cause for its delayed first paint. The Fedora guide now checks first appearance
+after ordinary fresh start and warm repeats separately.
+
+Later cold tests also failed strict cadence on modern GTK 4.18/Libadwaita 1.7:
+NGL saw an approximately **84.6 ms** first-paint gap at 1×, moving from progress
+.186 to .801 without the required half phase, and about **233 ms** at 2×,
+from .197 to 1. Actual `GskVulkanRenderer` cold checks failed with roughly
+**339 / 269 ms** gaps too. Snapshots were present, with no renderer fallback;
+small observer work does not attribute an internal shader/driver cause. Thus
+**neither a different backend nor moving distributions alone is a proven fix**.
+These failed first-use experiments remain recorded. The later fixed test-only
+graphics initialization narrows measured proof; it does not repair or certify
+production cold latency. Fedora's first appearance after ordinary fresh start
+must be judged separately from warm repeated openings.
+
+The revised CI definition partitions rather than drops checks. Jobs named
+`Rust <toolchain> (<lane>)` retain Ubuntu 24.04 for 29 functional selectors,
+compiler/configuration checks, sandboxed WebKit and native packaging. Jobs named
+`Native UI <toolchain> (Debian 13)` use the digest-pinned official
+`rust:1.98.1-slim-trixie` image and install the modern native test stack (GTK
+at least 4.18 / Libadwaita at least 1.7, with actual versions recorded). They run
+`native_design_matched_matrix_and_populated_surfaces` and
+`native_universal_panel_whole_surface_motion_and_mode_switch` on **both** Rust
+stable and 1.98.1 at **both** scales, followed by ordinary captures and the
+matched a9 baseline. Compiled registration/partition checks verify all 31 names
+as 29 + 2. The strict 240 ms motion, five distinct frames and original progress
+tolerances are retained. Their current measured scope follows the separately
+recorded fixed graphics initialization above; cold latency is not assessed as
+PASS. This is test/CI placement, not a production library, renderer or Flatpak
+change, and the definition itself is not a hosted PASS.
+
+Modern evidence uses `karin-native-visual-<lane>-<github.sha>`; Ubuntu functional
+evidence remains `karin-ui-<github.sha>`. Modern artifacts record actual checkout
+and PR-head identities, source/executable fingerprints, package versions and
+renderer observations. New test-only diagnostics and this CI definition need
+their own executed per-head checks; the current conclusion stays with the
+immutable PR records rather than being inferred from C10 local evidence.
+
+The next hosted revision `7624037` compiled both modern fixture binaries but
+failed before visual execution: container Git rejected checkout ownership while
+recording provenance ([push](https://github.com/tracerxbrhd/karin/actions/runs/41293022480),
+[PR](https://github.com/tracerxbrhd/karin/actions/runs/41293026336)). The correction
+trusts only the exact checked-out `$GITHUB_WORKSPACE` in the modern container;
+there is no wildcard trust or change to Rust, application behavior or assertions.
+This bootstrap failure is separate from animation results.
+
+At `c1278e6`, all four modern visual jobs across
+[push](https://github.com/tracerxbrhd/karin/actions/runs/41293372090) and
+[PR](https://github.com/tracerxbrhd/karin/actions/runs/41293374955) completed
+successfully, including matched baseline captures. The Ubuntu jobs reached the
+confirmed-library fixture: actual Like reads/writes succeeded, then GTK 4.14
+returned no `compute_bounds` across the separate popover native surface. The
+test now reuses the validated pointer ancestry translation, removes the main
+CSD offset and waits for stable layout. Strict X/Y containment remains required;
+no missing rectangle is skipped and production code is unchanged. Four actual
+Like fixtures passed at 1×/2× on GTK 4.14 and 4.18 with fatal GTK warnings.
+
+The final **C16** regular Rust matrix was repeated after this test-only fix:
+formatting, strict default/all/minimal Clippy, **359 / 367 / 345** library plus
+**4 CLI** tests per configuration/compiler, all builds, exact-MSRV offline
+releases, terminal/GTK/GStreamer checks and license inventory passed. Final
+hosted conclusions and the downloaded native archive remain per-head records
+in PR #15, rather than a success inferred from the earlier run.
+
+### Historical C6 checkpoint before final UI polish
+
+The C6 working-tree candidate completed stable **1.99.1** and exact **1.98.1**
+formatting, strict default/all/minimal Clippy, tests and builds: **359 / 367 /
+345** library tests plus **4 CLI tests** per configuration/compiler. Offline
+MSRV ordinary/all-feature release, hidden-input boundaries, GStreamer/generated
+local playback, GTK startup/cleanup and the dependency-license inventory passed.
+This checkpoint does not pass a later candidate or close the final rows above:
+the explicit visible Repeat One “1” still required final UI polish and retesting.
+
+Fresh C6 native evidence contains **96** current base matrix images and **84**
+populated/state supplements; matching before evidence uses the original
+`a9eed45` production source with **96** base images, **40** state supplements
+and **20** observer motion images. Queue is honestly shown in the original
+central route for before captures. All static pairs have equal outer dimensions,
+including true maximize, and source provenance is retained. The C6 test
+executable SHA-256 is
+`71c05f93cc58196a4e38a4f09a36916819a049a6f0ba9969002c1e261781f8a9`.
+
+### Historical motion reproduction and renderer limits
+
+The original a9 observer reproduced the owner's animation symptom in the cloud:
+surface x stayed 1110, while its allocated width changed
+1520 → 594 → 483 → 420 → 320; title x stayed 1131, while centered cover x changed
+1742 → 1279 → 1224 → 1192 → 1142. These numbers describe one GTK/Xvfb case,
+not measured Fedora coordinates. The replacement allocates a constant final
+surface width and translates all children together, removing that observed
+Revealer reallocation/reflow mechanism.
+
+The strict C6 normal-motion run passed at both scales with **five distinct
+rendered native frame times/indices** near 0/25/50/75/100 percent for each
+sequence: **240 frames** were reviewed, with stable surface-relative geometry
+and content-mode changes that do not replay the slide. Current filenames label
+openness, so closing is viewed **100 → 75 → 50 → 25 → 0**. Before filenames label
+elapsed fractions instead; their labels are not equated to current progress.
+
+These matched motion checks use NGL with an actual `GskGLRenderer` on Mesa
+software rendering under Xvfb, not physical GPU or Wayland verification. An
+earlier Cairo scale-2 strict sampling attempt **failed quarter coverage**:
+roughly 33–50 ms rendered intervals and a first new paint near 116 ms missed
+the requested early quarter. It was not renamed PASS, duplicate-sampled or
+fixed by disabling animation/extending production duration. Cairo structural
+coverage remains separate; production renderer selection is unchanged.
+
+Local WebKit construction/cancel is available. The two fully navigating
+sandboxed WebKit fixtures require host user namespaces unavailable to this
+container and must run in hosted CI with the sandbox enabled. The current
+Flatpak runtime list is empty despite installed tools, so no full SDK 50 build
+or actual portal/runtime acceptance is inferred. Source-matched hosted CI,
+artifact checks and owner Fedora/KDE/Wayland/PipeWire review were still pending
+at that checkpoint; current per-head hosted records are linked above.
+
+## Historical v0.4 Native Music checks at `a9eed45`
+
+The first v0.4 implementation used existing [Draft PR #15](https://github.com/tracerxbrhd/karin/pull/15),
+`feature/v0.4-native-music-ui`, from design revision `cd6732a` and the merged
+v0.3 integration baseline `5e85e8d`. The owner accepted the underlying v0.3
+runtime `02325489d23ead9da4471de9cc35e2c063ac8bab`, as recorded below; that
+functional acceptance does not accept the redesigned v0.4 interface.
+
+That implementation followed its then-current
+[specification](https://github.com/tracerxbrhd/karin/blob/a9eed4514802df84d73b0608dd1a62930fc1af76/docs/design/v0.4/DESIGN_SPEC.md)
+and illustrative SVGs, not GTK screenshot acceptance. The following PASS results
+describe that earlier implementation. The owner subsequently rejected its UI/UX
+as recorded above; the current specification and evidence gate supersede it.
+
+| Historical v0.4 evidence gate | Result recorded at `a9eed45` |
+| --- | --- |
+| Four-zone GTK implementation; Home/library/details/search/queue/Player Bar | **PASS**, populated native screenshots and real input at 1×/2× |
+| Controlled nonmodal information, explicit close/focus, resize persistence and cleanup | **PASS**, including actual 720/900-width action hit tests, outside input, compact Back/focus, normal/reduced motion and weak GTK cleanup |
+| Current-occurrence following, explicit Details, duplicate positions and stale replies | **PASS**, joined generated-MP3 worker and `playerctl` fixtures cover Pause/Seek/Volume, Next/Previous/EOS, duplicate occurrences and no restart from pane toggles |
+| Matched GTK matrix: four sizes, both themes, 1×/2×, pane open/closed | **PASS**, 32 before + 32 current images inspected; actual Openbox maximize and equal paired dimensions |
+| Populated pages, empty/error/Retry, keyboard and artwork supplements | **PASS**, 40 matched populated/state images per revision, plus native input, delayed artwork and composited-window checks |
+| Track density, 900×650 with information closed | **PASS**, six complete 64-pixel rows; actual GTK content 890×640 within the 900×650 capture |
+| Stable 1.99.1 and exact 1.98.1 strict Clippy | **PASS**, default/all/minimal all-target checks with `-D warnings` on both compilers |
+| Stable and exact 1.98.1 default/all/minimal tests and debug builds | **PASS**, **349 / 357 / 335** library tests plus **4 CLI tests** per configuration/compiler; ignored native fixtures are separate |
+| Formatting and offline MSRV release | **PASS**, both formatters; ordinary `cassette-auth` and all-feature offline/locked release builds; CLI boundaries, GStreamer and GTK startup/shutdown |
+| Complete local native fixture matrix | **PASS**, 26 named cases at each scale during implementation; final cover/empty-current interactions retested at both scales. The compact media-error test waits for actual GTK layout while retaining strict visible-error/native-Retry assertions |
+| WebKit | Construction/cancel lifecycle **PASS** locally; the two navigating sandboxed fixtures require host namespaces and run in hosted CI, without disabling the sandbox |
+| Persistence/cache, MPRIS and licenses | **PASS**, isolated protocol/lifecycle/cache/cover fixtures at 1×/2× and unchanged dependency-license inventory |
+| Full v0.4 Flatpak package | **Unavailable here**: Flatpak 1.16.6 / Builder 1.4.4 installed, GNOME SDK 50 absent. Offline MSRV release is not a full sandbox build; manifest/runtime/permissions unchanged |
+| Hosted CI and native acceptance artifact | Recorded per immutable head in [PR #15 checks/artifacts](https://github.com/tracerxbrhd/karin/pull/15/checks); hosted results are not inferred from local PASS |
+| Real Fedora/KDE/Wayland/PipeWire and v0.4 visual acceptance | Owner retest **pending**; PR remains Draft |
+
+The [quality gate](UI_QUALITY_GATE.md#v04-native-music-gate) defines the matched
+matrix and actual interaction requirements. The [implementation review](design/v0.4/IMPLEMENTATION_REVIEW.md)
+records reviewed captures, source/binary provenance and untouched before/after examples. The focused owner procedure is
+[the v0.4 Fedora guide](BUILDING.md#v04-native-music-acceptance-on-fedora).
+The same MusicService, guarded resolver, GStreamer worker, context queue,
+protected session/cache and MPRIS remain regression contracts. Persistent audio,
+My Wave, lyrics, similar tracks and public OAuth-distribution rights retain
+their independent scope/permission boundaries. No second PR or automatic merge
+is authorized for this iteration.
+
 ## Final owner v0.3 acceptance at `0232548` (2026-10-31)
 
 On **2026-10-31**, the owner accepted runtime revision

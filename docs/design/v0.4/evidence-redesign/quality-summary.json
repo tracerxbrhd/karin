@@ -1,0 +1,53 @@
+{
+  "baseline_revision": "a9eed4514802df84d73b0608dd1a62930fc1af76",
+  "current_test_executable_sha256": "1df39d2998ebfd2182f0224244154bbec3f50e65ba5f4e209299e5965363369b",
+  "frozen_source_manifest_verified": true,
+  "matrix_count": 96,
+  "state_count": 84,
+  "motion_png_count": 240,
+  "motion_trajectories": 48,
+  "renderers": [
+    "GskGLRenderer"
+  ],
+  "max_translation_error_logical_px": 6.79976851927222e-05,
+  "max_child_offset_or_size_error_logical_px": 0.0001220703125,
+  "scope": "Synthetic loopback native GTK under Xvfb/Mesa, not Fedora or real-account acceptance.",
+  "license": "GPL-3.0-or-later",
+  "distinct_frame_times_and_indices_per_trajectory": 5,
+  "normal_animation_duration_ms": 240,
+  "independent_visual_reviews": [
+    {
+      "role": "research and 1x composition",
+      "images": 100,
+      "result": "PASS; no P0/P1",
+      "scope": "90 final static originals plus 10 error/mode captures"
+    },
+    {
+      "role": "layout and motion",
+      "images": 288,
+      "result": "PASS; no P0/P1",
+      "scope": "240 final motion frames plus 48 final 2x matrix originals"
+    },
+    {
+      "role": "music surfaces and HiDPI",
+      "images": 90,
+      "result": "PASS; no P0/P1",
+      "scope": "all final static 2x originals"
+    },
+    {
+      "role": "QA and provenance",
+      "images": 48,
+      "result": "PASS",
+      "scope": "final 1x matrix, source hashes, matched dimensions and actual renderer"
+    }
+  ],
+  "remaining_target_platform_acceptance": [
+    "Fedora 44/KDE/Wayland/PipeWire visual and real-account/music regression",
+    "actual modes, media widget and physical media keys",
+    "current full GNOME SDK 50 Flatpak build/runtime"
+  ],
+  "nonblocking_review_points": [
+    "ordinary long-title ellipsis at 420px; full details available",
+    "normal vertical scrolling for long track information"
+  ]
+}

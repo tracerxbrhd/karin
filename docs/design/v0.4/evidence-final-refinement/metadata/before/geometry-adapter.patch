@@ -1,0 +1,10 @@
+--- baseline-2e3-original/src/ui/music/design_tests.rs
++++ baseline-2e3-test-geometry-only/src/ui/music/design_tests.rs
+@@ -976,6 +976,7 @@
+     for (width, height, name) in [
+         (420, 720, "compact"),
+         (720, 650, "narrow"),
++        (850, 750, "reference"),
+         (900, 650, "medium"),
+         (1280, 800, "desktop"),
+         (1440, 900, "wide"),

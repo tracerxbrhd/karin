@@ -1,0 +1,686 @@
+{
+  "starting_commit": "a70bbf714e3d7ea775c03839eb01f0b1d9dd4f62",
+  "candidate": "candidate-9",
+  "test_executable_sha256": "1dfb1167c73fef4b7d8a2fdd2d7e917e360e1fc2611a314de43d7504c9be16c0",
+  "test_source_manifest_sha256": "42b3d65135bbd5703a3c7a7c36cafe4d7fdf9b1ac94913d17eee7a8f639a0636",
+  "capture_environment": {
+    "distribution": "Debian 13",
+    "display": "isolated Xvfb/Openbox",
+    "gtk": "4.18.6",
+    "libadwaita": "1.7.6",
+    "gstreamer": "1.26.2",
+    "webkitgtk": "2.54.0",
+    "requested_renderer": "ngl",
+    "actual_renderer": "see per-frame JSON",
+    "motion_LP_NUM_THREADS": 2,
+    "normal_animation_duration_ms": 240
+  },
+  "data": "synthetic loopback HTTP metadata, original generated raster covers and short generated media; no user data or Music streams",
+  "cold_first_use_accepted": false,
+  "fedora_owner_accepted": false,
+  "full_current_flatpak_accepted": false,
+  "selected_files": [
+    {
+      "file": "source.json",
+      "original": "candidate-9/source.json",
+      "scope": "frozen test source and executable",
+      "sha256": "42b3d65135bbd5703a3c7a7c36cafe4d7fdf9b1ac94913d17eee7a8f639a0636"
+    },
+    {
+      "file": "geometry/native-layout-scale1.jsonl",
+      "original": "candidate-9/static-scale1/native-layout-scale1.jsonl",
+      "scope": "actual native allocations/after-paint observations",
+      "sha256": "8260d8392ffb080a6686b8fc60689e1ec13f63a84b564888a65a894a22a91f02"
+    },
+    {
+      "file": "geometry/footer-first-start-scale1.json",
+      "original": "candidate-9/static-scale1/footer-first-start-scale1.json",
+      "scope": "actual native allocations/after-paint observations",
+      "sha256": "32d6ebf7b0db645a96cda57cf5448d11496532f89306a4687f6848c686758073"
+    },
+    {
+      "file": "geometry/footer-explicit-stop-scale1.json",
+      "original": "candidate-9/static-scale1/footer-explicit-stop-scale1.json",
+      "scope": "actual native allocations/after-paint observations",
+      "sha256": "6570e929d9b2be5951ccc46a295f06d20f65b72a2b8226417b77a23a8a19173e"
+    },
+    {
+      "file": "geometry/panel-motion-scale1.jsonl",
+      "original": "candidate-9/motion-scale1/panel-motion-scale1.jsonl",
+      "scope": "initialized normal 240ms motion; no cold acceptance",
+      "sha256": "6d9d286f695d11a560f4ecf68cefbde834a79b13049ecf9fe46319ff78811cae"
+    },
+    {
+      "file": "footer/footer-first-start-frame000-scale1.png",
+      "original": "candidate-9/static-scale1/footer-first-start-frame000-scale1.png",
+      "scope": "actual after-paint frame, not elapsed-time interpolation",
+      "sha256": "4f0306e527ebe5f33405a9f118f6e1ce03497082dc96c22286979b9d47246dd0"
+    },
+    {
+      "file": "footer/footer-first-start-frame004-scale1.png",
+      "original": "candidate-9/static-scale1/footer-first-start-frame004-scale1.png",
+      "scope": "actual after-paint frame, not elapsed-time interpolation",
+      "sha256": "a60d878e49b202c1ff4b7bc50d54bd40f17e59e31047c7120ac9cfc577ead08f"
+    },
+    {
+      "file": "footer/footer-first-start-frame005-scale1.png",
+      "original": "candidate-9/static-scale1/footer-first-start-frame005-scale1.png",
+      "scope": "actual after-paint frame, not elapsed-time interpolation",
+      "sha256": "feacd822d6721f64d516af53d271700730fb551cd93b8a6a04b08eef71a4942e"
+    },
+    {
+      "file": "footer/footer-first-start-frame008-scale1.png",
+      "original": "candidate-9/static-scale1/footer-first-start-frame008-scale1.png",
+      "scope": "actual after-paint frame, not elapsed-time interpolation",
+      "sha256": "f9c875e7c244c9b7b710acd1e76edaff38744f06b059acefe4ed6128927beca1"
+    },
+    {
+      "file": "footer/footer-explicit-stop-frame000-scale1.png",
+      "original": "candidate-9/static-scale1/footer-explicit-stop-frame000-scale1.png",
+      "scope": "actual after-paint frame, not elapsed-time interpolation",
+      "sha256": "deb6da30547812e6c5d1c3ee5f5d5dab947858d0aae784045b6e45b63cc74bf8"
+    },
+    {
+      "file": "footer/footer-explicit-stop-frame002-scale1.png",
+      "original": "candidate-9/static-scale1/footer-explicit-stop-frame002-scale1.png",
+      "scope": "actual after-paint frame, not elapsed-time interpolation",
+      "sha256": "e784f613a054fe43bdb79be9a1b93285003f5966b99ba4fa1161e5c5db620d57"
+    },
+    {
+      "file": "footer/footer-explicit-stop-frame004-scale1.png",
+      "original": "candidate-9/static-scale1/footer-explicit-stop-frame004-scale1.png",
+      "scope": "actual after-paint frame, not elapsed-time interpolation",
+      "sha256": "b87b960b47c3874b7304dd9933cb457ab1da99cd382045fad17192a426bce27c"
+    },
+    {
+      "file": "footer/footer-explicit-stop-frame005-scale1.png",
+      "original": "candidate-9/static-scale1/footer-explicit-stop-frame005-scale1.png",
+      "scope": "actual after-paint frame, not elapsed-time interpolation",
+      "sha256": "650e7b57785874c244087b696f5dec27dff35ac36ad11b28d9d0722cbe9ed19f"
+    },
+    {
+      "file": "footer/footer-explicit-stop-frame016-scale1.png",
+      "original": "candidate-9/static-scale1/footer-explicit-stop-frame016-scale1.png",
+      "scope": "actual after-paint frame, not elapsed-time interpolation",
+      "sha256": "06284b5cf96358a46c53cafcd5f294afdfbb0bbf86486c84f07b96bd76271152"
+    },
+    {
+      "file": "geometry/native-layout-scale2.jsonl",
+      "original": "candidate-9/static-scale2/native-layout-scale2.jsonl",
+      "scope": "actual native allocations/after-paint observations",
+      "sha256": "086ae5fde5cc11724af48971e95d4e96744a21fdd22d65583d1ae7118c68aeb0"
+    },
+    {
+      "file": "geometry/footer-first-start-scale2.json",
+      "original": "candidate-9/static-scale2/footer-first-start-scale2.json",
+      "scope": "actual native allocations/after-paint observations",
+      "sha256": "02caa5d17f2b38f4e96f7bcb29b7a97bee165804816dcdeff7f04bac55deabc4"
+    },
+    {
+      "file": "geometry/footer-explicit-stop-scale2.json",
+      "original": "candidate-9/static-scale2/footer-explicit-stop-scale2.json",
+      "scope": "actual native allocations/after-paint observations",
+      "sha256": "ccdd0f44481d6d00ae4801c9ba5ec1f43cccf721858f3f10c6e79d271b50d43e"
+    },
+    {
+      "file": "geometry/panel-motion-scale2.jsonl",
+      "original": "candidate-9/motion-scale2/panel-motion-scale2.jsonl",
+      "scope": "initialized normal 240ms motion; no cold acceptance",
+      "sha256": "08ffb52361534af4296bc5fb7f5853942a47d631c7cbb55a68e4b2350d707a43"
+    },
+    {
+      "file": "footer/footer-first-start-frame000-scale2.png",
+      "original": "candidate-9/static-scale2/footer-first-start-frame000-scale2.png",
+      "scope": "actual after-paint frame, not elapsed-time interpolation",
+      "sha256": "eabd956c2cd2a56f7a49ff9c6d7bbc55de8ae7541355824e6c66d0713c8c2034"
+    },
+    {
+      "file": "footer/footer-first-start-frame004-scale2.png",
+      "original": "candidate-9/static-scale2/footer-first-start-frame004-scale2.png",
+      "scope": "actual after-paint frame, not elapsed-time interpolation",
+      "sha256": "7a84aa1f67dde8a0377fa80301c3423e77730ebe217088f4ab9ef7b64a51f9bb"
+    },
+    {
+      "file": "footer/footer-first-start-frame005-scale2.png",
+      "original": "candidate-9/static-scale2/footer-first-start-frame005-scale2.png",
+      "scope": "actual after-paint frame, not elapsed-time interpolation",
+      "sha256": "934783cc6fa5ece1c201e1de0c307dbe0651d098aa7733df194b8e38beb62e56"
+    },
+    {
+      "file": "footer/footer-first-start-frame006-scale2.png",
+      "original": "candidate-9/static-scale2/footer-first-start-frame006-scale2.png",
+      "scope": "actual after-paint frame, not elapsed-time interpolation",
+      "sha256": "efa8bd182e945103b15c73d53d4bdb85c375a8954b7a8d147327ac4223d9a0db"
+    },
+    {
+      "file": "footer/footer-first-start-frame013-scale2.png",
+      "original": "candidate-9/static-scale2/footer-first-start-frame013-scale2.png",
+      "scope": "actual after-paint frame, not elapsed-time interpolation",
+      "sha256": "6aeeb2f01ab33b1600aef1fd7af27dd65c4d40a0c357189956c38d1116da1102"
+    },
+    {
+      "file": "footer/footer-explicit-stop-frame000-scale2.png",
+      "original": "candidate-9/static-scale2/footer-explicit-stop-frame000-scale2.png",
+      "scope": "actual after-paint frame, not elapsed-time interpolation",
+      "sha256": "942314b4a6106cb56e8c5ee52995fa512a40eb9615bc1a4818f2054ea8e33e62"
+    },
+    {
+      "file": "footer/footer-explicit-stop-frame002-scale2.png",
+      "original": "candidate-9/static-scale2/footer-explicit-stop-frame002-scale2.png",
+      "scope": "actual after-paint frame, not elapsed-time interpolation",
+      "sha256": "c2be5dbc70e9f213f25f1782bd4f24ed004c90e1d1ed1596e722c796cbdb5fa8"
+    },
+    {
+      "file": "footer/footer-explicit-stop-frame003-scale2.png",
+      "original": "candidate-9/static-scale2/footer-explicit-stop-frame003-scale2.png",
+      "scope": "actual after-paint frame, not elapsed-time interpolation",
+      "sha256": "a6e521887d6c6324cef4adc7f67fd26080f44ec52be0c8eb36c1795f7cfe1ae9"
+    },
+    {
+      "file": "footer/footer-explicit-stop-frame005-scale2.png",
+      "original": "candidate-9/static-scale2/footer-explicit-stop-frame005-scale2.png",
+      "scope": "actual after-paint frame, not elapsed-time interpolation",
+      "sha256": "a6e8f7dfe9cecf8147dbafe1d9c8c51a0734b545ede2cecee91bcbbfc7465790"
+    },
+    {
+      "file": "footer/footer-explicit-stop-frame012-scale2.png",
+      "original": "candidate-9/static-scale2/footer-explicit-stop-frame012-scale2.png",
+      "scope": "actual after-paint frame, not elapsed-time interpolation",
+      "sha256": "13f0a20782661c3c821fa9ebd7451bb50cfc59f80b7b386ea5e94c3336c2d7a2"
+    },
+    {
+      "file": "current/matrix-owner-wide-panel-closed-scale1-dark.png",
+      "original": "candidate-9/static-scale1/matrix-owner-wide-panel-closed-scale1-dark.png",
+      "scope": "actual synthetic populated GTK capture; unchanged pixels",
+      "sha256": "2ac8ac0805ed6f55ec10b61d6b483a1f00e466363903e21dbd5d3ef8961fa661"
+    },
+    {
+      "file": "current/matrix-owner-wide-panel-track-scale1-dark.png",
+      "original": "candidate-9/static-scale1/matrix-owner-wide-panel-track-scale1-dark.png",
+      "scope": "actual synthetic populated GTK capture; unchanged pixels",
+      "sha256": "ead27d3d2fa1294da7b1002eef4983b576aaa605f164513b632c4f44bcc70b3f"
+    },
+    {
+      "file": "current/matrix-owner-wide-panel-queue-scale1-light.png",
+      "original": "candidate-9/static-scale1/matrix-owner-wide-panel-queue-scale1-light.png",
+      "scope": "actual synthetic populated GTK capture; unchanged pixels",
+      "sha256": "4f4803643f074baf2e5cf33842ab8d0ccad2806e5351c5242cfcda85582a7e1a"
+    },
+    {
+      "file": "current/matrix-medium-panel-track-scale1-dark.png",
+      "original": "candidate-9/static-scale1/matrix-medium-panel-track-scale1-dark.png",
+      "scope": "actual synthetic populated GTK capture; unchanged pixels",
+      "sha256": "f0b6d49d946e6c14778b5edd83774e407c31d086f13d8888ab182fb67d531acd"
+    },
+    {
+      "file": "current/matrix-narrow-panel-track-scale1-light.png",
+      "original": "candidate-9/static-scale1/matrix-narrow-panel-track-scale1-light.png",
+      "scope": "actual synthetic populated GTK capture; unchanged pixels",
+      "sha256": "95b317a2e7ca9bddc1f15efc7f8c8456282c9a5c2be61f8420fd3613075586a6"
+    },
+    {
+      "file": "current/matrix-compact-panel-track-scale1-dark.png",
+      "original": "candidate-9/static-scale1/matrix-compact-panel-track-scale1-dark.png",
+      "scope": "actual synthetic populated GTK capture; unchanged pixels",
+      "sha256": "06d3a8f1254c5a23d4b13162bfdfb32d1592eee30fc6571b9f63c7c6dcb23f8a"
+    },
+    {
+      "file": "current/matrix-maximized-panel-queue-scale1-dark.png",
+      "original": "candidate-9/static-scale1/matrix-maximized-panel-queue-scale1-dark.png",
+      "scope": "actual synthetic populated GTK capture; unchanged pixels",
+      "sha256": "34f6320b78d64c2219a340a97ef7c2f42a520fa8328f6c6d3a936e7c9ed8754b"
+    },
+    {
+      "file": "current/matrix-large-panel-closed-scale1-light.png",
+      "original": "candidate-9/static-scale1/matrix-large-panel-closed-scale1-light.png",
+      "scope": "actual synthetic populated GTK capture; unchanged pixels",
+      "sha256": "54b5565fe8778fdd0df1887d54ce5f1ff7f40f98eb106a23c0a3d5fbc9b3b18b"
+    },
+    {
+      "file": "current/surface-player-hidden-wide-scale1-dark.png",
+      "original": "candidate-9/static-scale1/surface-player-hidden-wide-scale1-dark.png",
+      "scope": "actual synthetic populated GTK capture; unchanged pixels",
+      "sha256": "28f37a65726b48acdfd7d5b779c499a0258188deac3ea331f2d586ac95782041"
+    },
+    {
+      "file": "current/surface-player-hidden-compact-scale1-light.png",
+      "original": "candidate-9/static-scale1/surface-player-hidden-compact-scale1-light.png",
+      "scope": "actual synthetic populated GTK capture; unchanged pixels",
+      "sha256": "346f289a8cb6276c85c2b9a6a4f886676b2c15a68615d774370160995b68a532"
+    },
+    {
+      "file": "current/surface-player-visible-paused-scale1-dark.png",
+      "original": "candidate-9/static-scale1/surface-player-visible-paused-scale1-dark.png",
+      "scope": "actual synthetic populated GTK capture; unchanged pixels",
+      "sha256": "f3743736859c20ab5f0024098a519baf38fd8e6363fc67a82900e314acce6715"
+    },
+    {
+      "file": "current/surface-player-hidden-after-stop-scale1-dark.png",
+      "original": "candidate-9/static-scale1/surface-player-hidden-after-stop-scale1-dark.png",
+      "scope": "actual synthetic populated GTK capture; unchanged pixels",
+      "sha256": "cee75e526ec3215a0f4d914971174b0e834578940eb0b181004ffd1b631466a0"
+    },
+    {
+      "file": "current/surface-liked-tab-scale1-dark.png",
+      "original": "candidate-9/static-scale1/surface-liked-tab-scale1-dark.png",
+      "scope": "actual synthetic populated GTK capture; unchanged pixels",
+      "sha256": "3aa6b20a9a0f55dca8b6c575438443896928d8c03a2660514e849ae2cddeee69"
+    },
+    {
+      "file": "current/surface-wave-placeholder-scale1-light.png",
+      "original": "candidate-9/static-scale1/surface-wave-placeholder-scale1-light.png",
+      "scope": "actual synthetic populated GTK capture; unchanged pixels",
+      "sha256": "6d937b1a002582f878fe47c41819982d9b462629aa4a3e214559d186b9e7e692"
+    },
+    {
+      "file": "current/surface-playlists-tab-scale1-dark.png",
+      "original": "candidate-9/static-scale1/surface-playlists-tab-scale1-dark.png",
+      "scope": "actual synthetic populated GTK capture; unchanged pixels",
+      "sha256": "fddaf5900021c62954b2e174ce7a1d74ee4d2384a908835b2a354f6e980a83ea"
+    },
+    {
+      "file": "current/surface-unified-search-scale1-light.png",
+      "original": "candidate-9/static-scale1/surface-unified-search-scale1-light.png",
+      "scope": "actual synthetic populated GTK capture; unchanged pixels",
+      "sha256": "8693be86e913749fecf35155739e95facea2db839ede452a8fd9672cfcfb0de7"
+    },
+    {
+      "file": "current/surface-search-error-retry-scale1-dark.png",
+      "original": "candidate-9/static-scale1/surface-search-error-retry-scale1-dark.png",
+      "scope": "actual synthetic populated GTK capture; unchanged pixels",
+      "sha256": "1ad2fb6bddd6e7a649141daf3fc3797009c74626560143a5060c60c703ae3833"
+    },
+    {
+      "file": "current/surface-empty-library-scale1-light.png",
+      "original": "candidate-9/static-scale1/surface-empty-library-scale1-light.png",
+      "scope": "actual synthetic populated GTK capture; unchanged pixels",
+      "sha256": "75daea108e522544f24d26f729253722bcaef35cb01dd71e66ad9d962f3a8d1e"
+    },
+    {
+      "file": "current/surface-long-metadata-missing-art-unavailable-partial-scale1-dark.png",
+      "original": "candidate-9/static-scale1/surface-long-metadata-missing-art-unavailable-partial-scale1-dark.png",
+      "scope": "actual synthetic populated GTK capture; unchanged pixels",
+      "sha256": "8be6db532719aa25f0b482d78177c8fba1a905a4811ec17ef218d2bc42823a74"
+    },
+    {
+      "file": "current/surface-keyboard-focus-scale1-light.png",
+      "original": "candidate-9/static-scale1/surface-keyboard-focus-scale1-light.png",
+      "scope": "actual synthetic populated GTK capture; unchanged pixels",
+      "sha256": "5ce83d1697011bf49fac911ac8e97fb07ba0c14baf0e00b7f24b5fd2704cffc7"
+    },
+    {
+      "file": "current/matrix-owner-wide-panel-track-scale2-dark.png",
+      "original": "candidate-9/static-scale2/matrix-owner-wide-panel-track-scale2-dark.png",
+      "scope": "actual synthetic populated GTK capture; unchanged pixels",
+      "sha256": "35498f26892a2b584a4e247bfcbffd81f587ea040c709c99289c0c1b241ae4d1"
+    },
+    {
+      "file": "current/matrix-medium-panel-track-scale2-light.png",
+      "original": "candidate-9/static-scale2/matrix-medium-panel-track-scale2-light.png",
+      "scope": "actual synthetic populated GTK capture; unchanged pixels",
+      "sha256": "57bc024a4a8ac0adc358575f9b2199dc9915779415a77e0f976d6a41742ce9aa"
+    },
+    {
+      "file": "current/matrix-narrow-panel-track-scale2-light.png",
+      "original": "candidate-9/static-scale2/matrix-narrow-panel-track-scale2-light.png",
+      "scope": "actual synthetic populated GTK capture; unchanged pixels",
+      "sha256": "8ce97b4346a6bb2c0f1ddd143035aefc615e4be3f9ea32406af27ce1d04cc587"
+    },
+    {
+      "file": "current/matrix-compact-panel-track-scale2-light.png",
+      "original": "candidate-9/static-scale2/matrix-compact-panel-track-scale2-light.png",
+      "scope": "actual synthetic populated GTK capture; unchanged pixels",
+      "sha256": "4d9e1fc7a25a8a6b2ca4c9a5d70c5e6db9827ad3eba2d1c2964ae9d4fc710ec4"
+    },
+    {
+      "file": "current/matrix-wide-panel-queue-scale2-dark.png",
+      "original": "candidate-9/static-scale2/matrix-wide-panel-queue-scale2-dark.png",
+      "scope": "actual synthetic populated GTK capture; unchanged pixels",
+      "sha256": "0e50d06a1593dfd373e1261735c9c126441d04e02011b1e3f0affc98d5deabbd"
+    },
+    {
+      "file": "current/matrix-maximized-panel-track-scale2-light.png",
+      "original": "candidate-9/static-scale2/matrix-maximized-panel-track-scale2-light.png",
+      "scope": "actual synthetic populated GTK capture; unchanged pixels",
+      "sha256": "733e9689ef1605c4651e99b3aba1c335ed55eb3795b93ef66be84199e91c8659"
+    },
+    {
+      "file": "current/surface-player-hidden-wide-scale2-dark.png",
+      "original": "candidate-9/static-scale2/surface-player-hidden-wide-scale2-dark.png",
+      "scope": "actual synthetic populated GTK capture; unchanged pixels",
+      "sha256": "c7d6b69278bc90d84ce9834e6bebb0189ea6655267e2f2bbbc200c493af9790f"
+    },
+    {
+      "file": "current/surface-playlists-tab-scale2-light.png",
+      "original": "candidate-9/static-scale2/surface-playlists-tab-scale2-light.png",
+      "scope": "actual synthetic populated GTK capture; unchanged pixels",
+      "sha256": "cbc45d7692f47cc122edc94231b66a5ab1ec5b2d45603ce6efb00350cfb212b4"
+    },
+    {
+      "file": "continuous/search-continuous-append-retry-light.png",
+      "original": "candidate-9/functional/scale1/native_search_retry_normalized_results_and_density/search-continuous-append-retry-light.png",
+      "scope": "actual wheel/Retry fixture; same final source and executable",
+      "sha256": "56380376c16499a0d9269aeab8c1614d455f3c05477ff74850b9c289c3d3842b"
+    },
+    {
+      "file": "continuous/search-continuous-sparse-wheel-light.png",
+      "original": "candidate-9/functional/scale1/native_search_retry_normalized_results_and_density/search-continuous-sparse-wheel-light.png",
+      "scope": "actual wheel/Retry fixture; same final source and executable",
+      "sha256": "7729ca2becfe07b80d1127acfc33d0ac7a11e31bae46951beb774bbbfac8ef69"
+    },
+    {
+      "file": "continuous/search-continuous-append-retry-dark.png",
+      "original": "candidate-9/functional/scale1/native_search_retry_normalized_results_and_density/search-continuous-append-retry-dark.png",
+      "scope": "actual wheel/Retry fixture; same final source and executable",
+      "sha256": "aff2c3a91fb6b307060b9074de8060f4ba35d18946adfec6b7cbdb31377302e7"
+    },
+    {
+      "file": "continuous/search-continuous-sparse-wheel-dark.png",
+      "original": "candidate-9/functional/scale1/native_search_retry_normalized_results_and_density/search-continuous-sparse-wheel-dark.png",
+      "scope": "actual wheel/Retry fixture; same final source and executable",
+      "sha256": "8e0db9f86c0ecbfd78b92d17d235034a5d957a05a9b1425c7184e1106d9eb31d"
+    },
+    {
+      "file": "before/matrix-owner-wide-panel-closed-scale1-dark.png",
+      "original": "baseline-a70/before/scale1/matrix-owner-wide-panel-closed-scale1-dark.png",
+      "scope": "unmodified a70 production and test harness",
+      "sha256": "743689e0822c2a96d45e85cf2a255779243b328219e14028e010e12d72a720be"
+    },
+    {
+      "file": "before/matrix-owner-wide-panel-track-scale1-dark.png",
+      "original": "baseline-a70/before/scale1/matrix-owner-wide-panel-track-scale1-dark.png",
+      "scope": "unmodified a70 production and test harness",
+      "sha256": "f74dd4b2f03a056f43a06b1cc2e835b4c806ff61828407460d38bdb21f7db804"
+    },
+    {
+      "file": "before/matrix-medium-panel-track-scale1-dark.png",
+      "original": "baseline-a70/before/scale1/matrix-medium-panel-track-scale1-dark.png",
+      "scope": "unmodified a70 production and test harness",
+      "sha256": "c13ccd4c785fb1dca9274ec32ac3eaf4561e5b45f20e766fe455f773160e3df3"
+    },
+    {
+      "file": "before/matrix-compact-panel-track-scale1-dark.png",
+      "original": "baseline-a70/before/scale1/matrix-compact-panel-track-scale1-dark.png",
+      "scope": "unmodified a70 production and test harness",
+      "sha256": "590e33a68da390775489ff6d7ab8979890cfe8802b7d4ea6a00150dde455b450"
+    },
+    {
+      "file": "geometry/observed-wide-dark-track-opening-scale1.jsonl",
+      "original": "candidate-9/motion-scale1/observed-wide-dark-track-opening-scale1.jsonl",
+      "scope": "raw normal-motion observations, distinct from graphics initialization",
+      "sha256": "e5cf78ca3e6844bed9cddf165df7bdc96de32c6076885a1bbfdd2d58a38ce9e3"
+    },
+    {
+      "file": "motion/animation-wide-dark-track-opening-000-scale1.png",
+      "original": "candidate-9/motion-scale1/animation-wide-dark-track-opening-000-scale1.png",
+      "scope": "exact measured native frame; no compositing or retiming",
+      "sha256": "335b81b86d8b15f1b1e8c89e04362e5cf974bc40e8a6778b438169cdcc4708f5"
+    },
+    {
+      "file": "motion/animation-wide-dark-track-opening-025-scale1.png",
+      "original": "candidate-9/motion-scale1/animation-wide-dark-track-opening-025-scale1.png",
+      "scope": "exact measured native frame; no compositing or retiming",
+      "sha256": "c6296f5237be02844bd18b2fd25e8acbaff2fb8f019e0b30e101b521c4291a9e"
+    },
+    {
+      "file": "motion/animation-wide-dark-track-opening-050-scale1.png",
+      "original": "candidate-9/motion-scale1/animation-wide-dark-track-opening-050-scale1.png",
+      "scope": "exact measured native frame; no compositing or retiming",
+      "sha256": "a0ec3459ee9e60e23aef53da02fe7182baf583e57c446041a974e254b2a25aab"
+    },
+    {
+      "file": "motion/animation-wide-dark-track-opening-075-scale1.png",
+      "original": "candidate-9/motion-scale1/animation-wide-dark-track-opening-075-scale1.png",
+      "scope": "exact measured native frame; no compositing or retiming",
+      "sha256": "c34c7abdba62f7dd6c61f705933a70e9d3ecd4ad09227ebb7ccd0c7e45c26dc7"
+    },
+    {
+      "file": "motion/animation-wide-dark-track-opening-100-scale1.png",
+      "original": "candidate-9/motion-scale1/animation-wide-dark-track-opening-100-scale1.png",
+      "scope": "exact measured native frame; no compositing or retiming",
+      "sha256": "2c76e2f11b23110c9749f7b5c1fb99d5f3ae1c375b4e4a938e70381296673a1a"
+    },
+    {
+      "file": "geometry/observed-wide-dark-track-closing-scale1.jsonl",
+      "original": "candidate-9/motion-scale1/observed-wide-dark-track-closing-scale1.jsonl",
+      "scope": "raw normal-motion observations, distinct from graphics initialization",
+      "sha256": "22e2a88a39566d5b66b8753dbb5e23e45e4b01ee92f7d434f62f20ee5c20e004"
+    },
+    {
+      "file": "motion/animation-wide-dark-track-closing-000-scale1.png",
+      "original": "candidate-9/motion-scale1/animation-wide-dark-track-closing-000-scale1.png",
+      "scope": "exact measured native frame; no compositing or retiming",
+      "sha256": "9196566edc8597260ea90b7262a5c02bae381f1a536023e7491fecf31df5a9c1"
+    },
+    {
+      "file": "motion/animation-wide-dark-track-closing-025-scale1.png",
+      "original": "candidate-9/motion-scale1/animation-wide-dark-track-closing-025-scale1.png",
+      "scope": "exact measured native frame; no compositing or retiming",
+      "sha256": "cd46efe49adc7d67c911e0dd335ffce3dc57bcd9c6c7e39ffffc180bfc29d1d1"
+    },
+    {
+      "file": "motion/animation-wide-dark-track-closing-050-scale1.png",
+      "original": "candidate-9/motion-scale1/animation-wide-dark-track-closing-050-scale1.png",
+      "scope": "exact measured native frame; no compositing or retiming",
+      "sha256": "7682fc88f2cfb2a926f38801a2a80d0822504019cdaf62359b463e77c97719c1"
+    },
+    {
+      "file": "motion/animation-wide-dark-track-closing-075-scale1.png",
+      "original": "candidate-9/motion-scale1/animation-wide-dark-track-closing-075-scale1.png",
+      "scope": "exact measured native frame; no compositing or retiming",
+      "sha256": "cf1c52fce4678b68da58815b7d4963632af0a5b551cb13b2568112608d0c02f0"
+    },
+    {
+      "file": "motion/animation-wide-dark-track-closing-100-scale1.png",
+      "original": "candidate-9/motion-scale1/animation-wide-dark-track-closing-100-scale1.png",
+      "scope": "exact measured native frame; no compositing or retiming",
+      "sha256": "2c76e2f11b23110c9749f7b5c1fb99d5f3ae1c375b4e4a938e70381296673a1a"
+    },
+    {
+      "file": "geometry/observed-compact-light-queue-opening-scale2.jsonl",
+      "original": "candidate-9/motion-scale2/observed-compact-light-queue-opening-scale2.jsonl",
+      "scope": "raw normal-motion observations, distinct from graphics initialization",
+      "sha256": "77609597ce54b7385d5d32e319080c8bd172bddf2d18591df9286100b631584b"
+    },
+    {
+      "file": "motion/animation-compact-light-queue-opening-000-scale2.png",
+      "original": "candidate-9/motion-scale2/animation-compact-light-queue-opening-000-scale2.png",
+      "scope": "exact measured native frame; no compositing or retiming",
+      "sha256": "1ff1c6dd4293bd295c8c80600c35cd24625022a42399773b5c65d58e3c0965cf"
+    },
+    {
+      "file": "motion/animation-compact-light-queue-opening-025-scale2.png",
+      "original": "candidate-9/motion-scale2/animation-compact-light-queue-opening-025-scale2.png",
+      "scope": "exact measured native frame; no compositing or retiming",
+      "sha256": "e1becb88046eb6c685595e32f88e73bdd1833a4030a6dec3a2cb28e9890fa8cf"
+    },
+    {
+      "file": "motion/animation-compact-light-queue-opening-050-scale2.png",
+      "original": "candidate-9/motion-scale2/animation-compact-light-queue-opening-050-scale2.png",
+      "scope": "exact measured native frame; no compositing or retiming",
+      "sha256": "9b53cd605e3876000712ede71d31e7ebefd3b20d621f922f8e36b106706441ca"
+    },
+    {
+      "file": "motion/animation-compact-light-queue-opening-075-scale2.png",
+      "original": "candidate-9/motion-scale2/animation-compact-light-queue-opening-075-scale2.png",
+      "scope": "exact measured native frame; no compositing or retiming",
+      "sha256": "4f378034eab5150d0ae3b34d10b12769eedc8d4d54ee5a396780271c130bd2ca"
+    },
+    {
+      "file": "motion/animation-compact-light-queue-opening-100-scale2.png",
+      "original": "candidate-9/motion-scale2/animation-compact-light-queue-opening-100-scale2.png",
+      "scope": "exact measured native frame; no compositing or retiming",
+      "sha256": "e618b14c2cf0249d577b27eef084c7d672367ab89cce433d0865c593cfda6761"
+    },
+    {
+      "file": "geometry/observed-compact-light-queue-closing-scale2.jsonl",
+      "original": "candidate-9/motion-scale2/observed-compact-light-queue-closing-scale2.jsonl",
+      "scope": "raw normal-motion observations, distinct from graphics initialization",
+      "sha256": "a91624a073167fcaa05d82c17a871c938df73e9e470888e23434aa01fd60611f"
+    },
+    {
+      "file": "motion/animation-compact-light-queue-closing-000-scale2.png",
+      "original": "candidate-9/motion-scale2/animation-compact-light-queue-closing-000-scale2.png",
+      "scope": "exact measured native frame; no compositing or retiming",
+      "sha256": "487d0d7890807e2d904a2dff8168a11e886dbdead445e000c77ed4047516d45f"
+    },
+    {
+      "file": "motion/animation-compact-light-queue-closing-025-scale2.png",
+      "original": "candidate-9/motion-scale2/animation-compact-light-queue-closing-025-scale2.png",
+      "scope": "exact measured native frame; no compositing or retiming",
+      "sha256": "9b36febc242df021091a06da6c81a81c307c3f26f0b3fa065b71d6198565f872"
+    },
+    {
+      "file": "motion/animation-compact-light-queue-closing-050-scale2.png",
+      "original": "candidate-9/motion-scale2/animation-compact-light-queue-closing-050-scale2.png",
+      "scope": "exact measured native frame; no compositing or retiming",
+      "sha256": "71d4b2a032fcac37ebb4ba59db27acfa9148af4472f52ba525f33b801dab8c85"
+    },
+    {
+      "file": "motion/animation-compact-light-queue-closing-075-scale2.png",
+      "original": "candidate-9/motion-scale2/animation-compact-light-queue-closing-075-scale2.png",
+      "scope": "exact measured native frame; no compositing or retiming",
+      "sha256": "edd3cab31d402bb0f7051b2f624141df83701f131c38e1a95d14e9840a2c4b87"
+    },
+    {
+      "file": "motion/animation-compact-light-queue-closing-100-scale2.png",
+      "original": "candidate-9/motion-scale2/animation-compact-light-queue-closing-100-scale2.png",
+      "scope": "exact measured native frame; no compositing or retiming",
+      "sha256": "e618b14c2cf0249d577b27eef084c7d672367ab89cce433d0865c593cfda6761"
+    },
+    {
+      "file": "quality-summary.json",
+      "original": "candidate-9/e-complete-native-proof.json",
+      "scope": "independent numeric audit, all original current-image hashes",
+      "sha256": "71bc99218a7c97f94d269057b0e745ea2dbe8cc26f93afaf2f6c7b847cf2fc17"
+    },
+    {
+      "file": "regular-result.json",
+      "original": "candidate-9/regular-result.json",
+      "scope": "both compiler matrices and source/log fingerprints",
+      "sha256": "2d681505288c2aff5fa14b5bccb79ee0c9e0e5117704b91183217e009c800e15"
+    },
+    {
+      "file": "failures/c7-default-proof-status.json",
+      "original": "candidate-7/e-current-proof-status.json",
+      "scope": "retained failed/default-environment checkpoint; never substituted with a later PASS",
+      "sha256": "9fce1bd6f1096dd3dc31f675a8e0c2c648ba231e86d1e70925107646fce07f6b"
+    },
+    {
+      "file": "failures/c7-default-compact-light-queue-closing-scale2.jsonl",
+      "original": "candidate-7/motion-scale2/observed-compact-light-queue-closing-scale2.jsonl",
+      "scope": "retained failed/default-environment checkpoint; never substituted with a later PASS",
+      "sha256": "c6aef888f286c2047ab06f71de78706f1ee7749fc0cc877fd2c27ffa31dcb2f8"
+    },
+    {
+      "file": "failures/a70-default-wide-light-track-closing-scale2.jsonl",
+      "original": "baseline-a70/before/scale2/observed-wide-light-track-closing-scale2.jsonl",
+      "scope": "retained failed/default-environment checkpoint; never substituted with a later PASS",
+      "sha256": "7fd6fe77909631470403623f0c398c6b526deba7bd0f87fd1ae845f83946f4d3"
+    },
+    {
+      "file": "native-execution.json",
+      "original": "candidate-9/native-execution.json",
+      "scope": "exact commands/environment/fresh-profile ledger and four process exit results",
+      "sha256": "82ecfa4a2e036fd4e29b02f6e3b46ac441f0ee50b05373047a24475f268dab2a"
+    },
+    {
+      "file": "normal-damage/proof.json",
+      "original": "candidate-9/e-default-damage-proof.json",
+      "scope": "one controlled pair, unchanged source/240ms/phase/geometry guards; ordinary damage tracking",
+      "sha256": "0a014d68a2635f5d3de754578770ed0c23927419f3e5708dbfb1d8176f0b987f"
+    },
+    {
+      "file": "normal-damage/execution.json",
+      "original": "candidate-9/normal-damage-control-execution.json",
+      "scope": "exact environment/commands and single process outcome per scale",
+      "sha256": "6ed1d1f1a03745bf8db5e32dd9b070099ef61e5c3a7cedbc5dbdbdbf64180e34"
+    },
+    {
+      "file": "normal-damage/observed-wide-light-queue-opening-scale2.jsonl",
+      "original": "candidate-9/motion-scale2-normal-damage/observed-wide-light-queue-opening-scale2.jsonl",
+      "scope": "actual raw observations for the separately controlled environment",
+      "sha256": "b952dd780e4e4df95bff6c4697dcd7f5c7ae73d09ac55b6b7a134456510daaf3"
+    },
+    {
+      "file": "normal-damage/animation-wide-light-queue-opening-000-scale2.png",
+      "original": "candidate-9/motion-scale2-normal-damage/animation-wide-light-queue-opening-000-scale2.png",
+      "scope": "untouched real after-paint scene-node PNG, ordinary damage control",
+      "sha256": "da7b0c959328ebdff5423ba506fa7bd7d21b38bd2d2899d360c04dfaa4bb7980"
+    },
+    {
+      "file": "normal-damage/animation-wide-light-queue-opening-025-scale2.png",
+      "original": "candidate-9/motion-scale2-normal-damage/animation-wide-light-queue-opening-025-scale2.png",
+      "scope": "untouched real after-paint scene-node PNG, ordinary damage control",
+      "sha256": "dad353c6c96365598215c6f7f8687f5b3ca792b7ccf6546e2eaa20d94f84e2c6"
+    },
+    {
+      "file": "normal-damage/animation-wide-light-queue-opening-050-scale2.png",
+      "original": "candidate-9/motion-scale2-normal-damage/animation-wide-light-queue-opening-050-scale2.png",
+      "scope": "untouched real after-paint scene-node PNG, ordinary damage control",
+      "sha256": "b0dcbf11b5fcc93de89463faf12e97a27bab5e4329e7da23967037771b596ee8"
+    },
+    {
+      "file": "normal-damage/animation-wide-light-queue-opening-075-scale2.png",
+      "original": "candidate-9/motion-scale2-normal-damage/animation-wide-light-queue-opening-075-scale2.png",
+      "scope": "untouched real after-paint scene-node PNG, ordinary damage control",
+      "sha256": "f0d9e5479f38bb8c5b9f8f72dfc856d101e718a7df7475ac7e5000377e820ff1"
+    },
+    {
+      "file": "normal-damage/animation-wide-light-queue-opening-100-scale2.png",
+      "original": "candidate-9/motion-scale2-normal-damage/animation-wide-light-queue-opening-100-scale2.png",
+      "scope": "untouched real after-paint scene-node PNG, ordinary damage control",
+      "sha256": "6ba2c3d3d94d64ed8e513dfd101e72bf6482cec3cc1dbda31d01a8e170b10d47"
+    },
+    {
+      "file": "normal-damage/observed-wide-light-queue-closing-scale2.jsonl",
+      "original": "candidate-9/motion-scale2-normal-damage/observed-wide-light-queue-closing-scale2.jsonl",
+      "scope": "actual raw observations for the separately controlled environment",
+      "sha256": "b1032a865d97dc1118d768efd29cf1309eb8ea43760d654248aae753a8206c33"
+    },
+    {
+      "file": "normal-damage/animation-wide-light-queue-closing-000-scale2.png",
+      "original": "candidate-9/motion-scale2-normal-damage/animation-wide-light-queue-closing-000-scale2.png",
+      "scope": "untouched real after-paint scene-node PNG, ordinary damage control",
+      "sha256": "360f5fd9e6ad9d52a9427ec8de6afb5296166572aac6591938ee64009b70c1b1"
+    },
+    {
+      "file": "normal-damage/animation-wide-light-queue-closing-025-scale2.png",
+      "original": "candidate-9/motion-scale2-normal-damage/animation-wide-light-queue-closing-025-scale2.png",
+      "scope": "untouched real after-paint scene-node PNG, ordinary damage control",
+      "sha256": "c1f2d447e5bb6ce77f21faa86e08f228ee995e78ce302eba88c100095e1d1d4b"
+    },
+    {
+      "file": "normal-damage/animation-wide-light-queue-closing-050-scale2.png",
+      "original": "candidate-9/motion-scale2-normal-damage/animation-wide-light-queue-closing-050-scale2.png",
+      "scope": "untouched real after-paint scene-node PNG, ordinary damage control",
+      "sha256": "25ff4c761be522226138ee9fb09bf9d77b804f40db887102c5f061244bac439e"
+    },
+    {
+      "file": "normal-damage/animation-wide-light-queue-closing-075-scale2.png",
+      "original": "candidate-9/motion-scale2-normal-damage/animation-wide-light-queue-closing-075-scale2.png",
+      "scope": "untouched real after-paint scene-node PNG, ordinary damage control",
+      "sha256": "f57360c19b3189facc9893cd71941adb90e701b2baf797d37b00b7df1eb4187c"
+    },
+    {
+      "file": "normal-damage/animation-wide-light-queue-closing-100-scale2.png",
+      "original": "candidate-9/motion-scale2-normal-damage/animation-wide-light-queue-closing-100-scale2.png",
+      "scope": "untouched real after-paint scene-node PNG, ordinary damage control",
+      "sha256": "6ba2c3d3d94d64ed8e513dfd101e72bf6482cec3cc1dbda31d01a8e170b10d47"
+    },
+    {
+      "file": "failures/ci-144492f-push.json",
+      "original": "ci-144492f/push-native-msrv-failed.log",
+      "scope": "failed hosted observation extracted unchanged from the bounded native diagnostic; no successful run substitution",
+      "sha256": "17e63eab7b712add4800d973159210a56c28132fdf2439a0e5c7b8d9d0859e9f"
+    },
+    {
+      "file": "failures/ci-144492f-pull_request.json",
+      "original": "ci-144492f/pr-native-stable-failed.log",
+      "scope": "failed hosted observation extracted unchanged from the bounded native diagnostic; no successful run substitution",
+      "sha256": "3efac8e3934bcc7bc66081f770e6060082968fdaa1455e945791ada7cd4b226a"
+    }
+  ],
+  "verified_application_commit": "f880dc098fc4bb63fd117574748f892ca7e60683",
+  "all_frozen_sources_equal_committed_git_objects": true
+}

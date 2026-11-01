@@ -1,0 +1,213 @@
+{
+  "after_paint_count": 13,
+  "animations_enabled": true,
+  "cold_first_use_latency_accepted": false,
+  "frames": [
+    {
+      "child": [
+        12.0,
+        818.0,
+        1406.0,
+        64.0
+      ],
+      "child_revealed": true,
+      "frame_time": 34194878972,
+      "has_render_node": true,
+      "height": 80,
+      "native_frame_index": 0,
+      "requested": true
+    },
+    {
+      "child": [
+        12.0,
+        818.0,
+        1406.0,
+        64.0
+      ],
+      "child_revealed": true,
+      "frame_time": 34194912306,
+      "has_render_node": true,
+      "height": 80,
+      "native_frame_index": 1,
+      "requested": false
+    },
+    {
+      "child": [
+        12.0,
+        833.0,
+        1406.0,
+        64.0
+      ],
+      "child_revealed": true,
+      "frame_time": 34194928973,
+      "has_render_node": true,
+      "height": 65,
+      "native_frame_index": 2,
+      "requested": false
+    },
+    {
+      "child": [
+        12.0,
+        858.0,
+        1406.0,
+        64.0
+      ],
+      "child_revealed": true,
+      "frame_time": 34194962307,
+      "has_render_node": true,
+      "height": 40,
+      "native_frame_index": 3,
+      "requested": false
+    },
+    {
+      "child": [
+        12.0,
+        867.0,
+        1406.0,
+        64.0
+      ],
+      "child_revealed": true,
+      "frame_time": 34194978974,
+      "has_render_node": true,
+      "height": 31,
+      "native_frame_index": 4,
+      "requested": false
+    },
+    {
+      "child": [
+        12.0,
+        882.0,
+        1406.0,
+        64.0
+      ],
+      "child_revealed": true,
+      "frame_time": 34195012308,
+      "has_render_node": true,
+      "height": 16,
+      "native_frame_index": 5,
+      "requested": false
+    },
+    {
+      "child": [
+        12.0,
+        887.0,
+        1406.0,
+        64.0
+      ],
+      "child_revealed": true,
+      "frame_time": 34195028975,
+      "has_render_node": true,
+      "height": 11,
+      "native_frame_index": 6,
+      "requested": false
+    },
+    {
+      "child": [
+        12.0,
+        893.0,
+        1406.0,
+        64.0
+      ],
+      "child_revealed": true,
+      "frame_time": 34195062309,
+      "has_render_node": true,
+      "height": 5,
+      "native_frame_index": 7,
+      "requested": false
+    },
+    {
+      "child": [
+        12.0,
+        895.0,
+        1406.0,
+        64.0
+      ],
+      "child_revealed": true,
+      "frame_time": 34195078976,
+      "has_render_node": true,
+      "height": 3,
+      "native_frame_index": 8,
+      "requested": false
+    },
+    {
+      "child": [
+        12.0,
+        896.0,
+        1406.0,
+        64.0
+      ],
+      "child_revealed": true,
+      "frame_time": 34195095643,
+      "has_render_node": true,
+      "height": 2,
+      "native_frame_index": 9,
+      "requested": false
+    },
+    {
+      "child": [
+        12.0,
+        897.0,
+        1406.0,
+        64.0
+      ],
+      "child_revealed": true,
+      "frame_time": 34195128977,
+      "has_render_node": true,
+      "height": 1,
+      "native_frame_index": 10,
+      "requested": false
+    },
+    {
+      "child": [
+        12.0,
+        898.0,
+        1406.0,
+        64.0
+      ],
+      "child_revealed": false,
+      "frame_time": 34195162311,
+      "has_render_node": true,
+      "height": 0,
+      "native_frame_index": 11,
+      "requested": false
+    },
+    {
+      "child": [
+        12.0,
+        898.0,
+        1406.0,
+        64.0
+      ],
+      "child_revealed": false,
+      "frame_time": 34195178978,
+      "has_render_node": true,
+      "height": 0,
+      "native_frame_index": 12,
+      "requested": false
+    }
+  ],
+  "intermediate_evidence_available": true,
+  "intermediate_frame_count": 9,
+  "natural_child_heights": [
+    64
+  ],
+  "node_none_count": 0,
+  "observed_height_reversal_count": 0,
+  "renderer": "GskGLRenderer",
+  "reversal_capture_limit": 4,
+  "saved_frame_indices": [
+    0,
+    2,
+    3,
+    5,
+    12
+  ],
+  "scale": 2,
+  "scope": "raw-first-start-or-stop-observation",
+  "selected_reversal_frame_pairs": [],
+  "selection_coordinate": "nearest-observed-allocation-height-not-animation-time-or-progress",
+  "synthetic_frames": false,
+  "transition": "explicit-stop",
+  "transition_duration_ms": 240,
+  "transition_type": "SlideUp"
+}

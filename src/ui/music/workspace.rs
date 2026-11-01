@@ -1,13 +1,105 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Selection presentation around the accepted player; no transport ownership.
 
+use super::sliding_panel::SlidingPanel;
 use super::*;
 use crate::playback::PlaybackState;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum PanelMode {
+    Closed,
+    TrackInfo,
+    Queue,
+}
 
 pub(super) struct InfoSelection {
     track: Track,
     context: Option<PlaybackContext>,
-    following_current: bool,
+    target: InfoTarget,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum InfoTarget {
+    FollowingCurrent,
+    ExplicitSelection,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub(super) struct CurrentOccurrence {
+    kind: ContextKind,
+    source: Option<String>,
+    position: OccurrencePosition,
+    id: String,
+}
+
+/// Queue indices are presentation positions; a filtered result at local zero
+/// can refer to original occurrence 500. Keep manual additions in another
+/// namespace so an equal numeric fallback cannot impersonate a source item.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum OccurrencePosition {
+    Source(usize),
+    Manual(usize),
+}
+
+impl OccurrencePosition {
+    pub(super) fn from_context(context: &PlaybackContext) -> Self {
+        context
+            .source_position(context.current_index())
+            .map_or_else(|| Self::Manual(context.current_index()), Self::Source)
+    }
+}
+
+impl CurrentOccurrence {
+    fn from_context(context: &PlaybackContext) -> Self {
+        Self {
+            kind: context.source_kind(),
+            source: context.source_id().map(str::to_owned),
+            position: OccurrencePosition::from_context(context),
+            id: context.items()[context.current_index()].id.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum InfoPresentation {
+    Wide,
+    Medium,
+    Compact,
+}
+
+/// The controller owns intent/target; these weak native references own no music
+/// state. GTK Revealer has no backdrop or outside-click dismissal policy.
+pub(super) struct InfoHost {
+    overlay: glib::WeakRef<gtk::Overlay>,
+    reveal: glib::WeakRef<SlidingPanel>,
+    content: glib::WeakRef<gtk::Widget>,
+}
+impl InfoHost {
+    pub(super) fn revealer(&self) -> Option<SlidingPanel> {
+        self.reveal.upgrade()
+    }
+    pub(super) fn content(&self) -> Option<gtk::Widget> {
+        self.content.upgrade()
+    }
+    pub(super) fn is_open(&self) -> bool {
+        self.reveal
+            .upgrade()
+            .is_some_and(|view| view.reveals_child())
+    }
+    pub(super) fn presentation(&self) -> InfoPresentation {
+        // Use actual available content width, including narrow native windows.
+        if self.overlay.upgrade().is_some_and(|overlay| {
+            let width = overlay.width();
+            width > 0 && width < 620
+        }) {
+            return InfoPresentation::Compact;
+        }
+        match self.reveal.upgrade().map(|view| view.width_request()) {
+            Some(-1) => InfoPresentation::Compact,
+            Some(300) => InfoPresentation::Medium,
+            _ => InfoPresentation::Wide,
+        }
+    }
 }
 
 impl MusicPane {
@@ -15,29 +107,64 @@ impl MusicPane {
         self.controller.track_pane.widget.clone().upcast()
     }
 
-    pub(in crate::ui) fn attach_track_info(&self, split: &adw::OverlaySplitView) {
-        self.controller.info_split.replace(Some(split.downgrade()));
+    pub(in crate::ui) fn attach_track_info(
+        &self,
+        overlay: &gtk::Overlay,
+        reveal: &SlidingPanel,
+        content: &gtk::Widget,
+    ) {
+        self.controller.info_host.replace(Some(InfoHost {
+            overlay: overlay.downgrade(),
+            reveal: reveal.downgrade(),
+            content: content.downgrade(),
+        }));
         let weak = Rc::downgrade(&self.controller);
-        split.connect_collapsed_notify(move |split| {
+        reveal.connect_width_request_notify(move |_| {
             if let Some(this) = weak.upgrade() {
-                if split.is_collapsed() {
-                    let focus = this
-                        .window
-                        .upgrade()
-                        .and_then(|window| gtk::prelude::RootExt::focus(&window));
-                    if focus.is_some_and(|focus| {
-                        focus == this.track_pane.widget
-                            || focus.is_ancestor(&this.track_pane.widget)
-                    }) {
-                        this.clear_text_focus();
-                    }
-                    split.set_show_sidebar(false);
-                } else {
-                    this.sync_info_visibility();
-                }
+                this.sync_info_visibility();
             }
         });
+        let weak = Rc::downgrade(&self.controller);
+        reveal.connect_notify_local(Some("progress"), move |_, _| {
+            if let Some(this) = weak.upgrade() {
+                this.sync_info_visibility();
+            }
+        });
+        let weak = Rc::downgrade(&self.controller);
+        let last_extent = Cell::new(None);
+        overlay.add_tick_callback(move |overlay, _| {
+            let Some(this) = weak.upgrade() else {
+                return glib::ControlFlow::Break;
+            };
+            let presentation = this.info_host.borrow().as_ref().map(InfoHost::presentation);
+            let extent = (overlay.width(), overlay.height(), presentation);
+            if last_extent.replace(Some(extent)) != Some(extent) {
+                this.sync_info_visibility();
+            }
+            glib::ControlFlow::Continue
+        });
         self.controller.sync_info_visibility();
+    }
+
+    pub(in crate::ui) fn panel_heading(&self) -> gtk::Label {
+        self.controller.track_pane.heading.clone()
+    }
+
+    pub(in crate::ui) fn panel_title_callback(&self) -> Rc<dyn Fn() -> Option<&'static str>> {
+        let weak = Rc::downgrade(&self.controller);
+        Rc::new(move || {
+            let this = weak.upgrade()?;
+            let host = this.info_host.borrow();
+            let host = host.as_ref()?;
+            if host.presentation() != InfoPresentation::Compact || !host.is_open() {
+                return None;
+            }
+            match this.panel_mode.get() {
+                PanelMode::TrackInfo => Some("О треке"),
+                PanelMode::Queue => Some("Очередь"),
+                PanelMode::Closed => None,
+            }
+        })
     }
 
     pub(in crate::ui) fn preferences_callback(&self) -> Rc<dyn Fn()> {
@@ -79,7 +206,7 @@ impl Controller {
         let weak = Rc::downgrade(self);
         self.widgets.current_art_button.connect_clicked(move |_| {
             if let Some(this) = weak.upgrade() {
-                this.toggle_track_info();
+                this.show_current_track_info();
             }
         });
         if let Some(window) = self.window.upgrade() {
@@ -116,12 +243,77 @@ impl Controller {
         context: Option<PlaybackContext>,
         following_current: bool,
     ) {
+        self.info_observed.replace(
+            self.model
+                .borrow()
+                .queue
+                .context()
+                .map(CurrentOccurrence::from_context),
+        );
         self.info_selection.replace(Some(InfoSelection {
             track,
             context,
-            following_current,
+            target: if following_current {
+                InfoTarget::FollowingCurrent
+            } else {
+                InfoTarget::ExplicitSelection
+            },
         }));
         self.sync_track_pane();
+    }
+
+    pub(super) fn info_target_epoch(&self) -> u64 {
+        self.info_target_epoch.get()
+    }
+
+    pub(super) fn select_track_info_if_current(
+        &self,
+        epoch: u64,
+        track: Track,
+        context: Option<PlaybackContext>,
+    ) -> bool {
+        if epoch != self.info_target_epoch.get()
+            || !self.model.borrow().account_valid
+            || self.model.borrow().closed
+        {
+            return false;
+        }
+        self.select_track_info(track, context, false);
+        true
+    }
+
+    /// Called by existing playback selection paths, never by pause/seek/volume.
+    /// A replacement/selection can identify a new occurrence even at the same ID.
+    pub(super) fn follow_current_occurrence(&self) {
+        let (track, context) = {
+            let model = self.model.borrow();
+            (
+                model.queue.current().cloned(),
+                model.queue.context().cloned(),
+            )
+        };
+        self.info_target_epoch
+            .set(self.info_target_epoch.get().wrapping_add(1));
+        self.info_observed
+            .replace(context.as_ref().map(CurrentOccurrence::from_context));
+        self.info_selection
+            .replace(track.map(|track| InfoSelection {
+                track,
+                context,
+                target: InfoTarget::FollowingCurrent,
+            }));
+    }
+
+    /// Removing another queue row can reindex the same playing occurrence.
+    /// A structural queue edit is not a new playback selection.
+    pub(super) fn observe_current_occurrence(&self) {
+        self.info_observed.replace(
+            self.model
+                .borrow()
+                .queue
+                .context()
+                .map(CurrentOccurrence::from_context),
+        );
     }
 
     pub(super) fn sync_track_pane(&self) {
@@ -136,18 +328,23 @@ impl Controller {
         };
         if !ready {
             self.info_selection.borrow_mut().take();
+            self.info_observed.borrow_mut().take();
         } else {
+            let observed = context.as_ref().map(CurrentOccurrence::from_context);
+            if *self.info_observed.borrow() != observed {
+                self.follow_current_occurrence();
+            }
             let follows = self
                 .info_selection
                 .borrow()
                 .as_ref()
-                .is_none_or(|selection| selection.following_current);
+                .is_none_or(|selection| selection.target == InfoTarget::FollowingCurrent);
             if follows {
                 self.info_selection
                     .replace(current.clone().map(|track| InfoSelection {
                         track,
                         context,
-                        following_current: true,
+                        target: InfoTarget::FollowingCurrent,
                     }));
             }
         }
@@ -156,7 +353,7 @@ impl Controller {
         self.track_pane.set_track(track, self.artwork.as_ref());
         self.track_pane.set_navigation_enabled(ready);
         let is_current = selected.as_ref().is_some_and(|selection| {
-            selection.following_current
+            selection.target == InfoTarget::FollowingCurrent
                 && current
                     .as_ref()
                     .is_some_and(|current| current.id == selection.track.id)
@@ -220,61 +417,320 @@ impl Controller {
     }
 
     pub(super) fn sync_info_visibility(&self) {
-        let Some(split) = self
-            .info_split
-            .borrow()
-            .as_ref()
-            .and_then(glib::WeakRef::upgrade)
+        let host = self.info_host.borrow();
+        let Some(host) = host.as_ref() else {
+            return;
+        };
+        let (Some(reveal), Some(content), Some(overlay)) =
+            (host.revealer(), host.content(), host.overlay.upgrade())
         else {
             return;
         };
-        let available = {
+        let ready = {
             let model = self.model.borrow();
-            model.account_valid
-                && !model.closed
-                && self.music_surface_visible.get()
-                && self.info_selection.borrow().is_some()
+            model.account_valid && !model.closed
         };
-        // The split may transiently allocate its hidden child during a
-        // breakpoint. An unavailable pane has nothing to measure or display.
-        self.track_pane.widget.set_visible(available);
-        if !available {
-            split.set_show_sidebar(false);
-        } else if !split.is_collapsed() {
-            split.set_show_sidebar(self.track_info_preference());
+        if ready && self.panel_mode.get() == PanelMode::Closed && self.track_info_preference() {
+            self.panel_mode.set(PanelMode::TrackInfo);
         }
+        let selected_mode = self.panel_mode.get();
+        let available = ready
+            && self.music_surface_visible.get()
+            && (selected_mode == PanelMode::Queue
+                || self.info_selection.borrow().is_some()
+                || reveal.progress() > 0.0
+                || reveal.reveals_child());
+        let open = available && selected_mode != PanelMode::Closed;
+        let queue_active = open && selected_mode == PanelMode::Queue;
+        if queue_active {
+            self.widgets.queue.add_css_class("accent");
+        } else {
+            self.widgets.queue.remove_css_class("accent");
+        }
+        let queue_label = if queue_active {
+            "Закрыть очередь"
+        } else {
+            "Открыть очередь"
+        };
+        self.widgets.queue.set_tooltip_text(Some(queue_label));
+        self.widgets
+            .queue
+            .update_property(&[gtk::accessible::Property::Label(queue_label)]);
+        self.widgets
+            .queue
+            .update_state(&[gtk::accessible::State::Pressed(if queue_active {
+                gtk::AccessibleTristate::True
+            } else {
+                gtk::AccessibleTristate::False
+            })]);
+        let mode = host.presentation();
+        reveal.set_compact_presentation(mode == InfoPresentation::Compact);
+        let hide_content = open && mode == InfoPresentation::Compact;
+        // Clear focus before hiding its native subtree. Besides leaving a
+        // usable keyboard destination, this avoids GTK4.14 retaining an old
+        // pending focus-move reference over repeated compact/Diagnostics
+        // transitions. The outer ToolbarView unmap guard cannot see these
+        // independently hidden children.
+        let entering_compact = content.is_visible() && hide_content;
+        let footer_had_focus = entering_compact
+            && self
+                .window
+                .upgrade()
+                .and_then(|window| gtk::prelude::GtkWindowExt::focus(&window))
+                .zip(self.widgets.player_main.parent())
+                .is_some_and(|(focus, footer)| {
+                    focus.is_mapped() && (focus == footer || focus.is_ancestor(&footer))
+                });
+        if entering_compact {
+            #[cfg(test)]
+            if let Some(window) = self.window.upgrade() {
+                let focus = gtk::prelude::GtkWindowExt::focus(&window);
+                eprintln!(
+                    "Karin synthetic information focus: phase=before-compact footer={footer_had_focus} kind={} name={} in-content={}",
+                    focus.as_ref().map_or("none", |focus| focus.type_().name()),
+                    focus
+                        .as_ref()
+                        .map(|focus| focus.widget_name())
+                        .as_deref()
+                        .unwrap_or("none"),
+                    focus.is_some_and(|focus| focus == content || focus.is_ancestor(&content))
+                );
+            }
+            self.clear_info_focus_within(&content);
+        }
+        let focus_compact = entering_compact && !footer_had_focus;
+        if (self.track_pane.widget.is_visible() && !available) || (reveal.reveals_child() && !open)
+        {
+            self.clear_info_focus_within(self.track_pane.widget.upcast_ref());
+        }
+        self.track_pane.widget.set_visible(available);
+        if selected_mode != PanelMode::Closed {
+            self.track_pane
+                .set_queue_mode(selected_mode == PanelMode::Queue);
+        }
+        self.track_pane
+            .set_compact(mode == InfoPresentation::Compact);
+        // The overlay supplies the real viewport left by HeaderBar/navigation
+        // and the animated footer. Budget artwork before the panel reveal,
+        // without using the panel's transient offscreen allocation/progress.
+        let panel_width = if mode == InfoPresentation::Compact {
+            overlay.width()
+        } else {
+            reveal.width_request().min(overlay.width())
+        };
+        self.track_pane
+            .set_available_size(panel_width, overlay.height());
+        reveal.set_halign(if mode == InfoPresentation::Compact {
+            gtk::Align::Fill
+        } else {
+            gtk::Align::End
+        });
+        reveal.set_hexpand(mode == InfoPresentation::Compact);
+        // An explicit close keeps the surface mounted through its final frame;
+        // unavailable/session-retired content is removed synchronously instead.
+        if !available {
+            reveal.hide_immediately();
+        }
+        reveal.set_visible(available);
+        reveal.set_can_target(open);
+        // Reserve room for every persistent desktop pane. A medium overlay
+        // without a reservation covered row menus and transport-side actions.
+        // Compact is an explicit subview with the same retained pane.
+        let reserved = match mode {
+            InfoPresentation::Wide => 340.0,
+            InfoPresentation::Medium => 316.0,
+            InfoPresentation::Compact => 0.0,
+        };
+        content.set_margin_end((reserved * reveal.progress()).ceil() as i32);
+        content.set_visible(!hide_content);
+        if host.is_open() != open {
+            reveal.set_reveal_child(open);
+        }
+        if focus_compact {
+            self.focus_compact_information(&reveal, &content);
+        }
+    }
+
+    fn focus_compact_information(&self, reveal: &SlidingPanel, content: &gtk::Widget) {
+        let window = self.window.clone();
+        let reveal = reveal.downgrade();
+        let content = content.downgrade();
+        let close = self.track_pane.close.downgrade();
+        let footer = self.widgets.player_revealer.downgrade();
+        glib::spawn_future_local(async move {
+            // A breakpoint can hide the old tree before the subview has a
+            // native allocation. Keep only weak references during this bounded
+            // request; a later close, resize, dialog or user focus wins.
+            for _ in 0..20 {
+                glib::timeout_future(std::time::Duration::from_millis(25)).await;
+                let (Some(window), Some(reveal), Some(content), Some(close), Some(footer)) = (
+                    window.upgrade(),
+                    reveal.upgrade(),
+                    content.upgrade(),
+                    close.upgrade(),
+                    footer.upgrade(),
+                ) else {
+                    return;
+                };
+                if !window.is_mapped()
+                    || window.visible_dialog().is_some()
+                    || !reveal.is_visible()
+                    || !reveal.reveals_child()
+                    || reveal.halign() != gtk::Align::Fill
+                    || content.is_visible()
+                {
+                    return;
+                }
+                let focus = gtk::prelude::GtkWindowExt::focus(&window);
+                #[cfg(test)]
+                eprintln!(
+                    "Karin synthetic information focus: phase=wait-compact kind={} name={} mapped={} in-pane={} revealed={}",
+                    focus.as_ref().map_or("none", |focus| focus.type_().name()),
+                    focus
+                        .as_ref()
+                        .map(|focus| focus.widget_name())
+                        .as_deref()
+                        .unwrap_or("none"),
+                    focus.as_ref().is_some_and(|focus| focus.is_mapped()),
+                    focus
+                        .as_ref()
+                        .is_some_and(|focus| focus == reveal.upcast_ref::<gtk::Widget>()
+                            || focus.is_ancestor(&reveal)),
+                    reveal.is_child_revealed()
+                );
+                // GTK can automatically assign HeaderBar focus while the old
+                // content disappears. That is not deliberate input and must
+                // not cancel this one transition request. An already focused
+                // pane control remains valid. Responsive reparenting can also
+                // restore footer focus after this request was scheduled: that
+                // actual current input wins over a delayed automatic transfer.
+                if focus.is_some_and(|focus| {
+                    focus.is_mapped()
+                        && focus.is_sensitive()
+                        && (focus == *reveal.upcast_ref::<gtk::Widget>()
+                            || focus.is_ancestor(&reveal)
+                            || focus == *footer.upcast_ref::<gtk::Widget>()
+                            || focus.is_ancestor(&footer))
+                }) {
+                    return;
+                }
+                if reveal.is_child_revealed()
+                    && close.is_mapped()
+                    && close.is_sensitive()
+                    && close.grab_focus()
+                {
+                    return;
+                }
+            }
+        });
+    }
+
+    fn clear_info_focus_within(&self, subtree: &gtk::Widget) -> bool {
+        let Some(window) = self.window.upgrade() else {
+            return false;
+        };
+        let inside = gtk::prelude::GtkWindowExt::focus(&window)
+            .is_some_and(|focus| focus == *subtree || focus.is_ancestor(subtree));
+        if inside {
+            gtk::prelude::GtkWindowExt::set_focus(&window, None::<&gtk::Widget>);
+        }
+        inside
+    }
+
+    pub(super) fn set_info_open(self: &Rc<Self>, open: bool) {
+        self.set_panel_mode(if open {
+            PanelMode::TrackInfo
+        } else {
+            PanelMode::Closed
+        });
+    }
+
+    pub(super) fn set_panel_mode(self: &Rc<Self>, mode: PanelMode) {
+        self.panel_mode.set(mode);
+        let open = mode != PanelMode::Closed;
+        if self.track_info_preference() != open {
+            self.set_track_info_preference(open);
+        }
+        self.sync_info_visibility();
+    }
+
+    pub(super) fn toggle_queue_panel(self: &Rc<Self>) {
+        if !self.model.borrow().account_valid {
+            return;
+        }
+        let mode = if self.panel_mode.get() == PanelMode::Queue {
+            PanelMode::Closed
+        } else {
+            PanelMode::Queue
+        };
+        self.set_panel_mode(mode);
+        if mode == PanelMode::Closed {
+            self.return_information_focus();
+        } else {
+            self.track_pane.close.grab_focus();
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn info_is_open(&self) -> bool {
+        self.info_host
+            .borrow()
+            .as_ref()
+            .is_some_and(InfoHost::is_open)
+    }
+
+    /// The footer cover shows current information; it is not an outside-click
+    /// dismissal or a second close control. Ctrl+I retains the explicit toggle.
+    fn show_current_track_info(self: &Rc<Self>) {
+        if !self.music_surface_visible.get() || self.model.borrow().queue.current().is_none() {
+            return;
+        }
+        self.follow_current_occurrence();
+        self.sync_track_pane();
+        if self.info_selection.borrow().is_none() {
+            return;
+        }
+        self.set_info_open(true);
+        self.track_pane.close.grab_focus();
     }
 
     fn toggle_track_info(self: &Rc<Self>) {
         if !self.music_surface_visible.get() {
             return;
         }
-        if let Some(track) = self.model.borrow().queue.current().cloned() {
-            let context = self.model.borrow().queue.context().cloned();
-            self.info_selection.replace(Some(InfoSelection {
-                track,
-                context,
-                following_current: true,
-            }));
-        }
         self.sync_track_pane();
         if self.info_selection.borrow().is_none() {
             return;
         }
-        if let Some(split) = self
-            .info_split
-            .borrow()
-            .as_ref()
-            .and_then(glib::WeakRef::upgrade)
+        let show = self.panel_mode.get() != PanelMode::TrackInfo;
+        if show && self.model.borrow().queue.current().is_some() {
+            self.follow_current_occurrence();
+            self.sync_track_pane();
+        }
+        self.set_info_open(show);
+        if show {
+            self.track_pane.close.grab_focus();
+        } else {
+            self.return_information_focus();
+        }
+    }
+
+    fn return_information_focus(&self) {
+        if self.widgets.current_art_button.is_mapped()
+            && self.widgets.current_art_button.grab_focus()
         {
-            let show = !split.shows_sidebar();
-            if !split.is_collapsed() {
-                self.set_track_info_preference(show);
-            }
-            split.set_show_sidebar(show);
-            if show {
-                self.track_pane.close.grab_focus();
-            }
+            return;
+        }
+        // Explicit metadata or an idle queue can exist while the player is
+        // hidden. Return to a real page control, never an inactive footer.
+        if !self
+            .widgets
+            .stack
+            .child_focus(gtk::DirectionType::TabForward)
+            && self.widgets.account_menu.is_mapped()
+        {
+            // Empty product destinations may have no focusable content.
+            self.widgets.account_menu.grab_focus();
         }
     }
 
@@ -282,19 +738,14 @@ impl Controller {
         use track_pane::PaneAction;
         if matches!(action, PaneAction::Close) {
             self.clear_text_focus();
-            self.set_track_info_preference(false);
-            if let Some(split) = self
-                .info_split
-                .borrow()
-                .as_ref()
-                .and_then(glib::WeakRef::upgrade)
-            {
-                split.set_show_sidebar(false);
-            }
-            self.widgets.current_art_button.grab_focus();
+            self.set_info_open(false);
+            self.return_information_focus();
             return;
         }
-        if !self.model.borrow().account_valid || self.model.borrow().closed {
+        if !self.model.borrow().account_valid
+            || self.model.borrow().closed
+            || self.panel_mode.get() == PanelMode::Closed
+        {
             return;
         }
         let action_track = match &action {
@@ -311,24 +762,11 @@ impl Controller {
             .borrow()
             .as_ref()
             .and_then(|selection| selection.context.clone());
-        if matches!(
-            action,
-            PaneAction::Details(_) | PaneAction::Album(_) | PaneAction::Artist(_)
-        ) && let Some(split) = self
-            .info_split
-            .borrow()
-            .as_ref()
-            .and_then(glib::WeakRef::upgrade)
-            && split.is_collapsed()
-        {
-            self.clear_text_focus();
-            split.set_show_sidebar(false);
-        }
         match action {
             PaneAction::Close => {}
             PaneAction::Play(track) if track.available => {
                 if let Some(selection) = self.info_selection.borrow_mut().as_mut() {
-                    selection.following_current = true;
+                    selection.target = InfoTarget::FollowingCurrent;
                 }
                 let context = context.or_else(|| {
                     PlaybackContext::new(ContextKind::SingleTrack, None, vec![track], 0, false).ok()
@@ -369,9 +807,16 @@ impl Controller {
         if let Some(dialog) = dialog {
             dialog.close();
         }
+        self.panel_mode.set(PanelMode::Closed);
         self.info_selection.borrow_mut().take();
+        self.info_observed.borrow_mut().take();
+        self.info_target_epoch
+            .set(self.info_target_epoch.get().wrapping_add(1));
         self.track_pane.set_track(None, self.artwork.as_ref());
+        clear_list(&self.widgets.queue_rows);
+        self.widgets.queue_count.set_text("Очередь пуста");
         self.playlist_grid.clear();
+        self.liked_playlist_grid.clear();
         self.widgets.cache_notice.set_revealed(false);
         self.widgets.cache_hint.set_visible(false);
         self.detail_cache.set(None);

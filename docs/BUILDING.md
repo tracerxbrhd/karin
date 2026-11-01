@@ -47,10 +47,147 @@ for a consented local desktop experiment; it is not application sign-in or
 Yandex Music stream playback. The default sign-in provider is the Cassette-compatible
 session prototype below; it requires no end-user OAuth configuration.
 
+<a id="v04-native-music-acceptance-on-fedora"></a>
+
+## v0.4 — one refinement acceptance session on Fedora
+
+Use the current source-matched native archive linked in existing
+[Draft PR #15](https://github.com/tracerxbrhd/karin/pull/15). Verify its source
+revision/build information and `SHA256SUMS` before ordinary `./karin`.
+Exact-head complete functional results, hosted checks and downloaded native
+archive verification are published in the PR's immutable checks/artifact record;
+a regular compiler PASS alone does not prove that archive or every native
+selector. A local source build uses the prerequisites above and
+`cargo +1.98.1 build --release --locked`, then `./target/release/karin`.
+This final refinement starts at `2e3ae41`, retaining its working audio/session
+path, activity-dependent footer and pinned panel. It adds a musical Liked hero,
+collection-local search, compact useful Home, larger playlist covers and tighter
+transport composition. Earlier acceptance and initialized motion do not accept
+this new UI or cold first-use performance. Keep PR #15 Draft.
+
+1. Start normally and restore the saved session or use **Войти**. Until a real
+   playback request/current active source exists, the footer should be absent,
+   without an empty bottom strip or focusable idle controls. Remembered sign-in
+   alone is not a restored playing state. No developer credentials, diagnostic
+   flags, token transfer or browser/network recording belongs in this run.
+2. Check lightweight **Главная / Нравится / Плейлисты** navigation and
+   accessible unified Search. Home must offer working shortcuts and a small clearly unavailable Wave
+   section, with no fake recommendations or working-looking radio action. Liked
+   and owned/liked playlist collections should use actual content and sections,
+   not a primary dropdown. Check search's four categories, Show All/Back, Retry,
+   details and server-confirmed playlist creation without publishing private data.
+3. Scroll real track lists through several portions, including liked tracks,
+   collection details and full track-search results where applicable. No visible
+   previous/next page switch should be required. Existing rows/scroll position
+   remain stable; a loading indicator, actual end or honest local-limit state
+   distinguishes progress. Repeated lower-edge scrolling must not duplicate
+   a page or consume unbounded work. If a read fails, Retry must read the failed
+   portion without destroying earlier rows or silently changing the playing queue.
+   Do not mistake repeated legitimate track occurrences for accidental duplicates.
+   The displayed feed is bounded at 2,000 positions/100 provider pages; a local
+   cap must say partial rather than end. Playing a row snapshots its aligned
+   500-position visible-order block; also check a row on each side of a 500-position boundary
+   if the account has enough data. Later view appends must not extend live Queue.
+   In Liked and every opened own/liked/search playlist, type Cyrillic and mixed
+   case in **Поиск по трекам**, including title, artist and album. Clear it,
+   open a different collection and verify reset. Typing searches loaded data
+   only: it must not fetch the entire library or claim that an incomplete prefix
+   has no remote matches. Use **Искать в следующей части** when available and
+   check bounded continuation, empty matches and failed-read Retry. Filtering,
+   clearing and appending must leave current audio/Queue unchanged. Starting a
+   match creates its visible-order context; duplicate original occurrences and
+   Next/Previous/EOS must use that bounded context. Selecting a row beyond a
+   500-position boundary creates its corresponding new block; EOS must not
+   silently fetch or grow the active context.
+   Inspect the Liked heart hero, loaded/complete count and duration: unknown or
+   incomplete totals must not be presented as complete. Playlist covers should
+   remain substantial at 850-pixel and wide sizes without oversized empty tiles.
+4. Start an actual chosen Music track with mouse/Enter/Space and confirm audible
+   PipeWire output. The footer should slide up, show real metadata and retain
+   progress/seek/volume/Queue/modes. Pause keeps it visible. A replayable ended
+   source or failed active request may retain controls/Retry; explicit system
+   Stop, queue clear and logout hide it. No visible Stop button is needed.
+   Check normal and reduced motion separately, including the first appearance.
+   Cloud observations retain the historical 116,669 μs paint gap and newer
+   separate fresh-process gaps around one second (exact traces in VALIDATION).
+   They do not accept smooth first appearance. Check footer and panel after
+   an ordinary fresh Fedora start, separately from repeated initialized motion.
+   Loading should use the Play-button spinner without a transient loading row
+   changing the bar's height. Focus the metadata target before external Stop,
+   then check that hidden footer controls do not retain a keyboard focus trap.
+   The cloud visibility/unmap assertions alone do not establish this final
+   post-Stop focus-routing result on Fedora.
+5. Click the cover, title, artist and available metadata-zone background, then
+   use keyboard activation: each opens Track Info as one native target. Like is
+   an independent focus/action and must not accidentally open the panel. Verify
+   unknown/loading Like state, then one deliberate Like/Unlike and server-confirmed
+   result. If Liked was already loaded, a membership change should retain its
+   old rows as library-changed and require Refresh before continuing under a new
+   cursor; that refresh must not replace the playing queue or leave a spinner.
+   Failure/uncertainty must not invent success or automatically repeat a write.
+   Dislike must stay absent while Karin's contract is unconfirmed; Unlike
+   is not Dislike. Report unperformed mutation/error cases honestly.
+6. Open Queue in the same pinned panel and switch back to Track Info without a
+   close/reopen. Outside clicks, scrolling, navigation, current-track changes,
+   seek/pause/volume and resizing preserve mode. Explicit Details never plays;
+   new actual occurrences, including duplicates, resume following. Verify X/
+   Ctrl+I/compact Back and focus return. Inspect first panel appearance after a
+   fresh ordinary start separately from warm repeats. Cold NGL/Vulkan phase
+   failures remain unaccepted; the old automated motion gallery measures only
+   graphics-initialized cycles. No renderer/cache override belongs in this run.
+7. Inspect 420×720, **850×750**, 720×650, 900×650, 1280×800, 1440×900, 1650×930, 1920×1080
+   and actual maximize; light/dark and 1×/2×. Check active/hidden footer, Home,
+   Liked, Playlists, search, Queue/Info, long/missing art, density and keyboard
+   focus. Narrow content uses the dedicated panel subview while primary tabs
+   and active transport remain accessible. Check long Info scrolling
+   and full-title tooltip/metadata access when compact footer text ellipsizes.
+   Focus Seek at 850×750 and resize to 420×720/back: the same control must keep
+   keyboard focus, and the open pane must not steal it or restart audio.
+8. Recheck contextual duplicate order, manual queue edits/clear, Shuffle history,
+   Repeat Off/Queue/One, actual EOS, manual Next/Previous, seek/volume and KDE
+   metadata/cover/progress/modes. Supported external controls include:
+
+   ```sh
+   playerctl --player=io.github.tracerxbrhd.Karin shuffle On
+   playerctl --player=io.github.tracerxbrhd.Karin loop Track
+   playerctl --player=io.github.tracerxbrhd.Karin next
+   playerctl --player=io.github.tracerxbrhd.Karin loop Playlist
+   playerctl --player=io.github.tracerxbrhd.Karin shuffle Off
+   playerctl --player=io.github.tracerxbrhd.Karin loop None
+   playerctl --player=io.github.tracerxbrhd.Karin stop
+   ```
+
+   Native and KDE/playerctl mode state must agree; external Stop still works
+   and hides the active bar. Test hardware media keys separately. Paging new
+   catalog data must not change an already playing context or fabricate its
+   completeness; it remains bounded at 500 exact occurrences.
+9. Check Preferences/cache-off/Clear, safe logout confirmation Cancel, remembered
+   login across restart and ordinary close. Storage/presentation operations must
+   preserve current session/audio unless explicitly changed. Confirmed logout
+   stops audio and clears personal panel/queue/cache and saved credentials; an
+   unknown cleanup outcome stays visible. Repeat relevant checks in the current
+   Flatpak when available, without widening bus/filesystem permissions or
+   disabling sandboxing. Record unavailable SDK/backend scenarios separately.
+
+Report exact revision, native/Flatpak, environment and anonymized PASS/FAIL/N/D
+for the scenarios. Fresh before evidence archives exact 2e3 production source;
+its sole test-harness adaptation adds the missing 850×750 matrix tuple, recorded
+with original/adapted hashes and patch. It is not an unmodified-harness claim;
+new active-footer captures use the real fixture resolver/generated MP3/paused
+worker, never a visibility override. Cloud output is not Fedora acceptance.
+Never publish private screenshots/reference images, library/account data, audio,
+cookies, tokens or signed addresses. Public service distribution, actual Wave,
+lyrics and persistent audio remain separate gates. No merge is authorized.
+
 <a id="v02-catalog-and-delivery-info-acceptance-on-fedora"></a>
 <a id="v03-seamless-experience-acceptance-on-fedora"></a>
 
 ## v0.3 — one Fedora acceptance session
+
+This retained procedure describes the accepted v0.3 runtime, including its old
+1180-pixel collapsed-pane layout. For the current v0.4 nonmodal information
+presentation and owner review, use [the v0.4 guide above](#v04-native-music-acceptance-on-fedora)
+and ADR-0021; the old dismissing overlay is not the current requirement.
 
 The owner accepted v0.3 runtime
 **`02325489d23ead9da4471de9cc35e2c063ac8bab`** on **2026-10-31** on Fedora
@@ -183,8 +320,9 @@ diagnostic categories. A later runtime change needs its own targeted regression.
 The report does not identify every Secret Portal/backend or prove individual
 failure/deletion cases. Keep the current sandbox permissions. Persistent audio
 remains absent because storage rights are unconfirmed; see
-[AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md). My Wave remains hidden pending
-its full service contract, and public OAuth-distribution rights remain separate.
+[AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md). Functional My Wave remains gated
+pending its full service contract; the current explicit unimplemented landing
+is not radio support. Public OAuth-distribution rights remain separate.
 
 ### Session and preferences
 
@@ -325,11 +463,14 @@ playerctl --player=io.github.tracerxbrhd.Karin previous
 playerctl --player=io.github.tracerxbrhd.Karin stop
 ```
 
-The ordinary shortcuts remain Ctrl+H Home, Ctrl+L Library, Ctrl+F Search,
-Ctrl+J Queue, Ctrl+B navigation and Ctrl+, preferences; Ctrl+I opens track
-information and Ctrl+Q closes Karin.
-My Wave and similar-track sections stay hidden when their complete real
-contracts/capabilities are unconfirmed. Unsupported source stubs are not features.
+The earlier workspace used Ctrl+H Home, Ctrl+L Library, Ctrl+F Search,
+Ctrl+J queue panel, Ctrl+B navigation and Ctrl+, preferences; Ctrl+I opened track
+information and Ctrl+Q closed Karin. The current refinement's visible tabs and
+accessible Search supersede those older route labels; retained aliases must
+navigate real current views rather than restore a hidden old primary screen.
+Functional My Wave and similar-track content remain gated while their contracts
+are unconfirmed. The latest Wave landing is explicitly unimplemented, not a
+source stub represented as a working radio feature.
 
 ### Repeat inside the current Flatpak
 
@@ -364,7 +505,7 @@ and audio offline rights remain separate from technical local acceptance.
 
 <a id="experimental-music-session-and-fedora-acceptance"></a>
 
-Current v0.3 acceptance uses the combined guide above. The following provider
+Current v0.4 acceptance uses the combined guide above. The following provider
 contract and historical focused retests explain earlier findings; they are not
 instructions to select old PR artifacts, prerequisites for ordinary login or a
 replacement for current persistence/real-playback checks.
@@ -548,6 +689,82 @@ offline provider. They exercise dialog/layout/lifecycle without contacting Yande
 they are not evidence of real sign-in. Never use `--ui-fixture` for the owner
 acceptance above. Hosted sandbox checks and remaining namespace restrictions are
 recorded in [VALIDATION.md](VALIDATION.md).
+
+## v0.4 strict native visual checks and CI placement
+
+The strict populated-matrix and whole-surface-motion fixtures are separate from
+the functional/compiler baseline. CI retains Ubuntu 24.04 stable/MSRV jobs for
+the prior 29 functional selectors, new refinement cases, packages and both
+sandboxed navigating WebKit fixtures.
+Dedicated `Native UI <toolchain> (Debian 13)` jobs use the digest-pinned official
+Rust trixie image and GTK >= 4.18 / Libadwaita >= 1.7 for the two strict selectors,
+both scales, both compilers and matching captures. The compiled name partition
+retains the earlier 31 = 29 + 2 selectors and includes new refinement cases;
+report the actual current partition and omit none. These modern **test** libraries
+do not change Karin's GTK >= 4.14/Libadwaita >= 1.5 application baseline, current
+Flatpak SDK or production renderer. Modern Mesa visual jobs explicitly set
+`LP_NUM_THREADS=2`; retain this value with the renderer/package record and use
+it for both the archived baseline and current controlled check. Strict motion
+also explicitly unsets `GSK_DEBUG`, using ordinary GTK surface damage; static
+resize captures retain `GSK_DEBUG=full-redraw`. The motion oracle still obtains
+fresh full root render nodes after real after-paint callbacks; node/pixel proof
+is not direct native-framebuffer damage validation. Preserve C7's default FAIL,
+C9's separate original local full-redraw PASS and `144492f` hosted 2× FAILs beside
+the one ordinary-damage control. None is an application launch requirement,
+causal Mesa diagnosis or new hosted-success claim.
+
+The motion fixture records a fixed graphics-initialization cycle separately:
+one real normal opening, six bounded offscreen renders of the actual mapped
+panel while open, then real closing. Setup quarters are not assessed; no setup
+render becomes a PNG, changes UI progress/clock or supplies measured evidence.
+Only the next real normal 240 ms native cycle is strictly measured with original
+tolerances and five distinct frame identities. This is not cold-start acceptance
+or a production prewarm. Retain the raw initialization alongside the measured
+frames, and keep Fedora's fresh-first-open gate separate.
+
+For equivalent local test checks on a modern native stack with the fixture tools
+above, use synthetic captures only:
+
+```sh
+pkg-config --atleast-version=4.18 gtk4
+pkg-config --atleast-version=1.7 libadwaita-1
+for toolchain in stable 1.98.1; do
+  for scale in 1 2; do
+    if [ "$scale" = 1 ]; then screen=1920x1080x24; else screen=3840x2160x24; fi
+    for selector in native_design_matched_matrix_and_populated_surfaces \
+      native_universal_panel_whole_surface_motion_and_mode_switch; do
+      (
+        if [ "$selector" = native_universal_panel_whole_surface_motion_and_mode_switch ]; then
+          unset GSK_DEBUG
+        else
+          export GSK_DEBUG=full-redraw
+        fi
+        LP_NUM_THREADS=2 GTK_A11Y=none GSK_RENDERER=ngl \
+          GDK_SCALE="$scale" GDK_DPI_SCALE=1 KARIN_V04_ASSERT_DENSITY=1 \
+          KARIN_TEST_CAPTURE_DIR="$PWD/build/ui-captures/strict-$toolchain-scale$scale" \
+          dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" \
+          cargo +"$toolchain" test --lib --all-features --locked "$selector" \
+          -- --ignored --test-threads=1
+      )
+    done
+  done
+done
+```
+
+Retain actual rendered frame identities/progress, source/library/renderer records
+and original before/current images. Modern CI artifacts are
+`karin-native-visual-<lane>-<github.sha>`; Ubuntu functional images remain
+`karin-ui-<github.sha>`. The initial `709f5b3` hosted GTK 4.14/Adwaita 1.5/Mesa
+25.2 strict-motion sampling failed, with a matching approximately 915 ms first
+reveal-paint gap reproduced locally; its internal cause is not attributed.
+Cold modern NGL and actual Vulkan attempts failed phase coverage too; changing
+backend/distribution alone is not a proven fix. The later graphics-initialized
+measured PASS does not erase those results, accept cold responsiveness, prove
+physical GPU/Wayland behavior or replace actual hosted conclusions. See [VALIDATION.md](VALIDATION.md).
+Never disable animation, duplicate quarter frames, extend production timing or
+relax tolerances to make a renderer pass. Use ordinary `./karin` with Fedora's
+normal renderer for the separate owner acceptance; these test flags do not
+belong in that run.
 
 ## v0.3 isolated persistence and workspace fixtures
 
@@ -865,6 +1082,14 @@ EOS/error recovery and closing during playback. Visual acceptance must check
 window/title controls, resize/maximize behavior, HiDPI, keyboard/focus,
 accessibility and both themes under [the UI quality gate](UI_QUALITY_GATE.md).
 A headless check does not establish those properties on Fedora.
+
+For v0.4's matched baseline/current visual evidence, follow
+[IMPLEMENTATION_REVIEW.md](design/v0.4/IMPLEMENTATION_REVIEW.md). Run
+`scripts/capture-native-music-baseline.sh build/ui-captures` **last among Cargo
+steps**, after all current-source checks and captures: rebuilding the archived
+baseline uses the shared target and must not replace the current evidence
+binary. The helper records baseline/harness/executable fingerprints in
+`comparison-info.txt`; a subsequent current-source build must rebuild its crate.
 
 ## Developer playback diagnostics
 

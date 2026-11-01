@@ -91,6 +91,26 @@ impl Controller {
                 this.toggle_music();
             }
         });
+        // GtkToggleButton's activation owns the active-state transition.
+        // A matching render/MPRIS update can emit toggled while model is
+        // immutably borrowed: compare first and never re-enter mutation then.
+        let weak = Rc::downgrade(self);
+        self.widgets.shuffle.connect_toggled(move |button| {
+            if let Some(this) = weak.upgrade() {
+                let enabled = button.is_active();
+                let matches = this.model.borrow().queue.shuffle() == enabled;
+                if !matches {
+                    this.set_music_shuffle(enabled);
+                }
+            }
+        });
+        let weak = Rc::downgrade(self);
+        self.widgets.repeat.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade() {
+                let mode = this.model.borrow().queue.repeat_mode().next_mode();
+                this.set_music_repeat(mode);
+            }
+        });
         let weak = Rc::downgrade(self);
         self.widgets.stop.connect_clicked(move |_| {
             if let Some(this) = weak.upgrade() {
@@ -137,10 +157,14 @@ impl Controller {
 
     pub(super) fn track_play_button(self: &Rc<Self>, track: &Track, compact: bool) -> gtk::Button {
         let button = Self::music_play_button(track, compact);
+        let generation = self.model.borrow().generation;
         let weak = Rc::downgrade(self);
         let selected = track.clone();
         button.connect_clicked(move |_| {
-            if let Some(this) = weak.upgrade() {
+            if let Some(this) = weak
+                .upgrade()
+                .filter(|this| this.model.borrow().generation == generation)
+            {
                 this.play_music_track(selected.clone());
             }
         });
@@ -154,9 +178,13 @@ impl Controller {
         context: PlaybackContext,
     ) -> gtk::Button {
         let button = Self::music_play_button(track, compact);
+        let generation = self.model.borrow().generation;
         let weak = Rc::downgrade(self);
         button.connect_clicked(move |_| {
-            if let Some(this) = weak.upgrade() {
+            if let Some(this) = weak
+                .upgrade()
+                .filter(|this| this.model.borrow().generation == generation)
+            {
                 this.play_music_context(context.clone());
             }
         });
@@ -203,7 +231,7 @@ impl Controller {
             // implied, and manually appended extras belong to the old context.
             model.queue.replace_context(context);
         }
-        self.info_selection.borrow_mut().take();
+        self.follow_current_occurrence();
         self.render_queue();
         self.request_music(true, None);
     }
@@ -224,7 +252,7 @@ impl Controller {
             }
             model.queue.select(index);
         }
-        self.info_selection.borrow_mut().take();
+        self.follow_current_occurrence();
         self.render_queue();
         self.request_music(true, None);
     }
@@ -263,6 +291,7 @@ impl Controller {
             };
             model.queue.select(index);
         }
+        self.follow_current_occurrence();
         self.render_queue();
         self.request_music(true, None);
     }
@@ -572,6 +601,10 @@ impl Controller {
         self.render_music_player();
     }
 
+    pub(super) fn music_serial(&self) -> u64 {
+        self.player.borrow().serial
+    }
+
     pub(super) fn music_snapshot(&self) -> Option<PlaybackSnapshot> {
         self.player
             .borrow()
@@ -755,30 +788,32 @@ impl Controller {
 
     pub(super) fn skip_music(self: &Rc<Self>, forward: bool, eos: bool) {
         let (active, autoplay) = self.continuation();
-        let advanced = {
+        let (advanced, changed_occurrence) = {
             let mut model = self.model.borrow_mut();
-            let current = model.queue.current_index();
-            let next = current.and_then(|current| {
-                if forward {
-                    model.queue.items()[current + 1..]
-                        .iter()
-                        .position(|track| track.available)
-                        .map(|offset| current + 1 + offset)
-                } else {
-                    model.queue.items()[..current]
-                        .iter()
-                        .rposition(|track| track.available)
-                }
-            });
-            next.is_some_and(|index| model.queue.select(index).is_some())
+            let before = model.queue.current_index();
+            let advanced = if eos {
+                model.queue.advance_eos().is_some()
+            } else if forward {
+                model.queue.next_track().is_some()
+            } else {
+                model.queue.previous_track().is_some()
+            };
+            (advanced, before != model.queue.current_index())
         };
         if !advanced {
             return;
         }
-        self.info_selection.borrow_mut().take();
+        // Repeat One is another resource/playback cycle of the same position,
+        // not a new occurrence: explicit metadata must stay selected.
+        if changed_occurrence {
+            self.follow_current_occurrence();
+        }
         self.render_queue();
         if active {
             self.request_music(autoplay || eos, None);
+            if !changed_occurrence {
+                self.note_repeat_restart(self.music_serial());
+            }
         }
     }
 
@@ -793,6 +828,7 @@ impl Controller {
         if !changed {
             return;
         }
+        self.follow_current_occurrence();
         self.render_queue();
         if active {
             self.request_music(autoplay, None);
@@ -807,13 +843,46 @@ impl Controller {
             model.queue.remove(index);
             current
         };
+        if removed_current {
+            self.follow_current_occurrence();
+        } else {
+            self.observe_current_occurrence();
+        }
         self.render_queue();
         if active && removed_current {
             self.stop_music();
-            if self.model.borrow().queue.current().is_some() {
+            if self
+                .model
+                .borrow()
+                .queue
+                .current()
+                .is_some_and(|track| track.available)
+            {
                 self.request_music(autoplay, None);
             }
         }
+    }
+
+    pub(super) fn set_music_shuffle(self: &Rc<Self>, enabled: bool) {
+        let mut model = self.model.borrow_mut();
+        if model.closed || model.queue.shuffle() == enabled {
+            return;
+        }
+        model.queue.set_shuffle(enabled);
+        drop(model);
+        self.render_queue();
+        self.publish_mpris();
+    }
+
+    pub(super) fn set_music_repeat(self: &Rc<Self>, mode: crate::queue::RepeatMode) {
+        let mut model = self.model.borrow_mut();
+        if model.closed || model.queue.repeat_mode() == mode {
+            return;
+        }
+        model.queue.set_repeat_mode(mode);
+        drop(model);
+        self.render_queue();
+        self.publish_mpris();
     }
 
     pub(super) fn render_music_player(&self) {
@@ -832,6 +901,19 @@ impl Controller {
                 .is_some_and(|token| !token.is_expired());
         let loading =
             player.requested || player.preparing.is_some() || state == PlaybackState::Loading;
+        // Presentation follows an actual playback attempt/owned pipeline, not
+        // the presence of a selected queue entry or a retired/cancelled job.
+        // Errors remain reachable for Retry; pause/ready keep the same footer.
+        let active_footer = model.account_valid
+            && !model.closed
+            && selected.is_some()
+            && !player.stopped
+            && (player.requested
+                || player.pending.is_some()
+                || player.preparing.is_some()
+                || player.failure.is_some()
+                || player.controller.is_some());
+        self.widgets.player_revealer.set_reveal_child(active_footer);
         let caption = if let Some(failure) = player.failure {
             match failure {
                 Failure::Delivery(_) => "Источник аудио недоступен",
@@ -864,20 +946,35 @@ impl Controller {
             }
         };
         self.widgets.player_status.set_text(caption);
-        self.widgets.player_status.set_visible(!caption.is_empty());
+        self.widgets
+            .player_status
+            .set_visible(player.failure.is_some() || state == PlaybackState::Error);
+        // Loading has the stable native Play-button surface: removing a text
+        // row at the end of resolution must not move the footer mid-reveal.
+        // Errors retain their full-width readable feedback and real Retry.
+        let spinner_loading = loading
+            && active_footer
+            && player.failure.is_none()
+            && !matches!(state, PlaybackState::Paused | PlaybackState::Error);
+        player_bar::set_play_presentation(
+            &self.widgets.play,
+            state == PlaybackState::Playing,
+            spinner_loading,
+        );
+        let play_label = if spinner_loading {
+            caption
+        } else {
+            match state {
+                PlaybackState::Playing => "Пауза",
+                PlaybackState::Paused => "Продолжить",
+                PlaybackState::Error => "Получить источник заново и повторить",
+                _ => "Воспроизвести выбранный трек",
+            }
+        };
+        self.widgets.play.set_tooltip_text(Some(play_label));
         self.widgets
             .play
-            .set_icon_name(if state == PlaybackState::Playing {
-                "media-playback-pause-symbolic"
-            } else {
-                "media-playback-start-symbolic"
-            });
-        self.widgets.play.set_tooltip_text(Some(match state {
-            PlaybackState::Playing => "Пауза",
-            PlaybackState::Paused => "Продолжить",
-            PlaybackState::Error => "Получить источник заново и повторить",
-            _ => "Воспроизвести выбранный трек",
-        }));
+            .update_property(&[gtk::accessible::Property::Label(play_label)]);
         self.widgets
             .play
             .set_sensitive(ready && selected.is_some_and(|track| track.available) && !loading);
@@ -888,6 +985,42 @@ impl Controller {
             .volume
             .set_sensitive(ready && player.controller.is_some() && state != PlaybackState::Error);
         self.widgets.volume.set_value(player.volume);
+        self.widgets.shuffle.set_active(model.queue.shuffle());
+        self.widgets.shuffle.set_sensitive(ready);
+        let shuffle_label = if model.queue.shuffle() {
+            "Перемешивание включено"
+        } else {
+            "Перемешивание выключено"
+        };
+        self.widgets.shuffle.set_tooltip_text(Some(shuffle_label));
+        self.widgets
+            .shuffle
+            .update_property(&[gtk::accessible::Property::Label(shuffle_label)]);
+        let repeat_label = match model.queue.repeat_mode() {
+            crate::queue::RepeatMode::Off => "Повтор выключен",
+            crate::queue::RepeatMode::Queue => "Повтор очереди",
+            crate::queue::RepeatMode::One => "Повтор одного трека",
+        };
+        player_bar::set_repeat_one_badge(
+            &self.widgets.repeat,
+            model.queue.repeat_mode() == crate::queue::RepeatMode::One,
+        );
+        self.widgets.repeat.set_sensitive(ready);
+        self.widgets.repeat.set_tooltip_text(Some(repeat_label));
+        self.widgets
+            .repeat
+            .update_property(&[gtk::accessible::Property::Label(repeat_label)]);
+        if model.queue.repeat_mode() == crate::queue::RepeatMode::Off {
+            self.widgets.repeat.remove_css_class("active");
+        } else {
+            self.widgets.repeat.add_css_class("active");
+        }
+        self.widgets
+            .previous
+            .set_sensitive(ready && model.queue.can_go_previous());
+        self.widgets
+            .next
+            .set_sensitive(ready && model.queue.can_go_next());
         let seekable = ready
             && snapshot.as_ref().is_some_and(|snapshot| snapshot.seekable)
             && matches!(
@@ -925,6 +1058,7 @@ impl Controller {
         drop(model);
         self.publish_mpris();
         self.sync_track_pane();
+        self.sync_catalog_rows();
     }
 }
 
@@ -1010,4 +1144,4 @@ fn music_command_failure(error: PlaybackError) -> bool {
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;

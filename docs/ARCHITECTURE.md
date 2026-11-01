@@ -12,11 +12,19 @@ The owner accepted v0.3 runtime `0232548` on 2026-10-31 for persistent login/
 restart, real covers, actual music, pane mechanics and KDE cover/metadata, and
 reported successful final Flatpak auth/playback/system integration. The pane's
 visual design remains for a separate UI/UX iteration; unreported backend/failure
-cases are not inferred. Future behavior requires its own checks; see
+cases are not inferred. PR #14 integrated that baseline at `5e85e8d`. v0.4's
+complete music-experience redesign continues in Draft PR #15 after owner
+UI/UX rejection of `a9eed45`; it requires fresh visual and behavioral acceptance; it does not replace the accepted service/audio path.
+See
 [validation](VALIDATION.md) and ADRs [0017](adr/0017-playback-context-unified-workspace-and-mpris.md),
 [0018](adr/0018-persistent-session-and-settings.md),
 [0019](adr/0019-bounded-account-cache.md) and
-[0020](adr/0020-seamless-music-workspace.md).
+[0020](adr/0020-seamless-music-workspace.md) and
+[0021](adr/0021-controlled-nonmodal-track-information.md),
+[0022](adr/0022-universal-music-panel.md) and
+[0023](adr/0023-local-playback-order-and-mpris-modes.md) and
+[0024](adr/0024-bounded-continuous-track-views.md) and
+[0025](adr/0025-loaded-collection-search-and-playback-provenance.md).
 
 ```mermaid
 flowchart LR
@@ -90,7 +98,7 @@ flowchart LR
 | `cache` / `music::cache_codec` | Account-scoped persistent store, policy/leases/integrity/eviction and reduced validated metadata records |
 | `catalog_cache` | Read facade over unchanged MusicService; stable fresh hits, mutable network-first reads, explicit refresh and per-reply provenance |
 | `artwork` | Bounded public-cover loading/RAM LRU and explicitly cacheable normalized raster persistence; GTK textures stay on main thread |
-| `queue` | Bounded ordered playback context and explicit queue appends from real track metadata; active source binding remains in the music player |
+| `queue` | Bounded loaded context, exact-occurrence selection/appends and local Shuffle/Repeat policy with upcoming plan/history; active source binding remains in the music player |
 | `capabilities` | Historical independent diagnostic capability types; not the normal provider or new resolver admission |
 | `playback` / `playback::remote` | Reusable controller, worker-owned `playbin`, local sources and sealed short-lived HTTPS admission/transport policy |
 | `stream` / `stream::resolver` | Metadata-only delivery diagnostic and the separate account-bound legacy full-MP3 resolver; bounded requests and sanitized reports |
@@ -100,7 +108,11 @@ flowchart LR
 | `config` | Non-secret application identity and version |
 | `ui` / `ui::music` / `ui::music::player` | Native catalog/session UI plus explicit playback intents, queue/source binding, snapshot controls and cleanup |
 | `ui::music::system_media` | MPRIS commands/snapshots joined to that same player; worker-acknowledged Seeked and bounded private cover-only files |
-| `ui::music::track_pane` / `playlist_grid` / `queue_view` | Native information, adaptive playlist tiles and current/up-next presentation; actions retain controller/source ownership |
+| `ui::music::workspace` / `track_pane` | One controlled TrackInfo/Queue panel, availability/presentation and occurrence-bound information target; the view retains no independent audio state |
+| `ui::music::sliding_panel` | One native single-child geometry host; Adwaita animation translates the complete fixed-size surface inside a clipped viewport |
+| `ui::music::player_bar` | Native footer construction/responsive controls over the controller's existing widgets; no audio or queue ownership |
+| `ui::music::continuous_loading` | Bounded appended track views, provider-page admission, scroll/end/error state and immutable context-window resolution |
+| `ui::music::catalog_layout` / `playlist_grid` / `queue_view` | Native catalog hierarchy, compact song rows, adaptive playlist tiles and current/up-next presentation; actions retain controller/source ownership |
 | `ui::auth` | Single-purpose Libadwaita sign-in dialog, ephemeral WebKitGTK6 login and scoped asynchronous cookie handoff |
 | `main` | Concrete composition, application lifecycle and explicit diagnostic CLI modes |
 
@@ -125,11 +137,16 @@ The corrected public sign-in boundary and provider gate are recorded in
 
 ## Native workspace and unified search
 
-The desktop navigation defaults to a 72-pixel icon rail with an explicit
-expand-labels action. At logical widths of 760 pixels or less, navigation uses
-a native labelled drawer. Ctrl+B expands desktop labels or toggles that drawer.
-Accessible names, tooltips and keyboard activation accompany icons. Diagnostics
-remain in the application menu, outside everyday library/search destinations. A compact native account
+Primary navigation uses lightweight native tabs/segments with accessible names,
+keyboard activation and responsive placement rather than dropdown selection.
+The older three-route rail is not a current product requirement. Diagnostics
+remain in the application menu. The current primary tabs are “Главная”,
+“Нравится” and “Плейлисты”; accessible unified Search remains available as an
+explicit action. These owner-authorized refinement routes replace the earlier
+Home/Search/Library primary rail, not the underlying typed search service.
+Home offers real Liked/Playlists/Search shortcuts and a compact, explicitly
+unavailable Wave section without radio/network/playback claims. Queue is opened from the Player Bar/Ctrl+J in the universal
+right panel, not as a separate primary route. A compact native account
 avatar in the HeaderBar uses initials from the validated display name, because
 no profile-photo URI has been verified. Its popover displays only known name/
 session information and the existing safe logout flow. Opening the fixed
@@ -151,32 +168,269 @@ state; no extra per-row normalization request is introduced. Search playlist
 summaries keep actual owner/kind and optional counts; a generic **Плейлист**
 label for missing/invalid display text is not claimed to be a returned name.
 
-The persistent music bar groups a 56-pixel cover, actual title/artist, a
-44-pixel native Play control, transport, progress/seek, volume and queue.
-Its compact vertical arrangement preserves readable metadata and controls.
-It follows the existing worker snapshots; a
-redesigned control must not invent a new playing state or source. Both the
-workspace's useful density and its keyboard/HiDPI behavior require actual visual
-and structural review, separately from the accepted backend functionality.
-Details retain their distinct action and existing navigation. The v0.3
-track-information component additionally shows actual cover/title/credits/album,
-selection/playback state and verified entity actions in an adaptive right pane
-or collapsed overlay at logical widths of 1180 pixels or less. The persisted
-wide preference follows the playing track by default; compact/medium playback
-never automatically opens the overlay. Cover activation or Ctrl+I opens
-information, explicit close persists that choice, and Details may select metadata
-independently. It never infers an artist ID from a name or substitutes
-a separate player state. Playlist tiles use native adaptive wrapping, real
-optional metadata, long-title accessibility and explicit loading/empty/Retry.
-A server-create tile appears only with the confirmed creation workflow; no fake
-similar-track or My Wave content is introduced.
+The activity-dependent Player Bar groups actual artwork/title/artist, centered
+Shuffle/Previous/Play-Pause/Next/Repeat transport, functional progress/seek,
+volume and Queue. A native GtkRevealer uses a 240 ms SlideUp transition and
+starts closed. It opens for a validated current track with an actual resolving,
+preparing, requested, retained-source or failed playback intent, not metadata
+selection alone. Pause stays visible; a retained ended source can offer replay;
+a request failure retains its visible Retry. Explicit Stop, queue clear and
+logout hide it. The wrapper remains compatible with the shell's ToolbarView;
+no fake audio state or new engine decides visibility. Compact controls remain
+reachable through native adaptation. The full artwork/title/artist zone is one
+native Button with mouse/Enter/Space activation, while Like is a separate sibling
+control and never a nested interactive child. No visible Stop button is presented; Stop remains a supported
+PlaybackController/MPRIS command for external control and lifecycle cleanup.
+Metadata width must not push the central transport off center. The bar consumes
+existing worker snapshots and the queue's policy, never a second playback state.
+A delayed compact-panel focus request rechecks the actual currently mapped,
+sensitive footer and pane targets before focusing Close. A responsive resize
+must not steal keyboard focus restored to the same Seek control; weak references
+keep this bounded presentation request independent of player/session ownership.
+Loading uses a stable native spinner inside the existing Play button, including
+held delivery and preparation, with an accessible label and tooltip. It does
+not add/remove a loading-caption row that changes footer height mid-reveal;
+actual failures retain the ordinary full-width error/Retry presentation.
+
+Liked and Playlists pages use real loaded tracks/collections as musical content,
+not duplicate oversized navigation cards or invented recommendations. User and
+liked playlists use meaningful sections rather than a primary dropdown. The
+large empty Wave landing is superseded by this useful compact Home. Collection,
+playlist/album heroes, native cover tiles, track rows and independent four-part
+search use the same hierarchy and bounded typed models. Missing art/data,
+loading, errors/Retry and server-confirmed playlist creation remain honest.
+Artist/album links use verified identities; names do not invent an ID.
+
+### Bounded continuous track views
+
+[ADR-0024](adr/0024-bounded-continuous-track-views.md) separates continuous
+catalog presentation from the active playback context. The UI retains bounded
+source/query/account state, admitted read portions, in-flight work and honest
+loading/end/error/local-limit state. Scroll demand reuses existing bounded read
+contracts and appends without replacing earlier rows or their scroll anchor.
+Each feed has at most 2,000 rendered positions and 100 provider-page admissions,
+using the existing 50-position portions; it is bounded GtkListBox content, not
+unbounded virtualization. Initial viewport prefill is bounded to three provider
+pages total. Then real forward wheel/scroll or PageDown/End admits one read near
+the lower threshold, even for sparse content with no scroll range. Unfiltered lists have no manual
+track-page switch, and empty pages cannot auto-drain the source. An active local
+collection filter suppresses automatic layout/prefill admission and provides an
+explicit bounded next-part search action, distinct from global pagination. Repeated threshold notifications cannot grow request queues. Late
+replies are retired by source/session generations. Explicit read Retry preserves prior rows
+and does not silently replay writes. Visible track page buttons are removed,
+not the provider's internal pagination or batch-normalization limits.
+
+Cache presentation follows the visible retained feed, rather than the last
+completed read. At most 100 admitted page origins retain enum/error metadata;
+any retained stale page keeps the saved-data warning visible, and any storage
+failure stays represented. A new feed starts a new origin set. Local album
+slices inherit the accepted album reply's origin. Combined playlist sections
+aggregate only their admitted, displayed owned/liked data. Retired asynchronous
+cache replies are checked before admission; clearing storage does not itself
+erase a snapshot that was already accepted into the current view.
+
+Actual context selection still has at most 500 positions. UI growth alone does
+not extend/replace that context. Collection search uses one Unicode case-folded,
+normalized index over the admitted title/artist/album fields and an ordered
+original-position projection; typing performs no collection-metadata requests. Retained rows are shown
+or hidden without cloning whole models or rebuilding the active queue. Partial
+coverage, no loaded matches, next-part loading, stale membership, Retry and the
+local limit remain explicit. A different feed starts with an empty query.
+
+[ADR-0025](adr/0025-loaded-collection-search-and-playback-provenance.md) adds a
+validated original-position constructor to PlaybackContext. Explicit Play
+snapshots an aligned window of at most 500 visible matches in provider order;
+up to four shared windows are materialized lazily. Every item carries its
+absolute original admitted position (below 2,000), while the source identity
+binds the stable feed rather than the query or window offset. Manual additions
+remain separately tagged. Current-row, followed Info and MPRIS identity compare
+that source occurrence, so duplicate IDs at original positions 0 and 500 do not
+alias at physical queue index zero. Structural removal/reindexing preserves
+original source identity. Manual additions retain the earlier physical-index
+fallback; removing an earlier row can change their opaque Info/MPRIS identity
+without restarting playback. No queue policy, resolver, transport or worker is replaced.
+
+The Liked hero owns an original native heart composition, existing Play/Refresh
+actions and facts computed from the admitted collection. It shows total duration
+only after remote completion, every duration is known and a checked sum succeeds.
+Playlist covers resize in place from actual available width, retaining their
+existing image/cache binding. The footer uses equal native grid wings around
+five tightly grouped controls, with the confirmed heart beside metadata and a
+centered timeline. At the fully closed native endpoint its inner content is
+invisible, releasing the horizontal minimum of a previous wide arrangement;
+opening lays out and shows that same content before paint, and closing frames
+retain it until zero. This is presentation over the same snapshots and controller.
+
+### Direct current-track membership
+
+The footer Like uses the existing confirmed interaction boundary: validated
+account-bound track membership/revision GET, one explicit add/remove POST and
+an independent read confirming desired membership at a sufficient revision.
+Unknown/loading membership is not rendered as a confirmed unliked result;
+errors and ambiguous writes remain explicit and do not automatically repeat a
+POST. A bounded `CurrentLikeRead` lane separates footer membership reads from
+detail membership and catalog work. Its first visible-map read is deferred to
+an idle callback with weak widget/controller ownership and current session,
+track and mapped-state checks. This avoids synchronous mutable controller
+reentry from a GTK map signal while player rendering still holds a read borrow.
+Known membership mutation marks the liked feed `restart_required` before and
+after the write for every outcome. Prior rows remain visibly stale with a
+library-changed Refresh action; no shifted provider page appends to that old
+snapshot. Explicit Refresh starts page zero under a fresh feed epoch. Retiring
+an in-flight ticket releases its loading/admission state, preventing a permanent
+spinner, while the active playback queue remains unchanged. Track/session
+generations prevent late confirmation from changing a new current item's control. Removing a Like is not Dislike. Published Dislike API
+variants exist, but their differing contract/state/side effects are not confirmed
+for Karin; the footer omits that unsupported action rather than claiming the
+service has no Dislike API. No MusicService/StreamResolver/GStreamer rewrite is
+required by these presentation changes.
+
+### One controlled universal panel in v0.4
+
+[ADR-0022](adr/0022-universal-music-panel.md) extends ADR-0021's controlled intent
+into one permanent surface with explicit `Closed`, `TrackInfo` and `Queue`
+modes. User mode, content availability, responsive presentation, explicit
+information target and actual playback occurrence are separate concepts.
+GTK animation progress is presentation state, never the source of user intent.
+There is one Queue widget tree and one information view inside the shared host,
+not two independently opening panels or a duplicate primary queue page.
+
+Cover/info opens TrackInfo and keeps it open; from Queue it changes content in
+place. Ctrl+I is an explicit information toggle. Footer Queue/Ctrl+J opens Queue,
+changes TrackInfo to Queue without another slide, and can explicitly close an
+already open Queue. X or compact Back explicitly closes with focus return.
+Outside clicks, scrolling, navigation, seek/pause/volume and resizing preserve
+mode. Diagnostics can suspend rendering; logout retires personal targets and
+work and resets closed mode. Logout and close also remove the retained personal
+library hero, cover/count/Play action and feedback, not only the track rows.
+A stopped or empty player does not invent metadata.
+
+The whole surface moves as a unit: background/border, stable header/close,
+artwork, text and actions share the same animated geometry and clipping.
+The old `a9eed45` layout's defect was reproduced with an after-paint observer:
+the child surface's x stayed 1110 while its width contracted from 1520 toward
+320; a left-aligned title stayed at x=1131 while centered cover x changed from
+1742 toward 1142. These are one cloud case's coordinates, not a Fedora claim.
+The old Revealer changed child allocation instead of moving the whole surface,
+explaining the apparent instant text and separately travelling art.
+`SlidingPanel`, a single-child GtkWidget, allocates the child at its full final
+size and applies one GSK translation `x = (1 - progress) × width`. A native
+240 ms AdwTimedAnimation with EaseOutCubic drives that geometry; it does not add
+a custom frame-clock engine. The viewport clips the moving surface. Desktop
+central reservation follows actual progress toward the 320+20-pixel wide or
+300+16-pixel medium allocation, rather than jumping instantly to final width.
+TrackInfo ↔ Queue changes only content; it does not close/reopen or change
+outer/header geometry. A 100 ms GtkStack crossfade is independent of the slide.
+Native animation honors reduced motion, which is checked
+separately from actual intermediate normal-motion frames. Desktop allocation
+must retain usable central controls throughout the transition; a fixed narrow
+content clamp or a pane temporarily covering row actions is not an acceptable
+substitute. Compact renders the same logical panel as an explicit subview,
+with an active Player Bar still available. The panel also remains usable via
+explicit Details/keyboard routes when no player is active. Resize preserves
+mode and target.
+Presentation also checks actual content width: below 620 logical pixels it
+uses the dedicated subview instead of forcing a narrow desktop split. This
+leaves central actions usable and is not a new application minimum size.
+Track Info budgets its existing cover against actual panel width/height and the
+natural measured height of metadata/actions. Art adapts within 96–256 logical
+pixels; resizing the mounted thumbnail starts no new image request. Ordinary
+metadata/actions stay at readable size, and unusually long content remains
+scrollable once the useful cover minimum is reached. This is viewport-responsive
+presentation, not shrinking text to hide clipping or a new artwork source.
+
+Motion evidence now has an explicit test-only graphics-initialized scope.
+One unconditional real normal 240 ms opening, six bounded offscreen GSK renders
+of the actual mapped panel while open, and a real normal close are recorded as
+setup with quarters not assessed. The setup fractions
+`.137/.317/.533/.787/.941/1` do not change UI progress or animation clock and
+produce no proof PNG. Only the subsequent real native cycle supplies the
+original strict five-frame proof. Production has no such prewarming. Cold NGL
+and Vulkan phase failures occurred even on modern GTK; internal cause remains
+unattributed and first-use responsiveness is not accepted by the initialized
+proof. Target Fedora fresh-first-open and repeated openings stay separate.
+
+Information separates `FollowingCurrent` from `ExplicitSelection`. Context/source,
+position and track identity, plus the existing occurrence-change hook,
+distinguish duplicate IDs and new playback selections. Direct Play, Next/Previous,
+queue selection, EOS advancement and MPRIS follow the actual current occurrence,
+updating cover/metadata/actions together in place. Repeat One's same-occurrence
+EOS restart is not a different queue position. Details changes information
+without playing; Pause/Seek/Volume preserve that choice until the next actual
+current-occurrence change. Existing generation/epoch checks retire old detail
+and artwork completions. Removing another row only reindexes the same occurrence.
+Opening, closing, switching modes or resizing never starts/stops audio or replaces
+a PlaybackContext. Exact current-row removal follows its selected successor.
+
+### Local playback policy
+
+[ADR-0023](adr/0023-local-playback-order-and-mpris-modes.md) adds `RepeatMode`
+Off/Queue/One and Shuffle to `MusicQueue`, above the unchanged GStreamer engine.
+PlaybackContext's physical order and immutable shared Track list are retained.
+A bounded occurrence-index upcoming plan and actual history supply shuffled
+Next/Previous and the queue view; equal Track IDs remain distinct positions.
+Unavailable loaded positions are skipped and manual edits update indices/plans.
+Fisher-Yates uses unbiased bounded draws, with reproducible test seeds.
+
+`next_track`/`previous_track` are explicit navigation; `advance_eos` applies
+natural-completion policy. Repeat One restarts the same actual occurrence on
+EOS with one ordinary resource resolution, never on an automatic failure loop.
+Repeat Queue wraps available loaded positions; a shuffled new cycle avoids an
+immediate current repeat when another available occurrence exists. Previous
+revisits actual shuffle history and forward navigation consumes that history
+before remaining planned positions. Toggling Shuffle changes future order
+without restarting current audio. Disabling it restores physical source order.
+No policy operation fetches remote pages or claims a partial context is complete.
+
+Modes survive ordinary clear/context replacement within the app session, while
+plans/history are retired. Explicit logout/account change and close reset modes;
+no mode persistence or cloud-queue synchronization is introduced. The existing
+500-position bound, caller token/session guards, resolver cancellation, worker
+acknowledgements and failed-resource UI remain intact.
+
+The expanded [quality gate](UI_QUALITY_GATE.md#v04-native-music-gate) requires
+fresh before/current GTK captures and measured intermediate frames, actual
+input/queue/worker/MPRIS regressions and a separate Fedora owner run. The rejected
+`a9eed45` implementation and accepted v0.3 runtime stay historical evidence;
+their green tests are not visual acceptance of this redesign.
+
+Strict visual CI runs in dedicated Debian 13 stable/MSRV jobs with the same
+modern native stack used for prepared cloud evidence. Ubuntu 24.04 retains the
+compiler, native package, historical 29 functional selectors and sandboxed
+WebKit baseline; the two strict visual selectors keep their original duration/
+tolerances and both scales. Add current refinement selectors without dropping
+that 31-name baseline, and record the actual compiled/executed partition. This is test-only
+placement following a recorded GTK 4.14/Adwaita 1.5/Mesa first-paint sampling
+failure, not a production dependency, renderer, application minimum or Flatpak
+SDK change. Its unattributed internal cause and each hosted result remain in
+[VALIDATION.md](VALIDATION.md). Modern Mesa fixture jobs explicitly record
+`LP_NUM_THREADS=2` as a test-environment setting. The default-environment C7 2×
+sampling failure remains a failure; controlled initialized-motion results do
+not establish a driver cause, cold acceptance or a production renderer change.
+Current strict motion commands unset the debug-only `GSK_DEBUG=full-redraw`
+override and use GTK's ordinary surface damage; static resize captures retain
+full-redraw. The observer still snapshots fresh full root render nodes at actual
+after-paint callbacks, independently of native damage rectangles. Those node
+renders verify logical geometry/pixels, not native-framebuffer damage
+correctness. The `144492f` hosted 2× failures and original local full-redraw
+PASS remain separate from the one ordinary-damage control; no production source,
+renderer, duration, setup count or strict assertion changed.
 
 ## Read-only music and session lifecycle
 
 Issue #9's [catalog/delivery increment](adr/0012-catalog-repair-and-local-delivery-probe.md)
 supersedes the global catalog admission lock. Account, initial library, explicit
-library, search, detail and delivery requests have independent bounded lanes:
-one running and one latest pending job each. Tickets and session generations
+library, search, detail and delivery requests have independent bounded lanes.
+The current controller has **12 lanes**: account, initial library, library,
+playlist-section refresh, search, detail, delivery, detail Like read,
+current-track Like read, owned playlist continuation, liked playlist continuation
+and mutation. Each admits one running and one latest pending job. The bounded
+`PlaylistSections` refresh is independent of Library/Like invalidation: a Like
+must not retire that callback and strand either playlist section's loading flag.
+The two Show More lanes remain independent. Confirmed playlist creation retires
+the section refresh and continuation lanes and resets their view loading flags;
+logout/close invalidate all lanes. Retiring a library read must also release
+its associated view loading state. Tickets and session generations
 discard superseded replies; invalidated old work does not disable a new login.
 Detail navigation opens before the HTTP response, preserves its source section
 and displays loading, empty or retryable errors in native widgets.
@@ -302,7 +556,8 @@ as native controls. There is no second GStreamer pipeline or provider. Raise/
 Quit, Play/Pause/PlayPause/Stop, Next/Previous, Seek/SetPosition and Volume retain
 actual lifecycle/capability checks. Position and length use microseconds; track
 object paths are opaque and generation-bound, so a stale SetPosition cannot seek
-a new selection. Next/Previous preserve paused/stopped intent.
+a new selection. Next/Previous preserve paused/stopped intent and use the same
+local queue policy as native controls.
 Seeked waits for a matching worker acknowledgement, rather than assuming
 successful delivery when the old position happens to be close to the target.
 
@@ -315,8 +570,11 @@ directory/file modes are 0700/0600. RAII removes both on replacement, logout
 and close. At most three local artwork-worker Busy admission attempts are
 permitted; they do not retry HTTP. No music content is cached.
 No audio resource/CDN URL, OAuth, cookie, query, raw response or `xesam:url`
-crosses the bus. OpenUri is unsupported; no TrackList, repeat or shuffle
-properties are advertised. Rate stays 1.0 (minimum/maximum 1.0); the standard
+crosses the bus. Writable `Shuffle` and `LoopStatus` (`None`/`Track`/`Playlist`)
+map to the same local policy; valid native or external changes publish
+PropertiesChanged and recompute CanGoNext/CanGoPrevious. Invalid property types
+or values are rejected. OpenUri and TrackList remain unsupported. Rate stays
+1.0 (minimum/maximum 1.0); the standard
 Rate=0 action pauses rather than enabling speed control. Shutdown unregisters
 interfaces and releases the owned name; logout instead publishes Stopped and
 empty metadata while the application stays open.
@@ -324,10 +582,12 @@ empty metadata while the application stays open.
 The Flatpak manifest needs only the exact MPRIS own-name permission; broad
 session-bus/filesystem access is unnecessary. Secret Service remains ungranted.
 An isolated bus fixture and a synthetic native-player bridge fixture can verify
-methods, properties, signals, stale IDs, capability changes and cleanup. The owner accepted KDE Media Widget and Flatpak integration for the merged v0.2
-baseline; hardware media keys remain N/D. Changed v0.3 interactions require a
-new Fedora run with an audible Music track, plus the actual current Flatpak
-build/install/sandbox and storage-backend lifecycle.
+methods, properties, signals, stale IDs, capability changes and cleanup. The
+owner accepted KDE Media Widget and Flatpak integration in v0.2 and actual
+KDE cover/metadata plus final Flatpak system integration in v0.3; hardware media
+keys remain N/D. Changed v0.4 interactions require a new Fedora run with an
+audible Music track and the current native/Flatpak package, separately from
+unreported per-backend storage failure/deletion cases.
 
 ## Confirmed library interactions
 
@@ -551,8 +811,10 @@ Automated OAuth fixtures use loopback only and require no account or browser.
 
 The earlier Gate A MPRIS reservation and later audio-only deferral are historical;
 ADR-0017 defines the bridge accepted in the merged v0.2 baseline. v0.3 adds the
-protected-session lifecycle without changing that provider/player. My Wave stays
-hidden unless its complete service-session/feedback capability is established.
+protected-session lifecycle without changing that provider/player. Functional
+My Wave remains gated until its complete service-session/feedback capability is
+established; the current explicitly unimplemented landing is the sole placeholder
+exception, not a working radio service.
 The separate owner v0.3 report supplies its stated functional acceptance; it does
 not individually certify every cache, wallet or portal failure case. The exact MPRIS own-name grant does not enable direct
 Secret Service access; Flatpak selects Secret Portal and a safe unavailable

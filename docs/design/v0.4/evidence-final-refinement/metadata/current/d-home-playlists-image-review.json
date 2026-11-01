@@ -1,0 +1,125 @@
+{
+  "reviewer": "D — Playlists and Home",
+  "candidate": "C14",
+  "reviewed_at_utc": "2026-11-01T23:05:58.876379+00:00",
+  "test_executable_sha256": "c927b8e1dfa405398c8c2dc68ca402d3cd899e7867f08cbfc2aa08bf54331bb5",
+  "source_manifest_sha256": "3faefc3e5d8e69ce475e148ffef92cecb5ccbaf6631ac14661993cbbf1db7bf4",
+  "review_partition_sha256": "76413abd4ca14f3500bfb0a01de5c4b8aa2f33fec7d9888d374079a4262893c4",
+  "method": "Freshly opened all eight exact published C14-partition originals individually with eight single-image view_image calls. C12 conclusions were not relabelled as C14 inspection; unchanged baseline bytes were reopened too.",
+  "reviewed_original_count": 8,
+  "freshly_opened_current_original_count": 6,
+  "result": "No P0/P1 visual findings in the eight assigned C14 originals.",
+  "reviewed": [
+    {
+      "file": "before/static-scale1/surface-playlists-tab-scale1-light.png",
+      "sha256": "1fd635e6593fd6be6dbbbf197be65a29e9f34123ed51d78d32384918644b1af3",
+      "png_dimensions_px": [
+        1440,
+        900
+      ],
+      "opened_exact_original_fresh": true,
+      "individual_view_image_call": true,
+      "same_bytes_as_prior_C12_review": true,
+      "conclusion": "Freshly reopened unchanged baseline: smaller square playlist covers, readable titles/counts and separate owned/liked groups provide the wide before comparison.",
+      "p0_p1_findings": []
+    },
+    {
+      "file": "before/static-scale1/surface-wave-placeholder-scale1-dark.png",
+      "sha256": "1b937dbe478f1a30179230346457a59eec05607b5ebeaa3b468ffa963593a7a4",
+      "png_dimensions_px": [
+        1440,
+        900
+      ],
+      "opened_exact_original_fresh": true,
+      "individual_view_image_call": true,
+      "same_bytes_as_prior_C12_review": true,
+      "conclusion": "Freshly reopened unchanged baseline: oversized central unavailable-Wave status is the only Home content; retained as historical before, not current UX.",
+      "p0_p1_findings": []
+    },
+    {
+      "file": "current/static-scale1/surface-home-compact-scale1-light.png",
+      "sha256": "bc0e49dc336d53f02c9f827892f8c93403b572b3617d47d8bcc800854b0c8115",
+      "png_dimensions_px": [
+        420,
+        720
+      ],
+      "opened_exact_original_fresh": true,
+      "individual_view_image_call": true,
+      "same_bytes_as_prior_C12_review": false,
+      "conclusion": "Fresh C14 current original: compact Home has a clear heart, three readable real quick routes and a small honest Wave-unavailable block; no missing icon or overlap with the active footer.",
+      "p0_p1_findings": []
+    },
+    {
+      "file": "current/static-scale1/surface-home-wide-scale1-dark.png",
+      "sha256": "bbee3a0ba2101ba467084d4df022f481e35540e045da42b12eb585d86c7af991",
+      "png_dimensions_px": [
+        1440,
+        900
+      ],
+      "opened_exact_original_fresh": true,
+      "individual_view_image_call": true,
+      "same_bytes_as_prior_C12_review": false,
+      "conclusion": "Fresh C14 current original: wide Home uses a clear heading and three purposeful quick routes instead of the giant status page. Sparse space is an honest future landing rather than invented recommendations.",
+      "p0_p1_findings": []
+    },
+    {
+      "file": "current/static-scale1/surface-playlists-tab-reference-scale1-light.png",
+      "sha256": "0511ac11848d635cc826cbe772420373166cf57ccd142a91282b4e9d3f30a443",
+      "png_dimensions_px": [
+        850,
+        750
+      ],
+      "opened_exact_original_fresh": true,
+      "individual_view_image_call": true,
+      "same_bytes_as_prior_C12_review": false,
+      "conclusion": "Fresh C14 current original: reference-width playlist covers stay square and natural-sized, titles/counts are readable, Create aligns with the grid, and ordinary row wrapping/vertical scrolling remains clear.",
+      "p0_p1_findings": []
+    },
+    {
+      "file": "current/static-scale1/surface-playlists-tab-wide-scale1-light.png",
+      "sha256": "27012b0c5bd61f7e9006b14d8b2262e308c086674b8206876aeedf3979884812",
+      "png_dimensions_px": [
+        1440,
+        900
+      ],
+      "opened_exact_original_fresh": true,
+      "individual_view_image_call": true,
+      "same_bytes_as_prior_C12_review": false,
+      "conclusion": "Fresh C14 current original: wide covers are visibly larger than the equal-size baseline. Owned and liked sections retain hierarchy; a single liked playlist keeps natural width rather than stretching.",
+      "p0_p1_findings": []
+    },
+    {
+      "file": "current/static-scale2/surface-home-reference-scale2-dark.png",
+      "sha256": "68c47e4a5ab133865cc0a886e05bb8a5032ad22ac389367f0dee89c20eb3adcf",
+      "png_dimensions_px": [
+        1700,
+        1500
+      ],
+      "opened_exact_original_fresh": true,
+      "individual_view_image_call": true,
+      "same_bytes_as_prior_C12_review": false,
+      "conclusion": "Fresh C14 HiDPI original: heart/list/search glyphs, route text and Wave-unavailable explanation remain sharp, readable and unobstructed at the reference width.",
+      "p0_p1_findings": []
+    },
+    {
+      "file": "current/static-scale2/surface-playlists-tab-compact-scale2-dark.png",
+      "sha256": "ce96e98d9bbb931c1bd24c94f6b2e96f408454fe4616271ec2d1939f4e02b0f1",
+      "png_dimensions_px": [
+        840,
+        1440
+      ],
+      "opened_exact_original_fresh": true,
+      "individual_view_image_call": true,
+      "same_bytes_as_prior_C12_review": false,
+      "conclusion": "Fresh C14 HiDPI compact original: Create and the first real playlist share one row; two square cover columns fit without horizontal overflow. Long names wrap into two lines. Lower-row captions continue in the ordinary scroll viewport rather than overlapping the footer.",
+      "p0_p1_findings": []
+    }
+  ],
+  "scope_limits": [
+    "Only these eight selected synthetic cloud originals were inspected; this is not blanket approval of every gallery frame or the entire application.",
+    "Static hierarchy/cover fit/density inspection supplements independent GTK structural/input tests. It does not execute route activation, session cleanup, actual audio or reveal/reversal lifecycle.",
+    "No Fedora 44/KDE/Wayland/PipeWire, full current Flatpak, physical-GPU, real-account or service-write acceptance is established.",
+    "Cold footer/panel first-use remains unaccepted. Reported C14 native cold gaps of 900018/850017 microseconds are separate retained evidence, not measurements or successes supplied by this static review.",
+    "No application, source, gallery, image, native process, Cargo/build or live-service operation was changed or run to produce this report."
+  ]
+}

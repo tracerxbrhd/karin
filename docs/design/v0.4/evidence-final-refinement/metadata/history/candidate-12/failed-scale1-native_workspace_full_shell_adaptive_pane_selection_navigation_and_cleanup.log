@@ -1,0 +1,5 @@
+
+running 1 test
+test ui::music::workspace::tests::native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup ... 
+(process:30315): Adwaita-WARNING **: 22:23:34.880: AdwToolbarView 0x7f9215d011f0 exceeds AdwApplicationWindow width: requested 736 px, 410 px available
+Trace/breakpoint trap

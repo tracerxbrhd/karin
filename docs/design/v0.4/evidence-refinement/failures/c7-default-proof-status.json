@@ -1,0 +1,95 @@
+{
+  "candidate": "C7",
+  "binary_sha256": "9ea0c6b6b7d6851816b7e3fc34a45fdc09ae20fee74c269068cef1378c980fe4",
+  "static_both_scales": "PASS204-originals",
+  "matched_a70_matrix_dimension_pairs": 96,
+  "static": {
+    "1": {
+      "matrix_images": 48,
+      "state_images": 54,
+      "raw_footer_images": 10,
+      "footer": {
+        "first-start": {
+          "after_paint_count": 19,
+          "intermediate_frame_count": 10,
+          "natural_child_heights": [
+            0,
+            64
+          ],
+          "node_none_count": 0,
+          "observed_height_reversal_count": 0,
+          "saved_frame_indices": [
+            0,
+            4,
+            6,
+            7,
+            18
+          ]
+        },
+        "explicit-stop": {
+          "after_paint_count": 18,
+          "intermediate_frame_count": 14,
+          "natural_child_heights": [
+            64
+          ],
+          "node_none_count": 0,
+          "observed_height_reversal_count": 0,
+          "saved_frame_indices": [
+            0,
+            2,
+            4,
+            6,
+            17
+          ]
+        }
+      }
+    },
+    "2": {
+      "matrix_images": 48,
+      "state_images": 54,
+      "raw_footer_images": 10,
+      "footer": {
+        "first-start": {
+          "after_paint_count": 15,
+          "intermediate_frame_count": 6,
+          "natural_child_heights": [
+            0,
+            64
+          ],
+          "node_none_count": 0,
+          "observed_height_reversal_count": 0,
+          "saved_frame_indices": [
+            0,
+            4,
+            5,
+            6,
+            14
+          ]
+        },
+        "explicit-stop": {
+          "after_paint_count": 17,
+          "intermediate_frame_count": 13,
+          "natural_child_heights": [
+            64
+          ],
+          "node_none_count": 0,
+          "observed_height_reversal_count": 0,
+          "saved_frame_indices": [
+            0,
+            2,
+            4,
+            6,
+            16
+          ]
+        }
+      }
+    }
+  },
+  "motion": {
+    "scale1": "PASS120selectedframes/24trajectories",
+    "scale2": "FAIL compact-light-queue-closing lacks75-percent-openness-frame;55selectedframes/11completedtrajectories",
+    "final240frames_gate": "NOT_PASSED"
+  },
+  "cold_first_use_latency_accepted": false,
+  "fedora_acceptance": false
+}

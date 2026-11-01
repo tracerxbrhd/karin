@@ -1,0 +1,79 @@
+{
+  "candidate": "candidate-12",
+  "executions": 56,
+  "passed": 48,
+  "nonpassing": [
+    {
+      "selector": "ui::music::artwork_tests::native_cover_metadata_http_cache_and_render_lifecycle",
+      "scale": 1,
+      "binary_sha256": "8513df6e9633b34e24e6793dc4dee52e456e5de5ccbb011f6bdcffdc7520ef04",
+      "returncode": 101,
+      "single_selected_test_passed": false,
+      "duration_seconds": 1.88,
+      "log_sha256": "b340840f93c83bd699f7de14bf1f3397066bee0a3c5e18f3760c222b95b267a1"
+    },
+    {
+      "selector": "ui::music::catalog_layout::tests::native_catalog_native_music_layout",
+      "scale": 1,
+      "binary_sha256": "8513df6e9633b34e24e6793dc4dee52e456e5de5ccbb011f6bdcffdc7520ef04",
+      "returncode": 101,
+      "single_selected_test_passed": false,
+      "duration_seconds": 2.4,
+      "log_sha256": "7c78f2ac2551a16d2284d7bc0bdbb0fc76ea45c47ed9424387e07be33946951e"
+    },
+    {
+      "selector": "ui::music::tests::native_music_session_catalog_queue_and_logout",
+      "scale": 1,
+      "binary_sha256": "8513df6e9633b34e24e6793dc4dee52e456e5de5ccbb011f6bdcffdc7520ef04",
+      "returncode": 101,
+      "single_selected_test_passed": false,
+      "duration_seconds": 9.54,
+      "log_sha256": "f76239b5c1727da879ff460c3a33e90ef0d6cc0dff2cf177a7f1db3e667c3845"
+    },
+    {
+      "selector": "ui::music::workspace::tests::native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup",
+      "scale": 1,
+      "binary_sha256": "8513df6e9633b34e24e6793dc4dee52e456e5de5ccbb011f6bdcffdc7520ef04",
+      "returncode": 133,
+      "single_selected_test_passed": false,
+      "duration_seconds": 14.21,
+      "log_sha256": "dfebc739c748d34d99793fec042b35867b17feff4c236cf022b7656b3cd9973e"
+    },
+    {
+      "selector": "ui::music::artwork_tests::native_cover_metadata_http_cache_and_render_lifecycle",
+      "scale": 2,
+      "binary_sha256": "8513df6e9633b34e24e6793dc4dee52e456e5de5ccbb011f6bdcffdc7520ef04",
+      "returncode": 101,
+      "single_selected_test_passed": false,
+      "duration_seconds": 2.43,
+      "log_sha256": "54c015beb83368803f159f46fb9fefcc87d149727a1f4fd0105f74a95a95519d"
+    },
+    {
+      "selector": "ui::music::catalog_layout::tests::native_catalog_native_music_layout",
+      "scale": 2,
+      "binary_sha256": "8513df6e9633b34e24e6793dc4dee52e456e5de5ccbb011f6bdcffdc7520ef04",
+      "returncode": 101,
+      "single_selected_test_passed": false,
+      "duration_seconds": 3.81,
+      "log_sha256": "1337f09ebcc4b0d4dbebc337d9743109774cfac3b00bcb1e5a4752d6ab778de4"
+    },
+    {
+      "selector": "ui::music::tests::native_music_session_catalog_queue_and_logout",
+      "scale": 2,
+      "binary_sha256": "8513df6e9633b34e24e6793dc4dee52e456e5de5ccbb011f6bdcffdc7520ef04",
+      "returncode": 101,
+      "single_selected_test_passed": false,
+      "duration_seconds": 12.45,
+      "log_sha256": "0a5f6c5a79d7cc1b719f80f2fd4dc280b1d19586c9f97296ccc4e05d1dfa06d6"
+    },
+    {
+      "selector": "ui::music::workspace::tests::native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup",
+      "scale": 2,
+      "binary_sha256": "8513df6e9633b34e24e6793dc4dee52e456e5de5ccbb011f6bdcffdc7520ef04",
+      "returncode": 133,
+      "single_selected_test_passed": false,
+      "duration_seconds": 18.91,
+      "log_sha256": "ad3425303753c9ae72c38add8ff24af6bb98602a49c7715990102bb3857af6bf"
+    }
+  ]
+}

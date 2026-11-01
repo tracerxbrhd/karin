@@ -1,0 +1,25 @@
+{
+  "result": "PASS-complete-local-functional-set",
+  "binary_sha256": "c927b8e1dfa405398c8c2dc68ca402d3cd899e7867f08cbfc2aa08bf54331bb5",
+  "source_manifest_sha256": "3faefc3e5d8e69ce475e148ffef92cecb5ccbaf6631ac14661993cbbf1db7bf4",
+  "current_source_hashes_checked": true,
+  "compiled_selectors": 33,
+  "executed_unique_selector_scale_pairs": 56,
+  "functional_selectors": 28,
+  "scale1_pass": 28,
+  "scale2_pass": 28,
+  "failures": 0,
+  "sum_process_seconds": 857.43,
+  "fatal_gtk_warnings": true,
+  "renderer": "cairo",
+  "separate_visual_raw_selectors": [
+    "native_design_matched_matrix_and_populated_surfaces",
+    "native_first_footer_reveal_after_startup_without_graphics_initialization",
+    "native_universal_panel_whole_surface_motion_and_mode_switch"
+  ],
+  "locally_unsupported_navigating_webkit_hosted_required": [
+    "webkit_auth_interactive_navigation_frames_and_first_rejection",
+    "webkit_auth_local_startup_cookie_isolation_and_cancel"
+  ],
+  "secrets": "synthetic fixtures only; no owner/service login/music"
+}

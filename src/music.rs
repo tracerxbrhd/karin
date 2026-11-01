@@ -385,6 +385,19 @@ impl fmt::Debug for MusicService {
 impl MusicService {
     #[cfg(test)]
     pub(crate) fn for_test(base_url: &str) -> Self {
+        Self::loopback_fixture(base_url, Duration::from_secs(2))
+    }
+
+    /// A held loopback response remains pending while genuine native input
+    /// traverses the collection. Match the finite production request budget;
+    /// ordinary fixtures retain their short timeout and no network is public.
+    #[cfg(test)]
+    pub(crate) fn for_native_input_test(base_url: &str) -> Self {
+        Self::loopback_fixture(base_url, Duration::from_secs(15))
+    }
+
+    #[cfg(test)]
+    fn loopback_fixture(base_url: &str, timeout: Duration) -> Self {
         let origin = Url::parse(base_url).expect("synthetic fixture URL");
         assert_eq!(origin.scheme(), "http");
         assert!(matches!(origin.host_str(), Some("127.0.0.1" | "[::1]")));
@@ -397,7 +410,7 @@ impl MusicService {
         Self {
             client: Client::builder()
                 .no_proxy()
-                .timeout(Duration::from_secs(2))
+                .timeout(timeout)
                 .redirect(Policy::none())
                 .retry(reqwest::retry::never())
                 .build()

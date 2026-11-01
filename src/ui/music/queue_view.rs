@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Queue presentation only; order, selection and playback remain unchanged.
+//! One panel queue view of the application policy, retaining physical identities.
 
 use super::*;
 
@@ -7,6 +7,8 @@ impl Controller {
     pub(super) fn render_queue(self: &Rc<Self>) {
         self.guard_music_binding();
         clear_list(&self.widgets.queue_rows);
+        self.widgets.queue_rows.remove_css_class("boxed-list");
+        self.widgets.queue_rows.add_css_class("music-track-list");
         let model = self.model.borrow();
         let source = model
             .queue
@@ -62,6 +64,22 @@ impl Controller {
             .update_property(&[gtk::accessible::Property::Label(
                 &self.widgets.current_artist.text(),
             )]);
+        let information = selected
+            .map(|track| {
+                let artists = track.artists.join(", ");
+                if artists.is_empty() {
+                    format!("Сведения о треке: {}", track.title)
+                } else {
+                    format!("Сведения о треке: {} · {artists}", track.title)
+                }
+            })
+            .unwrap_or_else(|| "Показать сведения о текущем треке".into());
+        self.widgets
+            .current_art_button
+            .set_tooltip_text(Some(&information));
+        self.widgets
+            .current_art_button
+            .update_property(&[gtk::accessible::Property::Label(&information)]);
         self.widgets.position.set_text(
             &selected
                 .and_then(|track| track.duration_ms)
@@ -90,27 +108,55 @@ impl Controller {
             .update_property(&[gtk::accessible::Property::Label(current)]);
         self.widgets
             .previous
-            .set_sensitive(model.queue.current_index().is_some_and(|i| i > 0));
-        self.widgets.next.set_sensitive(
-            model
-                .queue
-                .current_index()
-                .is_some_and(|i| i + 1 < model.queue.items().len()),
-        );
+            .set_sensitive(model.queue.can_go_previous());
+        self.widgets.next.set_sensitive(model.queue.can_go_next());
         self.widgets
             .clear_queue
             .set_sensitive(!model.queue.items().is_empty());
         let current_index = model.queue.current_index();
-        let next_index = next_available_index(model.queue.items(), current_index);
-        for (index, track) in model.queue.items().iter().enumerate() {
-            let prefix = queue_prefix(index, current_index, next_index, track.available);
-            let (row, body) = item(
-                &track.title,
-                &format!("{prefix}{}", track.artists.join(", ")),
-            );
+        let upcoming = model.queue.upcoming_indices();
+        let history = model.queue.history_indices();
+        let next_index = upcoming.first().copied();
+        let repeat_one = model.queue.repeat_mode() == crate::queue::RepeatMode::One;
+        self.widgets
+            .queue_count
+            .set_tooltip_text(Some(if repeat_one {
+                "Повтор текущего трека. Следующие позиции — после явного перехода."
+            } else {
+                "Локальная очередь Karin в порядке воспроизведения"
+            }));
+        let order = display_order(model.queue.items().len(), current_index, &upcoming);
+        let generation = model.generation;
+        let queue_snapshot = model.queue.context().cloned();
+        for index in order {
+            let track = &model.queue.items()[index];
+            let (row, body) = catalog_layout::catalog_item(&track.title, &track.artists.join(", "));
+            body.set_spacing(4);
+            // Even setting GtkActionable's target without an action-name
+            // creates GtkActionHelper and bypasses ListBox::row-activated.
+            // Keep the sole dispatcher above intact; tests use a presentation-
+            // neutral locator that never changes native activation semantics.
+            #[cfg(test)]
+            row.add_css_class(&format!("music-queue-occurrence-{index}"));
+            let labels = body
+                .first_child()
+                .and_downcast::<gtk::Box>()
+                .expect("catalog row labels");
+            // Status belongs beside the quiet artist line, leaving the title
+            // and three native actions usable even in a compact queue.
+            let credits = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+            if let Some(artist) = labels
+                .last_child()
+                .filter(|child| child.has_css_class("music-track-artist"))
+            {
+                labels.remove(&artist);
+                artist.set_hexpand(true);
+                credits.append(&artist);
+            }
+            row.add_css_class("music-queue-row");
             if current_index == Some(index) {
                 row.set_widget_name("music-queue-current");
-                row.add_css_class("accent");
+                row.add_css_class("music-current-row");
             } else if next_index == Some(index) {
                 row.set_widget_name("music-queue-next");
             } else if !track.available {
@@ -123,78 +169,207 @@ impl Controller {
                 track.cover.as_ref(),
                 40,
             ));
+            let caption = queue_badge(index, current_index, next_index)
+                .map(|caption| {
+                    if caption == "Далее" && repeat_one {
+                        "После пропуска"
+                    } else {
+                        caption
+                    }
+                })
+                .or_else(|| {
+                    (current_index != Some(index) && history.contains(&index)).then_some("Ранее")
+                });
+            if let Some(caption) = caption {
+                let badge = gtk::Label::new(Some(caption));
+                badge.add_css_class("caption");
+                badge.add_css_class("music-row-badge");
+                badge.set_valign(gtk::Align::Center);
+                badge.set_widget_name(if current_index == Some(index) {
+                    "music-queue-current-badge"
+                } else {
+                    "music-queue-next-badge"
+                });
+                if current_index == Some(index) {
+                    badge.add_css_class("accent");
+                } else {
+                    badge.add_css_class("dim-label");
+                }
+                credits.append(&badge);
+            }
+            if !track.available {
+                let unavailable = gtk::Image::from_icon_name("action-unavailable-symbolic");
+                unavailable.set_widget_name("music-queue-unavailable-mark");
+                unavailable.add_css_class("dim-label");
+                unavailable.set_tooltip_text(Some("Трек недоступен"));
+                unavailable.update_property(&[gtk::accessible::Property::Label("Трек недоступен")]);
+                credits.append(&unavailable);
+            }
+            if credits.first_child().is_some() {
+                labels.append(&credits);
+            }
             let play = icon_button("media-playback-start-symbolic", "Воспроизвести трек");
+            play.set_widget_name("music-queue-play");
+            play.add_css_class("flat");
             play.set_sensitive(track.available);
             let weak = Rc::downgrade(self);
+            let expected = queue_snapshot.clone();
             play.connect_clicked(move |_| {
-                if let Some(this) = weak.upgrade() {
+                if let Some(this) = weak.upgrade()
+                    && queue_action_is_current(&this, generation, &expected)
+                {
                     this.play_music_queue(index);
                 }
             });
-            play.add_css_class("suggested-action");
             body.append(&play);
             let details = icon_button("dialog-information-symbolic", "Сведения о треке");
+            details.set_widget_name("music-queue-details");
+            details.add_css_class("flat");
             let weak = Rc::downgrade(self);
-            let id = track.id.clone();
+            let information = track.clone();
             let context = model
                 .queue
                 .context()
                 .and_then(|context| context.with_current_index(index));
+            let expected = queue_snapshot.clone();
             details.connect_clicked(move |_| {
-                if let Some(this) = weak.upgrade() {
-                    this.open_track_context(id.clone(), context.clone());
+                if let Some(this) = weak.upgrade()
+                    && queue_action_is_current(&this, generation, &expected)
+                {
+                    this.select_track_info(information.clone(), context.clone(), false);
+                    this.set_info_open(true);
                 }
             });
-            body.append(&details);
+
             let remove = icon_button("list-remove-symbolic", "Удалить трек из очереди");
+            remove.set_widget_name("music-queue-remove");
+            remove.add_css_class("flat");
             let weak = Rc::downgrade(self);
+            let expected = queue_snapshot.clone();
             remove.connect_clicked(move |_| {
-                if let Some(this) = weak.upgrade() {
+                if let Some(this) = weak.upgrade()
+                    && queue_action_is_current(&this, generation, &expected)
+                {
                     this.remove_music_queue(index);
                 }
             });
-            body.append(&remove);
+            let menu = gtk::MenuButton::builder()
+                .icon_name("view-more-symbolic")
+                .tooltip_text("Действия с позицией очереди")
+                .build();
+            menu.set_widget_name("music-queue-more");
+            menu.add_css_class("flat");
+            menu.update_property(&[gtk::accessible::Property::Label(
+                "Действия с позицией очереди",
+            )]);
+            let actions = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+            actions.append(&details);
+            actions.append(&remove);
+            let popover = gtk::Popover::new();
+            popover.set_child(Some(&actions));
+            menu.set_popover(Some(&popover));
+            for button in [&details, &remove] {
+                let weak = popover.downgrade();
+                button.connect_clicked(move |_| {
+                    if let Some(popover) = weak.upgrade() {
+                        popover.popdown();
+                    }
+                });
+            }
+            body.append(&menu);
             self.row_action(&row, RowAction::Queue(index));
+            row.set_activatable(track.available);
+            let state = queue_badge(index, current_index, next_index)
+                .map(|caption| format!("{caption} · "))
+                .unwrap_or_default();
+            let artists = if track.artists.is_empty() {
+                String::new()
+            } else {
+                format!(" · {}", track.artists.join(", "))
+            };
+            row.update_property(&[gtk::accessible::Property::Label(&format!(
+                "{state}{}{artists} · Позиция {} из {}{}",
+                track.title,
+                index + 1,
+                model.queue.items().len(),
+                if track.available {
+                    ""
+                } else {
+                    " · Недоступен"
+                },
+            ))]);
+            row.set_tooltip_text(Some(if track.available {
+                "Воспроизвести трек"
+            } else {
+                "Трек недоступен"
+            }));
             self.widgets.queue_rows.append(&row);
         }
         if model.queue.items().is_empty() {
-            set_empty(
-                &self.widgets.queue_rows,
-                "Добавляйте треки из библиотеки, поиска или альбома.",
-            );
+            set_empty(&self.widgets.queue_rows, "Очередь пуста");
         }
         drop(model);
+        self.sync_current_like();
         self.render_music_player();
+    }
+
+    #[cfg(test)]
+    pub(super) fn queue_row_at_physical(&self, index: usize) -> Option<gtk::ListBoxRow> {
+        if index >= 500 {
+            return None;
+        }
+        let locator = format!("music-queue-occurrence-{index}");
+        let mut child = self.widgets.queue_rows.first_child();
+        while let Some(widget) = child {
+            child = widget.next_sibling();
+            if let Ok(row) = widget.downcast::<gtk::ListBoxRow>()
+                && row.has_css_class(&locator)
+            {
+                return Some(row);
+            }
+        }
+        None
     }
 }
 
-fn next_available_index(items: &[Track], current: Option<usize>) -> Option<usize> {
-    let start = current?.checked_add(1)?;
-    items
-        .get(start..)?
-        .iter()
-        .position(|track| track.available)
-        .map(|offset| start + offset)
+fn queue_action_is_current(
+    this: &Controller,
+    generation: u64,
+    expected: &Option<PlaybackContext>,
+) -> bool {
+    let model = this.model.borrow();
+    !model.closed
+        && model.account_valid
+        && model.generation == generation
+        && model.queue.context() == expected.as_ref()
 }
 
-fn queue_prefix(
-    index: usize,
-    current: Option<usize>,
-    next: Option<usize>,
-    available: bool,
-) -> &'static str {
+/// Keep each physical position once. A repeat-cycle preview may include the
+/// current position again; it already has its own current row. Invalid indices
+/// are ignored defensively without inventing new queue entries.
+fn display_order(len: usize, current: Option<usize>, upcoming: &[usize]) -> Vec<usize> {
+    let mut seen = vec![false; len];
+    current
+        .into_iter()
+        .chain(upcoming.iter().copied())
+        .chain(0..len)
+        .filter(|index| {
+            seen.get_mut(*index).is_some_and(|seen| {
+                let fresh = !*seen;
+                *seen = true;
+                fresh
+            })
+        })
+        .collect()
+}
+
+fn queue_badge(index: usize, current: Option<usize>, next: Option<usize>) -> Option<&'static str> {
     if current == Some(index) {
-        if available {
-            "Текущий · "
-        } else {
-            "Текущий · Недоступен · "
-        }
+        Some("Сейчас")
     } else if next == Some(index) {
-        "Далее · "
-    } else if !available {
-        "Недоступен · "
+        Some("Далее")
     } else {
-        ""
+        None
     }
 }
 

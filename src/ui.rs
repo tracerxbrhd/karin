@@ -14,6 +14,7 @@ mod auth;
 mod music;
 mod playback;
 mod preferences;
+mod style;
 
 use crate::{
     application::ConnectionService,
@@ -29,10 +30,6 @@ pub struct MainWindow {
     stack: adw::ViewStack,
     header: adw::HeaderBar,
     header_items: Vec<gtk::Widget>,
-    split: adw::OverlaySplitView,
-    sidebar_toggle: gtk::ToggleButton,
-    sidebar_expand: gtk::ToggleButton,
-    sidebar: gtk::ListBox,
     scrolls: Vec<gtk::ScrolledWindow>,
     lifetime_refs: Vec<glib::WeakRef<gtk::Widget>>,
     player: playback::DeveloperPlayback,
@@ -58,7 +55,7 @@ impl MainWindow {
 
     pub fn show_page(&self, name: &str) {
         match name {
-            "music-home" | "music-search" | "music-queue" | "music-library" => {
+            "music-home" | "music-search" | "music-queue" | "music-library" | "music-playlists" => {
                 self.stack.set_visible_child_name("home");
                 let _ = gtk::prelude::WidgetExt::activate_action(
                     &self.window,
@@ -116,32 +113,27 @@ impl MainWindow {
         if !search_focused {
             return Err("Search action did not move keyboard focus from diagnostics".into());
         }
-        self.show_page("music-library");
-        if self.split.is_collapsed() {
-            self.sidebar_toggle.set_active(true);
+        // The lightweight segment row replaces both the old rail and overlay.
+        // Signed-out pages still route through actions and focus ordinary login.
+        for (action, expected) in [
+            ("music-home", "home"),
+            ("music-library", "library"),
+            ("music-playlists", "playlists"),
+        ] {
+            gtk::prelude::WidgetExt::activate_action(&self.window, &format!("win.{action}"), None)
+                .map_err(|_| "Music navigation action is missing")?;
             glib::timeout_future(std::time::Duration::from_millis(250)).await;
-            if !self.split.shows_sidebar() || !self.sidebar.is_mapped() {
-                return Err("Compact navigation did not open".into());
+            if self.music.section_stack().visible_child_name().as_deref() != Some(expected)
+                || self.stack.visible_child_name().as_deref() != Some("home")
+            {
+                return Err("Music segment action did not navigate to its page".into());
             }
-        }
-        let search = self
-            .sidebar
-            .row_at_index(2)
-            .ok_or("Missing search destination")?;
-        search.emit_by_name::<()>("activate", &[]);
-        glib::timeout_future(std::time::Duration::from_millis(250)).await;
-        if self.music.section_stack().visible_child_name().as_deref() != Some("search")
-            || self.stack.visible_child_name().as_deref() != Some("home")
-            || (self.split.is_collapsed() && self.split.shows_sidebar())
-        {
-            return Err("Sidebar action did not navigate and return to content".into());
         }
         self.show_page("music-home");
         Ok(())
     }
 
     pub fn verify_layout(&self) -> Result<(), String> {
-        let width = self.window.width();
         let header = self
             .header
             .compute_bounds(&self.window)
@@ -159,20 +151,17 @@ impl MainWindow {
                 || bounds.y() + bounds.height() > header.y() + header.height() + 1.0
             {
                 return Err(format!(
-                    "Header item clipped: {} {bounds:?}",
-                    item.type_().name()
+                    "Header item clipped: {} {bounds:?}, header={header:?}, mapped={}, child-visible={}, window={}x{}, header-width={}, header-measure={:?}, window-measure={:?}",
+                    item.type_().name(),
+                    item.is_mapped(),
+                    item.is_child_visible(),
+                    self.window.width(),
+                    self.window.height(),
+                    self.header.width(),
+                    self.header.measure(gtk::Orientation::Horizontal, -1),
+                    self.window.measure(gtk::Orientation::Horizontal, -1),
                 ));
             }
-        }
-        let compact = width <= 760;
-        if self.split.is_collapsed() != compact || self.sidebar_toggle.is_visible() != compact {
-            return Err(format!("Navigation does not match width {width}"));
-        }
-        if !compact && !self.split.shows_sidebar() {
-            return Err("Desktop sidebar is hidden".into());
-        }
-        if !compact && !self.sidebar_expand.is_active() && self.split.min_sidebar_width() > 80.0 {
-            return Err("Desktop icon rail was not restored".into());
         }
         for scroll in &self.scrolls {
             let adjustment = scroll.hadjustment();
@@ -312,6 +301,7 @@ fn build_with_music_pane(
     service: ConnectionService,
     make_music: impl FnOnce(&adw::Application, &adw::ApplicationWindow) -> music::MusicPane,
 ) -> MainWindow {
+    style::install();
     let window = adw::ApplicationWindow::builder()
         .application(app)
         .title(config::APP_NAME)
@@ -320,6 +310,7 @@ fn build_with_music_pane(
         .width_request(360)
         .height_request(480)
         .build();
+    window.add_css_class("music-shell");
     let toolbar = adw::ToolbarView::new();
     {
         let saved_focus: Rc<RefCell<Option<glib::WeakRef<gtk::Widget>>>> = Rc::default();
@@ -354,42 +345,19 @@ fn build_with_music_pane(
         });
     }
     let header = adw::HeaderBar::builder().height_request(48).build();
+    header.add_css_class("music-header");
     header.set_show_start_title_buttons(false);
     let stack = adw::ViewStack::new();
     stack.set_hhomogeneous(false);
     stack.set_vhomogeneous(false);
     let title = adw::WindowTitle::new("Karin", "");
+    title.set_valign(gtk::Align::Center);
     header.set_title_widget(Some(&title));
-    let split = adw::OverlaySplitView::builder()
-        .min_sidebar_width(72.0)
-        .max_sidebar_width(72.0)
-        .sidebar_width_fraction(0.1)
-        .build();
     let focus_epoch = Rc::new(Cell::new(0_u64));
-    split.connect_show_sidebar_notify({
-        let epoch = Rc::clone(&focus_epoch);
-        move |split| {
-            if split.is_collapsed() && split.shows_sidebar() {
-                epoch.set(epoch.get().wrapping_add(1));
-            }
-        }
-    });
-    let sidebar_toggle = gtk::ToggleButton::builder()
-        .active(true)
-        .icon_name("sidebar-show-symbolic")
-        .tooltip_text("Разделы музыки")
-        .visible(false)
-        .build();
-    sidebar_toggle.set_widget_name("navigation-sidebar-toggle");
-    sidebar_toggle
-        .bind_property("active", &split, "show-sidebar")
-        .bidirectional()
-        .sync_create()
-        .build();
-    header.pack_start(&sidebar_toggle);
     let menu = gio::Menu::new();
     menu.append(Some("Настройки"), Some("win.preferences"));
     menu.append(Some("Сведения о треке"), Some("win.music-info"));
+    menu.append(Some("Очередь"), Some("win.music-queue"));
     menu.append(Some("Обновить данные"), Some("win.music-refresh"));
     menu.append(Some("Диагностика"), Some("win.diagnostics"));
     menu.append(Some("О Karin"), Some("app.about"));
@@ -401,104 +369,7 @@ fn build_with_music_pane(
         .build();
     header.pack_end(&menu_button);
     toolbar.add_top_bar(&header);
-    split.set_content(Some(&toolbar));
-    window.set_content(Some(&split));
-
-    let sidebar_toolbar = adw::ToolbarView::new();
-    let sidebar_header = adw::HeaderBar::new();
-    sidebar_header.set_show_start_title_buttons(false);
-    sidebar_header.set_show_end_title_buttons(false);
-    let brand = gtk::Label::new(Some("K"));
-    brand.add_css_class("title-3");
-    sidebar_header.set_title_widget(Some(&brand));
-    sidebar_toolbar.add_top_bar(&sidebar_header);
-    let sidebar_content = gtk::Box::new(gtk::Orientation::Vertical, 12);
-    let destinations = gtk::ListBox::new();
-    destinations.add_css_class("navigation-sidebar");
-    destinations.set_selection_mode(gtk::SelectionMode::Single);
-    destinations.set_widget_name("music-sidebar");
-    let mut navigation_labels = Vec::new();
-    for (name, label, icon) in [
-        ("music-home", "Главная", "go-home-symbolic"),
-        ("music-library", "Библиотека", "folder-music-symbolic"),
-        ("music-search", "Поиск", "system-search-symbolic"),
-        ("music-queue", "Очередь", "view-list-symbolic"),
-    ] {
-        let row = gtk::ListBoxRow::new();
-        let content = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-        margins(&content, 10);
-        let glyph = gtk::Image::from_icon_name(icon);
-        glyph.set_pixel_size(20);
-        content.append(&glyph);
-        let text = gtk::Label::new(Some(label));
-        text.set_xalign(0.0);
-        text.set_visible(false);
-        navigation_labels.push(text.downgrade());
-        content.append(&text);
-        row.set_tooltip_text(Some(label));
-        row.update_property(&[gtk::accessible::Property::Label(label)]);
-        row.set_child(Some(&content));
-        row.set_action_name(Some(&format!("win.{name}")));
-        row.set_widget_name(name);
-        destinations.append(&row);
-    }
-    let sidebar_expand = gtk::ToggleButton::builder()
-        .icon_name("sidebar-show-symbolic")
-        .tooltip_text("Развернуть навигацию")
-        .halign(gtk::Align::Center)
-        .build();
-    sidebar_expand.set_widget_name("navigation-expand");
-    sidebar_expand.update_property(&[gtk::accessible::Property::Label(
-        "Развернуть или свернуть навигацию",
-    )]);
-    sidebar_content.append(&destinations);
-    let navigation_space = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    navigation_space.set_vexpand(true);
-    sidebar_content.append(&navigation_space);
-    sidebar_content.append(&sidebar_expand);
-    let update_navigation: Rc<dyn Fn()> = {
-        let split = split.downgrade();
-        let button = sidebar_expand.downgrade();
-        let brand = brand.downgrade();
-        Rc::new(move || {
-            let (Some(split), Some(button)) = (split.upgrade(), button.upgrade()) else {
-                return;
-            };
-            let expanded = split.is_collapsed() || button.is_active();
-            for label in &navigation_labels {
-                if let Some(label) = label.upgrade() {
-                    label.set_visible(expanded);
-                }
-            }
-            if let Some(brand) = brand.upgrade() {
-                brand.set_text(if expanded { "Karin" } else { "K" });
-            }
-            if expanded {
-                split.set_max_sidebar_width(240.0);
-                split.set_min_sidebar_width(200.0);
-            } else {
-                split.set_min_sidebar_width(72.0);
-                split.set_max_sidebar_width(72.0);
-            }
-            button.set_visible(!split.is_collapsed());
-            button.set_tooltip_text(Some(if expanded {
-                "Свернуть навигацию"
-            } else {
-                "Развернуть навигацию"
-            }));
-        })
-    };
-    sidebar_expand.connect_toggled({
-        let update = update_navigation.clone();
-        move |_| update()
-    });
-    split.connect_collapsed_notify({
-        let update = update_navigation.clone();
-        move |_| update()
-    });
-    update_navigation();
-    sidebar_toolbar.set_content(Some(&sidebar_content));
-    split.set_sidebar(Some(&sidebar_toolbar));
+    window.set_content(Some(&toolbar));
 
     let (diagnostics, diagnostics_heading) = page(
         "Диагностика",
@@ -594,23 +465,40 @@ fn build_with_music_pane(
     diagnostics.append(&runtime_group);
 
     let home = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    home.add_css_class("music-workspace");
     margins(&home, 24);
+    home.set_margin_top(16);
+    home.set_margin_bottom(16);
     let music = make_music(app, &window);
-    let track_info = adw::OverlaySplitView::builder()
-        .sidebar_position(gtk::PackType::End)
-        .min_sidebar_width(280.0)
-        .max_sidebar_width(340.0)
-        .sidebar_width_fraction(0.28)
-        .show_sidebar(false)
-        .content(&stack)
-        .sidebar(&music.track_info_widget())
-        .build();
-    track_info.set_widget_name("music-track-info-split");
+    // Keep the real section controls fixed while long collections scroll.
+    let music_navigation = music.take_navigation_bar();
+    music_navigation.add_css_class("toolbar");
+    toolbar.add_top_bar(&music_navigation);
+    // Keep one information widget mounted. Unlike a collapsed split sidebar,
+    // this native revealer has no modal backdrop or outside-dismiss policy.
+    let track_info = gtk::Overlay::new();
+    track_info.set_child(Some(&stack));
+    track_info.set_widget_name("music-track-info-host");
+    track_info.add_css_class("music-information-host");
+    let information_content = music.track_info_widget();
+    information_content.add_css_class("music-information-view");
+    let information_view = music::sliding_panel::SlidingPanel::new(&information_content);
+    information_view.set_width_request(320);
+    information_view.set_halign(gtk::Align::End);
+    information_view.set_valign(gtk::Align::Fill);
+    information_view.set_widget_name("music-track-info-revealer");
+    track_info.add_overlay(&information_view);
+    track_info.set_measure_overlay(&information_view, false);
     toolbar.set_content(Some(&track_info));
-    music.attach_track_info(&track_info);
+    music.attach_track_info(&track_info, &information_view, stack.upcast_ref());
     let music_visibility = music.visibility_callback();
+    let navigation_visibility = music_navigation.downgrade();
     stack.connect_visible_child_name_notify(move |stack| {
-        music_visibility(stack.visible_child_name().as_deref() == Some("home"));
+        let visible = stack.visible_child_name().as_deref() == Some("home");
+        music_visibility(visible);
+        if let Some(navigation) = navigation_visibility.upgrade() {
+            navigation.set_visible(visible);
+        }
     });
     let account_menu = music.account_menu();
     header.pack_end(&account_menu);
@@ -629,7 +517,8 @@ fn build_with_music_pane(
     status.append(&check);
     status.append(&spinner);
     diagnostics.append(&status);
-    let home_scroll = scroll_page(&home);
+    let home_scroll = scroll_music_page(&home);
+    music.attach_content_scroll(&home_scroll);
     let diagnostics_scroll = scroll_page(&diagnostics);
     stack
         .add_titled(&home_scroll, Some("home"), "Музыка")
@@ -639,21 +528,21 @@ fn build_with_music_pane(
         .set_icon_name(Some("applications-engineering-symbolic"));
 
     let compact_information = adw::Breakpoint::new(
-        adw::BreakpointCondition::parse("max-width: 1180sp").expect("constant breakpoint"),
+        adw::BreakpointCondition::parse("max-width: 1279sp").expect("constant breakpoint"),
     );
-    compact_information.add_setter(&track_info, "collapsed", Some(&true.to_value()));
+    compact_information.add_setter(
+        &information_view,
+        "width-request",
+        Some(&300_i32.to_value()),
+    );
     window.add_breakpoint(compact_information);
     let compact_navigation = adw::Breakpoint::new(
-        adw::BreakpointCondition::parse("max-width: 760sp").expect("constant breakpoint"),
+        adw::BreakpointCondition::parse("max-width: 719sp").expect("constant breakpoint"),
     );
-    compact_navigation.add_setter(&split, "collapsed", Some(&true.to_value()));
-    compact_navigation.add_setter(&track_info, "collapsed", Some(&true.to_value()));
-    compact_navigation.add_setter(&split, "show-sidebar", Some(&false.to_value()));
-    compact_navigation.add_setter(&sidebar_toggle, "visible", Some(&true.to_value()));
     compact_navigation.add_setter(
-        &music.player_main(),
-        "orientation",
-        Some(&gtk::Orientation::Vertical.to_value()),
+        &information_view,
+        "width-request",
+        Some(&(-1_i32).to_value()),
     );
     compact_navigation.add_setter(
         &diagnostic_columns,
@@ -686,33 +575,25 @@ fn build_with_music_pane(
     });
     window.add_action(&preferences);
     app.set_accels_for_action("win.preferences", &["<Primary>comma"]);
-    let sidebar_action = gio::SimpleAction::new("sidebar", None);
-    let weak_split = split.downgrade();
-    let weak_destinations = destinations.downgrade();
-    let weak_expand = sidebar_expand.downgrade();
-    sidebar_action.connect_activate(move |_, _| {
-        if let Some(split) = weak_split.upgrade() {
-            if !split.is_collapsed() {
-                if let Some(expand) = weak_expand.upgrade() {
-                    expand.set_active(!expand.is_active());
-                }
-                return;
-            }
-            split.set_show_sidebar(!split.shows_sidebar());
-            if split.shows_sidebar()
-                && let Some(list) = weak_destinations.upgrade()
-                && let Some(row) = list.selected_row().or_else(|| list.row_at_index(0))
-            {
-                row.grab_focus();
-            }
+    // Retain the existing shortcut as navigation focus, not a hidden rail.
+    let navigation_action = gio::SimpleAction::new("sidebar", None);
+    let navigation_target = music.navigation_target("music-home").downgrade();
+    let music_stack = stack.downgrade();
+    navigation_action.connect_activate(move |_, _| {
+        if let Some(stack) = music_stack.upgrade() {
+            stack.set_visible_child_name("home");
+        }
+        if let Some(target) = navigation_target.upgrade() {
+            target.grab_focus();
         }
     });
-    window.add_action(&sidebar_action);
+    window.add_action(&navigation_action);
     app.set_accels_for_action("win.sidebar", &["<Primary>b"]);
     let sections = music.section_stack();
     for name in [
         "music-home",
         "music-library",
+        "music-playlists",
         "music-search",
         "music-queue",
         "diagnostics",
@@ -723,7 +604,6 @@ fn build_with_music_pane(
             .and_downcast::<gio::SimpleAction>()
         {
             let weak_stack = stack.downgrade();
-            let weak_split = split.downgrade();
             let weak_focus = music.navigation_target(name).downgrade();
             let weak_login = music.primary_action().downgrade();
             let weak_sections = sections.downgrade();
@@ -732,6 +612,8 @@ fn build_with_music_pane(
             action.connect_activate(move |_, _| {
                 epoch.set(epoch.get().wrapping_add(1));
                 let serial = epoch.get();
+                #[cfg(test)]
+                eprintln!("Karin synthetic navigation focus: action={name} scheduled={serial}");
                 if let Some(stack) = weak_stack.upgrade() {
                     stack.set_visible_child_name(if name == "diagnostics" {
                         "diagnostics"
@@ -739,24 +621,19 @@ fn build_with_music_pane(
                         "home"
                     });
                 }
-                if let Some(split) = weak_split.upgrade()
-                    && split.is_collapsed()
-                {
-                    split.set_show_sidebar(false);
-                }
                 if name != "diagnostics" {
                     let primary = weak_focus.clone();
                     let login = weak_login.clone();
                     let stack = weak_stack.clone();
                     let sections = weak_sections.clone();
                     let window = weak_window.clone();
-                    let split = weak_split.clone();
                     let epoch = Rc::clone(&epoch);
                     let expected_section = match name {
                         "music-home" => Some("home"),
                         "music-library" => Some("library"),
+                        "music-playlists" => Some("playlists"),
                         "music-search" => Some("search"),
-                        "music-queue" => Some("queue"),
+                        "music-queue" => None,
                         _ => None,
                     };
                     glib::spawn_future_local(async move {
@@ -776,9 +653,6 @@ fn build_with_music_pane(
                                 || !window
                                     .upgrade()
                                     .is_some_and(|window| window.visible_dialog().is_none())
-                                || split.upgrade().is_some_and(|split| {
-                                    split.is_collapsed() && split.shows_sidebar()
-                                })
                             {
                                 return;
                             }
@@ -796,6 +670,15 @@ fn build_with_music_pane(
                                 return;
                             };
                             if moved {
+                                #[cfg(test)]
+                                if let Some(window) = window.upgrade() {
+                                    let focus = gtk::prelude::GtkWindowExt::focus(&window);
+                                    eprintln!(
+                                        "Karin synthetic navigation focus: action={name} completed={serial} kind={} name={}",
+                                        focus.as_ref().map_or("none", |widget| widget.type_().name()),
+                                        focus.as_ref().map(|widget| widget.widget_name()).as_deref().unwrap_or("none"),
+                                    );
+                                }
                                 return;
                             }
                         }
@@ -807,36 +690,23 @@ fn build_with_music_pane(
     let sync_navigation = {
         let stack = stack.downgrade();
         let sections = sections.downgrade();
-        let destinations = destinations.downgrade();
         let title = title.downgrade();
+        let panel_title = music.panel_title_callback();
         move || {
-            if let (Some(stack), Some(sections), Some(destinations), Some(title)) = (
-                stack.upgrade(),
-                sections.upgrade(),
-                destinations.upgrade(),
-                title.upgrade(),
-            ) {
-                let (index, page_title) =
-                    if stack.visible_child_name().as_deref() == Some("diagnostics") {
-                        (None, "Диагностика")
-                    } else {
-                        match sections.visible_child_name().as_deref() {
-                            Some("home") => (Some(0), "Главная"),
-                            Some("library") => (Some(1), "Библиотека"),
-                            Some("search") => (Some(2), "Поиск"),
-                            Some("queue") => (Some(3), "Очередь"),
-                            Some("detail") => (None, "Сведения"),
-                            _ => (None, "Karin"),
-                        }
-                    };
-                if let Some(index) = index
-                    && let Some(row) = destinations.row_at_index(index)
-                {
-                    destinations.select_row(Some(&row));
+            if let (Some(stack), Some(sections), Some(title)) =
+                (stack.upgrade(), sections.upgrade(), title.upgrade())
+            {
+                let page_title = if stack.visible_child_name().as_deref() == Some("diagnostics") {
+                    "Диагностика"
                 } else {
-                    destinations.unselect_all();
-                }
-                title.set_title(page_title);
+                    match sections.visible_child_name().as_deref() {
+                        Some("home" | "library" | "playlists") => "Karin",
+                        Some("search") => "Поиск",
+                        Some("detail") => "Сведения",
+                        _ => "Karin",
+                    }
+                };
+                title.set_title(panel_title().unwrap_or(page_title));
             }
         }
     };
@@ -845,6 +715,14 @@ fn build_with_music_pane(
     stack.connect_visible_child_name_notify(move |_| sync());
     let sync = sync_navigation.clone();
     sections.connect_visible_child_name_notify(move |_| sync());
+    let sync = sync_navigation.clone();
+    music.panel_heading().connect_label_notify(move |_| sync());
+    let sync = sync_navigation.clone();
+    information_view.connect_notify_local(Some("progress"), move |_, _| sync());
+    let sync = sync_navigation.clone();
+    information_view.connect_width_request_notify(move |_| sync());
+    let sync = sync_navigation.clone();
+    information_view.connect_notify_local(Some("compact-presentation"), move |_, _| sync());
     sync_navigation();
     // Both real controls trigger the same state machine and bounded request.
     check
@@ -985,16 +863,7 @@ fn build_with_music_pane(
         window,
         stack,
         header,
-        header_items: vec![
-            title.upcast(),
-            sidebar_toggle.clone().upcast(),
-            menu_button.upcast(),
-            account_menu.upcast(),
-        ],
-        split,
-        sidebar_toggle,
-        sidebar_expand,
-        sidebar: destinations,
+        header_items: vec![title.upcast(), menu_button.upcast(), account_menu.upcast()],
         scrolls: vec![home_scroll, diagnostics_scroll],
         lifetime_refs,
         player,
@@ -1032,6 +901,17 @@ fn page(title: &str, subtitle: &str) -> (gtk::Box, gtk::Label) {
     heading.append(&label(subtitle, "dim-label"));
     content.append(&heading);
     (content, title)
+}
+
+fn scroll_music_page(content: &gtk::Box) -> gtk::ScrolledWindow {
+    let viewport = gtk::Viewport::builder()
+        .scroll_to_focus(true)
+        .child(content)
+        .build();
+    gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .child(&viewport)
+        .build()
 }
 
 fn scroll_page(content: &gtk::Box) -> gtk::ScrolledWindow {
@@ -1074,6 +954,14 @@ fn check_widget_geometry(widget: &gtk::Widget, window: &gtk::Widget) -> Result<(
         }
         return Ok(());
     }
+    if widget
+        .downcast_ref::<music::sliding_panel::SlidingPanel>()
+        .is_some_and(|panel| !panel.is_child_revealed())
+    {
+        // A translated, clipped surface is deliberately offscreen during its
+        // native transition. Settled frames retain the full geometry checks.
+        return Ok(());
+    }
     if widget.is_mapped() {
         // Inspect content and controls, not GtkWindow shadows or decorative
         // CSS nodes such as an overlay scrollbar's overhanging trough.
@@ -1092,14 +980,17 @@ fn check_widget_geometry(widget: &gtk::Widget, window: &gtk::Widget) -> Result<(
             ));
         }
         if let Some(label) = widget.downcast_ref::<gtk::Label>() {
-            // Track titles in a fixed-height player bar use native ellipsis;
-            // the full metadata must remain available as a tooltip/accessibility
-            // label. Headings, status text and actions still must fit in full.
-            let complete_metadata = matches!(
-                label.widget_name().as_str(),
-                "music-current-title" | "music-current-artist"
-            ) && label.tooltip_text().as_deref()
-                == Some(label.text().as_str());
+            // Bounded music metadata deliberately uses native ellipsis. Its
+            // original text remains available through the label's accessible
+            // name and matching full tooltip. Ordinary headings/status/actions
+            // are not opted in and still must fit in full.
+            let metadata = label.has_css_class("music-ellipsized-metadata")
+                || matches!(
+                    label.widget_name().as_str(),
+                    "music-current-title" | "music-current-artist"
+                );
+            let complete_metadata =
+                metadata && label.tooltip_text().as_deref() == Some(label.text().as_str());
             if label.layout().is_ellipsized() && !complete_metadata {
                 return Err(format!("Text was ellipsized: {}", label.text()));
             }

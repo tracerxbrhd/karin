@@ -1,0 +1,169 @@
+{
+  "candidate": "candidate-14",
+  "test_binary_sha256": "c927b8e1dfa405398c8c2dc68ca402d3cd899e7867f08cbfc2aa08bf54331bb5",
+  "source_manifest_sha256": "3faefc3e5d8e69ce475e148ffef92cecb5ccbaf6631ac14661993cbbf1db7bf4",
+  "reviewed_originals": [
+    {
+      "file": "before/static-scale1/matrix-compact-panel-closed-scale1-dark.png",
+      "origin": "baseline-2e3/static-scale1/matrix-compact-panel-closed-scale1-dark.png",
+      "sha256": "bd4a6fe78a34c77d28b96cde827d5f35642b68c0abbcc3455a4a22e9e74cd43a",
+      "opened_actual_original": true,
+      "observation": "Individually opened exact untouched original with view_image. Collection hierarchy/actions/filter/quiet rows/footer grouping legible; no new structural P0/P1 observed."
+    },
+    {
+      "file": "before/static-scale1/matrix-owner-wide-panel-closed-scale1-light.png",
+      "origin": "baseline-2e3/static-scale1/matrix-owner-wide-panel-closed-scale1-light.png",
+      "sha256": "d41e68c8b9fb75c7fb86fc99dcae1939bf93ff64b84633548d8865f0dc81123c",
+      "opened_actual_original": true,
+      "observation": "Individually opened exact untouched original with view_image. Collection hierarchy/actions/filter/quiet rows/footer grouping legible; no new structural P0/P1 observed."
+    },
+    {
+      "file": "before/static-scale1/matrix-reference-panel-closed-scale1-light.png",
+      "origin": "baseline-2e3/static-scale1/matrix-reference-panel-closed-scale1-light.png",
+      "sha256": "a7c3f924388d070d33f46fd49aa39957c87f4a95d8f12cce6ca63e76b655e733",
+      "opened_actual_original": true,
+      "observation": "Individually opened exact untouched original with view_image. Collection hierarchy/actions/filter/quiet rows/footer grouping legible; no new structural P0/P1 observed."
+    },
+    {
+      "file": "before/static-scale1/matrix-wide-panel-closed-scale1-dark.png",
+      "origin": "baseline-2e3/static-scale1/matrix-wide-panel-closed-scale1-dark.png",
+      "sha256": "d6c1cc36f6d7ec68260b1602f16b151d8745bebe448db398d8cfa8eb26255123",
+      "opened_actual_original": true,
+      "observation": "Individually opened exact untouched original with view_image. Collection hierarchy/actions/filter/quiet rows/footer grouping legible; no new structural P0/P1 observed."
+    },
+    {
+      "file": "before/static-scale2/matrix-reference-panel-closed-scale2-dark.png",
+      "origin": "baseline-2e3/static-scale2/matrix-reference-panel-closed-scale2-dark.png",
+      "sha256": "93942f5b12831c86df2805e302dd8c456bc7c7225bb993e5cdd195c973a34c23",
+      "opened_actual_original": true,
+      "observation": "Individually opened exact untouched original with view_image. Collection hierarchy/actions/filter/quiet rows/footer grouping legible; no new structural P0/P1 observed."
+    },
+    {
+      "file": "current/static-scale1/matrix-compact-panel-closed-scale1-dark.png",
+      "origin": "candidate-14/static-scale1/matrix-compact-panel-closed-scale1-dark.png",
+      "sha256": "9c05a247fe4d972e5bd286f24afbb504343d8316b01cf0f4afd003a115024b72",
+      "opened_actual_original": true,
+      "observation": "Individually opened exact untouched original with view_image. Collection hierarchy/actions/filter/quiet rows/footer grouping legible; no new structural P0/P1 observed."
+    },
+    {
+      "file": "current/static-scale1/matrix-owner-wide-panel-closed-scale1-light.png",
+      "origin": "candidate-14/static-scale1/matrix-owner-wide-panel-closed-scale1-light.png",
+      "sha256": "d9b12590fb36ba0d405ba10d024b69f7b75bbaf4be5db7ea5815031e19e57217",
+      "opened_actual_original": true,
+      "observation": "Individually opened exact untouched original with view_image. Collection hierarchy/actions/filter/quiet rows/footer grouping legible; no new structural P0/P1 observed."
+    },
+    {
+      "file": "current/static-scale1/matrix-reference-panel-closed-scale1-light.png",
+      "origin": "candidate-14/static-scale1/matrix-reference-panel-closed-scale1-light.png",
+      "sha256": "491dd30c6a432eab6975024605cf529cea482da4ed1fc8b77ca981d426f24a85",
+      "opened_actual_original": true,
+      "observation": "Individually opened exact untouched original with view_image. Collection hierarchy/actions/filter/quiet rows/footer grouping legible; no new structural P0/P1 observed."
+    },
+    {
+      "file": "current/static-scale1/matrix-wide-panel-closed-scale1-dark.png",
+      "origin": "candidate-14/static-scale1/matrix-wide-panel-closed-scale1-dark.png",
+      "sha256": "4e139d9e71e8ef9e8510beeefd56344db0c17c313dc328e151345b05025a4042",
+      "opened_actual_original": true,
+      "observation": "Individually opened exact untouched original with view_image. Collection hierarchy/actions/filter/quiet rows/footer grouping legible; no new structural P0/P1 observed."
+    },
+    {
+      "file": "current/static-scale1/surface-liked-filter-empty-scale1-light.png",
+      "origin": "candidate-14/static-scale1/surface-liked-filter-empty-scale1-light.png",
+      "sha256": "02736e884140516a59f433ea36728d056d9e556334ef1369f3e7e9d36a17ab38",
+      "opened_actual_original": true,
+      "observation": "Individually opened exact untouched original with view_image. Collection hierarchy/actions/filter/quiet rows/footer grouping legible; no new structural P0/P1 observed."
+    },
+    {
+      "file": "current/static-scale1/surface-liked-filter-reference-scale1-dark.png",
+      "origin": "candidate-14/static-scale1/surface-liked-filter-reference-scale1-dark.png",
+      "sha256": "ba78c511ed244c6a3625d94ea8bc92192d924cbf14c647366316509aeac1aa1d",
+      "opened_actual_original": true,
+      "observation": "Individually opened exact untouched original with view_image. Collection hierarchy/actions/filter/quiet rows/footer grouping legible; no new structural P0/P1 observed."
+    },
+    {
+      "file": "current/static-scale1/surface-playlist-filter-reference-scale1-light.png",
+      "origin": "candidate-14/static-scale1/surface-playlist-filter-reference-scale1-light.png",
+      "sha256": "936505a159efd1e6237bf2acae6da65f6d1a4338d3e1dd45d4f58fbf971b38d3",
+      "opened_actual_original": true,
+      "observation": "Individually opened exact untouched original with view_image. Collection hierarchy/actions/filter/quiet rows/footer grouping legible; no new structural P0/P1 observed."
+    },
+    {
+      "file": "current/static-scale2/matrix-reference-panel-closed-scale2-dark.png",
+      "origin": "candidate-14/static-scale2/matrix-reference-panel-closed-scale2-dark.png",
+      "sha256": "f966b138c55d3033058397604a3c1e40c99be2ce1e5e2cb3c594f99b2338ec92",
+      "opened_actual_original": true,
+      "observation": "Individually opened exact untouched original with view_image. Collection hierarchy/actions/filter/quiet rows/footer grouping legible; no new structural P0/P1 observed."
+    },
+    {
+      "file": "current/static-scale2/surface-liked-filter-compact-scale2-light.png",
+      "origin": "candidate-14/static-scale2/surface-liked-filter-compact-scale2-light.png",
+      "sha256": "96a6580275b852d2caf02c22c1089e912ec3e4d7967d1406d9ef04fcc142c875",
+      "opened_actual_original": true,
+      "observation": "Individually opened exact untouched original with view_image. Collection hierarchy/actions/filter/quiet rows/footer grouping legible; no new structural P0/P1 observed."
+    },
+    {
+      "file": "current/static-scale2/surface-playlist-filter-compact-scale2-dark.png",
+      "origin": "candidate-14/static-scale2/surface-playlist-filter-compact-scale2-dark.png",
+      "sha256": "7d9a8545703ac7ab591d4bc249e4c176c18413fcdfc9a2b99f2a9977502b1225",
+      "opened_actual_original": true,
+      "observation": "Individually opened exact untouched original with view_image. Collection hierarchy/actions/filter/quiet rows/footer grouping legible; no new structural P0/P1 observed."
+    },
+    {
+      "file": "current/functional-scale1/collection-filter-append-dark.png",
+      "origin": "candidate-14/functional-all/scale1/native_collection_filter_continuation_and_exact_occurrences/collection-filter-append-dark.png",
+      "sha256": "3ba34c7a5aa1a5059201b031f6b80c3f6c981da3cb2d96c3de7e09646468c58d",
+      "opened_actual_original": true,
+      "observation": "Individually opened untouched executed-C14 input original: truthful loaded scope, partial continuation/Retry, disabled no-match Play and distinct Cyrillic duplicate matches; no new structural visualP0P1."
+    },
+    {
+      "file": "current/functional-scale1/collection-filter-append-light.png",
+      "origin": "candidate-14/functional-all/scale1/native_collection_filter_continuation_and_exact_occurrences/collection-filter-append-light.png",
+      "sha256": "4e4c3f9a437da684e0cc140457c6b638e84c4289dde1c49278329776d719a232",
+      "opened_actual_original": true,
+      "observation": "Individually opened untouched executed-C14 input original: truthful loaded scope, partial continuation/Retry, disabled no-match Play and distinct Cyrillic duplicate matches; no new structural visualP0P1."
+    },
+    {
+      "file": "current/functional-scale1/collection-filter-partial-dark.png",
+      "origin": "candidate-14/functional-all/scale1/native_collection_filter_continuation_and_exact_occurrences/collection-filter-partial-dark.png",
+      "sha256": "e790e417a228f2c799772ecbd3416637499402aa3c1d7a8f9988f0d34b2646f1",
+      "opened_actual_original": true,
+      "observation": "Individually opened untouched executed-C14 input original: truthful loaded scope, partial continuation/Retry, disabled no-match Play and distinct Cyrillic duplicate matches; no new structural visualP0P1."
+    },
+    {
+      "file": "current/functional-scale1/collection-filter-partial-light.png",
+      "origin": "candidate-14/functional-all/scale1/native_collection_filter_continuation_and_exact_occurrences/collection-filter-partial-light.png",
+      "sha256": "de4c5b08d3a9c1fba059216ce366a04a7c895c2457492db7d03397533558f4ee",
+      "opened_actual_original": true,
+      "observation": "Individually opened untouched executed-C14 input original: truthful loaded scope, partial continuation/Retry, disabled no-match Play and distinct Cyrillic duplicate matches; no new structural visualP0P1."
+    },
+    {
+      "file": "current/functional-scale1/collection-filter-retry-dark.png",
+      "origin": "candidate-14/functional-all/scale1/native_collection_filter_continuation_and_exact_occurrences/collection-filter-retry-dark.png",
+      "sha256": "18c2c0d6641087688c2d0a70c94dfe891466703de728d7c4a095e539a7702446",
+      "opened_actual_original": true,
+      "observation": "Individually opened untouched executed-C14 input original: truthful loaded scope, partial continuation/Retry, disabled no-match Play and distinct Cyrillic duplicate matches; no new structural visualP0P1."
+    },
+    {
+      "file": "current/functional-scale1/collection-filter-retry-light.png",
+      "origin": "candidate-14/functional-all/scale1/native_collection_filter_continuation_and_exact_occurrences/collection-filter-retry-light.png",
+      "sha256": "dde968ba0b5db9f5e5d61982b02285fff31fc83660e28b56e08197fb0b8e463f",
+      "opened_actual_original": true,
+      "observation": "Individually opened untouched executed-C14 input original: truthful loaded scope, partial continuation/Retry, disabled no-match Play and distinct Cyrillic duplicate matches; no new structural visualP0P1."
+    }
+  ],
+  "scope": "All15 assigned before/current collection/filter originals plus all6 executed1x C14 partial/Retry/append input originals individually opened. Not a claim to all260 complete static outputs.",
+  "cold_first_use_latency_accepted": false,
+  "fedora_acceptance": false,
+  "new_structural_p0_p1_found": false,
+  "reviewed_original_count": 21,
+  "method": "Individual original-image viewing, no montage substitutes. Seven current1x plus3current2x and5unchanged baseline originals. C14 completed six-stage audit before final public-copy qualification.",
+  "functional_selector": {
+    "selector": "ui::music::collection_filter::native_tests::native_collection_filter_continuation_and_exact_occurrences",
+    "scale": 1,
+    "binary_sha256": "c927b8e1dfa405398c8c2dc68ca402d3cd899e7867f08cbfc2aa08bf54331bb5",
+    "returncode": 0,
+    "single_selected_test_passed": true,
+    "duration_seconds": 85.04,
+    "log_sha256": "feb43d40876a3524b2d37faf31ae0ae2ffa7136fe904d63b7fc27ad98a9417be"
+  }
+}

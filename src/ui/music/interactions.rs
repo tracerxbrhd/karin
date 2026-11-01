@@ -9,6 +9,25 @@ use gtk::glib;
 use super::{Controller, MusicError, Operation, text};
 use crate::music::interactions::{InteractionError, LikeState};
 
+/// Prefer an actual native-theme heart; Adwaita and Breeze use different
+/// published names. Unusual themes retain a functional native fallback rather
+/// than an absent glyph. This is presentation only, never membership evidence.
+pub(super) fn like_icon_name(liked: Option<bool>) -> &'static str {
+    if let Some(display) = gtk::gdk::Display::default() {
+        let theme = gtk::IconTheme::for_display(&display);
+        for name in ["emote-love-symbolic", "love-symbolic"] {
+            if theme.has_icon(name) {
+                return name;
+            }
+        }
+    }
+    if liked == Some(true) {
+        "starred-symbolic"
+    } else {
+        "non-starred-symbolic"
+    }
+}
+
 #[derive(Clone)]
 struct LikeWidgets {
     button: glib::WeakRef<gtk::Button>,
@@ -17,6 +36,9 @@ struct LikeWidgets {
     label: glib::WeakRef<gtk::Label>,
     message: glib::WeakRef<gtk::Label>,
     confirmed: Rc<Cell<Option<bool>>>,
+    compact: bool,
+    spinner: glib::WeakRef<gtk::Spinner>,
+    feedback: glib::WeakRef<gtk::MenuButton>,
 }
 
 impl LikeWidgets {
@@ -30,6 +52,10 @@ impl LikeWidgets {
         self.confirmed.set(None);
         if let Some(button) = self.button.upgrade() {
             button.set_sensitive(false);
+            button.remove_css_class("liked");
+            button.update_state(&[gtk::accessible::State::Pressed(
+                gtk::AccessibleTristate::Mixed,
+            )]);
             button.set_tooltip_text(Some("Сначала обновите состояние отметки"));
             button.update_property(&[gtk::accessible::Property::Label(
                 "Отметка «Нравится» не проверена",
@@ -41,12 +67,29 @@ impl LikeWidgets {
         if let Some(icon) = self.icon.upgrade() {
             icon.remove_css_class("accent");
             icon.add_css_class("dim-label");
+            if self.compact {
+                icon.set_opacity(if refresh { 1.0 } else { 0.0 });
+            }
+            icon.set_icon_name(Some(like_icon_name(None)));
+        }
+        if let Some(spinner) = self.spinner.upgrade() {
+            spinner.set_visible(!refresh);
+            if refresh {
+                spinner.stop();
+            } else {
+                spinner.start();
+            }
+        }
+        if let Some(feedback) = self.feedback.upgrade() {
+            feedback.set_visible(refresh);
+            feedback.set_tooltip_text(Some(message));
         }
         if let Some(button) = self.refresh.upgrade() {
             button.set_sensitive(refresh);
         }
         if let Some(label) = self.message.upgrade() {
             label.set_text(message);
+            label.set_visible(true);
         }
     }
 
@@ -59,6 +102,16 @@ impl LikeWidgets {
         };
         if let Some(button) = self.button.upgrade() {
             button.set_sensitive(mutable);
+            if liked {
+                button.add_css_class("liked");
+            } else {
+                button.remove_css_class("liked");
+            }
+            button.update_state(&[gtk::accessible::State::Pressed(if liked {
+                gtk::AccessibleTristate::True
+            } else {
+                gtk::AccessibleTristate::False
+            })]);
             button.set_tooltip_text(Some(action));
             button.update_property(&[gtk::accessible::Property::Label(action)]);
         }
@@ -70,6 +123,10 @@ impl LikeWidgets {
             });
         }
         if let Some(icon) = self.icon.upgrade() {
+            icon.set_icon_name(Some(like_icon_name(Some(liked))));
+            if self.compact {
+                icon.set_opacity(1.0);
+            }
             if liked {
                 icon.remove_css_class("dim-label");
                 icon.add_css_class("accent");
@@ -81,6 +138,13 @@ impl LikeWidgets {
         if let Some(button) = self.refresh.upgrade() {
             button.set_sensitive(true);
         }
+        if let Some(spinner) = self.spinner.upgrade() {
+            spinner.stop();
+            spinner.set_visible(false);
+        }
+        if let Some(feedback) = self.feedback.upgrade() {
+            feedback.set_visible(!mutable);
+        }
         if let Some(message) = self.message.upgrade() {
             message.set_text(if mutable {
                 if liked {
@@ -91,14 +155,170 @@ impl LikeWidgets {
             } else {
                 "Другая правка библиотеки ещё выполняется. После завершения обновите состояние."
             });
+            // A confirmed footer action needs no explanatory paragraph.
+            // Pending, uncertain and refused operations retain their message.
+            message.set_visible(!self.compact || !mutable);
         }
     }
 }
 
 impl Controller {
+    /// A direct confirmed action, looked up once only when the active footer
+    /// maps. Queue selection alone leaves the hidden footer and network idle.
+    /// Identity is account generation + track, not a duplicate queue occurrence.
+    pub(super) fn sync_current_like(self: &Rc<Self>) {
+        let key = {
+            let model = self.model.borrow();
+            if model.account_valid && !model.closed {
+                model
+                    .queue
+                    .current()
+                    .map(|track| (model.generation, track.id.clone()))
+            } else {
+                None
+            }
+        };
+        if *self.current_like_key.borrow() == key {
+            return;
+        }
+        self.current_like_key.replace(key.clone());
+        super::clear_box(&self.widgets.current_like_slot);
+        self.widgets.current_like_slot.set_visible(key.is_some());
+        let Some((generation, id)) = key else { return };
+        let container = gtk::Box::new(gtk::Orientation::Horizontal, 2);
+        container.set_widget_name("music-current-like-controls");
+        container.set_valign(gtk::Align::Center);
+        let button = gtk::Button::new();
+        button.set_widget_name("music-current-like");
+        button.set_size_request(44, 44);
+        button.set_valign(gtk::Align::Center);
+        button.add_css_class("flat");
+        button.set_sensitive(false);
+        button.set_tooltip_text(Some("Проверяем отметку «Нравится»"));
+        button.update_property(&[gtk::accessible::Property::Label(
+            "Отметка «Нравится» не проверена",
+        )]);
+        let surface = gtk::Overlay::new();
+        let icon = gtk::Image::from_icon_name(like_icon_name(None));
+        icon.set_widget_name("music-current-like-icon");
+        icon.set_pixel_size(16);
+        icon.add_css_class("dim-label");
+        surface.set_child(Some(&icon));
+        let spinner = gtk::Spinner::new();
+        spinner.set_widget_name("music-current-like-spinner");
+        spinner.set_halign(gtk::Align::Center);
+        spinner.set_valign(gtk::Align::Center);
+        spinner.set_can_target(false);
+        spinner.set_visible(false);
+        surface.add_overlay(&spinner);
+        button.set_child(Some(&surface));
+        container.append(&button);
+
+        // Uncertain/error states expose an explicit GET-only retry and safe
+        // explanation. The main heart never mutates an unconfirmed state.
+        let feedback = gtk::MenuButton::builder()
+            .icon_name("dialog-warning-symbolic")
+            .build();
+        feedback.set_widget_name("music-current-like-feedback");
+        feedback.set_direction(gtk::ArrowType::Up);
+        feedback.add_css_class("flat");
+        feedback.set_visible(false);
+        feedback.update_property(&[gtk::accessible::Property::Label(
+            "Состояние отметки и повторная проверка",
+        )]);
+        let popover = gtk::Popover::new();
+        popover.set_position(gtk::PositionType::Top);
+        let feedback_content = gtk::Box::new(gtk::Orientation::Vertical, 8);
+        super::super::margins(&feedback_content, 12);
+        feedback_content.set_width_request(230);
+        let message = text("Проверка отметки в вашей библиотеке…", "caption");
+        message.set_max_width_chars(30);
+        message.set_widget_name("music-like-message");
+        let refresh = gtk::Button::with_label("Обновить отметку");
+        refresh.set_widget_name("music-like-refresh");
+        refresh.set_sensitive(false);
+        feedback_content.append(&message);
+        feedback_content.append(&refresh);
+        popover.set_child(Some(&feedback_content));
+        feedback.set_popover(Some(&popover));
+        container.append(&feedback);
+        let widgets = LikeWidgets {
+            button: button.downgrade(),
+            refresh: refresh.downgrade(),
+            icon: icon.downgrade(),
+            label: glib::WeakRef::new(),
+            message: message.downgrade(),
+            confirmed: Rc::new(Cell::new(None)),
+            compact: true,
+            spinner: spinner.downgrade(),
+            feedback: feedback.downgrade(),
+        };
+        let initialized = Rc::new(Cell::new(false));
+        let weak = Rc::downgrade(self);
+        let read_widgets = widgets.clone();
+        let read_id = id.clone();
+        button.connect_map(move |_| {
+            if initialized.replace(true) {
+                return;
+            }
+            let weak = weak.clone();
+            let widgets = read_widgets.clone();
+            let id = read_id.clone();
+            let initialized = initialized.clone();
+            // Mapping can occur synchronously inside a render's immutable
+            // model borrow, especially with reduced motion. Start the bounded
+            // read only after that native callback has unwound. No widget or
+            // controller is kept alive, and retirement invalidates the work.
+            glib::idle_add_local_once(move || {
+                let Some(this) = weak.upgrade() else {
+                    return;
+                };
+                let current = {
+                    let model = this.model.borrow();
+                    !model.closed
+                        && model.account_valid
+                        && model.generation == generation
+                        && model.queue.current().is_some_and(|track| track.id == id)
+                };
+                if current
+                    && widgets.alive()
+                    && widgets
+                        .button
+                        .upgrade()
+                        .is_some_and(|button| button.is_mapped())
+                {
+                    this.read_like(id, widgets);
+                } else {
+                    initialized.set(false);
+                }
+            });
+        });
+        let weak = Rc::downgrade(self);
+        let read_widgets = widgets.clone();
+        let read_id = id.clone();
+        refresh.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.read_like(read_id.clone(), read_widgets.clone());
+            }
+        });
+        let weak = Rc::downgrade(self);
+        button.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.change_like(id.clone(), widgets.clone());
+            }
+        });
+        // Connect map before parenting: an already visible footer can map a
+        // freshly inserted button synchronously.
+        self.widgets.current_like_slot.append(&container);
+    }
+
     /// Called only for an actual loaded track detail. Membership is read when
     /// these controls map; track metadata is never interpreted as a like.
     pub(super) fn like_controls(self: &Rc<Self>, id: String) -> gtk::Box {
+        self.like_controls_presentation(id, false)
+    }
+
+    fn like_controls_presentation(self: &Rc<Self>, id: String, compact: bool) -> gtk::Box {
         let container = gtk::Box::new(gtk::Orientation::Vertical, 8);
         container.set_widget_name("music-like-controls");
         let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
@@ -106,7 +326,7 @@ impl Controller {
         button.set_widget_name("music-like-toggle");
         button.set_sensitive(false);
         let content = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-        let icon = gtk::Image::from_icon_name("starred-symbolic");
+        let icon = gtk::Image::from_icon_name(like_icon_name(None));
         icon.add_css_class("dim-label");
         let label = text("Проверка отметки…", "");
         content.append(&icon);
@@ -131,6 +351,9 @@ impl Controller {
             label: label.downgrade(),
             message: message.downgrade(),
             confirmed: Rc::new(Cell::new(None)),
+            compact,
+            spinner: glib::WeakRef::new(),
+            feedback: glib::WeakRef::new(),
         };
         let initialized = Cell::new(false);
         let weak = Rc::downgrade(self);
@@ -172,8 +395,13 @@ impl Controller {
             return;
         }
         widgets.unknown("Проверка отметки в вашей библиотеке…", false);
+        let operation = if widgets.compact {
+            Operation::CurrentLikeRead
+        } else {
+            Operation::LikeRead
+        };
         self.run(
-            Operation::LikeRead,
+            operation,
             move |service, token| {
                 Ok(service
                     .is_track_liked(&token, &id)
@@ -205,10 +433,8 @@ impl Controller {
             return;
         }
         let Some(liked) = widgets.confirmed.get() else {
-            widgets.unknown(
-                "Сначала обновите состояние отметки. Изменение не отправлено.",
-                true,
-            );
+            // A disabled/late activation must not erase the first uncertain
+            // write outcome or imply that the preceding write was never sent.
             return;
         };
         if self.mutation_busy.replace(true) {
@@ -222,7 +448,9 @@ impl Controller {
         self.requests
             .borrow_mut()
             .invalidate(Operation::InitialLibrary);
+        self.invalidate_liked_feeds();
         let cache = self.persistent_cache();
+        let changed_id = id.clone();
         self.run(
             Operation::Mutation,
             move |service, token| {
@@ -247,6 +475,7 @@ impl Controller {
                 this.requests
                     .borrow_mut()
                     .invalidate(Operation::InitialLibrary);
+                this.invalidate_liked_feeds();
                 this.render_home_preview();
                 if let Err(InteractionError::Music(
                     error @ (MusicError::AccessDenied | MusicError::Unauthenticated),
@@ -254,6 +483,22 @@ impl Controller {
                 {
                     this.show_error(error);
                     return;
+                }
+                // A different visible detail control can change the same
+                // account-global mark. Retire the footer's old membership and
+                // let its visible replacement read current state, without ever
+                // repeating a write or borrowing detail display fields.
+                if !widgets.compact
+                    && this
+                        .current_like_key
+                        .borrow()
+                        .as_ref()
+                        .is_some_and(|(_, current)| {
+                            current.split(':').next() == changed_id.split(':').next()
+                        })
+                {
+                    this.current_like_key.replace(None);
+                    this.sync_current_like();
                 }
                 if !widgets.alive() {
                     return;

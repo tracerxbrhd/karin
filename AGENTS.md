@@ -91,6 +91,9 @@ Do not introduce Electron or web-based application shells.
   opaque track object paths and decoded local cover files only. Never expose an
   OAuth value, cookie, account ID or signed media URL on D-Bus. Advertise only
   supported capabilities and retain the exact Flatpak MPRIS own-name permission.
+  Shuffle and LoopStatus are writable views of the local queue's playback
+  policy, not separate desktop-player state. Keep Stop available through MPRIS
+  and the controller while omitting a visible Stop button from the music bar.
 - v0.3's protected session lifecycle is specified in ADR-0018. Persist only the
   Music-validated access token through native Secret Service or a Secret Portal
   master secret plus an authenticated encrypted envelope. Never use a plaintext
@@ -112,10 +115,25 @@ Do not introduce Electron or web-based application shells.
   playback intact. Never persist OAuth values, cookies, signed media URLs or audio.
 - Persistent audio/offline playback requires an established service permission
   and offline entitlement lifecycle, not just a working MP3 URL. Follow
-  docs/AUDIO_CACHE_REVIEW.md; hide unsupported offline and recommendation actions
-  rather than presenting nonfunctional controls.
+  docs/AUDIO_CACHE_REVIEW.md; hide unsupported offline and recommendation actions.
+  The latest owner request explicitly permits one honest “Моя волна” landing
+  placeholder. Label it unimplemented; do not fake stations, recommendations,
+  playback, radio-session progress or endpoint support.
 
 ## User Experience
+- The final Cassette-inspired refinement starts at `2e3ae41` in Draft PR #15.
+  Its latest owner task supersedes the earlier Wave-only landing: primary tabs
+  are “Главная”, “Нравится” and “Плейлисты”. Home uses real working shortcuts
+  and a compact truthful unavailable Wave section, never invented recommendations.
+  Liked has an original native heart collection hero and a reusable loaded-track
+  search shared by opened playlists and compatible collection views. Case-fold
+  and normalize Unicode; typing must not fetch all remote pages. Label incomplete
+  coverage, preserve source occurrences and active playback, and admit any next
+  portion only within existing network/view limits. Total duration is shown only
+  for complete admitted data with every duration known and a checked sum.
+  Filtered Play snapshots matching original occurrences in provider order, at
+  most 500; view/query changes never rewrite the playing queue. Preserve the
+  normal 240 ms SlideUp, pinned Info/Queue, confirmed Like and exact MPRIS identity.
 - Cassette by Rirusha is an aesthetic reference and, for the explicitly scoped
   authentication prototype, a GPL-licensed protocol implementation reference.
   Preserve notices for adapted components; do not copy its persistent cookie
@@ -126,7 +144,7 @@ Do not introduce Electron or web-based application shells.
 - Prioritize responsiveness and clarity over decorative effects.
 - Every substantial UI change must pass the visual and structural checks in
   [docs/UI_QUALITY_GATE.md](docs/UI_QUALITY_GATE.md) before being called ready.
-- Inspect actual application screenshots at approximately 420×720, 900×650,
+- Inspect actual application screenshots at approximately 420×720, 850×750, 900×650,
   1440×900 and maximized, in light and dark themes. Check navigation adaptation,
   HeaderBar/title/window controls, spacing, text wrapping, scrolling and focus.
 - Exercise keyboard navigation and resize transitions. Screenshots supplement
@@ -137,11 +155,80 @@ Do not introduce Electron or web-based application shells.
 - Never add user screenshots containing personal information or desktop elements
   to a public repository without separate permission. Prefer clean cloud captures
   of Karin only, with no account data or unrelated desktop content.
-- ADR-0020 covers the adaptive track pane, playlist grid and persistent preferences.
-  Preserve the accepted player bar, context queue and click/Enter/Space playback.
+- ADR-0020 covers the v0.3 track pane, playlist grid and persistent preferences.
+  [ADR-0022](docs/adr/0022-universal-music-panel.md) extends ADR-0021's controlled
+  nonmodal intent into one universal panel: `Closed`, `TrackInfo` or `Queue`.
+  One native surface owns the background, border, header, artwork, text and
+  controls throughout opening/closing. Check actual intermediate frames; an
+  already-open image or a partially moving cover is insufficient. Mode changes
+  replace content in place without repeating the slide. Outside clicks,
+  navigation, playback and responsive changes preserve the chosen mode. The
+  footer and Ctrl+J open Queue; it is not a primary sidebar destination.
+  Explicit Details never plays; a new actual queue occurrence, including
+  duplicate IDs, EOS and MPRIS, resumes following in place. Structural queue
+  reindexing alone is not a new occurrence. No pane operation creates a second
+  playback state or restarts audio. Retain click/Enter/Space playback.
   Mutation UI must wait for server confirmation, never fabricate local success or
   automatically repeat an ambiguous POST. The current Fedora acceptance guide is
-  docs/BUILDING.md#v03-seamless-experience-acceptance-on-fedora.
+  docs/BUILDING.md#v04-native-music-acceptance-on-fedora.
+- [ADR-0023](docs/adr/0023-local-playback-order-and-mpris-modes.md) keeps local
+  Shuffle and Repeat Off/Queue/One over exact queue occurrences, preserving the
+  physical PlaybackContext order and its 500-position/partial boundary. Shuffle
+  uses a bounded upcoming plan and actual history; repeat-one affects natural
+  EOS, not explicit Next/Previous. Never turn a resolver refusal into an automatic
+  retry loop or fetch an entire remote collection to complete a local cycle.
+- Current v0.4 work follows the owner's complete music-experience redesign in
+  [DESIGN_SPEC.md](docs/design/v0.4/DESIGN_SPEC.md), superseding conflicting older
+  mockups: three navigation destinations, real music-led content, one universal
+  right panel and functional local playback modes. The current final refinement from
+  `2e3ae41` retains the earlier activity-dependent footer and native tabs, with
+  “Главная”, “Нравится” and “Плейлисты” plus accessible unified Search. Do not
+  use a dropdown as their primary switcher. The unavailable Wave section is a
+  compact honest part of Home, not a working radio service.
+  The Player Bar is initially hidden with no playback intent, reveals natively
+  from below on a real playback request, remains through Pause and retryable
+  request failure, and hides after explicit Stop/logout/queue clear. Selection
+  alone must not expose an idle player or create playback. The whole current
+  artwork/title/artist block is one accessible Track Info button; confirmed Like
+  is a separate action, never a nested button. Unconfirmed Dislike stays hidden.
+  Track lists load bounded portions continuously rather than through visible
+  page switches. Preserve scroll position, exact occurrences, request/session
+  epochs, explicit retry and the active context's 500-position/partial boundary.
+  UI appends must not silently replace the active playback context. Follow
+  [ADR-0024](docs/adr/0024-bounded-continuous-track-views.md): keep bounded source
+  position provenance, compare stable feed identity+absolute original occurrence after queue
+  edits, and mark manual additions separately instead of matching by Track ID.
+  Retain meaningful errors, confirmations, tooltips and accessible labels. Original design SVGs
+  are not running GTK screenshots or production artwork. First-map Like reads
+  must be deferred beyond the synchronous GTK render/map stack, guarded by weak
+  ownership and current session/track generations; never reborrow controller
+  state mutably from a widget mapping inside a render. Keep footer membership
+  reads separate from detail/catalog lanes and never replay an uncertain write.
+  Inspect matched baseline/current GTK captures across required sizes plus owner-wide 1650×930,
+  true maximize, themes, scales and
+  Closed/TrackInfo/Queue, plus populated pages and input states. Capture motion
+  near 0/25/50/75/100 percent with normal animation and verify reduced motion
+  separately before claiming quality.
+  Current strict motion proof is graphics-initialized: one unconditional real
+  normal setup open/close plus six bounded native offscreen renders of the actual
+  mapped panel; raw setup quarters are not assessed and no setup PNG/progress
+  mutation supplies proof. Only the subsequent unchanged 240 ms native cycle is
+  measured. Never call this cold responsiveness PASS or add production prewarming.
+  Cold NGL/Vulkan failures on both old/modern stacks remain recorded; Fedora first
+  appearance after ordinary fresh start is a separate unaccepted gate for both
+  panel and footer. Raw footer frames with no height reversal do not prove smooth
+  cold appearance: retain the C9 116,669 μs first-paint gap, the separate
+  fresh-process observations in VALIDATION.md and their unknown causes.
+  Record test-only Mesa worker settings explicitly. Motion fixtures unset
+  `GSK_DEBUG` to use ordinary GTK damage; static resize captures retain
+  `full-redraw`. Preserve the separate local full-redraw PASS, hosted `144492f`
+  FAILs and one ordinary-damage control. Fresh full render-node snapshots are
+  not direct native-framebuffer damage-correctness proof. A controlled `LP_NUM_THREADS=2`
+  result does not erase a default-environment sampling failure or prove a driver
+  cause, cold responsiveness, a production fix or Fedora performance.
+  Work only in `feature/v0.4-native-music-ui` and existing Draft PR #15; leave
+  it Draft pending owner Fedora visual acceptance. Do not create another PR,
+  merge it or delete the branch without a new instruction.
 
 ## Licensing
 
@@ -182,6 +269,19 @@ after fetching or vendoring the locked dependencies. Keep the MSRV CI lane align
 with the package metadata. Prove compatibility before lowering the declaration,
 and never use `--ignore-rust-version` to bypass a compiler requirement.
 
+Keep complete native CI coverage: retain the earlier 29 Ubuntu functional
+selectors, compiler/package checks and both navigating WebKit fixtures, plus
+both strict visual selectors on Debian 13 at both scales/compilers. Add the
+refinement's actual-input/continuous/footer/membership regressions to the compiled
+registration partition; the historical 31 = 29 + 2 count is not a ceiling or a
+reason to omit new cases. The final refinement registers 33 selectors: 30
+functional (including collection-filter input) plus three modern visual/raw
+observers (including separate fresh-start footer capture). Report the actual
+executed set, including the locally blocked navigating WebKit cases.
+The recorded `709f5b3` GTK 4.14/Adwaita 1.5/Mesa strict-motion FAIL remains
+scoped evidence, not a reason to drop tests or weaken timing/progress checks.
+Modern test placement does not change production minimums, renderer or SDK.
+
 Report executed checks, results, limitations, and remaining blockers.
 A successful build does not prove GTK runtime, audio, or Yandex API integration.
 The owner accepted merged master 09f7635 with 17 PASS, 0 FAIL and 1 N/D;
@@ -191,9 +291,16 @@ The owner subsequently accepted v0.3 runtime 02325489d23ead9da4471de9cc35e2c063a
 on 2026-10-31: persistence/restart, real covers in lists/player/pane, audible Music,
 pane mechanics, KDE cover/metadata and the reported final Flatpak auth/playback/
 system integration. Do not invent unreported backend/deletion/media-key details.
-Keep historical FAILs intact. The pane's visual design is not accepted and moves
-to a separate UI/UX iteration. Functional acceptance and the explicit PR #14
-squash authorization are not public-release or service-distribution permission.
+Keep historical FAILs intact. The pane's v0.3 visual design was not accepted;
+v0.4 is its separately authorized UI/UX iteration, with new visual acceptance
+still required. PR #14 integrated the accepted baseline at `5e85e8d`. Functional
+acceptance and the explicit PR #14 squash authorization are not v0.4 merge,
+public-release or service-distribution permission.
+The first v0.4 implementation at `a9eed4514802df84d73b0608dd1a62930fc1af76`
+passed its recorded cloud checks but failed owner Fedora UI/UX acceptance. Keep
+that historical result. The owner's complete redesign supersedes the previous
+visual target and requires fresh matched evidence, motion checks, real playback
+modes and a new Fedora review; earlier green CI is not acceptance of this work.
 Do not claim a full current Flatpak build or a real wallet/portal test from source
 inspection, host-library checks or synthetic D-Bus fixtures.
 

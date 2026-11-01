@@ -5,10 +5,27 @@
 An independent native Linux client for Yandex Music, built with Rust, GTK4,
 Libadwaita and GStreamer. Karin is not affiliated with Yandex.
 
-**v0.3 — Seamless Experience** delivers protected session persistence, bounded
-metadata/artwork caching and an adaptive music workspace through
-[PR #14](https://github.com/tracerxbrhd/karin/pull/14). It preserves the accepted sign-in, MusicService, StreamResolver,
-GStreamer player, contextual queues and MPRIS integration.
+**v0.4 — Native Music** continues in existing
+[Draft PR #15](https://github.com/tracerxbrhd/karin/pull/15): Home/Liked/Playlists
+navigation, a musical Liked hero with collection-local search, larger playlist
+covers, one pinned Track Info / Queue panel and an activity-dependent centered
+Player Bar with real Shuffle/Repeat. The [current brief](docs/design/v0.4/CODEX_TASK.md)
+and [specification](docs/design/v0.4/DESIGN_SPEC.md) refine `2e3ae41` while preserving
+the accepted sign-in, MusicService, StreamResolver, GStreamer, contextual queue,
+protected session/cache and MPRIS. Local filtering searches admitted data only;
+partial coverage is explicit and typing does not fetch the entire collection.
+Implementation checks and new Fedora visual acceptance remain separate. Earlier
+`a9eed45` passed cloud checks but failed the owner's visual review; historical
+[captures](docs/design/v0.4/evidence-redesign/README.md) retain their original scope.
+The [current GTK before/after gallery](docs/design/v0.4/evidence-final-refinement/README.md)
+shows source-matched native captures and their limitations. The
+[design inputs](docs/design/v0.4/README.md) distinguish illustrations, private
+references and actual GTK evidence.
+
+**v0.3 — Seamless Experience** is merged through
+[PR #14](https://github.com/tracerxbrhd/karin/pull/14) at `5e85e8d`, delivering
+protected session persistence, bounded metadata/artwork caching and the accepted
+functional workspace on which v0.4 is based.
 
 The owner accepted the merged v0.2 baseline on Fedora 44 / KDE Plasma / Wayland /
 PipeWire, including Flatpak: **17 PASS, 0 FAIL, 1 N/D** (hardware media keys).
@@ -18,10 +35,11 @@ accepted v0.3 runtime **`02325489d23ead9da4471de9cc35e2c063ac8bab`**: persistent
 sign-in/restart, real covers in lists/Player Bar/right pane, real Music playback,
 pane mechanics and KDE cover/metadata. Final Flatpak authorization, playback
 and system-integration checks were reported successful. The pane's visual design
-is not accepted; substantial UI/UX work belongs to the next separate iteration.
+was not accepted; the separate v0.4 iteration addresses it and needs new owner
+visual acceptance.
 This is functional-prototype acceptance, not a public release. See
 [validation](docs/VALIDATION.md) and the
-[single Fedora procedure](docs/BUILDING.md#v03-seamless-experience-acceptance-on-fedora).
+[current v0.4 Fedora procedure](docs/BUILDING.md#v04-native-music-acceptance-on-fedora).
 
 ## Ordinary sign-in and protected session
 
@@ -65,18 +83,32 @@ does not prove those additional lifecycle cases. See
 
 ## Music workspace
 
-- The accepted compact expandable icon rail/drawer, circular account avatar,
-  external account-page action, four-section unified search and persistent
-  player bar are retained. Appearance and other real preferences persist.
+- Native Home/Liked/Playlists tabs and adjacent unified catalog search lead
+  to the real collection views. The circular account avatar and external
+  account-page action are retained. The player appears on actual playback
+  intent, remains through Pause and hides after Stop/clear/logout. Appearance
+  and other real preferences persist.
 - A track row starts its exact loaded-context occurrence by mouse, Enter or
   Space. Liked tracks, albums, playlists and search retain their real ordering,
   duplicates and partial-collection boundary within 500 queue positions. Manual
-  appends supplement the context; Next/Previous/EOS use that same queue. Details
-  remain a separate action. Current/up-next markers do not invent listening history.
+  appends supplement the context; Next/Previous/EOS use that same queue. Shuffle
+  plans exact occurrences with bounded played history, not unique IDs; repeat
+  cycles Off → Queue → One. Repeat One applies to natural EOS while explicit
+  Next/Previous still navigate. Modes survive an ordinary clear or new context
+  and reset on logout/close. Details remain a separate action.
 - Adaptive track information presents actual large cover/title/artist/album,
   selected/playing state and supported context actions. Album/artist links use
   verified identities rather than guesses from display names. Opening, closing
-  or resizing information must preserve playback and context.
+  or resizing information must preserve playback and context. v0.4 separates
+  explicit open intent from responsive presentation: outside clicks/navigation
+  retain the view, explicit close dismisses it, and a new current queue occurrence
+  updates it in place. Details may inspect another track without playing it;
+  the next actual current-item change resumes following. See
+  [ADR-0022](docs/adr/0022-universal-music-panel.md). The same pinned surface
+  switches between Track Info and Queue without closing/reopening; Ctrl+J and
+  the Player Bar queue button replace the former primary queue destination.
+  Full-size background, header, artwork and text translate together using a
+  single native animation; compact Back and explicit close remain available.
 - Playlists use adaptive native cover tiles, with real optional counts, readable
   long names, missing-cover handling and loading/empty/error states. Creation
   uses one explicit request and independent server confirmation; an ambiguous
@@ -87,11 +119,12 @@ does not prove those additional lifecycle cases. See
   Album/artist/playlist sections, Show All and Retry remain independent.
 - The existing guarded full-MP3 resolver feeds an opaque short-lived HTTPS source
   to the existing GStreamer worker. Actual snapshots drive play/pause/resume,
-  Stop, progress/Seek, Volume, queue and cleanup. OAuth/cookies never go to the
+  progress/Seek, Volume, queue and cleanup. Stop remains an internal and MPRIS
+  command and has no visible Player Bar button. OAuth/cookies never go to the
   descriptor/CDN; signed addresses and music files are not persisted.
 - MPRIS 2.2 controls that same player through GIO session D-Bus. Known metadata,
-  actual position/capabilities, confirmed seeks, volume and private temporary
-  cover-only PNGs are exported; tokens, cookies, account IDs and media URLs are
+  actual position/capabilities, confirmed seeks, volume, writable Shuffle and
+  LoopStatus, and private temporary cover-only PNGs are exported; tokens, cookies, account IDs and media URLs are
   not. The exact Flatpak MPRIS own-name permission is retained. Baseline KDE
   Media Widget/Flatpak integration passed; v0.3 KDE real cover/metadata and final
   Flatpak system integration are owner-confirmed. Physical media keys were not
@@ -149,6 +182,7 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo test --workspace --locked
 cargo test --workspace --all-features --locked
+cargo test --workspace --no-default-features --locked
 cargo build --workspace --locked --no-default-features
 cargo build --workspace --locked
 ./target/debug/karin --audio-self-test
@@ -175,7 +209,8 @@ Fedora Wayland visual gate.
 - [Architecture and concurrency](docs/ARCHITECTURE.md)
 - [Fedora, cloud and Flatpak instructions](docs/BUILDING.md)
 - [Validation evidence](docs/VALIDATION.md) and [known limitations](docs/LIMITATIONS.md)
-- [UI quality gate](docs/UI_QUALITY_GATE.md), [v0.3 cloud screenshots](docs/screenshots/v0.3/README.md) and [historical UI galleries](docs/ui/README.md)
+- [Native Music design inputs](docs/design/v0.4/README.md) and [UI quality gate](docs/UI_QUALITY_GATE.md)
+- [v0.3 cloud screenshots](docs/screenshots/v0.3/README.md) and [historical UI galleries](docs/ui/README.md)
 - [Audio-cache rights and offline lifecycle](docs/AUDIO_CACHE_REVIEW.md)
 - [Authentication contract](docs/AUTHENTICATION_REVIEW.md), [API evidence](docs/API_FEASIBILITY.md) and [delivery review](docs/STREAM_DELIVERY_REVIEW.md)
 - [Cassette capability audit](docs/CASSETTE_PARITY.md), [roadmap](docs/ROADMAP.md) and [ADRs](docs/adr/)
@@ -186,8 +221,9 @@ with GPL notices preserved. Its source-license permission does not establish
 Karin's public OAuth-registration/service-distribution permission or Linux
 embedded-auth approval; no blanket service ban is inferred either. No new
 identity, DRM bypass, extracted delivery key or copyrighted recording is added.
-The owner explicitly authorized PR #14's squash integration after final review
-and successful CI. That permission is separate from public-release approval.
+The owner explicitly authorized PR #14's completed squash integration after
+final review and successful CI. It does not authorize merging Draft PR #15 or
+constitute public-release approval.
 
 Karin's own code and original materials use **GNU GPL-3.0-or-later** unless a file
 states otherwise. [LICENSE](LICENSE) retains the standard full GPLv3 text and

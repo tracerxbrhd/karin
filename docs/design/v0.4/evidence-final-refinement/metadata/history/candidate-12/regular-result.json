@@ -1,0 +1,29 @@
+{
+  "source_manifest_sha256": "f6176cfb5ff3f379442a90fd0d3fe65d2301f692a59fc3f090a6b7b164dcabb7",
+  "exit_code": 0,
+  "duration_seconds": 287.2951341029984,
+  "completed_utc": "2026-11-01T22:15:27.699623+00:00",
+  "source_unchanged": true,
+  "log_sha256": "a15e548ca06abf4d4210132f280d8f256da4da364d32a153df379e0c9b08e8e8",
+  "test_summaries": [
+    "test result: ok. 378 passed; 0 failed; 33 ignored; 0 measured; 0 filtered out; finished in 11.08s",
+    "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+    "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+    "test result: ok. 386 passed; 0 failed; 33 ignored; 0 measured; 0 filtered out; finished in 11.36s",
+    "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+    "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+    "test result: ok. 364 passed; 0 failed; 30 ignored; 0 measured; 0 filtered out; finished in 10.48s",
+    "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+    "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+    "test result: ok. 378 passed; 0 failed; 33 ignored; 0 measured; 0 filtered out; finished in 11.22s",
+    "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+    "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+    "test result: ok. 386 passed; 0 failed; 33 ignored; 0 measured; 0 filtered out; finished in 11.94s",
+    "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+    "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+    "test result: ok. 364 passed; 0 failed; 30 ignored; 0 measured; 0 filtered out; finished in 10.79s",
+    "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+    "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+  ],
+  "default_release_sha256": "4fc95eab170ef20c3875bd071b7aad96718d8d1bd63b97423c993251368dd148"
+}

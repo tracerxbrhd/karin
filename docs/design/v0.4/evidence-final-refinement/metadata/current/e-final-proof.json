@@ -1,0 +1,2768 @@
+{
+  "candidate": "candidate-14",
+  "result": "PASS-current-source-initialized-panel-and-static-coverage-audit",
+  "binary_sha256": "c927b8e1dfa405398c8c2dc68ca402d3cd899e7867f08cbfc2aa08bf54331bb5",
+  "source_manifest_sha256": "3faefc3e5d8e69ce475e148ffef92cecb5ccbaf6631ac14661993cbbf1db7bf4",
+  "source_state": "quiescent-working-tree-candidate-14",
+  "current_source_hashes_checked": true,
+  "hidden_footer_cross_axis_lifecycle_verified": true,
+  "motion_directory_suffix": "",
+  "software_raster_worker_environment": "LP_NUM_THREADS=2 (execution ledger/CI environment, not inferred from pixels)",
+  "matched_2e3_dimension_pairs": 108,
+  "static_images": 260,
+  "raw_footer_images": 17,
+  "selected_motion_images": 240,
+  "motion_trajectories": 48,
+  "static": {
+    "1": {
+      "matrix_images": 54,
+      "state_images": 76,
+      "raw_footer": {
+        "first-start": {
+          "after_paint_count": 7,
+          "intermediate_frame_count": 1,
+          "observed_height_reversal_count": 0,
+          "saved_frame_indices": [
+            0,
+            4,
+            6
+          ],
+          "natural_child_heights": [
+            0,
+            64
+          ],
+          "animations_enabled": true
+        },
+        "explicit-stop": {
+          "after_paint_count": 18,
+          "intermediate_frame_count": 14,
+          "observed_height_reversal_count": 0,
+          "saved_frame_indices": [
+            0,
+            2,
+            4,
+            6,
+            17
+          ],
+          "natural_child_heights": [
+            0,
+            64
+          ],
+          "animations_enabled": true
+        }
+      }
+    },
+    "2": {
+      "matrix_images": 54,
+      "state_images": 76,
+      "raw_footer": {
+        "first-start": {
+          "after_paint_count": 12,
+          "intermediate_frame_count": 5,
+          "observed_height_reversal_count": 0,
+          "saved_frame_indices": [
+            0,
+            4,
+            5,
+            11
+          ],
+          "natural_child_heights": [
+            0,
+            64
+          ],
+          "animations_enabled": true
+        },
+        "explicit-stop": {
+          "after_paint_count": 15,
+          "intermediate_frame_count": 11,
+          "observed_height_reversal_count": 0,
+          "saved_frame_indices": [
+            0,
+            2,
+            4,
+            5,
+            14
+          ],
+          "natural_child_heights": [
+            0,
+            64
+          ],
+          "animations_enabled": true
+        }
+      }
+    }
+  },
+  "motion": {
+    "1": {
+      "selected_frames": 120,
+      "trajectories": 24,
+      "distinct_quarter_frames": 5,
+      "all_moving_raw_frames_verified": 264,
+      "renderer": "GskGLRenderer"
+    },
+    "2": {
+      "selected_frames": 120,
+      "trajectories": 24,
+      "distinct_quarter_frames": 5,
+      "all_moving_raw_frames_verified": 214,
+      "renderer": "GskGLRenderer"
+    }
+  },
+  "startup_raw_observations": {
+    "1": {
+      "scope": "fresh-application-first-Play-no-renderer-initialization-unaccepted-latency",
+      "after_paint_count": 6,
+      "intermediate_frame_count": 1,
+      "max_adjacent_native_frame_gap_us": 900018,
+      "max_observation_duration_us": 518,
+      "node_none_count": 0,
+      "observed_height_reversal_count": 0,
+      "natural_child_heights": [
+        0,
+        64
+      ],
+      "saved_actual_frame_indices": [
+        0,
+        3,
+        5
+      ],
+      "cold_first_use_latency_accepted": false
+    },
+    "2": {
+      "scope": "fresh-application-first-Play-no-renderer-initialization-unaccepted-latency",
+      "after_paint_count": 6,
+      "intermediate_frame_count": 1,
+      "max_adjacent_native_frame_gap_us": 850017,
+      "max_observation_duration_us": 282,
+      "node_none_count": 0,
+      "observed_height_reversal_count": 0,
+      "natural_child_heights": [
+        0,
+        64
+      ],
+      "saved_actual_frame_indices": [
+        0,
+        3,
+        5
+      ],
+      "cold_first_use_latency_accepted": false
+    }
+  },
+  "max_child_relative_geometry_error_logical_px": 0.0001220703125,
+  "max_surface_size_change_logical_px": 6.103515625e-05,
+  "max_surface_translation_error_logical_px": 6.835937506366463e-05,
+  "unchanged_2e3_guard_blocks": {
+    "motion_phase_indices": "45bfb66df927c639a8c2bc742afd294636516e1059d6f0d83ba6b6683f004366",
+    "assert_whole_surface": "8bb85b654372aae958dff8eb30ad9d5fbb8201ba94ae4591078272c1856b3b8c",
+    "save_motion_frames": "38bff7993b6aac052f7ba6a58ba7d4227cc69fa949bae1326578235a0bc12be6",
+    "initialize_motion_graphics": "e854aa5ef788571f5c3b14c339959d96b4cff2fe20830155c38849d31441558b"
+  },
+  "unchanged_entire_motion_pipeline_sha256": "6cb43db1c2f69a8f1bf4eac9a0edc71801934db6f5fcc316b30c43cd715413c4",
+  "cold_first_use_latency_accepted": false,
+  "root_cause_of_default_env_frame_gap_established": false,
+  "baseline_revision": "2e3ae41a8480b8f5f437f739c02cb925af69e884",
+  "baseline_adapter_scope": "one850x750tuple in archived test only; production exact",
+  "retained_previous_first_footer_gap_us": 116669,
+  "retained_motion_failures": "Historical default-worker/C7 and full-redraw/144492f strict misses remain unaccepted; no driver cause or cold acceptance inferred",
+  "motion_damage_mode": "ordinary GTK damage; GSK_DEBUG unset per execution ledger",
+  "static_damage_mode": "GSK_DEBUG=full-redraw for static X11 captures",
+  "fedora_acceptance": false,
+  "image_hashes": [
+    {
+      "file": "static-scale1/surface-player-hidden-compact-scale1-light.png",
+      "sha256": "b27c674c1e7a095b3ec4ef82009d364567203049c0bedbe3d4e3443dba8355fe"
+    },
+    {
+      "file": "static-scale1/surface-player-hidden-compact-scale1-dark.png",
+      "sha256": "6af362bfc71d5731194eea5a0feebb247a9f63e090b836c744ca69164b5bc1b9"
+    },
+    {
+      "file": "static-scale1/surface-player-hidden-medium-scale1-light.png",
+      "sha256": "5800c280e54860fee81912c02a67dfdf44d1dc909d05e5389c584f295e91d737"
+    },
+    {
+      "file": "static-scale1/surface-player-hidden-medium-scale1-dark.png",
+      "sha256": "89fbe68727fbadb9e39d4a3ae3b959dc72241cc52e3a1fccad544a88ab4a6439"
+    },
+    {
+      "file": "static-scale1/surface-player-hidden-wide-scale1-light.png",
+      "sha256": "d5dd24432a6e75eccabd2f91754c441ee76e21b0b1ddb1a92364d45b4ab9cfac"
+    },
+    {
+      "file": "static-scale1/surface-player-hidden-wide-scale1-dark.png",
+      "sha256": "6057372b9a0c1416d9184f1abf376312e62737aa3558a4862cfd54901356ecd6"
+    },
+    {
+      "file": "static-scale1/surface-player-visible-paused-scale1-light.png",
+      "sha256": "622d571f88cc5e0b5d331e5fbdf6ef6db0ad3230ee48c2e24af114531b6fc412"
+    },
+    {
+      "file": "static-scale1/surface-player-visible-paused-scale1-dark.png",
+      "sha256": "4e139d9e71e8ef9e8510beeefd56344db0c17c313dc328e151345b05025a4042"
+    },
+    {
+      "file": "static-scale1/matrix-compact-panel-closed-scale1-light.png",
+      "sha256": "b26a9c6c0b4a65b4ad471e7f15a34ab5a1652fca03ce40cdb0bc648bdf3b7b2c"
+    },
+    {
+      "file": "static-scale1/matrix-compact-panel-closed-scale1-dark.png",
+      "sha256": "9c05a247fe4d972e5bd286f24afbb504343d8316b01cf0f4afd003a115024b72"
+    },
+    {
+      "file": "static-scale1/matrix-compact-panel-track-scale1-light.png",
+      "sha256": "cecf5e3869507a3b82422607e396119ad36f6408a46da27ffe0d0c62458a01b0"
+    },
+    {
+      "file": "static-scale1/matrix-compact-panel-track-scale1-dark.png",
+      "sha256": "f8342ebbe9d61fdc7c7b730a52926271674e02b26c8e4c288855162daa38434d"
+    },
+    {
+      "file": "static-scale1/matrix-compact-panel-queue-scale1-light.png",
+      "sha256": "b99ff99b5ab1ae78675042b8006f5e49cddefdc37b6a0d7f94f6730dfadc883c"
+    },
+    {
+      "file": "static-scale1/matrix-compact-panel-queue-scale1-dark.png",
+      "sha256": "47635364ec1ef98ec2330152881b53f616ecb6da140092ecf72abd1df4a266f4"
+    },
+    {
+      "file": "static-scale1/matrix-narrow-panel-closed-scale1-light.png",
+      "sha256": "1d1ab79c5c97ecb4cdf773a28ddaf00ad29412870843abf85794721449316cd5"
+    },
+    {
+      "file": "static-scale1/matrix-narrow-panel-closed-scale1-dark.png",
+      "sha256": "d12fbd28b0d703695f5c226d32174c2b07e847d067b95cbf7841033bb6a96b45"
+    },
+    {
+      "file": "static-scale1/matrix-narrow-panel-track-scale1-light.png",
+      "sha256": "92aa0bd0ecba7c5a6d719af1ad6b7facf636b46031b1b59d8e8fcd8ec7241fc1"
+    },
+    {
+      "file": "static-scale1/matrix-narrow-panel-track-scale1-dark.png",
+      "sha256": "a5f92de601ebaca85acdb7f91ee5112e6506a94420b57844b16db0d36abb9fa3"
+    },
+    {
+      "file": "static-scale1/matrix-narrow-panel-queue-scale1-light.png",
+      "sha256": "966ad43ce9b51f4523d05327a32fc752f8e0d8f947748bfbcdfa8f727da9e590"
+    },
+    {
+      "file": "static-scale1/matrix-narrow-panel-queue-scale1-dark.png",
+      "sha256": "55bb4b87b9d2a4c5ea29cb28185002cf1454e15e84402c5d5c59df9536a18ffe"
+    },
+    {
+      "file": "static-scale1/matrix-reference-panel-closed-scale1-light.png",
+      "sha256": "491dd30c6a432eab6975024605cf529cea482da4ed1fc8b77ca981d426f24a85"
+    },
+    {
+      "file": "static-scale1/matrix-reference-panel-closed-scale1-dark.png",
+      "sha256": "3e8266359214c83961f476a39636b09cbfad1cc5197a7b6fa88c7abb68161856"
+    },
+    {
+      "file": "static-scale1/matrix-reference-panel-track-scale1-light.png",
+      "sha256": "8e82c2dabe0d16818db6371df6d936057ed728881c6dea94b6b542637991ed2f"
+    },
+    {
+      "file": "static-scale1/matrix-reference-panel-track-scale1-dark.png",
+      "sha256": "55194bf721cff93c9d66624adb8eaa92c7f5209e4955c8ad98df2e2e5df3d466"
+    },
+    {
+      "file": "static-scale1/matrix-reference-panel-queue-scale1-light.png",
+      "sha256": "7e9e30859ad317f50918cc66dee36d46a7ab27f83dee0e2113edbcfb5649893e"
+    },
+    {
+      "file": "static-scale1/matrix-reference-panel-queue-scale1-dark.png",
+      "sha256": "c42a76493349d5512a4126ac11f64df07d467ef043cbba5e8b304a8cb3a487e9"
+    },
+    {
+      "file": "static-scale1/matrix-medium-panel-closed-scale1-light.png",
+      "sha256": "31759798dcd0d42a2812c8bf9d9f645a5b836c2d609bb09c0e5ee8f7e2db3763"
+    },
+    {
+      "file": "static-scale1/matrix-medium-panel-closed-scale1-dark.png",
+      "sha256": "f781f48bb35efd99e425afdba3c56c708dbffbe66634b0bc717953e517d884b0"
+    },
+    {
+      "file": "static-scale1/matrix-medium-panel-track-scale1-light.png",
+      "sha256": "4c9614f6775616c634a67825d0fb9a78970905c79459b4271686d0d345a8c599"
+    },
+    {
+      "file": "static-scale1/matrix-medium-panel-track-scale1-dark.png",
+      "sha256": "c9a362f7503e684a512de04b4996d9edc0e5f7ede835326f40eabd9e949b7e85"
+    },
+    {
+      "file": "static-scale1/matrix-medium-panel-queue-scale1-light.png",
+      "sha256": "86ec71d0b7b436dfc5e4498d2e7c64560ba0ddacb697c627704a1d74cc58f3df"
+    },
+    {
+      "file": "static-scale1/matrix-medium-panel-queue-scale1-dark.png",
+      "sha256": "2af2f17939cf617cb7cb37d9efe8907a7c940ab8db3dce05c7d72ab4363a527a"
+    },
+    {
+      "file": "static-scale1/matrix-desktop-panel-closed-scale1-light.png",
+      "sha256": "192cb0007dbfac944545c53fe7b15c826b0897b80f5739cbd5466bd0106ccd0a"
+    },
+    {
+      "file": "static-scale1/matrix-desktop-panel-closed-scale1-dark.png",
+      "sha256": "67c1ca9bc6d06304696ac66dbb5f98be15d95f9bcb7a05fce9c5697ae0f15b13"
+    },
+    {
+      "file": "static-scale1/matrix-desktop-panel-track-scale1-light.png",
+      "sha256": "9e56fd6f78ddda7abf2f602d1bb773ba167dc90541f75c64d6450cf0b8adce95"
+    },
+    {
+      "file": "static-scale1/matrix-desktop-panel-track-scale1-dark.png",
+      "sha256": "986328c295884a9987ff54da9e2c44fa3f63406818a4aa2894c4bb57341fa1d9"
+    },
+    {
+      "file": "static-scale1/matrix-desktop-panel-queue-scale1-light.png",
+      "sha256": "b36f7f59a1b33e8302c1972c2a01207d3dbe8316be483d8a108c439aa098dfa3"
+    },
+    {
+      "file": "static-scale1/matrix-desktop-panel-queue-scale1-dark.png",
+      "sha256": "462439c3c908526c82395fce9e008fa910855b8dac3a186ad5c6fee01910d49a"
+    },
+    {
+      "file": "static-scale1/matrix-wide-panel-closed-scale1-light.png",
+      "sha256": "5c9af3116f14e0dcbb7387a43f2fef5b3eda03f0622cfd6673a8c715ea8ea62a"
+    },
+    {
+      "file": "static-scale1/matrix-wide-panel-closed-scale1-dark.png",
+      "sha256": "4e139d9e71e8ef9e8510beeefd56344db0c17c313dc328e151345b05025a4042"
+    },
+    {
+      "file": "static-scale1/matrix-wide-panel-track-scale1-light.png",
+      "sha256": "9ac48e4c9490678a5d39669fb44f65164c022bd3496fab0ea8c138c7f4e12770"
+    },
+    {
+      "file": "static-scale1/matrix-wide-panel-track-scale1-dark.png",
+      "sha256": "732489ecfbd7f38d7af605450ff2e5a5a88a9d72fc016fa6119ed427cf399bc1"
+    },
+    {
+      "file": "static-scale1/matrix-wide-panel-queue-scale1-light.png",
+      "sha256": "53d3d38dae46fcea25c5837c66db542edc28bf781ef1a0859e9fd0eaef98db71"
+    },
+    {
+      "file": "static-scale1/matrix-wide-panel-queue-scale1-dark.png",
+      "sha256": "e1dd453dd36f5dffe592d2f870a9ac25bdf228dcd04f42fa8b33d13a5edf6f10"
+    },
+    {
+      "file": "static-scale1/matrix-owner-wide-panel-closed-scale1-light.png",
+      "sha256": "d9b12590fb36ba0d405ba10d024b69f7b75bbaf4be5db7ea5815031e19e57217"
+    },
+    {
+      "file": "static-scale1/matrix-owner-wide-panel-closed-scale1-dark.png",
+      "sha256": "63aa5274af11401ceef4dabb93dd4e73d1c83c4945aa7af30d230d984ace1c05"
+    },
+    {
+      "file": "static-scale1/matrix-owner-wide-panel-track-scale1-light.png",
+      "sha256": "65632f59d0b55a600f1ac7adf4cb1325e21a1978b73fd2560b3f58933a2cc278"
+    },
+    {
+      "file": "static-scale1/matrix-owner-wide-panel-track-scale1-dark.png",
+      "sha256": "a0c907b95b490f5ce210ab84267c90a344cd23ff9f45a97fd705d05a7923125b"
+    },
+    {
+      "file": "static-scale1/matrix-owner-wide-panel-queue-scale1-light.png",
+      "sha256": "aebe3a01641ce5f76f154fdec54e76133c1755b38823afa46fb272971f2370a0"
+    },
+    {
+      "file": "static-scale1/matrix-owner-wide-panel-queue-scale1-dark.png",
+      "sha256": "3cedbd4ab2b5b30587e16b78a736859c2ecbab3581228299396d8a9eaad534d7"
+    },
+    {
+      "file": "static-scale1/matrix-large-panel-closed-scale1-light.png",
+      "sha256": "9258c084b53f1c6fea9dcfeab285cfea7bf05e486733695102c16473b452f06f"
+    },
+    {
+      "file": "static-scale1/matrix-large-panel-closed-scale1-dark.png",
+      "sha256": "98e8ae94b598bb18c380dcc4198092882a77b6b98aff4d71fdd824077b2104a4"
+    },
+    {
+      "file": "static-scale1/matrix-large-panel-track-scale1-light.png",
+      "sha256": "af9447584a1c8cd614dea2994bac991a690ba7fb95b8eb96288a2177557fc34d"
+    },
+    {
+      "file": "static-scale1/matrix-large-panel-track-scale1-dark.png",
+      "sha256": "745fac20a25125ef35fc446e9ea386046488336dab05bfc21e3d266b60c68b91"
+    },
+    {
+      "file": "static-scale1/matrix-large-panel-queue-scale1-light.png",
+      "sha256": "aa6f945e9953dce2f56570f82874225eac0f9e3eb3942b12a478daf1ca5f71d2"
+    },
+    {
+      "file": "static-scale1/matrix-large-panel-queue-scale1-dark.png",
+      "sha256": "5e98bec9bf61a6a2dbfd0fef73cce5836679c3de58b462ebfbbaeed5b4a3d252"
+    },
+    {
+      "file": "static-scale1/matrix-maximized-panel-closed-scale1-light.png",
+      "sha256": "b130365eac1bf4727a027ce25a78f58fffc2b6005684331fb896ea3eababb657"
+    },
+    {
+      "file": "static-scale1/matrix-maximized-panel-closed-scale1-dark.png",
+      "sha256": "13522a5ad5dd65d2b9cd585ce28bd2da630b233b92745dabd76d5ce166ad95d9"
+    },
+    {
+      "file": "static-scale1/matrix-maximized-panel-track-scale1-light.png",
+      "sha256": "ce1237a7670cb4e8ea7dc581a49a799895d0067b67a32f3dbbc9dc2e568c7f32"
+    },
+    {
+      "file": "static-scale1/matrix-maximized-panel-track-scale1-dark.png",
+      "sha256": "2329ff134d2d68230cff7cefd76c676525bd8457b4a5b3f5fa340dc6733f15d1"
+    },
+    {
+      "file": "static-scale1/matrix-maximized-panel-queue-scale1-light.png",
+      "sha256": "d8f5b39b16da9037fc60acb0bb57b2a6644871404d807c7c207c7ff5b986fdc2"
+    },
+    {
+      "file": "static-scale1/matrix-maximized-panel-queue-scale1-dark.png",
+      "sha256": "31e2e5c10a3c85ee16e82b821ea5f681fd3b8395aff83e99d639e13a2e4f055f"
+    },
+    {
+      "file": "static-scale1/surface-home-compact-scale1-light.png",
+      "sha256": "bc0e49dc336d53f02c9f827892f8c93403b572b3617d47d8bcc800854b0c8115"
+    },
+    {
+      "file": "static-scale1/surface-home-compact-scale1-dark.png",
+      "sha256": "42c8cb005b9956941c9e8e0f8d2f9a3e73902d40ad0105c86d2721b273abc7d9"
+    },
+    {
+      "file": "static-scale1/surface-home-reference-scale1-light.png",
+      "sha256": "3e779d16ce481bbde364ceed865f93e394e3e9c89d9fd5295f9b9592f6450957"
+    },
+    {
+      "file": "static-scale1/surface-home-reference-scale1-dark.png",
+      "sha256": "9fe80fd9087fc6507af3bf78c538333841fac67c1b01516661dd36fa391dc45d"
+    },
+    {
+      "file": "static-scale1/surface-home-wide-scale1-light.png",
+      "sha256": "0fbea28bc66be8137d1df3884398c10b26e35811a72c9af4e1681539c29fdaf2"
+    },
+    {
+      "file": "static-scale1/surface-home-wide-scale1-dark.png",
+      "sha256": "bbee3a0ba2101ba467084d4df022f481e35540e045da42b12eb585d86c7af991"
+    },
+    {
+      "file": "static-scale1/surface-liked-tab-scale1-light.png",
+      "sha256": "3e676173727c7a4e35d5e4b61abc541be3607d699e22218a496c9321f8dc2013"
+    },
+    {
+      "file": "static-scale1/surface-liked-tab-scale1-dark.png",
+      "sha256": "de9ed28c690dbea3dfa5e80cd283e4f2e4bf9c14d3d9f078272829052802369a"
+    },
+    {
+      "file": "static-scale1/surface-liked-filter-compact-scale1-light.png",
+      "sha256": "559199229cd88a074047b858a7bc424d3581d309637a60170a30a1972622c52a"
+    },
+    {
+      "file": "static-scale1/surface-liked-filter-compact-scale1-dark.png",
+      "sha256": "0c4cd6b46aa7f9bd2ec7532c6f4ef66c19cf3a140168edabfc8332f449e4f4f5"
+    },
+    {
+      "file": "static-scale1/surface-liked-filter-reference-scale1-light.png",
+      "sha256": "7c45666918685886447c84d8377f8b2940d51bb6cc6a0614647dd94da3c33e93"
+    },
+    {
+      "file": "static-scale1/surface-liked-filter-reference-scale1-dark.png",
+      "sha256": "ba78c511ed244c6a3625d94ea8bc92192d924cbf14c647366316509aeac1aa1d"
+    },
+    {
+      "file": "static-scale1/surface-liked-filter-wide-scale1-light.png",
+      "sha256": "3fe9b4e22fadc9307e91c359f439e17c987d9bc7429819a43f45e6ad02963d26"
+    },
+    {
+      "file": "static-scale1/surface-liked-filter-wide-scale1-dark.png",
+      "sha256": "88f7cd93c91b0949dc2e4dd323f8106c1ab44f315a04382b04625c83c4d3a222"
+    },
+    {
+      "file": "static-scale1/surface-liked-filter-empty-scale1-light.png",
+      "sha256": "02736e884140516a59f433ea36728d056d9e556334ef1369f3e7e9d36a17ab38"
+    },
+    {
+      "file": "static-scale1/surface-liked-filter-empty-scale1-dark.png",
+      "sha256": "c82e6552777f22d1bafb18606ca4c521732c49064e381956970f1dce34cc350e"
+    },
+    {
+      "file": "static-scale1/surface-playlists-tab-compact-scale1-light.png",
+      "sha256": "bbe21224dd5feaa4c1a5901bdbd2af623134c20ceab4aee34a4481773db524ea"
+    },
+    {
+      "file": "static-scale1/surface-playlists-tab-compact-scale1-dark.png",
+      "sha256": "a8edd7717dad01f7cdef69ef52425a8452d9006e1577db0e5f2e9fd55d363694"
+    },
+    {
+      "file": "static-scale1/surface-playlists-tab-reference-scale1-light.png",
+      "sha256": "0511ac11848d635cc826cbe772420373166cf57ccd142a91282b4e9d3f30a443"
+    },
+    {
+      "file": "static-scale1/surface-playlists-tab-reference-scale1-dark.png",
+      "sha256": "36b2fa915d00be814262349076042da2eba3b04013c5ecce5e2aedc44a17c387"
+    },
+    {
+      "file": "static-scale1/surface-playlists-tab-wide-scale1-light.png",
+      "sha256": "27012b0c5bd61f7e9006b14d8b2262e308c086674b8206876aeedf3979884812"
+    },
+    {
+      "file": "static-scale1/surface-playlists-tab-wide-scale1-dark.png",
+      "sha256": "bd7cffeea80a7eefcafb73404a18d1dcf3da8b630bef62cfe23ec941e03f2c5d"
+    },
+    {
+      "file": "static-scale1/surface-playlist-scale1-light.png",
+      "sha256": "74ec02be6f14e959057cb2ffdcf29c083c3589ca3e33b74d2319e674a34a48fd"
+    },
+    {
+      "file": "static-scale1/surface-playlist-scale1-dark.png",
+      "sha256": "98fcc90ac5924bfb62f3405a461c15a08791183f7eeb5fe5e5e92f70168c0feb"
+    },
+    {
+      "file": "static-scale1/surface-playlist-filter-compact-scale1-light.png",
+      "sha256": "d2b51f18a5609d0422e9b3cf700f82d499f4592f3842d1c7a247b9cdaea4f49b"
+    },
+    {
+      "file": "static-scale1/surface-playlist-filter-compact-scale1-dark.png",
+      "sha256": "1ec27736af1b938c3613134b38cc5e8a20f6581e6fbe9c708768a646181121cb"
+    },
+    {
+      "file": "static-scale1/surface-playlist-filter-reference-scale1-light.png",
+      "sha256": "936505a159efd1e6237bf2acae6da65f6d1a4338d3e1dd45d4f58fbf971b38d3"
+    },
+    {
+      "file": "static-scale1/surface-playlist-filter-reference-scale1-dark.png",
+      "sha256": "8eb56c9a22ab8ca6434b06ddc7aea7001f7ce33415918af7520a2a9b7f58e60b"
+    },
+    {
+      "file": "static-scale1/surface-playlist-filter-wide-scale1-light.png",
+      "sha256": "54bc570ab47f18415e098d3ebcd7f7357577aab3c258ae7ec1f0c38011feb871"
+    },
+    {
+      "file": "static-scale1/surface-playlist-filter-wide-scale1-dark.png",
+      "sha256": "f5ad07903d8f4b5d7fdf211759bd532a52f2ffe39f580a40894a474c579307e7"
+    },
+    {
+      "file": "static-scale1/surface-album-scale1-light.png",
+      "sha256": "9ce8d84738841231a84d361ea9fa5e4463be66285d1ec32ccb25c730711c1e4b"
+    },
+    {
+      "file": "static-scale1/surface-album-scale1-dark.png",
+      "sha256": "051604f64227e174ae731d19e717937f38b6b06d3e70c07a4379e7a295eaca48"
+    },
+    {
+      "file": "static-scale1/surface-unified-search-scale1-light.png",
+      "sha256": "d649e6c003003772cca9e6ff067e77a34417d29f0ab701f49fe8512afb80e3c9"
+    },
+    {
+      "file": "static-scale1/surface-unified-search-scale1-dark.png",
+      "sha256": "6da037b0781901ec1543ebbb413babf731a4c18b0aa2a29df21b5582892757a6"
+    },
+    {
+      "file": "static-scale1/surface-queue-scale1-light.png",
+      "sha256": "6ea8ae790b3e2232e58d4d6737d700f1f46e9eb241b3c81f0b2be6ece36f3081"
+    },
+    {
+      "file": "static-scale1/surface-queue-scale1-dark.png",
+      "sha256": "9398c91a8343ebb1b1f29add870f535fac4cc1c2a77af707bae106df37770fd4"
+    },
+    {
+      "file": "static-scale1/surface-track-info-scale1-light.png",
+      "sha256": "25f24cc4060230db4d21ef625bdc05b959f427865ee7633d6d47d485e727805c"
+    },
+    {
+      "file": "static-scale1/surface-track-info-scale1-dark.png",
+      "sha256": "771b731b8e59d4f8bf33b7073a3aefcf39916ce629bb77ff99b9c7d277f57db6"
+    },
+    {
+      "file": "static-scale1/surface-preferences-scale1-light.png",
+      "sha256": "c86845ce2e0b55687e81c8f6b874e8244101fc4a40fa35bd7f2f88f8e0f66b27"
+    },
+    {
+      "file": "static-scale1/surface-preferences-scale1-dark.png",
+      "sha256": "82b36917158c84d88fdc8b112a2e832eca050b0e6ae687057da0dffae6408fe4"
+    },
+    {
+      "file": "static-scale1/surface-search-error-retry-scale1-light.png",
+      "sha256": "75937709be43fb90fc430c0225171b2f2ad2cc72ac9ac8645701fae6c8acb454"
+    },
+    {
+      "file": "static-scale1/surface-search-error-retry-scale1-dark.png",
+      "sha256": "f56122928a6f7d719620b053da2cf45e039580771914fa813ed5f57131116fc6"
+    },
+    {
+      "file": "static-scale1/surface-keyboard-focus-scale1-light.png",
+      "sha256": "4793005c2a8eb9e43ea855b5c1726bef56205bd6c1f7b962bb5e62a77108ad11"
+    },
+    {
+      "file": "static-scale1/surface-keyboard-focus-scale1-dark.png",
+      "sha256": "56f0466e86f8d72e2052326f4f4ca77a9c24df672f19a91c1b235faf83bf0d2b"
+    },
+    {
+      "file": "static-scale1/surface-search-empty-scale1-light.png",
+      "sha256": "369ca49e615c123c2a47da129fb76416ae014f79f83afa32e0a967503f014393"
+    },
+    {
+      "file": "static-scale1/surface-search-empty-scale1-dark.png",
+      "sha256": "b5f16e5897e347db55c332d1ace22efd41d450b335fcbf7a2a997fcc785c3b35"
+    },
+    {
+      "file": "static-scale1/surface-search-loading-scale1-light.png",
+      "sha256": "c7eee9f8cc869e3a5d0f6fb498d7c4f53b21598e80751d42d7e4e1d4ee40fd43"
+    },
+    {
+      "file": "static-scale1/surface-search-loading-scale1-dark.png",
+      "sha256": "44546a54856b1ea970d2c69b121b1e84a8907322380b10868da6a25b9b9ef3b5"
+    },
+    {
+      "file": "static-scale1/surface-player-shuffle-repeat-queue-scale1-light.png",
+      "sha256": "7def6e0a9482ad2592ce35c59357b516fbf3fd9f2e0f270a114b358178576d4b"
+    },
+    {
+      "file": "static-scale1/surface-player-shuffle-repeat-queue-scale1-dark.png",
+      "sha256": "017a8c77633db006ed064c00b847b96a19ae5d60c44dbc63e19f756f7463d746"
+    },
+    {
+      "file": "static-scale1/surface-player-shuffle-repeat-one-scale1-light.png",
+      "sha256": "def6a41eee8e85f6aad872cdb0567bea1929fc4a4649d67a2f983532572e297b"
+    },
+    {
+      "file": "static-scale1/surface-player-shuffle-repeat-one-scale1-dark.png",
+      "sha256": "b0c7a9365ea1798bba15f733f91cd886aa3e45b94fdbe08a0aa8f8361b69cfc9"
+    },
+    {
+      "file": "static-scale1/surface-long-metadata-missing-art-unavailable-partial-scale1-light.png",
+      "sha256": "a85d70df1d57568b6f82c26a21ba17c0d1744c6783262dcadf3c418d7c9067a5"
+    },
+    {
+      "file": "static-scale1/surface-long-metadata-missing-art-unavailable-partial-scale1-dark.png",
+      "sha256": "76e21676d1a2eb1eb51081c12cc7affdad210e48ef0e363cda110d56040dc845"
+    },
+    {
+      "file": "static-scale1/surface-long-metadata-information-scale1-light.png",
+      "sha256": "7af6346ab69c05cf1d32596ed948c9951313378bc3c4d5a1e4e9dc9fa9856b8f"
+    },
+    {
+      "file": "static-scale1/surface-long-metadata-information-scale1-dark.png",
+      "sha256": "de22851d5053ddbd0846b965eebf8b5cbc6e3c1dab21c729df20834c4eea8825"
+    },
+    {
+      "file": "static-scale1/surface-long-metadata-compact-information-scale1-light.png",
+      "sha256": "9a242e2e105b02461c42b279950930acd4e2bb649691c1e20b4594d2ea5e0860"
+    },
+    {
+      "file": "static-scale1/surface-long-metadata-compact-information-scale1-dark.png",
+      "sha256": "c0e9cfedc8b733edfe13736ea7763bf9e97868e4227761726dedffa3781901e7"
+    },
+    {
+      "file": "static-scale1/surface-empty-library-scale1-light.png",
+      "sha256": "3e247994caf70ed23e651f7e8c644eb6be7819343ff2e4acc37a507770dcbe72"
+    },
+    {
+      "file": "static-scale1/surface-empty-library-scale1-dark.png",
+      "sha256": "b84cb6338f6e7d8e7a291646de5493c9dab23c43eede97f72bf95ab7f4b09ff2"
+    },
+    {
+      "file": "static-scale1/surface-playlists-few-owned-scale1-light.png",
+      "sha256": "366629c3d8d8be38ed53cea2f58b0ea82b090852c9cd7a8f38727569bec5da5d"
+    },
+    {
+      "file": "static-scale1/surface-playlists-few-owned-scale1-dark.png",
+      "sha256": "e802a5599fdd1b95e27f154f7c2562a4381511de64357825f30d677a5b622758"
+    },
+    {
+      "file": "static-scale1/surface-playlists-large-collection-scale1-light.png",
+      "sha256": "cb42a8e628d51a4f058db448f0ef439d94dd944f6bcc5801b5ba19e234754565"
+    },
+    {
+      "file": "static-scale1/surface-playlists-large-collection-scale1-dark.png",
+      "sha256": "c3656ab8791123f872f1ff4a9592f480f62adb245e5ebcf3046f6ea30f139894"
+    },
+    {
+      "file": "static-scale1/surface-playlists-empty-owned-scale1-light.png",
+      "sha256": "ebbac187c791badbfab3454a71b4a19c4a5706dd9a42a27102a6b9806d6c4df7"
+    },
+    {
+      "file": "static-scale1/surface-playlists-empty-owned-scale1-dark.png",
+      "sha256": "b861c7eed769ed7fb72855273fcd7377d4a0b4cd653177fab1a080a4920a132c"
+    },
+    {
+      "file": "static-scale1/surface-player-hidden-after-stop-scale1-light.png",
+      "sha256": "afd40e952b906fbf3c3374aed3fccd0650f41abadd5b311180803c01f63624a0"
+    },
+    {
+      "file": "static-scale1/surface-player-hidden-after-stop-scale1-dark.png",
+      "sha256": "4e99e209c933c42c9ea590ab856b1201a0ccf5395f045a9518e5ed53f311f6eb"
+    },
+    {
+      "file": "static-scale1/footer-first-start-frame006-scale1.png",
+      "sha256": "c872fbccacd2e62a4f42ccff34ff39ab71267eeb45db3322b0d28a01ed1d0751"
+    },
+    {
+      "file": "static-scale1/footer-first-start-frame004-scale1.png",
+      "sha256": "f7e898a57192f00e40a69e955458ee1fd01cba5665d5ff6f06e48b610e857932"
+    },
+    {
+      "file": "static-scale1/footer-first-start-frame000-scale1.png",
+      "sha256": "43e7b50e35b2daedb4fe5effe7cf34d456f477cf1defd5d88bcca5d9dc065a50"
+    },
+    {
+      "file": "static-scale1/footer-explicit-stop-frame017-scale1.png",
+      "sha256": "03d25a7f92fcfafd3b84f6f887e94fbdd9a52cf0f75690e078c7cdc1e0e80794"
+    },
+    {
+      "file": "static-scale1/footer-explicit-stop-frame004-scale1.png",
+      "sha256": "f5aca5363212e0573176991baef1bd955bd710e21e0f4c773a254010e25eabf7"
+    },
+    {
+      "file": "static-scale1/footer-explicit-stop-frame002-scale1.png",
+      "sha256": "2cd9baa7893638657e5e0338e7487c44698b4b7b1d39255cad93f5792a5e9bde"
+    },
+    {
+      "file": "static-scale1/footer-explicit-stop-frame006-scale1.png",
+      "sha256": "e6a9b171eeb695d7039c9deb675a85ca1ad2469e4baebcbe9dfaebb97f75a035"
+    },
+    {
+      "file": "static-scale1/footer-explicit-stop-frame000-scale1.png",
+      "sha256": "f5a993640248254dcdebbaee90a9918379d8c9274bf7f2fcc7c8d5f56804cc2d"
+    },
+    {
+      "file": "motion-scale1/animation-wide-light-track-opening-000-scale1.png",
+      "sha256": "61b7a5d8307a1d13af037632a7e53ed28f8473f7521d77b9dcca34f4f0973b29",
+      "frame_time": 47677869229,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale1/animation-wide-light-track-opening-025-scale1.png",
+      "sha256": "2b7606f3beae7b4574226c4ee1f5f0e063da7fcfac9aab9e75031c7dccc5042e",
+      "frame_time": 47677935897,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale1/animation-wide-light-track-opening-050-scale1.png",
+      "sha256": "b4cc026dfec959163d120cab3f39459cdf958e4a2add5685e904d629a4c8dadf",
+      "frame_time": 47677969231,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale1/animation-wide-light-track-opening-075-scale1.png",
+      "sha256": "970d7d23a3ca5a9d9aae295624394888dcb15dcbfa72879a7181d18c99c2bb06",
+      "frame_time": 47678002565,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale1/animation-wide-light-track-opening-100-scale1.png",
+      "sha256": "74e89225386b110b3eee83d47569126efbc9e431e9b9a7d0e9e7307a88c0dfbc",
+      "frame_time": 47678169235,
+      "native_frame_index": 15
+    },
+    {
+      "file": "motion-scale1/animation-wide-light-track-closing-000-scale1.png",
+      "sha256": "372c487a9d341c1a48b060f5bb4a385fea972879a9514338d83103ac8c41f08b",
+      "frame_time": 47679119254,
+      "native_frame_index": 15
+    },
+    {
+      "file": "motion-scale1/animation-wide-light-track-closing-025-scale1.png",
+      "sha256": "7c878b3518fbe9ddfd1d1775817e801c43c4a5cc7578ea48c50f72f49e2ceb21",
+      "frame_time": 47678952584,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale1/animation-wide-light-track-closing-050-scale1.png",
+      "sha256": "0cb61dfee8ec685ecfe56210388e5eb7fb9046310d7a6f36a18205c42bdd47dd",
+      "frame_time": 47678919250,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale1/animation-wide-light-track-closing-075-scale1.png",
+      "sha256": "3b28d91dd36e4721d0c35b4662a136cdc0c57089a2e954cdacef5e7b93468ffd",
+      "frame_time": 47678885916,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale1/animation-wide-light-track-closing-100-scale1.png",
+      "sha256": "a6519c5b9d6fe2a795940bf25adb709889a3ecd9ba4d340cf257b12aee92c37e",
+      "frame_time": 47678819248,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale1/animation-wide-light-queue-opening-000-scale1.png",
+      "sha256": "372c487a9d341c1a48b060f5bb4a385fea972879a9514338d83103ac8c41f08b",
+      "frame_time": 47680119274,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale1/animation-wide-light-queue-opening-025-scale1.png",
+      "sha256": "e7ba7087f0b770edcdeb0de3670d94c0c65699ecbb0c03b59f4d5fd5d89d58b3",
+      "frame_time": 47680185942,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale1/animation-wide-light-queue-opening-050-scale1.png",
+      "sha256": "fe3df8f2a6e28db6c1dcaf1316b52c0ba93798e8329bffa6d892159f9038b865",
+      "frame_time": 47680219276,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale1/animation-wide-light-queue-opening-075-scale1.png",
+      "sha256": "64a86c188b21f4d8be0ae73afc9590a1c7619ca96d39220aa16682f1ccacb918",
+      "frame_time": 47680252610,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale1/animation-wide-light-queue-opening-100-scale1.png",
+      "sha256": "0fad4e8c0d1ed3ff0febab56d7df32071fa930809de40de7e66d648c4a7c2a70",
+      "frame_time": 47680419280,
+      "native_frame_index": 15
+    },
+    {
+      "file": "motion-scale1/animation-wide-light-queue-closing-000-scale1.png",
+      "sha256": "372c487a9d341c1a48b060f5bb4a385fea972879a9514338d83103ac8c41f08b",
+      "frame_time": 47681085960,
+      "native_frame_index": 15
+    },
+    {
+      "file": "motion-scale1/animation-wide-light-queue-closing-025-scale1.png",
+      "sha256": "29125172981e3e170351c410b2a7b647a2dd03cdbd22be2de14230019bee3d5b",
+      "frame_time": 47680919290,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale1/animation-wide-light-queue-closing-050-scale1.png",
+      "sha256": "306968a4942c0cc512afafc58464bcbf82d8d57d3fac3d4a7763619e1e27308f",
+      "frame_time": 47680885956,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale1/animation-wide-light-queue-closing-075-scale1.png",
+      "sha256": "ecf6c6e20c2e58d95340d5b412afad82da5a835ec22ecb5731a2b5a27d242ef2",
+      "frame_time": 47680852622,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale1/animation-wide-light-queue-closing-100-scale1.png",
+      "sha256": "0fad4e8c0d1ed3ff0febab56d7df32071fa930809de40de7e66d648c4a7c2a70",
+      "frame_time": 47680785954,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale1/animation-medium-light-track-opening-000-scale1.png",
+      "sha256": "d82d13dca7b9048d20d6d820c4fd177ee4dca1e6ecbd3f0abc5404262e146eea",
+      "frame_time": 47684036019,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale1/animation-medium-light-track-opening-025-scale1.png",
+      "sha256": "83e987d4793f2bdb0f5ef092add35af0fc2c5c28aace007aa81c20bd5b3516fa",
+      "frame_time": 47684102687,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale1/animation-medium-light-track-opening-050-scale1.png",
+      "sha256": "f96fbaf256f7dca64be7aae85c55e6e855c4143f2c26bf01df80b051959128d3",
+      "frame_time": 47684136021,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale1/animation-medium-light-track-opening-075-scale1.png",
+      "sha256": "beb5b5dbb04305d8834c43db3e79a3f9814721a1119b10d4ed2b3644855a9c09",
+      "frame_time": 47684169355,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale1/animation-medium-light-track-opening-100-scale1.png",
+      "sha256": "0137e7d8095d0acd52ee2525400c0f899316651ac8e1b5058402bf40fcb5d479",
+      "frame_time": 47684336025,
+      "native_frame_index": 15
+    },
+    {
+      "file": "motion-scale1/animation-medium-light-track-closing-000-scale1.png",
+      "sha256": "d82d13dca7b9048d20d6d820c4fd177ee4dca1e6ecbd3f0abc5404262e146eea",
+      "frame_time": 47684836035,
+      "native_frame_index": 15
+    },
+    {
+      "file": "motion-scale1/animation-medium-light-track-closing-025-scale1.png",
+      "sha256": "d544c8f4f763e25545d93fa27046f592d17af2de9694825df9054f65db65fb4a",
+      "frame_time": 47684669365,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale1/animation-medium-light-track-closing-050-scale1.png",
+      "sha256": "8449fd1d524ca91a2dea2f0287a5f0901b0a938daa4fadfb656309e9ce3a77ed",
+      "frame_time": 47684636031,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale1/animation-medium-light-track-closing-075-scale1.png",
+      "sha256": "d9521fb3f95068934c4531c2e284ad0ef647553ae5067d51432f4b1f0627583f",
+      "frame_time": 47684602697,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale1/animation-medium-light-track-closing-100-scale1.png",
+      "sha256": "0137e7d8095d0acd52ee2525400c0f899316651ac8e1b5058402bf40fcb5d479",
+      "frame_time": 47684552696,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale1/animation-medium-light-queue-opening-000-scale1.png",
+      "sha256": "d82d13dca7b9048d20d6d820c4fd177ee4dca1e6ecbd3f0abc5404262e146eea",
+      "frame_time": 47685669385,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale1/animation-medium-light-queue-opening-025-scale1.png",
+      "sha256": "09233a4e42c29184a38490581327c51cb4575a7baac0974f725e1cdab1c18b39",
+      "frame_time": 47685736053,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale1/animation-medium-light-queue-opening-050-scale1.png",
+      "sha256": "e6c439ae5740f3e59fa16e2c4f822b8e07b2762d16b10e030b7bc643d2dd2745",
+      "frame_time": 47685769387,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale1/animation-medium-light-queue-opening-075-scale1.png",
+      "sha256": "1cb97a90d3c66f44f629b29aeee7bddbf0404b639235aaa5d73a1c8b145052ff",
+      "frame_time": 47685802721,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale1/animation-medium-light-queue-opening-100-scale1.png",
+      "sha256": "5cbcde4f8ee7600c3bc85a212a08e3476e664dddf916cbfcbfdf4e5e17222eb0",
+      "frame_time": 47685969391,
+      "native_frame_index": 15
+    },
+    {
+      "file": "motion-scale1/animation-medium-light-queue-closing-000-scale1.png",
+      "sha256": "d82d13dca7b9048d20d6d820c4fd177ee4dca1e6ecbd3f0abc5404262e146eea",
+      "frame_time": 47686519402,
+      "native_frame_index": 15
+    },
+    {
+      "file": "motion-scale1/animation-medium-light-queue-closing-025-scale1.png",
+      "sha256": "6048c2cb9c7cf50b6e7343fecc1dfeeab8e34864675d71cc5d030b2fc35485c9",
+      "frame_time": 47686352732,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale1/animation-medium-light-queue-closing-050-scale1.png",
+      "sha256": "92856db8a145ac7f522a800157b87078d54639eee028d87b00186d723edf8d96",
+      "frame_time": 47686319398,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale1/animation-medium-light-queue-closing-075-scale1.png",
+      "sha256": "e39aa81b64f7ac88a920c5fa53a633b40e257df52069a2a1d7bacde102b909c3",
+      "frame_time": 47686286064,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale1/animation-medium-light-queue-closing-100-scale1.png",
+      "sha256": "5cbcde4f8ee7600c3bc85a212a08e3476e664dddf916cbfcbfdf4e5e17222eb0",
+      "frame_time": 47686236063,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale1/animation-compact-light-track-opening-000-scale1.png",
+      "sha256": "39ce53bfe1307509107286edcb8c12a7c394ac3f54abcff0ba08b67993d78c50",
+      "frame_time": 47689283528,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale1/animation-compact-light-track-opening-025-scale1.png",
+      "sha256": "4ceff86ef1048c924d1d95b3f89ab6dee382bbc51cc8e9a4aee1f3e6b90b1a86",
+      "frame_time": 47689350196,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale1/animation-compact-light-track-opening-050-scale1.png",
+      "sha256": "7d4acf7502a2b1bb823a8b9347f2f223b0311a4448a562f21b14f3ab23d5a9e6",
+      "frame_time": 47689383530,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale1/animation-compact-light-track-opening-075-scale1.png",
+      "sha256": "9e356771abe193cbd35807974157a761e4fbae5cd3c5ccdd203c1ec805e94d5c",
+      "frame_time": 47689416864,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale1/animation-compact-light-track-opening-100-scale1.png",
+      "sha256": "4c70a13d030f89d4f8de3a66f51d0ce0e6251c1cc6f02d793d4f7415c5b25030",
+      "frame_time": 47689583534,
+      "native_frame_index": 15
+    },
+    {
+      "file": "motion-scale1/animation-compact-light-track-closing-000-scale1.png",
+      "sha256": "39ce53bfe1307509107286edcb8c12a7c394ac3f54abcff0ba08b67993d78c50",
+      "frame_time": 47689983542,
+      "native_frame_index": 15
+    },
+    {
+      "file": "motion-scale1/animation-compact-light-track-closing-025-scale1.png",
+      "sha256": "59d0c4088131a04fa87334522e9f8a0cf943921f5a65d54a2a46e8e672e116ae",
+      "frame_time": 47689816872,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale1/animation-compact-light-track-closing-050-scale1.png",
+      "sha256": "66d00885baa00ad8d812ba52f2d25e63cfbcc0d8c2b5c6442b25151aade9cf2c",
+      "frame_time": 47689783538,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale1/animation-compact-light-track-closing-075-scale1.png",
+      "sha256": "a081974c9406f515f1d6b54f94edb409962d1bc93e91ab0865a1c6c552e531a9",
+      "frame_time": 47689750204,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale1/animation-compact-light-track-closing-100-scale1.png",
+      "sha256": "4c70a13d030f89d4f8de3a66f51d0ce0e6251c1cc6f02d793d4f7415c5b25030",
+      "frame_time": 47689700203,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale1/animation-compact-light-queue-opening-000-scale1.png",
+      "sha256": "e67f679cf52ca7dd9d9872a2fb26ccf3e77e08b738ae6957333645ca7c7ae107",
+      "frame_time": 47690750224,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale1/animation-compact-light-queue-opening-025-scale1.png",
+      "sha256": "2cefbd742035bdfaae1b7dc497e3dbbb3b04cbf5aab400715255c99fdc025c82",
+      "frame_time": 47690800225,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale1/animation-compact-light-queue-opening-050-scale1.png",
+      "sha256": "35b27fee42bf9e45dd747de167e6cfa2a41b21cdc71f50cb50ed4839334dcb8d",
+      "frame_time": 47690833559,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale1/animation-compact-light-queue-opening-075-scale1.png",
+      "sha256": "5e735340972460c40a402aec1c8db7f80c330869d4d936b38c3215ce329e8d4b",
+      "frame_time": 47690866893,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale1/animation-compact-light-queue-opening-100-scale1.png",
+      "sha256": "bd208bce5a830d9905fbfd8772bc6d9f2ee433fed13f814ec1f0dc79e199dea7",
+      "frame_time": 47691033563,
+      "native_frame_index": 15
+    },
+    {
+      "file": "motion-scale1/animation-compact-light-queue-closing-000-scale1.png",
+      "sha256": "e67f679cf52ca7dd9d9872a2fb26ccf3e77e08b738ae6957333645ca7c7ae107",
+      "frame_time": 47691433571,
+      "native_frame_index": 15
+    },
+    {
+      "file": "motion-scale1/animation-compact-light-queue-closing-025-scale1.png",
+      "sha256": "01694a5b200662a60f9975f784160f6311ef7c2399a61c214c70a1dd78be90b2",
+      "frame_time": 47691266901,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale1/animation-compact-light-queue-closing-050-scale1.png",
+      "sha256": "23edaa811775d2ad669209bf90a046467731f6212a5845b0f5c5ab526a5f13c5",
+      "frame_time": 47691233567,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale1/animation-compact-light-queue-closing-075-scale1.png",
+      "sha256": "c5f96bfbb35f4cca9db1b00605d79019bcd034587e1a0ef050fa048beae10f67",
+      "frame_time": 47691200233,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale1/animation-compact-light-queue-closing-100-scale1.png",
+      "sha256": "bd208bce5a830d9905fbfd8772bc6d9f2ee433fed13f814ec1f0dc79e199dea7",
+      "frame_time": 47691150232,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale1/animation-wide-dark-track-opening-000-scale1.png",
+      "sha256": "b3c6eb04d846a7a1d28ad170b2d961122491dca3d7f38eed5aa397912e671be5",
+      "frame_time": 47694182789,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale1/animation-wide-dark-track-opening-025-scale1.png",
+      "sha256": "fbabccbcb9bbb3372b3f64bb981250837b4543dc1f45e06cbdfac9e531a5395d",
+      "frame_time": 47694249457,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale1/animation-wide-dark-track-opening-050-scale1.png",
+      "sha256": "a2210d7c00a2f0f394c569a4fcd52da6dc5722137af317dbaff3b5f2d5789017",
+      "frame_time": 47694282791,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale1/animation-wide-dark-track-opening-075-scale1.png",
+      "sha256": "e66a2ed0aa0cf2b95ccff29f36f28414b860f02538754f10f5549e83479ddeaa",
+      "frame_time": 47694316125,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale1/animation-wide-dark-track-opening-100-scale1.png",
+      "sha256": "8ee37605b9f722b55684b7195465ffc6b6b5c2fb81492231149921bbc9010f1a",
+      "frame_time": 47694482795,
+      "native_frame_index": 15
+    },
+    {
+      "file": "motion-scale1/animation-wide-dark-track-closing-000-scale1.png",
+      "sha256": "b3c6eb04d846a7a1d28ad170b2d961122491dca3d7f38eed5aa397912e671be5",
+      "frame_time": 47695149475,
+      "native_frame_index": 15
+    },
+    {
+      "file": "motion-scale1/animation-wide-dark-track-closing-025-scale1.png",
+      "sha256": "6865edf0a0f5ad08a5e284ab3964798a9eb3a94fec7bfecb85fe3775607ef236",
+      "frame_time": 47694982805,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale1/animation-wide-dark-track-closing-050-scale1.png",
+      "sha256": "00ee9ee7a39f68ca09df300b49ba56b1f2cc511dce0f80a2a91b2d00a40e8231",
+      "frame_time": 47694949471,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale1/animation-wide-dark-track-closing-075-scale1.png",
+      "sha256": "71f7f569f2aa2c419dbfba14029b28a959461e9082d4c0c291f937ffc6522c18",
+      "frame_time": 47694916137,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale1/animation-wide-dark-track-closing-100-scale1.png",
+      "sha256": "8ee37605b9f722b55684b7195465ffc6b6b5c2fb81492231149921bbc9010f1a",
+      "frame_time": 47694866136,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale1/animation-wide-dark-queue-opening-000-scale1.png",
+      "sha256": "b3c6eb04d846a7a1d28ad170b2d961122491dca3d7f38eed5aa397912e671be5",
+      "frame_time": 47696149495,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale1/animation-wide-dark-queue-opening-025-scale1.png",
+      "sha256": "d7701d2e5fa24a69a8e8e73a83abd0389a051296c5661acf412a9b2f685e1031",
+      "frame_time": 47696216163,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale1/animation-wide-dark-queue-opening-050-scale1.png",
+      "sha256": "4d1b6beafa7a1574b8515d6384fb2cc07a1ea30be22d82da0196c7593d7446f5",
+      "frame_time": 47696249497,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale1/animation-wide-dark-queue-opening-075-scale1.png",
+      "sha256": "4ceb768f7d17a8cd35b2241aab5d5970989b7a54e92551bbb60ad392b123f5fe",
+      "frame_time": 47696282831,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale1/animation-wide-dark-queue-opening-100-scale1.png",
+      "sha256": "fca010c97412af0b9e87289d13951d1b1c92ac3335c38fdc767e2647941745ab",
+      "frame_time": 47696449501,
+      "native_frame_index": 15
+    },
+    {
+      "file": "motion-scale1/animation-wide-dark-queue-closing-000-scale1.png",
+      "sha256": "b3c6eb04d846a7a1d28ad170b2d961122491dca3d7f38eed5aa397912e671be5",
+      "frame_time": 47697116181,
+      "native_frame_index": 15
+    },
+    {
+      "file": "motion-scale1/animation-wide-dark-queue-closing-025-scale1.png",
+      "sha256": "918c93968bdf902cf0c1d16857e087a6d850c334a231e20cc5eea51a7cecca55",
+      "frame_time": 47696949511,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale1/animation-wide-dark-queue-closing-050-scale1.png",
+      "sha256": "480dfcc84054a24e06233b3d8bdd3cde2e3a6218179d5af4b154853736938240",
+      "frame_time": 47696916177,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale1/animation-wide-dark-queue-closing-075-scale1.png",
+      "sha256": "11f12b0d245eba32b7123c1c9a5bd5d811ba507005860c20529af5f5f30b2054",
+      "frame_time": 47696882843,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale1/animation-wide-dark-queue-closing-100-scale1.png",
+      "sha256": "fca010c97412af0b9e87289d13951d1b1c92ac3335c38fdc767e2647941745ab",
+      "frame_time": 47696816175,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale1/animation-medium-dark-track-opening-000-scale1.png",
+      "sha256": "220b7541b9535cfbfa75e3e2ddfb478cf087449b7a70d46fb90ff4d1856f2436",
+      "frame_time": 47700032875,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale1/animation-medium-dark-track-opening-025-scale1.png",
+      "sha256": "85118560d0aedfe6babcc1c2b00ae5ff3faabd42486ecae20db541393acdfaba",
+      "frame_time": 47700099543,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale1/animation-medium-dark-track-opening-050-scale1.png",
+      "sha256": "f530231ca63df51dadefec034177288448117ed410d82e18f71485662372c908",
+      "frame_time": 47700132877,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale1/animation-medium-dark-track-opening-075-scale1.png",
+      "sha256": "c05fee5724d1772c80a15036852e7805aad1b3ea6da777c1a9763fe7c064b349",
+      "frame_time": 47700166211,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale1/animation-medium-dark-track-opening-100-scale1.png",
+      "sha256": "0a0a9b458a48c6f2b1b15e34774334d0ed074a8b7b131cd0f608476c84e69676",
+      "frame_time": 47700332881,
+      "native_frame_index": 15
+    },
+    {
+      "file": "motion-scale1/animation-medium-dark-track-closing-000-scale1.png",
+      "sha256": "220b7541b9535cfbfa75e3e2ddfb478cf087449b7a70d46fb90ff4d1856f2436",
+      "frame_time": 47700816224,
+      "native_frame_index": 15
+    },
+    {
+      "file": "motion-scale1/animation-medium-dark-track-closing-025-scale1.png",
+      "sha256": "ba17b880ac4d54db8dee35cd52f5d755095ad60379b8ae425d4c0085f34caed6",
+      "frame_time": 47700649554,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale1/animation-medium-dark-track-closing-050-scale1.png",
+      "sha256": "c2499997d7654330f37a058eb26b3da2970eeff6e184640399eee11bfdf57fe9",
+      "frame_time": 47700616220,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale1/animation-medium-dark-track-closing-075-scale1.png",
+      "sha256": "5e63c8caa7955af1f71ce91de03a394eebc82a364a83306facb626ac827cd49b",
+      "frame_time": 47700582886,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale1/animation-medium-dark-track-closing-100-scale1.png",
+      "sha256": "0a0a9b458a48c6f2b1b15e34774334d0ed074a8b7b131cd0f608476c84e69676",
+      "frame_time": 47700532885,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale1/animation-medium-dark-queue-opening-000-scale1.png",
+      "sha256": "220b7541b9535cfbfa75e3e2ddfb478cf087449b7a70d46fb90ff4d1856f2436",
+      "frame_time": 47701716242,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale1/animation-medium-dark-queue-opening-025-scale1.png",
+      "sha256": "9a240c78b46b683d9f74ba3a4f4e2ecf83e1fd5861e920758aac00be4f355c81",
+      "frame_time": 47701766243,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale1/animation-medium-dark-queue-opening-050-scale1.png",
+      "sha256": "c67fc5949155093aea6d9406e08db7d65bfe2a00cca7097cc387e9e12b825751",
+      "frame_time": 47701799577,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale1/animation-medium-dark-queue-opening-075-scale1.png",
+      "sha256": "d2f5bf879dfceaa96a9f01e11b13edfac3f287862fd182a30cfdeb4234443b05",
+      "frame_time": 47701832911,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale1/animation-medium-dark-queue-opening-100-scale1.png",
+      "sha256": "b5593027da5977334ade12768cc04f59edbe30cea94dc28404d37fdfff3982d6",
+      "frame_time": 47701999581,
+      "native_frame_index": 15
+    },
+    {
+      "file": "motion-scale1/animation-medium-dark-queue-closing-000-scale1.png",
+      "sha256": "220b7541b9535cfbfa75e3e2ddfb478cf087449b7a70d46fb90ff4d1856f2436",
+      "frame_time": 47702499591,
+      "native_frame_index": 15
+    },
+    {
+      "file": "motion-scale1/animation-medium-dark-queue-closing-025-scale1.png",
+      "sha256": "7bc813c3ba195531fcdb2a42000e6bc15968c2b1ed3446226cd63d10cbc71547",
+      "frame_time": 47702332921,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale1/animation-medium-dark-queue-closing-050-scale1.png",
+      "sha256": "6e6ae4490883786f14a4f7a8780a97ffc9c2ab071977405f82fa32e624bd76e8",
+      "frame_time": 47702299587,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale1/animation-medium-dark-queue-closing-075-scale1.png",
+      "sha256": "c0a08df1e2e6713367a1c41d7dbd2d12a86c989f6637029d4bbbcec8754139c0",
+      "frame_time": 47702266253,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale1/animation-medium-dark-queue-closing-100-scale1.png",
+      "sha256": "b5593027da5977334ade12768cc04f59edbe30cea94dc28404d37fdfff3982d6",
+      "frame_time": 47702199585,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale1/animation-compact-dark-track-opening-000-scale1.png",
+      "sha256": "05b5f65ba36a044fea51f5e2631216787e3ff1e8e4ef8326e0be7f0d7b85e8e1",
+      "frame_time": 47705247671,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale1/animation-compact-dark-track-opening-025-scale1.png",
+      "sha256": "aa01bd978df23ffbbd91217f81d8e8c85f8d37fe2b47de3d9b978aac4385bdba",
+      "frame_time": 47705314339,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale1/animation-compact-dark-track-opening-050-scale1.png",
+      "sha256": "1d90c05532783e575a480f361a196b510dda07d09e30fc68e5efd88896722faa",
+      "frame_time": 47705347673,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale1/animation-compact-dark-track-opening-075-scale1.png",
+      "sha256": "1688f61d1541bd6a4b9a6641d445108a894c0807cde434d2c87aaee734641c76",
+      "frame_time": 47705381007,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale1/animation-compact-dark-track-opening-100-scale1.png",
+      "sha256": "7cf45369766aba9eb29d2e29cef81db7d8a6bad84b0564bb450d721fe6afaa0e",
+      "frame_time": 47705547677,
+      "native_frame_index": 15
+    },
+    {
+      "file": "motion-scale1/animation-compact-dark-track-closing-000-scale1.png",
+      "sha256": "05b5f65ba36a044fea51f5e2631216787e3ff1e8e4ef8326e0be7f0d7b85e8e1",
+      "frame_time": 47705964352,
+      "native_frame_index": 15
+    },
+    {
+      "file": "motion-scale1/animation-compact-dark-track-closing-025-scale1.png",
+      "sha256": "64303ecfef0cf247da9135b32164cef77587c3297d9b86a9894f0c7fb695b2d2",
+      "frame_time": 47705797682,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale1/animation-compact-dark-track-closing-050-scale1.png",
+      "sha256": "6726cb75e55ce98f8ccc878e67392dba57cb485131746663e59716a79fddc00b",
+      "frame_time": 47705764348,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale1/animation-compact-dark-track-closing-075-scale1.png",
+      "sha256": "260e19a97d695ffb09770b3f66adf951fba0bd59fbe599c41c2018b26055ffa7",
+      "frame_time": 47705731014,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale1/animation-compact-dark-track-closing-100-scale1.png",
+      "sha256": "7cf45369766aba9eb29d2e29cef81db7d8a6bad84b0564bb450d721fe6afaa0e",
+      "frame_time": 47705664346,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale1/animation-compact-dark-queue-opening-000-scale1.png",
+      "sha256": "05b5f65ba36a044fea51f5e2631216787e3ff1e8e4ef8326e0be7f0d7b85e8e1",
+      "frame_time": 47706731034,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale1/animation-compact-dark-queue-opening-025-scale1.png",
+      "sha256": "d22955f0973f30224ea8c9effdd2261b8c56aae0fd663d458834a00980450a5b",
+      "frame_time": 47706797702,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale1/animation-compact-dark-queue-opening-050-scale1.png",
+      "sha256": "926acdbc467eb60af1c76bb45f7decf6d68f26171d22ef7929dffc34e30fc226",
+      "frame_time": 47706831036,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale1/animation-compact-dark-queue-opening-075-scale1.png",
+      "sha256": "09f0a5a553c5c1b95417364a45817c8606cf7eaf2a4156b45e01ed1a681aa1eb",
+      "frame_time": 47706864370,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale1/animation-compact-dark-queue-opening-100-scale1.png",
+      "sha256": "4ba12a3c8f7b129484c70452f999ae6c2b2d4359883324f9dcdf611782534ca3",
+      "frame_time": 47707031040,
+      "native_frame_index": 15
+    },
+    {
+      "file": "motion-scale1/animation-compact-dark-queue-closing-000-scale1.png",
+      "sha256": "05b5f65ba36a044fea51f5e2631216787e3ff1e8e4ef8326e0be7f0d7b85e8e1",
+      "frame_time": 47707464382,
+      "native_frame_index": 15
+    },
+    {
+      "file": "motion-scale1/animation-compact-dark-queue-closing-025-scale1.png",
+      "sha256": "369afad622f3dd685a87f76e23c5cfbd3f5633eec5905392b2aad2d4c65ec2df",
+      "frame_time": 47707297712,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale1/animation-compact-dark-queue-closing-050-scale1.png",
+      "sha256": "331d4a1064a5bb53b2dde57218913c6f07094cd6a79545581dafce8426d8cd99",
+      "frame_time": 47707264378,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale1/animation-compact-dark-queue-closing-075-scale1.png",
+      "sha256": "dfdfcc85d444f1e819c9d5d7cef935ec75bc13cc63ebde555d4487c64ef2253b",
+      "frame_time": 47707231044,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale1/animation-compact-dark-queue-closing-100-scale1.png",
+      "sha256": "4ba12a3c8f7b129484c70452f999ae6c2b2d4359883324f9dcdf611782534ca3",
+      "frame_time": 47707164376,
+      "native_frame_index": 0
+    },
+    {
+      "file": "static-scale2/surface-player-hidden-compact-scale2-light.png",
+      "sha256": "853e399f3f8828aadc2c9937d895054341173a4cd10b4402509752ec0853ead3"
+    },
+    {
+      "file": "static-scale2/surface-player-hidden-compact-scale2-dark.png",
+      "sha256": "4fa6740e625689d24efd667079b4c879a4c073d8bb67c0db088de437ad2b7429"
+    },
+    {
+      "file": "static-scale2/surface-player-hidden-medium-scale2-light.png",
+      "sha256": "032168ca2fe65731a8fc4fe8d3c14ad687028a71d9b93bad1d12c3daf12b7662"
+    },
+    {
+      "file": "static-scale2/surface-player-hidden-medium-scale2-dark.png",
+      "sha256": "26399ee88cf37a9d9086deded1e6b1f5b1dadae3e62d5ec5e376459934321da7"
+    },
+    {
+      "file": "static-scale2/surface-player-hidden-wide-scale2-light.png",
+      "sha256": "0a490420d9232481ee9890770f780baf4664d00d3de9903b1cf9f18b82c300de"
+    },
+    {
+      "file": "static-scale2/surface-player-hidden-wide-scale2-dark.png",
+      "sha256": "cb01adb9cdddfcd526e77f2980d10aa6d578f9c23708e902ac0bfa3296c4cc44"
+    },
+    {
+      "file": "static-scale2/surface-player-visible-paused-scale2-light.png",
+      "sha256": "3007a49a600a5959f9a305e32f6b01f07c2beb06119308397b1fb33de9d3d281"
+    },
+    {
+      "file": "static-scale2/surface-player-visible-paused-scale2-dark.png",
+      "sha256": "d9bf60eae5ad58675073bd45a9333285cadf1f687d72ebaa3ff4f54989a45d0f"
+    },
+    {
+      "file": "static-scale2/matrix-compact-panel-closed-scale2-light.png",
+      "sha256": "64ee71ef718dff8cb14c1c903b73d8ec41748c6d3fea9a54ca289f4d39b40fcf"
+    },
+    {
+      "file": "static-scale2/matrix-compact-panel-closed-scale2-dark.png",
+      "sha256": "afd547ed048614db68ab23a786ab7ece3f4fca58b67390bd8443014b9e8b413a"
+    },
+    {
+      "file": "static-scale2/matrix-compact-panel-track-scale2-light.png",
+      "sha256": "95238495e32fcd6db981c772319058e1e64e8367ccedfedb4507afde38746391"
+    },
+    {
+      "file": "static-scale2/matrix-compact-panel-track-scale2-dark.png",
+      "sha256": "63f03f124c427ed611484cde093d6dc3e964d0b544ccfa0cfcd88981e09ef396"
+    },
+    {
+      "file": "static-scale2/matrix-compact-panel-queue-scale2-light.png",
+      "sha256": "f88e1a570043f5e949fd7fc8f17d8cf1f8cc503bd746d2e27f342b10ce382614"
+    },
+    {
+      "file": "static-scale2/matrix-compact-panel-queue-scale2-dark.png",
+      "sha256": "5e912ef820a0397461d416bc022c0fc18c56563bc352288aa4e5faf560b2f9cb"
+    },
+    {
+      "file": "static-scale2/matrix-narrow-panel-closed-scale2-light.png",
+      "sha256": "769194bed8b78d765f8a52f5d4f0b4e0938e2e7e806f8fe62a4f687199b11703"
+    },
+    {
+      "file": "static-scale2/matrix-narrow-panel-closed-scale2-dark.png",
+      "sha256": "ff1a5b472ac3ebe4729baaf55c27c70385bc3f99e2ddac6e7b0ed1ec9d6ebddf"
+    },
+    {
+      "file": "static-scale2/matrix-narrow-panel-track-scale2-light.png",
+      "sha256": "4bd3032ddad6dc354266d9f9e4b0f064b6f0b7f4a1ed3f8192437744aad1dc67"
+    },
+    {
+      "file": "static-scale2/matrix-narrow-panel-track-scale2-dark.png",
+      "sha256": "907f02087e2be385c211f5a2e62940730f5679af84854083d670081e080d06a8"
+    },
+    {
+      "file": "static-scale2/matrix-narrow-panel-queue-scale2-light.png",
+      "sha256": "6152bf2af4a04041b9a84337522e4e48eba39823f72fece69f3b05d58287e124"
+    },
+    {
+      "file": "static-scale2/matrix-narrow-panel-queue-scale2-dark.png",
+      "sha256": "ab677dbe0235a8c98cb350b97436c1175754744ba4b90704081b8f98a0ee261d"
+    },
+    {
+      "file": "static-scale2/matrix-reference-panel-closed-scale2-light.png",
+      "sha256": "ebbc3596d8b1e8c5895a7632805a5372858193661181ff6132e10c11efabca1f"
+    },
+    {
+      "file": "static-scale2/matrix-reference-panel-closed-scale2-dark.png",
+      "sha256": "f966b138c55d3033058397604a3c1e40c99be2ce1e5e2cb3c594f99b2338ec92"
+    },
+    {
+      "file": "static-scale2/matrix-reference-panel-track-scale2-light.png",
+      "sha256": "a4f45e4efb58bf170208312990714324da6b9eeac5a5ea2f591c04b5c09d127f"
+    },
+    {
+      "file": "static-scale2/matrix-reference-panel-track-scale2-dark.png",
+      "sha256": "67f46586f50398ce24a0ebcea0deb1739fe24db2081ced439844c2d8dad8d616"
+    },
+    {
+      "file": "static-scale2/matrix-reference-panel-queue-scale2-light.png",
+      "sha256": "b91ec60dafaaeed0f70bf1b6dccf5aecb6f0a5bae6adc84b79781195e7854a30"
+    },
+    {
+      "file": "static-scale2/matrix-reference-panel-queue-scale2-dark.png",
+      "sha256": "75a928e246991ff37fb90292225a42d64a511d51e777aa4df216598762d985e6"
+    },
+    {
+      "file": "static-scale2/matrix-medium-panel-closed-scale2-light.png",
+      "sha256": "7bcb1594c73799973297b385227f2d9bce586a344365339c56518e55f02b4ce6"
+    },
+    {
+      "file": "static-scale2/matrix-medium-panel-closed-scale2-dark.png",
+      "sha256": "9153fceb5168f94b4ea65131588b27c048080e199ad23fb161d91f84ca30a09d"
+    },
+    {
+      "file": "static-scale2/matrix-medium-panel-track-scale2-light.png",
+      "sha256": "9f734819af02963b54a0d0d1735695ae058f9be273f0b899c8e2b61e094bc66d"
+    },
+    {
+      "file": "static-scale2/matrix-medium-panel-track-scale2-dark.png",
+      "sha256": "a9a7e5e8e6e633504bc8f062a5d131def1d06d9eb454e2da0e282eade48a436f"
+    },
+    {
+      "file": "static-scale2/matrix-medium-panel-queue-scale2-light.png",
+      "sha256": "78a765cce4f8a730a145ecbe4e5fefdaeefd74f090974d8a557763ff7f456fb8"
+    },
+    {
+      "file": "static-scale2/matrix-medium-panel-queue-scale2-dark.png",
+      "sha256": "a48e9e48f3c4113ae7e93d0a7b6fc0874c4bb3274035a9c4c7f6656224b1d1d6"
+    },
+    {
+      "file": "static-scale2/matrix-desktop-panel-closed-scale2-light.png",
+      "sha256": "aeb607937983462315975f225f8c93843d549ec4e7063fe745487374df2ab7b0"
+    },
+    {
+      "file": "static-scale2/matrix-desktop-panel-closed-scale2-dark.png",
+      "sha256": "19f56b3e828fe57176e677081bdca8bfa0ac63b5e0d1c52de461df40865a6e41"
+    },
+    {
+      "file": "static-scale2/matrix-desktop-panel-track-scale2-light.png",
+      "sha256": "09c3d8ac6b653176c32f592a7d5745202d4af79cc63fb42a0cd8a8a6449ee690"
+    },
+    {
+      "file": "static-scale2/matrix-desktop-panel-track-scale2-dark.png",
+      "sha256": "fcb62a608fc0ff13f8f3f609937111fa2932003cf9f8eaebf3e431771294c669"
+    },
+    {
+      "file": "static-scale2/matrix-desktop-panel-queue-scale2-light.png",
+      "sha256": "212ee064d56c29e711e5a9785a5b52a7f0c6fcbdbed82f121d724c22b8a3e581"
+    },
+    {
+      "file": "static-scale2/matrix-desktop-panel-queue-scale2-dark.png",
+      "sha256": "91fb4d930371509bd727f5f6af6db09ab89ac1e726c0db341dc84f8bca5bd02c"
+    },
+    {
+      "file": "static-scale2/matrix-wide-panel-closed-scale2-light.png",
+      "sha256": "386dc2fefb88223d1b90201aecb99ec03d856aca1a6baf31f38d7e308a295b65"
+    },
+    {
+      "file": "static-scale2/matrix-wide-panel-closed-scale2-dark.png",
+      "sha256": "454abf609c4fa2984454159fdf296c4c325a24ec22a1d4811d924e06ce3cc071"
+    },
+    {
+      "file": "static-scale2/matrix-wide-panel-track-scale2-light.png",
+      "sha256": "e6ec34dc810faa3157d317fb50191f4ce2832572823c87f266fddf7d561e6ad9"
+    },
+    {
+      "file": "static-scale2/matrix-wide-panel-track-scale2-dark.png",
+      "sha256": "3fe1a37507af5c3186f8a53a503b943d43e36598444c379b5ab8d27db3a51c33"
+    },
+    {
+      "file": "static-scale2/matrix-wide-panel-queue-scale2-light.png",
+      "sha256": "ea0ba783288c3e71aa82486d671a35dbb918eaac75913ce26a5cd93043eac854"
+    },
+    {
+      "file": "static-scale2/matrix-wide-panel-queue-scale2-dark.png",
+      "sha256": "325c360e7f9cefcfe43eed9336d2b3522e02419dd037f36eb4b7f1d348dd5b3e"
+    },
+    {
+      "file": "static-scale2/matrix-owner-wide-panel-closed-scale2-light.png",
+      "sha256": "bbb70554f7b837cd9d47ea902ac181822ea9e6f55d5419a331e6d9f2eb87f7a3"
+    },
+    {
+      "file": "static-scale2/matrix-owner-wide-panel-closed-scale2-dark.png",
+      "sha256": "fd1fa0f3416c6f2303f6215fdb5391140e36da0157d41746cba60ea6a10abe99"
+    },
+    {
+      "file": "static-scale2/matrix-owner-wide-panel-track-scale2-light.png",
+      "sha256": "a130f6d5c4a0f11a7629ad7799407d2e4ea19ca20d9976d53d386d610cb04c87"
+    },
+    {
+      "file": "static-scale2/matrix-owner-wide-panel-track-scale2-dark.png",
+      "sha256": "adfe4409948eab40a0d2d3c0e2f3de2093334cba889900b9e61f9d93690f6839"
+    },
+    {
+      "file": "static-scale2/matrix-owner-wide-panel-queue-scale2-light.png",
+      "sha256": "788c9821c723ef245e48771de60b4cf9cf8eb37959421adeea87eb65e131e032"
+    },
+    {
+      "file": "static-scale2/matrix-owner-wide-panel-queue-scale2-dark.png",
+      "sha256": "948f6032c305746cb02d2a7f5a7add6bfdb219b3d7b4211591893acdf94fb5fa"
+    },
+    {
+      "file": "static-scale2/matrix-large-panel-closed-scale2-light.png",
+      "sha256": "34781dd19c54f5a0f0c3ce200ccf0726fa643ea92cba17111d7bc9c59cee01ef"
+    },
+    {
+      "file": "static-scale2/matrix-large-panel-closed-scale2-dark.png",
+      "sha256": "3f8276f684dbefce8f2d5b945e765e5e1c6524602a320a7518d3503b79cdf71a"
+    },
+    {
+      "file": "static-scale2/matrix-large-panel-track-scale2-light.png",
+      "sha256": "ae11c056c837db95624978db654f03becc4c77c73fb2f832419205b1369722bb"
+    },
+    {
+      "file": "static-scale2/matrix-large-panel-track-scale2-dark.png",
+      "sha256": "63b8b9e721c6b8ee2311bede0c6056e2e45b88d71263839094a9b16279bb5c45"
+    },
+    {
+      "file": "static-scale2/matrix-large-panel-queue-scale2-light.png",
+      "sha256": "8bd3829e257ff4b6f0c594e19dcfdf04cd8d808cae71c6200b6964455f932f1f"
+    },
+    {
+      "file": "static-scale2/matrix-large-panel-queue-scale2-dark.png",
+      "sha256": "a86055d6768b52421c1e35d84e0618074a8335b341d7cc374089675da55aa458"
+    },
+    {
+      "file": "static-scale2/matrix-maximized-panel-closed-scale2-light.png",
+      "sha256": "8717c64c53001bb47bc6efdec3f36233a1a50e06d26d1eba2b17e7e225fc3f20"
+    },
+    {
+      "file": "static-scale2/matrix-maximized-panel-closed-scale2-dark.png",
+      "sha256": "68577be1c824d027747270207d15bc700b3cb916ae6f853a96f3323081f97017"
+    },
+    {
+      "file": "static-scale2/matrix-maximized-panel-track-scale2-light.png",
+      "sha256": "7f13a85de41ff55ddc52b0b2ff331d672b885fa766806531d6b92f645b9846bc"
+    },
+    {
+      "file": "static-scale2/matrix-maximized-panel-track-scale2-dark.png",
+      "sha256": "e261b50ebd6bf89fb62a7038941355486869b288b44ae15c32a3142c0d195845"
+    },
+    {
+      "file": "static-scale2/matrix-maximized-panel-queue-scale2-light.png",
+      "sha256": "250557ecb2756dcc6d3e01e847c5d95aac5b8c44e6532659b391d82774af8d2b"
+    },
+    {
+      "file": "static-scale2/matrix-maximized-panel-queue-scale2-dark.png",
+      "sha256": "3ca033fdb8e66de6b2459730d093e0c60d3f4c4ba88104ca665c0cc23dc4d3cb"
+    },
+    {
+      "file": "static-scale2/surface-home-compact-scale2-light.png",
+      "sha256": "8f1513ea62c1c28128cdc321215723771de19c7d16ac258658d395d6b58a75d2"
+    },
+    {
+      "file": "static-scale2/surface-home-compact-scale2-dark.png",
+      "sha256": "14687a13c1c5b1996088beab10a01676417b2248df932e70a72ba572a30d92a1"
+    },
+    {
+      "file": "static-scale2/surface-home-reference-scale2-light.png",
+      "sha256": "de41f105d1633c277f679e9351a409ccaa76294f017f99b9c402a8385a183b9f"
+    },
+    {
+      "file": "static-scale2/surface-home-reference-scale2-dark.png",
+      "sha256": "68c47e4a5ab133865cc0a886e05bb8a5032ad22ac389367f0dee89c20eb3adcf"
+    },
+    {
+      "file": "static-scale2/surface-home-wide-scale2-light.png",
+      "sha256": "db8c074aaf9b67d16f1192652046984641cd22335f6d1046ab1114ef9d53d3ee"
+    },
+    {
+      "file": "static-scale2/surface-home-wide-scale2-dark.png",
+      "sha256": "f144ffdc467d34b651b1b20d2b340ad524d33aac30466f893a9723ec143a9c12"
+    },
+    {
+      "file": "static-scale2/surface-liked-tab-scale2-light.png",
+      "sha256": "884cc512fbbd2848ae7bd557963941bb13295f98e275f1efa7658df746c3546a"
+    },
+    {
+      "file": "static-scale2/surface-liked-tab-scale2-dark.png",
+      "sha256": "9835a5b4ad9d67485b7f2d53da9b206c2e181fa7fe3f7e81fedb8013e7c41ea9"
+    },
+    {
+      "file": "static-scale2/surface-liked-filter-compact-scale2-light.png",
+      "sha256": "96a6580275b852d2caf02c22c1089e912ec3e4d7967d1406d9ef04fcc142c875"
+    },
+    {
+      "file": "static-scale2/surface-liked-filter-compact-scale2-dark.png",
+      "sha256": "f7a4d70b29b9ee4a50ae57e163796716ee23a84c6f2355e86ec95c5dbcb2602c"
+    },
+    {
+      "file": "static-scale2/surface-liked-filter-reference-scale2-light.png",
+      "sha256": "388279fe7efbfd703891b3bfed88d777013cecfa74bb9f1923c1ba4da6a022b6"
+    },
+    {
+      "file": "static-scale2/surface-liked-filter-reference-scale2-dark.png",
+      "sha256": "57e6641da31754d797a623268dd69808c73ed8a41215302d848558e665340ce4"
+    },
+    {
+      "file": "static-scale2/surface-liked-filter-wide-scale2-light.png",
+      "sha256": "6aa33bae41d134301e6acafafb83c6b1277b5db0ffd963323c1cf38c84edb456"
+    },
+    {
+      "file": "static-scale2/surface-liked-filter-wide-scale2-dark.png",
+      "sha256": "3ad689506e6523d50f704bcfb6c1ae7cc890803686ab2fa070e2b32daf06238e"
+    },
+    {
+      "file": "static-scale2/surface-liked-filter-empty-scale2-light.png",
+      "sha256": "b6f7b37f0c098bcb89e10f13e81f70fc1fc81024766f05bbb4b4bdfa74d6c24e"
+    },
+    {
+      "file": "static-scale2/surface-liked-filter-empty-scale2-dark.png",
+      "sha256": "ce09dd8bc88332b43d492ed8e90a696535fdcaf9b6cbd0d1ed36dbc071d6db2e"
+    },
+    {
+      "file": "static-scale2/surface-playlists-tab-compact-scale2-light.png",
+      "sha256": "ddbc7f2e9ea156c878e15c9990f72bceb0421d0e87a421905a79fbca29d0d221"
+    },
+    {
+      "file": "static-scale2/surface-playlists-tab-compact-scale2-dark.png",
+      "sha256": "ce96e98d9bbb931c1bd24c94f6b2e96f408454fe4616271ec2d1939f4e02b0f1"
+    },
+    {
+      "file": "static-scale2/surface-playlists-tab-reference-scale2-light.png",
+      "sha256": "de30553efef0173e3a38d7611ef753babf92175d7ad89de96a11cc25e6ea5184"
+    },
+    {
+      "file": "static-scale2/surface-playlists-tab-reference-scale2-dark.png",
+      "sha256": "1a3059a02cedddea6ad74c008d832def36215a6322b80a83f82d64784469a7f1"
+    },
+    {
+      "file": "static-scale2/surface-playlists-tab-wide-scale2-light.png",
+      "sha256": "29d891a2b81d27310dcf47afd1ce2f6ab87ccbb76c053877d9006c69f387c1ab"
+    },
+    {
+      "file": "static-scale2/surface-playlists-tab-wide-scale2-dark.png",
+      "sha256": "2cebfe191b76033d195347cc928dfba41a03cafea78fde767d7da3299e3bed5e"
+    },
+    {
+      "file": "static-scale2/surface-playlist-scale2-light.png",
+      "sha256": "ec6fae3f6fe95e1347fae7bab49056f1cf404f209856d3eb0842a151b920e3a7"
+    },
+    {
+      "file": "static-scale2/surface-playlist-scale2-dark.png",
+      "sha256": "0d6bde9a7cc6a4f78685c44e3a0c12b5adb7d49e61b30533605648d07d502695"
+    },
+    {
+      "file": "static-scale2/surface-playlist-filter-compact-scale2-light.png",
+      "sha256": "e0b96a9c9bf30fd1e0c81af3c1dcb8d9cca8c4c50acaf55ed48cd329efa2a014"
+    },
+    {
+      "file": "static-scale2/surface-playlist-filter-compact-scale2-dark.png",
+      "sha256": "7d9a8545703ac7ab591d4bc249e4c176c18413fcdfc9a2b99f2a9977502b1225"
+    },
+    {
+      "file": "static-scale2/surface-playlist-filter-reference-scale2-light.png",
+      "sha256": "e3a6c28f4330d0c88abe24ec244d5a9e566eb7f28f6cf01df7ec67e77cae5079"
+    },
+    {
+      "file": "static-scale2/surface-playlist-filter-reference-scale2-dark.png",
+      "sha256": "4ab1e0d3a9a5cb2761e7d1f3f9324dfb2c9e2b437c675717bfb14d1efb6995f2"
+    },
+    {
+      "file": "static-scale2/surface-playlist-filter-wide-scale2-light.png",
+      "sha256": "83620509cb6efc0d56653a03eb871102a50e214f8d76227ab13f509c1d478a4a"
+    },
+    {
+      "file": "static-scale2/surface-playlist-filter-wide-scale2-dark.png",
+      "sha256": "911138ac4afeef812c80c2f37b4e8be216c74d7070b68e8d56b60ae2a048cbf5"
+    },
+    {
+      "file": "static-scale2/surface-album-scale2-light.png",
+      "sha256": "c35dbc2324d868e586f594606efedc9cacbf74a8a3e8c8c99699fc8a9f42688c"
+    },
+    {
+      "file": "static-scale2/surface-album-scale2-dark.png",
+      "sha256": "c8e012ad6c1e5e2c084d2f073d5a9c16eec9a9d148e104cc580004c55f7c448b"
+    },
+    {
+      "file": "static-scale2/surface-unified-search-scale2-light.png",
+      "sha256": "5ea3ee53ad3eca08e3369c3c57039325fd2b6f557b87849ec204f3bfdbe5b6dd"
+    },
+    {
+      "file": "static-scale2/surface-unified-search-scale2-dark.png",
+      "sha256": "db074e62499f6cfb2917c332c0debadb3c5b2bd41ca4bd267fdf6ff886fb5d48"
+    },
+    {
+      "file": "static-scale2/surface-queue-scale2-light.png",
+      "sha256": "472bf3614c98495b68916e667cf2d5f6a1d0b72343c4328917b07e05de15eb8c"
+    },
+    {
+      "file": "static-scale2/surface-queue-scale2-dark.png",
+      "sha256": "ba4096947f007fb53ce8c56ccc9da83c5e872ba86c581766f9c4c648bfa61cf2"
+    },
+    {
+      "file": "static-scale2/surface-track-info-scale2-light.png",
+      "sha256": "cd0a2fd3d9f8c25be4b1a604b36353dc2343e108838f77147f636f18c98c0f57"
+    },
+    {
+      "file": "static-scale2/surface-track-info-scale2-dark.png",
+      "sha256": "ac04b712b141a9e929a15fa13947ea2007f5571fb5f6150e4f058db76fe9907d"
+    },
+    {
+      "file": "static-scale2/surface-preferences-scale2-light.png",
+      "sha256": "ff009f42e1f7495103a8a21a88519b1dcd9436ac2156e45636ca6c708c55d4d6"
+    },
+    {
+      "file": "static-scale2/surface-preferences-scale2-dark.png",
+      "sha256": "48f353d58fef7da7f466e690916c823ffb1562578fdd9d5a19c5b2bf565e531e"
+    },
+    {
+      "file": "static-scale2/surface-search-error-retry-scale2-light.png",
+      "sha256": "1c99920224d36dc2d179a6354f678b51903d4ed14f789ef6ecef429f9f8e5d0e"
+    },
+    {
+      "file": "static-scale2/surface-search-error-retry-scale2-dark.png",
+      "sha256": "1654d668ff7b2b960beaef22d6aba560137bd50b66e40725e588c201cf4506e7"
+    },
+    {
+      "file": "static-scale2/surface-keyboard-focus-scale2-light.png",
+      "sha256": "facfc727b63d679453a7f19388a4f216c8bdc1ba2fa884ebe44d9be737ec4c52"
+    },
+    {
+      "file": "static-scale2/surface-keyboard-focus-scale2-dark.png",
+      "sha256": "91af11dc92ce07c1476b1d5cd6f762cc7ec95d59a29c5a0073e8914612bb8f7e"
+    },
+    {
+      "file": "static-scale2/surface-search-empty-scale2-light.png",
+      "sha256": "8ddda99816e7214c6c1e1471e61a63b3a1254b85c998bde888ac855b925e1e95"
+    },
+    {
+      "file": "static-scale2/surface-search-empty-scale2-dark.png",
+      "sha256": "ef260922e9b11c6d9e7335839a6cf924fb4745a775734d6682b311c98088bfd1"
+    },
+    {
+      "file": "static-scale2/surface-search-loading-scale2-light.png",
+      "sha256": "b24bbf049e6d267c7bfd29990d92058667fd5bb2f4e7950cd8a762c01d83ffe8"
+    },
+    {
+      "file": "static-scale2/surface-search-loading-scale2-dark.png",
+      "sha256": "bec0b752d266c297d15333827f8b8294eef7bcdd9072f8fe9f124812847e9ab5"
+    },
+    {
+      "file": "static-scale2/surface-player-shuffle-repeat-queue-scale2-light.png",
+      "sha256": "2e698922ba3eb5fb05fe8b4efd4d695904cdf0d1d7f1da2e2e1ebd3c2c20e4f3"
+    },
+    {
+      "file": "static-scale2/surface-player-shuffle-repeat-queue-scale2-dark.png",
+      "sha256": "83999ecefa64bb14d827dc606154d79b0c41860bd49c52384fd36e715f1a21c9"
+    },
+    {
+      "file": "static-scale2/surface-player-shuffle-repeat-one-scale2-light.png",
+      "sha256": "6be2fb4711842ff116349e91cd1436593a11683e551cdf8f3a4cfa28e507e42c"
+    },
+    {
+      "file": "static-scale2/surface-player-shuffle-repeat-one-scale2-dark.png",
+      "sha256": "7777c84dc74183311d924be1a4854aeaa862c4028d816f2d5dee8a499c0ecc2d"
+    },
+    {
+      "file": "static-scale2/surface-long-metadata-missing-art-unavailable-partial-scale2-light.png",
+      "sha256": "6d2aea62bfee61613d78bd21c98cff239f18203f268e93a54c122abb982702a0"
+    },
+    {
+      "file": "static-scale2/surface-long-metadata-missing-art-unavailable-partial-scale2-dark.png",
+      "sha256": "f774586426cb64c2da813e9491ab2f0734e43fdb7352b0e137e725b9330d9c63"
+    },
+    {
+      "file": "static-scale2/surface-long-metadata-information-scale2-light.png",
+      "sha256": "b9af16bf72c0a52a90826f804790b4ce143af33bbc870ea050853a2177b09033"
+    },
+    {
+      "file": "static-scale2/surface-long-metadata-information-scale2-dark.png",
+      "sha256": "cb4bedac37c920f698416426f98c6ae48afd839d7fc27a32ceb2bf674f8a8774"
+    },
+    {
+      "file": "static-scale2/surface-long-metadata-compact-information-scale2-light.png",
+      "sha256": "68ae60feaf9be197de4dd8f66081ad791a9c8ccb5e900ac0fd559abc061eba45"
+    },
+    {
+      "file": "static-scale2/surface-long-metadata-compact-information-scale2-dark.png",
+      "sha256": "e0f87e6dac1ef807845d467e8ce2c01e999f6c29fa68ca506fa87472ad4dbb4c"
+    },
+    {
+      "file": "static-scale2/surface-empty-library-scale2-light.png",
+      "sha256": "fc00addf98073640ddace5f6cb8ffdb7c257df261fd5167565cc9e00eb16bcbb"
+    },
+    {
+      "file": "static-scale2/surface-empty-library-scale2-dark.png",
+      "sha256": "a1bec6f81df343d574699291709bce641ad75fb24add3956e6d963b433ad6193"
+    },
+    {
+      "file": "static-scale2/surface-playlists-few-owned-scale2-light.png",
+      "sha256": "1f276e4ca69407ba94595e55b03626302d5c4632bd5b92daf4021f7b0a291ef5"
+    },
+    {
+      "file": "static-scale2/surface-playlists-few-owned-scale2-dark.png",
+      "sha256": "970f71902fbffe881ab92f9337f08da6a3e8ce0d0a599718e880c537c6e61455"
+    },
+    {
+      "file": "static-scale2/surface-playlists-large-collection-scale2-light.png",
+      "sha256": "00332d8c9ca867910e538327ba7e8ff8ab9f6e4812d8dd9ce79277cb3d8508a2"
+    },
+    {
+      "file": "static-scale2/surface-playlists-large-collection-scale2-dark.png",
+      "sha256": "8e1e714cf4666ddc18dc9854f0d670f1d63d7cf16042ac3fc559a5eaab3fffa7"
+    },
+    {
+      "file": "static-scale2/surface-playlists-empty-owned-scale2-light.png",
+      "sha256": "531c74e543ad4c86cc38b7337e61b3febe726e12d148127d581fbdc1315e4f9d"
+    },
+    {
+      "file": "static-scale2/surface-playlists-empty-owned-scale2-dark.png",
+      "sha256": "c9e22b1804af45601fa8dd5a8fa723dfcc6238786907f937450935055348939e"
+    },
+    {
+      "file": "static-scale2/surface-player-hidden-after-stop-scale2-light.png",
+      "sha256": "4afebc0a8d72dab663c53249789b23b897b068f448577a07de7ed66a8a6000f1"
+    },
+    {
+      "file": "static-scale2/surface-player-hidden-after-stop-scale2-dark.png",
+      "sha256": "5b2da6b15f997a7a36b54ec7cbe6dcfafd3e75336d6fc0c4b7b8cc70ed34606b"
+    },
+    {
+      "file": "static-scale2/footer-first-start-frame011-scale2.png",
+      "sha256": "eaee3bf39bf00cef8963851c06809dcc65f4c42fef0e64cb01f8d705a86e4c58"
+    },
+    {
+      "file": "static-scale2/footer-first-start-frame000-scale2.png",
+      "sha256": "e89420eb166653291b41c18fbff94372a3e83afb7a9e73d92e983dc55b7621a3"
+    },
+    {
+      "file": "static-scale2/footer-first-start-frame005-scale2.png",
+      "sha256": "ac6cbbadfde67278c71a5ac80908dbc2c2b0f462adcc030cca6d484c9716e31d"
+    },
+    {
+      "file": "static-scale2/footer-first-start-frame004-scale2.png",
+      "sha256": "b04d5abb09717ed1ea4b7a8fe2e33fdc979bfd8feadd60af180f11005800758d"
+    },
+    {
+      "file": "static-scale2/footer-explicit-stop-frame005-scale2.png",
+      "sha256": "22e3b37c8d8388365aeccaef83c42f69bb94d79eeb6b30b2189a8a720e85047a"
+    },
+    {
+      "file": "static-scale2/footer-explicit-stop-frame004-scale2.png",
+      "sha256": "64af7c43b8ce0fd76960007b43730ba4f6dea4c2659d094c4d980d7a22bfbe64"
+    },
+    {
+      "file": "static-scale2/footer-explicit-stop-frame014-scale2.png",
+      "sha256": "efdf8e380597298ee4900d8b97672ef8b08963f2d5ed80996f8124e882662e44"
+    },
+    {
+      "file": "static-scale2/footer-explicit-stop-frame002-scale2.png",
+      "sha256": "00d957668d117b2e6815e6b7430a444c28abd32cc5182dffd731422c23b9698a"
+    },
+    {
+      "file": "static-scale2/footer-explicit-stop-frame000-scale2.png",
+      "sha256": "9bcddc96b98a935756885a3dd5f331cb9a13ff0398362110b3c930f118e7440f"
+    },
+    {
+      "file": "motion-scale2/animation-wide-light-track-opening-000-scale2.png",
+      "sha256": "52bf8c175f5cdfdd1e8c1df4ece65039f213e67ea413bf395a3dccfe8d376288",
+      "frame_time": 47807292749,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale2/animation-wide-light-track-opening-025-scale2.png",
+      "sha256": "e5acb722b82ff8ad6e0e3b59524042badc61ab856a0dac6167492db91bb839b8",
+      "frame_time": 47807359417,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale2/animation-wide-light-track-opening-050-scale2.png",
+      "sha256": "582c616d50099ef1157294426a5b885e1a2ee31f7c0aacc6247077708d722157",
+      "frame_time": 47807409418,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale2/animation-wide-light-track-opening-075-scale2.png",
+      "sha256": "102727979c1cba941c6537a481abb447da3bd7b2191cfb64cf2f96a457bcbdf5",
+      "frame_time": 47807459419,
+      "native_frame_index": 4
+    },
+    {
+      "file": "motion-scale2/animation-wide-light-track-opening-100-scale2.png",
+      "sha256": "aa8db001e3fabf6a41e6245a14042b4cd75ef12c17e798f970b06b2f7c83575d",
+      "frame_time": 47807592755,
+      "native_frame_index": 8
+    },
+    {
+      "file": "motion-scale2/animation-wide-light-track-closing-000-scale2.png",
+      "sha256": "567666bc68dab40b15f98cd9cd1f1aeb575a4e1ec08bda1807a782f3475b0d3e",
+      "frame_time": 47809176120,
+      "native_frame_index": 9
+    },
+    {
+      "file": "motion-scale2/animation-wide-light-track-closing-025-scale2.png",
+      "sha256": "4a28b24191cc141a75fd687461fb917e1a0c985bdd3da0a309734372667480ef",
+      "frame_time": 47809026117,
+      "native_frame_index": 4
+    },
+    {
+      "file": "motion-scale2/animation-wide-light-track-closing-050-scale2.png",
+      "sha256": "71af5299e24f6fee727f2b6e5142e1b639f13f1e0755e611350fa06f9936530d",
+      "frame_time": 47808976116,
+      "native_frame_index": 2
+    },
+    {
+      "file": "motion-scale2/animation-wide-light-track-closing-075-scale2.png",
+      "sha256": "87f42fb021ce10c75517b94d3d2b430edd07cbf499b5363842111f87c3a659f6",
+      "frame_time": 47808942782,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale2/animation-wide-light-track-closing-100-scale2.png",
+      "sha256": "de0910bbb05f19c8816a103b194e484ef8018a94c4baa05e1f2b41a460c0708d",
+      "frame_time": 47808876114,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale2/animation-wide-light-queue-opening-000-scale2.png",
+      "sha256": "567666bc68dab40b15f98cd9cd1f1aeb575a4e1ec08bda1807a782f3475b0d3e",
+      "frame_time": 47811142826,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale2/animation-wide-light-queue-opening-025-scale2.png",
+      "sha256": "6182d51aa75059059cb0939295cde71c9fa38c877405b96649e12c3e375df1ff",
+      "frame_time": 47811209494,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale2/animation-wide-light-queue-opening-050-scale2.png",
+      "sha256": "186da7b9948ab83bb6c9ceda310784a43a5f972ac774b183f281650c57091f2e",
+      "frame_time": 47811259495,
+      "native_frame_index": 2
+    },
+    {
+      "file": "motion-scale2/animation-wide-light-queue-opening-075-scale2.png",
+      "sha256": "3407d7bf572282ef5d66c1660dd209a578db03386690b84886ab1b47c6bfe126",
+      "frame_time": 47811276162,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale2/animation-wide-light-queue-opening-100-scale2.png",
+      "sha256": "a5f5971edd66be8648c82ea5549d6f61ce97d075e90473db17fdb9725152fefd",
+      "frame_time": 47811442832,
+      "native_frame_index": 7
+    },
+    {
+      "file": "motion-scale2/animation-wide-light-queue-closing-000-scale2.png",
+      "sha256": "567666bc68dab40b15f98cd9cd1f1aeb575a4e1ec08bda1807a782f3475b0d3e",
+      "frame_time": 47812959529,
+      "native_frame_index": 9
+    },
+    {
+      "file": "motion-scale2/animation-wide-light-queue-closing-025-scale2.png",
+      "sha256": "ef86e3a9f25ac10d82ea33551cd5d3a2d76bf86ff19c200ffe46d978e2fdae28",
+      "frame_time": 47812809526,
+      "native_frame_index": 4
+    },
+    {
+      "file": "motion-scale2/animation-wide-light-queue-closing-050-scale2.png",
+      "sha256": "786fbc9dbdcd61ef6252a01d5f7e1db39381157ab20694a4d533fe159c66556f",
+      "frame_time": 47812759525,
+      "native_frame_index": 2
+    },
+    {
+      "file": "motion-scale2/animation-wide-light-queue-closing-075-scale2.png",
+      "sha256": "f89b2914e836e3522f8263d508739cb84a4f508a9cdc3ed51fd6951d5989891f",
+      "frame_time": 47812726191,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale2/animation-wide-light-queue-closing-100-scale2.png",
+      "sha256": "a5f5971edd66be8648c82ea5549d6f61ce97d075e90473db17fdb9725152fefd",
+      "frame_time": 47812659523,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale2/animation-medium-light-track-opening-000-scale2.png",
+      "sha256": "dd334cdc77857cefc637a03098f0238588214e35aa7939a2d4163a35713c62e8",
+      "frame_time": 47816876274,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale2/animation-medium-light-track-opening-025-scale2.png",
+      "sha256": "7c0ac73f8e43fa5b541939f41bcd7562ad594bda31aceee23bb7d0b28e7f587a",
+      "frame_time": 47816942942,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale2/animation-medium-light-track-opening-050-scale2.png",
+      "sha256": "3572bbd3ac3357abb9cac403dd8137d8efb7bc70c13a4d59d1cba4d1957fad13",
+      "frame_time": 47816976276,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale2/animation-medium-light-track-opening-075-scale2.png",
+      "sha256": "f1450989c7027b41207aef538013b3e1ce7d2e3563bd1fe5290c4bb19a2b3dc9",
+      "frame_time": 47817009610,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale2/animation-medium-light-track-opening-100-scale2.png",
+      "sha256": "6f06d85de32d177dec71308fa96b03174a6e3c81b94f8fa62ea25eb0e76cb54f",
+      "frame_time": 47817176280,
+      "native_frame_index": 14
+    },
+    {
+      "file": "motion-scale2/animation-medium-light-track-closing-000-scale2.png",
+      "sha256": "dd334cdc77857cefc637a03098f0238588214e35aa7939a2d4163a35713c62e8",
+      "frame_time": 47818092965,
+      "native_frame_index": 15
+    },
+    {
+      "file": "motion-scale2/animation-medium-light-track-closing-025-scale2.png",
+      "sha256": "a666c6dcc80733959ca535ef0638a6689b6632250786edbfce215cf8d0550237",
+      "frame_time": 47817926295,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale2/animation-medium-light-track-closing-050-scale2.png",
+      "sha256": "3964060b595de8433822211f51a31902f33223b3f32816c2f14a987c5623fa69",
+      "frame_time": 47817892961,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale2/animation-medium-light-track-closing-075-scale2.png",
+      "sha256": "c091581732301bf1e8ea4a659a038b873b9c9b8138eb9522c925b7714bc1ceed",
+      "frame_time": 47817859627,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale2/animation-medium-light-track-closing-100-scale2.png",
+      "sha256": "6f06d85de32d177dec71308fa96b03174a6e3c81b94f8fa62ea25eb0e76cb54f",
+      "frame_time": 47817792959,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale2/animation-medium-light-queue-opening-000-scale2.png",
+      "sha256": "dd334cdc77857cefc637a03098f0238588214e35aa7939a2d4163a35713c62e8",
+      "frame_time": 47819359657,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale2/animation-medium-light-queue-opening-025-scale2.png",
+      "sha256": "b974ff71cfeffbf414dfbcac249bea5d8db0f0ca3d2b38af723371f0c4fbd901",
+      "frame_time": 47819426325,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale2/animation-medium-light-queue-opening-050-scale2.png",
+      "sha256": "60ae00650a5b88f1f537e2e274667b10aeea3232aeb9631881a6a9ccc6b26ec3",
+      "frame_time": 47819459659,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale2/animation-medium-light-queue-opening-075-scale2.png",
+      "sha256": "ce4e7b9211cec9a5e29f0c6cf065a93d2fe890d658a32f563ab95f113d7ed564",
+      "frame_time": 47819492993,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale2/animation-medium-light-queue-opening-100-scale2.png",
+      "sha256": "8da335c850da2465bfe4632bb2ed7d880da312499151620900488ef6c94d1309",
+      "frame_time": 47819659663,
+      "native_frame_index": 13
+    },
+    {
+      "file": "motion-scale2/animation-medium-light-queue-closing-000-scale2.png",
+      "sha256": "dd334cdc77857cefc637a03098f0238588214e35aa7939a2d4163a35713c62e8",
+      "frame_time": 47820609682,
+      "native_frame_index": 14
+    },
+    {
+      "file": "motion-scale2/animation-medium-light-queue-closing-025-scale2.png",
+      "sha256": "5511356b0c4acb69c3df19174eef3e4db926ddb49bed8c05fab66519f816f7a4",
+      "frame_time": 47820443012,
+      "native_frame_index": 4
+    },
+    {
+      "file": "motion-scale2/animation-medium-light-queue-closing-050-scale2.png",
+      "sha256": "f0e8b0dc314cf390c1608199636d091e13bf7ddec2b3e39f00b0ec216970b184",
+      "frame_time": 47820409678,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale2/animation-medium-light-queue-closing-075-scale2.png",
+      "sha256": "6c4fa432ac0480d3f40752cb5297612f3c5fa7c865ac4b10f5253d7c83b27ace",
+      "frame_time": 47820376344,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale2/animation-medium-light-queue-closing-100-scale2.png",
+      "sha256": "8da335c850da2465bfe4632bb2ed7d880da312499151620900488ef6c94d1309",
+      "frame_time": 47820309676,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale2/animation-compact-light-track-opening-000-scale2.png",
+      "sha256": "a628fea6299543391e715357e9101b17a6f4ee9aaecb114d1f311d6ed0666b3c",
+      "frame_time": 47823810241,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale2/animation-compact-light-track-opening-025-scale2.png",
+      "sha256": "47cdbbfb22827ada07b4002dd859710c37c9ffd0195b676a8325b9e1358f7fb4",
+      "frame_time": 47823876909,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale2/animation-compact-light-track-opening-050-scale2.png",
+      "sha256": "eb6c823ddb0e4cc9fbbc303f0a683783d6b1dc1863df29c593f9b5059bdd1a70",
+      "frame_time": 47823910243,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale2/animation-compact-light-track-opening-075-scale2.png",
+      "sha256": "11f3afd515025fc8eaa64fab485addab1819146cd1ea5630650356098a7227a6",
+      "frame_time": 47823943577,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale2/animation-compact-light-track-opening-100-scale2.png",
+      "sha256": "ebd3ac9b620fb2e84a8f933c88dee97c7c9d628645d5dfa88fde0d5e467cdc9e",
+      "frame_time": 47824110247,
+      "native_frame_index": 15
+    },
+    {
+      "file": "motion-scale2/animation-compact-light-track-closing-000-scale2.png",
+      "sha256": "a628fea6299543391e715357e9101b17a6f4ee9aaecb114d1f311d6ed0666b3c",
+      "frame_time": 47824843595,
+      "native_frame_index": 15
+    },
+    {
+      "file": "motion-scale2/animation-compact-light-track-closing-025-scale2.png",
+      "sha256": "3864a3892b9f364b516bdb74518e331ddd2f9d37a60814adf542ab40c3b26aa5",
+      "frame_time": 47824676925,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale2/animation-compact-light-track-closing-050-scale2.png",
+      "sha256": "a3830f94c1c38480e7cff1cf6cd0b66c5238ba67d7a3ef6a46008089e0662d8d",
+      "frame_time": 47824643591,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale2/animation-compact-light-track-closing-075-scale2.png",
+      "sha256": "dc64a91e3849d0dcbeb3a087037dbd111d584d93e5de4e203175c9824edd79bc",
+      "frame_time": 47824610257,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale2/animation-compact-light-track-closing-100-scale2.png",
+      "sha256": "ebd3ac9b620fb2e84a8f933c88dee97c7c9d628645d5dfa88fde0d5e467cdc9e",
+      "frame_time": 47824543589,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale2/animation-compact-light-queue-opening-000-scale2.png",
+      "sha256": "a628fea6299543391e715357e9101b17a6f4ee9aaecb114d1f311d6ed0666b3c",
+      "frame_time": 47825876949,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale2/animation-compact-light-queue-opening-025-scale2.png",
+      "sha256": "1da8c4e6a61952ae8aed9fe7dbd6ecfccaebc9dbb3de9555525ba540239a5361",
+      "frame_time": 47825943617,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale2/animation-compact-light-queue-opening-050-scale2.png",
+      "sha256": "ef34a4577f7f69da59a7d2c9917c1878b5f5dd94a50a7ecb23f5152315e87d2c",
+      "frame_time": 47825976951,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale2/animation-compact-light-queue-opening-075-scale2.png",
+      "sha256": "cb31314fe377b6e231b3ead6168404dd8786648d41ed4da76a3fa2333153337d",
+      "frame_time": 47826010285,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale2/animation-compact-light-queue-opening-100-scale2.png",
+      "sha256": "7c6aeefbc8af15739b67430f70641b78beefa449fe9b1cc8f98d976d2223d8a4",
+      "frame_time": 47826176955,
+      "native_frame_index": 15
+    },
+    {
+      "file": "motion-scale2/animation-compact-light-queue-closing-000-scale2.png",
+      "sha256": "a628fea6299543391e715357e9101b17a6f4ee9aaecb114d1f311d6ed0666b3c",
+      "frame_time": 47826810301,
+      "native_frame_index": 15
+    },
+    {
+      "file": "motion-scale2/animation-compact-light-queue-closing-025-scale2.png",
+      "sha256": "80c5c8d698497ce1bfe4938305e9a02360155333a6d7047a721688ef13af5a09",
+      "frame_time": 47826643631,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale2/animation-compact-light-queue-closing-050-scale2.png",
+      "sha256": "fd974762c663dff9c673503b2a3791ff8f35ec98af3b9f67d9d679a99f18a179",
+      "frame_time": 47826610297,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale2/animation-compact-light-queue-closing-075-scale2.png",
+      "sha256": "111c1bff50dab75a61cf9b7d89dc88885b266bd6d13be367120eded1eb289894",
+      "frame_time": 47826576963,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale2/animation-compact-light-queue-closing-100-scale2.png",
+      "sha256": "7c6aeefbc8af15739b67430f70641b78beefa449fe9b1cc8f98d976d2223d8a4",
+      "frame_time": 47826510295,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale2/animation-wide-dark-track-opening-000-scale2.png",
+      "sha256": "94595043768cddfc61a80a3a145487d4cc5356f445420497e893bdf1feb3d37a",
+      "frame_time": 47830022997,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale2/animation-wide-dark-track-opening-025-scale2.png",
+      "sha256": "30de9cc6afe201b45d9c0b2cce47e20d57095f9eb494a8bf7d18a20d971c030e",
+      "frame_time": 47830089665,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale2/animation-wide-dark-track-opening-050-scale2.png",
+      "sha256": "72484346a457d4687cfcb5f1edd69957fc71f4775716d6997b1a6d28c8172355",
+      "frame_time": 47830122999,
+      "native_frame_index": 2
+    },
+    {
+      "file": "motion-scale2/animation-wide-dark-track-opening-075-scale2.png",
+      "sha256": "e5231877603454ec24303d279ff4a561a1f3efb2304d7ca65a7a24e0246bbb9c",
+      "frame_time": 47830156333,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale2/animation-wide-dark-track-opening-100-scale2.png",
+      "sha256": "87e4b5792af0c7e7d5cb3fa02dd8adaa3ffe7ffaabfcef9c70dec76f6857d11e",
+      "frame_time": 47830356337,
+      "native_frame_index": 8
+    },
+    {
+      "file": "motion-scale2/animation-wide-dark-track-closing-000-scale2.png",
+      "sha256": "295ea7cfd8fe0fd76f2e570c24909dfedc91366a812f0f8b2565569c3994a340",
+      "frame_time": 47831839700,
+      "native_frame_index": 9
+    },
+    {
+      "file": "motion-scale2/animation-wide-dark-track-closing-025-scale2.png",
+      "sha256": "7dbc70063518b5b199fc9f493fda6593ee4fd83716e003936d06cef3d4534b10",
+      "frame_time": 47831706364,
+      "native_frame_index": 4
+    },
+    {
+      "file": "motion-scale2/animation-wide-dark-track-closing-050-scale2.png",
+      "sha256": "c4f4ba9edab50fd69ca7a66ad7b0705692c080bdee673589da8b11552b679f76",
+      "frame_time": 47831656363,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale2/animation-wide-dark-track-closing-075-scale2.png",
+      "sha256": "3acda81c146a563a8701df4454b92de802fd85723910cd37b8ffdb2723a4180f",
+      "frame_time": 47831606362,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale2/animation-wide-dark-track-closing-100-scale2.png",
+      "sha256": "87e4b5792af0c7e7d5cb3fa02dd8adaa3ffe7ffaabfcef9c70dec76f6857d11e",
+      "frame_time": 47831523027,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale2/animation-wide-dark-queue-opening-000-scale2.png",
+      "sha256": "98784719f31690749d4a8de903ea60b394570e72d38732b19a0a207d2aa7a5f7",
+      "frame_time": 47833739738,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale2/animation-wide-dark-queue-opening-025-scale2.png",
+      "sha256": "2172f37f7a3c3e6ee4545cf935f580d5a044c970eef5fcd035dd4f7ecfd38050",
+      "frame_time": 47833806406,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale2/animation-wide-dark-queue-opening-050-scale2.png",
+      "sha256": "805b445b3ad1db9c9dc1d5268736a6ad69aec232de5dd44e36ee09b88e0a7e1a",
+      "frame_time": 47833823073,
+      "native_frame_index": 2
+    },
+    {
+      "file": "motion-scale2/animation-wide-dark-queue-opening-075-scale2.png",
+      "sha256": "09bd59f75fb0f4cbeb542b36920471e73c0e183c02077df219c38069cb879160",
+      "frame_time": 47833873074,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale2/animation-wide-dark-queue-opening-100-scale2.png",
+      "sha256": "b0b2c1c943bbf1192c41924c0ae896f0a007679166f06d7c7aedeacb4a6347eb",
+      "frame_time": 47834073078,
+      "native_frame_index": 9
+    },
+    {
+      "file": "motion-scale2/animation-wide-dark-queue-closing-000-scale2.png",
+      "sha256": "98784719f31690749d4a8de903ea60b394570e72d38732b19a0a207d2aa7a5f7",
+      "frame_time": 47835589775,
+      "native_frame_index": 9
+    },
+    {
+      "file": "motion-scale2/animation-wide-dark-queue-closing-025-scale2.png",
+      "sha256": "423c13225b31e0599ed69e3a9e7f6fab4efe05070c6c7255856aa7336ef2aa8d",
+      "frame_time": 47835406438,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale2/animation-wide-dark-queue-closing-050-scale2.png",
+      "sha256": "e1dc1e72c1e1c61b8eb5f3b9b21f1429cbf29051f78a8309f921fc441582fd4f",
+      "frame_time": 47835356437,
+      "native_frame_index": 2
+    },
+    {
+      "file": "motion-scale2/animation-wide-dark-queue-closing-075-scale2.png",
+      "sha256": "376782f6dbf5f019966814c428b5ce4afd13399f510040c090ccb124f85d0d3e",
+      "frame_time": 47835339770,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale2/animation-wide-dark-queue-closing-100-scale2.png",
+      "sha256": "b0b2c1c943bbf1192c41924c0ae896f0a007679166f06d7c7aedeacb4a6347eb",
+      "frame_time": 47835289769,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale2/animation-medium-dark-track-opening-000-scale2.png",
+      "sha256": "1b15fcc374e97727003d664fa9cc97785e09999e6952b33012774462826f73d5",
+      "frame_time": 47839492992,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale2/animation-medium-dark-track-opening-025-scale2.png",
+      "sha256": "5dd836a760064b1ae5489618608a8007a5c6a837ccd09c9ccde536ee0dabcc20",
+      "frame_time": 47839559660,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale2/animation-medium-dark-track-opening-050-scale2.png",
+      "sha256": "05bccbe7e3c565c2dc2a2d257ad3a62e9c829dab28337958bd76b745040ff3db",
+      "frame_time": 47839592994,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale2/animation-medium-dark-track-opening-075-scale2.png",
+      "sha256": "7e753a041dc84f37543fb8e740b0d301d2b3c94d617b0c07a1e45e9b103025eb",
+      "frame_time": 47839626328,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale2/animation-medium-dark-track-opening-100-scale2.png",
+      "sha256": "c6ba4ffc5944f0c6a7ee7c09475e3243939283bb3e73a3347d3f30f38248f19e",
+      "frame_time": 47839792998,
+      "native_frame_index": 14
+    },
+    {
+      "file": "motion-scale2/animation-medium-dark-track-closing-000-scale2.png",
+      "sha256": "1b15fcc374e97727003d664fa9cc97785e09999e6952b33012774462826f73d5",
+      "frame_time": 47840693016,
+      "native_frame_index": 12
+    },
+    {
+      "file": "motion-scale2/animation-medium-dark-track-closing-025-scale2.png",
+      "sha256": "9509716a86a82c8b3fecd59e4d9a284906f43ded627458e2adfbc04a5e472397",
+      "frame_time": 47840526346,
+      "native_frame_index": 4
+    },
+    {
+      "file": "motion-scale2/animation-medium-dark-track-closing-050-scale2.png",
+      "sha256": "e42ecef13fc8ce972f66ecef8fe00f037757ac074d136af793c1ebb741a7a6b1",
+      "frame_time": 47840493012,
+      "native_frame_index": 2
+    },
+    {
+      "file": "motion-scale2/animation-medium-dark-track-closing-075-scale2.png",
+      "sha256": "fe1c2e0c2c84c9517353df00c99cc2cdefd61dbf1c8e7514adf922b07be26631",
+      "frame_time": 47840459678,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale2/animation-medium-dark-track-closing-100-scale2.png",
+      "sha256": "c6ba4ffc5944f0c6a7ee7c09475e3243939283bb3e73a3347d3f30f38248f19e",
+      "frame_time": 47840393010,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale2/animation-medium-dark-queue-opening-000-scale2.png",
+      "sha256": "1b15fcc374e97727003d664fa9cc97785e09999e6952b33012774462826f73d5",
+      "frame_time": 47842009709,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale2/animation-medium-dark-queue-opening-025-scale2.png",
+      "sha256": "e6479c9ac7f9fe9499e586633fbc4107ed7d9fed13f9af2f4496bfa729f032d4",
+      "frame_time": 47842076377,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale2/animation-medium-dark-queue-opening-050-scale2.png",
+      "sha256": "cb01e7c569a63147ddb219ba5c8429bb4a598ba12a35f7c93709ddf1ad2817fc",
+      "frame_time": 47842109711,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale2/animation-medium-dark-queue-opening-075-scale2.png",
+      "sha256": "69231f2c56855d04388d5109f6fefd9cf52d3c1f9f80bd2396557a017573e48a",
+      "frame_time": 47842143045,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale2/animation-medium-dark-queue-opening-100-scale2.png",
+      "sha256": "f30cecb90433eb4ccb329d25ac2ad061967b8514dc29a9a171b77752b4895b95",
+      "frame_time": 47842309715,
+      "native_frame_index": 13
+    },
+    {
+      "file": "motion-scale2/animation-medium-dark-queue-closing-000-scale2.png",
+      "sha256": "1b15fcc374e97727003d664fa9cc97785e09999e6952b33012774462826f73d5",
+      "frame_time": 47843226400,
+      "native_frame_index": 14
+    },
+    {
+      "file": "motion-scale2/animation-medium-dark-queue-closing-025-scale2.png",
+      "sha256": "d0055ccc65a82bd369e8819c1b771c6df2ff95307054d45a7968505a3058acb6",
+      "frame_time": 47843059730,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale2/animation-medium-dark-queue-closing-050-scale2.png",
+      "sha256": "339f69054d1715a9a7c3f2dbe041c29cd6af7dcfbf7493e44fd08997c439ce27",
+      "frame_time": 47843026396,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale2/animation-medium-dark-queue-closing-075-scale2.png",
+      "sha256": "48041c7e074f192cc8dc8c99d977587fdc02819dfb5c0ed9533c69d041365a74",
+      "frame_time": 47842993062,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale2/animation-medium-dark-queue-closing-100-scale2.png",
+      "sha256": "f30cecb90433eb4ccb329d25ac2ad061967b8514dc29a9a171b77752b4895b95",
+      "frame_time": 47842926394,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale2/animation-compact-dark-track-opening-000-scale2.png",
+      "sha256": "3198286c2c60e837f2cea27a7c27d7fb1f2f11a2f25fb182a3b6d5fd660a70ab",
+      "frame_time": 47846426801,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale2/animation-compact-dark-track-opening-025-scale2.png",
+      "sha256": "30aff90e62b159fdd26f56b92cc6722becd7743bd77d0c7e920d49681fbbc413",
+      "frame_time": 47846493469,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale2/animation-compact-dark-track-opening-050-scale2.png",
+      "sha256": "51b8075c809882c9249dc5cc100bb21613dab26791f6d3c33dc7203ba949a4a5",
+      "frame_time": 47846526803,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale2/animation-compact-dark-track-opening-075-scale2.png",
+      "sha256": "f81d2b4aac347f828b75e8e6e18a521badf132c61d72676affd617177e857fcd",
+      "frame_time": 47846560137,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale2/animation-compact-dark-track-opening-100-scale2.png",
+      "sha256": "28f382d91dc0bf416aeefe6e3b8c6cc3d7a4166d190b6270ba41d754afbca554",
+      "frame_time": 47846726807,
+      "native_frame_index": 15
+    },
+    {
+      "file": "motion-scale2/animation-compact-dark-track-closing-000-scale2.png",
+      "sha256": "3198286c2c60e837f2cea27a7c27d7fb1f2f11a2f25fb182a3b6d5fd660a70ab",
+      "frame_time": 47847326819,
+      "native_frame_index": 15
+    },
+    {
+      "file": "motion-scale2/animation-compact-dark-track-closing-025-scale2.png",
+      "sha256": "685ce636df6b2b0d61e1b2c4733516a026a8385a7c9c17555c91ca42899b8772",
+      "frame_time": 47847160149,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale2/animation-compact-dark-track-closing-050-scale2.png",
+      "sha256": "ab63bd20dd4d23222053f90cb29e8f689c14401dd432cefe6467d6b645262c82",
+      "frame_time": 47847126815,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale2/animation-compact-dark-track-closing-075-scale2.png",
+      "sha256": "bfa908cc42b9ddb9e52d6238401618fbe46463f6e3c86119210514b92d3c7e8b",
+      "frame_time": 47847093481,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale2/animation-compact-dark-track-closing-100-scale2.png",
+      "sha256": "28f382d91dc0bf416aeefe6e3b8c6cc3d7a4166d190b6270ba41d754afbca554",
+      "frame_time": 47847043480,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale2/animation-compact-dark-queue-opening-000-scale2.png",
+      "sha256": "3198286c2c60e837f2cea27a7c27d7fb1f2f11a2f25fb182a3b6d5fd660a70ab",
+      "frame_time": 47848410174,
+      "native_frame_index": 0
+    },
+    {
+      "file": "motion-scale2/animation-compact-dark-queue-opening-025-scale2.png",
+      "sha256": "d6205d4629b1025129ee1d563880f69321f7a11478f2e621a8e13ba76e5c0a69",
+      "frame_time": 47848476842,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale2/animation-compact-dark-queue-opening-050-scale2.png",
+      "sha256": "01aa6cd1fb6a2601a8379c0276bd1b900809a7fa50d4bc68dad8cd5b2a6c698a",
+      "frame_time": 47848510176,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale2/animation-compact-dark-queue-opening-075-scale2.png",
+      "sha256": "70ee82bf135b3f7ab2582caa50778d8db50e660adaf099285c4d30d16c7de646",
+      "frame_time": 47848543510,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale2/animation-compact-dark-queue-opening-100-scale2.png",
+      "sha256": "59eb7c8243c080e3bf0d984cc87572b1eb342def2d27ee94b01a918f2d8eb4d4",
+      "frame_time": 47848710180,
+      "native_frame_index": 15
+    },
+    {
+      "file": "motion-scale2/animation-compact-dark-queue-closing-000-scale2.png",
+      "sha256": "3198286c2c60e837f2cea27a7c27d7fb1f2f11a2f25fb182a3b6d5fd660a70ab",
+      "frame_time": 47849343526,
+      "native_frame_index": 15
+    },
+    {
+      "file": "motion-scale2/animation-compact-dark-queue-closing-025-scale2.png",
+      "sha256": "9e90ad67c1e6c9577e3b473b512f905f8e0327f2938b8ee711d9f0df0cb8a784",
+      "frame_time": 47849176856,
+      "native_frame_index": 5
+    },
+    {
+      "file": "motion-scale2/animation-compact-dark-queue-closing-050-scale2.png",
+      "sha256": "cdda7d4b3668259e000929421068a9b17f3914e42f993534a41358c153d7fcdb",
+      "frame_time": 47849143522,
+      "native_frame_index": 3
+    },
+    {
+      "file": "motion-scale2/animation-compact-dark-queue-closing-075-scale2.png",
+      "sha256": "2e7cfa29b0ea9a565980f944d5672feba08dc644905a22c9a2db4fa217c950d8",
+      "frame_time": 47849110188,
+      "native_frame_index": 1
+    },
+    {
+      "file": "motion-scale2/animation-compact-dark-queue-closing-100-scale2.png",
+      "sha256": "59eb7c8243c080e3bf0d984cc87572b1eb342def2d27ee94b01a918f2d8eb4d4",
+      "frame_time": 47849043520,
+      "native_frame_index": 0
+    },
+    {
+      "file": "cold-scale1/footer-startup-first-start-frame000-scale1.png",
+      "sha256": "6f1cd48b51141d3819db04e42c2d9b28c17731a0128a826880ce4e6d11208744",
+      "pixel_dimensions": [
+        1430,
+        890
+      ]
+    },
+    {
+      "file": "cold-scale1/footer-startup-first-start-frame005-scale1.png",
+      "sha256": "61da7a54efc22d2b34b7cc92f2d88ef4b7e3ce4417e5f3976dea5ca773a7cac9",
+      "pixel_dimensions": [
+        1430,
+        890
+      ]
+    },
+    {
+      "file": "cold-scale1/footer-startup-first-start-frame003-scale1.png",
+      "sha256": "09ed86a411587a5c3007017a280a2f299ea8ba00833ba2ad2cdb6304ff181edc",
+      "pixel_dimensions": [
+        1430,
+        890
+      ]
+    },
+    {
+      "file": "cold-scale2/footer-startup-first-start-frame000-scale2.png",
+      "sha256": "881b080d6809fddc3aeeaa963655518a881d4a8184ec270864c0c40edd08d8c1",
+      "pixel_dimensions": [
+        2860,
+        1780
+      ]
+    },
+    {
+      "file": "cold-scale2/footer-startup-first-start-frame003-scale2.png",
+      "sha256": "394cf09dce36bc04fad6c3e3116c37310674992e1fb45c5c5b2dba373dd6b98e",
+      "pixel_dimensions": [
+        2860,
+        1780
+      ]
+    },
+    {
+      "file": "cold-scale2/footer-startup-first-start-frame005-scale2.png",
+      "sha256": "79691409dbcbf6dde1a0998eb8d0a809891249f21d7813a67e4a52d931248694",
+      "pixel_dimensions": [
+        2860,
+        1780
+      ]
+    }
+  ]
+}

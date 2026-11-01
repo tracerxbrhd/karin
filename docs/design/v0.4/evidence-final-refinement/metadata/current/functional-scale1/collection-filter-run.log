@@ -1,0 +1,26 @@
+
+running 1 test
+test ui::music::collection_filter::native_tests::native_collection_filter_continuation_and_exact_occurrences ... Karin catalog: operation=library outcome=success http=none stage=none event=result
+Karin catalog: operation=library outcome=http-rejected http=503 stage=none event=result
+Karin catalog: operation=library outcome=success http=none stage=none event=result
+Karin catalog: operation=current_like_read outcome=success http=none stage=none event=result
+Karin library: operation=like_read outcome=confirmed http=none
+Karin catalog: operation=library outcome=queued_latest http=none stage=none event=state
+Karin catalog: operation=detail outcome=requested http=none stage=none event=detail-requested
+Karin catalog: operation=library outcome=stale_result http=none stage=none event=state
+Karin catalog: operation=detail outcome=success http=none stage=none event=detail-result
+Karin catalog: operation=library outcome=success http=none stage=none event=result
+Karin catalog: operation=current_like_read outcome=success http=none stage=none event=result
+Karin library: operation=like_read outcome=confirmed http=none
+Karin catalog: operation=detail outcome=requested http=none stage=none event=detail-requested
+Karin catalog: operation=detail outcome=success http=none stage=none event=detail-result
+Karin catalog: operation=detail outcome=requested http=none stage=none event=detail-requested
+Karin catalog: operation=detail outcome=success http=none stage=none event=detail-result
+Karin catalog: operation=detail outcome=requested http=none stage=none event=detail-requested
+Karin catalog: operation=detail outcome=success http=none stage=none event=detail-result
+Karin catalog: operation=detail outcome=requested http=none stage=none event=detail-requested
+Karin catalog: operation=detail outcome=success http=none stage=none event=detail-result
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 419 filtered out; finished in 84.83s
+
