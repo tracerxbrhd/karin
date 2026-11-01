@@ -708,7 +708,13 @@ fn populated_window() -> (
                 actual.to_ascii_lowercase().contains("glrenderer"),
                 "requested GL renderer must not silently fall back: {actual}"
             ),
-            "gl" => panic!("removed GL alias cannot establish a verified visual renderer; use ngl"),
+            "gl" => {
+                assert!(
+                    gtk::major_version() == 4 && gtk::minor_version() < 18,
+                    "legacy GL is removed in GTK 4.18; use ngl without silent fallback"
+                );
+                assert_eq!(actual, "GskGLRenderer");
+            }
             _ => {}
         }
     }
@@ -999,6 +1005,14 @@ struct MotionFrame {
     mapped: Vec<bool>,
 }
 
+struct MotionTick {
+    time: i64,
+    progress: f64,
+    callback_enter_us: u128,
+    elapsed_us: u128,
+    has_render_node: bool,
+}
+
 fn named_widget(root: &impl IsA<gtk::Widget>, name: &str) -> gtk::Widget {
     descendants(root.as_ref())
         .into_iter()
@@ -1007,7 +1021,11 @@ fn named_widget(root: &impl IsA<gtk::Widget>, name: &str) -> gtk::Widget {
 }
 
 fn native_click(ui: &crate::ui::MainWindow, widget: &impl IsA<gtk::Widget>) {
+    let started = Instant::now();
+    let clock = ui.window.frame_clock().unwrap();
+    let initial_frame_time = clock.frame_time();
     let (x, y) = super::test_input::pointer(&ui.window, widget, super::test_input::Target::Center);
+    let target_ready_us = started.elapsed().as_micros();
     let result = Command::new("xdotool")
         .args([
             "search",
@@ -1021,6 +1039,7 @@ fn native_click(ui: &crate::ui::MainWindow, widget: &impl IsA<gtk::Widget>) {
     let windows = String::from_utf8(result.stdout).unwrap();
     let id = windows.lines().next().unwrap();
     assert!(id.bytes().all(|byte| byte.is_ascii_digit()));
+    let search_completed_us = started.elapsed().as_micros();
     // Keep GTK's frame clock advancing while X11 delivers the real press and
     // release. Waiting synchronously for xdotool can make an animation start
     // from an old frame timestamp and skip its first quarter in the fixture.
@@ -1042,6 +1061,10 @@ fn native_click(ui: &crate::ui::MainWindow, widget: &impl IsA<gtk::Widget>) {
         result.is_some()
     });
     assert!(result.unwrap().success());
+    eprintln!(
+        "Karin synthetic motion input: {}",
+        json!({"widget":widget.as_ref().widget_name().as_str(),"target_ready_us":target_ready_us,"search_completed_us":search_completed_us,"command_completed_us":started.elapsed().as_micros(),"initial_frame_time":initial_frame_time,"returned_frame_time":clock.frame_time()})
+    );
 }
 
 fn snapshot_motion_frame(
@@ -1251,34 +1274,104 @@ fn save_motion_frames(
             .map(|rect| rect.map(|rect| [rect.x(), rect.y(), rect.width(), rect.height()]))
             .collect::<Vec<_>>();
         writeln!(manifest,"{}",json!({"capture":file,"requested_progress":target,"actual_progress":frame.progress,
-            "frame_time":frame.time,"native_frame_index":index,"phase_convention":"openness","scale":scale,"renderer":ui.window.renderer().unwrap().type_().name(),"animations_enabled":true,"host":[frame.host.x(),frame.host.y(),frame.host.width(),frame.host.height()],
+            "frame_time":frame.time,"native_frame_index":index,"phase_convention":"openness","scale":scale,"renderer":ui.window.renderer().unwrap().type_().name(),"animations_enabled":true,
+            "measurement_scope":"graphics-initialized-normal-animation","cold_first_use_latency_accepted":false,
+            "graphics_initialization":"one-normal-open-close-and-six-native-offscreen-priming-renders",
+            "host":[frame.host.x(),frame.host.y(),frame.host.width(),frame.host.height()],
             "surface":frame.surface.map(|rect| [rect.x(),rect.y(),rect.width(),rect.height()]),"children":rectangles,"children_mapped":frame.mapped,
             "source":"native-after-paint-gtk-render-node-synthetic-fixture"})).unwrap();
     }
 }
 
-fn record_motion(
+fn motion_diagnostic_directory() -> std::path::PathBuf {
+    std::env::var_os("KARIN_TEST_CAPTURE_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            std::path::PathBuf::from("build/ui-captures/fixtures/native-music-motion-diagnostics")
+        })
+}
+
+fn dump_motion_observations(
+    ui: &crate::ui::MainWindow,
+    panel: &super::sliding_panel::SlidingPanel,
+    frames: &[MotionFrame],
+    ticks: &[MotionTick],
+    name: &str,
+    activation: Value,
+) {
+    let scale = ui.window.scale_factor();
+    let renderer = ui.window.renderer().unwrap().type_().name().to_string();
+    let after_paint = ticks
+        .iter()
+        .enumerate()
+        .map(|(index, tick)| {
+            json!({"after_paint_index":index,"frame_time":tick.time,"progress":tick.progress,"elapsed_us":tick.elapsed_us,
+                "callback_enter_us":tick.callback_enter_us,"snapshot_completed_us":tick.elapsed_us,
+                "snapshot_duration_us":tick.elapsed_us-tick.callback_enter_us,
+                "since_previous_callback_enter_us":index.checked_sub(1).map(|previous|tick.callback_enter_us-ticks[previous].callback_enter_us),
+                "native_frame_gap_us":index.checked_sub(1).map(|previous|tick.time-ticks[previous].time),"has_render_node":tick.has_render_node})
+        })
+        .collect::<Vec<_>>();
+    let graphics_initialization = name.starts_with("graphics-initialization-");
+    let summary = json!({"trajectory":name,"renderer":renderer,"scale":scale,
+        "scope":if graphics_initialization {"graphics-initialization"} else {"measured-normal-motion"},
+        "quarter_phase_acceptance":if graphics_initialization {"not-assessed"} else {"strict-assertion-follows"},
+        "window":[ui.window.width(),ui.window.height()],"native_surface":ui.window.surface().map(|surface|[surface.width(),surface.height()]),
+        "animations_enabled":gtk::Settings::default().unwrap().is_gtk_enable_animations(),"transition_duration_ms":panel.transition_duration(),
+        "after_paint_count":ticks.len(),"node_none_count":ticks.iter().filter(|tick|!tick.has_render_node).count(),
+        "retained_frame_count":frames.len(),"retained_intermediate_count":frames.iter().filter(|frame|frame.progress>0.01&&frame.progress<0.99).count(),
+        "activation":activation,"after_paint":after_paint});
+    // Emit before every assertion: even the first failed moving-frame guard
+    // must retain the actual callback observations, not just a generic panic.
+    eprintln!("Karin native motion observation: {summary}");
+    let directory = motion_diagnostic_directory();
+    std::fs::create_dir_all(&directory).unwrap();
+    let mut file =
+        std::fs::File::create(directory.join(format!("observed-{name}-scale{scale}.jsonl")))
+            .unwrap();
+    writeln!(file, "{}", json!({"event":"summary","observation":summary})).unwrap();
+    for (index, frame) in frames.iter().enumerate() {
+        let rectangle =
+            |rect: gtk::graphene::Rect| [rect.x(), rect.y(), rect.width(), rect.height()];
+        writeln!(file,"{}",json!({"event":"renderable-frame","trajectory":name,"renderer":renderer,"scale":scale,
+            "native_frame_index":index,"frame_time":frame.time,"progress":frame.progress,"host":rectangle(frame.host),
+            "surface":frame.surface.map(rectangle),"children":frame.children.iter().map(|rect|rect.map(rectangle)).collect::<Vec<_>>(),"children_mapped":frame.mapped})).unwrap();
+    }
+}
+
+fn observe_motion(
     ui: &crate::ui::MainWindow,
     panel: &super::sliding_panel::SlidingPanel,
     children: Vec<gtk::Widget>,
     opening: bool,
     name: &str,
     activate: impl FnOnce(),
-) {
+) -> Vec<MotionFrame> {
     let clock = ui.window.frame_clock().expect("mapped native frame clock");
+    let started = Instant::now();
     let frames = Rc::new(RefCell::new(Vec::new()));
     let captured = frames.clone();
+    let ticks = Rc::new(RefCell::new(Vec::new()));
+    let observed_ticks = ticks.clone();
     let window = ui.window.downgrade();
     let panel_weak = panel.downgrade();
     let signal = clock.connect_after_paint(move |clock| {
         let (Some(window), Some(panel)) = (window.upgrade(), panel_weak.upgrade()) else {
             return;
         };
-        // A retained WidgetPaintable publishes pending frames through an idle.
-        // A fresh observer synchronously reads the just-painted root render
-        // node, so geometry and pixels refer to THIS native frame, without
-        // idle starvation or a previous-frame cache under load.
-        if let Some(frame) = snapshot_motion_frame(&window, &panel, &children, clock.frame_time()) {
+        // Observe every callback, including an absent paintable render node.
+        // This separates an observation failure on another GTK version from
+        // missing animation progress; no callback is silently discarded.
+        let callback_enter_us = started.elapsed().as_micros();
+        let frame = snapshot_motion_frame(&window, &panel, &children, clock.frame_time());
+        observed_ticks.borrow_mut().push(MotionTick {
+            time: clock.frame_time(),
+            progress: panel.progress(),
+            callback_enter_us,
+            elapsed_us: started.elapsed().as_micros(),
+            has_render_node: frame.is_some(),
+        });
+        if let Some(frame) = frame {
             let mut frames = captured.borrow_mut();
             if frames
                 .last()
@@ -1290,7 +1383,13 @@ fn record_motion(
     });
     ui.window.queue_draw();
     pump(|| !frames.borrow().is_empty());
+    let activation_started_us = started.elapsed().as_micros();
+    let activation_frame_time = clock.frame_time();
+    let activation_progress = panel.progress();
     activate();
+    let activation_returned_us = started.elapsed().as_micros();
+    let activation_returned_frame_time = clock.frame_time();
+    let activation_returned_progress = panel.progress();
     let end = if opening { 1.0 } else { 0.0 };
     pump(|| {
         frames
@@ -1300,12 +1399,146 @@ fn record_motion(
     });
     clock.disconnect(signal);
     let frames = frames.borrow();
+    dump_motion_observations(
+        ui,
+        panel,
+        &frames,
+        &ticks.borrow(),
+        name,
+        json!({"started_us":activation_started_us,"returned_us":activation_returned_us,
+            "started_frame_time":activation_frame_time,"returned_frame_time":activation_returned_frame_time,
+            "started_progress":activation_progress,"returned_progress":activation_returned_progress,
+            "requested_reveal":panel.reveals_child(),"child_revealed":panel.is_child_revealed(),"mapped":panel.is_mapped()}),
+    );
+    frames.to_vec()
+}
+
+fn initialize_motion_graphics(
+    ui: &crate::ui::MainWindow,
+    panel: &super::sliding_panel::SlidingPanel,
+    children: Vec<gtk::Widget>,
+    name: &str,
+    open: impl FnOnce(),
+    close: impl FnOnce(),
+) {
+    // One fixed setup cycle, never a conditional retry. Software GPU pipeline
+    // initialization can stall a first paint longer than the animation itself.
+    // Retain that raw cold observation separately; it is NOT quarter-frame or
+    // first-use responsiveness acceptance. Production performs no prewarming.
+    assert_eq!(panel.transition_duration(), 240);
+    assert!(gtk::Settings::default().unwrap().is_gtk_enable_animations());
+    {
+        let frames = observe_motion(
+            ui,
+            panel,
+            children.clone(),
+            true,
+            &format!("graphics-initialization-{name}-opening"),
+            open,
+        );
+        assert_eq!(frames.first().unwrap().progress, 0.0);
+        assert_eq!(frames.last().unwrap().progress, 1.0);
+    }
+    prime_native_panel_graphics(ui, panel, name);
+    {
+        let frames = observe_motion(
+            ui,
+            panel,
+            children,
+            false,
+            &format!("graphics-initialization-{name}-closing"),
+            close,
+        );
+        assert_eq!(frames.first().unwrap().progress, 1.0);
+        assert_eq!(frames.last().unwrap().progress, 0.0);
+    }
+    assert!(gtk::Settings::default().unwrap().is_gtk_enable_animations());
+}
+
+fn prime_native_panel_graphics(
+    ui: &crate::ui::MainWindow,
+    panel: &super::sliding_panel::SlidingPanel,
+    name: &str,
+) {
+    // A cold paint can jump over partial-clip materials entirely. Initialize
+    // those GPU resources with a finite offscreen pass over the REAL mapped
+    // surface. These static renderer poses are never animation evidence: no
+    // UI progress/clock changes, screenshots or quarter-frame claims occur.
+    assert_eq!(panel.progress(), 1.0);
+    let surface = panel.surface().unwrap();
+    assert!(surface.is_mapped());
+    let width = surface.width();
+    let height = surface.height();
+    assert!(width > 0 && height > 0);
+    let paintable = gtk::WidgetPaintable::new(Some(&surface));
+    let snapshot = gtk::Snapshot::new();
+    paintable.snapshot(&snapshot, f64::from(width), f64::from(height));
+    let node = snapshot
+        .to_node()
+        .expect("graphics initialization requires the actual mapped native surface node");
+    let renderer = ui.window.renderer().unwrap();
+    let scale = ui.window.scale_factor();
+    let mut passes = Vec::new();
+    for fraction in [0.137_f32, 0.317, 0.533, 0.787, 0.941, 1.0] {
+        let started = Instant::now();
+        let snapshot = gtk::Snapshot::new();
+        snapshot.scale(scale as f32, scale as f32);
+        snapshot.push_clip(&gtk::graphene::Rect::new(
+            0.0,
+            0.0,
+            width as f32,
+            height as f32,
+        ));
+        snapshot.translate(&gtk::graphene::Point::new(
+            width as f32 * (1.0 - fraction),
+            0.0,
+        ));
+        snapshot.append_node(&node);
+        snapshot.pop();
+        let clipped = snapshot.to_node().unwrap();
+        let texture = renderer.render_texture(
+            &clipped,
+            Some(&gtk::graphene::Rect::new(
+                0.0,
+                0.0,
+                (width * scale) as f32,
+                (height * scale) as f32,
+            )),
+        );
+        // Native readback completes resource initialization; no image is
+        // saved, retained as evidence, or substituted for a measured frame.
+        let (pixels, _) = gdk::TextureDownloader::new(&texture).download_bytes();
+        assert!(!pixels.is_empty());
+        passes.push(json!({"static_fraction":fraction,"elapsed_us":started.elapsed().as_micros(),"physical_pixels":[texture.width(),texture.height()]}));
+    }
+    assert_eq!(panel.progress(), 1.0);
+    let record = json!({"scope":"graphics-initialization","stage":"renderer-priming","animation_proof":false,
+        "quarter_phase_acceptance":"not-assessed","trajectory":name,"renderer":renderer.type_().name().to_string(),"scale":scale,"passes":passes});
+    eprintln!("Karin native graphics initialization: {record}");
+    let directory = motion_diagnostic_directory();
+    std::fs::create_dir_all(&directory).unwrap();
+    let mut file = std::fs::File::create(directory.join(format!(
+        "graphics-initialization-renderer-priming-{name}-scale{scale}.jsonl"
+    )))
+    .unwrap();
+    writeln!(file, "{record}").unwrap();
+}
+
+fn record_motion(
+    ui: &crate::ui::MainWindow,
+    panel: &super::sliding_panel::SlidingPanel,
+    children: Vec<gtk::Widget>,
+    opening: bool,
+    name: &str,
+    activate: impl FnOnce(),
+) {
+    let frames = observe_motion(ui, panel, children, opening, name, activate);
     let phases = assert_whole_surface(&frames, opening);
     save_motion_frames(ui, &frames, phases, name);
 }
 
 #[test]
-#[ignore = "real ordinary GTK animation frames under isolated Xvfb; run at both scales"]
+#[ignore = "real ordinary GTK animation after recorded graphics initialization; run at both scales"]
 fn native_universal_panel_whole_surface_motion_and_mode_switch() {
     gtk::init().unwrap();
     adw::init().unwrap();
@@ -1375,6 +1608,24 @@ fn native_universal_panel_whole_surface_motion_and_mode_switch() {
                         this.widgets.queue_rows.clone().upcast(),
                     ]);
                 }
+                initialize_motion_graphics(
+                    &ui,
+                    &panel,
+                    children.clone(),
+                    &format!("{shape}-{theme}-{label}"),
+                    || {
+                        if mode == workspace::PanelMode::TrackInfo {
+                            native_click(&ui, &this.widgets.current_art_button);
+                        } else {
+                            native_click(
+                                &ui,
+                                &named_widget(&ui.music.player_bar, "music-queue-toggle"),
+                            );
+                        }
+                    },
+                    || native_click(&ui, &this.track_pane.close),
+                );
+                assert_eq!(this.panel_mode.get(), workspace::PanelMode::Closed);
                 record_motion(
                     &ui,
                     &panel,
