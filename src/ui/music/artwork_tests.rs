@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Synthetic Music metadata -> ordinary artwork request -> HTTP -> native pixels.
-//! No RAM seeding, external service, account, credential store or media resource.
+//! No RAM seeding, external service, account, credential store or service media.
 
 use super::tests::{capture_native, contains_text};
 use super::*;
@@ -289,6 +289,7 @@ impl Fixture {
         }
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let origin = format!("http://{}/", listener.local_addr().unwrap());
+        let media = player::tests::generated_mp3();
         listener.set_nonblocking(true).unwrap();
         let stop = Arc::new(AtomicBool::new(false));
         let image_count = Arc::new(AtomicUsize::new(0));
@@ -303,6 +304,7 @@ impl Fixture {
             let invalid_preset = invalid_preset.clone();
             let late_started = late_started.clone();
             let late_release = late_release.clone();
+            let media_origin = origin.clone();
             thread::spawn(move || {
                 while !stop.load(Ordering::Acquire) {
                     let (mut stream, _) = match listener.accept() {
@@ -347,6 +349,25 @@ impl Fixture {
                         .nth(1)
                         .unwrap();
                     let url = reqwest::Url::parse(&format!("http://127.0.0.1{target}")).unwrap();
+                    if url.path().starts_with("/download-info/")
+                        || url.path().starts_with("/get-mp3/")
+                    {
+                        assert!(
+                            !lower.contains("authorization:")
+                                && !lower.contains("cookie:")
+                                && !lower.contains("referer:")
+                        );
+                        if url.path().starts_with("/download-info/") {
+                            response(&mut stream, 200, "application/xml", b"<download-info><host>s268myt.storage.yandex.net</host><path>/karin-original-artwork.mp3</path><ts>1700000000</ts><s>original-synthetic-input</s></download-info>");
+                        } else {
+                            super::design_tests::serve_original_media(
+                                &mut stream,
+                                &request,
+                                &media,
+                            );
+                        }
+                        continue;
+                    }
                     if url.path().starts_with("/get-music-") {
                         assert!(
                             !lower.contains("authorization:") && !lower.contains("cookie:"),
@@ -409,9 +430,11 @@ impl Fixture {
                     );
                     let track = synthetic_track();
                     let body = match url.path() {
+                        path if path.starts_with("/tracks/") && path.ends_with("/download-info") => json!({"result":[{"codec":"mp3","bitrateInKbps":192,"preview":false,"direct":false,"downloadInfoUrl":format!("{media_origin}download-info/42")}]}),
                         "/account/status" => json!({"result":{"account":{"uid":1234,"displayName":"Synthetic artwork account"}}}),
                         "/users/1234/likes/tracks" => json!({"result":{"library":{"uid":1234,"revision":1,"tracks":[{"id":42,"track":track}]}}}),
                         "/users/1234/playlists/list" => json!({"result":[{"owner":{"uid":1234},"kind":3,"title":"Synthetic green playlist","trackCount":1,"cover":{"itemsUri":[PLAYLIST_COVER]}}]}),
+                        "/users/1234/likes/playlists" => json!({"result":[]}),
                         "/albums/7/with-tracks" => json!({"result":{"id":7,"title":"Synthetic blue album","coverUri":ALBUM_COVER,"artists":[],"volumes":[[track]]}}),
                         "/albums/8/with-tracks" => {
                             let mut tracks = vec![track];
@@ -566,13 +589,32 @@ fn native_cover_metadata_http_cache_and_render_lifecycle() {
     this.render_controls();
     this.render_queue();
     this.render_liked(Ok(liked), 0);
-    this.select_track_info(track.clone(), Some(context), true);
+    this.select_track_info(track.clone(), Some(context.clone()), true);
     this.widgets.stack.set_visible_child_name("library");
     ui.window.set_title(Some("Karin synthetic HTTP fixture"));
     ui.window.set_default_size(1440, 900);
+    this.set_fixture_resolver_for_test(crate::stream::StreamResolver::for_test(
+        &fixture.origin,
+        &fixture.origin,
+        &fixture.origin,
+    ));
     ui.window.present();
+    pump(|| !rendered_covers(&this.widgets.library_rows).is_empty());
+    assert!(!this.widgets.player_revealer.reveals_child());
+    assert!(!this.widgets.current_art.is_mapped());
+    // Covers in a hidden idle player cannot be native visible pixels. Traverse
+    // the real resolver and generated MP3 worker, then pause for stable evidence.
+    this.play_music_context(context);
     pump(|| {
-        !rendered_covers(&this.widgets.library_rows).is_empty()
+        this.music_snapshot()
+            .is_some_and(|snapshot| snapshot.state == crate::playback::PlaybackState::Playing)
+    });
+    this.pause_music();
+    pump(|| {
+        this.music_snapshot()
+            .is_some_and(|snapshot| snapshot.state == crate::playback::PlaybackState::Paused)
+            && this.widgets.player_revealer.is_child_revealed()
+            && !rendered_covers(&this.widgets.library_rows).is_empty()
             && !rendered_covers(&this.widgets.current_art).is_empty()
     });
     for root in [
@@ -638,13 +680,13 @@ fn native_cover_metadata_http_cache_and_render_lifecycle() {
     pump(|| !ui.window.is_maximized());
     resize_cover_window(&ui, 1440, 900);
 
-    // Exercise the real selector handler so the displayed mode matches the
-    // playlist grid. It may reuse the already validated model page or request
-    // it; finish that request lane before opening an album below.
+    // Exercise the section handler and its actual mapped combined page. It may
+    // reuse the admitted owned snapshot while fetching only missing liked data.
     this.widgets.library_mode.set_selected(1);
     pump(|| {
         !this.model.borrow().busy
-            && this.model.borrow().library_displaying == Some((1, 0))
+            && this.widgets.stack.visible_child_name().as_deref() == Some("playlists")
+            && this.playlist_grid.widget.is_mapped()
             && !rendered_covers(&this.playlist_grid.widget).is_empty()
     });
     for overlay in rendered_covers(&this.playlist_grid.widget) {

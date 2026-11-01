@@ -15,6 +15,7 @@ mod account;
 mod artwork_tests;
 mod catalog_layout;
 mod catalog_view;
+mod continuous_loading;
 #[cfg(test)]
 mod design_tests;
 #[cfg(test)]
@@ -47,7 +48,7 @@ type PendingJob = Box<dyn FnOnce(&Rc<Controller>, u64)>;
 /// The row owns its typed action; removing/replacing it also removes the
 /// action's captured metadata. The list has one user-activation dispatcher.
 enum RowAction {
-    Track(PlaybackContext),
+    LoadedTrack(Rc<dyn Fn() -> Option<PlaybackContext>>),
     SearchPlaylist(crate::music::SearchPlaylist),
     Album(String),
     Artist(Artist),
@@ -90,6 +91,7 @@ struct Model {
     attempt: Option<Arc<AuthAttempt>>,
     liked: Option<Result<Page<Track>, MusicError>>,
     playlists: Option<Result<Page<Playlist>, MusicError>>,
+    liked_playlists: Option<Result<Page<Playlist>, MusicError>>,
     library_origins: Vec<(u32, u32, crate::catalog_cache::Provenance, bool)>,
     library_displaying: Option<(u32, u32)>,
 }
@@ -117,7 +119,13 @@ struct Widgets {
     home_preview: gtk::ListBox,
     home_collections: gtk::FlowBox,
     stack: gtk::Stack,
-    library_mode: gtk::DropDown,
+    library_mode: gtk::SingleSelection,
+    primary_navigation: gtk::Box,
+    nav_wave: gtk::ToggleButton,
+    nav_liked: gtk::ToggleButton,
+    nav_playlists: gtk::ToggleButton,
+    nav_search: gtk::Button,
+    library_feedback: gtk::Box,
     library_refresh: gtk::Button,
     library_rows: gtk::ListBox,
     library_hero: gtk::Box,
@@ -143,6 +151,7 @@ struct Widgets {
     current_art_button: gtk::Button,
     current_like_slot: gtk::Box,
     player_main: gtk::Box,
+    player_revealer: gtk::Revealer,
     position: gtk::Label,
     player_status: gtk::Label,
     play: gtk::Button,
@@ -191,6 +200,13 @@ struct Controller {
     detail_refresh: RefCell<Option<DetailRefresh>>,
     music_surface_visible: Cell<bool>,
     detail_cache: Cell<Option<(crate::catalog_cache::Provenance, bool)>>,
+    track_feeds: RefCell<Vec<continuous_loading::Feed>>,
+    feed_epoch: Cell<u64>,
+    playlist_pages: Cell<[u32; 2]>,
+    playlist_epochs: Cell<[u64; 2]>,
+    playlist_refreshing: Cell<[bool; 2]>,
+    content_scroll: RefCell<glib::WeakRef<gtk::ScrolledWindow>>,
+    liked_playlist_grid: playlist_grid::PlaylistGrid,
 }
 
 struct OfflineProvider;
@@ -332,6 +348,37 @@ impl MusicPane {
         status_revealer.set_visible(false);
         widget.append(&status_revealer);
 
+        let navigation = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        navigation.set_widget_name("music-primary-tabs");
+        let segments = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        segments.add_css_class("linked");
+        segments.set_hexpand(true);
+        navigation.set_halign(gtk::Align::Center);
+        navigation.set_size_request(-1, 42);
+        let nav_wave = gtk::ToggleButton::with_label("Моя волна");
+        let nav_liked = gtk::ToggleButton::with_label("Нравится");
+        let nav_playlists = gtk::ToggleButton::with_label("Плейлисты");
+        nav_liked.set_group(Some(&nav_wave));
+        nav_playlists.set_group(Some(&nav_wave));
+        for (button, name) in [
+            (&nav_wave, "music-tab-wave"),
+            (&nav_liked, "music-tab-liked"),
+            (&nav_playlists, "music-tab-playlists"),
+        ] {
+            button.set_widget_name(name);
+            button.set_hexpand(true);
+            segments.append(button);
+        }
+        nav_wave.set_action_name(Some("win.music-home"));
+        nav_liked.set_action_name(Some("win.music-library"));
+        nav_playlists.set_action_name(Some("win.music-playlists"));
+        nav_wave.set_active(true);
+        navigation.append(&segments);
+        let nav_search = icon_button("system-search-symbolic", "Поиск музыки");
+        nav_search.set_widget_name("music-navigation-search");
+        nav_search.set_action_name(Some("win.music-search"));
+        navigation.append(&nav_search);
+        widget.append(&navigation);
         let stack = gtk::Stack::new();
         // Measure the visible page. GTK 4.14 otherwise measures hidden wrapped
         // pages at their minimum height, forcing their natural width on the
@@ -354,20 +401,24 @@ impl MusicPane {
             home_preview,
             home_collections,
         } = home::HomeParts::new();
-        stack.add_titled(&home, Some("home"), "Главная");
+        clear_box(&home_signedin);
+        let wave = adw::StatusPage::builder()
+            .title("Моя волна")
+            .description("Персональная волна пока не подключена. Ваша музыка — в разделах «Нравится», «Плейлисты» и поиске.")
+            .icon_name("radio-symbolic")
+            .build();
+        wave.set_widget_name("music-wave-placeholder");
+        home_signedin.append(&wave);
+        stack.add_titled(&home, Some("home"), "Моя волна");
         stack.set_visible_child_name("home");
 
         let library = gtk::Box::new(gtk::Orientation::Vertical, 10);
-        let library_mode =
-            gtk::DropDown::from_strings(&["Треки", "Мои плейлисты", "Избранные плейлисты"]);
-        library_mode.set_hexpand(false);
-        library_mode.set_halign(gtk::Align::Start);
-        library_mode.update_property(&[gtk::accessible::Property::Label("Раздел библиотеки")]);
-        let library_controls = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-        library_controls.append(&library_mode);
+        let library_mode = gtk::SingleSelection::new(Some(gtk::StringList::new(&[
+            "Нравится",
+            "Мои плейлисты",
+            "Понравившиеся плейлисты",
+        ])));
         let library_refresh = icon_button("view-refresh-symbolic", "Обновить библиотеку");
-        library_controls.append(&library_refresh);
-        library.append(&library_controls);
         let library_hero = gtk::Box::new(gtk::Orientation::Horizontal, 16);
         library_hero.set_widget_name("music-library-hero");
         library_hero.add_css_class("music-collection-hero");
@@ -376,7 +427,27 @@ impl MusicPane {
         set_empty(&library_rows, "Ваша библиотека появится после входа.");
         library.append(&library_rows);
         playlist_grid.widget.set_visible(false);
-        library.append(&playlist_grid.widget);
+        let library_feedback = gtk::Box::new(gtk::Orientation::Vertical, 6);
+        library_feedback.set_widget_name("music-liked-feed-status");
+        library.append(&library_feedback);
+        let playlists_page = gtk::Box::new(gtk::Orientation::Vertical, 20);
+        playlists_page.set_widget_name("music-playlists-page");
+        playlists_page.append(&text("Мои плейлисты", "title-2"));
+        playlists_page.append(&playlist_grid.widget);
+        let liked_playlist_grid = playlist_grid::PlaylistGrid::new(artwork.clone(), {
+            let link = controller_link.clone();
+            Rc::new(move |action| {
+                if let Some(this) = link.borrow().upgrade() {
+                    this.handle_playlist_action(action);
+                }
+            })
+        });
+        liked_playlist_grid
+            .widget
+            .set_widget_name("music-liked-playlists-grid");
+        playlists_page.append(&text("Понравившиеся плейлисты", "title-2"));
+        playlists_page.append(&liked_playlist_grid.widget);
+        stack.add_titled(&playlists_page, Some("playlists"), "Плейлисты");
         let library_pages = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         let library_previous = gtk::Button::with_label("Назад");
         library_previous.set_tooltip_text(Some("Предыдущая страница библиотеки"));
@@ -387,7 +458,7 @@ impl MusicPane {
         library_next.set_visible(false);
         library_pages.append(&library_previous);
         library_pages.append(&library_next);
-        library.append(&library_pages);
+        // Track pagination is driven by the outer scroll threshold.
         stack.add_titled(&library, Some("library"), "Библиотека");
 
         // The HeaderBar already names this page. Give the entry and results
@@ -478,6 +549,7 @@ impl MusicPane {
         stack.add_named(&detail, Some("detail"));
         let player_bar::PlayerBarParts {
             player_bar,
+            player_revealer,
             player_main,
             current,
             current_artist,
@@ -536,6 +608,12 @@ impl MusicPane {
             home_collections,
             stack,
             library_mode,
+            primary_navigation: navigation,
+            nav_wave,
+            nav_liked,
+            nav_playlists,
+            nav_search,
+            library_feedback,
             library_refresh,
             library_rows,
             library_hero,
@@ -561,6 +639,7 @@ impl MusicPane {
             current_art_button,
             current_like_slot,
             player_main,
+            player_revealer,
             position,
             player_status,
             play,
@@ -602,6 +681,7 @@ impl MusicPane {
                 attempt: None,
                 liked: None,
                 playlists: None,
+                liked_playlists: None,
                 library_origins: Vec::new(),
                 library_displaying: None,
             }),
@@ -627,6 +707,13 @@ impl MusicPane {
             detail_refresh: RefCell::new(None),
             music_surface_visible: Cell::new(true),
             detail_cache: Cell::new(None),
+            track_feeds: RefCell::new(Vec::new()),
+            feed_epoch: Cell::new(0),
+            playlist_pages: Cell::new([0, 0]),
+            playlist_epochs: Cell::new([0, 0]),
+            playlist_refreshing: Cell::new([false, false]),
+            content_scroll: RefCell::new(glib::WeakRef::new()),
+            liked_playlist_grid,
         });
         *controller_link.borrow_mut() = Rc::downgrade(&controller);
         if let (Some(artwork), Some(cache)) = (&controller.artwork, controller.persistent_cache()) {
@@ -659,11 +746,20 @@ impl MusicPane {
     pub fn navigation_target(&self, action: &str) -> gtk::Widget {
         match action {
             "music-search" => self.controller.widgets.search.clone().upcast(),
-            "music-library" => self.controller.widgets.library_mode.clone().upcast(),
-            "music-home" => self.controller.widgets.home_liked.clone().upcast(),
+            "music-library" => self.controller.widgets.nav_liked.clone().upcast(),
+            "music-playlists" => self.controller.widgets.nav_playlists.clone().upcast(),
+            "music-home" => self.controller.widgets.nav_wave.clone().upcast(),
             "music-queue" => self.controller.widgets.queue_rows.clone().upcast(),
             _ => self.controller.widgets.login.clone().upcast(),
         }
+    }
+
+    pub(in crate::ui) fn take_navigation_bar(&self) -> gtk::Box {
+        let navigation = self.controller.widgets.primary_navigation.clone();
+        if navigation.parent().as_ref() == Some(self.widget.upcast_ref()) {
+            self.widget.remove(&navigation);
+        }
+        navigation
     }
 
     pub fn primary_action(&self) -> gtk::Button {
@@ -1323,9 +1419,16 @@ impl Controller {
             let weak = Rc::downgrade(self);
             button.connect_clicked(move |_| {
                 if let Some(this) = weak.upgrade() {
-                    this.widgets.stack.set_visible_child_name("library");
+                    this.widgets.stack.set_visible_child_name(if mode == 0 {
+                        "library"
+                    } else {
+                        "playlists"
+                    });
+                    let changed = this.widgets.library_mode.selected() != mode;
                     this.widgets.library_mode.set_selected(mode);
-                    this.show_library();
+                    if !changed {
+                        this.show_library();
+                    }
                 }
             });
         }
@@ -1343,11 +1446,20 @@ impl Controller {
             }
         });
         let weak = Rc::downgrade(self);
-        self.widgets.library_mode.connect_selected_notify(move |_| {
-            if let Some(this) = weak.upgrade() {
-                this.show_library();
-            }
-        });
+        self.widgets
+            .library_mode
+            .connect_selected_notify(move |selection| {
+                if let Some(this) = weak.upgrade() {
+                    this.widgets
+                        .stack
+                        .set_visible_child_name(if selection.selected() == 0 {
+                            "library"
+                        } else {
+                            "playlists"
+                        });
+                    this.show_library();
+                }
+            });
         let weak = Rc::downgrade(self);
         self.widgets.library_refresh.connect_clicked(move |_| {
             if let Some(this) = weak.upgrade() {
@@ -1413,7 +1525,18 @@ impl Controller {
             .stack
             .connect_visible_child_name_notify(move |_| {
                 if let Some(this) = weak.upgrade() {
+                    let route = this.widgets.stack.visible_child_name();
+                    this.widgets
+                        .nav_wave
+                        .set_active(route.as_deref() == Some("home"));
+                    this.widgets
+                        .nav_liked
+                        .set_active(route.as_deref() == Some("library"));
+                    this.widgets
+                        .nav_playlists
+                        .set_active(route.as_deref() == Some("playlists"));
                     this.model.borrow_mut().view_generation += 1;
+                    this.interrupt_feed_reads(Operation::Detail);
                     this.requests.borrow_mut().invalidate(Operation::Detail);
                     this.requests.borrow_mut().invalidate(Operation::Delivery);
                     this.cancel_delivery();
@@ -1442,6 +1565,7 @@ impl Controller {
         for (name, page, accelerator) in [
             ("music-home", "home", "<Primary>h"),
             ("music-library", "library", "<Primary>l"),
+            ("music-playlists", "playlists", "<Primary>p"),
             ("music-search", "search", "<Primary>f"),
         ] {
             let action = gio::SimpleAction::new(name, None);
@@ -1449,6 +1573,14 @@ impl Controller {
             action.connect_activate(move |_, _| {
                 if let Some(this) = weak.upgrade() {
                     this.widgets.stack.set_visible_child_name(page);
+                    if page == "library" || page == "playlists" {
+                        let mode = u32::from(page == "playlists");
+                        let changed = this.widgets.library_mode.selected() != mode;
+                        this.widgets.library_mode.set_selected(mode);
+                        if !changed {
+                            this.show_library();
+                        }
+                    }
                     if page == "search" {
                         this.widgets.search.grab_focus();
                     }
@@ -1497,7 +1629,9 @@ impl Controller {
         self.widgets.account_bar.set_visible(!model.account_valid);
         self.widgets.account_menu.set_visible(model.account_valid);
         self.widgets.account_menu.set_sensitive(ready);
-        self.widgets.library_mode.set_sensitive(ready);
+        self.widgets.nav_liked.set_sensitive(ready);
+        self.widgets.nav_playlists.set_sensitive(ready);
+        self.widgets.nav_search.set_sensitive(ready);
         self.widgets.library_refresh.set_sensitive(ready);
         // Independent lanes accept actions during unrelated work. Repeated
         // requests in one lane retain only the latest pending action.
@@ -1522,11 +1656,10 @@ impl Controller {
         self.widgets
             .logout
             .set_sensitive(model.token.is_some() && !model.closed);
-        // Search owns its one inline loading/error area. A second global card
-        // would repeat the same state and push the actual results down.
-        let visible_work = (model.auth_busy
-            || self.requests.borrow().busy_except(Operation::Search))
-            && (model.account_valid || self.login_dialog.borrow().is_some());
+        // Catalog feeds, details, mutations and footer Like own their inline
+        // feedback. Growing a second global card would move the scroll anchor.
+        let visible_work =
+            model.auth_busy && (model.account_valid || self.login_dialog.borrow().is_some());
         self.widgets.spinner.set_spinning(visible_work);
         self.widgets.spinner.set_visible(visible_work);
         let has_error = self
@@ -1550,6 +1683,7 @@ impl Controller {
         self.stop_music();
         self.clear_system_media();
         self.mutation_busy.set(false);
+        self.playlist_refreshing.set([false, false]);
         self.clear_text_focus();
         self.requests.borrow_mut().invalidate_all();
         self.cancel_delivery();
@@ -1569,10 +1703,14 @@ impl Controller {
         model.queue.reset_modes();
         model.liked = None;
         model.playlists = None;
+        model.liked_playlists = None;
+        self.track_feeds.borrow_mut().clear();
         if let Some(attempt) = model.attempt.take() {
             attempt.cancel();
         }
         drop(model);
+        clear_box(&self.widgets.library_hero);
+        clear_box(&self.widgets.library_feedback);
         // Retire the target after stop_music rendered its final worker state.
         // With the model closed, no subsequent presentation can rehydrate it.
         self.clear_workspace();
@@ -1590,6 +1728,7 @@ impl Controller {
         self.stop_music();
         self.clear_system_media();
         self.mutation_busy.set(false);
+        self.playlist_refreshing.set([false, false]);
         self.clear_text_focus();
         self.requests.borrow_mut().invalidate_all();
         self.cancel_delivery();
@@ -1610,6 +1749,8 @@ impl Controller {
             model.queue.reset_modes();
             model.liked = None;
             model.playlists = None;
+            model.liked_playlists = None;
+            self.track_feeds.borrow_mut().clear();
             model.library_origins.clear();
             model.library_displaying = None;
             model.library_page = 0;
@@ -1637,6 +1778,8 @@ impl Controller {
         );
         set_empty(&self.widgets.search_rows, "Введите запрос после входа.");
         self.clear_search_feedback();
+        clear_box(&self.widgets.library_feedback);
+        clear_box(&self.widgets.library_hero);
         self.render_home_preview();
         clear_box(&self.widgets.detail);
         self.widgets.library_next.set_visible(false);
@@ -1656,6 +1799,9 @@ impl Controller {
     }
 
     fn invalidate_search(&self) {
+        self.track_feeds
+            .borrow_mut()
+            .retain(|feed| feed.rows != self.widgets.search_rows);
         self.clear_search_feedback();
         self.requests.borrow_mut().invalidate(Operation::Search);
         let mut model = self.model.borrow_mut();
@@ -2398,6 +2544,12 @@ mod tests {
                 false,
             ),
             ("GET /users/1234/playlists/list", 200, playlists, false),
+            (
+                "GET /users/1234/likes/playlists",
+                503,
+                "{}".to_owned(),
+                false,
+            ),
             ("GET /account/status", 200, account, true),
         ];
         let server = thread::spawn(move || {
@@ -2497,11 +2649,25 @@ mod tests {
         dialog.retry.emit_clicked();
         pump_until(|| this.model.borrow().account_valid && !this.model.borrow().busy);
         assert!(this.login_dialog.borrow().is_none());
+        assert!(this.model.borrow().account_valid);
+        assert_eq!(
+            this.model.borrow().liked.as_ref().unwrap().as_ref().err(),
+            Some(&MusicError::Forbidden)
+        );
         assert!(contains_text(
-            pane.widget.upcast_ref(),
-            "Music API отклонил запрос"
+            this.widgets.library_feedback.upcast_ref(),
+            "Не удалось загрузить следующие треки"
+        ));
+        assert!(
+            button_with_label(this.widgets.library_feedback.upcast_ref(), "Повторить").is_some()
+        );
+        assert!(!contains_text(
+            this.widgets.library_feedback.upcast_ref(),
+            "HTTP"
         ));
         this.widgets.library_mode.set_selected(1);
+        pump_until(|| requested.load(Ordering::Acquire) == 6 && !this.model.borrow().busy);
+        assert!(matches!(this.model.borrow().liked_playlists, Some(Err(_))));
         assert!(contains_text(
             this.playlist_grid.widget.upcast_ref(),
             "Synthetic independent playlist"
@@ -2529,7 +2695,7 @@ mod tests {
         this.cancel_login();
         blocked.store(false, Ordering::Release);
         this.widgets.login.emit_clicked();
-        pump_until(|| requested.load(Ordering::Acquire) == 6);
+        pump_until(|| requested.load(Ordering::Acquire) == 7);
         let weak = Rc::downgrade(&pane.controller);
         pane.close();
         assert!(this.model.borrow().token.is_none());
@@ -2571,11 +2737,16 @@ mod tests {
             ("GET /account/status", account, false),
             ("GET /users/1234/likes/tracks", liked.clone(), false),
             ("POST /tracks", tracks.clone(), false),
-            ("GET /users/1234/playlists/list", playlists, false),
+            ("GET /users/1234/playlists/list", playlists.clone(), false),
             ("GET /users/1234/likes/tracks", liked.clone(), false),
             ("POST /tracks", tracks.clone(), false),
-            ("GET /users/1234/likes/tracks", liked, false),
+            ("GET /users/1234/likes/tracks", liked.clone(), false),
             ("POST /tracks", tracks.clone(), false),
+            (
+                "GET /users/1234/likes/playlists",
+                json!({"result":[]}),
+                false,
+            ),
             ("GET /users/1234/playlists/3", playlist, false),
             ("POST /tracks", tracks.clone(), false),
             ("GET /search", search.clone(), false),
@@ -2769,10 +2940,10 @@ mod tests {
         );
         assert!(this.widgets.home_signedin.is_visible());
         assert!(!this.widgets.home_signedout.is_visible());
-        assert_eq!(rows(&this.widgets.home_preview), 3);
+        assert_eq!(rows(&this.widgets.home_preview), 0);
         assert!(contains_text(
-            this.widgets.home_preview.upcast_ref(),
-            "Synthetic UI track"
+            this.widgets.home_signedin.upcast_ref(),
+            "Персональная волна пока не подключена"
         ));
         capture_native("home");
         gtk::prelude::WidgetExt::activate_action(&window, "win.diagnostics", None).unwrap();
@@ -2797,17 +2968,115 @@ mod tests {
         this.widgets.stack.set_visible_child_name("library");
         this.show_library();
         assert_eq!(rows(&this.widgets.library_rows), 50);
-        assert!(this.widgets.library_next.is_visible());
-        capture_native("library");
-        this.widgets.library_next.emit_clicked();
-        pump_until(|| !this.model.borrow().busy);
-        assert_eq!(rows(&this.widgets.library_rows), 1);
         assert!(!this.widgets.library_next.is_visible());
-        assert!(this.widgets.library_previous.is_visible());
-        this.widgets.library_previous.emit_clicked();
+        capture_native("library");
+        let liked_feed = this
+            .track_feeds
+            .borrow()
+            .iter()
+            .find(|feed| feed.rows == this.widgets.library_rows)
+            .unwrap()
+            .clone();
+        let first_row = this.widgets.library_rows.row_at_index(0).unwrap();
+        this.request_track_feed(&liked_feed, false);
         pump_until(|| !this.model.borrow().busy);
-        assert_eq!(rows(&this.widgets.library_rows), 50);
+        assert_eq!(rows(&this.widgets.library_rows), 51);
+        assert_eq!(
+            this.widgets.library_rows.row_at_index(0),
+            Some(first_row.clone())
+        );
+        assert!(!liked_feed.data.borrow().has_more);
         assert!(!this.widgets.library_previous.is_visible());
+        // A confirmed membership mutation can shift every remote page offset.
+        // Retiring its loaded snapshot must restart at page zero/new epoch,
+        // never append the next cursor to the former membership snapshot.
+        let old_epoch = liked_feed.data.borrow().epoch;
+        let old_play = first_row
+            .child()
+            .and_downcast::<gtk::Box>()
+            .and_then(|body| {
+                let mut child = body.first_child();
+                while let Some(widget) = child {
+                    child = widget.next_sibling();
+                    if widget.widget_name() == "music-track-play" {
+                        return widget.downcast::<gtk::Button>().ok();
+                    }
+                }
+                None
+            })
+            .expect("retained source row Play action");
+        let old_menu = first_row
+            .child()
+            .unwrap()
+            .last_child()
+            .unwrap()
+            .downcast::<gtk::MenuButton>()
+            .unwrap();
+        let old_actions = [
+            "Открыть сведения о треке",
+            "Воспроизвести",
+            "Добавить в очередь",
+            "Открыть альбом",
+        ]
+        .into_iter()
+        .map(|label| button_with_label(old_menu.popover().unwrap().upcast_ref(), label).unwrap())
+        .collect::<Vec<_>>();
+        this.invalidate_liked_feeds();
+        this.model.borrow_mut().liked = None;
+        assert!(contains_text(
+            this.widgets.library_feedback.upcast_ref(),
+            "Библиотека изменилась"
+        ));
+        let refresh =
+            button_with_label(this.widgets.library_feedback.upcast_ref(), "Обновить").unwrap();
+        refresh.emit_clicked();
+        pump_until(|| !this.model.borrow().busy);
+        let fresh_feed = this
+            .track_feeds
+            .borrow()
+            .iter()
+            .find(|feed| feed.rows == this.widgets.library_rows)
+            .unwrap()
+            .clone();
+        assert!(fresh_feed.data.borrow().epoch > old_epoch);
+        assert_eq!(
+            fresh_feed.data.borrow().next_page,
+            1,
+            "membership restart requests provider page zero"
+        );
+        assert_eq!(
+            rows(&this.widgets.library_rows),
+            50,
+            "old51positions are replaced explicitly, never appended across shifted membership"
+        );
+        assert!(fresh_feed.data.borrow().has_more);
+        assert_eq!(
+            this.model
+                .borrow()
+                .liked
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .items
+                .len(),
+            50
+        );
+        assert!(this.model.borrow().queue.items().is_empty());
+        old_play.emit_clicked();
+        assert!(
+            this.model.borrow().queue.items().is_empty(),
+            "retired-source actions cannot play against a new membership cursor"
+        );
+        for old_action in old_actions {
+            old_action.emit_clicked();
+        }
+        assert!(this.model.borrow().queue.items().is_empty());
+        assert_eq!(
+            this.widgets.stack.visible_child_name().as_deref(),
+            Some("library"),
+            "late retired-source popup actions cannot change the current route"
+        );
         this.widgets.library_mode.set_selected(1);
         pump_until(|| !this.model.borrow().busy);
         assert!(contains_text(
@@ -2899,28 +3168,18 @@ mod tests {
         };
         assert_eq!(rows(&album_rows), 50);
         capture_native("album");
-        this.widgets
-            .detail
-            .last_child()
+        let album_feed = this
+            .track_feeds
+            .borrow()
+            .iter()
+            .find(|feed| matches!(feed.source, continuous_loading::FeedSource::Album(_)))
             .unwrap()
-            .last_child()
-            .unwrap()
-            .downcast::<gtk::Button>()
-            .unwrap()
-            .emit_clicked();
-        // A collection's Play action belongs inside its hero. Locate the
-        // actual track list by type instead of an obsolete child position.
-        let album_rows = {
-            let mut child = this.widgets.detail.first_child();
-            loop {
-                let widget = child.expect("album detail must contain its real track list");
-                child = widget.next_sibling();
-                if let Ok(rows) = widget.downcast::<gtk::ListBox>() {
-                    break rows;
-                }
-            }
-        };
-        assert_eq!(rows(&album_rows), 13);
+            .clone();
+        let original_album_row = album_rows.row_at_index(0).unwrap();
+        this.request_track_feed(&album_feed, false);
+        assert_eq!(rows(&album_rows), 63);
+        assert_eq!(album_rows.row_at_index(0), Some(original_album_row));
+        assert!(!album_feed.data.borrow().has_more);
         this.widgets.stack.set_visible_child_name("search");
         this.widgets.search.set_text("Late result");
         this.widgets.search_button.emit_clicked();
@@ -2943,6 +3202,11 @@ mod tests {
         assert!(this.model.borrow().token.is_none());
         assert!(!this.model.borrow().account_valid);
         assert!(this.model.borrow().queue.items().is_empty());
+        assert!(
+            this.widgets.library_hero.first_child().is_none(),
+            "logout removes the retained cover, count and collection Play action"
+        );
+        assert!(this.widgets.library_feedback.first_child().is_none());
         assert!(!contains_text(
             pane.widget.upcast_ref(),
             "Synthetic UI track"
@@ -2956,6 +3220,7 @@ mod tests {
         assert!(!this.widgets.status_revealer.reveals_child());
         let weak = Rc::downgrade(&pane.controller);
         pane.close();
+        assert!(this.widgets.library_hero.first_child().is_none());
         let closed_generation = this.model.borrow().generation;
         this.widgets
             .player_status
@@ -2972,5 +3237,6 @@ mod tests {
         drop(window);
         pump_until(|| weak.upgrade().is_none());
         validation_failure_cancel_and_retry(&app);
+        continuous_loading::exercise_parallel_playlist_more();
     }
 }

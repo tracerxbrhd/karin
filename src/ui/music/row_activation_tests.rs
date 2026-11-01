@@ -110,6 +110,7 @@ fn first(list: &gtk::ListBox) -> gtk::ListBoxRow {
 fn playlist_tile(this: &Controller, title: &str) -> Option<gtk::Button> {
     descendants(this.playlist_grid.widget.upcast_ref())
         .into_iter()
+        .chain(descendants(this.liked_playlist_grid.widget.upcast_ref()))
         .filter(|widget| widget.widget_name() == "music-playlist-tile")
         .filter_map(|widget| widget.downcast::<gtk::Button>().ok())
         .find(|button| contains_text(button.upcast_ref(), title))
@@ -450,7 +451,7 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
                 "/users/1234/likes/playlists"
             };
             let before_refresh = count(refresh_path);
-            click(window, id, &this.widgets.library_refresh);
+            input(&["key", "--clearmodifiers", "ctrl+r"]);
             pump_until(|| count(refresh_path) > before_refresh && !this.model.borrow().busy);
         }
         for method in [None, Some("Return"), Some("space")] {
@@ -480,7 +481,7 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
                 "Synthetic input track"
             ));
             click(window, id, &this.widgets.detail.first_child().unwrap());
-            pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("library"));
+            pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("playlists"));
         }
     }
     for (kind, enter, path, title) in [
@@ -626,7 +627,14 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
     unavailable.available = true;
     this.enqueue(unavailable);
     let queue_toggle = named_button(window.upcast_ref(), "music-queue-toggle").unwrap();
-    click(window, id, &queue_toggle);
+    assert!(
+        !this.widgets.player_revealer.reveals_child() && !queue_toggle.is_mapped(),
+        "manual additions after Stop must not expose an idle player"
+    );
+    // No request is active after the explicit Stops above. Use the available
+    // native Queue shortcut; subsequent actual row playback attempts reveal
+    // the footer, whose Queue button is exercised below.
+    input(&["key", "--clearmodifiers", "ctrl+j"]);
     pump_until(|| this.widgets.queue_rows.is_mapped());
     assert_eq!(this.panel_mode.get(), workspace::PanelMode::Queue);
     assert!(this.widgets.stack.child_by_name("queue").is_none());

@@ -6,10 +6,14 @@ pub(super) enum Operation {
     Account,
     InitialLibrary,
     Library,
+    PlaylistSections,
     Search,
     Detail,
     Delivery,
     LikeRead,
+    CurrentLikeRead,
+    OwnedPlaylistsMore,
+    LikedPlaylistsMore,
     Mutation,
 }
 impl Operation {
@@ -21,10 +25,14 @@ impl Operation {
             Self::Account => "account",
             Self::InitialLibrary => "initial_library",
             Self::Library => "library",
+            Self::PlaylistSections => "playlist_sections",
             Self::Search => "search",
             Self::Detail => "detail",
             Self::Delivery => "delivery",
             Self::LikeRead => "like_read",
+            Self::CurrentLikeRead => "current_like_read",
+            Self::OwnedPlaylistsMore => "owned_playlists_more",
+            Self::LikedPlaylistsMore => "liked_playlists_more",
             Self::Mutation => "library_mutation",
         }
     }
@@ -46,7 +54,7 @@ impl<J> Default for Slot<J> {
 }
 
 pub(super) struct Requests<J> {
-    slots: [Slot<J>; 8],
+    slots: [Slot<J>; 12],
 }
 impl<J> Default for Requests<J> {
     fn default() -> Self {
@@ -95,10 +103,14 @@ impl<J> Requests<J> {
             Operation::Account,
             Operation::InitialLibrary,
             Operation::Library,
+            Operation::PlaylistSections,
             Operation::Search,
             Operation::Detail,
             Operation::Delivery,
             Operation::LikeRead,
+            Operation::CurrentLikeRead,
+            Operation::OwnedPlaylistsMore,
+            Operation::LikedPlaylistsMore,
             Operation::Mutation,
         ] {
             self.invalidate(operation);
@@ -107,14 +119,6 @@ impl<J> Requests<J> {
     pub(super) fn busy(&self) -> bool {
         self.slots.iter().any(|slot| {
             slot.pending.is_some() || slot.running.is_some_and(|serial| serial == slot.latest)
-        })
-    }
-
-    pub(super) fn busy_except(&self, excluded: Operation) -> bool {
-        self.slots.iter().enumerate().any(|(index, slot)| {
-            index != excluded.index()
-                && (slot.pending.is_some()
-                    || slot.running.is_some_and(|serial| serial == slot.latest))
         })
     }
 }
@@ -128,6 +132,46 @@ mod tests {
         assert!(jobs.submit(Operation::Library, "library").is_some());
         assert!(jobs.submit(Operation::Search, "search").is_some());
         assert!(jobs.submit(Operation::Detail, "playlist").is_some());
+    }
+    #[test]
+    fn playlist_refresh_survives_unrelated_library_and_like_invalidation() {
+        let mut jobs = Requests::default();
+        let (refresh, _) = jobs
+            .submit(Operation::PlaylistSections, "playlist-refresh")
+            .unwrap();
+        let (liked, _) = jobs.submit(Operation::Library, "liked-page").unwrap();
+        jobs.invalidate(Operation::Library);
+        jobs.invalidate(Operation::InitialLibrary);
+        assert!(jobs.current(Operation::PlaylistSections, refresh));
+        assert!(!jobs.current(Operation::Library, liked));
+        assert!(jobs.finish(Operation::PlaylistSections, refresh).is_none());
+        let (refresh, _) = jobs
+            .submit(Operation::PlaylistSections, "later-refresh")
+            .unwrap();
+        jobs.invalidate_all();
+        assert!(!jobs.current(Operation::PlaylistSections, refresh));
+        assert!(jobs.finish(Operation::PlaylistSections, refresh).is_none());
+        assert!(jobs.finish(Operation::Library, liked).is_none());
+        assert!(!jobs.busy());
+    }
+    #[test]
+    fn playlist_continuations_are_independent_and_teardown_retires_both() {
+        let mut jobs = Requests::default();
+        let (owned, _) = jobs.submit(Operation::OwnedPlaylistsMore, "owned").unwrap();
+        let (liked, _) = jobs.submit(Operation::LikedPlaylistsMore, "liked").unwrap();
+        assert!(jobs.current(Operation::OwnedPlaylistsMore, owned));
+        assert!(jobs.current(Operation::LikedPlaylistsMore, liked));
+        assert!(
+            jobs.submit(Operation::OwnedPlaylistsMore, "owned-latest")
+                .is_none()
+        );
+        assert!(jobs.current(Operation::LikedPlaylistsMore, liked));
+        jobs.invalidate_all();
+        assert!(!jobs.current(Operation::OwnedPlaylistsMore, owned));
+        assert!(!jobs.current(Operation::LikedPlaylistsMore, liked));
+        assert!(jobs.finish(Operation::OwnedPlaylistsMore, owned).is_none());
+        assert!(jobs.finish(Operation::LikedPlaylistsMore, liked).is_none());
+        assert!(!jobs.busy());
     }
     #[test]
     fn same_lane_is_bounded_and_latest_query_wins() {

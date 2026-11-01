@@ -69,22 +69,10 @@ impl InfoHost {
             .is_some_and(|view| view.reveals_child())
     }
     pub(super) fn presentation(&self) -> InfoPresentation {
-        // The available content width includes an explicitly expanded rail.
-        // A 720px window with labels must not squeeze music behind a 300px pane.
+        // Use actual available content width, including narrow native windows.
         if self.overlay.upgrade().is_some_and(|overlay| {
             let width = overlay.width();
-            let pending_rail_delta = overlay
-                .ancestor(adw::OverlaySplitView::static_type())
-                .and_downcast::<adw::OverlaySplitView>()
-                .filter(|split| !split.is_collapsed())
-                .map_or(0, |split| {
-                    split.sidebar().map_or(0, |sidebar| sidebar.width())
-                        - split
-                            .sidebar_width_unit()
-                            .to_px(split.min_sidebar_width(), Some(&split.settings()))
-                            as i32
-                });
-            width > 0 && width + pending_rail_delta < 620
+            width > 0 && width < 620
         }) {
             return InfoPresentation::Compact;
         }
@@ -125,31 +113,19 @@ impl MusicPane {
             }
         });
         let weak = Rc::downgrade(&self.controller);
-        let last_compact = Cell::new(None);
-        overlay.add_tick_callback(move |_, _| {
+        let last_extent = Cell::new(None);
+        overlay.add_tick_callback(move |overlay, _| {
             let Some(this) = weak.upgrade() else {
                 return glib::ControlFlow::Break;
             };
-            let compact = this
-                .info_host
-                .borrow()
-                .as_ref()
-                .is_some_and(|host| host.presentation() == InfoPresentation::Compact);
-            if last_compact.replace(Some(compact)) != Some(compact) {
+            let presentation = this.info_host.borrow().as_ref().map(InfoHost::presentation);
+            let extent = (overlay.width(), overlay.height(), presentation);
+            if last_extent.replace(Some(extent)) != Some(extent) {
                 this.sync_info_visibility();
             }
             glib::ControlFlow::Continue
         });
         self.controller.sync_info_visibility();
-    }
-
-    pub(in crate::ui) fn reflow_panel_callback(&self) -> Rc<dyn Fn()> {
-        let weak = Rc::downgrade(&self.controller);
-        Rc::new(move || {
-            if let Some(this) = weak.upgrade() {
-                this.sync_info_visibility();
-            }
-        })
     }
 
     pub(in crate::ui) fn panel_heading(&self) -> gtk::Label {
@@ -427,7 +403,7 @@ impl Controller {
         let Some(host) = host.as_ref() else {
             return;
         };
-        let (Some(reveal), Some(content), Some(_overlay)) =
+        let (Some(reveal), Some(content), Some(overlay)) =
             (host.revealer(), host.content(), host.overlay.upgrade())
         else {
             return;
@@ -516,6 +492,16 @@ impl Controller {
         }
         self.track_pane
             .set_compact(mode == InfoPresentation::Compact);
+        // The overlay supplies the real viewport left by HeaderBar/navigation
+        // and the animated footer. Budget artwork before the panel reveal,
+        // without using the panel's transient offscreen allocation/progress.
+        let panel_width = if mode == InfoPresentation::Compact {
+            overlay.width()
+        } else {
+            reveal.width_request().min(overlay.width())
+        };
+        self.track_pane
+            .set_available_size(panel_width, overlay.height());
         reveal.set_halign(if mode == InfoPresentation::Compact {
             gtk::Align::Fill
         } else {
@@ -707,12 +693,21 @@ impl Controller {
     }
 
     fn return_information_focus(&self) {
-        if !self.widgets.current_art_button.grab_focus() {
-            // Explicit metadata may exist before a queue/current cover does.
-            // Return to the first real control of the visible music page.
-            self.widgets
-                .stack
-                .child_focus(gtk::DirectionType::TabForward);
+        if self.widgets.current_art_button.is_mapped()
+            && self.widgets.current_art_button.grab_focus()
+        {
+            return;
+        }
+        // Explicit metadata or an idle queue can exist while the player is
+        // hidden. Return to a real page control, never an inactive footer.
+        if !self
+            .widgets
+            .stack
+            .child_focus(gtk::DirectionType::TabForward)
+            && self.widgets.account_menu.is_mapped()
+        {
+            // Empty product destinations may have no focusable content.
+            self.widgets.account_menu.grab_focus();
         }
     }
 
@@ -798,6 +793,7 @@ impl Controller {
         clear_list(&self.widgets.queue_rows);
         self.widgets.queue_count.set_text("Очередь пуста");
         self.playlist_grid.clear();
+        self.liked_playlist_grid.clear();
         self.widgets.cache_notice.set_revealed(false);
         self.widgets.cache_hint.set_visible(false);
         self.detail_cache.set(None);

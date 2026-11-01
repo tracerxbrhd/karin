@@ -317,7 +317,7 @@ impl Drop for GeneratedDirectory {
     }
 }
 
-fn generated_mp3() -> Vec<u8> {
+pub(in crate::ui::music) fn generated_mp3() -> Vec<u8> {
     // Original four-second signal, encoded by the installed normal MP3 plugin.
     // A private temporary encoding file is removed before HTTP playback; these
     // bytes never contain service music or establish real Music audibility.
@@ -428,7 +428,11 @@ fn change_range(range: &gtk::Scale, value: f64) {
     let _: bool = range.emit_by_name("change-value", &[&gtk::ScrollType::Jump, &value]);
 }
 
-fn resize_player_window(ui: &crate::ui::MainWindow, width: i32, height: i32) {
+pub(in crate::ui::music) fn resize_player_window(
+    ui: &crate::ui::MainWindow,
+    width: i32,
+    height: i32,
+) {
     ui.window.set_default_size(width, height);
     // The GDK surface is the application rectangle captured by X11 tools.
     // GtkWindow's widget allocation excludes its client-side shadow margins.
@@ -773,6 +777,14 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
     let fixture = Fixture::new();
     let (_app, ui) = player_window(&fixture);
     let this = &ui.music.controller;
+    // Neither idle startup nor a merely selected queue entry is playback.
+    pump_until(|| ui.window.is_mapped() && !this.widgets.player_revealer.reveals_child());
+    assert!(!this.widgets.player_revealer.is_child_revealed());
+    this.enqueue(track("42"));
+    this.render_queue();
+    assert!(!this.widgets.player_revealer.reveals_child());
+    assert!(!this.widgets.current_art_button.is_mapped());
+    assert_eq!(fixture.offers(0), 0);
     let mut unavailable = track("43");
     unavailable.available = false;
     let mut clicked = track("42");
@@ -785,7 +797,12 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
         true,
     )
     .unwrap();
-    eprintln!("Karin synthetic context phase=play-clicked-duplicate");
+    // Actual first reveal under reduced motion maps the direct Like control
+    // synchronously. Its GET must be deferred until render borrows unwind.
+    let settings = gtk::Settings::default().unwrap();
+    let animations_before = settings.is_gtk_enable_animations();
+    settings.set_gtk_enable_animations(false);
+    eprintln!("Karin synthetic context phase=play-clicked-duplicate-reduced-motion");
     this.play_music_context(context);
     assert_eq!(this.model.borrow().queue.current_index(), Some(3));
     assert_eq!(
@@ -803,6 +820,14 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
         "Play is idempotent while resolving"
     );
     wait_playing(this, 3);
+    pump_until(|| this.widgets.player_revealer.is_child_revealed());
+    settings.set_gtk_enable_animations(animations_before);
+    assert!(this.widgets.current_art_button.is_mapped());
+    assert_eq!(
+        this.widgets.player_revealer.transition_type(),
+        gtk::RevealerTransitionType::SlideUp
+    );
+    capture_native("footer-real-playback-visible");
     assert_eq!(fixture.offers(0), 1);
     assert_eq!(fixture.offers(1), 0);
     this.set_info_open(true);
@@ -820,6 +845,62 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
             .is_some_and(|state| state.state == PlaybackState::Paused)
     });
     assert_pinned_track(this, "43");
+    assert!(
+        this.widgets.player_revealer.reveals_child(),
+        "Pause retains the actual active footer"
+    );
+    let input_serial = this.player.borrow().serial;
+    let input_generation = this
+        .player
+        .borrow()
+        .controller
+        .as_ref()
+        .unwrap()
+        .snapshot()
+        .generation;
+    let input_offers = fixture.counts.lock().unwrap().offers;
+    // Click the actual title and artist regions, not just the small cover.
+    this.set_info_open(false);
+    native_click(&ui.window, &this.widgets.current);
+    pump_until(|| this.info_is_open());
+    assert_pinned_track(this, "42");
+    this.toggle_queue_panel();
+    assert_eq!(
+        this.panel_mode.get(),
+        super::super::workspace::PanelMode::Queue
+    );
+    native_click(&ui.window, &this.widgets.current_artist);
+    pump_until(|| this.panel_mode.get() == super::super::workspace::PanelMode::TrackInfo);
+    assert_pinned_track(this, "42");
+    for key in ["Return", "space"] {
+        this.set_info_open(false);
+        assert!(this.widgets.current_art_button.grab_focus());
+        assert!(
+            std::process::Command::new("xdotool")
+                .args(["key", "--clearmodifiers", key])
+                .status()
+                .unwrap()
+                .success()
+        );
+        pump_until(|| this.info_is_open());
+        assert_pinned_track(this, "42");
+    }
+    assert_eq!(this.player.borrow().serial, input_serial);
+    assert_eq!(
+        this.player
+            .borrow()
+            .controller
+            .as_ref()
+            .unwrap()
+            .snapshot()
+            .generation,
+        input_generation
+    );
+    assert_eq!(fixture.counts.lock().unwrap().offers, input_offers);
+    assert_eq!(this.music_snapshot().unwrap().state, PlaybackState::Paused);
+    assert!(this.widgets.player_revealer.reveals_child());
+    capture_native("footer-paused-whole-metadata-input");
+    this.select_track_info(track("43"), None, false);
     this.pause_music();
     eprintln!("Karin synthetic context phase=previous-while-paused");
     this.skip_music(false, false);
@@ -868,6 +949,13 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
 
     eprintln!("Karin synthetic context phase=next-while-stopped");
     this.stop_music();
+    pump_until(|| {
+        !this.widgets.player_revealer.is_child_revealed()
+            && !this.widgets.current_art_button.is_mapped()
+            && ui.music.player_bar.height() <= 1
+    });
+    assert!(!this.widgets.player_revealer.reveals_child());
+    capture_native("footer-confirmed-stop-hidden");
     let offers = fixture.offers(2);
     this.skip_music(true, false);
     assert_eq!(this.model.borrow().queue.current_index(), Some(2));
@@ -878,9 +966,11 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
         offers,
         "Next preserves stopped transport"
     );
+    assert!(!this.widgets.player_revealer.reveals_child());
     eprintln!("Karin synthetic context phase=play-next-from-stopped");
     this.play_music();
     wait_playing(this, 2);
+    pump_until(|| this.widgets.player_revealer.is_child_revealed());
 
     eprintln!("Karin synthetic context phase=replace-playlist-context");
     this.play_music_context(
@@ -991,6 +1081,20 @@ fn native_music_playback_queue_races_remove_and_close() {
     this.select_music_queue(3);
     this.widgets.play.emit_clicked();
     pump_until(|| fixture.counts.lock().unwrap().slow_started);
+    {
+        let spinner = super::super::player_bar::play_loading_spinner(&this.widgets.play).unwrap();
+        pump_until(|| spinner.is_mapped() && spinner.is_spinning());
+        assert!(this.widgets.player_revealer.reveals_child());
+        assert!(!this.widgets.play.is_sensitive());
+        assert!(
+            !this.widgets.player_status.is_visible(),
+            "loading must not add a row that disappears during reveal"
+        );
+        assert_eq!(
+            this.widgets.play.tooltip_text().as_deref(),
+            Some("Получаем аудио…")
+        );
+    }
     let offers_42 = fixture.offers(0);
     let offers_43 = fixture.offers(1);
     this.select_music_queue(0);
@@ -1001,6 +1105,11 @@ fn native_music_playback_queue_races_remove_and_close() {
     assert!(this.player.borrow().controller.is_none());
     fixture.release_descriptor();
     wait_playing(this, 1);
+    assert!(
+        !super::super::player_bar::play_loading_spinner(&this.widgets.play)
+            .unwrap()
+            .is_spinning()
+    );
     assert_eq!(
         fixture.offers(0),
         offers_42,
@@ -1172,16 +1281,20 @@ fn wait_settled_player_error_layout(ui: &crate::ui::MainWindow) {
             .shuffle
             .ancestor(gtk::MenuButton::static_type())
             .and_downcast::<gtk::MenuButton>();
-        let footer_ready = ui.music.player_bar.width() > 0
-            && ui.music.player_bar.has_css_class("music-player-compact") == compact
-            && if compact {
-                mode_parent.is_some_and(|menu| menu.is_mapped())
-                    && !this.widgets.shuffle.is_mapped()
-            } else {
-                mode_parent.is_none()
-                    && this.widgets.shuffle.is_mapped()
-                    && this.widgets.repeat.is_mapped()
-            };
+        let footer_ready =
+            ui.music.player_bar.width() > 0
+                && this.widgets.player_revealer.is_child_revealed()
+                && this.widgets.player_revealer.child().is_some_and(|content| {
+                    content.has_css_class("music-player-compact") == compact
+                })
+                && if compact {
+                    mode_parent.is_some_and(|menu| menu.is_mapped())
+                        && !this.widgets.shuffle.is_mapped()
+                } else {
+                    mode_parent.is_none()
+                        && this.widgets.shuffle.is_mapped()
+                        && this.widgets.repeat.is_mapped()
+                };
         panel_ready && footer_ready && ui.verify_layout().is_ok()
     };
     pump_until(ready);
@@ -1202,6 +1315,17 @@ fn native_music_playback_media_error_visibility_stop_retry_and_catalog_preservat
     let this = &ui.music.controller;
     this.enqueue(track("42"));
     this.toggle_queue_panel();
+    // The new footer is honestly absent before any playback attempt. Establish
+    // the anchoring baseline from the ordinary real MP3/Pause path, not an
+    // unmapped control or a forced reveal, before retrying with a refused source.
+    assert!(!this.widgets.player_revealer.reveals_child());
+    this.widgets.play.emit_clicked();
+    wait_playing(this, 0);
+    this.pause_music();
+    pump_until(|| {
+        this.music_snapshot()
+            .is_some_and(|snapshot| snapshot.state == PlaybackState::Paused)
+    });
     wait_settled_player_error_layout(&ui);
     let play_before = this.widgets.play.compute_bounds(&ui.window).unwrap();
     let progress_before = this.widgets.progress.compute_bounds(&ui.window).unwrap();
@@ -1215,6 +1339,7 @@ fn native_music_playback_media_error_visibility_stop_retry_and_catalog_preservat
         .progress();
 
     fixture.reject_media.store(true, Ordering::Release);
+    this.stop_music();
     this.widgets.play.emit_clicked();
     wait_media_forbidden(this);
     // Safe feedback has its own full-width row above the transport. The

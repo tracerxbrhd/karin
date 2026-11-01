@@ -5,6 +5,7 @@ use super::*;
 
 pub(super) struct PlayerBarParts {
     pub player_bar: gtk::Box,
+    pub player_revealer: gtk::Revealer,
     pub player_main: gtk::Box,
     pub current: gtk::Label,
     pub current_artist: gtk::Label,
@@ -26,8 +27,13 @@ pub(super) struct PlayerBarParts {
 
 impl PlayerBarParts {
     pub(super) fn new() -> Self {
+        // The zero-height host still receives the real allocated width while
+        // its player content is hidden. Responsive layout must observe it,
+        // rather than wait for the inner content's first visible frame.
+        let footer = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        footer.set_widget_name("music-player-bar");
         let player_bar = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        player_bar.set_widget_name("music-player-bar");
+        player_bar.set_widget_name("music-player-content");
         player_bar.add_css_class("music-player");
         player_bar.set_margin_start(12);
         player_bar.set_margin_end(12);
@@ -46,34 +52,43 @@ impl PlayerBarParts {
         let columns = gtk::Grid::new();
         columns.set_column_homogeneous(true);
         columns.set_column_spacing(8);
+        columns.set_row_spacing(4);
         columns.set_hexpand(true);
         player_main.append(&columns);
         player_bar.append(&player_main);
 
         let metadata = gtk::Box::new(gtk::Orientation::Horizontal, 4);
-        metadata.set_halign(gtk::Align::Start);
+        metadata.set_hexpand(true);
         metadata.set_valign(gtk::Align::Center);
         metadata.add_css_class("music-player-metadata");
+        let current_track = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        current_track.set_hexpand(true);
+        current_track.set_widget_name("music-current-track-content");
         let current_art = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        current_art.set_valign(gtk::Align::Center);
+        current_track.append(&current_art);
         let current_art_button = gtk::Button::builder()
             .has_frame(false)
-            .child(&current_art)
+            .child(&current_track)
             .tooltip_text("Показать сведения о текущем треке")
             .sensitive(false)
             .build();
         current_art_button.add_css_class("flat");
+        current_art_button.add_css_class("music-current-track-button");
+        current_art_button.set_hexpand(true);
         current_art_button.set_widget_name("music-current-info");
         current_art_button.update_property(&[gtk::accessible::Property::Label(
             "Показать сведения о текущем треке",
         )]);
         metadata.append(&current_art_button);
         let labels = gtk::Box::new(gtk::Orientation::Vertical, 2);
+        labels.set_hexpand(true);
         labels.set_valign(gtk::Align::Center);
         let current = metadata_label("Трек не выбран", "music-current-title");
         current.add_css_class("music-player-title");
         let current_artist = metadata_label("Выберите трек", "music-current-artist");
-        current.set_max_width_chars(14);
-        current_artist.set_max_width_chars(14);
+        current.set_max_width_chars(26);
+        current_artist.set_max_width_chars(26);
         current_artist.add_css_class("music-player-artist");
         current_artist.add_css_class("dim-label");
         let player_status = metadata_label("", "music-player-status");
@@ -94,11 +109,12 @@ impl PlayerBarParts {
         // The bottom bar grows upward only while feedback is visible; the
         // transport and timeline keep their existing bottom anchoring.
         player_bar.prepend(&player_status);
-        metadata.append(&labels);
+        current_track.append(&labels);
         let current_like_slot = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         current_like_slot.set_widget_name("music-current-like-slot");
         current_like_slot.set_visible(false);
-        columns.attach(&metadata, 0, 0, 1, 1);
+        metadata.append(&current_like_slot);
+        columns.attach(&metadata, 0, 0, 2, 1);
 
         let middle = gtk::Box::new(gtk::Orientation::Vertical, 2);
         middle.set_valign(gtk::Align::Center);
@@ -114,10 +130,26 @@ impl PlayerBarParts {
         shuffle.add_css_class("flat");
         let previous = icon_button("media-skip-backward-symbolic", "Предыдущий трек");
         previous.set_widget_name("music-previous");
-        let play = icon_button(
-            "media-playback-start-symbolic",
+        let play = gtk::Button::new();
+        play.set_valign(gtk::Align::Center);
+        play.set_tooltip_text(Some("Воспроизвести выбранный трек"));
+        play.update_property(&[gtk::accessible::Property::Label(
             "Воспроизвести выбранный трек",
-        );
+        )]);
+        let play_surface = gtk::Overlay::new();
+        let play_icon = gtk::Image::from_icon_name("media-playback-start-symbolic");
+        play_icon.set_pixel_size(16);
+        play_surface.set_child(Some(&play_icon));
+        let play_loading = gtk::Spinner::new();
+        play_loading.set_widget_name("music-play-loading");
+        play_loading.set_size_request(16, 16);
+        play_loading.set_halign(gtk::Align::Center);
+        play_loading.set_valign(gtk::Align::Center);
+        play_loading.set_can_target(false);
+        play_loading.set_visible(false);
+        play_surface.add_overlay(&play_loading);
+        play_surface.set_measure_overlay(&play_loading, false);
+        play.set_child(Some(&play_surface));
         play.set_widget_name("music-play");
         play.set_sensitive(false);
         play.add_css_class("circular");
@@ -170,28 +202,25 @@ impl PlayerBarParts {
         timeline.append(&progress);
         timeline.append(&position);
         player_bar.append(&timeline);
-        columns.attach(&middle, 1, 0, 1, 1);
+        columns.attach(&middle, 0, 1, 3, 1);
 
         let utilities = gtk::Box::new(gtk::Orientation::Horizontal, 4);
         utilities.set_halign(gtk::Align::End);
         utilities.set_valign(gtk::Align::Center);
         let modes = gtk::MenuButton::builder()
             .icon_name("view-more-symbolic")
-            .tooltip_text("Режимы воспроизведения и «Нравится»")
+            .tooltip_text("Режимы воспроизведения")
             .build();
         modes.set_widget_name("music-playback-modes");
         modes.set_direction(gtk::ArrowType::Up);
         modes.add_css_class("flat");
-        modes.update_property(&[gtk::accessible::Property::Label(
-            "Режимы воспроизведения и «Нравится»",
-        )]);
+        modes.update_property(&[gtk::accessible::Property::Label("Режимы воспроизведения")]);
         let mode_popover = gtk::Popover::new();
         mode_popover.set_position(gtk::PositionType::Top);
         let mode_controls = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         super::super::margins(&mode_controls, 8);
         mode_controls.append(&shuffle);
         mode_controls.append(&repeat);
-        mode_controls.append(&current_like_slot);
         mode_popover.set_child(Some(&mode_controls));
         modes.set_popover(Some(&mode_popover));
         utilities.append(&modes);
@@ -227,6 +256,15 @@ impl PlayerBarParts {
         volume_popover.set_child(Some(&volume));
         utilities.append(&volume_menu);
         columns.attach(&utilities, 2, 0, 1, 1);
+        let layout = columns.layout_manager().expect("native player grid layout");
+        let metadata_cell = layout
+            .layout_child(&metadata)
+            .downcast::<gtk::GridLayoutChild>()
+            .expect("native metadata grid cell");
+        let transport_cell = layout
+            .layout_child(&middle)
+            .downcast::<gtk::GridLayoutChild>()
+            .expect("native transport grid cell");
 
         // Stop remains an internal/system command. Keeping its existing object
         // preserves controller/test hooks without placing it in the music UI.
@@ -249,14 +287,18 @@ impl PlayerBarParts {
         let weak_current = current.downgrade();
         let weak_artist = current_artist.downgrade();
         let weak_metadata = metadata.downgrade();
-        let weak_like_slot = current_like_slot.downgrade();
+        let weak_columns = columns.downgrade();
+        let weak_metadata_cell = metadata_cell.downgrade();
+        let weak_transport_cell = transport_cell.downgrade();
+        let weak_content = player_bar.downgrade();
         let compact_state = Cell::new(Some(true));
-        player_bar.add_tick_callback(move |bar, _| {
-            let compact = bar.width() < 720;
-            if bar.width() <= 0 || compact_state.replace(Some(compact)) == Some(compact) {
-                return glib::ControlFlow::Continue;
+        let layout_player = Rc::new(move |width: i32| {
+            let compact = width < 720;
+            if width <= 0 || compact_state.replace(Some(compact)) == Some(compact) {
+                return;
             }
             let (
+                Some(bar),
                 Some(transport),
                 Some(controls),
                 Some(modes),
@@ -268,8 +310,11 @@ impl PlayerBarParts {
                 Some(current),
                 Some(artist),
                 Some(metadata),
-                Some(like_slot),
+                Some(columns),
+                Some(metadata_cell),
+                Some(transport_cell),
             ) = (
+                weak_content.upgrade(),
                 weak_transport.upgrade(),
                 weak_mode_controls.upgrade(),
                 weak_modes.upgrade(),
@@ -281,23 +326,28 @@ impl PlayerBarParts {
                 weak_current.upgrade(),
                 weak_artist.upgrade(),
                 weak_metadata.upgrade(),
-                weak_like_slot.upgrade(),
+                weak_columns.upgrade(),
+                weak_metadata_cell.upgrade(),
+                weak_transport_cell.upgrade(),
             )
             else {
-                return glib::ControlFlow::Break;
+                return;
             };
             if compact {
                 transport.remove(&shuffle);
                 transport.remove(&repeat);
                 controls.append(&shuffle);
                 controls.append(&repeat);
-                metadata.remove(&like_slot);
-                controls.append(&like_slot);
+                metadata_cell.set_column_span(2);
+                transport_cell.set_column(0);
+                transport_cell.set_row(1);
+                transport_cell.set_column_span(3);
+                columns.set_row_spacing(4);
                 middle.remove(&timeline);
                 timeline.set_width_request(-1);
                 bar.append(&timeline);
-                current.set_max_width_chars(14);
-                artist.set_max_width_chars(14);
+                current.set_max_width_chars(26);
+                artist.set_max_width_chars(26);
                 metadata.set_spacing(4);
                 bar.add_css_class("music-player-compact");
             } else {
@@ -306,8 +356,11 @@ impl PlayerBarParts {
                 transport.insert_child_after(&shuffle, gtk::Widget::NONE);
                 transport.reorder_child_after(&previous, Some(&shuffle));
                 transport.append(&repeat);
-                controls.remove(&like_slot);
-                metadata.append(&like_slot);
+                metadata_cell.set_column_span(1);
+                transport_cell.set_column(1);
+                transport_cell.set_row(0);
+                transport_cell.set_column_span(1);
+                columns.set_row_spacing(0);
                 bar.remove(&timeline);
                 timeline.set_width_request(-1);
                 middle.append(&timeline);
@@ -317,11 +370,41 @@ impl PlayerBarParts {
                 bar.remove_css_class("music-player-compact");
             }
             modes.set_visible(compact);
+        });
+        let weak_bar = player_bar.downgrade();
+        let layout = Rc::clone(&layout_player);
+        footer.add_tick_callback(move |host, _| {
+            let Some(bar) = weak_bar.upgrade() else {
+                return glib::ControlFlow::Break;
+            };
+            layout(host.width() - bar.margin_start() - bar.margin_end());
             glib::ControlFlow::Continue
         });
 
+        // No queue selection or placeholder makes a player appear. The
+        // existing controller reveals this one native surface only for an
+        // actual play request/runtime; a paused active track retains it.
+        let player_revealer = gtk::Revealer::builder()
+            .child(&player_bar)
+            .transition_type(gtk::RevealerTransitionType::SlideUp)
+            .transition_duration(240)
+            .reveal_child(false)
+            .build();
+        player_revealer.set_widget_name("music-player-revealer");
+        let weak_host = footer.downgrade();
+        let weak_bar = player_bar.downgrade();
+        player_revealer.connect_reveal_child_notify(move |_| {
+            if let (Some(host), Some(bar)) = (weak_host.upgrade(), weak_bar.upgrade()) {
+                // The same idempotent arrangement runs before revealing a
+                // previously unmapped child, using only actual host geometry.
+                layout_player(host.width() - bar.margin_start() - bar.margin_end());
+            }
+        });
+        footer.append(&player_revealer);
+
         Self {
-            player_bar,
+            player_bar: footer,
+            player_revealer,
             player_main,
             current,
             current_artist,
@@ -352,6 +435,40 @@ pub(super) fn set_repeat_one_badge(button: &gtk::Button, one: bool) {
 }
 
 pub(super) fn repeat_one_badge(button: &gtk::Button) -> Option<gtk::Label> {
+    button
+        .child()?
+        .downcast::<gtk::Overlay>()
+        .ok()?
+        .last_child()?
+        .downcast()
+        .ok()
+}
+
+/// Normal source resolution/preparation uses the existing transport's native
+/// spinner. Its stable icon remains measured, so loading -> playing does not
+/// change the footer's height during the reveal. Real errors keep their row.
+pub(super) fn set_play_presentation(button: &gtk::Button, playing: bool, loading: bool) {
+    let Some(surface) = button.child().and_downcast::<gtk::Overlay>() else {
+        return;
+    };
+    if let Some(icon) = surface.child().and_downcast::<gtk::Image>() {
+        let name = if playing {
+            "media-playback-pause-symbolic"
+        } else {
+            "media-playback-start-symbolic"
+        };
+        if icon.icon_name().as_deref() != Some(name) {
+            icon.set_icon_name(Some(name));
+        }
+        icon.set_opacity(if loading { 0.0 } else { 1.0 });
+    }
+    if let Some(spinner) = play_loading_spinner(button) {
+        spinner.set_spinning(loading);
+        spinner.set_visible(loading);
+    }
+}
+
+pub(super) fn play_loading_spinner(button: &gtk::Button) -> Option<gtk::Spinner> {
     button
         .child()?
         .downcast::<gtk::Overlay>()

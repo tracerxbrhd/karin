@@ -161,8 +161,18 @@ fn native_queue_space_mouse_enter_dispatch_exact_occurrence_once() {
             "1",
         ]);
     };
-    click(this.widgets.queue.upcast_ref());
+    assert!(
+        !this.widgets.player_revealer.reveals_child()
+            && !this.widgets.queue.is_mapped()
+            && this.music_snapshot().is_none(),
+        "a selected queue does not fabricate an active player/footer"
+    );
+    // This input-only fixture intentionally has no audio request. Open its
+    // real pinned queue through the available system shortcut, rather than
+    // clicking a correctly hidden idle-footer control.
+    input(&["key", "--clearmodifiers", "ctrl+j"]);
     pump_until(|| this.info_is_open() && this.widgets.queue_rows.is_mapped());
+    assert_eq!(this.panel_mode.get(), workspace::PanelMode::Queue);
 
     let activations = Rc::new(Cell::new(0_u32));
     this.widgets.queue_rows.connect_row_activated({

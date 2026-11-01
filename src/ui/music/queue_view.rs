@@ -64,6 +64,22 @@ impl Controller {
             .update_property(&[gtk::accessible::Property::Label(
                 &self.widgets.current_artist.text(),
             )]);
+        let information = selected
+            .map(|track| {
+                let artists = track.artists.join(", ");
+                if artists.is_empty() {
+                    format!("Сведения о треке: {}", track.title)
+                } else {
+                    format!("Сведения о треке: {} · {artists}", track.title)
+                }
+            })
+            .unwrap_or_else(|| "Показать сведения о текущем треке".into());
+        self.widgets
+            .current_art_button
+            .set_tooltip_text(Some(&information));
+        self.widgets
+            .current_art_button
+            .update_property(&[gtk::accessible::Property::Label(&information)]);
         self.widgets.position.set_text(
             &selected
                 .and_then(|track| track.duration_ms)

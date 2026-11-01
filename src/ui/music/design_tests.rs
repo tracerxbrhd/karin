@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Matched native a9eed45/current redesign evidence. All account/catalog/artwork data below is
+//! Matched native a70bbf7/current refinement evidence. All account/catalog/artwork data below is
 //! original synthetic loopback data; no fixture is compiled into production.
 
 use super::*;
@@ -152,10 +152,58 @@ fn reply(stream: &mut TcpStream, status: u16, mime: &str, body: &[u8]) {
     let _ = stream.write_all(body);
 }
 
+// The same original four-second encoding used by the playback regressions.
+// This fixture traverses StreamResolver and the normal GStreamer worker before
+// pausing for static evidence; queue selection alone never makes the footer active.
+pub(super) fn serve_original_media(stream: &mut TcpStream, headers: &str, media: &[u8]) {
+    let range = headers.lines().skip(1).find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        name.eq_ignore_ascii_case("range").then_some(value.trim())
+    });
+    let range = range.map(|value| {
+        let (start, end) = value
+            .strip_prefix("bytes=")
+            .unwrap()
+            .split_once('-')
+            .unwrap();
+        let start = start.parse::<usize>().unwrap();
+        let end = if end.is_empty() {
+            media.len() - 1
+        } else {
+            end.parse::<usize>().unwrap().min(media.len() - 1)
+        };
+        assert!(start <= end && end < media.len());
+        (start, end)
+    });
+    let (start, end) = range.unwrap_or((0, media.len() - 1));
+    let status = if range.is_some() {
+        "206 Partial Content"
+    } else {
+        "200 OK"
+    };
+    let _ = write!(
+        stream,
+        "HTTP/1.1 {status}\r\nContent-Type: audio/mpeg\r\nAccept-Ranges: bytes\r\nContent-Length: {}\r\nConnection: close\r\n",
+        end - start + 1
+    );
+    if range.is_some() {
+        let _ = write!(
+            stream,
+            "Content-Range: bytes {start}-{end}/{}\r\n",
+            media.len()
+        );
+    }
+    let _ = stream.write_all(b"\r\n");
+    if !headers.starts_with("HEAD ") {
+        let _ = stream.write_all(&media[start..=end]);
+    }
+}
+
 struct Fixture {
     origin: String,
     stop: Arc<AtomicBool>,
     images: Arc<AtomicUsize>,
+    media_requests: Arc<AtomicUsize>,
     search_error: Arc<AtomicBool>,
     search_hold: Arc<AtomicBool>,
     server: Option<JoinHandle<()>>,
@@ -211,11 +259,15 @@ impl Fixture {
         let images = Arc::new(AtomicUsize::new(0));
         let search_error = Arc::new(AtomicBool::new(false));
         let search_hold = Arc::new(AtomicBool::new(false));
+        let media_requests = Arc::new(AtomicUsize::new(0));
+        let media = player::tests::generated_mp3();
         let server = {
             let stop = stop.clone();
             let images = images.clone();
             let search_error = search_error.clone();
             let search_hold = search_hold.clone();
+            let media_requests = media_requests.clone();
+            let origin = origin.clone();
             thread::spawn(move || {
                 while !stop.load(Ordering::Acquire) {
                     let (mut stream, _) = match listener.accept() {
@@ -261,6 +313,23 @@ impl Fixture {
                         .nth(1)
                         .unwrap();
                     let url = reqwest::Url::parse(&format!("http://127.0.0.1{target}")).unwrap();
+                    if url.path().starts_with("/get-mp3/")
+                        || url.path().starts_with("/download-info/")
+                    {
+                        assert!(
+                            !lower.contains("authorization:")
+                                && !lower.contains("cookie:")
+                                && !lower.contains("referer:")
+                                && !lower.contains("origin:")
+                        );
+                        if url.path().starts_with("/download-info/") {
+                            reply(&mut stream, 200, "application/xml", b"<download-info><host>s268myt.storage.yandex.net</host><path>/karin-original-design.mp3</path><ts>1700000000</ts><s>original-synthetic-input</s></download-info>");
+                        } else {
+                            media_requests.fetch_add(1, Ordering::AcqRel);
+                            serve_original_media(&mut stream, &headers, &media);
+                        }
+                        continue;
+                    }
                     if url.path().starts_with("/get-music-content/") {
                         assert!(
                             !lower.contains("authorization:")
@@ -310,6 +379,12 @@ impl Fixture {
                         .map(|(index, track)| json!({"id":index+1,"track":track}))
                         .collect();
                     let result = match url.path() {
+                        path if path.starts_with("/tracks/")
+                            && path.ends_with("/download-info") =>
+                        {
+                            json!({"result":[{"codec":"mp3","bitrateInKbps":192,"preview":false,"direct":false,
+                                "downloadInfoUrl":format!("{origin}download-info/1")} ]})
+                        }
                         "/account/status" => {
                             json!({"result":{"account":{"uid":1234,"displayName":"Synthetic design account"}}})
                         }
@@ -318,6 +393,11 @@ impl Fixture {
                         }
                         "/users/1234/playlists/list" => {
                             json!({"result":(0..3).map(playlist).collect::<Vec<_>>()})
+                        }
+                        "/users/1234/likes/playlists" => {
+                            json!({"result":[{"playlist":{"owner":{"uid":4321},"kind":8,
+                                "title":"Открытый горизонт","trackCount":8,
+                                "cover":{"itemsUri":[cover(4)]}}}]})
                         }
                         "/users/1234/playlists/3"
                         | "/users/1234/playlists/4"
@@ -361,6 +441,7 @@ impl Fixture {
             origin,
             stop,
             images,
+            media_requests,
             search_error,
             search_hold,
             server: Some(server),
@@ -424,6 +505,24 @@ fn set_pane(ui: &crate::ui::MainWindow, open: bool) {
         },
     );
 }
+fn primary_destination(ui: &crate::ui::MainWindow, route: &str) {
+    let action = match route {
+        "home" => "win.music-home",
+        "library" => "win.music-library",
+        "playlists" => "win.music-playlists",
+        _ => panic!("unknown fixture primary destination"),
+    };
+    gtk::prelude::WidgetExt::activate_action(&ui.window, action, None).unwrap();
+    let this = &ui.music.controller;
+    pump(|| this.widgets.stack.visible_child_name().as_deref() == Some(route));
+    settle();
+    assert!(
+        descendants(ui.music.widget.upcast_ref())
+            .into_iter()
+            .all(|widget| !widget.is::<gtk::DropDown>()),
+        "primary navigation must not retain parented technical dropdowns"
+    );
+}
 fn resize(ui: &crate::ui::MainWindow, width: i32, height: i32) {
     ui.window.set_default_size(width, height);
     pump(|| (ui.window.width() - width).abs() <= 32 && (ui.window.height() - height).abs() <= 32);
@@ -483,6 +582,51 @@ fn assert_footer_geometry(ui: &crate::ui::MainWindow) {
         !this.widgets.stop.is_mapped(),
         "Stop is system/internal-only"
     );
+    if !this.widgets.player_revealer.reveals_child() {
+        assert!(!this.widgets.player_revealer.is_child_revealed());
+        for control in [
+            this.widgets.play.upcast_ref::<gtk::Widget>(),
+            this.widgets.current_art_button.upcast_ref(),
+            this.widgets.queue.upcast_ref(),
+        ] {
+            assert!(
+                !control.is_mapped(),
+                "an inactive footer must not retain a painted/focusable control"
+            );
+        }
+        return;
+    }
+    assert!(this.widgets.player_revealer.is_child_revealed());
+    let metadata = this
+        .widgets
+        .current_art_button
+        .compute_bounds(&ui.window)
+        .unwrap();
+    for content in [
+        this.widgets.current_art.upcast_ref::<gtk::Widget>(),
+        this.widgets.current.upcast_ref(),
+        this.widgets.current_artist.upcast_ref(),
+    ] {
+        assert!(
+            content.is_ancestor(&this.widgets.current_art_button),
+            "cover, title and artist belong to the single native info button"
+        );
+        let bounds = content.compute_bounds(&ui.window).unwrap();
+        assert!(
+            bounds.x() >= metadata.x() - 1.0
+                && bounds.y() >= metadata.y() - 1.0
+                && bounds.x() + bounds.width() <= metadata.x() + metadata.width() + 1.0
+                && bounds.y() + bounds.height() <= metadata.y() + metadata.height() + 1.0,
+            "whole current-track activation must include its visible metadata: {bounds:?}/{metadata:?}"
+        );
+    }
+    assert!(
+        !this
+            .widgets
+            .current_like_slot
+            .is_ancestor(&this.widgets.current_art_button),
+        "Like stays outside the metadata button, preserving its independent input/focus"
+    );
     let badge = player_bar::repeat_one_badge(&this.widgets.repeat)
         .expect("stable native literal-one badge");
     assert_eq!(badge.text(), "1");
@@ -498,6 +642,7 @@ fn assert_footer_geometry(ui: &crate::ui::MainWindow) {
     let footer = ui.music.player_bar.compute_bounds(&ui.window).unwrap();
     for name in [
         "music-current-info",
+        "music-current-like",
         "music-play",
         "music-next",
         "music-queue-toggle",
@@ -511,10 +656,10 @@ fn assert_footer_geometry(ui: &crate::ui::MainWindow) {
         );
         let rect = control.compute_bounds(&ui.window).unwrap();
         assert!(rect.width() > 10.0 && rect.height() > 10.0);
-        if name == "music-current-info" {
+        if name == "music-current-info" || name == "music-current-like" {
             assert!(
                 rect.width() >= 44.0 && rect.height() >= 44.0,
-                "compact cover remains a usable pointer target"
+                "metadata and confirmed Like remain usable pointer targets"
             );
         }
         assert!(
@@ -545,13 +690,44 @@ fn assert_footer_geometry(ui: &crate::ui::MainWindow) {
         );
     }
 }
+
+// The normal matrix contains one short title, one artist and one album.
+// Scrolling remains appropriate for the separate long-metadata state, but the
+// ordinary musical cluster must not leave a half Play button behind the footer.
+fn assert_short_info_actions_visible(ui: &crate::ui::MainWindow) {
+    let pane = &ui.music.controller.track_pane;
+    let scroll = named_widget(&pane.widget, "music-track-pane-scroll");
+    let viewport = scroll.compute_bounds(&ui.window).unwrap();
+    for action in [&pane.play, &pane.enqueue, &pane.details] {
+        assert!(
+            action.is_mapped(),
+            "normal TrackInfo action must actually map"
+        );
+        let rect = action.compute_bounds(&ui.window).unwrap();
+        assert!(
+            rect.x() >= viewport.x() - 1.0
+                && rect.y() >= viewport.y() - 1.0
+                && rect.x() + rect.width() <= viewport.x() + viewport.width() + 1.0
+                && rect.y() + rect.height() <= viewport.y() + viewport.height() + 1.0,
+            "normal short TrackInfo actions must fit the actual viewport: {} {rect:?}/{viewport:?}",
+            action.widget_name()
+        );
+    }
+}
+
 fn evidence(ui: &crate::ui::MainWindow, name: &str) {
     assert_footer_geometry(ui);
+    assert!(
+        descendants(ui.music.widget.upcast_ref())
+            .into_iter()
+            .all(|widget| widget.widget_name() != "music-feed-continue"),
+        "continuous track feeds must not reintroduce a manual pagination button"
+    );
     let scale = ui.window.scale_factor();
     let name = format!("{name}-scale{scale}");
     super::tests::capture_native(&name);
     if std::env::var_os("KARIN_TEST_COMPARE_RENDER_READBACK").is_some()
-        && (name.starts_with("surface-home-scale")
+        && (name.starts_with("surface-wave-placeholder-scale")
             || name.starts_with("matrix-wide-panel-track-scale"))
     {
         compare_render_readback(ui, &name);
@@ -575,7 +751,7 @@ fn evidence(ui: &crate::ui::MainWindow, name: &str) {
             .open(path)
             .unwrap();
         for theme in ["light", "dark"] {
-            writeln!(file,"{}",json!({"capture":format!("{name}-{theme}.png"),"logical_width":ui.window.width(),"logical_height":ui.window.height(),"scale":scale,"maximized":ui.window.is_maximized(),"pane_open":pane_open(&ui.music.controller),"panel_mode":format!("{:?}",ui.music.controller.panel_mode.get()),"renderer":ui.window.renderer().unwrap().type_().name(),"rows":heights,"fully_visible_rows":visible,"source":"synthetic-loopback-musicservice-http-decoded-artwork","tracks":8,"footer_art_hit":[ui.music.controller.widgets.current_art_button.width(),ui.music.controller.widgets.current_art_button.height()],"footer_title_width":ui.music.controller.widgets.current.width()})).unwrap();
+            writeln!(file,"{}",json!({"capture":format!("{name}-{theme}.png"),"logical_width":ui.window.width(),"logical_height":ui.window.height(),"scale":scale,"maximized":ui.window.is_maximized(),"pane_open":pane_open(&ui.music.controller),"panel_mode":format!("{:?}",ui.music.controller.panel_mode.get()),"renderer":ui.window.renderer().unwrap().type_().name(),"rows":heights,"fully_visible_rows":visible,"source":"synthetic-loopback-musicservice-http-decoded-artwork","tracks":8,"footer_art_hit":[ui.music.controller.widgets.current_art_button.width(),ui.music.controller.widgets.current_art_button.height()],"footer_track_hit":[ui.music.controller.widgets.current_art_button.width(),ui.music.controller.widgets.current_art_button.height()],"footer_cover_size":[ui.music.controller.widgets.current_art.width(),ui.music.controller.widgets.current_art.height()],"footer_like_mapped":ui.music.controller.widgets.current_like_slot.is_mapped(),"footer_title_width":ui.music.controller.widgets.current.width(),"player_requested_visible":ui.music.controller.widgets.player_revealer.reveals_child(),"player_child_revealed":ui.music.controller.widgets.player_revealer.is_child_revealed(),"player_height":ui.music.player_bar.height(),"player_state":format!("{:?}",ui.music.controller.music_snapshot().map(|snapshot|snapshot.state))})).unwrap();
         }
     }
 }
@@ -630,7 +806,9 @@ fn compare_render_readback(ui: &crate::ui::MainWindow, name: &str) {
     );
 }
 
-fn populated_window() -> (
+fn populated_window(
+    active: bool,
+) -> (
     Fixture,
     adw::Application,
     crate::ui::MainWindow,
@@ -692,12 +870,20 @@ fn populated_window() -> (
     this.render_liked(Ok(liked.clone()), 0);
     this.select_track_info(liked.items[0].clone(), Some(context), true);
     this.widgets.stack.set_visible_child_name("library");
+    this.widgets.nav_liked.set_active(true);
+    this.set_fixture_resolver_for_test(crate::stream::StreamResolver::for_test(
+        &fixture.origin,
+        &fixture.origin,
+        &fixture.origin,
+    ));
     ui.window.set_title(Some("Karin synthetic HTTP fixture"));
     ui.window.set_default_size(1440, 900);
     ui.window.present();
-    pump(|| textures(&this.widgets.library_rows) >= 6 && textures(&this.widgets.current_art) > 0);
+    pump(|| textures(&this.widgets.library_rows) >= 6);
     assert_decoded_artwork(&this.widgets.library_rows);
-    assert_decoded_artwork(&this.widgets.current_art);
+    if active {
+        activate_design_player(&ui, &fixture);
+    }
     assert!(fixture.images.load(Ordering::Acquire) > 0);
     let actual = ui.window.renderer().unwrap().type_().name().to_string();
     eprintln!("Native design renderer: {actual}");
@@ -721,17 +907,72 @@ fn populated_window() -> (
     (fixture, app, ui, liked, album)
 }
 
+fn activate_design_player(ui: &crate::ui::MainWindow, fixture: &Fixture) {
+    activate_design_player_observed(ui, fixture, false);
+}
+
+fn activate_design_player_observed(ui: &crate::ui::MainWindow, fixture: &Fixture, observe: bool) {
+    use crate::playback::PlaybackState;
+    let this = &ui.music.controller;
+    let first = this
+        .widgets
+        .library_rows
+        .row_at_index(0)
+        .expect("first real loaded track row");
+    if observe {
+        observe_footer_transition(ui, "first-start", true, || native_click(ui, &first));
+    } else {
+        native_click(ui, &first);
+    }
+    pump(|| {
+        this.music_snapshot()
+            .is_some_and(|state| state.state == PlaybackState::Playing)
+    });
+    assert!(
+        fixture.media_requests.load(Ordering::Acquire) > 0,
+        "visible-state evidence must traverse the normal resolver and remote GStreamer source"
+    );
+    this.toggle_music();
+    pump(|| {
+        this.music_snapshot()
+            .is_some_and(|state| state.state == PlaybackState::Paused)
+    });
+    pump(|| {
+        this.widgets.player_revealer.is_child_revealed() && textures(&this.widgets.current_art) > 0
+    });
+    assert_decoded_artwork(&this.widgets.current_art);
+    settle();
+}
+
 #[test]
 #[ignore = "isolated GTK/X11 design evidence; run under Xvfb with GDK_SCALE=1 and2"]
 fn native_design_matched_matrix_and_populated_surfaces() {
     gtk::init().unwrap();
     adw::init().unwrap();
     let _manager = WindowManager::start();
-    let (fixture, _app, ui, liked, album) = populated_window();
+    let (fixture, _app, ui, liked, album) = populated_window(false);
     let this = &ui.music.controller;
+    set_panel(&ui, workspace::PanelMode::Closed);
+    // Queue selection is deliberately idle. The footer must stay absent until
+    // the real resolver/worker request below; hidden captures are not a forced
+    // visibility facsimile or evidence of service audibility.
+    for (width, height, shape) in [
+        (420, 720, "compact"),
+        (900, 650, "medium"),
+        (1440, 900, "wide"),
+    ] {
+        resize(&ui, width, height);
+        assert!(!this.widgets.player_revealer.reveals_child());
+        evidence(&ui, &format!("surface-player-hidden-{shape}"));
+    }
+    gtk::Settings::default()
+        .unwrap()
+        .set_gtk_enable_animations(true);
+    activate_design_player_observed(&ui, &fixture, true);
+    evidence(&ui, "surface-player-visible-paused");
     // Eight geometries × three genuine panel modes × two themes × two
     // separate scale processes =96 current images, matched to the archived
-    // a9 baseline's honest old representations at the same outer dimensions.
+    // a70 baseline's actual panel representations at the same outer dimensions.
     for (width, height, name) in [
         (420, 720, "compact"),
         (720, 650, "narrow"),
@@ -751,6 +992,7 @@ fn native_design_matched_matrix_and_populated_surfaces() {
             set_panel(&ui, mode);
             if mode == workspace::PanelMode::TrackInfo {
                 pump(|| textures(&this.track_pane.widget) > 0);
+                assert_short_info_actions_visible(&ui);
             } else if mode == workspace::PanelMode::Queue {
                 pump(|| textures(&this.widgets.queue_rows) > 0);
             } else {
@@ -779,6 +1021,9 @@ fn native_design_matched_matrix_and_populated_surfaces() {
         (workspace::PanelMode::Queue, "queue"),
     ] {
         set_panel(&ui, mode);
+        if mode == workspace::PanelMode::TrackInfo {
+            assert_short_info_actions_visible(&ui);
+        }
         evidence(&ui, &format!("matrix-maximized-panel-{label}"));
     }
     set_pane(&ui, false);
@@ -786,13 +1031,17 @@ fn native_design_matched_matrix_and_populated_surfaces() {
     pump(|| !ui.window.is_maximized());
     resize(&ui, 1440, 900);
 
-    this.widgets.stack.set_visible_child_name("home");
-    settle();
-    evidence(&ui, "surface-home");
-    this.widgets.stack.set_visible_child_name("library");
-    this.widgets.library_mode.set_selected(1);
-    pump(|| !this.model.borrow().busy && textures(&this.playlist_grid.widget) >= 3);
-    evidence(&ui, "surface-library-playlists");
+    primary_destination(&ui, "home");
+    evidence(&ui, "surface-wave-placeholder");
+    primary_destination(&ui, "library");
+    evidence(&ui, "surface-liked-tab");
+    primary_destination(&ui, "playlists");
+    pump(|| {
+        !this.model.borrow().busy
+            && textures(&this.playlist_grid.widget) >= 3
+            && textures(&this.liked_playlist_grid.widget) >= 1
+    });
+    evidence(&ui, "surface-playlists-tab");
     let playlist = this
         .model
         .borrow()
@@ -887,7 +1136,7 @@ fn native_design_matched_matrix_and_populated_surfaces() {
     fixture.search_hold.store(false, Ordering::Release);
     pump(|| !this.model.borrow().busy);
 
-    this.widgets.stack.set_visible_child_name("library");
+    primary_destination(&ui, "library");
     this.set_music_shuffle(true);
     this.set_music_repeat(crate::queue::RepeatMode::Queue);
     set_panel(&ui, workspace::PanelMode::Queue);
@@ -911,7 +1160,7 @@ fn native_design_matched_matrix_and_populated_surfaces() {
     this.set_music_repeat(crate::queue::RepeatMode::Off);
     set_panel(&ui, workspace::PanelMode::Closed);
 
-    this.widgets.library_mode.set_selected(0);
+    primary_destination(&ui, "library");
     pump(|| !this.model.borrow().busy);
     let mut unusual = liked.items.clone();
     unusual[0].title = "Длинное синтетическое название композиции — несколько частей ночного путешествия, продолжение и финал".into();
@@ -945,7 +1194,7 @@ fn native_design_matched_matrix_and_populated_surfaces() {
     evidence(&ui, "surface-empty-library");
 
     resize(&ui, 1440, 900);
-    this.widgets.stack.set_visible_child_name("home");
+    primary_destination(&ui, "playlists");
     {
         let mut model = this.model.borrow_mut();
         model.liked = Some(Ok(liked.clone()));
@@ -953,9 +1202,10 @@ fn native_design_matched_matrix_and_populated_surfaces() {
         page.items.truncate(1);
         model.playlists = Some(Ok(page));
     }
-    this.render_home_preview();
+    let owned = this.model.borrow().playlists.as_ref().unwrap().clone();
+    this.render_playlists(owned, 0);
     settle();
-    evidence(&ui, "surface-home-few-playlists");
+    evidence(&ui, "surface-playlists-few-owned");
     {
         let mut model = this.model.borrow_mut();
         let first = model.playlists.as_ref().unwrap().as_ref().unwrap().items[0].clone();
@@ -972,9 +1222,10 @@ fn native_design_matched_matrix_and_populated_surfaces() {
             has_more: true,
         }));
     }
-    this.render_home_preview();
+    let owned = this.model.borrow().playlists.as_ref().unwrap().clone();
+    this.render_playlists(owned, 0);
     settle();
-    evidence(&ui, "surface-home-large-collection");
+    evidence(&ui, "surface-playlists-large-collection");
     {
         let mut model = this.model.borrow_mut();
         model.liked = Some(Ok(Page {
@@ -986,12 +1237,181 @@ fn native_design_matched_matrix_and_populated_surfaces() {
             has_more: false,
         }));
     }
-    this.render_home_preview();
+    let owned = this.model.borrow().playlists.as_ref().unwrap().clone();
+    this.render_playlists(owned, 0);
     settle();
-    evidence(&ui, "surface-home-empty");
+    evidence(&ui, "surface-playlists-empty-owned");
+    gtk::Settings::default()
+        .unwrap()
+        .set_gtk_enable_animations(true);
+    observe_footer_transition(&ui, "explicit-stop", false, || this.stop_music());
+    assert!(!this.widgets.player_revealer.reveals_child());
+    evidence(&ui, "surface-player-hidden-after-stop");
     ui.music.close();
     ui.window.close();
     settle();
+}
+
+// Raw first-use evidence is intentionally separate from the initialized panel
+// quality gate. Never turn a missing cold intermediate into a synthetic frame,
+// alter the normal reveal duration, or describe this as a cold-latency PASS.
+fn observe_footer_transition(
+    ui: &crate::ui::MainWindow,
+    name: &str,
+    opening: bool,
+    activate: impl FnOnce(),
+) {
+    struct Frame {
+        time: i64,
+        height: i32,
+        requested: bool,
+        revealed: bool,
+        child: Option<gtk::graphene::Rect>,
+        node: Option<gtk::gsk::RenderNode>,
+    }
+    let reveal = &ui.music.controller.widgets.player_revealer;
+    assert_eq!(
+        reveal.transition_type(),
+        gtk::RevealerTransitionType::SlideUp
+    );
+    assert_eq!(reveal.transition_duration(), 240);
+    assert!(gtk::Settings::default().unwrap().is_gtk_enable_animations());
+    let frames = Rc::new(RefCell::new(Vec::new()));
+    let captured = frames.clone();
+    let window = ui.window.clone();
+    let observed = reveal.clone();
+    let clock = window.frame_clock().unwrap();
+    let handler = clock.connect_after_paint(move |clock| {
+        let paintable = gtk::WidgetPaintable::new(Some(&window));
+        let snapshot = gtk::Snapshot::new();
+        paintable.snapshot(
+            &snapshot,
+            f64::from(window.width()),
+            f64::from(window.height()),
+        );
+        captured.borrow_mut().push(Frame {
+            time: clock.frame_time(),
+            height: observed.height(),
+            requested: observed.reveals_child(),
+            revealed: observed.is_child_revealed(),
+            child: observed
+                .child()
+                .and_then(|child| child.compute_bounds(&window)),
+            node: snapshot.to_node(),
+        });
+    });
+    ui.window.queue_draw();
+    pump(|| !frames.borrow().is_empty());
+    activate();
+    pump(|| {
+        reveal.reveals_child() == opening
+            && if opening {
+                reveal.is_child_revealed()
+            } else {
+                reveal.height() == 0 && !ui.music.controller.widgets.play.is_mapped()
+            }
+    });
+    ui.window.queue_draw();
+    let endpoint_count = frames.borrow().len();
+    pump(|| frames.borrow().len() > endpoint_count);
+    clock.disconnect(handler);
+    let frames = frames.borrow();
+    let maximum_height = frames.iter().map(|frame| frame.height).max().unwrap();
+    let intermediate: Vec<_> = frames
+        .iter()
+        .enumerate()
+        .filter(|(_, frame)| {
+            frame.height > 0
+                && frame.height < maximum_height
+                && frame.requested == opening
+                && (!opening || !frame.revealed)
+        })
+        .map(|(index, _)| index)
+        .collect();
+    let directory = motion_diagnostic_directory();
+    std::fs::create_dir_all(&directory).unwrap();
+    let scale = ui.window.scale_factor();
+    let records = frames
+        .iter()
+        .enumerate()
+        .map(|(index, frame)| {
+            json!({
+                "native_frame_index":index,"frame_time":frame.time,"height":frame.height,
+                "requested":frame.requested,"child_revealed":frame.revealed,
+                "child":frame.child.map(|rect|[rect.x(),rect.y(),rect.width(),rect.height()]),
+                "has_render_node":frame.node.is_some()
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut selected = std::collections::BTreeSet::from([0, frames.len() - 1]);
+    for percent in [25, 50, 75] {
+        if let Some(index) = intermediate.iter().copied().min_by_key(|index| {
+            (i64::from(frames[*index].height) * 100 - i64::from(maximum_height) * percent).abs()
+        }) {
+            selected.insert(index);
+        }
+    }
+    let reversals = frames
+        .windows(2)
+        .enumerate()
+        .filter_map(|(index, pair)| {
+            let reversed = if opening {
+                pair[1].height < pair[0].height
+            } else {
+                pair[1].height > pair[0].height
+            };
+            (reversed && pair.iter().all(|frame| frame.requested == opening))
+                .then_some([index, index + 1])
+        })
+        .collect::<Vec<_>>();
+    let saved_reversals = reversals.iter().take(4).copied().collect::<Vec<_>>();
+    for pair in &saved_reversals {
+        selected.extend(pair.iter().copied());
+    }
+    selected.retain(|index| frames[*index].node.is_some());
+    let natural_child_heights = frames
+        .iter()
+        .filter_map(|frame| frame.child.map(|rect| rect.height() as i32))
+        .collect::<std::collections::BTreeSet<_>>();
+    let summary = json!({"transition":name,"scope":"raw-first-start-or-stop-observation",
+        "cold_first_use_latency_accepted":false,"synthetic_frames":false,
+        "animations_enabled":gtk::Settings::default().unwrap().is_gtk_enable_animations(),
+        "transition_type":"SlideUp","transition_duration_ms":240,
+        "scale":scale,"renderer":ui.window.renderer().unwrap().type_().name(),
+        "after_paint_count":frames.len(),"intermediate_frame_count":intermediate.len(),
+        "node_none_count":frames.iter().filter(|frame|frame.node.is_none()).count(),
+        "intermediate_evidence_available":!intermediate.is_empty(),"frames":records,
+        "natural_child_heights":natural_child_heights,"saved_frame_indices":selected,
+        "observed_height_reversal_count":reversals.len(),"reversal_capture_limit":4,
+        "selected_reversal_frame_pairs":saved_reversals,
+        "selection_coordinate":"nearest-observed-allocation-height-not-animation-time-or-progress"});
+    std::fs::write(
+        directory.join(format!("footer-{name}-scale{scale}.json")),
+        serde_json::to_vec_pretty(&summary).unwrap(),
+    )
+    .unwrap();
+    eprintln!("Karin native footer observation: {summary}");
+    // Save only actual native observations, never representative static poses.
+    for index in selected {
+        let Some(node) = &frames[index].node else {
+            continue;
+        };
+        let snapshot = gtk::Snapshot::new();
+        snapshot.scale(scale as f32, scale as f32);
+        snapshot.append_node(node);
+        let texture = ui.window.renderer().unwrap().render_texture(
+            snapshot.to_node().unwrap(),
+            Some(&gtk::graphene::Rect::new(
+                0.0,
+                0.0,
+                (ui.window.width() * scale) as f32,
+                (ui.window.height() * scale) as f32,
+            )),
+        );
+        texture
+            .save_to_png(directory.join(format!("footer-{name}-frame{index:03}-scale{scale}.png")))
+            .unwrap();
+    }
 }
 
 #[derive(Clone)]
@@ -1543,7 +1963,7 @@ fn native_universal_panel_whole_surface_motion_and_mode_switch() {
     gtk::init().unwrap();
     adw::init().unwrap();
     let _manager = WindowManager::start();
-    let (_fixture, _app, ui, _liked, _album) = populated_window();
+    let (_fixture, _app, ui, _liked, _album) = populated_window(true);
     let this = &ui.music.controller;
     let settings = gtk::Settings::default().unwrap();
     settings.set_gtk_enable_animations(true);

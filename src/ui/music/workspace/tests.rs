@@ -179,16 +179,142 @@ fn assert_central_row_actions(
 
 fn layout(ui: &crate::ui::MainWindow) {
     let previous = RefCell::new(None);
+    let stable_since = Cell::new(Instant::now());
     pump_until(|| match ui.verify_layout() {
         Ok(()) => true,
         Err(error) => {
             if previous.borrow().as_ref() != Some(&error) {
                 eprintln!("Karin synthetic shell layout pending: {error}");
                 previous.replace(Some(error));
+                stable_since.set(Instant::now());
+            }
+            if stable_since.get().elapsed() >= Duration::from_millis(500)
+                && ui.window.width() < 500
+                && ui.header.width() > ui.window.width()
+                && ui.header_items.iter().any(|item| {
+                    item.is::<adw::WindowTitle>() && item.is_visible() && !item.is_mapped()
+                })
+            {
+                capture_unmapped_header_diagnostic(ui);
             }
             false
         }
     });
+}
+
+/// A failed-state observer only: preserve the actual frame, theme, animations
+/// and focus before collecting bounded native geometry. No text is serialized.
+fn capture_unmapped_header_diagnostic(ui: &crate::ui::MainWindow) {
+    use serde_json::json;
+    static CAPTURED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if CAPTURED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    let Some(directory) = std::env::var_os("KARIN_TEST_CAPTURE_DIR") else {
+        return;
+    };
+    let directory = std::path::PathBuf::from(directory);
+    if std::fs::create_dir_all(&directory).is_err() {
+        eprintln!("Karin synthetic header diagnostic: output-unavailable");
+        return;
+    }
+    let name = format!(
+        "workspace-header-unmapped-diagnostic-scale{}",
+        ui.window.scale_factor()
+    );
+    // XGetImage of this synthetic client window only; unlike capture_native,
+    // this observer changes neither color scheme nor motion preferences.
+    let found = Command::new("timeout")
+        .args([
+            "3",
+            "xdotool",
+            "search",
+            "--onlyvisible",
+            "--name",
+            "^Karin synthetic HTTP fixture$",
+        ])
+        .output();
+    let window_id = found
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .and_then(|ids| ids.lines().next().map(str::to_owned))
+        .filter(|id| !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit()));
+    let screenshot = window_id.is_some_and(|id| {
+        Command::new("timeout")
+            .args(["5", "import", "-silent", "-window", &id])
+            .arg(directory.join(format!("{name}.png")))
+            .status()
+            .is_ok_and(|status| status.success())
+    });
+    fn node(
+        widget: &gtk::Widget,
+        window: &adw::ApplicationWindow,
+        depth: usize,
+    ) -> serde_json::Value {
+        let bounds = widget
+            .compute_bounds(window)
+            .map(|bounds| [bounds.x(), bounds.y(), bounds.width(), bounds.height()]);
+        let (h_min, h_nat, _, _) = widget.measure(gtk::Orientation::Horizontal, -1);
+        let (v_min, v_nat, _, _) =
+            widget.measure(gtk::Orientation::Vertical, widget.width().max(1));
+        let role = [
+            "music-header",
+            "music-primary-navigation",
+            "music-player-bar",
+            "music-panel-content",
+        ]
+        .into_iter()
+        .find(|name| widget.widget_name().as_str() == *name);
+        json!({"depth":depth,"type":widget.type_().name(),"role":role,
+            "allocation":[widget.width(),widget.height()],"bounds_in_window":bounds,
+            "horizontal":[h_min,h_nat],"vertical_at_allocated_width":[v_min,v_nat],
+            "request":[widget.width_request(),widget.height_request()],
+            "visible":widget.is_visible(),"child_visible":widget.is_child_visible(),
+            "mapped":widget.is_mapped(),"has_focus":widget.has_focus()})
+    }
+    fn tree(
+        widget: &gtk::Widget,
+        window: &adw::ApplicationWindow,
+        depth: usize,
+        maximum: usize,
+        nodes: &mut Vec<serde_json::Value>,
+    ) {
+        if depth > 10 || nodes.len() >= maximum {
+            return;
+        }
+        nodes.push(node(widget, window, depth));
+        let mut child = widget.first_child();
+        while let Some(widget) = child {
+            child = widget.next_sibling();
+            tree(&widget, window, depth + 1, maximum, nodes);
+            if nodes.len() >= maximum {
+                break;
+            }
+        }
+    }
+    let mut root = Vec::new();
+    tree(ui.window.upcast_ref(), &ui.window, 0, 160, &mut root);
+    let mut header = Vec::new();
+    tree(ui.header.upcast_ref(), &ui.window, 0, 80, &mut header);
+    let mut ancestors = Vec::new();
+    let mut ancestor = ui.header.clone().upcast::<gtk::Widget>().parent();
+    while let Some(widget) = ancestor {
+        ancestors.push(node(&widget, &ui.window, ancestors.len()));
+        ancestor = widget.parent();
+        if ancestors.len() >= 12 {
+            break;
+        }
+    }
+    let data = json!({"scope":"failed-state-observer-not-acceptance",
+        "category":"compact-unmapped-title-oversized-header","screenshot_saved":screenshot,
+        "theme_changed":false,"animations_changed":false,"scale":ui.window.scale_factor(),
+        "window":[ui.window.width(),ui.window.height()],"header_ancestors":ancestors,
+        "header_tree":header,"root_tree":root});
+    let saved = serde_json::to_vec_pretty(&data)
+        .ok()
+        .is_some_and(|bytes| std::fs::write(directory.join(format!("{name}.json")), bytes).is_ok());
+    eprintln!("Karin synthetic header diagnostic: screenshot={screenshot} geometry={saved}");
 }
 
 fn assert_selection(this: &Controller, id: &str, kind: ContextKind, index: usize) {
@@ -317,10 +443,17 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
     assert!(this.info_is_open());
     assert_selection(&this, "41", ContextKind::LikedTracks, 0);
     let queue_before_cover = this.model.borrow().queue.context().cloned();
-    click(&ui.window, id, &this.widgets.current_art_button);
+    assert!(
+        !this.widgets.player_revealer.reveals_child(),
+        "a selected queue alone must not expose a player"
+    );
+    // This metadata-only fixture intentionally has no player/request. Exercise
+    // its controller selection path without inventing a visible idle footer;
+    // the real-player refinement fixture covers mouse/Enter/Space on the zone.
+    this.show_current_track_info();
     assert!(
         this.info_is_open(),
-        "the footer cover opens information; a repeat outside click cannot close it"
+        "show-current information preserves the pinned open intent"
     );
     assert_selection(&this, "41", ContextKind::LikedTracks, 0);
     assert_eq!(
@@ -348,9 +481,9 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
     assert_eq!(this.model.borrow().queue.current().unwrap().id, "41");
     assert!(this.music_snapshot().is_none());
     capture_native("workspace-shell-wide-selected");
-    // Cover is an explicit show-current action, even while another track is
-    // being inspected. It neither closes the pane nor changes playback.
-    click(&ui.window, id, &this.widgets.current_art_button);
+    // The explicit show-current path neither closes the panel nor starts an
+    // idle queue while another track's metadata is being inspected.
+    this.show_current_track_info();
     assert!(this.info_is_open());
     assert_selection(&this, "41", ContextKind::LikedTracks, 0);
     assert_eq!(
@@ -413,7 +546,11 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
     click(&ui.window, id, &this.track_pane.close);
     pump_until(|| !this.info_is_open());
     assert!(!this.track_info_preference());
-    assert!(this.widgets.current_art_button.has_focus());
+    assert!(
+        gtk::prelude::GtkWindowExt::focus(&ui.window)
+            .is_some_and(|focus| focus.is_mapped() && !focus.is_ancestor(&this.track_pane.widget)),
+        "closing metadata without an active player returns focus to a mapped page control"
+    );
     pump_until(|| reveal.progress() == 0.0);
     assert_eq!(content.margin_end(), 0);
     assert!(!this.track_pane.close.is_mapped());
@@ -483,11 +620,12 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
     assert_eq!(presentation(), InfoPresentation::Medium);
     assert!(this.info_is_open());
     assert_eq!(content.margin_end(), 316);
-    click(&ui.window, id, &this.widgets.current);
+    click(&ui.window, id, &this.widgets.nav_liked);
+    pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("library"));
     assert!(this.info_is_open());
     let (x, y) = test_input::pointer(
         &ui.window,
-        &this.widgets.current,
+        &this.widgets.nav_liked,
         test_input::Target::Center,
     );
     input(&[
@@ -502,12 +640,12 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
     input(&["key", "--clearmodifiers", "Tab"]);
     settle();
     assert!(this.info_is_open());
-    click(&ui.window, id, &ui.sidebar.row_at_index(1).unwrap());
-    pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("library"));
+    click(&ui.window, id, &this.widgets.nav_playlists);
+    pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("playlists"));
     assert!(this.info_is_open());
     let (x, y) = test_input::pointer(
         &ui.window,
-        &this.widgets.library_mode,
+        &this.widgets.nav_playlists,
         test_input::Target::Leading,
     );
     input(&[
@@ -547,8 +685,8 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
 
     // Keep real central actions readable and hit-testable even at the exact
     // 720px medium boundary, rather than merely reporting mapped widgets.
-    this.widgets.library_mode.set_selected(0);
-    this.show_library();
+    click(&ui.window, id, &this.widgets.nav_liked);
+    pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("library"));
     for width in [720, 900] {
         resize_logical(&ui, width, 650);
         assert_eq!(presentation(), InfoPresentation::Medium);
@@ -564,28 +702,26 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
         assert!(this.info_is_open());
         capture_native(&format!("workspace-shell-medium-{width}-central-actions"));
     }
-    // Expanding the rail at 720px leaves too little actual music width for a
-    // nonmodal column. Keep the same mode/surface and use its explicit subview.
+    // The compact primary segments no longer consume a left rail. Exercise
+    // the real content-width boundary instead: one mounted surface and mode
+    // survive both directions between the medium and dedicated subviews.
     resize_logical(&ui, 720, 650);
     let before_expansion = this.model.borrow().queue.context().cloned();
-    click(&ui.window, id, &ui.sidebar_expand);
-    pump_until(|| presentation() == InfoPresentation::Compact && !content.is_visible());
-    assert!(this.info_is_open());
-    assert_eq!(this.panel_mode.get(), PanelMode::TrackInfo);
-    click(&ui.window, id, &ui.sidebar_expand);
-    pump_until(|| presentation() == InfoPresentation::Medium && content.is_visible());
-    assert_eq!(
-        this.model.borrow().queue.context(),
-        before_expansion.as_ref()
-    );
-    assert!(this.music_snapshot().is_none());
-    this.set_panel_mode(PanelMode::Queue);
-    click(&ui.window, id, &ui.sidebar_expand);
-    pump_until(|| presentation() == InfoPresentation::Compact && !content.is_visible());
-    assert_eq!(this.panel_mode.get(), PanelMode::Queue);
-    click(&ui.window, id, &ui.sidebar_expand);
-    pump_until(|| presentation() == InfoPresentation::Medium && content.is_visible());
-    assert_eq!(this.panel_mode.get(), PanelMode::Queue);
+    for mode in [PanelMode::TrackInfo, PanelMode::Queue] {
+        this.set_panel_mode(mode);
+        resize_logical(&ui, 600, 650);
+        pump_until(|| presentation() == InfoPresentation::Compact && !content.is_visible());
+        assert!(this.info_is_open());
+        assert_eq!(this.panel_mode.get(), mode);
+        resize_logical(&ui, 720, 650);
+        pump_until(|| presentation() == InfoPresentation::Medium && content.is_visible());
+        assert_eq!(this.panel_mode.get(), mode);
+        assert_eq!(
+            this.model.borrow().queue.context(),
+            before_expansion.as_ref()
+        );
+        assert!(this.music_snapshot().is_none());
+    }
     this.set_panel_mode(PanelMode::TrackInfo);
     ui.show_page("music-home");
 
@@ -597,8 +733,20 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
         ("wide", 1440, 900, InfoPresentation::Wide),
     ] {
         if expected == InfoPresentation::Compact {
-            assert!(this.widgets.home_liked.grab_focus());
-            assert!(this.widgets.home_liked.has_focus());
+            // show_library populates a model/view; it is not a navigation
+            // action. Focus a genuinely mapped page control before hiding the
+            // central subtree, rather than an off-page retained widget.
+            ui.show_page("music-library");
+            pump_until(|| {
+                this.widgets.stack.visible_child_name().as_deref() == Some("library")
+                    && this.widgets.library_refresh.is_mapped()
+                    && this.widgets.library_refresh.is_sensitive()
+            });
+            layout(&ui);
+            test_input::wait_for_layout(&ui.window, &this.widgets.library_refresh);
+            assert!(this.widgets.library_refresh.grab_focus());
+            assert!(this.widgets.library_refresh.has_focus());
+            eprintln!("Karin synthetic shell phase: mapped-library-control-focused-before-compact");
         }
         resize(&ui, width, height);
         assert_eq!(presentation(), expected);
@@ -606,7 +754,38 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
         assert!(this.track_info_preference());
         assert_eq!(content.is_visible(), expected != InfoPresentation::Compact);
         if expected == InfoPresentation::Compact {
-            pump_until(|| this.track_pane.close.has_focus());
+            eprintln!("Karin synthetic shell phase: wait-compact-close-focus");
+            let previous_focus = RefCell::new(None);
+            pump_until(|| {
+                let focus = gtk::prelude::GtkWindowExt::focus(&ui.window);
+                let mut ancestors = Vec::new();
+                let mut parent = focus.as_ref().and_then(|widget| widget.parent());
+                while let Some(widget) = parent {
+                    ancestors.push(widget.type_().name().to_owned());
+                    parent = widget.parent();
+                    if ancestors.len() >= 8 {
+                        break;
+                    }
+                }
+                let current = (
+                    focus
+                        .as_ref()
+                        .map(|widget| widget.type_().name().to_owned()),
+                    focus
+                        .as_ref()
+                        .map(|widget| widget.widget_name().to_string()),
+                    focus.as_ref().is_some_and(|widget| widget.is_mapped()),
+                    focus
+                        .as_ref()
+                        .is_some_and(|widget| widget.is_ancestor(&this.track_pane.widget)),
+                    ancestors,
+                );
+                if previous_focus.borrow().as_ref() != Some(&current) {
+                    eprintln!("Karin synthetic compact-close-focus: {current:?}");
+                    previous_focus.replace(Some(current));
+                }
+                this.track_pane.close.has_focus()
+            });
             assert!(
                 this.track_pane.close.has_focus(),
                 "hiding a focused music subtree must move focus into the information subview"
@@ -668,8 +847,8 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
     eprintln!("Karin synthetic shell phase: playlist retry");
     this.set_info_open(false);
     settle();
-    this.widgets.stack.set_visible_child_name("library");
     this.widgets.library_mode.set_selected(1);
+    this.widgets.stack.set_visible_child_name("playlists");
     this.playlist_grid.set_error();
     click(&ui.window, id, &this.playlist_grid.retry);
     assert!(!this.model.borrow().busy);

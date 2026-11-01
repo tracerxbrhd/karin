@@ -67,6 +67,7 @@ fn resize(window: &adw::ApplicationWindow, pane: &TrackPane, width: i32, height:
         // preceding frame. Native CSD shadows account for a small size delta.
         (current.0 - width).abs() <= 24 && (current.1 - height).abs() <= 24
     });
+    pane.set_available_size(pane.widget.width(), pane.widget.height());
     settle();
 }
 
@@ -82,6 +83,28 @@ fn click(window: &adw::ApplicationWindow, id: &str, widget: &impl IsA<gtk::Widge
         "1",
     ]);
     settle();
+}
+
+fn assert_centered_music_cluster(pane: &TrackPane) {
+    let cover = pane.cover.compute_bounds(&pane.widget).unwrap();
+    let expected = cover.x() + cover.width() / 2.0;
+    for widget in [
+        pane.title.clone().upcast::<gtk::Widget>(),
+        pane.play.parent().unwrap(),
+        pane.album.clone().upcast(),
+        pane.artists.first_child().unwrap(),
+    ] {
+        let bounds = widget.compute_bounds(&pane.widget).unwrap();
+        assert!(
+            (bounds.x() + bounds.width() / 2.0 - expected).abs() <= 1.0,
+            "artwork, metadata and actions must share the music-cluster axis: widget={} cover={cover:?} bounds={bounds:?}",
+            widget.widget_name()
+        );
+        assert!(
+            bounds.x() >= 0.0 && bounds.x() + bounds.width() <= pane.widget.width() as f32,
+            "the music cluster stays inside the allocated pane: {bounds:?}"
+        );
+    }
 }
 
 #[test]
@@ -175,6 +198,8 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
         .build();
     window.present();
     pump_until(|| pane.play.is_mapped() && pane.play.width() > 0);
+    settle();
+    assert_centered_music_cluster(&pane);
     let output = Command::new("xdotool")
         .args([
             "search",
@@ -280,6 +305,7 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
     let cover_bounds = cover.compute_bounds(&pane.widget).unwrap();
     assert!(cover_bounds.x() >= 0.0);
     assert!(cover_bounds.x() + cover_bounds.width() <= pane.widget.width() as f32);
+    assert_centered_music_cluster(&pane);
     assert_eq!(
         pane.close.icon_name().as_deref(),
         Some("window-close-symbolic")
@@ -288,6 +314,31 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
     settle();
     assert!(pane.details.has_focus());
     capture_native("native-music-track-info-sidebar");
+
+    // A short ordinary track must expose primary actions even in the smaller
+    // viewport left by a visible player. Resize the existing art in place;
+    // long metadata remains an independent native scrolling case above.
+    let short = track("42", "Synthetic short track");
+    pane.set_track(Some(&short), None);
+    pane.set_playback("", true, true);
+    let art = pane.cover.first_child().unwrap();
+    for height in [420, 650, 420] {
+        resize(&window, &pane, 420, height);
+        assert_eq!(pane.cover.first_child().as_ref(), Some(&art));
+        assert!((96..=256).contains(&art.width_request()));
+        assert_eq!(art.width_request(), art.height_request());
+        let actions = pane.transport.compute_bounds(&pane.scroll).unwrap();
+        assert!(
+            actions.y() >= 0.0 && actions.y() + actions.height() <= pane.scroll.height() as f32,
+            "short metadata actions must fit the actual viewport: actions={actions:?} viewport={}x{} art={}",
+            pane.scroll.width(),
+            pane.scroll.height(),
+            art.width_request()
+        );
+        assert!(pane.play.width() >= 44 && pane.play.height() >= 44);
+        assert_centered_music_cluster(&pane);
+    }
+    capture_native("native-music-track-info-height-responsive");
 
     let mut unavailable = track("43", "Synthetic unavailable track");
     unavailable.available = false;

@@ -901,6 +901,19 @@ impl Controller {
                 .is_some_and(|token| !token.is_expired());
         let loading =
             player.requested || player.preparing.is_some() || state == PlaybackState::Loading;
+        // Presentation follows an actual playback attempt/owned pipeline, not
+        // the presence of a selected queue entry or a retired/cancelled job.
+        // Errors remain reachable for Retry; pause/ready keep the same footer.
+        let active_footer = model.account_valid
+            && !model.closed
+            && selected.is_some()
+            && !player.stopped
+            && (player.requested
+                || player.pending.is_some()
+                || player.preparing.is_some()
+                || player.failure.is_some()
+                || player.controller.is_some());
+        self.widgets.player_revealer.set_reveal_child(active_footer);
         let caption = if let Some(failure) = player.failure {
             match failure {
                 Failure::Delivery(_) => "Источник аудио недоступен",
@@ -935,20 +948,33 @@ impl Controller {
         self.widgets.player_status.set_text(caption);
         self.widgets
             .player_status
-            .set_visible(loading || player.failure.is_some() || state == PlaybackState::Error);
+            .set_visible(player.failure.is_some() || state == PlaybackState::Error);
+        // Loading has the stable native Play-button surface: removing a text
+        // row at the end of resolution must not move the footer mid-reveal.
+        // Errors retain their full-width readable feedback and real Retry.
+        let spinner_loading = loading
+            && active_footer
+            && player.failure.is_none()
+            && !matches!(state, PlaybackState::Paused | PlaybackState::Error);
+        player_bar::set_play_presentation(
+            &self.widgets.play,
+            state == PlaybackState::Playing,
+            spinner_loading,
+        );
+        let play_label = if spinner_loading {
+            caption
+        } else {
+            match state {
+                PlaybackState::Playing => "Пауза",
+                PlaybackState::Paused => "Продолжить",
+                PlaybackState::Error => "Получить источник заново и повторить",
+                _ => "Воспроизвести выбранный трек",
+            }
+        };
+        self.widgets.play.set_tooltip_text(Some(play_label));
         self.widgets
             .play
-            .set_icon_name(if state == PlaybackState::Playing {
-                "media-playback-pause-symbolic"
-            } else {
-                "media-playback-start-symbolic"
-            });
-        self.widgets.play.set_tooltip_text(Some(match state {
-            PlaybackState::Playing => "Пауза",
-            PlaybackState::Paused => "Продолжить",
-            PlaybackState::Error => "Получить источник заново и повторить",
-            _ => "Воспроизвести выбранный трек",
-        }));
+            .update_property(&[gtk::accessible::Property::Label(play_label)]);
         self.widgets
             .play
             .set_sensitive(ready && selected.is_some_and(|track| track.available) && !loading);
@@ -1118,4 +1144,4 @@ fn music_command_failure(error: PlaybackError) -> bool {
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;

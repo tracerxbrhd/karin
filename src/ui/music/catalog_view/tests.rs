@@ -38,7 +38,12 @@ impl Drop for Scratch {
 
 fn assert_stale(this: &Rc<Controller>) {
     assert!(this.widgets.cache_notice.is_revealed());
-    assert!(this.widgets.cache_notice.title().contains("сохранённые"));
+    assert!(
+        this.widgets
+            .cache_notice
+            .title()
+            .contains("сохранённой копии")
+    );
     assert!(!this.widgets.cache_hint.is_visible());
 }
 fn assert_network(this: &Rc<Controller>) {

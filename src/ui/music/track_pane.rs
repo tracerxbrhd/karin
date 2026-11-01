@@ -48,8 +48,14 @@ pub(super) struct TrackPane {
     pages: gtk::Stack,
     state: Rc<State>,
     empty: gtk::Box,
+    body: gtk::Box,
     content: gtk::Box,
     cover: gtk::Box,
+    metadata: gtk::Box,
+    transport: gtk::Box,
+    #[cfg(test)]
+    scroll: gtk::ScrolledWindow,
+    art_size: Cell<i32>,
     title: gtk::Label,
     credits: gtk::Label,
     album_title: gtk::Label,
@@ -73,9 +79,12 @@ impl TrackPane {
         widget.set_vexpand(true);
         let header = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         super::super::margins(&header, 6);
+        header.set_margin_start(12);
+        header.set_margin_end(12);
         header.add_css_class("karin-track-pane-header");
         let heading = label("О треке", "heading");
         heading.set_widget_name("music-panel-heading");
+        heading.set_xalign(0.5);
         heading.set_hexpand(true);
         header.append(&heading);
         let close = button("window-close-symbolic", "Закрыть сведения о треке");
@@ -96,11 +105,13 @@ impl TrackPane {
         let icon = gtk::Image::from_icon_name("audio-x-generic-symbolic");
         icon.set_pixel_size(48);
         icon.add_css_class("dim-label");
-        icon.set_halign(gtk::Align::Start);
+        icon.set_halign(gtk::Align::Center);
         empty.append(&icon);
-        empty.append(&label("Выберите трек", "title-2"));
+        let empty_title = label("Выберите трек", "title-2");
+        empty_title.set_xalign(0.5);
+        empty.append(&empty_title);
         body.append(&empty);
-        let content = gtk::Box::new(gtk::Orientation::Vertical, 16);
+        let content = gtk::Box::new(gtk::Orientation::Vertical, 18);
         content.add_css_class("karin-track-pane-content");
         content.set_visible(false);
         let cover = gtk::Box::new(gtk::Orientation::Horizontal, 0);
@@ -111,27 +122,37 @@ impl TrackPane {
         let metadata = gtk::Box::new(gtk::Orientation::Vertical, 6);
         metadata.add_css_class("karin-track-pane-metadata");
         let title = label("", "title-2");
+        title.set_xalign(0.5);
+        title.set_justify(gtk::Justification::Center);
         title.set_widget_name("music-track-pane-title");
         title.set_selectable(true);
         metadata.append(&title);
         let credits = label("", "dim-label");
+        credits.set_xalign(0.5);
+        credits.set_justify(gtk::Justification::Center);
         credits.set_selectable(true);
         credits.set_widget_name("music-track-pane-artist");
         metadata.append(&credits);
         let album_title = label("", "caption");
+        album_title.set_xalign(0.5);
+        album_title.set_justify(gtk::Justification::Center);
         album_title.set_visible(false);
         metadata.append(&album_title);
         content.append(&metadata);
         let status = label("", "heading");
+        status.set_xalign(0.5);
+        status.set_justify(gtk::Justification::Center);
         status.set_widget_name("music-track-pane-state");
         status.set_visible(false);
         let transport = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        transport.set_halign(gtk::Align::Center);
         transport.set_widget_name("music-track-pane-actions");
         transport.add_css_class("karin-track-pane-actions");
         let play = button("media-playback-start-symbolic", "Воспроизвести трек");
         play.set_widget_name("music-track-pane-play");
         play.add_css_class("suggested-action");
         play.add_css_class("circular");
+        play.set_size_request(44, 44);
         play.set_sensitive(false);
         play.connect_clicked({
             let state = Rc::clone(&state);
@@ -177,7 +198,7 @@ impl TrackPane {
         album.set_visible(false);
         album.add_css_class("flat");
         album.add_css_class("karin-track-pane-link");
-        album.set_halign(gtk::Align::Start);
+        album.set_halign(gtk::Align::Center);
         album.connect_clicked({
             let state = Rc::clone(&state);
             move |_| {
@@ -199,8 +220,16 @@ impl TrackPane {
         content.append(&transport);
         content.append(&status);
         body.append(&content);
-        let viewport = gtk::Viewport::builder()
+        // The same musical cluster remains bounded and centered when the
+        // pinned sidebar becomes a dedicated compact information view.
+        let cluster = adw::Clamp::builder()
+            .maximum_size(384)
+            .tightening_threshold(320)
             .child(&body)
+            .build();
+        cluster.set_widget_name("music-track-pane-cluster");
+        let viewport = gtk::Viewport::builder()
+            .child(&cluster)
             .scroll_to_focus(true)
             .build();
         let scroll = gtk::ScrolledWindow::builder()
@@ -232,8 +261,14 @@ impl TrackPane {
             pages,
             state,
             empty,
+            body,
             content,
             cover,
+            metadata,
+            transport,
+            #[cfg(test)]
+            scroll,
+            art_size: Cell::new(256),
             title,
             credits,
             album_title,
@@ -325,6 +360,7 @@ impl TrackPane {
         let image = super::cover_widget(loader, track.cover.as_ref(), 256);
         image.set_halign(gtk::Align::Center);
         self.cover.append(&image);
+        self.resize_existing_art();
         self.title.set_text(&track.title);
         self.title.set_tooltip_text(Some(&track.title));
         self.credits.set_text(&track.artists.join(", "));
@@ -347,6 +383,62 @@ impl TrackPane {
                 ))]);
         }
         self.set_artists(&track.artist_links);
+    }
+
+    /// Budget artwork against the actual panel viewport, retaining natural
+    /// text/action sizes. Long metadata still scrolls once the art reaches its
+    /// useful minimum. Resizing never recreates a thumbnail or starts a fetch.
+    pub(super) fn set_available_size(&self, width: i32, height: i32) {
+        if width <= 0 || height <= 0 || self.state.selected.borrow().is_none() {
+            return;
+        }
+        let inner_width =
+            (width.min(384) - self.body.margin_start() - self.body.margin_end()).max(1);
+        let natural_height = |widget: &gtk::Widget, width| {
+            let (minimum, natural, _, _) = widget.measure(gtk::Orientation::Vertical, width);
+            minimum.max(natural)
+        };
+        let header = natural_height(self.header.upcast_ref(), width);
+        let mut non_art_height = 0;
+        let mut gaps = 0;
+        for widget in [
+            self.metadata.upcast_ref::<gtk::Widget>(),
+            self.transport.upcast_ref(),
+            self.status.upcast_ref(),
+        ] {
+            if widget.is_visible() {
+                non_art_height += natural_height(widget, inner_width);
+                // Cover precedes each visible non-art child in this Box.
+                gaps += 1;
+            }
+        }
+        let available = height
+            - header
+            - self.body.margin_top()
+            - self.body.margin_bottom()
+            - non_art_height
+            - gaps * self.content.spacing();
+        let maximum = inner_width.clamp(96, 256);
+        let size = available.clamp(96, maximum);
+        if self.art_size.replace(size) != size {
+            self.resize_existing_art();
+        }
+    }
+
+    fn resize_existing_art(&self) {
+        let Some(image) = self.cover.first_child() else {
+            return;
+        };
+        let size = self.art_size.get();
+        image.set_size_request(size, size);
+        let fallback = image
+            .downcast_ref::<gtk::Overlay>()
+            .and_then(gtk::Overlay::child)
+            .and_downcast::<gtk::Image>()
+            .or_else(|| image.clone().downcast::<gtk::Image>().ok());
+        if let Some(fallback) = fallback {
+            fallback.set_pixel_size((size / 2).max(16));
+        }
     }
 
     /// Status text/capabilities come from the existing player/session owner.
@@ -417,9 +509,12 @@ impl TrackPane {
             let button = gtk::Button::new();
             button.add_css_class("flat");
             button.add_css_class("karin-track-pane-link");
-            button.set_halign(gtk::Align::Start);
+            button.set_halign(gtk::Align::Center);
             button.set_widget_name("music-track-pane-artist-link");
-            button.set_child(Some(&label(&artist.name, "body")));
+            let name = label(&artist.name, "body");
+            name.set_xalign(0.5);
+            name.set_justify(gtk::Justification::Center);
+            button.set_child(Some(&name));
             button.set_tooltip_text(Some("Открыть исполнителя"));
             button.update_property(&[gtk::accessible::Property::Label(&format!(
                 "Открыть исполнителя: {}",

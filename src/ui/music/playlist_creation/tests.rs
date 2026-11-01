@@ -340,7 +340,7 @@ fn native_playlist_creation_confirmation_refresh_refusal_and_late_widgets() {
             })
             .unwrap();
     }
-    this.widgets.stack.set_visible_child_name("library");
+    this.widgets.stack.set_visible_child_name("playlists");
     this.widgets.library_mode.set_selected(1);
     this.render_controls();
     this.render_queue();

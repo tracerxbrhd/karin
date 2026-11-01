@@ -349,6 +349,9 @@ fn native_search_retry_normalized_results_and_density() {
                             .1
                             .parse::<u32>()
                             .unwrap();
+                        let sparse = url
+                            .query_pairs()
+                            .any(|(k, v)| k == "text" && v == "sparse-query");
                         let partial = url
                             .query_pairs()
                             .any(|(k, v)| k == "text" && v == "partial-query");
@@ -357,13 +360,23 @@ fn native_search_retry_normalized_results_and_density() {
                             c.searches.push((kind.clone(), page));
                             c.searches.len() == 1
                         };
-                        if first {
+                        let append_failure = kind == "track"
+                            && page == 1
+                            && counts
+                                .lock()
+                                .unwrap()
+                                .searches
+                                .iter()
+                                .filter(|(kind, page)| kind == "track" && *page == 1)
+                                .count()
+                                == 1;
+                        if first || append_failure {
                             (
                                 503,
                                 json!({"error":{"name":"synthetic-private-search-name","message":"synthetic-private-search-response"}}),
                             )
                         } else {
-                            let track_section = json!({"page":page,"perPage":20,"total":40,"results":fixture_hits(page)});
+                            let track_section = json!({"page":page,"perPage":20,"total":if sparse{80}else{40},"results":if sparse && page<3{vec![json!({"id":54})]}else{fixture_hits(page)}});
                             let album_section = json!({"page":page,"perPage":20,"total":1,"results":[{"id":7,"title":"Synthetic search album","artists":[]}]});
                             let artist_section = json!({"page":page,"perPage":20,"total":1,"results":[{"id":11,"name":"Synthetic search artist"}]});
                             // No trackCount is deliberately different from an empty playlist.
@@ -630,11 +643,17 @@ fn native_search_retry_normalized_results_and_density() {
             track_id != 47
         );
     }
-    assert!(contains_text(
-        this.widgets.search_feedback.upcast_ref(),
-        "Часть найденных треков сейчас недоступна"
-    ));
-    assert!(this.widgets.search_next.is_visible());
+    assert!(
+        this.track_feeds
+            .borrow()
+            .iter()
+            .find(|feed| feed.rows == this.widgets.search_rows)
+            .unwrap()
+            .data
+            .borrow()
+            .incomplete
+    );
+    assert!(!this.widgets.search_next.is_visible());
     assert!(!this.widgets.search_previous.is_visible());
     this.widgets.search.grab_focus();
     settle();
@@ -661,7 +680,12 @@ fn native_search_retry_normalized_results_and_density() {
         .filter(|row| {
             row.compute_bounds(window).is_some_and(|b| {
                 b.y() >= viewport.y() - 1.0
-                    && b.y() + b.height() <= footer.y().min(viewport.y() + viewport.height()) + 1.0
+                    && b.y() + b.height()
+                        <= if this.widgets.player_revealer.reveals_child() {
+                            footer.y().min(viewport.y() + viewport.height()) + 1.0
+                        } else {
+                            viewport.y() + viewport.height() + 1.0
+                        }
             })
         })
         .count();
@@ -682,6 +706,71 @@ fn native_search_retry_normalized_results_and_density() {
         );
     }
     capture_native("search-normalized-dense-medium");
+    // Actual downward wheel input requests one append. A failed page keeps
+    // the same rows/context/cursor, and the native Retry appends without a
+    // replacement ListBox or jumping the viewport back to its beginning.
+    let feed = this
+        .track_feeds
+        .borrow()
+        .iter()
+        .find(|feed| feed.rows == this.widgets.search_rows)
+        .unwrap()
+        .clone();
+    this.model
+        .borrow_mut()
+        .queue
+        .replace_context(feed.data.borrow().context(0).unwrap());
+    let live_before = this.model.borrow().queue.context().unwrap().clone();
+    reveal_by_wheel(window, id, result_rows.last().unwrap());
+    let scroll = this.content_scroll.borrow().upgrade().unwrap();
+    let (x, y) = super::test_input::pointer(window, &scroll, super::test_input::Target::Center);
+    input(&[
+        "mousemove",
+        "--window",
+        id,
+        &x.to_string(),
+        &y.to_string(),
+        "click",
+        "5",
+    ]);
+    wait_for_step("continuous-append-inline-error", || {
+        counts.lock().unwrap().searches.len() == 4 && !this.model.borrow().busy
+    });
+    assert_eq!(rows(&this.widgets.search_rows).len(), 13);
+    assert!(feed.data.borrow().error.is_some());
+    assert_eq!(this.model.borrow().queue.context(), Some(&live_before));
+    let retry = named_button(
+        this.widgets.search_feedback.upcast_ref(),
+        "music-feed-retry",
+    );
+    reveal_by_wheel(window, id, &retry);
+    let anchor = scroll.vadjustment().value();
+    click(window, id, &retry);
+    wait_for_step("continuous-append-retry", || {
+        counts.lock().unwrap().searches.len() == 5 && !this.model.borrow().busy
+    });
+    assert_eq!(rows(&this.widgets.search_rows).len(), 14);
+    assert_eq!(
+        this.widgets.search_rows.row_at_index(0).as_ref(),
+        Some(&result_rows[0])
+    );
+    assert!(
+        (scroll.vadjustment().value() - anchor).abs() < 1.0,
+        "append preserves scroll position"
+    );
+    assert_eq!(
+        this.model.borrow().queue.context(),
+        Some(&live_before),
+        "loading visible rows never replaces the active queue"
+    );
+    assert!(!feed.data.borrow().has_more);
+    assert!(!this.widgets.search_next.is_visible() && !this.widgets.search_previous.is_visible());
+    assert!(
+        !descendants(this.widgets.search_feedback.upcast_ref())
+            .iter()
+            .any(|widget| widget.widget_name() == "music-feed-continue")
+    );
+    capture_native("search-continuous-append-retry");
     // Mouse/Enter/Space are primary playback actions. In particular a duplicate
     // ID at occurrence12 must not silently select its first occurrence1.
     for (index, key) in [(0, None), (12, Some("Return")), (1, Some("space"))] {
@@ -702,7 +791,7 @@ fn native_search_retry_normalized_results_and_density() {
         });
         let model = this.model.borrow();
         assert_eq!(model.queue.current_index(), Some(index));
-        assert_eq!(model.queue.items().len(), 13);
+        assert_eq!(model.queue.items().len(), 14);
         assert_eq!(model.queue.current().unwrap().id, track_id);
         assert_eq!(
             model.queue.context().unwrap().source_kind(),
@@ -726,7 +815,7 @@ fn native_search_retry_normalized_results_and_density() {
     );
     assert_eq!(
         counts.lock().unwrap().batches.len(),
-        2,
+        3,
         "row playback does not do per-row metadata lookup"
     );
     open_details(window, id, &result_rows[0]);
@@ -739,7 +828,7 @@ fn native_search_retry_normalized_results_and_density() {
         "Normalized synthetic track 50"
     ));
     assert!(named_button(this.widgets.detail.upcast_ref(), "music-track-play").is_sensitive());
-    assert_eq!(counts.lock().unwrap().batches.len(), 3);
+    assert_eq!(counts.lock().unwrap().batches.len(), 4);
     capture_native("search-normalized-track-detail");
     input(&["key", "--clearmodifiers", "alt+Left"]);
     pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("search"));
@@ -760,28 +849,13 @@ fn native_search_retry_normalized_results_and_density() {
             .surface()
             .is_some_and(|s| s.width() == 900 && s.height() == 650)
     });
-    let next = this.widgets.search_next.clone();
-    assert!(next.grab_focus());
-    settle();
-    click(window, id, &next);
-    pump_until(|| counts.lock().unwrap().searches.len() == 4 && !this.model.borrow().busy);
-    assert_eq!(this.model.borrow().search_page, 1);
-    assert!(this.widgets.search_previous.is_visible());
-    assert!(!this.widgets.search_next.is_visible());
-    assert_eq!(rows(&this.widgets.search_rows).len(), 1);
-    assert!(contains_text(
-        this.widgets.search_rows.upcast_ref(),
-        "Normalized synthetic track 60"
-    ));
-    assert_eq!(counts.lock().unwrap().batches.len(), 4);
-    assert!(!this.widgets.search_feedback.is_visible());
     assert!(this.widgets.search_all.grab_focus());
     settle();
     click(window, id, &this.widgets.search_all);
-    pump_until(|| counts.lock().unwrap().searches.len() == 5 && !this.model.borrow().busy);
+    pump_until(|| counts.lock().unwrap().searches.len() == 6 && !this.model.borrow().busy);
     assert!(this.model.borrow().search_scope.is_none());
     assert_eq!(counts.lock().unwrap().batches.len(), 5);
-    for (name, kind, source) in [
+    for (name, kind, _source) in [
         ("music-results-albums", ContextKind::Album, "7"),
         ("music-results-artists", ContextKind::Artist, "11"),
         ("music-results-playlists", ContextKind::Playlist, "1234:3"),
@@ -823,7 +897,14 @@ fn native_search_retry_normalized_results_and_density() {
         {
             let m = this.model.borrow();
             assert_eq!(m.queue.context().unwrap().source_kind(), kind);
-            assert_eq!(m.queue.context().unwrap().source_id(), Some(source));
+            assert!(
+                m.queue
+                    .context()
+                    .unwrap()
+                    .source_id()
+                    .unwrap()
+                    .starts_with("continuous:")
+            );
             assert_eq!(m.queue.current().unwrap().id, "50");
             assert_eq!(m.queue.items().len(), 1);
         }
@@ -838,7 +919,7 @@ fn native_search_retry_normalized_results_and_density() {
     input(&["type", "--clearmodifiers", "partial-query"]);
     input(&["key", "--clearmodifiers", "Return"]);
     wait_for_step("partial-unified-search", || {
-        counts.lock().unwrap().searches.len() == 6 && !this.model.borrow().busy
+        counts.lock().unwrap().searches.len() == 7 && !this.model.borrow().busy
     });
     assert!(this.model.borrow().search_scope.is_none());
     assert_eq!(rows(&this.widgets.search_rows).len(), 5);
@@ -867,7 +948,7 @@ fn native_search_retry_normalized_results_and_density() {
     let batches = counts.lock().unwrap().batches.len();
     click(window, id, &retry);
     wait_for_step("partial-album-retry", || {
-        counts.lock().unwrap().searches.len() == 7 && !this.model.borrow().busy
+        counts.lock().unwrap().searches.len() == 8 && !this.model.borrow().busy
     });
     assert_eq!(this.model.borrow().search_scope, Some(SearchKind::Albums));
     assert!(contains_text(
@@ -909,6 +990,73 @@ fn native_search_retry_normalized_results_and_density() {
     });
     assert_eq!(this.model.borrow().search_scope, Some(SearchKind::Albums));
     assert_eq!(counts.lock().unwrap().searches.len(), before_back);
+    // Raw hits with missing canonical track54 normalize to empty pages while
+    // keeping a valid provider continuation. They must neither dead-end nor
+    // drain the remote collection. Three bounded viewport-fill reads stop;
+    // the next page requires an actual user wheel gesture, not a More button.
+    let before_sparse = counts.lock().unwrap().searches.len();
+    click(window, id, &this.widgets.search);
+    input(&["key", "--clearmodifiers", "ctrl+a"]);
+    input(&["type", "--clearmodifiers", "sparse-query"]);
+    input(&["key", "--clearmodifiers", "Return"]);
+    wait_for_step("sparse-unified-empty-section", || {
+        counts.lock().unwrap().searches.len() == before_sparse + 1 && !this.model.borrow().busy
+    });
+    let sparse_group = section(this, "music-results-tracks");
+    let show_all = named_button(sparse_group.upcast_ref(), "music-search-show-all");
+    click(window, id, &show_all);
+    wait_for_step("sparse-bounded-prefill", || {
+        this.track_feeds
+            .borrow()
+            .iter()
+            .find(|feed| feed.rows == this.widgets.search_rows)
+            .is_some_and(|feed| feed.data.borrow().next_page == 3)
+            && !this.model.borrow().busy
+    });
+    settle();
+    let sparse_feed = this
+        .track_feeds
+        .borrow()
+        .iter()
+        .find(|feed| feed.rows == this.widgets.search_rows)
+        .unwrap()
+        .clone();
+    assert!(sparse_feed.data.borrow().items.is_empty());
+    assert!(sparse_feed.data.borrow().has_more);
+    assert_eq!(counts.lock().unwrap().searches.len(), before_sparse + 4);
+    let no_drain = Instant::now() + Duration::from_millis(350);
+    pump_until(|| Instant::now() >= no_drain);
+    assert_eq!(
+        counts.lock().unwrap().searches.len(),
+        before_sparse + 4,
+        "an empty collection cannot spin through every provider page"
+    );
+    assert!(
+        !descendants(this.widgets.search_feedback.upcast_ref())
+            .iter()
+            .any(|widget| widget.is::<gtk::Button>()),
+        "no manual track pagination or fake end action"
+    );
+    let scroll = this.content_scroll.borrow().upgrade().unwrap();
+    assert!(scroll.vadjustment().upper() <= scroll.vadjustment().page_size() + 1.0);
+    let (x, y) = super::test_input::pointer(window, &scroll, super::test_input::Target::Center);
+    input(&[
+        "mousemove",
+        "--window",
+        id,
+        &x.to_string(),
+        &y.to_string(),
+        "click",
+        "5",
+    ]);
+    wait_for_step("sparse-wheel-continuation", || {
+        sparse_feed.data.borrow().next_page == 4 && !this.model.borrow().busy
+    });
+    assert_eq!(rows(&this.widgets.search_rows).len(), 1);
+    assert_eq!(sparse_feed.data.borrow().items[0].id, "60");
+    assert!(!sparse_feed.data.borrow().has_more);
+    assert_eq!(counts.lock().unwrap().searches.len(), before_sparse + 5);
+    capture_native("search-continuous-sparse-wheel");
     pane.close();
     window.close();
     stop.store(true, Ordering::Release);

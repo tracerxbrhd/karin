@@ -131,64 +131,119 @@ fn native_catalog_native_music_layout() {
     this.render_controls();
     this.set_info_open(false);
     this.render_home_preview();
-    let home_rows: Vec<_> = children(&this.widgets.home_preview)
-        .into_iter()
-        .filter_map(|child| child.downcast::<gtk::ListBoxRow>().ok())
-        .collect();
-    assert_eq!(
-        home_rows.len(),
-        3,
-        "Home previews loaded tracks instead of repeating navigation cards"
+    assert!(
+        children(&this.widgets.home_signedin)
+            .iter()
+            .any(|child| child.widget_name() == "music-wave-placeholder")
     );
     assert!(
-        children(&this.widgets.home_hero)
-            .iter()
-            .any(|child| { child.widget_name() == "music-home-play-liked" }),
-        "the real loaded liked collection has its own Play action"
+        children(&this.widgets.home_preview).is_empty(),
+        "Wave never loads detached personal-track previews"
+    );
+    // A real collection action is inert until there is a playable loaded
+    // item. A later append failure must not disable the usable loaded prefix.
+    let availability = this.new_track_feed(
+        continuous_loading::FeedSource::Liked,
+        ContextKind::LikedTracks,
+        None,
+        &this.widgets.library_rows,
+        &this.widgets.library_feedback,
+    );
+    let availability_play = this.feed_play_button(&availability);
+    assert!(
+        !availability_play.is_sensitive(),
+        "loading/empty collection has no enabled no-op Play"
+    );
+    let mut unavailable = tracks[0].clone();
+    unavailable.available = false;
+    this.append_track_feed(
+        &availability,
+        0,
+        Page {
+            items: vec![unavailable],
+            has_more: true,
+        },
     );
     assert!(
-        !children(&this.widgets.home_signedin)
-            .iter()
-            .any(|child| { child.has_css_class("music-destination") }),
-        "primary rail destinations must not become oversized Home cards"
+        !availability_play.is_sensitive(),
+        "all-unavailable loaded rows cannot start playback"
+    );
+    this.append_track_feed(
+        &availability,
+        1,
+        Page {
+            items: vec![tracks[1].clone()],
+            has_more: false,
+        },
+    );
+    assert!(availability_play.is_sensitive());
+    availability.data.borrow_mut().error = Some(MusicError::Network);
+    this.refresh_feed_status(&availability);
+    assert!(
+        availability_play.is_sensitive(),
+        "a failed append leaves actual loaded audio actions usable"
     );
     window.set_default_size(1440, 900);
     window.present();
-    super::super::test_input::wait_for_layout(window, &home_rows[0]);
-    assert!(
-        home_rows[0].compute_bounds(window).unwrap().y() < 270.0,
-        "real Home music starts near the first useful screen band"
+    this.render_liked(
+        Ok(Page {
+            items: tracks.clone(),
+            has_more: false,
+        }),
+        0,
     );
-    capture_native("redesign-home-real-library-first");
-    let play_home = children(&this.widgets.home_hero)
+    this.widgets.stack.set_visible_child_name("library");
+    super::super::test_input::wait_for_layout(window, &this.widgets.library_rows);
+    let cache_feed = this
+        .track_feeds
+        .borrow()
+        .iter()
+        .find(|feed| feed.rows == this.widgets.library_rows)
+        .unwrap()
+        .clone();
+    cache_feed
+        .origins
+        .borrow_mut()
+        .record(0, crate::catalog_cache::Provenance::Network, false);
+    cache_feed
+        .origins
+        .borrow_mut()
+        .record(1, crate::catalog_cache::Provenance::StaleCache, true);
+    cache_feed
+        .origins
+        .borrow_mut()
+        .record(2, crate::catalog_cache::Provenance::Network, false);
+    this.refresh_catalog_notice();
+    assert!(
+        this.widgets.cache_notice.is_revealed(),
+        "laternetworkappenddoesnoteraseearlierstalerows"
+    );
+    this.render_liked(
+        Ok(Page {
+            items: tracks.clone(),
+            has_more: false,
+        }),
+        0,
+    );
+    super::super::test_input::wait_for_layout(window, &this.widgets.library_rows);
+    this.refresh_catalog_notice();
+    assert!(
+        !this.widgets.cache_notice.is_revealed(),
+        "a new loaded epoch cannot inherit the old source warning"
+    );
+    let play_liked = children(&this.widgets.library_hero)
         .into_iter()
-        .find(|child| child.widget_name() == "music-home-play-liked")
+        .find(|child| child.widget_name() == "music-collection-play")
         .unwrap()
         .downcast::<gtk::Button>()
         .unwrap();
-    play_home.emit_clicked();
+    play_liked.emit_clicked();
     assert_eq!(
         this.model.borrow().queue.context().unwrap().source_kind(),
         ContextKind::LikedTracks
     );
-    assert_eq!(
-        this.model.borrow().queue.items().len(),
-        12,
-        "the short Home preview still starts the actual loaded context"
-    );
-    assert_eq!(
-        children(&this.widgets.home_collections)
-            .iter()
-            .filter(|child| child.widget_name() == "music-home-playlist-tile")
-            .count(),
-        1
-    );
-    let old_home_tile = children(&this.widgets.home_collections)
-        .into_iter()
-        .find(|child| child.widget_name() == "music-home-playlist-tile")
-        .unwrap()
-        .downcast::<gtk::Button>()
-        .unwrap();
+    assert_eq!(this.model.borrow().queue.items().len(), 12);
+    capture_native("native-liked-real-collection-first");
     this.widgets.stack.set_visible_child_name("search");
     this.clear_search_feedback();
     this.tracks_from(
@@ -247,11 +302,16 @@ fn native_catalog_native_music_layout() {
             }
             if shape == "medium" {
                 let footer = ui.music.player_bar.compute_bounds(window).unwrap();
+                let bottom = if this.widgets.player_revealer.reveals_child() {
+                    footer.y()
+                } else {
+                    window.height() as f32
+                };
                 let visible = rows
                     .iter()
                     .filter(|row| {
                         row.compute_bounds(window).is_some_and(|bounds| {
-                            bounds.y() >= 0.0 && bounds.y() + bounds.height() <= footer.y()
+                            bounds.y() >= 0.0 && bounds.y() + bounds.height() <= bottom
                         })
                     })
                     .count();
@@ -273,6 +333,11 @@ fn native_catalog_native_music_layout() {
                 this.widgets.stack.set_visible_child_name("library");
                 super::super::test_input::wait_for_layout(window, &this.widgets.library_rows);
                 let footer = ui.music.player_bar.compute_bounds(window).unwrap();
+                let bottom = if this.widgets.player_revealer.reveals_child() {
+                    footer.y()
+                } else {
+                    window.height() as f32
+                };
                 let library_rows = children(&this.widgets.library_rows)
                     .into_iter()
                     .filter_map(|child| child.downcast::<gtk::ListBoxRow>().ok())
@@ -281,7 +346,7 @@ fn native_catalog_native_music_layout() {
                     .iter()
                     .filter(|row| {
                         row.compute_bounds(window).is_some_and(|bounds| {
-                            bounds.y() >= 0.0 && bounds.y() + bounds.height() <= footer.y()
+                            bounds.y() >= 0.0 && bounds.y() + bounds.height() <= bottom
                         })
                     })
                     .count();
@@ -299,15 +364,44 @@ fn native_catalog_native_music_layout() {
             }
         }
     }
+    this.detail_cache
+        .set(Some((crate::catalog_cache::Provenance::StaleCache, true)));
     this.render_album(
         Rc::new(Album {
             id: "7".into(),
             title: "Synthetic album".into(),
             artists: vec!["Synthetic artist".into()],
-            tracks,
+            tracks: (0..63)
+                .map(|index| tracks[index % tracks.len()].clone())
+                .collect(),
             cover: None,
         }),
         0,
+    );
+    super::super::test_input::wait_for_layout(window, &this.widgets.detail);
+    this.refresh_catalog_notice();
+    assert!(
+        this.widgets.cache_notice.is_revealed(),
+        "local Album first chunk inherits the accepted cached metadata origin"
+    );
+    let album_feed = this
+        .track_feeds
+        .borrow()
+        .iter()
+        .find(|feed| matches!(feed.source, continuous_loading::FeedSource::Album(_)))
+        .unwrap()
+        .clone();
+    assert_eq!(album_feed.data.borrow().items.len(), 50);
+    this.request_track_feed(&album_feed, false);
+    this.refresh_catalog_notice();
+    assert_eq!(album_feed.data.borrow().items.len(), 63);
+    assert_eq!(
+        album_feed.origins.borrow().aggregate(),
+        Some((crate::catalog_cache::Provenance::StaleCache, true))
+    );
+    assert!(
+        this.widgets.cache_notice.is_revealed(),
+        "later local chunks cannot erase the Album cache/storage warning"
     );
     let hero = children(&this.widgets.detail)
         .into_iter()
@@ -326,21 +420,20 @@ fn native_catalog_native_music_layout() {
     assert_eq!(
         children(&primary[0])
             .iter()
-            .filter(|child| child.widget_name() == "music-track-play")
+            .filter(|child| child.widget_name() == "music-collection-play")
             .count(),
         1
     );
     this.model.borrow_mut().generation += 1;
     this.widgets.stack.set_visible_child_name("home");
-    old_home_tile.emit_clicked();
+    play_liked.emit_clicked();
     assert_eq!(
         this.widgets.stack.visible_child_name().as_deref(),
         Some("home"),
-        "retired-account tile cannot navigate"
+        "retired-account collection action cannot navigate"
     );
-    this.model.borrow_mut().playlists = None;
     this.render_home_preview();
-    assert!(!this.widgets.home_collections.is_visible());
+    assert!(children(&this.widgets.home_collections).is_empty());
     ui.music.close();
     window.close();
 }

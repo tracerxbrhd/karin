@@ -28,6 +28,9 @@ impl Controller {
         }
         let query = self.widgets.search.text().trim().to_owned();
         let scope = self.model.borrow().search_scope;
+        self.track_feeds
+            .borrow_mut()
+            .retain(|feed| feed.rows != self.widgets.search_rows);
         self.reset_search_sections();
         self.clear_search_feedback();
         clear_list(&self.widgets.search_rows);
@@ -54,6 +57,18 @@ impl Controller {
                 .search_scope_title
                 .set_text(section_title(kind));
             self.widgets.search_scope_title.set_visible(true);
+            if kind == SearchKind::Tracks {
+                let feed = self.new_track_feed(
+                    continuous_loading::FeedSource::Search(query),
+                    ContextKind::Search,
+                    None,
+                    &self.widgets.search_rows,
+                    &self.widgets.search_feedback,
+                );
+                self.widgets.search_feedback.set_visible(true);
+                self.request_track_feed(&feed, false);
+                return;
+            }
             self.run(
                 Operation::Search,
                 move |service, token| service.search(&token, &query, kind, page),
@@ -173,7 +188,7 @@ impl Controller {
     ) -> Option<(gtk::ListBox, SearchSection<T>)> {
         if result
             .as_ref()
-            .is_ok_and(|s| s.items.is_empty() && s.omitted == 0)
+            .is_ok_and(|s| s.items.is_empty() && s.omitted == 0 && !s.has_more)
         {
             return None;
         }
@@ -334,62 +349,38 @@ impl Controller {
         });
     }
 
-    pub(super) fn open_search_playlist(self: &Rc<Self>, playlist: SearchPlaylist, page: u32) {
-        let id = playlist.id.clone();
+    pub(super) fn open_search_playlist(self: &Rc<Self>, playlist: SearchPlaylist, _page: u32) {
+        self.open_search_playlist_policy(playlist, false);
+    }
+
+    fn open_search_playlist_policy(self: &Rc<Self>, playlist: SearchPlaylist, force: bool) {
         self.detail_loading(&playlist.title, "Загрузка плейлиста…");
-        self.run(
-            Operation::Detail,
-            move |service, token| service.playlist_tracks(&token, &id, page),
-            move |this, result| match result {
-                Ok(data) => {
-                    this.detail_header(
-                        &playlist.title,
-                        &playlist.track_count.map(track_count_text).map_or_else(
-                            || "Плейлист".into(),
-                            |count| format!("Плейлист · {count}"),
-                        ),
-                    );
-                    this.detail_cover(playlist.cover.as_ref());
-                    this.detail_primary(this.collection_play(
-                        data.items.clone(),
-                        ContextKind::Playlist,
-                        Some(format!("{}:{}", playlist.id.owner, playlist.id.kind)),
-                        page > 0 || data.has_more,
-                    ));
-                    let rows = list();
-                    this.tracks_from(
-                        &rows,
-                        data.items,
-                        ContextKind::Playlist,
-                        Some(format!("{}:{}", playlist.id.owner, playlist.id.kind)),
-                        page > 0 || data.has_more,
-                        0..usize::MAX,
-                    );
-                    this.widgets.detail.append(&rows);
-                    let pages = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-                    for (label, target, visible) in [
-                        ("Предыдущая страница", page.saturating_sub(1), page > 0),
-                        ("Следующая страница", page.saturating_add(1), data.has_more),
-                    ] {
-                        if visible {
-                            let button = gtk::Button::with_label(label);
-                            let weak = Rc::downgrade(this);
-                            let selected = playlist.clone();
-                            button.connect_clicked(move |_| {
-                                if let Some(this) = weak.upgrade() {
-                                    this.open_search_playlist(selected.clone(), target);
-                                }
-                            });
-                            pages.append(&button);
-                        }
-                    }
-                    this.widgets.detail.append(&pages);
-                }
-                Err(error) => this.detail_error(error, move |this| {
-                    this.open_search_playlist(playlist.clone(), page)
-                }),
-            },
+        let refresh = playlist.clone();
+        self.detail_refresh.replace(Some(Rc::new(move |this| {
+            this.open_search_playlist_policy(refresh.clone(), true)
+        })));
+        self.detail_header(
+            &playlist.title,
+            &playlist
+                .track_count
+                .map(track_count_text)
+                .map_or_else(|| "Плейлист".into(), |count| format!("Плейлист · {count}")),
         );
+        self.detail_cover(playlist.cover.as_ref());
+        let rows = list();
+        let status = gtk::Box::new(gtk::Orientation::Vertical, 6);
+        self.widgets.detail.append(&rows);
+        self.widgets.detail.append(&status);
+        let id = Some(format!("{}:{}", playlist.id.owner, playlist.id.kind));
+        let feed = self.new_track_feed(
+            continuous_loading::FeedSource::SearchPlaylist(playlist),
+            ContextKind::Playlist,
+            id,
+            &rows,
+            &status,
+        );
+        self.detail_primary(Some(self.feed_play_button(&feed)));
+        self.request_track_feed(&feed, force);
     }
 }
 

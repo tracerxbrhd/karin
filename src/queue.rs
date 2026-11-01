@@ -55,6 +55,9 @@ pub struct PlaybackContext {
     source_kind: ContextKind,
     source_id: Option<String>,
     items: Arc<Vec<Track>>,
+    // Original loaded occurrence positions survive queue edits. Manual extras
+    // have no source position; track IDs cannot identify duplicate occurrences.
+    source_positions: Arc<Vec<Option<usize>>>,
     current_index: usize,
     loaded_items: usize,
     partial: bool,
@@ -104,6 +107,7 @@ impl PlaybackContext {
         Ok(Self {
             source_kind,
             source_id,
+            source_positions: Arc::new((0..loaded_items).map(Some).collect()),
             items: Arc::new(items),
             current_index,
             loaded_items,
@@ -122,6 +126,12 @@ impl PlaybackContext {
     }
     pub fn current_index(&self) -> usize {
         self.current_index
+    }
+    /// Relative occurrence in the originally admitted loaded source, independent
+    /// of the queue's current physical index. Manually appended items return
+    /// None, so a source list cannot highlight a coincidentally equal ID.
+    pub fn source_position(&self, index: usize) -> Option<usize> {
+        self.source_positions.get(index).copied().flatten()
     }
     pub fn is_partial(&self) -> bool {
         self.partial
@@ -203,12 +213,14 @@ impl MusicQueue {
             let index = context.items.len();
             let available = track.available;
             Arc::make_mut(&mut context.items).push(track);
+            Arc::make_mut(&mut context.source_positions).push(None);
             self.order.append(index, available);
         } else {
             self.context = Some(PlaybackContext {
                 source_kind: ContextKind::Queue,
                 source_id: None,
                 items: Arc::new(vec![track]),
+                source_positions: Arc::new(vec![None]),
                 current_index: 0,
                 loaded_items: 0,
                 partial: false,
@@ -347,6 +359,7 @@ impl MusicQueue {
         };
         let context = self.context.as_mut()?;
         let removed = Arc::make_mut(&mut context.items).remove(index);
+        Arc::make_mut(&mut context.source_positions).remove(index);
         if index < context.loaded_items {
             context.loaded_items -= 1;
         }
@@ -975,6 +988,10 @@ mod tests {
         } else {
             assert!(queue.current_index().unwrap() < queue.items().len());
             assert!(queue.current().is_some());
+            assert_eq!(
+                queue.context().unwrap().source_positions.len(),
+                queue.items().len()
+            );
         }
         for index in queue.upcoming_indices() {
             assert!(index < queue.items().len());
@@ -1054,5 +1071,58 @@ mod tests {
                 }
             }
         }
+    }
+    #[test]
+    fn original_source_positions_survive_duplicate_removal_and_exclude_manual_extras() {
+        let source = PlaybackContext::new(
+            ContextKind::LikedTracks,
+            Some("synthetic-window".into()),
+            vec![track("42"), track("42"), track("42")],
+            2,
+            true,
+        )
+        .unwrap();
+        assert_eq!(source.source_position(2), Some(2));
+        let mut queue = MusicQueue::new();
+        queue.replace_context(source.clone());
+        assert!(Arc::ptr_eq(
+            &source.source_positions,
+            &queue.context().unwrap().source_positions
+        ));
+        queue.remove(0);
+        let edited = queue.context().unwrap();
+        assert_eq!(edited.current_index(), 1);
+        assert_eq!(
+            edited.source_position(edited.current_index()),
+            Some(2),
+            "physical reindexing cannot turn the third equal-ID occurrence into the second"
+        );
+        assert_eq!(edited.source_position(0), Some(1));
+        assert_eq!(
+            source.source_position(0),
+            Some(0),
+            "the loaded row snapshot stays immutable"
+        );
+        assert!(!Arc::ptr_eq(
+            &source.source_positions,
+            &edited.source_positions
+        ));
+        queue.append(track("42")).unwrap();
+        assert_eq!(queue.context().unwrap().source_position(2), None);
+        queue.select(2);
+        assert_eq!(queue.current().unwrap().id, "42");
+        assert_eq!(
+            queue.context().unwrap().source_position(2),
+            None,
+            "a manually appended duplicate must not highlight an original source row"
+        );
+        queue.remove(0);
+        assert_eq!(queue.current_index(), Some(1));
+        assert_eq!(queue.context().unwrap().source_position(1), None);
+        queue.clear();
+        queue.append(track("42")).unwrap();
+        assert_eq!(queue.context().unwrap().source_position(0), None);
+        queue.replace_context(source.with_current_index(1).unwrap());
+        assert_eq!(queue.context().unwrap().source_position(1), Some(1));
     }
 }
