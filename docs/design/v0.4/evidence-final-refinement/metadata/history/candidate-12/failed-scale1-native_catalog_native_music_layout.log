@@ -1,0 +1,19 @@
+
+running 1 test
+test ui::music::catalog_layout::tests::native_catalog_native_music_layout ... Karin library: operation=like_read outcome=configuration http=none
+FAILED
+
+failures:
+
+---- ui::music::catalog_layout::tests::native_catalog_native_music_layout stdout ----
+
+thread 'ui::music::catalog_layout::tests::native_catalog_native_music_layout' (28814) panicked at src/ui/music/catalog_layout/tests.rs:353:17:
+library summary must stay compact
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    ui::music::catalog_layout::tests::native_catalog_native_music_layout
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 418 filtered out; finished in 2.20s
+

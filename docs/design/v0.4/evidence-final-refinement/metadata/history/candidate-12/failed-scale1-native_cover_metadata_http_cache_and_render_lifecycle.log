@@ -1,0 +1,22 @@
+
+running 1 test
+test ui::music::artwork_tests::native_cover_metadata_http_cache_and_render_lifecycle ... Karin catalog: operation=current_like_read outcome=success http=none stage=none event=result
+Karin library: operation=like_read outcome=confirmed http=none
+FAILED
+
+failures:
+
+---- ui::music::artwork_tests::native_cover_metadata_http_cache_and_render_lifecycle stdout ----
+Synthetic cover window allocation: 1430x890
+Synthetic cover window allocation: 410x710
+
+thread 'ui::music::artwork_tests::native_cover_metadata_http_cache_and_render_lifecycle' (28663) panicked at src/ui/music/artwork_tests.rs:669:9:
+closed information must not obscure the real composited coral cover: theme=ForceLight size=410x710 rgb=[250, 250, 251]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    ui::music::artwork_tests::native_cover_metadata_http_cache_and_render_lifecycle
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 418 filtered out; finished in 1.69s
+

@@ -1,0 +1,77 @@
+
+running 1 test
+test ui::music::tests::native_music_session_catalog_queue_and_logout ... Karin catalog: operation=account outcome=success http=none stage=none event=result
+Karin catalog: operation=initial_library outcome=success http=none stage=none event=result
+Karin catalog: operation=library outcome=success http=none stage=none event=result
+Karin catalog: operation=library outcome=success http=none stage=none event=result
+Karin catalog: operation=playlist_sections outcome=success http=none stage=none event=result
+Karin catalog: operation=detail outcome=requested http=none stage=none event=detail-requested
+Karin catalog: operation=detail outcome=success http=none stage=none event=detail-result
+Karin catalog: operation=search outcome=requested http=none stage=none event=search-requested
+Karin catalog: operation=search outcome=success http=200 stage=none event=search-result
+Karin catalog: operation=detail outcome=requested http=none stage=none event=detail-requested
+Karin catalog: operation=detail outcome=success http=none stage=none event=detail-result
+Karin library: operation=like_read outcome=confirmed http=none
+Karin catalog: operation=detail outcome=requested http=none stage=none event=detail-requested
+Karin catalog: operation=detail outcome=success http=none stage=none event=detail-result
+Karin catalog: operation=search outcome=requested http=none stage=none event=search-requested
+Karin catalog: operation=search outcome=stale_result http=none stage=none event=state
+Karin catalog: operation=account outcome=stale_result http=none stage=none event=state
+Karin catalog: operation=account outcome=forbidden http=403 stage=none event=result
+Karin catalog: operation=account outcome=success http=none stage=none event=result
+Karin catalog: operation=initial_library outcome=success http=none stage=none event=result
+Karin catalog: operation=playlist_sections outcome=success http=none stage=none event=result
+Karin catalog: operation=owned_playlists_more outcome=timeout http=none stage=none event=result
+Karin catalog: operation=liked_playlists_more outcome=success http=none stage=none event=result
+FAILED
+
+failures:
+
+---- ui::music::tests::native_music_session_catalog_queue_and_logout stdout ----
+Karin synthetic navigation focus: action=diagnostics scheduled=1
+Karin synthetic navigation focus: action=music-search scheduled=2
+Karin synthetic pointer: widget=GtkScrolledWindow name=GtkScrolledWindow native=AdwApplicationWindow native-transform=(5.0, 5.0) root-transform=(5.0, 5.0) own=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) direct=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) surface-point=(720,498) scale=1 focused=false focusable=true sensitive=true surface=1440x900
+Karin synthetic pointer: widget=GtkScrolledWindow name=GtkScrolledWindow native=AdwApplicationWindow native-transform=(5.0, 5.0) root-transform=(5.0, 5.0) own=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) direct=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) surface-point=(720,498) scale=1 focused=false focusable=true sensitive=true surface=1440x900
+Karin synthetic pointer: widget=GtkScrolledWindow name=GtkScrolledWindow native=AdwApplicationWindow native-transform=(5.0, 5.0) root-transform=(5.0, 5.0) own=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) direct=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) surface-point=(720,498) scale=1 focused=false focusable=true sensitive=true surface=1440x900
+Karin synthetic pointer: widget=GtkScrolledWindow name=GtkScrolledWindow native=AdwApplicationWindow native-transform=(5.0, 5.0) root-transform=(5.0, 5.0) own=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) direct=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) surface-point=(720,498) scale=1 focused=false focusable=true sensitive=true surface=1440x900
+Karin synthetic pointer: widget=GtkScrolledWindow name=GtkScrolledWindow native=AdwApplicationWindow native-transform=(5.0, 5.0) root-transform=(5.0, 5.0) own=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) direct=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) surface-point=(720,498) scale=1 focused=false focusable=true sensitive=true surface=1440x900
+Karin synthetic pointer: widget=GtkScrolledWindow name=GtkScrolledWindow native=AdwApplicationWindow native-transform=(5.0, 5.0) root-transform=(5.0, 5.0) own=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) direct=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) surface-point=(720,498) scale=1 focused=false focusable=true sensitive=true surface=1440x900
+Karin synthetic pointer: widget=GtkScrolledWindow name=GtkScrolledWindow native=AdwApplicationWindow native-transform=(5.0, 5.0) root-transform=(5.0, 5.0) own=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) direct=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) surface-point=(720,498) scale=1 focused=false focusable=true sensitive=true surface=1440x900
+Karin synthetic pointer: widget=GtkScrolledWindow name=GtkScrolledWindow native=AdwApplicationWindow native-transform=(5.0, 5.0) root-transform=(5.0, 5.0) own=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) direct=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) surface-point=(720,498) scale=1 focused=false focusable=true sensitive=true surface=1440x900
+Karin synthetic pointer: widget=GtkScrolledWindow name=GtkScrolledWindow native=AdwApplicationWindow native-transform=(5.0, 5.0) root-transform=(5.0, 5.0) own=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) direct=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) surface-point=(720,498) scale=1 focused=false focusable=true sensitive=true surface=1440x900
+Karin synthetic pointer: widget=GtkScrolledWindow name=GtkScrolledWindow native=AdwApplicationWindow native-transform=(5.0, 5.0) root-transform=(5.0, 5.0) own=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) direct=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) surface-point=(720,498) scale=1 focused=false focusable=true sensitive=true surface=1440x900
+Karin synthetic pointer: widget=GtkScrolledWindow name=GtkScrolledWindow native=AdwApplicationWindow native-transform=(5.0, 5.0) root-transform=(5.0, 5.0) own=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) direct=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) surface-point=(720,498) scale=1 focused=false focusable=true sensitive=true surface=1440x900
+Karin synthetic pointer: widget=GtkButton name=music-playlist-more native=AdwApplicationWindow native-transform=(5.0, 5.0) root-transform=(5.0, 5.0) own=Some(Rect { x: 24.0, y: 822.0, width: 156.0, height: 34.0 }) direct=Some(Rect { x: 24.0, y: 822.0, width: 156.0, height: 34.0 }) surface-point=(107,844) scale=1 focused=false focusable=true sensitive=true surface=1440x900
+Karin synthetic pointer: widget=GtkScrolledWindow name=GtkScrolledWindow native=AdwApplicationWindow native-transform=(5.0, 5.0) root-transform=(5.0, 5.0) own=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) direct=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) surface-point=(720,498) scale=1 focused=false focusable=true sensitive=true surface=1440x900
+Karin synthetic pointer: widget=GtkScrolledWindow name=GtkScrolledWindow native=AdwApplicationWindow native-transform=(5.0, 5.0) root-transform=(5.0, 5.0) own=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) direct=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) surface-point=(720,498) scale=1 focused=false focusable=true sensitive=true surface=1440x900
+Karin synthetic pointer: widget=GtkScrolledWindow name=GtkScrolledWindow native=AdwApplicationWindow native-transform=(5.0, 5.0) root-transform=(5.0, 5.0) own=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) direct=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) surface-point=(720,498) scale=1 focused=false focusable=true sensitive=true surface=1440x900
+Karin synthetic pointer: widget=GtkScrolledWindow name=GtkScrolledWindow native=AdwApplicationWindow native-transform=(5.0, 5.0) root-transform=(5.0, 5.0) own=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) direct=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) surface-point=(720,498) scale=1 focused=false focusable=true sensitive=true surface=1440x900
+Karin synthetic pointer: widget=GtkScrolledWindow name=GtkScrolledWindow native=AdwApplicationWindow native-transform=(5.0, 5.0) root-transform=(5.0, 5.0) own=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) direct=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) surface-point=(720,498) scale=1 focused=false focusable=true sensitive=true surface=1440x900
+Karin synthetic pointer: widget=GtkScrolledWindow name=GtkScrolledWindow native=AdwApplicationWindow native-transform=(5.0, 5.0) root-transform=(5.0, 5.0) own=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) direct=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) surface-point=(720,498) scale=1 focused=false focusable=true sensitive=true surface=1440x900
+Karin synthetic pointer: widget=GtkScrolledWindow name=GtkScrolledWindow native=AdwApplicationWindow native-transform=(5.0, 5.0) root-transform=(5.0, 5.0) own=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) direct=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) surface-point=(720,498) scale=1 focused=false focusable=true sensitive=true surface=1440x900
+Karin synthetic pointer: widget=GtkScrolledWindow name=GtkScrolledWindow native=AdwApplicationWindow native-transform=(5.0, 5.0) root-transform=(5.0, 5.0) own=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) direct=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) surface-point=(720,498) scale=1 focused=false focusable=true sensitive=true surface=1440x900
+Karin synthetic pointer: widget=GtkScrolledWindow name=GtkScrolledWindow native=AdwApplicationWindow native-transform=(5.0, 5.0) root-transform=(5.0, 5.0) own=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) direct=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) surface-point=(720,498) scale=1 focused=false focusable=true sensitive=true surface=1440x900
+Karin synthetic pointer: widget=GtkScrolledWindow name=GtkScrolledWindow native=AdwApplicationWindow native-transform=(5.0, 5.0) root-transform=(5.0, 5.0) own=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) direct=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) surface-point=(720,498) scale=1 focused=false focusable=true sensitive=true surface=1440x900
+Karin synthetic pointer: widget=GtkScrolledWindow name=GtkScrolledWindow native=AdwApplicationWindow native-transform=(5.0, 5.0) root-transform=(5.0, 5.0) own=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) direct=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) surface-point=(720,498) scale=1 focused=false focusable=true sensitive=true surface=1440x900
+Karin synthetic pointer: widget=GtkScrolledWindow name=GtkScrolledWindow native=AdwApplicationWindow native-transform=(5.0, 5.0) root-transform=(5.0, 5.0) own=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) direct=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) surface-point=(720,498) scale=1 focused=false focusable=true sensitive=true surface=1440x900
+Karin synthetic pointer: widget=GtkScrolledWindow name=GtkScrolledWindow native=AdwApplicationWindow native-transform=(5.0, 5.0) root-transform=(5.0, 5.0) own=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) direct=Some(Rect { x: 0.0, y: 96.0, width: 1430.0, height: 794.0 }) surface-point=(720,498) scale=1 focused=false focusable=true sensitive=true surface=1440x900
+Karin synthetic pointer: widget=GtkButton name=music-playlist-more native=AdwApplicationWindow native-transform=(5.0, 5.0) root-transform=(5.0, 5.0) own=Some(Rect { x: 24.0, y: 840.0, width: 156.0, height: 34.0 }) direct=Some(Rect { x: 24.0, y: 840.0, width: 156.0, height: 34.0 }) surface-point=(107,862) scale=1 focused=false focusable=true sensitive=true surface=1440x900
+
+thread '<unnamed>' (30162) panicked at src/ui/music/continuous_loading/more_tests.rs:82:6:
+called `Result::unwrap()` on an `Err` value: Os { code: 32, kind: BrokenPipe, message: "Broken pipe" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'ui::music::tests::native_music_session_catalog_queue_and_logout' (29998) panicked at src/ui/music/continuous_loading/more_tests.rs:378:13:
+assertion `left == right` failed
+  left: 50
+ right: 51
+
+thread '<unnamed>' (30138) panicked at src/ui/music/continuous_loading/more_tests.rs:276:31:
+called `Result::unwrap()` on an `Err` value: Any { .. }
+
+
+failures:
+    ui::music::tests::native_music_session_catalog_queue_and_logout
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 418 filtered out; finished in 9.35s
+
