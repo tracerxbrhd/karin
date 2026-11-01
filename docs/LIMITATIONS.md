@@ -47,12 +47,26 @@ Fresh cloud evidence and live Fedora/KDE/Wayland/PipeWire/Flatpak results must
 remain separate. Full Flatpak/namespace availability and exact executed tests
 are recorded in [VALIDATION.md](VALIDATION.md), not assumed from source review.
 
-- **Motion sampling depends on rendered frames.** A strict Cairo 2× attempt
-  missed the early quarter because of software-rendering frame gaps. Its result
-  remains failed sampling, not a motion PASS. Matched current motion checks use
-  actual NGL/GskGLRenderer on Mesa under Xvfb, with five distinct frame times
-  per sequence; this is not physical-GPU or Wayland evidence and does not force
-  a production backend. Reduced motion is a different check.
+- **Cold first-use responsiveness is not accepted.** Initial hosted GTK 4.14/
+  Libadwaita 1.5/Mesa 25.2 llvmpipe strict sampling failed in all four `709f5b3`
+  jobs; matching local observation saw roughly 915 ms before the first reveal
+  paint. The actual old renderer class was `GskNglRenderer`. Cold GTK 4.18 NGL
+  and `GskVulkanRenderer` also failed strict phases, with observed gaps from
+  about 84.6 to 339 ms. Snapshots remained present; observer work was small.
+  Internal shader/driver causation is unattributed, and neither backend nor
+  distribution change alone is a proven fix. Earlier Cairo 2× frame gaps also
+  remain failed sampling evidence.
+- **Motion PASS has a graphics-initialized scope.** The final test records one
+  unconditional normal 240 ms open/close per geometry/theme/mode, with six
+  bounded native offscreen renders of the actual mapped panel while open.
+  Setup fractions `.137/.317/.533/.787/.941/1` do not mutate UI progress/clock,
+  save PNGs or count as phase evidence; raw initialization quarters are explicitly
+  not assessed. Only the subsequent real native 240 ms cycle passes the original
+  five-distinct-frame/progress/geometry checks. There is no conditional retry,
+  reduced-motion shortcut or production prewarming/backend override. This proof
+  must not be called a cold performance PASS; fresh-start Fedora first appearance
+  remains a separate owner gate. Mesa/Xvfb also proves neither physical GPU nor
+  Wayland behavior.
 - **Long information remains scrollable.** Long multi-line track/artist/album
   metadata can put verified actions below the initial pane fold. Ordinary wheel
   and keyboard scrolling must retain access; Fedora review should test actual

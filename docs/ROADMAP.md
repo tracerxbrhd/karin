@@ -157,7 +157,11 @@ Implementation, executed regression evidence and owner acceptance remain
 separate gates. The expanded [quality gate](UI_QUALITY_GATE.md#v04-native-music-gate)
 requires fresh equal-size before/after GTK evidence at the six required explicit sizes, owner-wide 1650×930 and
 true maximize, both themes and scales, all three panel modes, populated/error
-states and intermediate animation frames. Run stable and exact Rust 1.98.1,
+states and intermediate animation frames. Current strict motion evidence is
+explicitly graphics-initialized: raw setup is separate, only the following
+unchanged normal native cycle is measured, and cold first-use responsiveness
+remains unaccepted pending the fresh-start Fedora gate. No production
+prewarming or backend change is introduced. Run stable and exact Rust 1.98.1,
 default/all/minimal tests, release, GTK/WebKit/GStreamer/MPRIS and available
 Flatpak checks. Results belong in
 [VALIDATION.md](VALIDATION.md#v04-complete-music-experience-redesign), not in a

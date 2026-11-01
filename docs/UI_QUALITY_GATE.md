@@ -43,7 +43,19 @@ active Shuffle/Repeat, empty/sparse/large collections, long metadata, absent art
 loading/error/Retry, unavailable tracks and visible focus. A six-row density
 assertion at 900×650 with the panel closed is a useful minimum, not visual PASS.
 
-### Whole-surface motion
+### Whole-surface motion — measured graphics-ready scope
+
+Separate first-use responsiveness from motion after recorded graphics
+initialization. For each geometry/theme/mode, the fixture performs exactly one
+unconditional real normal 240 ms open, six bounded offscreen native GSK renders
+of the actual mapped panel at `.137/.317/.533/.787/.941/1` while fully open,
+then one real normal close. Raw setup carries `scope: graphics-initialization`
+and `quarter_phase_acceptance: not-assessed`; setup renders save no PNG, change
+neither UI progress nor animation clock and are not proof frames. Only the
+following mouse-driven native cycle is measured. No conditional retries or
+production prewarming are permitted. Label this **graphics-initialized normal
+motion**; it does not pass cold first-open responsiveness.
+
 
 With normal animation enabled, record opening and closing near 0%, 25%, 50%,
 75% and 100%. Background, border, fixed header/close, art, text and buttons must
@@ -61,14 +73,43 @@ header/close position and no repeated slide. Check reduced-motion separately.
 Central actions must remain usable during motion and after it settles; no
 instant full-width content jump or temporary covering of row controls is valid.
 
-Record the actual renderer and frame timing. The strict normal-motion fixture
-uses GTK NGL/GskGLRenderer on Mesa under Xvfb at both scales; that is not proof
-of physical GPU rendering or Wayland. A slow Cairo software run can miss a
-quarter's first rendered frame. Report that sampling failure instead of
+Record the actual GTK/Libadwaita/Mesa versions, renderer and frame timing. The
+strict normal-motion fixture uses NGL/GskGLRenderer under Xvfb at both scales;
+that is not proof of physical GPU rendering or Wayland. Local GTK 4.18/
+Libadwaita 1.7 PASS does not override the initial `709f5b3` hosted strict-motion
+FAIL on GTK 4.14/Libadwaita 1.5/Mesa 25.2 llvmpipe. A matching observer reproduced
+a roughly 915 ms first reveal paint gap without renderer fallback or a missing
+node; its internal cause remains unattributed. Preserve that scoped result in
+[VALIDATION.md](VALIDATION.md), including the much smaller observer cost.
+Modern GTK 4.18 NGL and actual Vulkan cold tests also missed strict phases;
+changing backend/distribution alone is not a proven solution. Cold latency
+remains unaccepted and must be tested on Fedora after an ordinary fresh start,
+separately from repeated openings. A slow Cairo run can also miss quarters.
+Report a sampling failure instead of
 duplicating frames, disabling animation, stretching production timing or
 weakening tolerances. Choosing a supported fixture renderer does not force a
 production backend; retain separate Cairo structural checks and owner-local
 default-renderer acceptance.
+
+### CI environment and selector coverage
+
+Keep Ubuntu 24.04 as the compiler, package, sandboxed-WebKit and functional
+baseline: 29 named native functional selectors remain in each stable/MSRV
+lane, with selected HiDPI repeats. Run the same two strict native visual
+selectors in dedicated `Native UI <toolchain> (Debian 13)` jobs for both Rust
+stable and exact 1.98.1, at both scales, on the modern native stack matching
+prepared cloud evidence (GTK >= 4.18, Libadwaita >= 1.7), with the explicit
+recorded graphics-initialization/measured-cycle separation above. This environment
+does not raise Karin's application minimum, change Flatpak SDK or replace a
+failed Ubuntu result with an invented PASS.
+
+The compiled selector check must account for all **31 = 29 + 2** names across
+these jobs; omitting the strict tests, weakening quarter tolerances or extending
+production duration is not permitted. Both quality lanes also retain ordinary
+captures, matched a9 before captures and source/package/renderer provenance in
+`karin-native-visual-<lane>-<github.sha>`. Ubuntu retains its functional
+`karin-ui-<github.sha>` evidence. Inspect actual run results before claiming
+success; a YAML definition and local PASS are not hosted evidence.
 
 ### Input, queue and playback policy
 

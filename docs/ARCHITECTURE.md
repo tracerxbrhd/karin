@@ -222,6 +222,17 @@ uses the dedicated subview even at nominal medium window size, such as 720
 with expanded navigation. This leaves central actions usable rather than
 forcing a narrow desktop split, and is not a new application minimum size.
 
+Motion evidence now has an explicit test-only graphics-initialized scope.
+One unconditional real normal 240 ms opening, six bounded offscreen GSK renders
+of the actual mapped panel while open, and a real normal close are recorded as
+setup with quarters not assessed. The setup fractions
+`.137/.317/.533/.787/.941/1` do not change UI progress or animation clock and
+produce no proof PNG. Only the subsequent real native cycle supplies the
+original strict five-frame proof. Production has no such prewarming. Cold NGL
+and Vulkan phase failures occurred even on modern GTK; internal cause remains
+unattributed and first-use responsiveness is not accepted by the initialized
+proof. Target Fedora fresh-first-open and repeated openings stay separate.
+
 Information separates `FollowingCurrent` from `ExplicitSelection`. Context/source,
 position and track identity, plus the existing occurrence-change hook,
 distinguish duplicate IDs and new playback selections. Direct Play, Next/Previous,
@@ -265,6 +276,16 @@ fresh before/current GTK captures and measured intermediate frames, actual
 input/queue/worker/MPRIS regressions and a separate Fedora owner run. The rejected
 `a9eed45` implementation and accepted v0.3 runtime stay historical evidence;
 their green tests are not visual acceptance of this redesign.
+
+Strict visual CI runs in dedicated Debian 13 stable/MSRV jobs with the same
+modern native stack used for prepared cloud evidence. Ubuntu 24.04 retains the
+compiler, native package, 29 functional selectors and sandboxed WebKit baseline;
+the two strict visual selectors keep their original duration/tolerances and
+both scales, with all 31 names accounted for across the jobs. This is test-only
+placement following a recorded GTK 4.14/Adwaita 1.5/Mesa first-paint sampling
+failure, not a production dependency, renderer, application minimum or Flatpak
+SDK change. Its unattributed internal cause and each hosted result remain in
+[VALIDATION.md](VALIDATION.md).
 
 ## Read-only music and session lifecycle
 

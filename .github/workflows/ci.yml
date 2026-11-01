@@ -590,9 +590,9 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-  # Strict normal-motion sampling needs the modern native stack validated in
-  # Cloud. Ubuntu 24.04 remains the compiler, packaging and functional baseline;
-  # its GTK 4.14 software first-paint stalls are recorded in VALIDATION.md.
+  # Strict visual evidence uses the prepared modern native stack and recorded
+  # graphics initialization. Ubuntu keeps compiler/package/functional coverage;
+  # cold software-paint limits remain explicit in VALIDATION.md.
   # The motion fixture records graphics initialization separately before the
   # unchanged normal-animation phase gate. Cold first-use latency is not
   # accepted by this measurement; retain its raw observations and Fedora gate.

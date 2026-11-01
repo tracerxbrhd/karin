@@ -174,6 +174,13 @@ Do not introduce Electron or web-based application shells.
   Closed/TrackInfo/Queue, plus populated pages and input states. Capture motion
   near 0/25/50/75/100 percent with normal animation and verify reduced motion
   separately before claiming quality.
+  Current strict motion proof is graphics-initialized: one unconditional real
+  normal setup open/close plus six bounded native offscreen renders of the actual
+  mapped panel; raw setup quarters are not assessed and no setup PNG/progress
+  mutation supplies proof. Only the subsequent unchanged 240 ms native cycle is
+  measured. Never call this cold responsiveness PASS or add production prewarming.
+  Cold NGL/Vulkan failures on both old/modern stacks remain recorded; Fedora first
+  appearance after ordinary fresh start is a separate unaccepted gate.
   Work only in `feature/v0.4-native-music-ui` and existing Draft PR #15; leave
   it Draft pending owner Fedora visual acceptance. Do not create another PR,
   merge it or delete the branch without a new instruction.
@@ -216,6 +223,14 @@ packaging; include Clippy, all tests and `cargo build --release --offline --lock
 after fetching or vendoring the locked dependencies. Keep the MSRV CI lane aligned
 with the package metadata. Prove compatibility before lowering the declaration,
 and never use `--ignore-rust-version` to bypass a compiler requirement.
+
+Keep the complete native CI coverage: Ubuntu 24.04 stable/MSRV jobs retain
+29 functional selectors, compiler/package checks and both navigating WebKit
+fixtures; Debian 13 native-quality jobs retain the two strict visual selectors
+at both scales on both compilers. Verify the compiled 31 = 29 + 2 partition.
+The recorded `709f5b3` GTK 4.14/Adwaita 1.5/Mesa strict-motion FAIL remains
+scoped evidence, not a reason to drop tests or weaken timing/progress checks.
+Modern test placement does not change production minimums, renderer or SDK.
 
 Report executed checks, results, limitations, and remaining blockers.
 A successful build does not prove GTK runtime, audio, or Yandex API integration.

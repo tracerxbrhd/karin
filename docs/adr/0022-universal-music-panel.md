@@ -142,6 +142,14 @@ duplicate occurrences, delayed replies, logout and weak-reference cleanup.
 Compare fresh matched before/current frames across the complete
 [quality gate](../UI_QUALITY_GATE.md#v04-native-music-gate).
 
+The current strict fixture measures a graphics-initialized cycle. One fixed real
+normal open/close and six bounded offscreen renders of the actual mapped panel
+are recorded separately as setup, with quarters not assessed. Those renders
+save no PNG and mutate no UI progress or clock; only the following unchanged
+normal 240 ms native cycle supplies proof. No production prewarming is added.
+Cold NGL/Vulkan first-paint phase failures on old and modern stacks remain
+unaccepted; initialized motion PASS cannot certify fresh-first-open latency.
+
 The earlier `a9eed45` cloud PASS and owner UI FAIL remain historical results.
 Executed current checks belong in [VALIDATION.md](../VALIDATION.md); this ADR
 is not a test PASS or Fedora/KDE/Wayland acceptance. Existing PR #15 stays Draft

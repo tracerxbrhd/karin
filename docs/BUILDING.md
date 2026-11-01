@@ -80,6 +80,16 @@ Flatpak acceptance do not pass this new revision. Keep PR #15 Draft.
    motion, with no instant text, flashing controls, central-width jump or hidden
    row actions. Check approximately quarter/half/three-quarter progress, not
    just the final open state. TrackInfo ↔ Queue keeps stable width/header/close.
+   Check the **first** panel appearance after a fresh ordinary application start,
+   including restored presentation, then repeat Track Info/Queue open/close
+   after the view is warm. Report first-open versus warm-repeat behavior
+   separately: later smooth motion does not pass a stalled first open. Keep
+   Fedora's ordinary renderer and settings; no backend or cache override belongs
+   in this acceptance run.
+   The automated motion gallery measures a later cycle after explicit test-only
+   graphics initialization. It does not accept cold responsiveness: delayed
+   first-paint phases occurred on both old and modern NGL/Vulkan test stacks.
+   Report any first-open stall even if repeated openings are smooth.
    The PR's current closing sequence is ordered 100→75→50→25→0 by openness;
    old observer frames use elapsed-quarter labels. These cloud samples do not
    substitute for this run with Fedora's normal renderer and settings.
@@ -654,6 +664,64 @@ offline provider. They exercise dialog/layout/lifecycle without contacting Yande
 they are not evidence of real sign-in. Never use `--ui-fixture` for the owner
 acceptance above. Hosted sandbox checks and remaining namespace restrictions are
 recorded in [VALIDATION.md](VALIDATION.md).
+
+## v0.4 strict native visual checks and CI placement
+
+The strict populated-matrix and whole-surface-motion fixtures are separate from
+the functional/compiler baseline. CI retains Ubuntu 24.04 stable/MSRV jobs for
+29 functional selectors, packages and both sandboxed navigating WebKit fixtures.
+Dedicated `Native UI <toolchain> (Debian 13)` jobs use the digest-pinned official
+Rust trixie image and GTK >= 4.18 / Libadwaita >= 1.7 for the two strict selectors,
+both scales, both compilers and matching captures. The compiled name partition
+checks all 31 = 29 + 2 selectors; none is dropped. These modern **test** libraries
+do not change Karin's GTK >= 4.14/Libadwaita >= 1.5 application baseline, current
+Flatpak SDK or production renderer.
+
+The motion fixture records a fixed graphics-initialization cycle separately:
+one real normal opening, six bounded offscreen renders of the actual mapped
+panel while open, then real closing. Setup quarters are not assessed; no setup
+render becomes a PNG, changes UI progress/clock or supplies measured evidence.
+Only the next real normal 240 ms native cycle is strictly measured with original
+tolerances and five distinct frame identities. This is not cold-start acceptance
+or a production prewarm. Retain the raw initialization alongside the measured
+frames, and keep Fedora's fresh-first-open gate separate.
+
+For equivalent local test checks on a modern native stack with the fixture tools
+above, use synthetic captures only:
+
+```sh
+pkg-config --atleast-version=4.18 gtk4
+pkg-config --atleast-version=1.7 libadwaita-1
+for toolchain in stable 1.98.1; do
+  for scale in 1 2; do
+    if [ "$scale" = 1 ]; then screen=1920x1080x24; else screen=3840x2160x24; fi
+    for selector in native_design_matched_matrix_and_populated_surfaces \
+      native_universal_panel_whole_surface_motion_and_mode_switch; do
+      GTK_A11Y=none GSK_RENDERER=ngl GSK_DEBUG=full-redraw \
+        GDK_SCALE="$scale" GDK_DPI_SCALE=1 KARIN_V04_ASSERT_DENSITY=1 \
+        KARIN_TEST_CAPTURE_DIR="$PWD/build/ui-captures/strict-$toolchain-scale$scale" \
+        dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" \
+        cargo +"$toolchain" test --lib --all-features --locked "$selector" \
+        -- --ignored --test-threads=1
+    done
+  done
+done
+```
+
+Retain actual rendered frame identities/progress, source/library/renderer records
+and original before/current images. Modern CI artifacts are
+`karin-native-visual-<lane>-<github.sha>`; Ubuntu functional images remain
+`karin-ui-<github.sha>`. The initial `709f5b3` hosted GTK 4.14/Adwaita 1.5/Mesa
+25.2 strict-motion sampling failed, with a matching approximately 915 ms first
+reveal-paint gap reproduced locally; its internal cause is not attributed.
+Cold modern NGL and actual Vulkan attempts failed phase coverage too; changing
+backend/distribution alone is not a proven fix. The later graphics-initialized
+measured PASS does not erase those results, accept cold responsiveness, prove
+physical GPU/Wayland behavior or replace actual hosted conclusions. See [VALIDATION.md](VALIDATION.md).
+Never disable animation, duplicate quarter frames, extend production timing or
+relax tolerances to make a renderer pass. Use ordinary `./karin` with Fedora's
+normal renderer for the separate owner acceptance; these test flags do not
+belong in that run.
 
 ## v0.3 isolated persistence and workspace fixtures
 

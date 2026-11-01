@@ -6,6 +6,9 @@ These are **36 untouched actual GTK captures**, with original synthetic metadata
 and generated cover art, licensed GPL-3.0-or-later. No real account, service art,
 credential, signed resource, private desktop or music recording is included.
 The [previous gallery](../evidence/README.md) remains historical.
+The retained C10 set below does not establish cold first-use performance.
+See the newer [explicitly initialized normal-motion evidence](motion/README.md)
+for recorded setup, fresh-cache measurements and the remaining cold-opening gate.
 
 Before is unchanged production source `a9eed4514802df84d73b0608dd1a62930fc1af76`,
 with an archived test-only size/motion adapter. Queue is honestly shown in its

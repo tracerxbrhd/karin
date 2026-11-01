@@ -31,15 +31,15 @@ No new result is PASS until the corresponding source-matched check runs.
 | --- | --- |
 | Native music composition; three primary destinations; redesigned Home/library/search/Player Bar with no visible Stop | **PASS, C10 cloud review**: independent A/B/D reviews of fresh native states/motion found no remaining P0/P1; minimum-width title ellipsis and ordinary long-information scrolling remain documented owner checks |
 | One controlled Closed/TrackInfo/Queue panel; actual input/mode switching/focus/resizing/logout/cleanup | **PASS, C10 local**: actual input and responsive/lifecycle checks at both scales, including the 620-pixel content boundary, outside input, mode switches, queue/current following and weak-reference cleanup |
-| Entire moving surface at normal-motion 0/25/50/75/100%; stable mode switch; separate reduced motion | **PASS, C10 local**: 48 trajectories / 240 reviewed frames, five distinct rendered frame identities each; rigid child geometry, stable mode switches and separate reduced-motion assertions |
+| Entire moving surface at normal-motion 0/25/50/75/100%; stable mode switch; separate reduced motion | **PASS only for graphics-initialized measured motion, C14 local**: 48 trajectories / 240 real after-paint frames, five distinct identities each, original 240 ms animation/tolerances. Raw graphics setup is separate and quarter-unassessed; **cold first-use responsiveness remains unaccepted**, including failed GTK 4.14 and 4.18 NGL/Vulkan experiments |
 | Fresh eight-geometry × light/dark × 1×/2× × three-mode matrix; populated/error/state supplements | **PASS, C10 local**: 96 source-matched base cases plus 84 state images; equal-size a9 before counterparts and actual maximize |
 | Occurrence-based Shuffle/history, Repeat Off/Queue/One, combinations, unavailable/removal/partial/500-position cases | **PASS, C10 local**: seeded exact-occurrence unit cases and generated-MP3 EOS/queue/mode integration at 1×/2×, actual compact overflow input, same-occurrence Repeat One, single-refusal failure boundary and no presentation-triggered restart |
 | Writable MPRIS Shuffle/LoopStatus, PropertiesChanged, capability synchronization, existing Stop/Seek/Volume/metadata/lifecycle | **PASS, C10 local**: isolated session-bus methods/properties/signals and native shared-policy/real-worker bridge at 1×/2×; external writes/invalid values, capability updates, Stop/seek and cleanup retained |
-| Stable and exact Rust 1.98.1 formatting, strict Clippy, default/all/minimal tests/builds and exact-MSRV release | **PASS, C10 local**: stable 1.99.1 and exact 1.98.1; 359/367/345 library plus four CLI tests per configuration/compiler; strict three-configuration Clippy/builds and ordinary/all-feature offline MSRV release |
+| Stable and exact Rust 1.98.1 formatting, strict Clippy, default/all/minimal tests/builds and exact-MSRV release | **PASS, final C15 local**: stable 1.99.1 and exact 1.98.1; 359/367/345 library plus four CLI tests per configuration/compiler; strict three-configuration Clippy/builds and ordinary/all-feature offline MSRV release |
 | GTK, WebKit sandbox lifecycle, GStreamer, protected session/cache and license regressions | **PASS, C10 local**: 29 available named selectors × 2 scales = 58 executions, including construction/cancel and joined player/storage/cache lifecycle; two fully navigating sandboxed WebKit fixtures remain unavailable locally and belong to hosted CI, with sandbox enabled |
 | Hosted CI and source-matched native Fedora archive | See immutable per-head [PR #15 checks/artifacts](https://github.com/tracerxbrhd/karin/pull/15/checks) and the PR description for hosted conclusions and downloaded-archive verification; local PASS does not establish hosted success |
 | Current full Flatpak build/runtime | **Unavailable locally**: Flatpak 1.16.6/Builder 1.4.4 installed, runtime list empty and GNOME SDK 50 absent; final current package/runtime remains untested here |
-| Real Fedora 44/KDE/Wayland/PipeWire, audible Music, modes, media widget/keys and final visual review | Owner-local retest pending; PR stays Draft |
+| Real Fedora 44/KDE/Wayland/PipeWire, audible Music, modes, media widget/keys, first-open responsiveness and final visual review | Owner-local retest pending; cold first-use responsiveness is not accepted; PR stays Draft |
 
 The eight geometries include the six explicit sizes in the task, owner-wide
 1650×930 and actual window-manager maximize. The before revision presents Queue
@@ -49,7 +49,53 @@ panel. Synthetic metadata/artwork and generated local audio never establish
 new real-account or audible-Music acceptance. Full SDK/runtime availability is
 separate from a successful offline Rust release.
 
-### Executed C10 local verification
+### Final C14 measured-motion scope and C15 regular checks
+
+Production code remains byte-identical to runtime commit
+`37379a72285ffab525f59fa6789727ad2bbdbbf5`. The final changes are test-only
+preparation/diagnostics, detached scope labels and CI placement; they add no
+production prewarming, renderer override, duration change, dependency or SDK
+change. The retained C10 static gallery and functional results below describe
+that same production code, not universal first-paint performance.
+
+For each geometry/theme/mode the motion fixture performs one unconditional
+**real normal 240 ms opening**, records its raw observations with
+`scope: graphics-initialization` and `quarter_phase_acceptance: not-assessed`,
+then, while fully open, performs exactly **six bounded offscreen native GSK
+renders of the actual mapped panel** at fractions
+`.137 / .317 / .533 / .787 / .941 / 1`. These setup renders change neither UI
+progress nor the animation clock, save no PNG and are not animation evidence.
+A real normal closing completes initialization. Only the subsequent actual
+mouse-driven native opening/closing cycle is the strict measured proof.
+
+The strict measured cycle retains the original normal **240 ms** duration,
+original geometry/progress tolerances (±.17), at least three moving observations
+and **five distinct rendered frame times/indices** per trajectory. No
+conditional retry, reduced-motion shortcut, stale/manual frame, fake phase or
+production timing change supplies proof. C14 passed on the first attempt at
+both scales with fresh Mesa/XDG caches: **35.44 s / 49.73 s**, **48 trajectories /
+240 PNGs**. Independent B review inspected all 240 and matched every selected
+frame exactly to its measured raw after-paint record, finding no P0/P1 in this
+**graphics-initialized motion scope**. Cold setup timing is not accepted by
+that result. The C14 executable SHA-256 is
+`04a5d0516cc6b348dd957f858ea6ad13ce17c95fd2a6ce7e7d3cb46635bb1d83`.
+The [current motion gallery](design/v0.4/evidence-redesign/motion/README.md)
+contains 11 untouched selected images, raw initialization, geometry and
+provenance; the earlier C10 gallery remains historical evidence.
+
+C15 adds only three detached manifest scope labels outside measurement. Its
+final regular checks pass on stable **1.99.1** and exact **1.98.1**: both
+formatters, strict default/all/minimal all-target Clippy, **359 / 367 / 345**
+library plus **4 CLI tests** per configuration/compiler, all debug builds,
+locked/offline ordinary and all-feature MSRV releases, terminal boundaries,
+GStreamer/generated local playback, GTK smokes and dependency-license inventory.
+The already completed C10 **54/54 functional executions** remain applicable to
+the unchanged production code; later test setup must not be called a new cold
+responsiveness PASS. New hosted conclusions and archive verification stay with
+the immutable PR head. Full current Flatpak and real Fedora first-use, audio,
+KDE/Wayland and visual acceptance remain pending.
+
+### Retained C10 local verification (observed contexts, not cold acceptance)
 
 The frozen C10 candidate's fresh QA proof verifies its source manifest and test
 executable SHA-256
@@ -87,16 +133,87 @@ batch passed **54/54** functional executions, plus the four static/motion
 executions above: **58 local executions**, or **29 available named
 selectors at both scales**, with no failure. This includes the complete local
 input, queue, MPRIS, persistence/cache, artwork, account and cleanup regressions.
-The hosted workflow runs **31 named ignored selectors in each compiler lane**,
-with selected additional HiDPI steps; it is not described as all 31 selectors at
-both scales in each lane. The two fully navigating WebKit selectors are the
-local namespace limitation, not a reason to disable the sandbox.
+The hosted workflow retains **31 named ignored selectors per compiler across
+two jobs**. Ubuntu 24.04 runs 29 functional selectors, including the two fully
+navigating WebKit selectors that are namespace-blocked locally, together with
+compiler, package and selected HiDPI checks. Dedicated Debian 13 native-quality
+jobs run the remaining two strict visual selectors at both scales for stable
+and exact 1.98.1. This is not all 31 selectors at both scales in every job, and
+no selector is omitted to avoid the initial environment failure.
 
 Consult PR #15's immutable per-head checks/artifacts and description for hosted
 conclusions and archive-verification records, separately from these local
 results. The current native archive must be downloaded and verified before its
 own runtime checks are reported. Real Fedora/KDE/Wayland/PipeWire,
 current Flatpak and audible Music acceptance remain owner-local and pending.
+
+### Initial hosted strict-motion failure at `709f5b3`
+
+The first hosted redesign revision
+`709f5b3461ee2cf2ffb71e7e5ccf3925c93b6113` failed the unchanged strict-motion
+sampling requirement in all four stable/MSRV jobs across its
+[push run](https://github.com/tracerxbrhd/karin/actions/runs/41285905243) and
+[PR run](https://github.com/tracerxbrhd/karin/actions/runs/41285908664).
+That Ubuntu 24.04 environment used GTK **4.14**, Libadwaita **1.5** and Mesa
+**25.2** llvmpipe/NGL. The later C11 test-only observer reproduced its delayed
+first reveal paint locally in the matching environment: approximately **915 ms**
+before after-paint, while observer work was about **108 µs** and at most
+**208 µs**. The actual GTK 4.14 renderer remained **GskNglRenderer**; no missing
+node or renderer fallback was reported. Those observations do **not** attribute an internal
+shader/driver/library cause, and do not turn the failed strict sample into PASS.
+
+The successful C10 local evidence above used GTK **4.18** / Libadwaita **1.7**
+and remains evidence for that environment and the unchanged production code at
+`37379a72285ffab525f59fa6789727ad2bbdbbf5`. The different library/renderer
+combinations are recorded, not reduced to a claim that one version alone caused
+the gap. No production duration, tolerances, renderer selection, dependency,
+Flatpak SDK or runtime library requirement is changed to hide it. C11 adds only
+test diagnostics and a version-correct legacy GL guard. Subsequent hosted
+conclusions belong to their own immutable head and must be read separately;
+the initial `709f5b3` FAIL remains history.
+
+Separately, four targeted GTK 4.14/Libadwaita 1.5 Cairo functional runs with
+`G_DEBUG=fatal-warnings` passed: shared mode/MPRIS/EOS at 1×/2× and media-error/
+Retry/footer-layout at 1×/2×. They produced no GTK/GSK warning; separate libEGL
+DRI3 notices are not presented as GTK warnings. These checks establish their
+functional/input/layout scope, not strict NGL quarter coverage or an internal
+cause for its delayed first paint. The Fedora guide now checks first appearance
+after ordinary fresh start and warm repeats separately.
+
+Later cold tests also failed strict cadence on modern GTK 4.18/Libadwaita 1.7:
+NGL saw an approximately **84.6 ms** first-paint gap at 1×, moving from progress
+.186 to .801 without the required half phase, and about **233 ms** at 2×,
+from .197 to 1. Actual `GskVulkanRenderer` cold checks failed with roughly
+**339 / 269 ms** gaps too. Snapshots were present, with no renderer fallback;
+small observer work does not attribute an internal shader/driver cause. Thus
+**neither a different backend nor moving distributions alone is a proven fix**.
+These failed first-use experiments remain recorded. The later fixed test-only
+graphics initialization narrows measured proof; it does not repair or certify
+production cold latency. Fedora's first appearance after ordinary fresh start
+must be judged separately from warm repeated openings.
+
+The revised CI definition partitions rather than drops checks. Jobs named
+`Rust <toolchain> (<lane>)` retain Ubuntu 24.04 for 29 functional selectors,
+compiler/configuration checks, sandboxed WebKit and native packaging. Jobs named
+`Native UI <toolchain> (Debian 13)` use the digest-pinned official
+`rust:1.98.1-slim-trixie` image and install the modern native test stack (GTK
+at least 4.18 / Libadwaita at least 1.7, with actual versions recorded). They run
+`native_design_matched_matrix_and_populated_surfaces` and
+`native_universal_panel_whole_surface_motion_and_mode_switch` on **both** Rust
+stable and 1.98.1 at **both** scales, followed by ordinary captures and the
+matched a9 baseline. Compiled registration/partition checks verify all 31 names
+as 29 + 2. The strict 240 ms motion, five distinct frames and original progress
+tolerances are retained. Their current measured scope follows the separately
+recorded fixed graphics initialization above; cold latency is not assessed as
+PASS. This is test/CI placement, not a production library, renderer or Flatpak
+change, and the definition itself is not a hosted PASS.
+
+Modern evidence uses `karin-native-visual-<lane>-<github.sha>`; Ubuntu functional
+evidence remains `karin-ui-<github.sha>`. Modern artifacts record actual checkout
+and PR-head identities, source/executable fingerprints, package versions and
+renderer observations. New test-only diagnostics and this CI definition need
+their own executed per-head checks; the current conclusion stays with the
+immutable PR records rather than being inferred from C10 local evidence.
 
 ### Historical C6 checkpoint before final UI polish
 

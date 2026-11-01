@@ -52,7 +52,43 @@ controls, emit PropertiesChanged and retain real transport/seek/volume behavior.
 See [ADR-0022](../../adr/0022-universal-music-panel.md) and
 [ADR-0023](../../adr/0023-local-playback-order-and-mpris-modes.md).
 
-## Final native evidence
+## Verification follow-up: graphics initialization and first paint
+
+Initial hosted runs at `709f5b3` failed strict motion coverage. Instrumented
+old-stack reproduction measured roughly 915 ms in a first paint cycle, while
+the snapshot observer took at most 208 microseconds. Further modern-stack cold
+NGL/Vulkan controls also missed phases. Nodes were present and actual renderer
+classes were verified; the internal driver/paint cause is not attributed to
+shaders without evidence. Moving the job alone is not a performance fix.
+
+The [new measured sequence](evidence-redesign/motion/README.md) separates one
+recorded native initialization cycle and six bounded native offscreen material
+renders from the unchanged strict measurement. Initialization emits no evidence
+PNG, changes no UI progress/clock and claims no quarter-frame or cold-latency
+PASS. Subsequent real gestures use normal 240 ms animation, with the original
+three-intermediate/five-distinct/progress/rigid-geometry assertions. No retries,
+reduced motion or production prewarming are introduced.
+
+Fresh per-scale Mesa/XDG caches passed those measured cycles at both scales:
+**240 frames / 48 trajectories**. Independent review inspected all images and
+matched all 240 selected records to their actual measured after-paint samples;
+no P0/P1 structural defect or substituted initialization frame was found.
+The application remains byte-identical to runtime `37379a7`; only the test
+harness, CI placement and evidence documentation changed after C10.
+
+Cold first-use responsiveness remains **unaccepted**, including under Xvfb.
+The Fedora guide therefore checks first Track Info/Queue appearance after an
+ordinary fresh start separately from warm repeats, without renderer/cache
+workarounds. CI retains all 31 native selectors in both Rust lanes: 29 functional
+selectors and sandboxed WebKit/packaging on Ubuntu, with the two strict visual
+selectors on the prepared modern Debian native stack. Its artifact records the
+initialization scope and actual backend. The final metadata-only harness follow-up completed both Rust compiler matrices
+again: formatting, strict three-configuration Clippy/tests/builds, exact-MSRV
+offline releases, GTK/GStreamer/terminal boundaries and license inventory all
+passed. Exact hosted results and archive verification are published per head in
+PR #15.
+
+## C10 native composition and original motion evidence
 
 The [reviewed gallery](evidence-redesign/README.md) contains **36 untouched actual
 GTK captures**: matched before/after pages, the whole-surface opening/closing
