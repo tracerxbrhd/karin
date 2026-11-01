@@ -49,7 +49,7 @@ jobs:
             gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
             libssl-dev libdbus-1-dev libsecret-1-dev libwebkitgtk-6.0-dev dbus-x11 xvfb xauth \
             librsvg2-common openbox imagemagick xdotool wmctrl x11-utils apparmor \
-            playerctl libglib2.0-bin
+            playerctl libglib2.0-bin libgl1-mesa-dri libegl-mesa0 libglx-mesa0
       - name: Install selected Rust toolchain
         run: |
           rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
@@ -130,6 +130,9 @@ jobs:
               'native_workspace_track_pane_actions_state_and_cleanup',
               'native_catalog_native_music_layout',
               'native_design_matched_matrix_and_populated_surfaces',
+              'native_universal_panel_whole_surface_motion_and_mode_switch',
+              'native_music_shuffle_repeat_mpris_shared_policy_and_eos',
+              'native_queue_space_mouse_enter_dispatch_exact_occurrence_once',
               'native_workspace_playlist_grid_input_states_and_resize',
               'native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup',
               'native_preferences_persistent_controls_snapshot_updates_and_cleanup',
@@ -180,10 +183,10 @@ jobs:
           dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup -- --ignored --test-threads=1
           dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_preferences_persistent_controls_snapshot_updates_and_cleanup -- --ignored --test-threads=1
           dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_playlist_creation_confirmation_refresh_refusal_and_late_widgets -- --ignored --test-threads=1
-      - name: Native Music populated geometry and complete visual matrix
+      - name: Native Music populated geometry, whole-surface motion and playback modes
         env:
           GTK_A11Y: none
-          GSK_RENDERER: cairo
+          GSK_RENDERER: ngl
           GSK_DEBUG: full-redraw
           KARIN_V04_ASSERT_DENSITY: 1
         run: |
@@ -194,6 +197,9 @@ jobs:
             fi
             GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_catalog_native_music_layout -- --ignored --test-threads=1
             GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_design_matched_matrix_and_populated_surfaces -- --ignored --test-threads=1
+            GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_universal_panel_whole_surface_motion_and_mode_switch -- --ignored --test-threads=1
+            G_DEBUG=fatal-warnings GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_music_shuffle_repeat_mpris_shared_policy_and_eos -- --ignored --test-threads=1
+            GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_queue_space_mouse_enter_dispatch_exact_occurrence_once -- --ignored --test-threads=1
           done
       - name: Persistent session lifecycle and catalog cache provenance integration
         env:
@@ -517,8 +523,11 @@ jobs:
           No experimental flag or developer credentials required. Keep the desktop keyring unlocked.
           Follow docs/BUILDING.md#v04-native-music-acceptance-on-fedora at the source commit in BUILD-INFO.txt.
           Test the real account/library/search/playlists/context queue, audible Music playback and KDE MPRIS.
-          Inspect light/dark, HiDPI, compact420x720, medium900x650, wide1440x900 and maximized.
-          Open the info pane; outside click/scroll/navigation must not close it.
+          Inspect light/dark, HiDPI, 420x720,720x650,900x650,1280x800,1440x900,1650x930,1920x1080 and maximized.
+          Open Track Info or Queue in the same right panel; outside click/scroll/navigation must not close it.
+          Check the entire surface slides together and switching Track Info/Queue never closes/reopens it.
+          Test Shuffle, Repeat Queue/One, previous-history, actual upcoming order and external playerctl modes.
+          Queue is reached from the Player Bar/Ctrl+J; no separate queue navigation or visible Stop remains.
           Next/Previous/EOS/MPRIS must follow the actual occurrence without closing/reopening.
           Explicit other-track selection must survive pause/seek/volume; current occurrence changes resume following.
           Resize wide/medium/compact and suspend via Diagnostics; open intent must survive.
@@ -544,14 +553,19 @@ jobs:
           if-no-files-found: error
       - name: Capture real GTK visual review matrix
         if: matrix.lane == 'stable'
+        env:
+          KARIN_CAPTURE_RENDERER: ngl
         run: scripts/capture-ui.sh build/ui-captures
       - name: Capture HiDPI GTK visual review matrix
         if: matrix.lane == 'stable'
         env:
           KARIN_CAPTURE_SCALE: 2
+          KARIN_CAPTURE_RENDERER: ngl
         run: scripts/capture-ui.sh build/ui-captures/hidpi
-      - name: Matched accepted-baseline GTK captures (last Cargo step)
+      - name: Matched a9eed45 baseline GTK captures (isolated target)
         if: matrix.lane == 'stable'
+        env:
+          KARIN_CAPTURE_RENDERER: ngl
         run: scripts/capture-native-music-baseline.sh build/ui-captures
       - name: Retain visual review evidence
         if: always() && matrix.lane == 'stable'

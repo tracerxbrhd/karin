@@ -7,12 +7,17 @@ Libadwaita and GStreamer. Karin is not affiliated with Yandex.
 
 **v0.4 — Native Music** is the current UI iteration in existing
 [Draft PR #15](https://github.com/tracerxbrhd/karin/pull/15): a compact expandable
-rail, visual music workspace, controlled nonmodal track information and a
-permanent Player Bar. It follows the owner's [approved design specification](docs/design/v0.4/DESIGN_SPEC.md)
-with minimal visible prose and preserves the accepted sign-in, MusicService,
+rail, cover-led music workspace, one nonmodal Track Info / Queue panel and a
+centered Player Bar with real local Shuffle/Repeat modes. The owner's
+[complete redesign brief](docs/design/v0.4/CODEX_TASK.md) supersedes the initial
+visual direction: `a9eed45` passed cloud checks but its Fedora UI was not
+accepted. The [current specification](docs/design/v0.4/DESIGN_SPEC.md) keeps
+visible prose concise and preserves the accepted sign-in, MusicService,
 StreamResolver, GStreamer player, contextual queues, protected session/cache
 and MPRIS. Implementation checks and Fedora visual acceptance remain separate;
 the [SVG references](docs/design/v0.4/README.md) are illustrations, not GTK captures.
+See the [fresh actual GTK before/after and motion gallery](docs/design/v0.4/evidence-redesign/README.md)
+for the current redesign.
 
 **v0.3 — Seamless Experience** is merged through
 [PR #14](https://github.com/tracerxbrhd/karin/pull/14) at `5e85e8d`, delivering
@@ -81,8 +86,11 @@ does not prove those additional lifecycle cases. See
 - A track row starts its exact loaded-context occurrence by mouse, Enter or
   Space. Liked tracks, albums, playlists and search retain their real ordering,
   duplicates and partial-collection boundary within 500 queue positions. Manual
-  appends supplement the context; Next/Previous/EOS use that same queue. Details
-  remain a separate action. Current/up-next markers do not invent listening history.
+  appends supplement the context; Next/Previous/EOS use that same queue. Shuffle
+  plans exact occurrences with bounded played history, not unique IDs; repeat
+  cycles Off → Queue → One. Repeat One applies to natural EOS while explicit
+  Next/Previous still navigate. Modes survive an ordinary clear or new context
+  and reset on logout/close. Details remain a separate action.
 - Adaptive track information presents actual large cover/title/artist/album,
   selected/playing state and supported context actions. Album/artist links use
   verified identities rather than guesses from display names. Opening, closing
@@ -91,7 +99,11 @@ does not prove those additional lifecycle cases. See
   retain the view, explicit close dismisses it, and a new current queue occurrence
   updates it in place. Details may inspect another track without playing it;
   the next actual current-item change resumes following. See
-  [ADR-0021](docs/adr/0021-controlled-nonmodal-track-information.md).
+  [ADR-0022](docs/adr/0022-universal-music-panel.md). The same pinned surface
+  switches between Track Info and Queue without closing/reopening; Ctrl+J and
+  the Player Bar queue button replace the former primary queue destination.
+  Full-size background, header, artwork and text translate together using a
+  single native animation; compact Back and explicit close remain available.
 - Playlists use adaptive native cover tiles, with real optional counts, readable
   long names, missing-cover handling and loading/empty/error states. Creation
   uses one explicit request and independent server confirmation; an ambiguous
@@ -102,11 +114,12 @@ does not prove those additional lifecycle cases. See
   Album/artist/playlist sections, Show All and Retry remain independent.
 - The existing guarded full-MP3 resolver feeds an opaque short-lived HTTPS source
   to the existing GStreamer worker. Actual snapshots drive play/pause/resume,
-  Stop, progress/Seek, Volume, queue and cleanup. OAuth/cookies never go to the
+  progress/Seek, Volume, queue and cleanup. Stop remains an internal and MPRIS
+  command and has no visible Player Bar button. OAuth/cookies never go to the
   descriptor/CDN; signed addresses and music files are not persisted.
 - MPRIS 2.2 controls that same player through GIO session D-Bus. Known metadata,
-  actual position/capabilities, confirmed seeks, volume and private temporary
-  cover-only PNGs are exported; tokens, cookies, account IDs and media URLs are
+  actual position/capabilities, confirmed seeks, volume, writable Shuffle and
+  LoopStatus, and private temporary cover-only PNGs are exported; tokens, cookies, account IDs and media URLs are
   not. The exact Flatpak MPRIS own-name permission is retained. Baseline KDE
   Media Widget/Flatpak integration passed; v0.3 KDE real cover/metadata and final
   Flatpak system integration are owner-confirmed. Physical media keys were not
@@ -164,6 +177,7 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo test --workspace --locked
 cargo test --workspace --all-features --locked
+cargo test --workspace --no-default-features --locked
 cargo build --workspace --locked --no-default-features
 cargo build --workspace --locked
 ./target/debug/karin --audio-self-test

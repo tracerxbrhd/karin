@@ -1,6 +1,146 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 
-# Native Music implementation review
+# Complete Music Experience redesign review
+
+The owner rejected `a9eed4514802df84d73b0608dd1a62930fc1af76` on Fedora.
+This iteration follows the [complete brief](CODEX_TASK.md), superseding the older
+Native Music sketches. Authentication and audible Music were already accepted;
+that functional baseline must survive, and does not accept the new visual design.
+
+## Composition and behavior
+
+Karin now has three primary destinations—Home, Search and Library—and one
+persistent Player Bar. Home leads with the real liked collection, playable
+preview rows and a modest personal-playlist shelf. Library/details/search retain
+useful content width, consistent artwork, quiet rows and explicit secondary
+actions. Compact navigation keeps native tooltips and accessible names.
+[UX research](UX_RESEARCH.md) records the inspected Yandex desktop and Cassette
+sources and the reasons for Karin's independent composition.
+
+Track Info and Queue occupy **one controlled right surface**. Outside clicks,
+scrolling, navigation and playback do not dismiss it. Ctrl+J and the footer Queue
+button select Queue; the sidebar has no Queue destination. Mode changes replace
+content in place, without another slide. Narrow content uses a dedicated view;
+resizing preserves the user's chosen mode. Exact playback-occurrence changes
+resume following; explicit other-track details survive pause, seek and volume.
+Logout and shutdown retire pending work and private content.
+
+The old animation defect was reproduced on unchanged a9 production code with a
+test-only observer. Its surface x stayed 1110 while its child allocation changed
+1520 → 594 → 483 → 420 → 320; text x stayed 1131 while the centered cover moved
+1742 → 1279 → 1224 → 1192 → 1142. These are cloud coordinates, not Fedora
+measurements. The old Revealer reallocated and reflowed the child during a slide.
+The replacement [SlidingPanel](../../../src/ui/music/sliding_panel.rs) gives the
+whole surface its final size and applies one common native GSK translation to
+background, border, heading, cover, text and controls. Normal duration is 240 ms;
+reduced motion is checked separately.
+
+The footer centers transport in equal native columns, retains artwork/title/
+artist, timeline, volume and Queue, and moves secondary controls into an upward
+native popover at compact widths. A readable full-width error caption grows above
+the transport. **No visible Stop remains**; the existing controller and MPRIS Stop
+still work. Repeat One has an actual visible “1”, rather than relying on a theme's
+repeat-song icon to draw one.
+
+Shuffle and Repeat Off/Queue/One operate on the existing bounded queue and audio
+worker, never another engine. Shuffle uses exact occurrences, an upcoming plan and
+actual history. Repeat One affects natural EOS; manual Next/Previous still move.
+Ordinary clear/new context retains selected modes; session retirement resets them.
+Unavailable tracks, duplicate IDs, removal and partial/500-position contexts are
+covered. Writable MPRIS Shuffle/LoopStatus update the same policy and native
+controls, emit PropertiesChanged and retain real transport/seek/volume behavior.
+See [ADR-0022](../../adr/0022-universal-music-panel.md) and
+[ADR-0023](../../adr/0023-local-playback-order-and-mpris-modes.md).
+
+## Final native evidence
+
+The [reviewed gallery](evidence-redesign/README.md) contains **36 untouched actual
+GTK captures**: matched before/after pages, the whole-surface opening/closing
+sequence, both panel modes, Home states, playlist/search and active modes.
+The full fresh set has **96** matched matrix cases and **84** current state
+supplements: eight geometries × light/dark × 1×/2× × Closed/TrackInfo/Queue.
+The owner-wide 1650×930 case and actual window-manager maximize are included.
+
+The archived a9 production baseline was rebuilt separately; only its existing
+synthetic test harness was adapted. Its copied executable SHA-256 is
+`dc38cd7d9addc4fac1161da1b76e6456a780edeeda564a8d31ca4b605bcd1e60`.
+The final source-frozen C10 test executable SHA-256 is
+`1df39d2998ebfd2182f0224244154bbec3f50e65ba5f4e209299e5965363369b`.
+[Provenance](evidence-redesign/provenance.json) records the exact Rust/Cargo
+content hashes; documentation changes do not alter that runtime fingerprint.
+Hosted captures record their own immutable checkout and executable.
+
+All **48 normal-motion trajectories** passed at both scales: **240 fresh frames**,
+five distinct native frame times **and** indices per sequence, actual mapped
+artist/album widgets and rigid surface-relative allocations. Maximum translation
+residual was below 0.000069 logical pixels; maximum child offset/size residual
+below 0.000123. [Selected geometry](evidence-redesign/motion-geometry.json) accompanies
+the originals. Closing is displayed in openness order 100 → 75 → 50 → 25 → 0;
+old before frames explicitly label elapsed fractions instead.
+
+The actual-input fixture checks TrackInfo ↔ Queue without replaying the slide,
+outside input, compact/adaptive transitions and reduced motion separately.
+An independent layout review inspected every one of the 240 final motion frames
+and found no P0/P1. Native geometry and mode/error fixtures at both scales also
+pass with `G_DEBUG=fatal-warnings`: the full safe error caption is readable,
+Play/progress stay within 1 logical pixel of their settled original coordinates,
+and actual compact overflow mouse/keyboard controls preserve the current audio
+worker. Earlier capture/timing attempts were not substituted for these proofs.
+
+## Executed checks and independent review
+
+Stable **1.99.1** and exact **1.98.1** both pass formatting, strict all-target
+Clippy, tests and debug builds in default/all/minimal configurations: **359 / 367
+/ 345 library tests plus 4 CLI tests** per configuration/compiler. Ordinary and
+all-feature MSRV locked/offline release, hidden terminal boundaries, GStreamer,
+generated-media controller playback, GTK startup/cleanup and the unchanged
+207-package dependency-license inventory pass.
+
+All **54 functional native executions** pass at 1×/2×, with exactly one selected
+test each and no warnings/critical messages. The two design/motion fixtures at
+both scales add four passes: **58 local executions**, covering all 29 locally
+available ignored selectors. The two fully navigating WebKit fixtures require
+hosted namespaces; construction/cancel passes locally with sandbox retained.
+Hosted CI runs all 31 named selectors in both compiler lanes with selected
+HiDPI steps. The exact final hosted results and source-matched downloaded native
+archive verification are published per head in [PR #15](https://github.com/tracerxbrhd/karin/pull/15);
+local PASS is not a substitute for those checks.
+
+Independent final visual review inspected all 90 1× static originals plus ten
+error/mode captures; all 90 2× originals; and all 240 motion frames plus 48 2×
+matrix originals. QA independently verified source hashes, renderer classes,
+paired dimensions and motion geometry. No unresolved P0/P1 was found.
+[Review scopes and residuals](evidence-redesign/quality-summary.json) accompany
+the evidence. Layout, music surfaces, queue/MPRIS policy and tests,
+research/reference qualification, QA and documentation were developed by
+separate agents and integrated by the primary agent. Their checks exposed and
+helped correct native row dispatch/focus, literal Repeat One, footer caption
+sizing and motion-capture defects before handoff. The historical report below
+remains evidence only for the first a9 implementation.
+
+## Remaining target-platform gates
+
+Cloud captures use synthetic HTTP metadata, original generated covers and local
+generated audio, with isolated Xvfb/Openbox and Mesa software NGL rendering. They
+contain no real account, service artwork, credential, signed resource or copyrighted
+music recording. They do not establish Fedora/KDE/Wayland/PipeWire acceptance.
+Current full GNOME SDK 50 Flatpak build/runtime is unavailable locally. The two
+fully navigating WebKit fixtures require hosted namespaces, with sandbox enabled.
+
+Long metadata uses normal scrolling in Track Info and ordinary ellipsis in small
+footer wings. Fedora review must check actual fonts and wheel/keyboard access to
+below-fold actions. The [single Fedora procedure](../../BUILDING.md#v04-native-music-acceptance-on-fedora)
+covers visual density, normal/reduced motion, real library/search/audio, playback
+modes, KDE MPRIS/media keys and existing protected-session/cache behavior.
+**PR #15 remains Draft pending this fresh owner acceptance.** No merge, new PR,
+public-release approval or service-distribution permission is implied.
+
+## Historical first Native Music iteration — cloud checks only
+
+The following retained report and images describe the earlier implementation
+ending at a9, with before source `5e85e8d`. Its cloud PASS statements are
+historical and do not pass the complete redesign gate; the owner subsequently
+rejected that UI. They must not be reused as new after captures.
 
 This records actual GTK/Xvfb/Openbox review for
 [Draft PR #15](https://github.com/tracerxbrhd/karin/pull/15), separately from the

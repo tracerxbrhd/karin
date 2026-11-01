@@ -7,60 +7,103 @@ structural checks. A compiling widget tree, a visible window or a screenshot
 alone is insufficient. Review the existing technical prototype without adding
 fictional music catalogs, recommendations or player controls.
 
-## v0.4 Native Music gate
+<a id="v04-native-music-gate"></a>
 
-The [approved Native Music specification](design/v0.4/DESIGN_SPEC.md) defines
-the current four-zone composition: expandable icon rail, central music view,
-controlled track-information presentation and permanent Player Bar. Keep visible
-prose minimal while retaining short meaningful errors, destructive confirmations,
-tooltips and accessible names. The [original SVG references](design/v0.4/README.md)
-are design inputs, not running GTK captures or evidence of implemented features.
+## v0.4 complete music-experience gate
 
-Compare the accepted v0.3 baseline integrated at `5e85e8d` with the actual v0.4
-implementation at **matched size, theme, scale, page and pane state**. The base
-matrix is four window states below × light/dark × scale 1/2 × information
-open/closed: **32 cases per revision, 32 before/after comparisons**. Include
-actual window-manager maximize, not only a maximized-sized undecorated window.
-Record omissions/failures explicitly; never rename an old capture as current.
+The owner's [current specification](design/v0.4/DESIGN_SPEC.md) supersedes the
+first Native Music visual target. Revision `a9eed45` is the before baseline:
+its cloud checks passed, but its Fedora UI/UX was rejected. Keep previous
+results; do not reuse old captures as evidence of the new implementation.
 
-Supplement that matrix with populated Home, Library, playlist/album detail,
-four-section search and Show All, queue, account/logout and Preferences, plus
-loading/empty/error/Retry, long metadata, missing art and visible keyboard focus.
-Inspect actual pixels, coherent hierarchy and useful density; the six-complete-
-rows target at 900×650 with information closed is a minimum, not visual approval.
-Check normal motion and reduced-motion behavior separately.
+The client has three primary navigation destinations, a central music workspace,
+one universal Track Info/Queue panel and a permanent Player Bar. Inspect real
+music hierarchy, useful density and aligned controls rather than only clipping.
+Home uses genuine loaded covers/collections rather than giant navigation cards.
+The footer has functional Shuffle/Repeat and no visible Stop button; MPRIS Stop
+is retained. Short errors, Retry, confirmations, tooltips and accessible names
+remain necessary even when visible explanatory text is reduced.
 
-The following native input/state checks are mandatory:
+### Fresh matched matrix
 
-- Once opened, information stays open through uncovered-area clicks, scrolling,
-  navigation and wide→medium→compact→wide resizing. Close X, Ctrl+I or explicit
-  compact Back closes it deliberately with focus return. A modal scrim or
-  close/reopen workaround does not meet the medium nonmodal requirement.
-  Both desktop sizes reserve central content width (wide 320+20 pixels; medium
-  300+16), so the pane must not conceal track-row More menus or other actions.
-  Exercise those controls after row Play with the default open preference.
-  Repeated current-cover activation must keep information open and show the
-  current track without restarting audio; it is not a second close action.
-- Open intent is distinct from widget visibility. Diagnostics may suspend
-  presentation without forgetting that intent; logout retires personal data and
-  asynchronous artwork/metadata work immediately.
-- Actual current-occurrence changes from mouse, Enter/Space, Next/Previous,
-  queue selection, EOS and MPRIS update the open view in place. Include repeated
-  track IDs at different queue positions and delayed old replies. Cover, title,
-  artist, album and actions must refer to the same current snapshot.
-- Explicit Details on another track changes information only. Pause, seek and
-  volume preserve that selection; the next actual current-occurrence change
-  resumes following. Opening, closing, resizing or navigation never replaces
-  PlaybackContext or starts/stops/restarts the audio engine.
-- Confirm one coherent visual system across all music pages, with real actions
-  and honest loading/failure states. No offline, My Wave, lyrics, similar-track
-  or recommendation block appears without its separately established contract.
+Capture the before and current revisions at **the same actual size, theme,
+scale and page**. Use 420×720, 720×650, 900×650, 1280×800, 1440×900,
+1650×930 (the owner-reported wide layout), 1920×1080 and actual window-manager
+maximize; light/dark; scales 1 and 2. Cover current
+`Closed`, `TrackInfo` and `Queue` modes (**96 current base cases**). The before
+revision has no shared Queue mode: compare its genuine corresponding queue
+presentation and label that structural difference; never synthesize a panel or
+rename a different state to make a pair appear equivalent.
 
-Use actual mouse/keyboard events in isolated GTK fixtures, then a separate
-owner-local Fedora/KDE/Wayland/PipeWire run. Passing cloud captures, structural
-tests or the earlier v0.3 acceptance does not pass v0.4 owner visual acceptance.
-Existing [Draft PR #15](https://github.com/tracerxbrhd/karin/pull/15) stays Draft
-until that review; do not create another implementation PR or merge it.
+Record requested and achieved geometry, source revision, binary fingerprint,
+library versions, theme/scale and motion settings. Inspect all accepted images,
+including original HiDPI pixels. Supplement the matrix with Home, Library,
+playlist/album, four-category Search/Show All, queue edits, account/Preferences,
+active Shuffle/Repeat, empty/sparse/large collections, long metadata, absent art,
+loading/error/Retry, unavailable tracks and visible focus. A six-row density
+assertion at 900×650 with the panel closed is a useful minimum, not visual PASS.
+
+### Whole-surface motion
+
+With normal animation enabled, record opening and closing near 0%, 25%, 50%,
+75% and 100%. Background, border, fixed header/close, art, text and buttons must
+have a common translation and stable relative geometry at every intermediate
+frame. Each sequence must use **five distinct rendered native frame times and
+indices**, with measured progress near each requested quarter. Reusing one
+render for two labelled samples does not pass. Current motion filenames label
+openness; present closing in chronological **100 → 75 → 50 → 25 → 0** order.
+The original before observer labels elapsed fractions instead, so retain those
+labels and do not pretend its quarters use the new panel's progress measure.
+Check clipping and actual GTK allocation as well as screenshots. A fully
+open image, moving cover alone or disabled animation cannot prove this gate.
+TrackInfo ↔ Queue switches within the same open surface: fixed outer width,
+header/close position and no repeated slide. Check reduced-motion separately.
+Central actions must remain usable during motion and after it settles; no
+instant full-width content jump or temporary covering of row controls is valid.
+
+Record the actual renderer and frame timing. The strict normal-motion fixture
+uses GTK NGL/GskGLRenderer on Mesa under Xvfb at both scales; that is not proof
+of physical GPU rendering or Wayland. A slow Cairo software run can miss a
+quarter's first rendered frame. Report that sampling failure instead of
+duplicating frames, disabling animation, stretching production timing or
+weakening tolerances. Choosing a supported fixture renderer does not force a
+production backend; retain separate Cairo structural checks and owner-local
+default-renderer acceptance.
+
+### Input, queue and playback policy
+
+- Exercise actual mouse/Enter/Space, cover/Ctrl+I, footer Queue/Ctrl+J, mode
+  changes, repeat activation, X/compact Back, focus return, outside clicks,
+  scrolling, navigation and both directions of all breakpoints. Preserve mode
+  and open intent; Diagnostics may suspend presentation, logout clears it.
+  Include expanded navigation at 720 pixels: actual content below 620 pixels
+  uses the dedicated panel subview rather than squeezing unusable columns.
+- Check current occurrence following through Play, Next/Previous, queue pick,
+  EOS and MPRIS, including duplicate IDs and late metadata/artwork replies.
+  Explicit Details never plays. Pause/Seek/Volume retain explicit selection;
+  the next actual current occurrence resumes following without a pane restart.
+- Queue uses one widget tree and the existing local context. Test current and
+  noncurrent removal, clear, appends, unavailable items, duplicates, partial
+  collections and 500 positions. Its displayed next/history order must match
+  actual policy; rapidly replaced rows cannot dispatch stale actions.
+- Test Shuffle on/off without changing the current occurrence, bounded cycles,
+  actual Previous history and queue edits. Test Repeat Off/Queue/One, EOS versus
+  explicit Next/Previous, combinations with Shuffle, new contexts, logout and
+  close. A resolver failure must not create an automatic retry loop.
+  Repeat One needs an actual visible “1”, in addition to correct active state,
+  tooltip and accessible name; a differently shaped unlabeled repeat icon alone
+  does not satisfy that visual distinction.
+- Exercise writable MPRIS Shuffle and LoopStatus (`None`, `Track`, `Playlist`),
+  invalid writes, PropertiesChanged and capability updates. Native and D-Bus
+  controls share one policy and the same PlaybackController. Retain Stop,
+  acknowledged Seeked, opaque IDs, private local cover files and bus cleanup;
+  no token, cookie, account ID or signed media address crosses D-Bus.
+
+Screenshots supplement native geometry/input/worker tests. Generated local media
+and synthetic loopback metadata are test evidence only. New Fedora/KDE/Wayland/
+PipeWire, audible Music and current Flatpak acceptance remain owner-local.
+[PR #15](https://github.com/tracerxbrhd/karin/pull/15) stays Draft; no new PR or
+merge is authorized by a successful cloud run.
 
 ## Required matrix
 
@@ -81,7 +124,7 @@ full-window capture, smoke and separate interactive WebKit processes retain
 their normal motion settings. Record these conditions with the evidence.
 
 Inspect the music interface and diagnostics at each size below, in **light and
-dark themes**. Cover signed-out library/search/queue navigation and the single
+dark themes**. Cover signed-out library/search and queue-panel navigation and the single
 native sign-in dialog without real credentials. Account/search/detail states
 may use synthetic fixtures only in explicitly identified tests, never a release
 catalog. Use actual allocated dimensions; distinguish requested size from the
@@ -90,8 +133,12 @@ size achieved under the window manager.
 | Window state | Approximate size | Main checks |
 | --- | --- | --- |
 | Compact | 420×720 | Narrow navigation, readable wrapping, reachable actions and vertical scrolling |
+| Compact boundary | 720×650 | Shared panel remains nonmodal; central actions stay reachable |
 | Medium | 900×650 | Appropriate header navigation, hierarchy and balanced density |
+| Wide boundary | 1280×800 | Content/panel split and footer alignment survive the transition |
 | Wide | 1440×900 | Bounded component widths, content aligned near the top, no oversized centered empty-state layout |
+| Owner wide | 1650×930 | Address the reported gap between central content and the panel |
+| Full HD | 1920×1080 | Useful wide composition, natural collection tile sizes and integrated panel |
 | Maximized | Available work area | Header/title/window controls stay intact; content scales with the actual available area |
 
 Resize across navigation breakpoints in both directions. Check that the selected
@@ -212,7 +259,9 @@ shutdown need lifecycle checks. Synthetic bus/media fixtures prove that contract
 only. Seeked must follow a successful worker acknowledgement, including a seek
 close to the current position; rejected/queued-only/stale seeks must not emit a
 false acknowledgement. Check optional cover-file cleanup and private file modes.
-Unsupported repeat/shuffle controls must not appear via optional MPRIS properties.
+Shuffle/LoopStatus must match the local queue policy and remain writable through
+the official values, with PropertiesChanged after actual mode changes. Stop
+remains available externally even though its visible footer button is removed.
 Fedora acceptance must separately verify an actual selected Music track,
 `playerctl`, KDE's media widget and physical media keys, in the native artifact
 and, when built, the current Flatpak sandbox. No manual result is passed until
@@ -222,7 +271,8 @@ it is actually performed.
 
 Treat the accepted v0.3 service/audio/session/cache behavior as the regression
 baseline, not a pass for v0.4 presentation or new backend/failure scenarios.
-ADR-0021 supersedes only the old modal information presentation. At every
+ADRs 0022/0023 extend the former information presentation and local playback
+policy without replacing secure-session/cache ownership. At every
 relevant size/theme/scale:
 
 - Inspect restoring, validated, invalid session, unavailable/locked store,
@@ -289,9 +339,9 @@ main content and assert that it reclaims the closed pane's width; keep all
 geometry checks for an open sidebar. A mapped closed pane alone is not visible
 clipping, and the correction must not skip open-pane or content assertions.
 That rule still applies to navigation containers; it does not substitute for
-v0.4's controlled `GtkRevealer` information checks. Verify its actual allocation,
-nonmodal hit testing, compact underlying-view hiding and explicit open intent,
-including after the native reveal animation settles. No automatic dismiss/reopen
+v0.4's universal-panel checks. Verify actual motion/surface allocation,
+nonmodal hit testing, compact underlying-view hiding, selected mode and explicit
+open intent during intermediate frames as well as after the animation settles. No automatic dismiss/reopen
 handler may be used to make the visibility assertion pass.
 
 Screenshots supplement these assertions by revealing hierarchy, clipping and

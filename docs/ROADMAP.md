@@ -117,54 +117,53 @@ images, actual native/Flatpak storage evidence, blocked service features and
 The separate v0.3 owner report accepts its stated functional scope, not every
 unreported backend/failure case or future code change.
 
-## v0.4 — Native Music: implementation in existing Draft PR #15
+## v0.4 — Complete Music Experience in existing Draft PR #15
 
-**Approved Karin v0.4 direction: [Native Music (B) visual references](design/v0.4/README.md).**
-The owner selected the native four-zone composition and the rule **minimum visible
-text; intuitive use through visual hierarchy, images and controls**. The right
-track pane must remain open when clicking outside or navigating and must update
-in place when the currently playing track changes. Its explicit-selection mode
-is temporary until the next actual playback-item change. These are requirements,
-not already-implemented behaviors.
+The owner rejected the UI/UX of `a9eed4514802df84d73b0608dd1a62930fc1af76`
+on Fedora despite its successful cloud checks. The new
+[design specification](design/v0.4/DESIGN_SPEC.md) and
+[implementation task](design/v0.4/CODEX_TASK.md) supersede conflicting earlier
+Native Music mockups. Preserve that failure and the accepted v0.3 service/audio
+baseline as different evidence. Continue only in
+[`feature/v0.4-native-music-ui` / Draft PR #15](https://github.com/tracerxbrhd/karin/pull/15);
+no new PR, merge or branch deletion is authorized.
 
-Use the [authoritative design specification](design/v0.4/DESIGN_SPEC.md) and
-[Codex implementation task](design/v0.4/CODEX_TASK.md). Original SVG mockups
-illustrate desired composition and state, not GTK screenshot acceptance or
-public music content. Implementation continues in
-[`feature/v0.4-native-music-ui` / Draft PR #15](https://github.com/tracerxbrhd/karin/pull/15)
-from design revision `cd6732a`, based on merged v0.3 `5e85e8d`. Do not create
-another implementation PR or merge this one; it remains Draft pending owner
-visual acceptance on Fedora.
+The delivery scope is one coherent native client, not a CSS-only revision:
 
-The scope is one coherent native four-zone interface across Home, Library,
-playlist/album detail, unified Search, Queue, account and Preferences: compact
-expandable rail, expressive real music content, controlled nonmodal information
-and a permanent compact Player Bar. Cover/typography/spacing should carry the
-hierarchy; keep explanatory prose rare without removing clear errors,
-confirmation or accessibility.
+- Three primary destinations: Home, Search and Library. Real covers, liked
+  tracks and available playlists supply Home's hierarchy; no giant duplicate
+  shortcut cards, fabricated recommendations or repeated page headings.
+- One universal right panel with `Closed`, `TrackInfo` and `Queue` modes.
+  Cover/Ctrl+I and footer Queue/Ctrl+J select content in the same container.
+  Mode changes do not close/reopen it; outside input, navigation and resizing
+  preserve mode. The entire background/header/text/art/action surface moves
+  together. Queue is no longer a separate primary destination.
+- A permanent, centered Player Bar with actual metadata/artwork, seek/progress,
+  volume and queue. Functional Shuffle and Repeat Off/Queue/One replace the
+  visible Stop control; controller and MPRIS Stop remain supported.
+- A bounded occurrence-based shuffle plan and history over the existing loaded
+  PlaybackContext. Repeat One handles EOS at the same occurrence; explicit
+  Next/Previous still navigate. Repeat Queue wraps loaded available items.
+  MPRIS writable Shuffle/LoopStatus and native buttons share that policy.
 
-The information view must distinguish explicit open intent from availability,
-responsive presentation and selected/current target. It stays open through
-outside clicks, navigation and resizing. A new actual queue occurrence updates
-its contents in place and resumes current-track following, including duplicate
-IDs, EOS and MPRIS. Explicit Details changes metadata without playing it; no
-pane action may create a second playback controller or restart audio.
+[ADR-0022](adr/0022-universal-music-panel.md) and
+[ADR-0023](adr/0023-local-playback-order-and-mpris-modes.md) record these decisions.
+Preserve MusicService, guarded StreamResolver, GStreamer, session/cache,
+server-confirmed writes and the 500-position/partial-context boundary.
+Unsupported offline audio, My Wave, lyrics and recommendations remain outside
+this iteration.
 
-Implementation, regression execution and owner review are separate milestones.
-The [quality gate](UI_QUALITY_GATE.md#v04-native-music-gate) requires 32 matched
-before/after GTK cases (sizes × themes × scales × pane state), populated-page
-and error/focus supplements, actual mouse/keyboard input and stable/exact-1.98.1
-regressions. The [focused Fedora guide](BUILDING.md#v04-native-music-acceptance-on-fedora)
-covers target-desktop/native/Flatpak acceptance. Current execution and remaining
-gates belong in [VALIDATION.md](VALIDATION.md#v04-native-music-implementation-and-acceptance-record).
-
-Preserve accepted authentication, actual audio, occurrence-bound contexts,
-MPRIS, protected persistence and bounded cache. The v0.3 pane mechanics passed,
-but its visual design did not satisfy the owner; v0.4 must earn a new visual
-result. No unsupported offline/Wave/recommendation function is added. Track
-the source-reviewed nonblocking metadata refresh edges in
-[LIMITATIONS.md](LIMITATIONS.md#catalog-workspace-and-playback) without treating
-cached display as authorization or playback entitlement.
+Implementation, executed regression evidence and owner acceptance remain
+separate gates. The expanded [quality gate](UI_QUALITY_GATE.md#v04-native-music-gate)
+requires fresh equal-size before/after GTK evidence at the six required explicit sizes, owner-wide 1650×930 and
+true maximize, both themes and scales, all three panel modes, populated/error
+states and intermediate animation frames. Run stable and exact Rust 1.98.1,
+default/all/minimal tests, release, GTK/WebKit/GStreamer/MPRIS and available
+Flatpak checks. Results belong in
+[VALIDATION.md](VALIDATION.md#v04-complete-music-experience-redesign), not in a
+claim inferred from the previous CI. Use the
+[single Fedora guide](BUILDING.md#v04-native-music-acceptance-on-fedora) for a new
+real Music, desktop and visual acceptance. Keep PR #15 Draft until supplied.
 
 ## Independent release conditions
 

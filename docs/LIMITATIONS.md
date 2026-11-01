@@ -21,7 +21,55 @@ Automated checks, that desktop acceptance and public-release rights remain
 separate statuses; the documentation-only finalization HEAD is not a new runtime
 acceptance revision. Exact provenance belongs in [VALIDATION.md](VALIDATION.md).
 Use the
-[single Fedora procedure](BUILDING.md#v03-seamless-experience-acceptance-on-fedora).
+[current Fedora procedure](BUILDING.md#v04-native-music-acceptance-on-fedora).
+
+## Current v0.4 redesign boundary
+
+The owner rejected the Fedora UI/UX of `a9eed4514802df84d73b0608dd1a62930fc1af76`:
+partial panel animation, weak content hierarchy, poor wide-space use, a separate
+queue route and a primitive footer. Its earlier successful cloud checks remain
+historical evidence, not acceptance of those pixels. The current redesign in
+Draft PR #15 requires fresh matched GTK captures, whole-surface motion frames,
+functional local playback modes and a new owner-local acceptance using the
+[v0.4 guide](BUILDING.md#v04-native-music-acceptance-on-fedora).
+
+Track Info and Queue share one logical panel; Queue is local to Karin's loaded
+PlaybackContext, not a synchronized Yandex cloud queue. Shuffle and Repeat act
+on those admitted available occurrences only, preserve duplicate positions and
+never fetch the rest of a remote collection. Modes are app-local policy, retained across queue clear/new context but reset
+on explicit logout/account change and close; they are not stored on disk, a new
+Music API permission or a persistent offline capability. Repeat One renews
+a source only when natural EOS requires another actual playback; a failed
+resolution remains failed instead of automatically cycling requests. Stop stays
+available through MPRIS/controller even though the visible footer omits it.
+
+Fresh cloud evidence and live Fedora/KDE/Wayland/PipeWire/Flatpak results must
+remain separate. Full Flatpak/namespace availability and exact executed tests
+are recorded in [VALIDATION.md](VALIDATION.md), not assumed from source review.
+
+- **Motion sampling depends on rendered frames.** A strict Cairo 2× attempt
+  missed the early quarter because of software-rendering frame gaps. Its result
+  remains failed sampling, not a motion PASS. Matched current motion checks use
+  actual NGL/GskGLRenderer on Mesa under Xvfb, with five distinct frame times
+  per sequence; this is not physical-GPU or Wayland evidence and does not force
+  a production backend. Reduced motion is a different check.
+- **Long information remains scrollable.** Long multi-line track/artist/album
+  metadata can put verified actions below the initial pane fold. Ordinary wheel
+  and keyboard scrolling must retain access; Fedora review should test actual
+  fonts/long titles instead of interpreting below-fold content as clipping.
+  This is a nonblocking reachability check, not permission to truncate errors
+  or conceal controls.
+- **Minimum-width footer metadata is compact.** At 420 logical pixels a long
+  track title can show only a few characters before native ellipsis; the artist
+  remains readable and the complete title remains available through its tooltip,
+  accessible label and Track Info. The final cloud review treats this as a
+  nonblocking small-width tradeoff, not evidence that every font/long title is
+  accepted. The owner should judge the balance on Fedora at the minimum width.
+- **Current cloud Flatpak/runtime gaps are explicit.** Flatpak 1.16.6 and Builder
+  1.4.4 are installed, but the runtime list is empty and GNOME SDK 50 is absent.
+  Host offline release does not establish a full current Flatpak build. Nested
+  user namespaces also block the two navigating WebKit fixtures locally; hosted
+  CI must exercise them with sandboxing enabled.
 
 ## Current v0.3 functional stabilization
 
@@ -164,7 +212,7 @@ granular Secret Portal/backend deletion/failure matrix.
   verified identities, not guessed names. Native playlist tiles permit bounded
   two-line title ellipsis only with full tooltip/accessibility/detail text.
   Creation requires independent server confirmation; ambiguous writes are not
-  replayed. Broader playlist editing, repeat/shuffle, TrackList, variable speed,
+  replayed. Broader playlist editing, TrackList, variable speed,
   notifications and unrelated library features are not implied.
 - **My Wave/similar tracks/lyrics have separate gates.** A station list or normal
   queue is not a radio-session/listening-feedback implementation. Keep My Wave

@@ -5,6 +5,11 @@ set -eu
 repository=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 binary="$repository/target/debug/karin"
 capture_scale=${KARIN_CAPTURE_SCALE:-1}
+capture_renderer=${KARIN_CAPTURE_RENDERER:-cairo}
+case "$capture_renderer" in
+    cairo|ngl) ;;
+    *) echo 'KARIN_CAPTURE_RENDERER must be cairo or ngl' >&2; exit 2 ;;
+esac
 case "$capture_scale" in
     1) capture_screen=1920x1080 ;;
     2) capture_screen=3840x2160 ;;
@@ -27,10 +32,10 @@ if [ "${1-}" != --session ]; then
             dpkg-query -W xvfb openbox imagemagick xdotool librsvg2-common
         fi
         openbox --version
-        printf '\nCapture: isolated Xvfb %s at 96dpi; GDK_SCALE=%s; cairo/full-redraw; light and dark.\n' "$capture_screen" "$capture_scale"
+        printf '\nCapture: isolated Xvfb %s at 96dpi; GDK_SCALE=%s; requested-renderer=%s/full-redraw; light and dark.\n' "$capture_screen" "$capture_scale" "$capture_renderer"
     } > "$output_dir/capture-info.txt"
     for theme in light dark; do
-        env ADW_DEBUG_COLOR_SCHEME="prefer-$theme" GTK_A11Y=none GSK_RENDERER=cairo GSK_DEBUG=full-redraw \
+        env ADW_DEBUG_COLOR_SCHEME="prefer-$theme" GTK_A11Y=none GSK_RENDERER="$capture_renderer" GSK_DEBUG=full-redraw \
             GDK_SCALE="$capture_scale" GDK_DPI_SCALE=1 \
             dbus-run-session -- xvfb-run -a -s "-screen 0 ${capture_screen}x24 -dpi 96" \
             "$0" --session "$output_dir/$theme"

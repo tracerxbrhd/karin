@@ -1,50 +1,84 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 
-# Karin v0.4 — Native Music visual references
+# Karin v0.4 — Complete Music Experience redesign
 
-**Status:** approved design direction, illustrative mockups; **not** implemented GTK screenshots and not new functionality.
+**Current authority:** the owner's updated [full task](CODEX_TASK.md) and
+[implementation specification](DESIGN_SPEC.md), starting at `a9eed45` in existing
+Draft PR #15. The owner **did not accept** the previous v0.4 UI/UX. Earlier Native
+Music B sketches are superseded where they conflict with this task; they are
+not an immutable final design or a new acceptance result.
 
-Selected by the project owner: **B — Native Music**, based on the previously agreed composition. The priority is a beautiful, compact, understandable native player with **minimal visible text**.
+The new composition is a three-destination rail, real music workspace,
+**one universal Track Info / Queue panel**, and a permanent Player Bar with real
+Shuffle/Repeat. Queue is opened from the footer/Ctrl+J, not the left navigation.
+The whole panel surface moves together; its two modes share the same header,
+close, geometry and transition. Outside clicks never dismiss it.
 
-## Design references
+[UX_RESEARCH.md](UX_RESEARCH.md) records current public references, exact source
+qualifications, inspected fresh a9 GTK captures and concrete design decisions.
+The [implementation review](IMPLEMENTATION_REVIEW.md) records actual runtime
+images/tests separately and preserves historical evidence.
 
-### Wide (1440 × 900) — dark and light
+## Revised original composition sketches
 
-![Wide dark Native Music concept](desktop-wide-dark.svg)
+These are **illustrative original vectors, not GTK screenshots, implementation
+proof or owner-approved final pixels**. Actual implementation needs its own fresh
+visual/animation review and owner Fedora acceptance. Typography, spacing and
+control grouping express the target, while native GTK theme metrics win over
+literal reproduction of SVG icons or colors.
 
-![Wide light Native Music concept](desktop-wide-light.svg)
+### Wide dark — music first, Track Info open
 
-### Medium (900 × 650), right pane intentionally stays open
+![Music-led Home and shared information surface](desktop-wide-dark.svg)
 
-![Medium window with persistent nonmodal track information](medium-pinned-pane-dark.svg)
+### Wide light — library and Track Info
 
-### Compact (420 × 720), information remains an explicit view
+![Light native library composition](desktop-wide-light.svg)
 
-![Compact track-information presentation](compact-track-pane-dark.svg)
+### Wide dark — the same panel in Queue mode
 
-### Interaction / state invariants
+![Queue beside the music workspace, opened from the Player Bar](desktop-wide-queue-dark.svg)
 
-![Persistent pane behavior: changing tracks updates its content, outside clicks do not close it](track-pane-behavior.svg)
+### Medium — useful main area and nonmodal Queue
 
-## Reading these references
+![Medium music workspace with queue in the universal panel](medium-pinned-pane-dark.svg)
 
-- These are **original self-contained vector sketches**, not screenshots, a GTK template, live Yandex artwork, or a license to copy any third-party UI.
-- All musical names and cover graphics are synthetic illustrative placeholders. Do not ship demo catalog data or artwork as service content.
-- Typography, geometry, hierarchy, cover sizes, composition, emphasis, responsive placement and control grouping are the **visual targets**. SVG icon paths and exact pixels are **not** a production asset pack.
-- Colors are example light/dark theme cues; use Libadwaita style variables and GTK CSS classes in production, not a hard-coded pseudo-themed application.
-- **Behavioral rules in [DESIGN_SPEC.md](DESIGN_SPEC.md) outrank an illustrative image.** If a mock visually suggests text or an action that current confirmed APIs cannot supply, omit it rather than fabricate it.
-- A good implementation preserves native HeaderBar, focus and screen-reader labels, obeys reduced motion, and passes actual GTK screenshot review.
-- The right pane must be **nonmodal with respect to outside clicks**, stay open until explicit close, and update to the new playing track on Next, queue selection, EOS, MPRIS and direct Play. It must never close and reopen merely to switch tracks.
+### Compact — explicit information view and usable footer
 
-The actionable Codex instruction is [CODEX_TASK.md](CODEX_TASK.md), and the authoritative product/interaction brief is [DESIGN_SPEC.md](DESIGN_SPEC.md).
+![Compact dedicated panel view with clear Back and persistent player](compact-track-pane-dark.svg)
 
-The separate [implementation review](IMPLEMENTATION_REVIEW.md) records actual
-GTK before/after evidence, source fingerprints, corrections and pending checks.
-It does not turn these five SVG references into application screenshots or
-replace owner Fedora visual acceptance.
+### State continuity
 
-## Privacy and attribution
+![One panel, in-place modes, following playback and explicit close](track-pane-behavior.svg)
 
-Original mockup geometry and abstract artwork were authored for Karin. No private desktop screenshots, user account data, service album art, credential material, font binaries, or copied Cassette assets are included.
+## Rules that outrank an illustration
 
-All original SVG and Markdown files are GPL-3.0-or-later, following the project license.
+- One panel has explicit `Closed | TrackInfo | Queue` state. Opening, changing
+  modes and following actual queue occurrences never create a second player.
+- Opening/closing moves background, border, header, art, text and controls as one
+  surface. Static open SVGs cannot prove animation; inspect transition frames.
+- Mode switches do not replay the slide. Resize, navigation and outside input
+  preserve open mode; compact has explicit Back and a title matching its view.
+- Current cover always shows information without closing an already-open pane.
+  Explicit Details never plays; the next real occurrence change resumes following.
+- Shuffle/Repeat are typed local policies shared with MPRIS, not decorative
+  buttons. Stop is absent from the visible music footer but remains in system API.
+- Only genuine supported collections/actions enter ordinary UI. The example
+  names and striped covers are synthetic original composition samples, not
+  release catalog data. Omit unsupported features rather than copying a reference.
+- Use Libadwaita theming, accessibility, reduced motion and real native allocation.
+  No hard-coded mock palette is an application theme specification.
+
+## Evidence and permissions
+
+Published Yandex/Cassette assets were inspected for research and were not copied
+into these files or the application. All SVG geometry, simple illustrative
+symbols and abstract art here are original Karin material, GPL-3.0-or-later.
+No private desktop image, account, credential, real service cover or music file
+is included. Public reference inspection does not establish service access or
+permission to redistribute someone else's art.
+
+Only fresh real GTK screenshots and executed functional checks can demonstrate
+this implementation. Cloud/Xvfb does not establish Fedora/KDE/Wayland/PipeWire,
+current Flatpak, physical media keys or real audible service acceptance. Keep
+PR #15 Draft for the final owner review; no merge without explicit authorization.

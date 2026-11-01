@@ -6,21 +6,165 @@ This report separates initial cloud checks, user-reported Fedora acceptance,
 revised UI checks and compiler compatibility. A result for one environment or
 revision is not evidence that another has passed.
 
-## v0.4 Native Music: implementation and acceptance record
+<a id="v04-complete-music-experience-redesign"></a>
+<a id="v04-native-music-implementation-and-acceptance-record"></a>
 
-Work continues only in existing [Draft PR #15](https://github.com/tracerxbrhd/karin/pull/15),
+## v0.4 Complete Music Experience — current redesign
+
+Work continues in existing [Draft PR #15](https://github.com/tracerxbrhd/karin/pull/15),
+`feature/v0.4-native-music-ui`, starting from
+`a9eed4514802df84d73b0608dd1a62930fc1af76`. The owner reports that this revision
+works technically but **fails Fedora UI/UX acceptance**: the panel does not move
+as one surface, Home/content hierarchy and wide-space use are unsatisfactory,
+queue routing and the Player Bar need redesign. The previous cloud PASS table
+below is retained as evidence for that exact earlier implementation; it does
+not accept the current task or overturn the owner's visual FAIL.
+
+The new [specification](design/v0.4/DESIGN_SPEC.md) and
+[implementation task](design/v0.4/CODEX_TASK.md) supersede conflicting older
+mockups. The expanded [quality gate](UI_QUALITY_GATE.md#v04-native-music-gate)
+and [single Fedora procedure](BUILDING.md#v04-native-music-acceptance-on-fedora)
+separate authored code, executed cloud fixtures and real desktop acceptance.
+No new result is PASS until the corresponding source-matched check runs.
+
+| Current redesign evidence gate | Result |
+| --- | --- |
+| Native music composition; three primary destinations; redesigned Home/library/search/Player Bar with no visible Stop | **PASS, C10 cloud review**: independent A/B/D reviews of fresh native states/motion found no remaining P0/P1; minimum-width title ellipsis and ordinary long-information scrolling remain documented owner checks |
+| One controlled Closed/TrackInfo/Queue panel; actual input/mode switching/focus/resizing/logout/cleanup | **PASS, C10 local**: actual input and responsive/lifecycle checks at both scales, including the 620-pixel content boundary, outside input, mode switches, queue/current following and weak-reference cleanup |
+| Entire moving surface at normal-motion 0/25/50/75/100%; stable mode switch; separate reduced motion | **PASS, C10 local**: 48 trajectories / 240 reviewed frames, five distinct rendered frame identities each; rigid child geometry, stable mode switches and separate reduced-motion assertions |
+| Fresh eight-geometry × light/dark × 1×/2× × three-mode matrix; populated/error/state supplements | **PASS, C10 local**: 96 source-matched base cases plus 84 state images; equal-size a9 before counterparts and actual maximize |
+| Occurrence-based Shuffle/history, Repeat Off/Queue/One, combinations, unavailable/removal/partial/500-position cases | **PASS, C10 local**: seeded exact-occurrence unit cases and generated-MP3 EOS/queue/mode integration at 1×/2×, actual compact overflow input, same-occurrence Repeat One, single-refusal failure boundary and no presentation-triggered restart |
+| Writable MPRIS Shuffle/LoopStatus, PropertiesChanged, capability synchronization, existing Stop/Seek/Volume/metadata/lifecycle | **PASS, C10 local**: isolated session-bus methods/properties/signals and native shared-policy/real-worker bridge at 1×/2×; external writes/invalid values, capability updates, Stop/seek and cleanup retained |
+| Stable and exact Rust 1.98.1 formatting, strict Clippy, default/all/minimal tests/builds and exact-MSRV release | **PASS, C10 local**: stable 1.99.1 and exact 1.98.1; 359/367/345 library plus four CLI tests per configuration/compiler; strict three-configuration Clippy/builds and ordinary/all-feature offline MSRV release |
+| GTK, WebKit sandbox lifecycle, GStreamer, protected session/cache and license regressions | **PASS, C10 local**: 29 available named selectors × 2 scales = 58 executions, including construction/cancel and joined player/storage/cache lifecycle; two fully navigating sandboxed WebKit fixtures remain unavailable locally and belong to hosted CI, with sandbox enabled |
+| Hosted CI and source-matched native Fedora archive | See immutable per-head [PR #15 checks/artifacts](https://github.com/tracerxbrhd/karin/pull/15/checks) and the PR description for hosted conclusions and downloaded-archive verification; local PASS does not establish hosted success |
+| Current full Flatpak build/runtime | **Unavailable locally**: Flatpak 1.16.6/Builder 1.4.4 installed, runtime list empty and GNOME SDK 50 absent; final current package/runtime remains untested here |
+| Real Fedora 44/KDE/Wayland/PipeWire, audible Music, modes, media widget/keys and final visual review | Owner-local retest pending; PR stays Draft |
+
+The eight geometries include the six explicit sizes in the task, owner-wide
+1650×930 and actual window-manager maximize. The before revision presents Queue
+in its real old central route; current Queue is the same right surface as Track
+Info. Preserve and label that structural difference rather than faking a before
+panel. Synthetic metadata/artwork and generated local audio never establish
+new real-account or audible-Music acceptance. Full SDK/runtime availability is
+separate from a successful offline Rust release.
+
+### Executed C10 local verification
+
+The frozen C10 candidate's fresh QA proof verifies its source manifest and test
+executable SHA-256
+`1df39d2998ebfd2182f0224244154bbec3f50e65ba5f4e209299e5965363369b`.
+All **96** current base cases match the original a9 before geometry; **84**
+current state supplements and **240** normal-motion images were inspected.
+The 48 motion trajectories use five distinct rendered frame times/indices
+near the requested progress quarters. The maximum measured translation residual
+was below **0.000069 logical pixels**; maximum child-offset/size residual was
+below **0.000123 logical pixels**. Actual mapped artist/album text participates
+in the same surface motion. These are synthetic GTK/NGL/Mesa/Xvfb results,
+not hardware-GPU, Fedora/Wayland or real-account acceptance.
+
+Independent final reviews are complete: A inspected all 90 current 1× images
+plus 10 error/mode supplements; D inspected all 90 HiDPI static images; B
+inspected all 240 motion images and the 48 HiDPI matrix cases. Their
+source-verified C10 reviews found no remaining P0/P1 defect. E's matrix,
+state/animation and geometry proof is separate from those reviews. At minimum
+420-pixel width a long footer title can still show few characters before native
+ellipsis; its complete text is accessible, the artist remains readable, and
+long Track Info has ordinary vertical scrolling. These nonblocking small-width
+and reachability checks remain in the owner-local guide, not a claim that every
+Fedora font/metadata variant is accepted.
+
+C10 shared-policy/MPRIS/EOS and HTTP-403/Retry/footer-layout fixtures
+pass at both scales with `G_DEBUG=fatal-warnings`, including compact overflow
+input, visible Repeat One “1”, actual generated MP3 and strict Play/progress
+anchoring. The final C10 regular matrix also passed on stable **1.99.1** and exact
+**1.98.1**: both formatters; default/all/minimal all-target Clippy with
+`-D warnings`; **359 / 367 / 345** library tests plus **4 CLI tests** per
+configuration/compiler; all three debug builds; ordinary/all-feature locked,
+offline MSRV release; terminal boundaries; GStreamer/generated local playback;
+GTK smokes; and the unchanged dependency-license inventory. The final native
+batch passed **54/54** functional executions, plus the four static/motion
+executions above: **58 local executions**, or **29 available named
+selectors at both scales**, with no failure. This includes the complete local
+input, queue, MPRIS, persistence/cache, artwork, account and cleanup regressions.
+The hosted workflow runs **31 named ignored selectors in each compiler lane**,
+with selected additional HiDPI steps; it is not described as all 31 selectors at
+both scales in each lane. The two fully navigating WebKit selectors are the
+local namespace limitation, not a reason to disable the sandbox.
+
+Consult PR #15's immutable per-head checks/artifacts and description for hosted
+conclusions and archive-verification records, separately from these local
+results. The current native archive must be downloaded and verified before its
+own runtime checks are reported. Real Fedora/KDE/Wayland/PipeWire,
+current Flatpak and audible Music acceptance remain owner-local and pending.
+
+### Historical C6 checkpoint before final UI polish
+
+The C6 working-tree candidate completed stable **1.99.1** and exact **1.98.1**
+formatting, strict default/all/minimal Clippy, tests and builds: **359 / 367 /
+345** library tests plus **4 CLI tests** per configuration/compiler. Offline
+MSRV ordinary/all-feature release, hidden-input boundaries, GStreamer/generated
+local playback, GTK startup/cleanup and the dependency-license inventory passed.
+This checkpoint does not pass a later candidate or close the final rows above:
+the explicit visible Repeat One “1” still required final UI polish and retesting.
+
+Fresh C6 native evidence contains **96** current base matrix images and **84**
+populated/state supplements; matching before evidence uses the original
+`a9eed45` production source with **96** base images, **40** state supplements
+and **20** observer motion images. Queue is honestly shown in the original
+central route for before captures. All static pairs have equal outer dimensions,
+including true maximize, and source provenance is retained. The C6 test
+executable SHA-256 is
+`71c05f93cc58196a4e38a4f09a36916819a049a6f0ba9969002c1e261781f8a9`.
+
+### Historical motion reproduction and renderer limits
+
+The original a9 observer reproduced the owner's animation symptom in the cloud:
+surface x stayed 1110, while its allocated width changed
+1520 → 594 → 483 → 420 → 320; title x stayed 1131, while centered cover x changed
+1742 → 1279 → 1224 → 1192 → 1142. These numbers describe one GTK/Xvfb case,
+not measured Fedora coordinates. The replacement allocates a constant final
+surface width and translates all children together, removing that observed
+Revealer reallocation/reflow mechanism.
+
+The strict C6 normal-motion run passed at both scales with **five distinct
+rendered native frame times/indices** near 0/25/50/75/100 percent for each
+sequence: **240 frames** were reviewed, with stable surface-relative geometry
+and content-mode changes that do not replay the slide. Current filenames label
+openness, so closing is viewed **100 → 75 → 50 → 25 → 0**. Before filenames label
+elapsed fractions instead; their labels are not equated to current progress.
+
+These matched motion checks use NGL with an actual `GskGLRenderer` on Mesa
+software rendering under Xvfb, not physical GPU or Wayland verification. An
+earlier Cairo scale-2 strict sampling attempt **failed quarter coverage**:
+roughly 33–50 ms rendered intervals and a first new paint near 116 ms missed
+the requested early quarter. It was not renamed PASS, duplicate-sampled or
+fixed by disabling animation/extending production duration. Cairo structural
+coverage remains separate; production renderer selection is unchanged.
+
+Local WebKit construction/cancel is available. The two fully navigating
+sandboxed WebKit fixtures require host user namespaces unavailable to this
+container and must run in hosted CI with the sandbox enabled. The current
+Flatpak runtime list is empty despite installed tools, so no full SDK 50 build
+or actual portal/runtime acceptance is inferred. Source-matched hosted CI,
+artifact checks and owner Fedora/KDE/Wayland/PipeWire review were still pending
+at that checkpoint; current per-head hosted records are linked above.
+
+## Historical v0.4 Native Music checks at `a9eed45`
+
+The first v0.4 implementation used existing [Draft PR #15](https://github.com/tracerxbrhd/karin/pull/15),
 `feature/v0.4-native-music-ui`, from design revision `cd6732a` and the merged
 v0.3 integration baseline `5e85e8d`. The owner accepted the underlying v0.3
 runtime `02325489d23ead9da4471de9cc35e2c063ac8bab`, as recorded below; that
 functional acceptance does not accept the redesigned v0.4 interface.
 
-The authoritative inputs are the [Native Music specification](design/v0.4/DESIGN_SPEC.md)
-and [implementation task](design/v0.4/CODEX_TASK.md). Their original SVGs are
-illustrative designs, not GTK screenshots. New implementation, executed fixture
-results and owner review must remain separate. No new PASS is recorded here
-until its corresponding source-matched check actually runs.
+That implementation followed its then-current
+[specification](https://github.com/tracerxbrhd/karin/blob/a9eed4514802df84d73b0608dd1a62930fc1af76/docs/design/v0.4/DESIGN_SPEC.md)
+and illustrative SVGs, not GTK screenshot acceptance. The following PASS results
+describe that earlier implementation. The owner subsequently rejected its UI/UX
+as recorded above; the current specification and evidence gate supersede it.
 
-| v0.4 evidence gate | Current result |
+| Historical v0.4 evidence gate | Result recorded at `a9eed45` |
 | --- | --- |
 | Four-zone GTK implementation; Home/library/details/search/queue/Player Bar | **PASS**, populated native screenshots and real input at 1×/2× |
 | Controlled nonmodal information, explicit close/focus, resize persistence and cleanup | **PASS**, including actual 720/900-width action hit tests, outside input, compact Back/focus, normal/reduced motion and weak GTK cleanup |

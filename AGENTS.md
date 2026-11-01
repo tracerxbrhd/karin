@@ -91,6 +91,9 @@ Do not introduce Electron or web-based application shells.
   opaque track object paths and decoded local cover files only. Never expose an
   OAuth value, cookie, account ID or signed media URL on D-Bus. Advertise only
   supported capabilities and retain the exact Flatpak MPRIS own-name permission.
+  Shuffle and LoopStatus are writable views of the local queue's playback
+  policy, not separate desktop-player state. Keep Stop available through MPRIS
+  and the controller while omitting a visible Stop button from the music bar.
 - v0.3's protected session lifecycle is specified in ADR-0018. Persist only the
   Music-validated access token through native Secret Service or a Secret Portal
   master secret plus an authenticated encrypted envelope. Never use a plaintext
@@ -138,25 +141,39 @@ Do not introduce Electron or web-based application shells.
   to a public repository without separate permission. Prefer clean cloud captures
   of Karin only, with no account data or unrelated desktop content.
 - ADR-0020 covers the v0.3 track pane, playlist grid and persistent preferences.
-  [ADR-0021](docs/adr/0021-controlled-nonmodal-track-information.md) defines v0.4's
-  controlled nonmodal presentation and occurrence-aware target, superseding the
-  collapsed modal right sidebar. Persist explicit open intent separately from
-  availability/reveal state; outside clicks, navigation and responsive changes
-  do not close it. Explicit Details never plays; a new actual queue occurrence,
-  including duplicate IDs, EOS and MPRIS, resumes following in place. Structural
-  queue reindexing alone is not a new current occurrence. No pane operation may
-  create a second playback state or restart audio.
-  Preserve the accepted player bar, context queue and click/Enter/Space playback.
+  [ADR-0022](docs/adr/0022-universal-music-panel.md) extends ADR-0021's controlled
+  nonmodal intent into one universal panel: `Closed`, `TrackInfo` or `Queue`.
+  One native surface owns the background, border, header, artwork, text and
+  controls throughout opening/closing. Check actual intermediate frames; an
+  already-open image or a partially moving cover is insufficient. Mode changes
+  replace content in place without repeating the slide. Outside clicks,
+  navigation, playback and responsive changes preserve the chosen mode. The
+  footer and Ctrl+J open Queue; it is not a primary sidebar destination.
+  Explicit Details never plays; a new actual queue occurrence, including
+  duplicate IDs, EOS and MPRIS, resumes following in place. Structural queue
+  reindexing alone is not a new occurrence. No pane operation creates a second
+  playback state or restarts audio. Retain click/Enter/Space playback.
   Mutation UI must wait for server confirmation, never fabricate local success or
   automatically repeat an ambiguous POST. The current Fedora acceptance guide is
   docs/BUILDING.md#v04-native-music-acceptance-on-fedora.
-- Current v0.4 work follows [Native Music (B)](docs/design/v0.4/DESIGN_SPEC.md):
-  compact expandable rail, central music workspace, controlled information and
-  permanent Player Bar, with minimal visible explanatory prose. Retain meaningful
+- [ADR-0023](docs/adr/0023-local-playback-order-and-mpris-modes.md) keeps local
+  Shuffle and Repeat Off/Queue/One over exact queue occurrences, preserving the
+  physical PlaybackContext order and its 500-position/partial boundary. Shuffle
+  uses a bounded upcoming plan and actual history; repeat-one affects natural
+  EOS, not explicit Next/Previous. Never turn a resolver refusal into an automatic
+  retry loop or fetch an entire remote collection to complete a local cycle.
+- Current v0.4 work follows the owner's complete music-experience redesign in
+  [DESIGN_SPEC.md](docs/design/v0.4/DESIGN_SPEC.md), superseding conflicting older
+  mockups: three navigation destinations, real music-led content, one universal
+  right panel and a persistent Player Bar with functional playback modes.
+  Retain meaningful
   errors, confirmations, tooltips and accessible labels. Original design SVGs
   are not running GTK screenshots or production artwork. Inspect matched
-  baseline/current GTK captures across sizes, themes, scales and open/closed
-  information, plus populated pages and input states, before claiming quality.
+  baseline/current GTK captures across required sizes plus owner-wide 1650×930,
+  true maximize, themes, scales and
+  Closed/TrackInfo/Queue, plus populated pages and input states. Capture motion
+  near 0/25/50/75/100 percent with normal animation and verify reduced motion
+  separately before claiming quality.
   Work only in `feature/v0.4-native-music-ui` and existing Draft PR #15; leave
   it Draft pending owner Fedora visual acceptance. Do not create another PR,
   merge it or delete the branch without a new instruction.
@@ -214,6 +231,11 @@ v0.4 is its separately authorized UI/UX iteration, with new visual acceptance
 still required. PR #14 integrated the accepted baseline at `5e85e8d`. Functional
 acceptance and the explicit PR #14 squash authorization are not v0.4 merge,
 public-release or service-distribution permission.
+The first v0.4 implementation at `a9eed4514802df84d73b0608dd1a62930fc1af76`
+passed its recorded cloud checks but failed owner Fedora UI/UX acceptance. Keep
+that historical result. The owner's complete redesign supersedes the previous
+visual target and requires fresh matched evidence, motion checks, real playback
+modes and a new Fedora review; earlier green CI is not acceptance of this work.
 Do not claim a full current Flatpak build or a real wallet/portal test from source
 inspection, host-library checks or synthetic D-Bus fixtures.
 

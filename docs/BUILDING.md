@@ -49,69 +49,104 @@ session prototype below; it requires no end-user OAuth configuration.
 
 <a id="v04-native-music-acceptance-on-fedora"></a>
 
-## v0.4 — Native Music acceptance on Fedora
+## v0.4 — one complete music-experience acceptance on Fedora
 
-Use the source-matched artifact from existing
-[Draft PR #15](https://github.com/tracerxbrhd/karin/pull/15), check its revision
-and `SHA256SUMS`, and run ordinary `./karin`. If rebuilding locally, use the
-Fedora prerequisites above and `cargo +1.98.1 build --release --locked`, then
-`./target/release/karin`. The accepted v0.3 baseline is integrated at `5e85e8d`;
-its runtime acceptance is not a v0.4 visual PASS. Keep PR #15 Draft until the
-owner reviews actual Fedora behavior and visuals; do not merge or create a new PR.
+Use the current source-matched native archive linked in
+[Draft PR #15](https://github.com/tracerxbrhd/karin/pull/15). Confirm the source
+revision in its build information and verify `SHA256SUMS` before running ordinary
+`./karin`. A source build uses the prerequisites above and
+`cargo +1.98.1 build --release --locked`, then `./target/release/karin`.
+The before revision `a9eed4514802df84d73b0608dd1a62930fc1af76` passed cloud
+checks but **failed owner UI/UX acceptance**. Earlier v0.3 audible playback and
+Flatpak acceptance do not pass this new revision. Keep PR #15 Draft.
 
-1. Restore the existing saved session or sign in through the normal Yandex
-   dialog. Confirm real Music account/library access, covers and a track audible
-   through PipeWire. No developer credentials, token transfer, debug logging,
-   fixture mode or recording belongs in this run.
-2. Check Home, Library, album/playlist detail, four-section Search/Show All,
-   queue, account and Preferences. Evaluate actual music hierarchy, useful
-   density, concise labels, reachable Back/Retry and clearly different Play and
-   Details actions. Missing art/data and errors must stay honest; no decorative
-   recommendation or unsupported feature should appear.
-3. Open information with the current cover or Ctrl+I. Click the current cover
-   again: keep information open and show the current track without restarting
-   audio. Click the main view,
-   scroll, navigate and resize wide→medium→compact→wide: keep it open without
-   a dismissing scrim or close/reopen flicker. Close explicitly with X/Ctrl+I
-   or compact Back and check focus return. Opening/closing must not restart sound.
-   Desktop layouts reserve space for the pane: 320+20 logical pixels at wide
-   widths and 300+16 at medium. Row More menus and other central actions must
-   remain fully reachable while information is open; compact uses its explicit
-   information subview instead.
-4. With information open, change the actual queue occurrence using track-row
-   mouse and Enter/Space, Next/Previous, queue selection, EOS and MPRIS. Its
-   cover/title/artist/album/actions must update together in place, including
-   repeated track IDs at different positions. Deliberate Details on another
-   track must not play it; Pause/Seek/Volume preserve that selection, and the
-   next current-occurrence change returns to following playback.
-5. Inspect approximately 420×720, 900×650, 1440×900 and real maximize, light/dark
-   and 1×/2×, with information open/closed. Check native title/window controls,
-   long titles, missing covers, focus, contrast, no clipping, stable Player Bar
-   and at least six complete rows at 900×650 with information closed where
-   accessibility permits. Compare the actual baseline/current GTK captures;
-   design SVGs do not establish implementation quality.
-6. Before playing any track, open real track Details, close/reopen information
-   with Ctrl+I and check the selection and usable main-page focus after X.
-   Recheck search/detail/paging, contextual duplicates/manual queue edits,
-   transport/Seek/Volume/EOS, KDE Media Widget cover/metadata and supported
-   `playerctl` controls. Exercise physical media keys and report their result
-   separately. Cache-off/Clear, Preferences and information/navigation must
-   preserve session and current audio; native logout confirmation Cancel must
-   preserve them until explicit confirmation. Close/reopen and verify saved
-   login still restores normally.
-7. When a current Flatpak package is available, repeat the relevant auth,
-   persistence, music, cover, nonmodal-pane and KDE integration checks there,
-   without broadening sandbox permissions. Report unavailable backend/tooling
-   or unperformed cases explicitly, separately from native success.
+1. Restore the saved session or use ordinary **Войти**. Confirm the intended
+   Music account, real library/covers and an actual chosen track audible through
+   PipeWire. No developer credentials, pasted token, diagnostic flags, secret
+   transfer or browser/network recording belongs in this run.
+2. Check Home, Search and Library as the only primary music destinations.
+   Home should show real liked tracks/available playlists with useful covers
+   and concise hierarchy, not giant duplicate shortcut cards. Test library
+   selection, playlist/album details, four search categories, Show All/Back,
+   pagination, Retry and server-confirmed playlist creation. Inspect sparse and
+   long-title collections without publishing their contents.
+3. Open Track Info with the current cover/Ctrl+I. Open Queue with the footer
+   button/Ctrl+J: content must change in the **same** right surface without a
+   close/reopen. Switch back using the cover or Details; Details must not play.
+   Repeated cover activation keeps information open; repeated Queue activation
+   may explicitly close it. Verify X/compact Back and focus return.
+4. Watch opening and closing with normal system animation enabled. Background,
+   border, header, cover, text and buttons must slide together throughout the
+   motion, with no instant text, flashing controls, central-width jump or hidden
+   row actions. Check approximately quarter/half/three-quarter progress, not
+   just the final open state. TrackInfo ↔ Queue keeps stable width/header/close.
+   The PR's current closing sequence is ordered 100→75→50→25→0 by openness;
+   old observer frames use elapsed-quarter labels. These cloud samples do not
+   substitute for this run with Fedora's normal renderer and settings.
+   Then check the desktop reduced-motion setting separately.
+5. While each panel mode is open, click/scroll the uncovered content, navigate,
+   change the playing occurrence and resize compact→medium→wide→compact.
+   Preserve the chosen open mode and permanent Player Bar. Open Diagnostics and
+   return: restore intent. Inspect 420×720, 720×650, 900×650, 1280×800,
+   1440×900, **1650×930**, 1920×1080 and actual maximize; light/dark and 1×/2×.
+   Check useful width, density, native window controls, long text, missing art,
+   focus and access to all actions. The narrow panel must not make Library
+   unusable. Compact uses explicit Back rather than a dismissing backdrop.
+   At 720 pixels also expand navigation labels: if remaining music content is
+   below 620 logical pixels, the dedicated panel subview is intentional. Long
+   information may scroll; verify wheel/keyboard access to below-fold actions.
+   At 420 pixels judge the footer title's native ellipsis and full tooltip/info
+   access separately from the readable artist and working compact controls.
+6. Play rows using mouse and Enter/Space. Verify exact context occurrences,
+   duplicate tracks, manual additions, current/noncurrent removal, clear and
+   unavailable positions. Queue's current/next order must match what actually
+   plays; a loaded page remains labelled partial. With information open, change
+   tracks using Next/Previous, queue selection and EOS: metadata/art update
+   together in place. Pause/Seek/Volume preserve an explicit Details selection;
+   the next actual current occurrence resumes following without restarting the
+   panel. Pane-only operations must never restart sound.
+7. Exercise Shuffle without changing the current song; follow several Next
+   transitions and use Previous to revisit actual history. Disable Shuffle and
+   confirm the original context order resumes from the current occurrence.
+   Cycle Repeat **Off → Queue → One → Off**. Test natural EOS for the same
+   occurrence under One, whose active control must visibly show **1**, and
+   manual Next/Previous under One, Queue wrapping,
+   Shuffle+Queue and Shuffle+One. Confirm unavailable tracks are skipped and a
+   failed source has a visible error rather than an automatic request loop.
+   No visible Stop button should appear; Stop remains a supported system action.
+8. Check KDE Media Widget cover/title/artist/duration/progress, transport,
+   seek/volume and modes against Karin's buttons. If `playerctl` is installed,
+   use its existing session-bus controls, including external mode writes:
 
-Report exact revision, artifact/native/Flatpak, environment and anonymized
-PASS/FAIL/N/D by scenario. The before/after visual matrix is 32 matched cases
-(four sizes × two themes × two scales × pane open/closed), with page/state
-supplements in [UI_QUALITY_GATE.md](UI_QUALITY_GATE.md#v04-native-music-gate).
-Do not publish personal screenshots, names, library contents, credentials,
-audio or signed addresses. Actual owner visual acceptance remains pending
-until performed; offline audio, My Wave and public distribution rights remain
-separate from this native UI iteration.
+   ```sh
+   playerctl --player=io.github.tracerxbrhd.Karin shuffle On
+   playerctl --player=io.github.tracerxbrhd.Karin loop Track
+   playerctl --player=io.github.tracerxbrhd.Karin next
+   playerctl --player=io.github.tracerxbrhd.Karin loop Playlist
+   playerctl --player=io.github.tracerxbrhd.Karin shuffle Off
+   playerctl --player=io.github.tracerxbrhd.Karin loop None
+   playerctl --player=io.github.tracerxbrhd.Karin stop
+   ```
+
+   Confirm native mode state follows external writes and vice versa, capabilities
+   match real next/previous choices, and Stop actually stops. Test physical media
+   keys separately; do not infer them from `playerctl` success.
+9. Recheck cache-off/Clear, Preferences, safe logout confirmation Cancel,
+   remembered-login restart and normal close. Presentation/cache operations
+   preserve live session/audio unless explicitly changed. Confirmed Logout stops
+   playback and clears personal panel/queue/cache and saved credentials, with
+   unknown cleanup outcomes kept visible. Repeat relevant auth/session/music/
+   modes/panel/KDE checks in the **current Flatpak** when available, without
+   broadening bus/filesystem permissions or disabling sandboxing.
+
+Report exact revision, native/Flatpak, desktop environment and anonymized
+PASS/FAIL/N/D per scenario. The cloud matrix contains 96 current cases and
+honest before counterparts, plus page/state and animation-frame evidence; see
+[UI_QUALITY_GATE.md](UI_QUALITY_GATE.md#v04-native-music-gate). It is not Fedora
+acceptance. Never publish personal screenshots, account/library data, audio,
+cookies, tokens or signed addresses. Public service-distribution conditions,
+offline audio, My Wave and lyrics retain their separate gates. No merge is
+authorized by this procedure.
 
 <a id="v02-catalog-and-delivery-info-acceptance-on-fedora"></a>
 <a id="v03-seamless-experience-acceptance-on-fedora"></a>
@@ -397,7 +432,7 @@ playerctl --player=io.github.tracerxbrhd.Karin stop
 ```
 
 The ordinary shortcuts remain Ctrl+H Home, Ctrl+L Library, Ctrl+F Search,
-Ctrl+J Queue, Ctrl+B navigation and Ctrl+, preferences; Ctrl+I opens track
+Ctrl+J queue panel, Ctrl+B navigation and Ctrl+, preferences; Ctrl+I opens track
 information and Ctrl+Q closes Karin.
 My Wave and similar-track sections stay hidden when their complete real
 contracts/capabilities are unconfirmed. Unsupported source stubs are not features.
