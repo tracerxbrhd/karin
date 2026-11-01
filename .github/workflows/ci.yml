@@ -703,6 +703,8 @@ jobs:
             printf 'Capture: isolated Xvfb/Openbox, requested ngl/full-redraw, scale 1 and 2.\n'
             printf 'Fixtures record and assert the actual native renderer; no production renderer override.\n'
             printf 'Software Mesa raster worker limit: LP_NUM_THREADS=%s (capture environment only).\n' "$LP_NUM_THREADS"
+            printf 'Static captures force full redraw; normal-motion checks unset GSK_DEBUG and use ordinary damage tracking.\n'
+            printf 'Motion PNGs render complete real after-paint scene nodes; this is not framebuffer-damage or cold-latency acceptance.\n'
             printf 'Normal 240ms motion is measured after a separately recorded graphics initialization cycle; cold latency is not accepted.\n'
           } > build/ui-captures/native-quality-environment.txt
       - name: Strict populated matrix and normal motion after graphics initialization at both scales
@@ -717,7 +719,7 @@ jobs:
             if [ "$scale" = 1 ]; then screen=1920x1080x24; else screen=3840x2160x24; fi
             export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/native-music-$scale"
             GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_design_matched_matrix_and_populated_surfaces -- --ignored --test-threads=1
-            GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_universal_panel_whole_surface_motion_and_mode_switch -- --ignored --test-threads=1
+            env -u GSK_DEBUG GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_universal_panel_whole_surface_motion_and_mode_switch -- --ignored --test-threads=1
           done
       - name: Capture real GTK visual review matrix
         env:

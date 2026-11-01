@@ -684,9 +684,14 @@ report the actual current partition and omit none. These modern **test** librari
 do not change Karin's GTK >= 4.14/Libadwaita >= 1.5 application baseline, current
 Flatpak SDK or production renderer. Modern Mesa visual jobs explicitly set
 `LP_NUM_THREADS=2`; retain this value with the renderer/package record and use
-it for both the archived baseline and current controlled check. C7's default
-2× sampling failure remains recorded beside the controlled result. This setting
-is not an application launch requirement or evidence of a proven Mesa cause.
+it for both the archived baseline and current controlled check. Strict motion
+also explicitly unsets `GSK_DEBUG`, using ordinary GTK surface damage; static
+resize captures retain `GSK_DEBUG=full-redraw`. The motion oracle still obtains
+fresh full root render nodes after real after-paint callbacks; node/pixel proof
+is not direct native-framebuffer damage validation. Preserve C7's default FAIL,
+C9's separate original local full-redraw PASS and `144492f` hosted 2× FAILs beside
+the one ordinary-damage control. None is an application launch requirement,
+causal Mesa diagnosis or new hosted-success claim.
 
 The motion fixture records a fixed graphics-initialization cycle separately:
 one real normal opening, six bounded offscreen renders of the actual mapped
@@ -708,12 +713,19 @@ for toolchain in stable 1.98.1; do
     if [ "$scale" = 1 ]; then screen=1920x1080x24; else screen=3840x2160x24; fi
     for selector in native_design_matched_matrix_and_populated_surfaces \
       native_universal_panel_whole_surface_motion_and_mode_switch; do
-      LP_NUM_THREADS=2 GTK_A11Y=none GSK_RENDERER=ngl GSK_DEBUG=full-redraw \
-        GDK_SCALE="$scale" GDK_DPI_SCALE=1 KARIN_V04_ASSERT_DENSITY=1 \
-        KARIN_TEST_CAPTURE_DIR="$PWD/build/ui-captures/strict-$toolchain-scale$scale" \
-        dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" \
-        cargo +"$toolchain" test --lib --all-features --locked "$selector" \
-        -- --ignored --test-threads=1
+      (
+        if [ "$selector" = native_universal_panel_whole_surface_motion_and_mode_switch ]; then
+          unset GSK_DEBUG
+        else
+          export GSK_DEBUG=full-redraw
+        fi
+        LP_NUM_THREADS=2 GTK_A11Y=none GSK_RENDERER=ngl \
+          GDK_SCALE="$scale" GDK_DPI_SCALE=1 KARIN_V04_ASSERT_DENSITY=1 \
+          KARIN_TEST_CAPTURE_DIR="$PWD/build/ui-captures/strict-$toolchain-scale$scale" \
+          dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" \
+          cargo +"$toolchain" test --lib --all-features --locked "$selector" \
+          -- --ignored --test-threads=1
+      )
     done
   done
 done

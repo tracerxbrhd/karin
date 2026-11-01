@@ -206,8 +206,11 @@ Do not introduce Electron or web-based application shells.
   appearance after ordinary fresh start is a separate unaccepted gate for both
   panel and footer. Raw footer frames with no height reversal do not prove smooth
   cold appearance: retain the C9 116,669 μs first-paint gap and unknown cause.
-  Record
-  test-only Mesa worker settings explicitly. A controlled `LP_NUM_THREADS=2`
+  Record test-only Mesa worker settings explicitly. Motion fixtures unset
+  `GSK_DEBUG` to use ordinary GTK damage; static resize captures retain
+  `full-redraw`. Preserve the separate local full-redraw PASS, hosted `144492f`
+  FAILs and one ordinary-damage control. Fresh full render-node snapshots are
+  not direct native-framebuffer damage-correctness proof. A controlled `LP_NUM_THREADS=2`
   result does not erase a default-environment sampling failure or prove a driver
   cause, cold responsiveness, a production fix or Fedora performance.
   Work only in `feature/v0.4-native-music-ui` and existing Draft PR #15; leave

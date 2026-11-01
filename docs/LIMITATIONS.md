@@ -73,6 +73,16 @@ intermediates do not prove smooth cold first appearance; **footer and panel cold
 responsiveness remain unaccepted**. There is no production prewarm, timing or
 renderer override. None of these fixtures establishes driver causation,
 physical-GPU/Wayland performance or Fedora acceptance.
+Hosted head `144492f` subsequently failed two modern strict 2× jobs while the
+other two passed. Wide/light/Queue closing missed the 75% quarter; the inspected
+adjacent after-paint gap was 50,001 μs, while 100,002 μs describes the larger
+first-retained-to-first-moving interval. Both FAILs remain recorded. One same-C9
+control unset only motion's debug `full-redraw` override; ordinary GTK damage
+passed at both scales under unchanged LP2/cache/backend/240 ms/setup/guards.
+Static captures retain full-redraw. Fresh full render-node proof is not direct
+native-framebuffer damage validation, a causal explanation or hosted acceptance.
+New exact-head CI results belong to PR #15, not an assumed replacement PASS.
+
 C8 corrects retained personal hero/feedback cleanup and playlist-refresh lane
 ownership; final C9 changes only three ignored fixtures for the actual spinner
 and hidden-footer input contract. C9's complete regular matrix and eight

@@ -1,0 +1,206 @@
+{
+  "source_head": "144492ffa4c81d1752d1178e167a1eac6a46c60a",
+  "job_url": "https://github.com/tracerxbrhd/karin/actions/runs/41341249713/job/124951532684",
+  "outcome": "FAIL-missing-distinct-75-percent-openness-frame",
+  "scope": "graphics-initialized normal motion with full-redraw forced",
+  "environment": {
+    "LP_NUM_THREADS": "2",
+    "GSK_DEBUG": "full-redraw",
+    "actual_renderer": "GskGLRenderer"
+  },
+  "consecutive_after_paint_gap_us": 50001,
+  "retained_initial_to_first_moving_us": 100002,
+  "first_moving_progress": 0.48837304687499994,
+  "original_job_log_sha256": "750bc37358a183c4bbe6eae77bf6d5761d5a3d83388a4573c4454b520b612c25",
+  "observation": {
+    "activation": {
+      "child_revealed": false,
+      "mapped": true,
+      "requested_reveal": false,
+      "returned_frame_time": 548332668,
+      "returned_progress": 0.1942722077546295,
+      "returned_us": 173069,
+      "started_frame_time": 548182665,
+      "started_progress": 1.0,
+      "started_us": 18232
+    },
+    "after_paint": [
+      {
+        "after_paint_index": 0,
+        "callback_enter_us": 18142,
+        "elapsed_us": 18217,
+        "frame_time": 548165998,
+        "has_render_node": true,
+        "native_frame_gap_us": null,
+        "progress": 1.0,
+        "since_previous_callback_enter_us": null,
+        "snapshot_completed_us": 18217,
+        "snapshot_duration_us": 75
+      },
+      {
+        "after_paint_index": 1,
+        "callback_enter_us": 18313,
+        "elapsed_us": 18332,
+        "frame_time": 548182665,
+        "has_render_node": true,
+        "native_frame_gap_us": 16667,
+        "progress": 1.0,
+        "since_previous_callback_enter_us": 171,
+        "snapshot_completed_us": 18332,
+        "snapshot_duration_us": 19
+      },
+      {
+        "after_paint_index": 2,
+        "callback_enter_us": 33665,
+        "elapsed_us": 33707,
+        "frame_time": 548199332,
+        "has_render_node": true,
+        "native_frame_gap_us": 16667,
+        "progress": 1.0,
+        "since_previous_callback_enter_us": 15352,
+        "snapshot_completed_us": 33707,
+        "snapshot_duration_us": 42
+      },
+      {
+        "after_paint_index": 3,
+        "callback_enter_us": 80097,
+        "elapsed_us": 80158,
+        "frame_time": 548215999,
+        "has_render_node": true,
+        "native_frame_gap_us": 16667,
+        "progress": 1.0,
+        "since_previous_callback_enter_us": 46432,
+        "snapshot_completed_us": 80158,
+        "snapshot_duration_us": 61
+      },
+      {
+        "after_paint_index": 4,
+        "callback_enter_us": 112172,
+        "elapsed_us": 112244,
+        "frame_time": 548266000,
+        "has_render_node": true,
+        "native_frame_gap_us": 50001,
+        "progress": 0.48837304687499994,
+        "since_previous_callback_enter_us": 32075,
+        "snapshot_completed_us": 112244,
+        "snapshot_duration_us": 72
+      },
+      {
+        "after_paint_index": 5,
+        "callback_enter_us": 143338,
+        "elapsed_us": 143412,
+        "frame_time": 548282667,
+        "has_render_node": true,
+        "native_frame_gap_us": 16667,
+        "progress": 0.3745455005787037,
+        "since_previous_callback_enter_us": 31166,
+        "snapshot_completed_us": 143412,
+        "snapshot_duration_us": 74
+      },
+      {
+        "after_paint_index": 6,
+        "callback_enter_us": 172915,
+        "elapsed_us": 172989,
+        "frame_time": 548316001,
+        "has_render_node": true,
+        "native_frame_gap_us": 33334,
+        "progress": 0.1942722077546295,
+        "since_previous_callback_enter_us": 29577,
+        "snapshot_completed_us": 172989,
+        "snapshot_duration_us": 74
+      },
+      {
+        "after_paint_index": 7,
+        "callback_enter_us": 202102,
+        "elapsed_us": 202177,
+        "frame_time": 548349335,
+        "has_render_node": true,
+        "native_frame_gap_us": 33334,
+        "progress": 0.08615567129629631,
+        "since_previous_callback_enter_us": 29187,
+        "snapshot_completed_us": 202177,
+        "snapshot_duration_us": 75
+      },
+      {
+        "after_paint_index": 8,
+        "callback_enter_us": 229081,
+        "elapsed_us": 229164,
+        "frame_time": 548366002,
+        "has_render_node": true,
+        "native_frame_gap_us": 16667,
+        "progress": 0.050996021412037074,
+        "since_previous_callback_enter_us": 26979,
+        "snapshot_completed_us": 229164,
+        "snapshot_duration_us": 83
+      },
+      {
+        "after_paint_index": 9,
+        "callback_enter_us": 255948,
+        "elapsed_us": 256029,
+        "frame_time": 548399336,
+        "has_render_node": true,
+        "native_frame_gap_us": 33334,
+        "progress": 0.012703703703703662,
+        "since_previous_callback_enter_us": 26867,
+        "snapshot_completed_us": 256029,
+        "snapshot_duration_us": 81
+      },
+      {
+        "after_paint_index": 10,
+        "callback_enter_us": 287904,
+        "elapsed_us": 287982,
+        "frame_time": 548432670,
+        "has_render_node": true,
+        "native_frame_gap_us": 33334,
+        "progress": 0.0008801359953704013,
+        "since_previous_callback_enter_us": 31956,
+        "snapshot_completed_us": 287982,
+        "snapshot_duration_us": 78
+      },
+      {
+        "after_paint_index": 11,
+        "callback_enter_us": 313649,
+        "elapsed_us": 313730,
+        "frame_time": 548449337,
+        "has_render_node": true,
+        "native_frame_gap_us": 16667,
+        "progress": 1.5624999999963585e-05,
+        "since_previous_callback_enter_us": 25745,
+        "snapshot_completed_us": 313730,
+        "snapshot_duration_us": 81
+      },
+      {
+        "after_paint_index": 12,
+        "callback_enter_us": 341369,
+        "elapsed_us": 341474,
+        "frame_time": 548482671,
+        "has_render_node": true,
+        "native_frame_gap_us": 33334,
+        "progress": 0.0,
+        "since_previous_callback_enter_us": 27720,
+        "snapshot_completed_us": 341474,
+        "snapshot_duration_us": 105
+      }
+    ],
+    "after_paint_count": 13,
+    "animations_enabled": true,
+    "native_surface": [
+      1440,
+      900
+    ],
+    "node_none_count": 0,
+    "quarter_phase_acceptance": "strict-assertion-follows",
+    "renderer": "GskGLRenderer",
+    "retained_frame_count": 10,
+    "retained_intermediate_count": 6,
+    "scale": 2,
+    "scope": "measured-normal-motion",
+    "trajectory": "wide-light-queue-closing",
+    "transition_duration_ms": 240,
+    "window": [
+      1430,
+      890
+    ]
+  },
+  "cause_established": false
+}

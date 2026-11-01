@@ -380,6 +380,14 @@ SDK change. Its unattributed internal cause and each hosted result remain in
 `LP_NUM_THREADS=2` as a test-environment setting. The default-environment C7 2×
 sampling failure remains a failure; controlled initialized-motion results do
 not establish a driver cause, cold acceptance or a production renderer change.
+Current strict motion commands unset the debug-only `GSK_DEBUG=full-redraw`
+override and use GTK's ordinary surface damage; static resize captures retain
+full-redraw. The observer still snapshots fresh full root render nodes at actual
+after-paint callbacks, independently of native damage rectangles. Those node
+renders verify logical geometry/pixels, not native-framebuffer damage
+correctness. The `144492f` hosted 2× failures and original local full-redraw
+PASS remain separate from the one ordinary-damage control; no production source,
+renderer, duration, setup count or strict assertion changed.
 
 ## Read-only music and session lifecycle
 

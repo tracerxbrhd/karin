@@ -156,7 +156,14 @@ stable and exact 1.98.1, at both scales, on the modern native stack matching
 prepared cloud evidence (GTK >= 4.18, Libadwaita >= 1.7), with the explicit
 recorded graphics-initialization/measured-cycle separation above. Explicitly
 record the modern Mesa test setting `LP_NUM_THREADS=2`, including for the before
-baseline. Preserve the default-environment C7 2× sampling FAIL separately from
+baseline. Motion commands explicitly unset `GSK_DEBUG`, using ordinary GTK
+on-screen damage; static resize captures retain `GSK_DEBUG=full-redraw`. The
+motion oracle still takes a fresh full root render node at each actual native
+after-paint callback. Its frame/geometry/pixel assertions are not direct native
+framebuffer pixel-damage proof. Retain the original local C9 full-redraw PASS,
+both `144492f` hosted 2× FAILs and the separate one-pair ordinary-damage control;
+no causal driver or hosted-success claim follows from that control. Preserve
+the default-environment C7 2× sampling FAIL separately from
 controlled results; do not infer a driver cause, production repair or cold
 responsiveness from that one environment change. This environment
 does not raise Karin's application minimum, change Flatpak SDK or replace a

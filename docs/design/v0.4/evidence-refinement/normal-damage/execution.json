@@ -1,0 +1,112 @@
+{
+  "control": "same-frozen-C9-LP2-existing-cache-GSK_DEBUG-unset",
+  "sole_changed_graphics_environment": "GSK_DEBUG full-redraw -> UNSET",
+  "source_manifest_sha256": "42b3d65135bbd5703a3c7a7c36cafe4d7fdf9b1ac94913d17eee7a8f639a0636",
+  "test_binary_sha256": "1dfb1167c73fef4b7d8a2fdd2d7e917e360e1fc2611a314de43d7504c9be16c0",
+  "cache_reset": false,
+  "extra_priming": false,
+  "production_override": false,
+  "cold_first_use_latency_accepted": false,
+  "stages": [
+    {
+      "scale": 1,
+      "command": [
+        "/workspace/karin-environment/run-v04r",
+        "env",
+        "-u",
+        "GSK_DEBUG",
+        "GTK_A11Y=none",
+        "GSK_RENDERER=ngl",
+        "GDK_DPI_SCALE=1",
+        "LP_NUM_THREADS=2",
+        "XDG_CACHE_HOME=/workspace/karin-environment/v04-refinement/candidate-9/xdg/cache",
+        "XDG_CONFIG_HOME=/workspace/karin-environment/v04-refinement/candidate-9/xdg/config",
+        "XDG_DATA_HOME=/workspace/karin-environment/v04-refinement/candidate-9/xdg/data",
+        "XDG_STATE_HOME=/workspace/karin-environment/v04-refinement/candidate-9/xdg/state",
+        "GDK_SCALE=1",
+        "KARIN_TEST_CAPTURE_DIR=/workspace/karin-environment/v04-refinement/candidate-9/motion-scale1-normal-damage",
+        "dbus-run-session",
+        "--",
+        "xvfb-run",
+        "-a",
+        "-s",
+        "-screen 0 1920x1080x24 -dpi 96",
+        "/workspace/karin-environment/v04-refinement/candidate-9/native-tests",
+        "native_universal_panel_whole_surface_motion_and_mode_switch",
+        "--ignored",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "environment_overrides": {
+        "GTK_A11Y": "none",
+        "GSK_RENDERER": "ngl",
+        "GDK_DPI_SCALE": "1",
+        "LP_NUM_THREADS": "2",
+        "XDG_CACHE_HOME": "/workspace/karin-environment/v04-refinement/candidate-9/xdg/cache",
+        "XDG_CONFIG_HOME": "/workspace/karin-environment/v04-refinement/candidate-9/xdg/config",
+        "XDG_DATA_HOME": "/workspace/karin-environment/v04-refinement/candidate-9/xdg/data",
+        "XDG_STATE_HOME": "/workspace/karin-environment/v04-refinement/candidate-9/xdg/state",
+        "GDK_SCALE": "1",
+        "KARIN_TEST_CAPTURE_DIR": "/workspace/karin-environment/v04-refinement/candidate-9/motion-scale1-normal-damage"
+      },
+      "environment_unset": [
+        "GSK_DEBUG"
+      ],
+      "started_utc": "2026-11-01T19:33:18.953390+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 34.49419085699628,
+      "finished_utc": "2026-11-01T19:33:53.447874+00:00"
+    },
+    {
+      "scale": 2,
+      "command": [
+        "/workspace/karin-environment/run-v04r",
+        "env",
+        "-u",
+        "GSK_DEBUG",
+        "GTK_A11Y=none",
+        "GSK_RENDERER=ngl",
+        "GDK_DPI_SCALE=1",
+        "LP_NUM_THREADS=2",
+        "XDG_CACHE_HOME=/workspace/karin-environment/v04-refinement/candidate-9/xdg/cache",
+        "XDG_CONFIG_HOME=/workspace/karin-environment/v04-refinement/candidate-9/xdg/config",
+        "XDG_DATA_HOME=/workspace/karin-environment/v04-refinement/candidate-9/xdg/data",
+        "XDG_STATE_HOME=/workspace/karin-environment/v04-refinement/candidate-9/xdg/state",
+        "GDK_SCALE=2",
+        "KARIN_TEST_CAPTURE_DIR=/workspace/karin-environment/v04-refinement/candidate-9/motion-scale2-normal-damage",
+        "dbus-run-session",
+        "--",
+        "xvfb-run",
+        "-a",
+        "-s",
+        "-screen 0 3840x2160x24 -dpi 96",
+        "/workspace/karin-environment/v04-refinement/candidate-9/native-tests",
+        "native_universal_panel_whole_surface_motion_and_mode_switch",
+        "--ignored",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "environment_overrides": {
+        "GTK_A11Y": "none",
+        "GSK_RENDERER": "ngl",
+        "GDK_DPI_SCALE": "1",
+        "LP_NUM_THREADS": "2",
+        "XDG_CACHE_HOME": "/workspace/karin-environment/v04-refinement/candidate-9/xdg/cache",
+        "XDG_CONFIG_HOME": "/workspace/karin-environment/v04-refinement/candidate-9/xdg/config",
+        "XDG_DATA_HOME": "/workspace/karin-environment/v04-refinement/candidate-9/xdg/data",
+        "XDG_STATE_HOME": "/workspace/karin-environment/v04-refinement/candidate-9/xdg/state",
+        "GDK_SCALE": "2",
+        "KARIN_TEST_CAPTURE_DIR": "/workspace/karin-environment/v04-refinement/candidate-9/motion-scale2-normal-damage"
+      },
+      "environment_unset": [
+        "GSK_DEBUG"
+      ],
+      "started_utc": "2026-11-01T19:33:53.448457+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 48.00964286799717,
+      "finished_utc": "2026-11-01T19:34:41.458338+00:00"
+    }
+  ]
+}

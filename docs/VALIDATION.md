@@ -42,11 +42,13 @@ source and environment scope.
 | Confirmed direct Like, unknown/loading/errors/late-session handling; unconfirmed Dislike absent | C8 counted HTTP/GTK regressions **PASS**, including 420-pixel error popup at 1×/2× and no ambiguous POST replay; C9 production unchanged. Actual service mutation remains owner-local |
 | Bounded continuous portions; retry/end/scroll/duplicate/context and retained cache-origin safety | Implemented with 2,000-position/100-page UI bounds and immutable 500-position playback windows. C9 regular domain tests and priority actual-input search/row regressions **PASS**; exact-head complete selector ledger belongs to PR #15 |
 | Pinned TrackInfo/Queue, occurrence following, Shuffle/Repeat and MPRIS regression | C8 shared-worker/modes/MPRIS fixtures **PASS** at both scales; C9 same-runtime native Queue input regressions **PASS**. Complete exact-head results are published with PR #15 |
-| Fresh exact a70 before evidence | Static 1×/2× **PASS**; original default-environment initialized motion 1× **PASS**, 2× **FAIL** after a roughly 100 ms gap missed the 75% quarter. One new explicit LP2 pair **PASS** (33.05 s / 47.41 s) with unchanged archived source/harness/guards; both outcomes retained |
+| Fresh exact a70 before evidence | Static 1×/2× **PASS**; original default-environment initialized motion 1× **PASS**, 2× **FAIL** with a missing 75% quarter. Distinguish the 50,001 μs adjacent after-paint gap from the 100,002 μs first-retained-to-first-moving interval; the latter is not one consecutive native gap. One explicit LP2/full-redraw pair **PASS** (33.05 s / 47.41 s) with unchanged archived source/harness/guards; all outcomes retained |
 | Fresh C7 visible/hidden active-player matrix | **PASS, C7 local**: 204 static originals plus 20 raw footer images, including 96 equal-size a70/current matrix pairs; actual maximize, both themes/scales and genuine fixture playback |
 | C7 strict initialized right-panel motion, default environment | 1× **PASS**; 2× **FAIL**: a 66,668 μs native gap omitted the 75%-openness frame during compact/light/Queue closing. No geometry failure reported; the full default-environment 240-image gate did not pass |
 | C7 controlled strict motion, `LP_NUM_THREADS=2` | **PASS, both scales**: one controlled run each, 48 trajectories / 240 distinct selected native frames; original 240 ms, setup/phase/geometry guards unchanged. This is environment-scoped initialized motion, not cold responsiveness or a causal driver diagnosis |
-| Final C9 matched static/footer and strict LP2 panel evidence | **PASS in recorded scopes, four source-matched runs**: 204 static originals + 19 raw footer images, 96 equal-size a70/current matrix pairs; initialized normal panel motion 48 trajectories / 240 distinct selected frames at 1×/2×. Raw footer has no height reversals, but its cold 1× first appearance has a 116,669 μs paint gap; smooth cold footer/panel appearance remains unaccepted |
+| Final C9 matched static/footer and strict LP2/full-redraw panel evidence | **PASS in recorded scopes, four source-matched local runs**: 204 static originals + 19 raw footer images, 96 equal-size a70/current matrix pairs; initialized normal panel motion 48 trajectories / 240 distinct selected frames at 1×/2×. Raw footer has no height reversals, but its cold 1× first appearance has a 116,669 μs paint gap; smooth cold footer/panel appearance remains unaccepted |
+| Hosted strict visual checks at `144492f` | **FAIL retained**: push Native MSRV job 124951532684 and PR Native stable job 124951549179 missed the 75% quarter during 2× wide/light/Queue closing; the other two modern visual jobs passed. No all-hosted-PASS claim |
+| Same-C9 controlled motion with ordinary GTK damage (`GSK_DEBUG` unset) | **PASS locally**, one pair only: 34.49 s / 48.01 s, 48 trajectories / 240 selected native frames, 472 moving raw frames audited; original source, LP2, cache, renderer, 240 ms/setup and guards unchanged. New hosted results belong to the exact-head PR record |
 | Stable/exact Rust 1.98.1 regular compiler, release and smoke checks | **PASS for final C9**: stable 1.99.1/exact 1.98.1, fmt, strict default/all/minimal Clippy/tests/builds; 369/377/355 library plus 4 CLI tests per configuration/compiler; ordinary/all-feature offline MSRV releases and GTK/GStreamer/generated-WAV/terminal/license checks |
 | Exact-head complete functional suite, hosted CI and downloaded native archive verification | Results are published in the immutable [PR #15 checks/artifact record](https://github.com/tracerxbrhd/karin/pull/15/checks). At this documentation freeze C9 has eight priority executions; do not infer full-suite/hosted/archive PASS from the regular matrix or prior work |
 | Current full Flatpak build/runtime | Unavailable locally: SDK/runtime absent; host release and old Fedora Flatpak acceptance do not establish a current full package check |
@@ -86,7 +88,8 @@ cold-first-use acceptance remain separate.
 
 The fresh C9 visual audit (`candidate-9/e-complete-native-proof.json`) matches
 that same binary and 108-source manifest. Both populated/static and strict
-motion selectors passed at both scales with explicit `LP_NUM_THREADS=2`:
+motion selectors passed locally at both scales with explicit `LP_NUM_THREADS=2`
+and `GSK_DEBUG=full-redraw` (the original C9 gallery):
 process wall times static **52.91 s / 76.97 s**, motion **34.63 s / 48.96 s**
 from `native-execution.json` (including test-process overhead). The audit retains
 **204 static originals**, **19 raw footer images**, **96 same-size a70/current
@@ -106,6 +109,46 @@ was added. All visual content is synthetic/local generated media. This proof
 accepts neither cold-first-use latency/smoothness of the **footer or panel**,
 real service writes nor Fedora/Wayland/GPU behavior. C7's default 2×
 sampling failure is preserved below.
+
+### Hosted full-redraw failure and one ordinary-damage control
+
+At head `144492ffa4c81d1752d1178e167a1eac6a46c60a`, both hosted runs completed:
+**6/8 jobs passed**, including all four Ubuntu compiler/full-functional/sandboxed
+WebKit/package jobs and two modern visual jobs. Two modern visual jobs failed: [push MSRV
+124951532684](https://github.com/tracerxbrhd/karin/actions/runs/41341249713/job/124951532684)
+and [PR stable 124951549179](https://github.com/tracerxbrhd/karin/actions/runs/41341255501/job/124951549179).
+Both 2× wide/light/Queue-closing records lacked a 75%-openness quarter; first
+moving progress was approximately .488373 / .496166. The inspected raw log has
+an actual adjacent after-paint gap of **50,001 μs**, versus **100,002 μs** from
+the first retained initial frame to first movement. Do not call that retained
+interval one consecutive 100 ms gap. The snapshot extraction took 72 μs for
+the inspected first-moving frame; no internal cause is established. Retain these
+hosted FAILs beside the separate original C9 local full-redraw PASS gallery.
+
+After independent source/log review, exactly one paired control unset only
+`GSK_DEBUG` for motion. It used the same frozen C9 binary/source, LP2, existing
+XDG/cache, backend, normal 240 ms animation, unconditional setup and strict
+phase/geometry/node guards. No cache reset, extra priming or production change
+was made. `normal-damage-control-execution.json` records **34.49 s / 48.01 s**
+process wall times, and `e-default-damage-proof.json` audits **48 trajectories /
+240 selected frames / 472 moving raw frames**, with maximum child-relative
+error **0.000123 logical pixels**. This controlled local initialized-motion
+PASS does not diagnose the hosted failure or establish a new hosted PASS.
+The matching archived-a70 ordinary-damage baseline also completed one pair with
+exit 0: **32.77 s / 46.13 s libtest durations**, after 17.16 s compilation, using
+unchanged archived production source/harness and an isolated target. It neither
+rewrites the original baseline FAIL nor changes the C9 full-redraw gallery.
+
+CI and archived-baseline motion commands now explicitly use `env -u GSK_DEBUG`
+to retain GTK's ordinary on-screen damage processing; static captures still use
+`GSK_DEBUG=full-redraw` for their separate resize-capture path. Each motion
+oracle obtains a fresh full root render node after an actual native after-paint
+callback and renders that node for geometry/pixels. This is not direct native
+framebuffer pixel-damage correctness proof. Ordinary damage is neither a new
+renderer nor a production override; source manifests, timing and all guards
+remain unchanged. Keep the original full-redraw images/results and all cold
+footer/panel limitations. New exact-head hosted and native-archive conclusions
+remain in [PR #15](https://github.com/tracerxbrhd/karin/pull/15/checks).
 
 C7's all-feature test executable SHA-256 is
 `9ea0c6b6b7d6851816b7e3fc34a45fdc09ae20fee74c269068cef1378c980fe4`.

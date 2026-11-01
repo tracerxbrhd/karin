@@ -58,6 +58,7 @@ PY
     fi
     printf 'Requested capture renderer: %s; motion JSON records the actual native class.\n' "$capture_renderer"
     printf 'Software Mesa raster worker limit: LP_NUM_THREADS=%s (unset means Mesa default).\n' "${LP_NUM_THREADS:-unset}"
+    printf 'Static captures force full redraw; normal-motion checks unset GSK_DEBUG for ordinary damage tracking.\n'
     printf 'Baseline Queue is captured in its existing pinned universal panel.\n'
     printf 'Baseline motion also measures a normal cycle after separately recorded graphics initialization; cold responsiveness is unaccepted.\n'
     printf 'True maximization: isolated Openbox; neither screenshots nor fixtures accept Fedora.\n'
@@ -77,7 +78,7 @@ for scale in 1 2; do
             -s "-screen 0 $screen -dpi 96" "$temporary/baseline-tests" \
             native_design_matched_matrix_and_populated_surfaces --ignored --test-threads=1
     fi
-    GTK_A11Y=none GSK_RENDERER="$capture_renderer" GSK_DEBUG=full-redraw GDK_SCALE="$scale" GDK_DPI_SCALE=1 \
+    env -u GSK_DEBUG GTK_A11Y=none GSK_RENDERER="$capture_renderer" GDK_SCALE="$scale" GDK_DPI_SCALE=1 \
         KARIN_TEST_CAPTURE_DIR="$directory" dbus-run-session -- xvfb-run -a \
         -s "-screen 0 $screen -dpi 96" "$temporary/baseline-tests" \
         native_universal_panel_whole_surface_motion_and_mode_switch --ignored --test-threads=1

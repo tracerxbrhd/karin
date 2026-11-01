@@ -583,6 +583,102 @@
       "original": "candidate-9/native-execution.json",
       "scope": "exact commands/environment/fresh-profile ledger and four process exit results",
       "sha256": "82ecfa4a2e036fd4e29b02f6e3b46ac441f0ee50b05373047a24475f268dab2a"
+    },
+    {
+      "file": "normal-damage/proof.json",
+      "original": "candidate-9/e-default-damage-proof.json",
+      "scope": "one controlled pair, unchanged source/240ms/phase/geometry guards; ordinary damage tracking",
+      "sha256": "0a014d68a2635f5d3de754578770ed0c23927419f3e5708dbfb1d8176f0b987f"
+    },
+    {
+      "file": "normal-damage/execution.json",
+      "original": "candidate-9/normal-damage-control-execution.json",
+      "scope": "exact environment/commands and single process outcome per scale",
+      "sha256": "6ed1d1f1a03745bf8db5e32dd9b070099ef61e5c3a7cedbc5dbdbdbf64180e34"
+    },
+    {
+      "file": "normal-damage/observed-wide-light-queue-opening-scale2.jsonl",
+      "original": "candidate-9/motion-scale2-normal-damage/observed-wide-light-queue-opening-scale2.jsonl",
+      "scope": "actual raw observations for the separately controlled environment",
+      "sha256": "b952dd780e4e4df95bff6c4697dcd7f5c7ae73d09ac55b6b7a134456510daaf3"
+    },
+    {
+      "file": "normal-damage/animation-wide-light-queue-opening-000-scale2.png",
+      "original": "candidate-9/motion-scale2-normal-damage/animation-wide-light-queue-opening-000-scale2.png",
+      "scope": "untouched real after-paint scene-node PNG, ordinary damage control",
+      "sha256": "da7b0c959328ebdff5423ba506fa7bd7d21b38bd2d2899d360c04dfaa4bb7980"
+    },
+    {
+      "file": "normal-damage/animation-wide-light-queue-opening-025-scale2.png",
+      "original": "candidate-9/motion-scale2-normal-damage/animation-wide-light-queue-opening-025-scale2.png",
+      "scope": "untouched real after-paint scene-node PNG, ordinary damage control",
+      "sha256": "dad353c6c96365598215c6f7f8687f5b3ca792b7ccf6546e2eaa20d94f84e2c6"
+    },
+    {
+      "file": "normal-damage/animation-wide-light-queue-opening-050-scale2.png",
+      "original": "candidate-9/motion-scale2-normal-damage/animation-wide-light-queue-opening-050-scale2.png",
+      "scope": "untouched real after-paint scene-node PNG, ordinary damage control",
+      "sha256": "b0dcbf11b5fcc93de89463faf12e97a27bab5e4329e7da23967037771b596ee8"
+    },
+    {
+      "file": "normal-damage/animation-wide-light-queue-opening-075-scale2.png",
+      "original": "candidate-9/motion-scale2-normal-damage/animation-wide-light-queue-opening-075-scale2.png",
+      "scope": "untouched real after-paint scene-node PNG, ordinary damage control",
+      "sha256": "f0d9e5479f38bb8c5b9f8f72dfc856d101e718a7df7475ac7e5000377e820ff1"
+    },
+    {
+      "file": "normal-damage/animation-wide-light-queue-opening-100-scale2.png",
+      "original": "candidate-9/motion-scale2-normal-damage/animation-wide-light-queue-opening-100-scale2.png",
+      "scope": "untouched real after-paint scene-node PNG, ordinary damage control",
+      "sha256": "6ba2c3d3d94d64ed8e513dfd101e72bf6482cec3cc1dbda31d01a8e170b10d47"
+    },
+    {
+      "file": "normal-damage/observed-wide-light-queue-closing-scale2.jsonl",
+      "original": "candidate-9/motion-scale2-normal-damage/observed-wide-light-queue-closing-scale2.jsonl",
+      "scope": "actual raw observations for the separately controlled environment",
+      "sha256": "b1032a865d97dc1118d768efd29cf1309eb8ea43760d654248aae753a8206c33"
+    },
+    {
+      "file": "normal-damage/animation-wide-light-queue-closing-000-scale2.png",
+      "original": "candidate-9/motion-scale2-normal-damage/animation-wide-light-queue-closing-000-scale2.png",
+      "scope": "untouched real after-paint scene-node PNG, ordinary damage control",
+      "sha256": "360f5fd9e6ad9d52a9427ec8de6afb5296166572aac6591938ee64009b70c1b1"
+    },
+    {
+      "file": "normal-damage/animation-wide-light-queue-closing-025-scale2.png",
+      "original": "candidate-9/motion-scale2-normal-damage/animation-wide-light-queue-closing-025-scale2.png",
+      "scope": "untouched real after-paint scene-node PNG, ordinary damage control",
+      "sha256": "c1f2d447e5bb6ce77f21faa86e08f228ee995e78ce302eba88c100095e1d1d4b"
+    },
+    {
+      "file": "normal-damage/animation-wide-light-queue-closing-050-scale2.png",
+      "original": "candidate-9/motion-scale2-normal-damage/animation-wide-light-queue-closing-050-scale2.png",
+      "scope": "untouched real after-paint scene-node PNG, ordinary damage control",
+      "sha256": "25ff4c761be522226138ee9fb09bf9d77b804f40db887102c5f061244bac439e"
+    },
+    {
+      "file": "normal-damage/animation-wide-light-queue-closing-075-scale2.png",
+      "original": "candidate-9/motion-scale2-normal-damage/animation-wide-light-queue-closing-075-scale2.png",
+      "scope": "untouched real after-paint scene-node PNG, ordinary damage control",
+      "sha256": "f57360c19b3189facc9893cd71941adb90e701b2baf797d37b00b7df1eb4187c"
+    },
+    {
+      "file": "normal-damage/animation-wide-light-queue-closing-100-scale2.png",
+      "original": "candidate-9/motion-scale2-normal-damage/animation-wide-light-queue-closing-100-scale2.png",
+      "scope": "untouched real after-paint scene-node PNG, ordinary damage control",
+      "sha256": "6ba2c3d3d94d64ed8e513dfd101e72bf6482cec3cc1dbda31d01a8e170b10d47"
+    },
+    {
+      "file": "failures/ci-144492f-push.json",
+      "original": "ci-144492f/push-native-msrv-failed.log",
+      "scope": "failed hosted observation extracted unchanged from the bounded native diagnostic; no successful run substitution",
+      "sha256": "17e63eab7b712add4800d973159210a56c28132fdf2439a0e5c7b8d9d0859e9f"
+    },
+    {
+      "file": "failures/ci-144492f-pull_request.json",
+      "original": "ci-144492f/pr-native-stable-failed.log",
+      "scope": "failed hosted observation extracted unchanged from the bounded native diagnostic; no successful run substitution",
+      "sha256": "3efac8e3934bcc7bc66081f770e6060082968fdaa1455e945791ada7cd4b226a"
     }
   ],
   "verified_application_commit": "f880dc098fc4bb63fd117574748f892ca7e60683",

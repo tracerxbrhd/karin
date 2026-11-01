@@ -116,6 +116,43 @@ not erase them or establish their driver cause. This proof is explicitly
 Wayland, physical GPU/HiDPI, real Music/Like/KDE keys and the current full Flatpak
 need owner-local acceptance. PR #15 remains Draft.
 
+## Ordinary-damage motion follow-up
+
+At head `144492f`, two hosted modern jobs missed the 75% openness frame during
+2× wide/light/Queue closing. Their [failed observations](failures/README.md)
+remain separate from all successful proofs. All four Ubuntu compiler/functional/
+WebKit/package jobs and the other two modern jobs passed at that head.
+
+Full-redraw is a GTK debug override that repaints the entire app surface. It
+remains useful for static X11 resize captures. The motion oracle instead retains
+a fresh complete root scene node after each actual after-paint and renders its
+PNG afterward; it does not need to force full framebuffer damage. Current CI
+therefore unsets `GSK_DEBUG` **only for normal-motion measurements**, using
+ordinary damage tracking with the same renderer and LP2 worker bound. Static
+captures keep full-redraw. No application code, duration, quarter tolerance,
+geometry guard or initialization sequence changed.
+
+One separately recorded control pair passed: **34.49 / 48.01 seconds** at 1×/2×,
+240 distinct selected frames / 48 trajectories and 472 moving raw observations.
+The [control proof](normal-damage/proof.json) and
+[execution ledger](normal-damage/execution.json) retain its exact source and
+environment. These actual 2× Queue frames retain their original pixels:
+
+| Direction | Measured openness, chronological order |
+| --- | --- |
+| Opening | [0](normal-damage/animation-wide-light-queue-opening-000-scale2.png) → [25](normal-damage/animation-wide-light-queue-opening-025-scale2.png) → [50](normal-damage/animation-wide-light-queue-opening-050-scale2.png) → [75](normal-damage/animation-wide-light-queue-opening-075-scale2.png) → [100](normal-damage/animation-wide-light-queue-opening-100-scale2.png) |
+| Closing | [100](normal-damage/animation-wide-light-queue-closing-100-scale2.png) → [75](normal-damage/animation-wide-light-queue-closing-075-scale2.png) → [50](normal-damage/animation-wide-light-queue-closing-050-scale2.png) → [25](normal-damage/animation-wide-light-queue-closing-025-scale2.png) → [0](normal-damage/animation-wide-light-queue-closing-000-scale2.png) |
+
+Both complete raw trajectories are in that directory. The matching unchanged-a70
+control also passed once at both scales.
+
+This is a test-environment fidelity correction, not proof that full-redraw was
+the unique failure cause, a production performance fix or a guarantee of hosted
+cadence. The oracle still does not prove correctness of native framebuffer
+partial-damage pixels. Cold first appearance and Fedora remain unaccepted.
+The original C9 full-redraw gallery and its 116.7 ms first-footer paint gap above
+are retained without substitution.
+
 ## Continuous loading and input
 
 The independent functional fixtures exercise actual wheel/keyboard/mouse
