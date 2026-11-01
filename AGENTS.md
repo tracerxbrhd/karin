@@ -115,8 +115,10 @@ Do not introduce Electron or web-based application shells.
   playback intact. Never persist OAuth values, cookies, signed media URLs or audio.
 - Persistent audio/offline playback requires an established service permission
   and offline entitlement lifecycle, not just a working MP3 URL. Follow
-  docs/AUDIO_CACHE_REVIEW.md; hide unsupported offline and recommendation actions
-  rather than presenting nonfunctional controls.
+  docs/AUDIO_CACHE_REVIEW.md; hide unsupported offline and recommendation actions.
+  The latest owner request explicitly permits one honest “Моя волна” landing
+  placeholder. Label it unimplemented; do not fake stations, recommendations,
+  playback, radio-session progress or endpoint support.
 
 ## User Experience
 - Cassette by Rirusha is an aesthetic reference and, for the explicitly scoped
@@ -165,11 +167,32 @@ Do not introduce Electron or web-based application shells.
 - Current v0.4 work follows the owner's complete music-experience redesign in
   [DESIGN_SPEC.md](docs/design/v0.4/DESIGN_SPEC.md), superseding conflicting older
   mockups: three navigation destinations, real music-led content, one universal
-  right panel and a persistent Player Bar with functional playback modes.
-  Retain meaningful
-  errors, confirmations, tooltips and accessible labels. Original design SVGs
-  are not running GTK screenshots or production artwork. Inspect matched
-  baseline/current GTK captures across required sizes plus owner-wide 1650×930,
+  right panel and functional local playback modes. The latest refinement from
+  `a70bbf7` supersedes the earlier mandatory Home/Search/Library rail and
+  permanently visible footer: primary tabs are “Моя волна”, “Нравится” and
+  “Плейлисты”, with an accessible unified Search action. Do not use a dropdown
+  as their primary switcher. “Моя волна” is the explicitly requested honest
+  unimplemented placeholder, not a working radio service.
+  The Player Bar is initially hidden with no playback intent, reveals natively
+  from below on a real playback request, remains through Pause and retryable
+  request failure, and hides after explicit Stop/logout/queue clear. Selection
+  alone must not expose an idle player or create playback. The whole current
+  artwork/title/artist block is one accessible Track Info button; confirmed Like
+  is a separate action, never a nested button. Unconfirmed Dislike stays hidden.
+  Track lists load bounded portions continuously rather than through visible
+  page switches. Preserve scroll position, exact occurrences, request/session
+  epochs, explicit retry and the active context's 500-position/partial boundary.
+  UI appends must not silently replace the active playback context. Follow
+  [ADR-0024](docs/adr/0024-bounded-continuous-track-views.md): keep bounded source
+  position provenance, compare source/window+original occurrence after queue
+  edits, and mark manual additions separately instead of matching by Track ID.
+  Retain meaningful errors, confirmations, tooltips and accessible labels. Original design SVGs
+  are not running GTK screenshots or production artwork. First-map Like reads
+  must be deferred beyond the synchronous GTK render/map stack, guarded by weak
+  ownership and current session/track generations; never reborrow controller
+  state mutably from a widget mapping inside a render. Keep footer membership
+  reads separate from detail/catalog lanes and never replay an uncertain write.
+  Inspect matched baseline/current GTK captures across required sizes plus owner-wide 1650×930,
   true maximize, themes, scales and
   Closed/TrackInfo/Queue, plus populated pages and input states. Capture motion
   near 0/25/50/75/100 percent with normal animation and verify reduced motion
@@ -180,7 +203,13 @@ Do not introduce Electron or web-based application shells.
   mutation supplies proof. Only the subsequent unchanged 240 ms native cycle is
   measured. Never call this cold responsiveness PASS or add production prewarming.
   Cold NGL/Vulkan failures on both old/modern stacks remain recorded; Fedora first
-  appearance after ordinary fresh start is a separate unaccepted gate.
+  appearance after ordinary fresh start is a separate unaccepted gate for both
+  panel and footer. Raw footer frames with no height reversal do not prove smooth
+  cold appearance: retain the C9 116,669 μs first-paint gap and unknown cause.
+  Record
+  test-only Mesa worker settings explicitly. A controlled `LP_NUM_THREADS=2`
+  result does not erase a default-environment sampling failure or prove a driver
+  cause, cold responsiveness, a production fix or Fedora performance.
   Work only in `feature/v0.4-native-music-ui` and existing Draft PR #15; leave
   it Draft pending owner Fedora visual acceptance. Do not create another PR,
   merge it or delete the branch without a new instruction.
@@ -224,10 +253,12 @@ after fetching or vendoring the locked dependencies. Keep the MSRV CI lane align
 with the package metadata. Prove compatibility before lowering the declaration,
 and never use `--ignore-rust-version` to bypass a compiler requirement.
 
-Keep the complete native CI coverage: Ubuntu 24.04 stable/MSRV jobs retain
-29 functional selectors, compiler/package checks and both navigating WebKit
-fixtures; Debian 13 native-quality jobs retain the two strict visual selectors
-at both scales on both compilers. Verify the compiled 31 = 29 + 2 partition.
+Keep complete native CI coverage: retain the earlier 29 Ubuntu functional
+selectors, compiler/package checks and both navigating WebKit fixtures, plus
+both strict visual selectors on Debian 13 at both scales/compilers. Add the
+refinement's actual-input/continuous/footer/membership regressions to the compiled
+registration partition; the historical 31 = 29 + 2 count is not a ceiling or a
+reason to omit new cases. Report the current executed selector set.
 The recorded `709f5b3` GTK 4.14/Adwaita 1.5/Mesa strict-motion FAIL remains
 scoped evidence, not a reason to drop tests or weaken timing/progress checks.
 Modern test placement does not change production minimums, renderer or SDK.

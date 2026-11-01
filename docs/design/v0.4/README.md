@@ -1,84 +1,90 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 
-# Karin v0.4 — Complete Music Experience redesign
+# Karin v0.4 — Cassette-like refinement
 
-**Current authority:** the owner's updated [full task](CODEX_TASK.md) and
-[implementation specification](DESIGN_SPEC.md), starting at `a9eed45` in existing
-Draft PR #15. The owner **did not accept** the previous v0.4 UI/UX. Earlier Native
-Music B sketches are superseded where they conflict with this task; they are
-not an immutable final design or a new acceptance result.
+Current authority is the [latest full owner task](CODEX_TASK.md) and
+[DESIGN_SPEC.md](DESIGN_SPEC.md), starting from
+`a70bbf714e3d7ea775c03839eb01f0b1d9dd4f62` in existing **Draft PR #15**.
+This refines the working client; it does not restart the application or replace
+its music, session, queue or audio architecture. No new PR or automatic merge.
 
-The new composition is a three-destination rail, real music workspace,
-**one universal Track Info / Queue panel**, and a permanent Player Bar with real
-Shuffle/Repeat. Queue is opened from the footer/Ctrl+J, not the left navigation.
-The whole panel surface moves together; its two modes share the same header,
-close, geometry and transition. Outside clicks never dismiss it.
+## Current direction
 
-[UX_RESEARCH.md](UX_RESEARCH.md) records current public references, exact source
-qualifications, inspected fresh a9 GTK captures and concrete design decisions.
-The [implementation review](IMPLEMENTATION_REVIEW.md) records actual runtime
-images/tests separately and preserves historical evidence.
+- Light native **Моя волна / Нравится / Плейлисты** tabs, coherent Search access,
+  no dropdown as the main destination switch.
+- An explicitly unavailable Wave product placeholder, real liked music and
+  owned/liked playlist sections. No invented radio, related songs or catalog.
+- Continuous track loading with bounded service batches, stable scroll and
+  inline loading/end/Retry instead of track Previous/Next page buttons.
+- One pinned Track Info / Queue panel, visually composed as a musical sidebar;
+  outside clicks never dismiss it and all of its surface moves together.
+- **Initially hidden Player Bar**: reveal smoothly on real play, retain through
+  pause/loading/active Retry, hide safely on full Stop/no active track. The whole
+  current cover/title/artist region opens Info; independent actions retain focus.
+- Direct server-confirmed Like. Hide unconfirmed Dislike rather than showing a
+  pretend working control. Published upstream endpoints and Karin validation are
+  different facts; document the remaining contract uncertainty accurately.
+- Preserve real Shuffle/Repeat, numeric Repeat One, MPRIS, protected session,
+  cache, playlist creation and the existing GStreamer/StreamResolver path.
 
-## Revised original composition sketches
+The private Cassette screenshot supplied in chat is a composition reference:
+light upper segments, clean collection hero/rows, coherent centered information
+and compact transport. The primary agent inspected it; it is **not copied into
+this repository**. Do not copy its service art, personal content, branding or
+literal layout. GTK theme metrics and Karin's supported behavior determine the
+implementation.
 
-These are **illustrative original vectors, not GTK screenshots, implementation
-proof or owner-approved final pixels**. Actual implementation needs its own fresh
-visual/animation review and owner Fedora acceptance. Typography, spacing and
-control grouping express the target, while native GTK theme metrics win over
-literal reproduction of SVG icons or colors.
+## Evidence and acceptance
 
-### Wide dark — music first, Track Info open
+[IMPLEMENTATION_REVIEW.md](IMPLEMENTATION_REVIEW.md) separates the new refinement
+from prior a70/C10 and a9 checks. Existing screenshots and green CI are historical
+before evidence; they do not prove the hidden-player, full metadata click area,
+new navigation or continuous-list behavior. Fresh source-matched GTK captures
+and real mouse/keyboard/scroll/lifecycle checks are required.
 
-![Music-led Home and shared information surface](desktop-wide-dark.svg)
+The current implementation uses a fixed native segment row, quiet 64-pixel
+liked-track rows, owned/liked playlist sections, height-adaptive centered Info,
+an initially hidden footer and a separate direct Like action. The
+[current review](IMPLEMENTATION_REVIEW.md#c9-current-visual-evidence) identifies
+the exact C9 source, native evidence audit and 11-original final-source visual
+review separately from the broader C7 checkpoint; it does not silently transfer
+old results to a newer revision. The
+[selected actual GTK gallery](evidence-refinement/README.md) identifies its own
+source and capture scope. Prior sketches remain historical below.
 
-### Wide light — library and Track Info
+Show idle/active/paused/error player states, footer appearance/disappearance,
+Info/Queue transitions, Wave/Liked/Playlists/Search, continuous append/Retry/end,
+compact/light/dark/HiDPI and the established geometry matrix. Inspect actual
+intermediate motion frames with honest renderer/initialization provenance.
+Earlier cold first-paint failures and warm-proof limitations remain recorded;
+do not turn them into a cold-start PASS or add production prewarming.
+The C7 default 2× motion phase miss is retained separately from the qualified
+paired 1×/2× `LP_NUM_THREADS=2` initialized-renderer pass. The latter is a test
+resource-control result, not an application workaround or cold-start acceptance.
+C9 repeats the complete strict panel scope with fresh source-matched artifacts;
+its raw first footer reveal still records a 116.7 ms paint gap, so cold first-use
+smoothness is explicitly not accepted.
 
-![Light native library composition](desktop-wide-light.svg)
+Cloud/Xvfb does not accept Fedora/KDE/Wayland/PipeWire, real Music, physical media
+keys, account writes or current Flatpak. Keep PR #15 Draft for owner review.
 
-### Wide dark — the same panel in Queue mode
+## Historical original sketches
 
-![Queue beside the music workspace, opened from the Player Bar](desktop-wide-queue-dark.svg)
+The six vectors below describe the **preceding complete-redesign target**, not
+the current refinement. Their permanent footer, left rail and collection controls
+are superseded where they conflict with this task. Retained for design history:
 
-### Medium — useful main area and nonmodal Queue
+- [Wide dark](desktop-wide-dark.svg)
+- [Wide light](desktop-wide-light.svg)
+- [Wide Queue](desktop-wide-queue-dark.svg)
+- [Medium panel](medium-pinned-pane-dark.svg)
+- [Compact panel](compact-track-pane-dark.svg)
+- [Panel continuity](track-pane-behavior.svg)
 
-![Medium music workspace with queue in the universal panel](medium-pinned-pane-dark.svg)
+They remain original illustrative vectors, not GTK screenshots or approved final
+pixels. Earlier [public-source research](UX_RESEARCH.md) documents what was
+actually inspected and the distinction between Cassette release images and main
+source. Its older target decisions likewise do not override the latest brief.
 
-### Compact — explicit information view and usable footer
-
-![Compact dedicated panel view with clear Back and persistent player](compact-track-pane-dark.svg)
-
-### State continuity
-
-![One panel, in-place modes, following playback and explicit close](track-pane-behavior.svg)
-
-## Rules that outrank an illustration
-
-- One panel has explicit `Closed | TrackInfo | Queue` state. Opening, changing
-  modes and following actual queue occurrences never create a second player.
-- Opening/closing moves background, border, header, art, text and controls as one
-  surface. Static open SVGs cannot prove animation; inspect transition frames.
-- Mode switches do not replay the slide. Resize, navigation and outside input
-  preserve open mode; compact has explicit Back and a title matching its view.
-- Current cover always shows information without closing an already-open pane.
-  Explicit Details never plays; the next real occurrence change resumes following.
-- Shuffle/Repeat are typed local policies shared with MPRIS, not decorative
-  buttons. Stop is absent from the visible music footer but remains in system API.
-- Only genuine supported collections/actions enter ordinary UI. The example
-  names and striped covers are synthetic original composition samples, not
-  release catalog data. Omit unsupported features rather than copying a reference.
-- Use Libadwaita theming, accessibility, reduced motion and real native allocation.
-  No hard-coded mock palette is an application theme specification.
-
-## Evidence and permissions
-
-Published Yandex/Cassette assets were inspected for research and were not copied
-into these files or the application. All SVG geometry, simple illustrative
-symbols and abstract art here are original Karin material, GPL-3.0-or-later.
-No private desktop image, account, credential, real service cover or music file
-is included. Public reference inspection does not establish service access or
-permission to redistribute someone else's art.
-
-Only fresh real GTK screenshots and executed functional checks can demonstrate
-this implementation. Cloud/Xvfb does not establish Fedora/KDE/Wayland/PipeWire,
-current Flatpak, physical media keys or real audible service acceptance. Keep
-PR #15 Draft for the final owner review; no merge without explicit authorization.
+All original Karin materials use GPL-3.0-or-later. Private screenshots, account
+contents, tokens, service covers and music files do not belong in public evidence.

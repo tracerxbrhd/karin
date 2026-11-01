@@ -1,122 +1,215 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 
-# Karin v0.4 — Complete Music Experience
+# Karin v0.4 — Cassette-like refinement and continuous collections
 
-## Authority and acceptance
+## Authority and scope
 
-This specification follows the owner's **Complete Music Experience Redesign**
-request of 2026-11-01, preserved in [CODEX_TASK.md](CODEX_TASK.md). It supersedes
-preliminary Native Music B requirements and illustrative references wherever they
-conflict. Starting revision: `a9eed4514802df84d73b0608dd1a62930fc1af76`.
-The owner did **not** accept that revision's UI/UX. Successful technical checks
-and earlier real-service acceptance remain historical evidence, not acceptance
-of this redesign. [UX_RESEARCH.md](UX_RESEARCH.md) separates observations,
-current source inspection, fresh starting GTK captures and design decisions.
+The owner's latest [full task](CODEX_TASK.md), starting from
+`a70bbf714e3d7ea775c03839eb01f0b1d9dd4f62` in existing **Draft PR #15**, supersedes
+conflicting previous v0.4 requirements. This is a refinement of the working
+music client, not a replacement application or a new concept from scratch.
+No new PR, merge or branch deletion. Earlier runtime, cloud/CI and owner results
+remain historical evidence; none automatically accept this iteration.
 
-Work only in `feature/v0.4-native-music-ui`, existing **Draft PR #15**. No new PR,
-merge or branch deletion. Keep it Draft until owner Fedora visual acceptance.
-This target and its original SVGs do not certify the running implementation.
+Use the supplied Cassette-like screenshot as a **composition reference**: light
+upper segments, a real collection hero, calm song rows, one coherent music-info
+sidebar and restrained transport. The primary agent inspected that screenshot;
+it contains desktop/personal material and is not copied into this repository.
+No reference art, account content, icon paths or branding is an application asset.
+Previously inspected public sources remain qualified in
+[UX_RESEARCH.md](UX_RESEARCH.md), including the distinction between Cassette's
+released screenshots and its unfinished main-branch rewrite.
 
-## One music workspace
+Keep Rust/GTK4/Libadwaita/GStreamer, current authentication/persistence, MusicService,
+StreamResolver, PlaybackController, queue/policy, MPRIS and cache boundaries.
+The old permanent-footer/rail/dropdown/page-button sketches are **historical**
+where they conflict with the rules below. The implementation review preserves
+their executed results separately from new evidence.
 
-Four cooperating regions: compact expandable rail; main music workspace;
-**one universal right panel**; permanent Player Bar. The rail contains only
-**Home, Search, Library**. Queue is no longer a primary route/rail item.
-Settings and technical diagnostics belong in the application/account menu.
+## Light primary navigation
 
-Retain native HeaderBar/window controls, concise real errors, Retry, confirmations,
-tooltips and accessible names. Name a page once: no duplicated Home/Your Music
-heading. In compact dedicated panel views, title and explicit Back reflect
-Track Info or Queue; closing restores the route title and usable focus.
+Use three clearly named native tabs/segments: **Моя волна**, **Нравится**,
+**Плейлисты**. Place them in or directly beside the compact HeaderBar so they
+read as the main navigation, not another settings control. Keep native window
+controls, accessible labels, selection/focus states and useful compact labels.
+If the smallest HeaderBar cannot fit everything, adapt a short adjacent segment
+row rather than clipping labels or reverting to a primary dropdown.
 
-Main content grows with the available viewport. Remove an arbitrary narrow
-centered clamp that creates a large empty strip beside the right panel. Few
-collections retain natural tile sizes instead of stretching to giant cards.
-Align central content, panel and footer with a small 4/8/12/16/24px spacing scale.
+- **Моя волна:** an explicitly nonworking product placeholder authorized by this
+  task. Show a brief truthful unavailable state. No functional Play, fake station,
+  recommendations, remote Wave request or claim that service radio works.
+- **Нравится:** real liked tracks and relevant actually returned liked entities,
+  with clear small sections where useful. No collection-type dropdown.
+- **Плейлисты:** owned and liked playlists in straightforward visual sections,
+  preserving real creation/open actions and empty/loading/error states. Avoid
+  dropdowns and unnecessary intermediate routes.
+- Search remains a coherent HeaderBar action/view with a clear return path and
+  the existing four real categories. Settings/account/diagnostics stay secondary.
+  Queue is a footer/panel action, not a primary page.
 
-## Visual system
+Name a view once. Prefer the application name in the primary HeaderBar rather
+than repeating the selected segment and collection label a third time. Compact
+title/Back reflect the actual panel or search view;
+closing restores the underlying tab and usable focus. Changing tabs, loading
+another batch or searching never dismisses a pinned panel or restarts playback.
 
-- Use Libadwaita theme colors, semantic classes and native symbolic icons; proper
-  system/light/dark, HiDPI, contrast, focus and reduced-motion behavior.
-- Let real artwork supply richness. Keep chrome quiet; avoid repeated borders,
-  heavy per-track cards, glass, blur, decorative gradients and artificial gaps.
-- Native title/heading/body/caption hierarchy: stronger track title, legible
-  artist, quiet duration/actions. Constrained lists ellipsize with full accessible
-  text/tooltips; heroes and information may wrap meaningful long metadata.
-- Target 60–66px song rows with 44–52px art. Highlight the actual occurrence,
-  not every matching Track ID. Use consistent hover, focus and selected states.
-- Natural-size collection tiles roughly 144–184px square where suitable;
-  compact consistent labels and responsive wrapping. Collection hero art roughly
-  96–144px with concise facts and one supported primary action.
-- Missing artwork has an honest native fallback. No reference image, copied logo,
-  synthetic catalog or demo art enters the ordinary release as service content.
+## Music composition and visual system
 
-## Universal panel: state, presentation and ownership
+Refine the existing native spacing, typography and art hierarchy. Use Libadwaita
+system/light/dark colors, symbolic icons, accessible names and normal hover/focus/
+selected states. No glass, decorative gradients, fake catalog or heavy card wall.
+Keep visible prose rare; retain real errors, Retry and confirmations.
 
-Logical state is explicit: **Closed | TrackInfo | Queue**. Separate user mode/open
-intent, content availability, responsive presentation, information target, real
-current queue occurrence and transient animation progress. GTK reveal state is
-not the source of truth for the user's chosen mode.
+Use a small spacing scale near 4/8/12/16/24 logical pixels. Collection art/title/
+concise facts/primary Play form one compact hero. Quiet song rows keep roughly
+60–66px height and 44–52px art, legible artist/duration, exact-current-occurrence
+emphasis and contextual secondary actions. Natural-size playlist/album tiles
+wrap without stretching one item into a giant card. Do not restore an arbitrary
+narrow main-content clamp or an unexplained strip beside the panel.
 
-Track Info and Queue share one stable outer surface, common header/close position,
-width and transition. One queue model and one queue widget tree. Do not create
-independent sidebars, rebuild/reparent the whole surface for a content update or
-fight dismissal with an immediate reopen.
+Empty/few/large collections, long names, missing art and unavailable tracks are
+normal states, not reasons to insert unsupported content. The Wave placeholder
+is the only explicitly authorized new nonworking product destination; it does
+not authorize fake related songs, radio, offline audio or lyrics elsewhere.
 
-| Explicit action | Closed | Track Info open | Queue open |
-| --- | --- | --- | --- |
-| Current cover / show information | Open Track Info | Show current metadata; stay open | Switch to Track Info in place |
-| Ctrl+I | Open available Track Info | Close explicitly | Switch to Track Info in place |
-| Player Bar Queue / Ctrl+J | Open Queue | Switch to Queue in place | Close explicitly |
-| Track Details | Open selected metadata without playing | Replace explicit selection | Switch to selected Track Info |
-| X / compact Back | Remain closed | Close explicitly | Close explicitly |
+## Universal musical side panel
 
-Outside clicks, scrolling, navigation, track changes, refresh, Pause, Seek,
-Volume, queue edits and resizing preserve mode/open intent. Diagnostics may
-suspend rendering while retaining intent. Logout clears personal content and
-pending work and closes safely. Closing returns focus to a usable initiating
-control or real main-page action; stale detached controls cannot affect a new
-session.
+Retain one controlled `Closed | TrackInfo | Queue` surface, its shared header,
+width policy and whole-surface opening/closing. Mode/open intent, responsive
+presentation, availability, information target and actual queue occurrence remain
+separate. Do not use transient GTK animation progress as the user's chosen mode.
 
-### Whole-surface motion
+TrackInfo ↔ Queue switches contents **in place**, without replaying the slide.
+Background, edge, header, art, text and buttons move together on open/close.
+Outside clicks, scroll, navigation, playback, pause/seek/volume, data updates and
+resize preserve mode/open intent. Diagnostics may suspend it without forgetting
+intent; logout/close retires personal content and pending jobs safely.
 
-Opening/closing translate the **whole fully laid-out surface**: background,
-edge, header, art, text, buttons and queue rows. Descendants retain coherent
-relative geometry throughout. Merely animating art or changing a Revealer
-transition type is insufficient. Audit allocation/clipping, Overlay/Revealer,
-ScrolledWindow and child visibility before choosing the container.
+### Track Info refinement
 
-Prefer GTK/Libadwaita; justify any narrowly scoped custom layout/frame-clock
-geometry. Do not jump the main area's width, overlap live central controls,
-spawn text early, reveal buttons late, flicker or reset scroll on every update.
-Switching TrackInfo ↔ Queue while open changes contents inside the same surface,
-optionally with a short crossfade, without replaying the slide or moving the
-shared header/close. Current-track changes update atomically in place and never
-restart sound or close/reopen the surface.
+Cover, title, artist, real known album and verified actions form one centered,
+readable musical cluster rather than unrelated technical rows. Keep their
+alignment and comfortable text width coherent in a wide sidebar and the larger
+compact dedicated view. The header is quiet; no duplicate large title or full
+second transport console. Unsupported related/recommendation blocks stay absent.
+Artwork must also respond to available **height**: normal title/artist/album and
+actions must remain visible above the active footer at 420×720, 720×650 and
+900×650. Long genuine metadata may scroll; it must not force short ordinary
+metadata actions below the fold merely to preserve an oversized cover.
 
-### Track Info
+Explicit Details never plays. A current metadata-block click shows current
+information; a new actual playback occurrence (including repeated IDs at another
+position) resumes following without closing. Pause/Seek/Volume preserve explicit
+other-track selection. Retain session generations, detail epochs and artwork
+cancellation against mixed metadata, late replies and old-account data.
 
-Large cover, title, artist, real known album and a concise set of verified actions;
-no duplicate full transport console. Separate `FollowingCurrent` and
-`ExplicitSelection`. Explicit Details never plays. The next actual current
-occurrence change, including a repeated ID at a different position, resumes
-following; Pause/Seek/Volume preserve explicit selection. Keep session generations,
-detail epochs and artwork cancellation against mixed metadata and late replies.
+### Queue refinement
 
-### Queue
+The same panel presents current / upcoming / history in a clear musical order,
+with current artwork/emphasis and compact supported actions. Keep count/source/
+partial boundary and Clear reachable above the scrolling rows. Select/play,
+manual add/remove, Details and clear keep their existing safe semantics and
+occurrence/session guards. Queue order reflects actual Shuffle/Repeat policy.
+It is not the Yandex synchronized cloud queue. The 500-position PlaybackContext
+and honest loaded-prefix boundary remain intact.
 
-Show current occurrence prominently, then **Next**, with history/manual positions
-where useful. Upcoming order must match the real local policy, including Shuffle.
-Keep select/play, add, remove, clear, Details, actual position, unavailable items
-and partial-collection boundary, with concise contextual actions. Stale controls
-retain generation/occurrence guards. Details switches this same panel to TrackInfo.
+### Entry and responsive rules
 
-The local PlaybackContext is at most 500 loaded positions, not Yandex's synced
-cloud queue. No hidden fetch of an entire remote playlist. Selection/advancement
-updates active row, footer, next occurrence and MPRIS together while Queue stays
-open. Clear/removal has a defined safe transport result, without retry loops.
+The **whole current-track metadata region**—cover, title, artist and surrounding
+metadata space—is one clickable/focusable target for Track Info. A click while
+already in Track Info keeps it open; from Queue it switches in place. Current
+cover is no longer the only hit area. Keep Like and other independent actions as
+separate targets, not interactive buttons nested inside a metadata button.
 
-## Real local Shuffle and Repeat
+Ctrl+I / explicit close / compact Back remain intentional controls. Footer Queue
+and Ctrl+J open Queue in this same surface; repeated Queue can explicitly close.
+On compact layouts use the dedicated explicit panel view if a usable side column
+cannot fit. Preserve mode/target across resize. The Player Bar remains usable
+**when active**, not forcibly visible merely because a panel is open.
+
+## Player Bar lifecycle and interaction
+
+**Idle is hidden.** With no active track/playback intent, the bottom bar occupies
+no permanent empty strip and contributes no hidden focus targets. Metadata-only
+Details, browsing a library, opening an empty queue or selecting an unplayed
+item must not pretend a player session has started.
+
+After real track activation, reveal the existing bar smoothly from below using
+native GTK/Libadwaita animation; the whole footer, not isolated controls, appears
+coherently. Active loading/playing/paused states retain it. A failed active play
+attempt retains understandable error/explicit Retry controls; a full Stop,
+cleared active track, logout or closed session may hide it. Pause **never** hides
+it. Do not add fake restoration or autoplay: an active restored state may show
+only if that state really exists.
+
+Footer visibility consumes the existing application/player snapshot and explicit
+play intent, not a second audio state. No panel/visibility animation restarts the
+worker, replaces the queue or changes MPRIS playback status. Retain reduced
+motion and focus-safe show/hide. No visible Stop button; controller/MPRIS Stop
+remain supported for system commands, logout and shutdown.
+
+Wide: current metadata/real Like at left; genuinely centered Shuffle, Previous,
+Play/Pause, Next, Repeat; Queue/Volume at right, functional progress/time. Text
+length must not move transport. Compact keeps useful metadata and primary
+controls in a readable two-row composition, with honest native overflow for
+modes/volume as necessary. Start loading uses a stable-size native spinner,
+without changing the bar's natural height midway through the reveal. Repeat One
+retains a literal visible **1**, independent of the theme's repeat-song icon.
+
+## Direct Like; honest Dislike boundary
+
+Reuse the existing server-confirmed Like contract. The footer's real action
+reads membership if needed and performs the typed write/readback asynchronously;
+update state only after confirmation. Show loading/failure and retain the previous
+confirmed state on errors. A single direct action must not become a decorative
+heart or require opening a developer-style action menu. Account/track generations
+retire old replies; never automatically repeat an ambiguous POST.
+
+Published clients expose Dislike endpoints, so lack of implementation must not
+be described as “the Yandex API has no Dislike.” However, Karin has no verified
+matching write/state/side-effect contract for this integration. **Hide unconfirmed
+Dislike in ordinary UI**, as the task permits. Do not infer dislike from removing
+a like, fabricate local success or present an enabled decorative control. Record
+what was verified and what remains unknown separately from service restrictions.
+
+## Continuous track lists, bounded work
+
+Replace explicit Previous/Next track-page controls with incremental scroll-driven
+loading wherever track pagination existed: liked tracks, relevant track search
+and album/artist/playlist details. Preserve genuine four-category search, Back,
+query and entity navigation. Non-track entity pagination may remain where needed;
+it is not a reason to retain rough track-page switching.
+
+- Request bounded existing-service batches, one in-flight continuation per
+  source/generation. Provider batches retain the existing 50-position contract.
+  Initially prefill at most three provider pages; thereafter an actual wheel,
+  PageDown or End gesture near the lower threshold admits a continuation, even
+  if a sparse viewport still has zero scroll range. Stop at the real end.
+  Do not fetch an entire remote collection in a hidden loop or block GTK.
+- Append each provider page/position range at most once. Preserve legitimate
+  duplicate Track IDs at distinct playlist positions; deduplicate retries/page
+  application, not musical occurrences merely by identifier.
+- Keep already displayed rows and scroll position while appending. Show concise
+  tail Loading, End or an actionable inline Retry; an error must not erase the
+  useful loaded prefix or be disguised as successful end-of-list.
+- Bind replies to the current account, tab/query/detail source and request
+  generation. Reject retired/out-of-order results. Cancel safely on navigation,
+  logout and close, and do not let a shared busy flag discard user actions.
+- Old rows activated after a new batch use the current loaded source and exact
+  original position. New explicit playback takes the aligned **500-position
+  window containing that position**, with source offset, original positions and
+  an opaque epoch; it does not always select the first 500 or renumber identity.
+  Scrolling never replaces or restarts the already active immutable context.
+  Partial/context-window limitations remain honest.
+- The view is bounded to **2000 rendered positions and 100 provider pages**.
+  Reaching a safety bound is a labeled partial limit, not successful end-of-list.
+  No manual Continue or track-page button is reintroduced for sparse data; actual
+  scroll gestures and error Retry retain their distinct meanings.
+  Creation and mutable likes/membership remain network authoritative, with the
+  existing cache provenance rules.
+
+## Preserved local Shuffle and Repeat
+
 
 Use a typed policy over existing MusicQueue/PlaybackContext. Do not shuffle the
 physical source list, fabricate buttons or create another player. Repeat cycles
@@ -148,25 +241,8 @@ PlaybackController, StreamResolver admission/cancellation and their existing
 error/cleanup paths remain the foundation. These are local player modes, not
 unverified Yandex API capabilities.
 
-## Player Bar
+## Preserved MPRIS 2.2
 
-Wide/medium: real art/title/artist plus a server-confirmed like if supported on
-left; genuinely centered **Shuffle, Previous, Play/Pause, Next, Repeat**; Queue
-and Volume at right. Metadata length must not move transport away from center.
-Play/Pause is primary without an oversized decorative treatment. Progress,
-elapsed and duration form a useful, legible seek area aligned with the grouping.
-
-**Remove visible Stop from the music footer.** Keep internal Stop and MPRIS Stop
-for system commands, logout and shutdown; preserve existing transport semantics.
-
-Compact keeps art, useful title, essential transport, Queue and functional seek.
-Shuffle/Repeat can move to native overflow with honest current states where space
-requires; Volume remains reachable. No clipping, excessive extra rows or modes
-that disappear entirely. Footer remains available with either dedicated panel
-view. UI indicators consume the same policy/controller, never a second playing
-state.
-
-## MPRIS 2.2
 
 Use the same application policy and in-process session-bus adapter. Publish
 read/write **Shuffle** and **LoopStatus** (`None`, `Track`, `Playlist`), validate
@@ -177,53 +253,41 @@ metadata/transport/position/volume behavior. No TrackList, daemon, broad bus
 access, tokens, account IDs, cookies or signed addresses. Follow the
 [official Player interface](https://specifications.freedesktop.org/mpris/latest/Player_Interface.html).
 
-## Screens in the same system
+## Verification and evidence for this refinement
 
-**Home:** genuine artwork/collections and liked music, concise section headers
-and useful Play/open actions. Show listening context only when it exists. Remove
-three giant navigation shortcuts and repeated page headings. No invented recent
-history, recommendations, My Wave or other fillers.
+Create fresh source-matched real GTK evidence; historical a70/C10 screenshots are
+before evidence only. Inspect wide dark, wide with Info, Queue, hidden idle bar,
+visible active/paused bar, honest Wave placeholder, Liked, Playlists, Search,
+compact and light/HiDPI states. Retain the established wide/medium/compact and
+boundary-size matrix, owner-wide 1650×930, true maximize, both themes and scales.
 
-**Library:** compact understandable navigation for liked tracks, owned and liked
-playlists, not a dominant dropdown. Real playlist art/title/count/actions form a
-concise hero. Creation remains server-confirmed, with honest ambiguous/error
-outcomes.
+Use actual mouse/keyboard to open Info from cover, title, artist and empty
+metadata hit area; test separate Like/modes/queue focus, repeated activation,
+outside clicks, tab navigation, resize, logout and late replies. Check the entire
+footer bottom-up reveal/hide at intermediate native frames, pause persistence,
+Stop/no-active hide and reduced motion separately. Preserve the universal panel's
+whole-surface normal-motion checks and the exact documented initialization scope.
+Earlier cold first-paint failures remain historical; warm measured cycles do not
+establish ordinary cold-start responsiveness, and production must not prewarm.
+The [implementation review](IMPLEMENTATION_REVIEW.md) records the current
+source-matched execution scope, retained failures and first-reveal paint gaps;
+a passing initialized-renderer panel matrix must not be used to accept a raw
+first-footer sequence with missing smooth intermediate presentation.
 
-**Search:** four genuine independently handled categories, compact songs,
-album/playlist grids and suitable artist treatment. Preserve batch normalization,
-paging, Retry, Show All, Back, query/detail context and partial failures.
+Continuous-list fixtures must cross multiple real local HTTP pages, prove one
+application per page, true end, tail error/Retry, stable scroll, old-row activation,
+duplicates, cancellation/stale replies and preserved queue/audio. Like tests use
+real typed local fixtures, not fake production data. Dislike limitations remain
+visible in development/acceptance notes, not as a pretend working button.
 
-**All:** truthful loading/empty/saved-data/unauthorized/unavailable/error states;
-protected login/session, cache, preferences and explicit safe logout. Technical
-diagnostics remain outside music content. Offline audio, My Wave and lyrics
-remain outside this task; no nonfunctional controls posing as support.
+Run stable and exact Rust 1.98.1 formatting, warning-free all-feature Clippy,
+default/all/minimal tests, builds and relevant GTK/WebKit/GStreamer/MPRIS/policy
+regressions, locked/offline release, license and Flatpak checks when available,
+and all GitHub Actions. Preserve historical results and state current executed
+checks separately. No warning/test suppression or weakened evidence standards.
 
-## Responsive and acceptance contract
-
-Inspect 420×720, 720×650, 900×650, 1280×800, 1440×900, 1920×1080 and true
-maximize, plus owner-reported 1650×930; light/dark and 1×/2×. Wide uses a right
-column. Medium leaves main row actions usable. Compact uses a dedicated panel
-view in the same logical system. Mode/target/open intent survive resizing both
-ways, with the footer available. Useful song density and readable long metadata
-matter as much as absence of clipping.
-
-Capture populated Home/Library/playlist/Search, both panel modes, footer modes,
-few/many collections, missing art, long titles, empty/unavailable/error/loading,
-rapid switches and late replies. Synthetic data stays test-only. Compare fresh
-same-sized before/after **real GTK** frames. Old SVGs/static final screenshots
-cannot pass animation or new owner acceptance.
-
-Record motion beginning, approximately 25/50/75 percent and fully open, plus
-closing, with animations enabled. Assert shared relative geometry and inspect
-actual frames; mode-switch must not replay the slide. Test reduced motion
-separately, actual mouse/keyboard, focus, queue duplicates/edits/limit, mode/EOS
-combinations, external MPRIS writes/signals and cleanup.
-
-Run stable and exact Rust 1.98.1 fmt, warning-free all-feature Clippy,
-default/all/minimal tests, ordinary build, locked/offline MSRV release, native
-GTK/WebKit lifecycle, GStreamer/MPRIS, Flatpak when SDK exists and GitHub Actions.
-Preserve historical results. Report authored code, executed fixtures and owner
-acceptance distinctly. Handoff: reviewed real before/after images, motion
-frames/video, test/subagent reviews, source-matched verified native artifact and
-one Fedora 44 guide. Fedora/KDE/Wayland/PipeWire, audible Music and current
-Flatpak acceptance stay owner-local; cloud frames cannot certify them.
+Handoff includes coherent current screenshots, native footer/panel motion,
+continuous-loading/input proof, verified artifact, role/review results and precise
+limits. Fedora/KDE/Wayland/PipeWire, real-account Like/session/library behavior,
+audible Music, cold first appearance and current Flatpak acceptance remain
+owner-local. Cloud fixtures never certify them. PR #15 stays Draft.

@@ -16,18 +16,21 @@ the containment assertion or substitute guessed coordinates.
 
 ## v0.4 complete music-experience gate
 
-The owner's [current specification](design/v0.4/DESIGN_SPEC.md) supersedes the
-first Native Music visual target. Revision `a9eed45` is the before baseline:
-its cloud checks passed, but its Fedora UI/UX was rejected. Keep previous
-results; do not reuse old captures as evidence of the new implementation.
+The owner's latest [specification](design/v0.4/DESIGN_SPEC.md) refines the
+implemented UI at `a70bbf7`. It supersedes older permanent-footer and
+Home/Search/Library rules. The new before baseline is the exact a70 production
+source and original harness unchanged; a9 remains historical evidence only.
+Keep previous results and cold-motion limitations, but never relabel an old
+capture as the new after state.
 
-The client has three primary navigation destinations, a central music workspace,
-one universal Track Info/Queue panel and a permanent Player Bar. Inspect real
-music hierarchy, useful density and aligned controls rather than only clipping.
-Home uses genuine loaded covers/collections rather than giant navigation cards.
-The footer has functional Shuffle/Repeat and no visible Stop button; MPRIS Stop
-is retained. Short errors, Retry, confirmations, tooltips and accessible names
-remain necessary even when visible explanatory text is reduced.
+The client uses lightweight Wave/Liked/Playlists tabs or segments, accessible
+unified Search, one universal Track Info/Queue panel and an activity-dependent
+Player Bar. Wave is the explicitly requested honest unimplemented landing, not
+fictional radio content. Inspect real music hierarchy, useful density and aligned
+controls rather than only clipping. Liked/Playlists use actual loaded data and
+sections rather than primary dropdowns. The active footer has real Shuffle/
+Repeat and no visible Stop; MPRIS Stop remains. Short errors, Retry,
+confirmations, tooltips and accessible names remain necessary even when visible explanatory text is reduced.
 
 ### Fresh matched matrix
 
@@ -35,18 +38,65 @@ Capture the before and current revisions at **the same actual size, theme,
 scale and page**. Use 420×720, 720×650, 900×650, 1280×800, 1440×900,
 1650×930 (the owner-reported wide layout), 1920×1080 and actual window-manager
 maximize; light/dark; scales 1 and 2. Cover current
-`Closed`, `TrackInfo` and `Queue` modes (**96 current base cases**). The before
-revision has no shared Queue mode: compare its genuine corresponding queue
-presentation and label that structural difference; never synthesize a panel or
-rename a different state to make a pair appear equivalent.
+`Closed`, `TrackInfo` and `Queue` modes. The a70 before already has the shared
+panel but an always-visible, selection-only footer in its archived fixture.
+Current active-footer evidence must use actual playback, with hidden-idle cases
+shown separately. Compare real content roles and label changed navigation/footer
+states honestly; do not synthesize a before mode or force an after bar visible.
+The archived source and original harness remain unchanged.
 
 Record requested and achieved geometry, source revision, binary fingerprint,
 library versions, theme/scale and motion settings. Inspect all accepted images,
-including original HiDPI pixels. Supplement the matrix with Home, Library,
-playlist/album, four-category Search/Show All, queue edits, account/Preferences,
-active Shuffle/Repeat, empty/sparse/large collections, long metadata, absent art,
-loading/error/Retry, unavailable tracks and visible focus. A six-row density
+including original HiDPI pixels. Supplement the matrix with Wave placeholder,
+Liked, owned/liked Playlists, playlist/album, four-category Search/Show All,
+queue edits, account/Preferences, initially hidden and actually active/paused
+footer, real Like, active Shuffle/Repeat, empty/sparse/large collections, long
+metadata, absent art, loading/error/Retry, unavailable tracks and visible focus.
+A selected queue row alone cannot stand in for actual active-footer proof: use
+the fixture StreamResolver, original generated MP3 and real PlaybackController.
+No production fake data or forced widget visibility supplies those images. A six-row density
 assertion at 900×650 with the panel closed is a useful minimum, not visual PASS.
+
+### New refinement input and continuous-content gates
+
+- Before an actual playback request, the footer consumes no idle strip or hit
+  area. A real request reveals it from below; Pause and retryable failure retain
+  it, a retained ended source can replay, and explicit Stop/logout/queue clear
+  hide it. Measure actual allocation, appearance/disappearance and normal versus
+  reduced motion; a revealer property alone is not visual proof. No player
+  presentation action may restart the worker or invent playing/progress state.
+  Verify the real held-request Play spinner and accessible loading state without
+  a transient loading-caption row changing footer height. Record first-start
+  native paint gaps separately: zero height reversals or a few raw intermediates
+  do not prove smooth cold reveal. The C9 1× first-start 116,669 μs gap remains
+  an unaccepted cold-footer result with unknown cause. Check final focus
+  routing after Stop hides a previously focused footer; do not infer it solely
+  from the revealer's requested state or a pre-Stop keyboard check.
+- Click the artwork, title, artist and blank metadata-zone portions separately,
+  then use Enter/Space. All must open Track Info through one accessible native
+  target. Like is independently focusable and must not accidentally activate
+  that target. Queue still switches within the same pinned panel.
+- Direct Like begins unknown/loading until account-bound membership GET, never
+  falsely unliked. Verify one explicit write plus independent confirmation,
+  safe error/retry, current-track/session change and late replies. Actual first
+  playback must map the lazy Like control safely while normal render borrows are
+  active; deferred lookup must reject a retired account/current-track intent.
+  Dislike stays
+  absent while its Karin contract is unconfirmed; Unlike is not Dislike.
+- Track lists use automatic bounded portions instead of visible page switches.
+  Exercise actual wheel/keyboard scrolling, near-end admission, one in-flight
+  request, loading/end versus local-limit states, failure/explicit read Retry,
+  repeated threshold notifications, refresh/query/account invalidation and late
+  replies. Initial sparse-viewport fill must stop at three provider pages total;
+  further zero-range wheel/PageDown/End intent may admit a read without a manual
+  Continue button or automatic empty-page drain. Preserve existing rows and
+  scroll anchor, exact repeated occurrences, search normalization and active PlaybackContext. Include direct Like while a
+  liked-feed read is in flight: invalidation must not leave a permanent loading
+  state, apply stale membership data or strand the next cursor. New visible data must not
+  silently replace an already playing queue or claim a partial source is complete.
+- Check Wave's clear unimplemented state with no fake stations, progress, play
+  action or dynamic recommendations. Liked/Playlists tabs, section headings and
+  Search must remain native, light and accessible without primary dropdowns.
 
 ### Whole-surface motion — measured graphics-ready scope
 
@@ -99,19 +149,25 @@ default-renderer acceptance.
 ### CI environment and selector coverage
 
 Keep Ubuntu 24.04 as the compiler, package, sandboxed-WebKit and functional
-baseline: 29 named native functional selectors remain in each stable/MSRV
-lane, with selected HiDPI repeats. Run the same two strict native visual
+baseline: retain the historical 29 named functional selectors and add the
+refinement's current cases in each stable/MSRV lane, with selected HiDPI repeats. Run the same two strict native visual
 selectors in dedicated `Native UI <toolchain> (Debian 13)` jobs for both Rust
 stable and exact 1.98.1, at both scales, on the modern native stack matching
 prepared cloud evidence (GTK >= 4.18, Libadwaita >= 1.7), with the explicit
-recorded graphics-initialization/measured-cycle separation above. This environment
+recorded graphics-initialization/measured-cycle separation above. Explicitly
+record the modern Mesa test setting `LP_NUM_THREADS=2`, including for the before
+baseline. Preserve the default-environment C7 2× sampling FAIL separately from
+controlled results; do not infer a driver cause, production repair or cold
+responsiveness from that one environment change. This environment
 does not raise Karin's application minimum, change Flatpak SDK or replace a
 failed Ubuntu result with an invented PASS.
 
-The compiled selector check must account for all **31 = 29 + 2** names across
-these jobs; omitting the strict tests, weakening quarter tolerances or extending
-production duration is not permitted. Both quality lanes also retain ordinary
-captures, matched a9 before captures and source/package/renderer provenance in
+The compiled selector check must retain the earlier **31 = 29 + 2** baseline
+and include every new refinement selector in the appropriate job; report the
+actual current total in validation. Omitting checks, weakening quarter tolerances
+or extending production duration is not permitted. Both quality lanes also retain ordinary
+captures, matched a70 refinement-baseline captures and source/package/renderer
+provenance in
 `karin-native-visual-<lane>-<github.sha>`. Ubuntu retains its functional
 `karin-ui-<github.sha>` evidence. Inspect actual run results before claiming
 success; a YAML definition and local PASS are not hosted evidence.
@@ -122,8 +178,8 @@ success; a YAML definition and local PASS are not hosted evidence.
   changes, repeat activation, X/compact Back, focus return, outside clicks,
   scrolling, navigation and both directions of all breakpoints. Preserve mode
   and open intent; Diagnostics may suspend presentation, logout clears it.
-  Include expanded navigation at 720 pixels: actual content below 620 pixels
-  uses the dedicated panel subview rather than squeezing unusable columns.
+  Include the 720-pixel boundary and actual content-width changes: dedicated
+  panel presentation must prevent unusably narrow simultaneous columns.
 - Check current occurrence following through Play, Next/Previous, queue pick,
   EOS and MPRIS, including duplicate IDs and late metadata/artwork replies.
   Explicit Details never plays. Pause/Seek/Volume retain explicit selection;
@@ -153,12 +209,13 @@ merge is authorized by a successful cloud run.
 
 ## Required matrix
 
-The accepted native music shell uses adaptive navigation. Check the actual desktop
-rail/sidebar and compact navigation, including labels/tooltips/accessibility for
-icon-only controls, opening/focus/activation/closing, cross-page keyboard
-focus and selected-page preservation across both directions of resizing. Check
-Home's real cached liked-track preview, metadata rows, contextual actions and
-the persistent selected-track bar. Play may begin real source resolution; Pause/seek and other transport
+The refined native shell uses adaptive tabs/segments without the old primary
+rail. Check actual labels/tooltips/accessibility, tab activation, explicit Search,
+cross-page keyboard focus and selected-view preservation in both directions of
+resizing. A retained old shortcut must route to a genuine current destination,
+not expose an obsolete hidden primary screen. Check
+Liked's actual cached track content, metadata rows, contextual actions and
+the active selected-track bar. Play may begin real source resolution; Pause/seek and other transport
 controls must reflect actual worker state/capability. An unresolved source must
 never show an invented playing state or measured progress.
 
@@ -199,7 +256,7 @@ For each theme and relevant page:
   control may be clipped, including when maximized.
 - Check heading levels, margins, group spacing and reasonable row/button widths.
   Long status and error text must wrap without pushing actions off-screen.
-  The persistent player's single-line track title may use native ellipsis only
+  The active player's single-line track title may use native ellipsis only
   when its complete text is available through a tooltip and accessible label.
   Playlist-tile metadata may use two wrapped lines with native ellipsis only
   when its full title is available in a tooltip/accessibility label and detail
@@ -291,7 +348,7 @@ context and navigating away must have explicit, predictable effects. A partial
 loaded page is not an entire remote collection. Retry/error/logout/close must
 not restart stale audio or silently discard the user's newer queue action.
 
-Verify that the persistent player's artwork, title, transport, progress, seek,
+Verify that the active player's artwork, title, transport, progress, seek,
 volume and queue controls match the actual selected source and worker state.
 Check empty, resolving, playing, paused, stopped, ended and failed states at
 compact and desktop sizes. A screenshot of a Play icon does not prove sound.
@@ -361,8 +418,9 @@ relevant size/theme/scale:
   loading/empty/error/Retry and keyboard focus. Confirm navigation using actual
   clicks/Enter/Space. Creation appears only when its server-confirmed workflow is
   implemented; ambiguous writes must not create a fake local tile or replay POST.
-- Keep My Wave and similar-track blocks hidden when their required real
-  contracts are not established. Source stubs and a renamed normal queue do not
+- The latest owner-authorized Wave tab is an explicit unimplemented placeholder
+  only. Keep actual My Wave playback/recommendations and similar-track blocks
+  hidden when their real contracts are not established. Source stubs and a renamed normal queue do not
   pass their capability gates.
 
 Automated persistence/cache captures must use isolated synthetic XDG directories,

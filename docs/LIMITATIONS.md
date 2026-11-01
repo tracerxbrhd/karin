@@ -23,7 +23,65 @@ acceptance revision. Exact provenance belongs in [VALIDATION.md](VALIDATION.md).
 Use the
 [current Fedora procedure](BUILDING.md#v04-native-music-acceptance-on-fedora).
 
-## Current v0.4 redesign boundary
+## Current refinement from `a70bbf7`
+
+The latest owner request replaces mandatory Home/Search/Library primary routes,
+a permanently visible idle footer and explicit track pagination with lightweight
+Wave/Liked/Playlists, accessible unified Search, actual-state footer reveal and
+bounded continuous reads. This is a new refinement request, not a fabricated
+owner acceptance result for a70. Earlier cloud/first-paint records remain below.
+
+- **Wave is an authorized placeholder, not radio support.** The user explicitly
+  requests this unimplemented landing. It must not invent stations, tracks,
+  recommendations, playback or a working radio-session lifecycle. This narrow
+  exception supersedes earlier instructions to hide the entire Wave destination;
+  actual radio functionality remains behind its separate contract gate.
+- **Dislike is unconfirmed for Karin, not absent from the service.** Published
+  Cassette/yamuse implementations use differing Dislike forms/paths. Their state,
+  side effects and compatibility with Karin's current session are not verified.
+  Hide the control rather than fake it or treat removal of Like as Dislike.
+  Like reuses existing account-bound membership/revision reads, one explicit
+  add/remove write and independent confirmation. Unknown and failed confirmation
+  remain visible states; ambiguous POST is not automatically repeated.
+- **A remembered login is not restored playback.** No active track is fabricated
+  at startup. The footer begins hidden without actual playback intent; Pause,
+  a retained ended source or a retryable active-request failure may keep it
+  available. Actual Stop/logout/queue clear hide it. Session restoration must
+  not be confused with an audio worker being active.
+- **Continuous does not mean unbounded.** A track feed retains at most 2,000
+  rendered GtkListBox positions and admits at most 100 provider pages of up to
+  50 positions. It is not an unlimited virtualized library. Local bounds are
+  labelled partial, not remote end; legitimate duplicate IDs retain their exact
+  occurrences. The current Play snapshots one aligned 500-position block, not
+  all 2,000 rendered positions or an entire remote collection. Appending catalog
+  data never silently expands an active queue. A sparse unscrollable fragment
+  is handled without a manual page button: at most three initial provider pages
+  fill the viewport, then actual wheel/PageDown/End admits another bounded read.
+  The same 100-page budget prevents an empty-page drain. Owned/liked playlist
+  entity Show More remains distinct from removed track-page controls.
+
+Current evidence is candidate-specific. Final C9 has a successful regular
+compiler matrix and source-matched native visual checks at both scales: 204
+static originals, 19 raw footer images with no observed height reversal, and
+48 initialized panel trajectories / 240 distinct selected motion frames under
+explicit test-only `LP_NUM_THREADS=2`. C7's default-environment 2× strict panel
+sampling **failed** after a roughly 66 ms gap; no geometry failure was reported.
+Both that FAIL and the controlled PASS remain recorded. C9's actual cold 1×
+footer first appearance also has a 116,669 μs native paint gap and a 16→73 logical
+pixel allocation jump despite zero reversals. Its cause is unknown. Raw footer
+intermediates do not prove smooth cold first appearance; **footer and panel cold
+responsiveness remain unaccepted**. There is no production prewarm, timing or
+renderer override. None of these fixtures establishes driver causation,
+physical-GPU/Wayland performance or Fedora acceptance.
+C8 corrects retained personal hero/feedback cleanup and playlist-refresh lane
+ownership; final C9 changes only three ignored fixtures for the actual spinner
+and hidden-footer input contract. C9's complete regular matrix and eight
+priority native runs pass; exact-head complete functional, hosted CI and native
+archive results are published in [PR #15](https://github.com/tracerxbrhd/karin/pull/15).
+The preceding C8 sweep's 48 PASS / 6 stale-fixture FAIL remains recorded; see the
+[current validation record](VALIDATION.md#v04-cassette-like-refinement).
+
+## Previous complete-redesign boundaries retained for this refinement
 
 The owner rejected the Fedora UI/UX of `a9eed4514802df84d73b0608dd1a62930fc1af76`:
 partial panel animation, weak content hierarchy, poor wide-space use, a separate
@@ -229,8 +287,9 @@ granular Secret Portal/backend deletion/failure matrix.
   replayed. Broader playlist editing, TrackList, variable speed,
   notifications and unrelated library features are not implied.
 - **My Wave/similar tracks/lyrics have separate gates.** A station list or normal
-  queue is not a radio-session/listening-feedback implementation. Keep My Wave
-  hidden until its full current session/capability is established. Do not publish
+  queue is not a radio-session/listening-feedback implementation. Keep functional
+  My Wave hidden until its full session/capability is established; the latest
+  explicitly unimplemented landing is the sole placeholder exception. Do not publish
   fabricated recommendations. The reviewed lyrics implementations use extracted
   official-client signing material; Karin imports none, and no separately
   permitted plain-text source is established. See [CASSETTE_PARITY.md](CASSETTE_PARITY.md).

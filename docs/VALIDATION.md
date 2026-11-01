@@ -6,10 +6,163 @@ This report separates initial cloud checks, user-reported Fedora acceptance,
 revised UI checks and compiler compatibility. A result for one environment or
 revision is not evidence that another has passed.
 
+<a id="v04-cassette-like-refinement"></a>
+
+## Current v0.4 refinement from `a70bbf7`
+
+Starting revision: `a70bbf714e3d7ea775c03839eb01f0b1d9dd4f62`.
+
+The owner requests a focused continuation of existing Draft PR #15: an initially
+hidden animated player, full current-track metadata activation, honest direct
+Like/unsupported Dislike, lightweight Wave/Liked/Playlists navigation and bounded
+continuous track lists. These requirements supersede conflicting previous
+permanent-footer, Home/Search/Library and visible track-page-control rules.
+This is a new request, not an invented Fedora PASS or FAIL for `a70bbf7`.
+
+The implemented refinement uses the existing authentication, MusicService,
+StreamResolver and GStreamer path. It adds activity-dependent native transport,
+whole-metadata activation, confirmed direct Like, responsive music tabs and
+bounded continuous views with original-occurrence provenance. Source review
+also found two lifecycle defects after C7: personal library hero data surviving
+logout, and a Like invalidation stranding playlist-refresh loading state. C8
+clears the retained hero/feedback during logout/close and adds the independent
+`PlaylistSections` lane (12 total); creation retires that refresh and resets its
+flags. Final C9 retains that production code and corrects three legacy native
+fixtures for the new actual spinner/hidden-idle-footer contract. C9 regular
+checks and eight priority actual-input executions pass; complete exact-head
+functional, hosted CI and archive results belong to the immutable PR #15 record.
+Fresh C9 native visual evidence is recorded below; C7 results retain their own
+source and environment scope.
+
+| Refinement evidence gate | Result |
+| --- | --- |
+| Wave/Liked/Playlists primary tabs; accessible unified Search; no primary dropdown | Implemented; C9 priority actual-input navigation/search regressions **PASS** at both scales; fresh final visual evidence is recorded separately |
+| Initially hidden footer; real request SlideUp; Pause/failure/replay visibility; Stop/logout/clear cleanup | C8 functional playback/lifecycle fixtures **PASS** at both scales; C9 production release is byte-identical. C7 raw first-Play/Stop observation has no height reversal; final source-matched visual record is separate |
+| Whole metadata-zone mouse/Enter/Space opens TrackInfo; Like has independent focus/action | C8 genuine-worker functional fixtures **PASS** at both scales, including title/artist mouse regions and keyboard activation; C9 production is unchanged |
+| Confirmed direct Like, unknown/loading/errors/late-session handling; unconfirmed Dislike absent | C8 counted HTTP/GTK regressions **PASS**, including 420-pixel error popup at 1×/2× and no ambiguous POST replay; C9 production unchanged. Actual service mutation remains owner-local |
+| Bounded continuous portions; retry/end/scroll/duplicate/context and retained cache-origin safety | Implemented with 2,000-position/100-page UI bounds and immutable 500-position playback windows. C9 regular domain tests and priority actual-input search/row regressions **PASS**; exact-head complete selector ledger belongs to PR #15 |
+| Pinned TrackInfo/Queue, occurrence following, Shuffle/Repeat and MPRIS regression | C8 shared-worker/modes/MPRIS fixtures **PASS** at both scales; C9 same-runtime native Queue input regressions **PASS**. Complete exact-head results are published with PR #15 |
+| Fresh exact a70 before evidence | Static 1×/2× **PASS**; original default-environment initialized motion 1× **PASS**, 2× **FAIL** after a roughly 100 ms gap missed the 75% quarter. One new explicit LP2 pair **PASS** (33.05 s / 47.41 s) with unchanged archived source/harness/guards; both outcomes retained |
+| Fresh C7 visible/hidden active-player matrix | **PASS, C7 local**: 204 static originals plus 20 raw footer images, including 96 equal-size a70/current matrix pairs; actual maximize, both themes/scales and genuine fixture playback |
+| C7 strict initialized right-panel motion, default environment | 1× **PASS**; 2× **FAIL**: a 66,668 μs native gap omitted the 75%-openness frame during compact/light/Queue closing. No geometry failure reported; the full default-environment 240-image gate did not pass |
+| C7 controlled strict motion, `LP_NUM_THREADS=2` | **PASS, both scales**: one controlled run each, 48 trajectories / 240 distinct selected native frames; original 240 ms, setup/phase/geometry guards unchanged. This is environment-scoped initialized motion, not cold responsiveness or a causal driver diagnosis |
+| Final C9 matched static/footer and strict LP2 panel evidence | **PASS in recorded scopes, four source-matched runs**: 204 static originals + 19 raw footer images, 96 equal-size a70/current matrix pairs; initialized normal panel motion 48 trajectories / 240 distinct selected frames at 1×/2×. Raw footer has no height reversals, but its cold 1× first appearance has a 116,669 μs paint gap; smooth cold footer/panel appearance remains unaccepted |
+| Stable/exact Rust 1.98.1 regular compiler, release and smoke checks | **PASS for final C9**: stable 1.99.1/exact 1.98.1, fmt, strict default/all/minimal Clippy/tests/builds; 369/377/355 library plus 4 CLI tests per configuration/compiler; ordinary/all-feature offline MSRV releases and GTK/GStreamer/generated-WAV/terminal/license checks |
+| Exact-head complete functional suite, hosted CI and downloaded native archive verification | Results are published in the immutable [PR #15 checks/artifact record](https://github.com/tracerxbrhd/karin/pull/15/checks). At this documentation freeze C9 has eight priority executions; do not infer full-suite/hosted/archive PASS from the regular matrix or prior work |
+| Current full Flatpak build/runtime | Unavailable locally: SDK/runtime absent; host release and old Fedora Flatpak acceptance do not establish a current full package check |
+| New owner Fedora/Wayland/PipeWire, first appearance, real Music/Like/KDE and current Flatpak acceptance | Pending; PR stays Draft |
+
+### Source and execution scope
+
+Final C9's all-feature test executable SHA-256 is
+`1dfb1167c73fef4b7d8a2fdd2d7e917e360e1fc2611a314de43d7504c9be16c0`;
+its 108-source manifest fingerprint is
+`42b3d65135bbd5703a3c7a7c36cafe4d7fdf9b1ac94913d17eee7a8f639a0636`.
+`candidate-9/regular-result.json` records exit 0 and unchanged source hashes
+through both complete compiler matrices: **369 / 377 / 355** library tests
+(default/all/minimal), **4 CLI tests** per configuration/compiler, both fmt,
+strict Clippy and debug builds, ordinary/all-feature locked offline MSRV
+releases and restored ordinary release. Terminal 15, 40-buffer GStreamer,
+generated WAV, ordinary/experimental GTK smoke and the unchanged **207-package
+lockfile / 178-package Linux graph** license inventory pass. Ignored native
+selectors are separately executed, not counted as passed by `cargo test`.
+The ordinary release SHA-256 is
+`9416aed52e89bba2ebf0b09fe443f3a798dae60c4d861cde13dc70914576a2af`;
+it is byte-identical to C8 because only three ignored-fixture files changed:
+`navigation_tests.rs`, `queue_view/tests.rs` and `row_activation_tests.rs`.
+
+The preceding complete C8 native sweep recorded **48 PASS / 6 FAIL**. The six
+failures were three old fixture assumptions at both scales: a literal Loading
+label where the mapped native spinner is now the contract, and two mouse clicks
+on the deliberately hidden idle-footer Queue button. These are retained failed
+executions, not a claim of a new playback defect. C9 uses the actual held mapped
+spinner and native Ctrl+J route without creating playback or forcing visibility;
+query-coalescing and exact duplicate/input guards remain. Those three selectors
+plus Search passed at both scales: **8/8 priority executions**. Complete
+exact-head selector results, hosted checks and source-matched native archive
+verification are published with [PR #15](https://github.com/tracerxbrhd/karin/pull/15),
+rather than inferred from partial local results. Current Fedora/full Flatpak and
+cold-first-use acceptance remain separate.
+
+The fresh C9 visual audit (`candidate-9/e-complete-native-proof.json`) matches
+that same binary and 108-source manifest. Both populated/static and strict
+motion selectors passed at both scales with explicit `LP_NUM_THREADS=2`:
+process wall times static **52.91 s / 76.97 s**, motion **34.63 s / 48.96 s**
+from `native-execution.json` (including test-process overhead). The audit retains
+**204 static originals**, **19 raw footer images**, **96 same-size a70/current
+matrix pairs**, and **48 normal panel trajectories / 240 distinct selected
+native frames**. Geometry tolerances, phase checks, the normal 240 ms duration
+and unconditional graphics initialization remain unchanged. The maximum
+child-relative geometry error was **0.000123 logical pixels**. The raw first
+Play and Stop records show actual intermediate allocations and **zero observed
+height reversals**; they are raw observations, not relabelled strict panel
+quarters. In particular, the 1× first-Play record retains four distinct selected
+actual frames rather than duplicating one to invent a fifth. The cold first
+1× footer appearance includes an actual **116,669 μs native paint gap** and an
+allocation jump from **16 to 73 logical pixels**. Its cause is unknown; zero
+height reversals and available intermediate frames do **not** establish smooth
+cold first appearance. No production prewarm, timing change or renderer override
+was added. All visual content is synthetic/local generated media. This proof
+accepts neither cold-first-use latency/smoothness of the **footer or panel**,
+real service writes nor Fedora/Wayland/GPU behavior. C7's default 2×
+sampling failure is preserved below.
+
+C7's all-feature test executable SHA-256 is
+`9ea0c6b6b7d6851816b7e3fc34a45fdc09ae20fee74c269068cef1378c980fe4`.
+Its source manifest fingerprint is
+`63c35c78c8402301a701c57d713f00a4eaf06ae8c2e2b90eb270e75cfa8c7977`.
+The local record is under `v04-refinement/candidate-7`; the compiler log is
+`v04-refinement/final-regular-matrix.log` in the prepared environment. The latter
+finished successfully with **368 / 376 / 354** library tests (31 / 31 / 28 named
+native tests ignored for separate execution) and **4 CLI tests** for each
+configuration on each compiler. Both offline MSRV release variants, 15 terminal
+boundary cases, a 40-buffer silent GStreamer diagnostic, generated local WAV
+transport/seek/EOS/cleanup and ordinary/opted-in GTK smokes passed. The reviewed
+license inventory remains **207 external lockfile packages / 178 Linux-graph
+packages**; that graph is not a binary SBOM. A completed compiler run does not
+execute its ignored native fixtures.
+
+C7 static review uses **96 base matrix images + 108 state images**, with 20
+additional untouched raw first-Play/Stop images. There are real intermediate
+footer observations at both scales and zero observed allocation-height
+reversals. Loading uses a stable Play-button spinner rather than a temporary
+caption row, so the former observed six-pixel height dip is absent from this
+record. The C7 matrix and controlled motion cover that exact source; later
+lifecycle fixes must retain their own source identity and checks.
+
+The default-environment 2× sampling failure is retained. In a single controlled
+experiment per scale, only `LP_NUM_THREADS=2` changed the test environment;
+original 240 ms production timing, unconditional graphics initialization,
+±.17 phase tolerances, five-distinct-frame and whole-surface checks remained.
+Both controlled C7 runs passed (**34.42 s / 47.64 s**), yielding 48 trajectories /
+240 selected frames. The archived exact a70 baseline then passed one separately
+recorded LP2 pair (**33.05 s / 47.41 s**) using an isolated target and its original
+production source and harness unchanged. This does not erase its default 2×
+failure or manufacture an old after image. Modern Mesa CI records this explicit test-only setting,
+including for its archived baseline. It supplies neither a production override,
+a reset cache, conditional retry nor proof of the cause of the default failure.
+Cold first-use latency remains unaccepted. The separate historical C5 motion
+record and pre-refinement C14 proof must not be relabelled as current-source
+cold acceptance.
+
+The new before baseline is the archived `a70bbf7` production source **and its
+original test harness unchanged**. Its queue-selected state had no actual worker
+and its old footer was always visible. Current active-bar proof uses actual
+fixture delivery, original generated MP3 and a real paused PlaybackController,
+not selection-only or forced widget visibility. Direct Like and continuous
+views use local synthetic HTTP/account data; they do not establish real Yandex
+write acceptance. No real account, service artwork, user reference screenshot
+or music recording is published.
+
+Retain the old GTK 4.14/4.18 NGL/Vulkan cold failures and scope their separate
+initialized-motion evidence. Owner-local ordinary first appearance, post-Stop
+focus routing, real audible Music/Like/KDE/Wayland and a full current Flatpak
+remain manual gates. PR #15 remains Draft and unmerged.
+
 <a id="v04-complete-music-experience-redesign"></a>
 <a id="v04-native-music-implementation-and-acceptance-record"></a>
 
-## v0.4 Complete Music Experience — current redesign
+## Pre-refinement complete redesign at `a70bbf7` — retained evidence
 
 Work continues in existing [Draft PR #15](https://github.com/tracerxbrhd/karin/pull/15),
 `feature/v0.4-native-music-ui`, starting from
@@ -27,7 +180,7 @@ and [single Fedora procedure](BUILDING.md#v04-native-music-acceptance-on-fedora)
 separate authored code, executed cloud fixtures and real desktop acceptance.
 No new result is PASS until the corresponding source-matched check runs.
 
-| Current redesign evidence gate | Result |
+| Pre-refinement redesign evidence gate | Result recorded for that implementation |
 | --- | --- |
 | Native music composition; three primary destinations; redesigned Home/library/search/Player Bar with no visible Stop | **PASS, C10 cloud review**: independent A/B/D reviews of fresh native states/motion found no remaining P0/P1; minimum-width title ellipsis and ordinary long-information scrolling remain documented owner checks |
 | One controlled Closed/TrackInfo/Queue panel; actual input/mode switching/focus/resizing/logout/cleanup | **PASS, C10 local**: actual input and responsive/lifecycle checks at both scales, including the 620-pixel content boundary, outside input, mode switches, queue/current following and weak-reference cleanup |

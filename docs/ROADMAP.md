@@ -117,57 +117,50 @@ images, actual native/Flatpak storage evidence, blocked service features and
 The separate v0.3 owner report accepts its stated functional scope, not every
 unreported backend/failure case or future code change.
 
-## v0.4 — Complete Music Experience in existing Draft PR #15
+## v0.4 — refinement of the existing music experience
 
-The owner rejected the UI/UX of `a9eed4514802df84d73b0608dd1a62930fc1af76`
-on Fedora despite its successful cloud checks. The new
-[design specification](design/v0.4/DESIGN_SPEC.md) and
-[implementation task](design/v0.4/CODEX_TASK.md) supersede conflicting earlier
-Native Music mockups. Preserve that failure and the accepted v0.3 service/audio
-baseline as different evidence. Continue only in
-[`feature/v0.4-native-music-ui` / Draft PR #15](https://github.com/tracerxbrhd/karin/pull/15);
-no new PR, merge or branch deletion is authorized.
+Continue existing [Draft PR #15](https://github.com/tracerxbrhd/karin/pull/15) on
+`feature/v0.4-native-music-ui` from `a70bbf7`; no new PR, merge or branch deletion
+is authorized. The latest owner request refines that implementation rather than
+starting another concept. It supersedes the earlier mandatory three-route
+Home/Search/Library rail, permanently visible footer and visible track paging.
+The previous [complete redesign](design/v0.4/CODEX_TASK.md) remains history where
+its requirements conflict with the current refinement specification.
 
-The delivery scope is one coherent native client, not a CSS-only revision:
+- Use lightweight “Моя волна”, “Нравится” and “Плейлисты” tabs/segments, with
+  accessible unified Search. Wave is the explicitly requested unimplemented
+  landing only; do not invent radio activity or recommendations.
+- Hide the Player Bar before a real playback request; reveal it natively from
+  below, retain it during Pause, replayable ended state and retryable failure,
+  and hide it for explicit Stop/logout/cleared context. Full current metadata
+  opens Track Info; confirmed Like is a separate real action. Dislike remains
+  hidden until Karin's contract is established, rather than masquerading as
+  Unlike or a working decoration.
+- Retain one pinned TrackInfo/Queue surface, controlled mode, occurrence-based
+  following, whole-surface presentation, exact queue/modes and MPRIS. Refine
+  real artwork/metadata grouping without fake related-content blocks.
+- Replace visible track page controls with bounded continuous loading, safe
+  single-flight read/retry/end states and stable scrolling. Keep the existing
+  active PlaybackContext immutable under catalog append and preserve its
+  500-position and visible partial-source limits.
 
-- Three primary destinations: Home, Search and Library. Real covers, liked
-  tracks and available playlists supply Home's hierarchy; no giant duplicate
-  shortcut cards, fabricated recommendations or repeated page headings.
-- One universal right panel with `Closed`, `TrackInfo` and `Queue` modes.
-  Cover/Ctrl+I and footer Queue/Ctrl+J select content in the same container.
-  Mode changes do not close/reopen it; outside input, navigation and resizing
-  preserve mode. The entire background/header/text/art/action surface moves
-  together. Queue is no longer a separate primary destination.
-- A permanent, centered Player Bar with actual metadata/artwork, seek/progress,
-  volume and queue. Functional Shuffle and Repeat Off/Queue/One replace the
-  visible Stop control; controller and MPRIS Stop remain supported.
-- A bounded occurrence-based shuffle plan and history over the existing loaded
-  PlaybackContext. Repeat One handles EOS at the same occurrence; explicit
-  Next/Previous still navigate. Repeat Queue wraps loaded available items.
-  MPRIS writable Shuffle/LoopStatus and native buttons share that policy.
-
-[ADR-0022](adr/0022-universal-music-panel.md) and
-[ADR-0023](adr/0023-local-playback-order-and-mpris-modes.md) record these decisions.
-Preserve MusicService, guarded StreamResolver, GStreamer, session/cache,
-server-confirmed writes and the 500-position/partial-context boundary.
-Unsupported offline audio, My Wave, lyrics and recommendations remain outside
-this iteration.
-
-Implementation, executed regression evidence and owner acceptance remain
-separate gates. The expanded [quality gate](UI_QUALITY_GATE.md#v04-native-music-gate)
-requires fresh equal-size before/after GTK evidence at the six required explicit sizes, owner-wide 1650×930 and
-true maximize, both themes and scales, all three panel modes, populated/error
-states and intermediate animation frames. Current strict motion evidence is
-explicitly graphics-initialized: raw setup is separate, only the following
-unchanged normal native cycle is measured, and cold first-use responsiveness
-remains unaccepted pending the fresh-start Fedora gate. No production
-prewarming or backend change is introduced. Run stable and exact Rust 1.98.1,
-default/all/minimal tests, release, GTK/WebKit/GStreamer/MPRIS and available
-Flatpak checks. Results belong in
-[VALIDATION.md](VALIDATION.md#v04-complete-music-experience-redesign), not in a
-claim inferred from the previous CI. Use the
-[single Fedora guide](BUILDING.md#v04-native-music-acceptance-on-fedora) for a new
-real Music, desktop and visual acceptance. Keep PR #15 Draft until supplied.
+Fresh equal-size before evidence must use the unchanged `a70bbf7` production
+and test harness, not a9 or renamed prior after images. New active-footer
+captures use a real fixture resolver, generated MP3 and paused PlaybackController;
+selection alone or a forced visibility flag is not active-player proof.
+Follow the [quality gate](UI_QUALITY_GATE.md#v04-native-music-gate), updated
+[design/task](design/v0.4/README.md), stable/exact-1.98.1/native regressions and
+[single Fedora guide](BUILDING.md#v04-native-music-acceptance-on-fedora).
+The refinement implements these routes, real active-footer/Like presentation,
+bounded continuous views, original-occurrence provenance and cached immutable
+500-position playback windows. Current cache-origin warnings follow retained
+content, not the last completed reply. Local compiler/fixture evidence remains
+candidate-specific; later lifecycle fixes require their own checks.
+Old CI/cold-paint failures, initialized-motion scope and accepted service/audio
+history remain in [VALIDATION.md](VALIDATION.md). A controlled modern-Mesa worker
+setting does not replace a default-environment sampling FAIL or prove
+cold-first-use responsiveness. Keep PR #15 Draft pending new
+owner review; public service-distribution and offline-audio gates remain separate.
 
 ## Independent release conditions
 

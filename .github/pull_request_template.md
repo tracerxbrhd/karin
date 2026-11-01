@@ -61,7 +61,7 @@ state that explicitly; do not mark unexecuted visual checks as passed.
 - [ ] Playlist tile layout/long titles/missing covers/loading/error/keyboard activation checked; Create uses one write plus server confirmation and never a fake local entry
 - [ ] Persistent preferences, restore/cleanup errors, cache enable/limit/usage/clear and asynchronous updates inspected in both themes/scales
 - [ ] Current/next/unavailable queue markers and actual bottom scroll reachability reviewed without changing the accepted player composition
-- [ ] My Wave/similar tracks/offline audio remain hidden unless their complete actual contracts/capabilities are established
+- [ ] Unconfirmed Dislike/similar tracks/offline audio stay hidden; the owner-requested Wave landing is explicitly unimplemented, without fake playback/recommendations
 - [ ] Single native sign-in dialog checked at all sizes/themes; no developer credentials/code/token fields, stale signed-out errors or completion before Music account validation
 - [ ] Only clean cloud screenshots shared; no private user/desktop captures added
 - [ ] Pending Fedora/KDE/Wayland visual acceptance explicitly listed
@@ -70,7 +70,13 @@ state that explicitly; do not mark unexecuted visual checks as passed.
 ## Native Music v0.4 (when changed)
 
 - [ ] Existing Draft PR #15 and its branch retained; no automatic merge
-- [ ] Approved five SVGs treated as references; 32 matched actual GTK before/after cases reviewed with per-source hashes and true maximize
+- [ ] Current task/references guide independent composition; 96 matched actual GTK before/after size/theme/scale/panel cases reviewed with source hashes and true maximize
+- [ ] Wave/Liked/Playlists native tabs and accessible unified Search replace primary dropdowns/rail
+- [ ] Idle footer allocates no strip; actual Play reveals it from below, Pause retains it, Stop/clear/logout hide it; normal raw first-start/Stop frames and reduced motion checked separately
+- [ ] Whole cover/title/artist/metadata area opens Track Info with mouse/Enter/Space; direct Like is separate, server-confirmed and never repeats an uncertain POST
+- [ ] Continuous track batches preserve rows/scroll/occurrences, show loading/end/partial/error/Retry, reject retired work and retain 2000-position/100-page UI and 500-position queue bounds
+- [ ] Independent playlist-section refresh/continuation and Like/Liked reads do not strand loading; logout removes collection artwork/count/actions as well as rows
+- [ ] Actual normal panel phase/geometry evidence records renderer, software-Mesa worker setting and graphics initialization; failed observations and cold first-use limits remain explicit
 - [ ] Pinned information survives outside clicks, scroll, navigation and resize; X/Ctrl+I/compact Back are explicit closes
 - [ ] Wide and medium reserve space; real GTK hit testing proves catalog Play/More remain reachable with information open
 - [ ] Actual current occurrence, duplicate positions, Next/Previous/EOS/MPRIS update information in place; explicit Details survives Pause/Seek/Volume

@@ -27,6 +27,7 @@ if [ "${1-}" != --session ]; then
         sha256sum "$binary"
         (cd "$repository" && git ls-files -z -- src Cargo.toml Cargo.lock | xargs -0 sha256sum)
         printf '\nAuthentication: explicit --ui-fixture; no live OAuth requests.\n'
+        printf 'Music pages are signed out here; populated music, active player and Queue are captured by the native loopback fixtures.\n'
         printf '\nExperimental UI requested: %s\n' "${KARIN_CAPTURE_EXPERIMENTAL:-0}"
         if command -v dpkg-query >/dev/null 2>&1; then
             dpkg-query -W xvfb openbox imagemagick xdotool librsvg2-common
@@ -119,21 +120,20 @@ for shape in compact medium wide; do
     esac
     xdotool key --clearmodifiers alt+1
     xdotool key --clearmodifiers ctrl+h
-    capture "$shape-home"
+    capture "$shape-wave-signed-out"
     if [ "$shape" = medium ]; then
-        # The desktop rail is collapsed by default. Verify its explicit label
-        # expansion, then restore it before the rest of the page matrix.
+        # Ctrl+B now focuses the pinned native segments; no retired rail exists.
         xdotool key --clearmodifiers ctrl+b
-        capture medium-navigation-expanded
-        xdotool key --clearmodifiers ctrl+b
+        capture medium-primary-navigation-focus
+        xdotool key --clearmodifiers Return
     fi
     if [ "$shape" = compact ]; then
         xdotool key --clearmodifiers ctrl+b
-        capture compact-navigation-focus
+        capture compact-primary-navigation-focus
         xdotool key --clearmodifiers Return
     fi
     xdotool key --clearmodifiers ctrl+l
-    capture "$shape-overview"
+    capture "$shape-liked-signed-out"
     # Alt+1 focuses Login; --ui-fixture injects an explicitly offline provider.
     xdotool key --clearmodifiers alt+1 Return
     capture "$shape-login"
@@ -141,8 +141,8 @@ for shape in compact medium wide; do
     sleep 0.4
     xdotool key --clearmodifiers ctrl+f
     capture "$shape-search"
-    xdotool key --clearmodifiers ctrl+j
-    capture "$shape-queue"
+    xdotool key --clearmodifiers ctrl+p
+    capture "$shape-playlists-signed-out"
     xdotool key --clearmodifiers ctrl+l
     xdotool key --clearmodifiers alt+2
     scroll_to_top
@@ -151,17 +151,17 @@ done
 wmctrl -ir "$window" -b add,maximized_vert,maximized_horz
 xdotool key --clearmodifiers alt+1
 xdotool key --clearmodifiers ctrl+h
-capture maximized-home
+capture maximized-wave-signed-out
 xdotool key --clearmodifiers ctrl+l
-capture maximized-overview
+capture maximized-liked-signed-out
 xdotool key --clearmodifiers alt+1 Return
 capture maximized-login
 xdotool key --clearmodifiers Escape
 sleep 0.4
 xdotool key --clearmodifiers ctrl+f
 capture maximized-search
-xdotool key --clearmodifiers ctrl+j
-capture maximized-queue
+xdotool key --clearmodifiers ctrl+p
+capture maximized-playlists-signed-out
 xdotool key --clearmodifiers ctrl+l
 xdotool key --clearmodifiers alt+2
 scroll_to_top

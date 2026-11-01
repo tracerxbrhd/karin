@@ -1,9 +1,172 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 
+# Cassette-like refinement — implementation and review
+
+This iteration starts at **`a70bbf714e3d7ea775c03839eb01f0b1d9dd4f62`** in
+existing Draft PR #15. The [latest task](CODEX_TASK.md) and
+[current specification](DESIGN_SPEC.md) supersede previous permanent-footer,
+rail/dropdown and track-page-button assumptions. This is refinement of the
+working engine and integrations, not a new application.
+
+## Implemented composition
+
+The primary rail and collection dropdown have been replaced by a fixed native
+**Моя волна / Нравится / Плейлисты** segment row beneath the HeaderBar, with a
+separate Search action. Primary views use the application title **Karin**;
+**Любимые треки** names the actual collection once. Liked music uses quiet
+64-pixel rows with artwork, title/artist, duration and independent actions.
+Owned and liked playlists have straightforward sections and natural-size cover
+tiles. Wave explicitly says it is not connected and has no pretend Play action.
+
+The Player Bar is absent before playback, appears with native bottom-up motion,
+remains while paused and disappears after explicit Stop. Its cover/title/artist
+block is one Info target; the direct confirmed Like action is a separate target.
+Wide transport stays centered; compact layouts use two rows so metadata, Like,
+transport and progress remain legible. A stable-size spinner replaces a loading
+caption during start, preventing footer-height reversals during the reveal.
+
+Track Info retains the existing pinned universal surface. Its artwork, title,
+artist, known album and actions now form one centered music cluster; artwork
+adapts to available height as well as width. Short normal metadata and its
+actions fit above the active footer at 420×720, 720×650 and 900×650. Longer
+information can scroll. Queue retains its shared header and pinned source/count/
+Clear tools above scrolling current/upcoming/history rows. No related music is
+invented. Whole-surface motion and existing playback/session boundaries remain.
+
+Continuous track lists append bounded service batches and preserve the displayed
+prefix, scroll and exact occurrences. Initial prefill is capped at three pages;
+subsequent actual scroll gestures admit continuation, including sparse views.
+Tail Retry is distinct from manual pagination. The 2000-position/100-page view
+limits and aligned 500-position playback-context window are explicit partial
+boundaries, not a promise to fetch every remote item or silently change a playing
+queue. These are implemented contracts; screenshots alone do not prove them.
+
+## New acceptance boundary
+
+Each change needs its own current execution evidence. Historical green checks
+below cannot accept these new behaviors:
+
+| Change | Required current evidence |
+| --- | --- |
+| Player Bar lifecycle | Hidden with no active playback; native bottom-up reveal on Play; pause retention; safe Stop/no-active hide; reduced motion and focus cleanup |
+| Metadata interaction | Real mouse/keyboard on cover, title, artist and metadata space opens the same pinned Info panel; Like and other independent actions remain separate |
+| Musical navigation | Wave/Liked/Playlists native tabs, coherent Search/Back, no primary dropdown; Wave visibly unavailable without fake radio data |
+| Continuous tracks | Multiple bounded fixture pages; one append per page, stable scroll, honest end, tail error/Retry, duplicates/retired replies and preserved active queue |
+| Confirmed actions | Direct real Like and server confirmation; unsupported/unverified Dislike hidden, never implemented as local decoration |
+| Visual refinement | Source-matched current GTK captures at the required sizes/themes/scales, coherent Info/Queue and active/hidden footer, actual motion phases |
+
+Exact-a70 hosted visual evidence was inspected as the starting UI. It shows the
+three-destination rail, collection dropdown and permanently allocated footer.
+Those are **before** observations, not proof of the new behavior. The owner's
+new private Cassette screenshot was inspected by the primary agent for
+composition only; its desktop/personal artwork is not stored or redistributed.
+
+Dislike qualification: published Cassette v0.2.4 and yamuse expose different
+Dislike write shapes, but Karin has no validated matching write/state/side-effect
+contract. This is not proof that Yandex has no Dislike API. The current task
+permits hiding the unconfirmed action. Existing Like membership/write/readback
+is the verified integration to reuse, with no optimistic success or automatic
+repeat of an ambiguous POST.
+
+## C9 current visual evidence
+
+The source-frozen C9 native-test executable is
+**`1dfb1167c73fef4b7d8a2fdd2d7e917e360e1fc2611a314de43d7504c9be16c0`**;
+its source-manifest SHA-256 is
+`42b3d65135bbd5703a3c7a7c36cafe4d7fdf9b1ac94913d17eee7a8f639a0636`.
+The fresh `candidate-9/e-complete-native-proof.json` and
+`native-execution.json` audit **204 static originals**, 96 matched a70 dimensions,
+**240 strict motion frames / 48 trajectories**, and **19 raw footer frames**.
+The actual renderer is `GskGLRenderer`; the recorded test environment uses
+`LP_NUM_THREADS=2` and a fresh candidate-local XDG root, shared between stages
+without a cache reset. These are test execution settings, not application
+overrides. The [gallery](evidence-refinement/README.md) records the immutable
+source and provenance of its own selected originals.
+
+Independent UX review reopened **11 untouched C9 originals**: eight static
+states and three genuine intermediate frames. This narrower final-source check
+covers short Info at 420/720/900, compact HiDPI metadata/transport, owner-wide
+Queue, idle hidden footer, playlist sections, unified Search, raw footer reveal/
+hide and an intermediate whole-panel slide. No new visual P0/P1 was observed;
+the C7 composition conclusions remain consistent with these current originals.
+This does **not** claim all 204 C9 images were independently viewed again or
+substitute an image for the separate account-retirement, mutation-cancellation,
+continuous-loading and playback fixtures.
+
+Raw first-start footer captures have three intermediate frames at 1× and five
+at 2×, with a stable 64-pixel child and zero observed height reversals. The 1×
+first reveal still has a **116.7 ms native paint gap**, jumping from roughly 16
+to 73 logical pixels of revealed footer. Its 19 raw images are not invented
+quarter phases. **Cold first-use smoothness/latency remains unaccepted.** The
+strict right-panel runs pass at both scales only within their recorded graphics
+initialization/resource-control scope; they do not erase the retained C7 default
+2× phase miss or establish its cause. No production prewarming was added.
+
+Rust/functional/hosted CI and the final Fedora artifact must identify this same
+runtime source separately. Real-account writes, audible Music and ordinary cold
+appearance on Fedora/KDE/Wayland/PipeWire remain owner-local acceptance gates.
+
+## C7 immutable visual checkpoint
+
+The independently reviewed checkpoint uses the frozen native-test executable
+SHA-256 **`9ea0c6b6b7d6851816b7e3fc34a45fdc09ae20fee74c269068cef1378c980fe4`**.
+Its `source.json` records the Rust/Cargo hashes. Local evidence is retained under
+`karin-environment/v04-refinement/candidate-7/`; the
+[selected gallery](evidence-refinement/README.md) records the revision and
+provenance of its own originals. Later fixes and CI must identify their own
+source; C7 is a reviewed checkpoint, not automatic acceptance of a newer head.
+
+There are **204 fresh static originals**: eight geometries × three panel modes
+× two themes × two scales, plus 108 state supplements. Actual renderer records
+identify `GskGLRenderer`. Independent UX review inspected all 204 in labeled
+overviews and 22 critical untouched originals, covering every geometry, both
+themes/scales, hidden/paused/stopped player, Liked/Playlists/Wave/Search,
+short and long Info, Queue and error Retry. No new static P0/P1 was observed in
+that scope. The earlier short-Info actions-below-footer defect is visibly fixed;
+native viewport/density assertions complement those images. Long metadata still
+uses ordinary scrolling/ellipsis as appropriate. Empty space after a small
+collection is genuine; it is not filled with invented data.
+
+Twenty additional raw footer frames show actual first-start and Stop reveal/
+hide. Their after-paint records contain intermediate native frames and zero
+observed height reversals at either scale. They are not normalized quarter-phase
+samples and **do not establish cold first-use latency**. A separate mouse/HTTP
+append/Retry fixture is needed for continuous loading; an eight-track static
+end-of-list image is not evidence of multiple appended provider pages.
+
+Normal panel motion has two distinct results on the same C7 binary. The default
+1× run passed; the default 2× run missed the 75% compact/light/Queue closing phase
+after a 66.7 ms native frame gap. That failure is retained. A separately recorded
+paired 1×/2× software-renderer resource-control run with **`LP_NUM_THREADS=2`**
+passed the unchanged guards: **240 selected native frames / 48 trajectories**,
+five distinct frame times/indices per sequence and rigid whole-surface geometry.
+The scope includes the previously documented test graphics initialization;
+there is no production renderer/thread override or prewarming, no assertion
+relaxation, and no established cause of the default-environment miss.
+`e-lp2-panel-motion-proof.json` records both the qualified pass and retained
+failure. This is not an unconditional motion or cold-start acceptance.
+
+Current functional/Rust/hosted CI, the final source-matched handoff artifact and
+owner-local results are reported for their exact revision separately. Account
+retirement and cancelled writes need functional checks even if static composition
+looks correct. Fedora/KDE/Wayland/PipeWire, real-account Like/session/library
+behavior, audible Music, first ordinary cold appearance and current Flatpak still
+require owner acceptance. PR #15 remains Draft; no merge is authorized.
+
+## Historical reports through a70bbf7 — retained evidence only
+
+**Everything below this divider describes the previous iterations.** Their
+source hashes, measured warm-cycle scope, cold failures, UI composition, test
+counts and PASS/FAIL statements remain intact as history. In particular, the
+old statement that the application was byte-identical to runtime `37379a7`
+applies only to that earlier follow-up, not to the new refinement source.
+
+---
+
 # Complete Music Experience redesign review
 
 The owner rejected `a9eed4514802df84d73b0608dd1a62930fc1af76` on Fedora.
-This iteration follows the [complete brief](CODEX_TASK.md), superseding the older
+This historical iteration followed the [complete brief at a70](https://github.com/tracerxbrhd/karin/blob/a70bbf714e3d7ea775c03839eb01f0b1d9dd4f62/docs/design/v0.4/CODEX_TASK.md), superseding the older
 Native Music sketches. Authentication and audible Music were already accepted;
 that functional baseline must survive, and does not accept the new visual design.
 

@@ -49,84 +49,85 @@ session prototype below; it requires no end-user OAuth configuration.
 
 <a id="v04-native-music-acceptance-on-fedora"></a>
 
-## v0.4 — one complete music-experience acceptance on Fedora
+## v0.4 — one refinement acceptance session on Fedora
 
-Use the current source-matched native archive linked in
-[Draft PR #15](https://github.com/tracerxbrhd/karin/pull/15). Confirm the source
-revision in its build information and verify `SHA256SUMS` before running ordinary
-`./karin`. A source build uses the prerequisites above and
+Use the current source-matched native archive linked in existing
+[Draft PR #15](https://github.com/tracerxbrhd/karin/pull/15). Verify its source
+revision/build information and `SHA256SUMS` before ordinary `./karin`.
+Exact-head complete functional results, hosted checks and downloaded native
+archive verification are published in the PR's immutable checks/artifact record;
+a regular compiler PASS alone does not prove that archive or every native
+selector. A local source build uses the prerequisites above and
 `cargo +1.98.1 build --release --locked`, then `./target/release/karin`.
-The before revision `a9eed4514802df84d73b0608dd1a62930fc1af76` passed cloud
-checks but **failed owner UI/UX acceptance**. Earlier v0.3 audible playback and
-Flatpak acceptance do not pass this new revision. Keep PR #15 Draft.
+This refinement starts at `a70bbf7` and supersedes its permanent idle footer,
+Home/Search/Library primary routes and track page buttons. Earlier accepted
+audio/session behavior, a70 CI and graphics-initialized motion do not accept
+this new UI or cold first-use performance. Keep PR #15 Draft.
 
-1. Restore the saved session or use ordinary **Войти**. Confirm the intended
-   Music account, real library/covers and an actual chosen track audible through
-   PipeWire. No developer credentials, pasted token, diagnostic flags, secret
-   transfer or browser/network recording belongs in this run.
-2. Check Home, Search and Library as the only primary music destinations.
-   Home should show real liked tracks/available playlists with useful covers
-   and concise hierarchy, not giant duplicate shortcut cards. Test library
-   selection, playlist/album details, four search categories, Show All/Back,
-   pagination, Retry and server-confirmed playlist creation. Inspect sparse and
-   long-title collections without publishing their contents.
-3. Open Track Info with the current cover/Ctrl+I. Open Queue with the footer
-   button/Ctrl+J: content must change in the **same** right surface without a
-   close/reopen. Switch back using the cover or Details; Details must not play.
-   Repeated cover activation keeps information open; repeated Queue activation
-   may explicitly close it. Verify X/compact Back and focus return.
-4. Watch opening and closing with normal system animation enabled. Background,
-   border, header, cover, text and buttons must slide together throughout the
-   motion, with no instant text, flashing controls, central-width jump or hidden
-   row actions. Check approximately quarter/half/three-quarter progress, not
-   just the final open state. TrackInfo ↔ Queue keeps stable width/header/close.
-   Check the **first** panel appearance after a fresh ordinary application start,
-   including restored presentation, then repeat Track Info/Queue open/close
-   after the view is warm. Report first-open versus warm-repeat behavior
-   separately: later smooth motion does not pass a stalled first open. Keep
-   Fedora's ordinary renderer and settings; no backend or cache override belongs
-   in this acceptance run.
-   The automated motion gallery measures a later cycle after explicit test-only
-   graphics initialization. It does not accept cold responsiveness: delayed
-   first-paint phases occurred on both old and modern NGL/Vulkan test stacks.
-   Report any first-open stall even if repeated openings are smooth.
-   The PR's current closing sequence is ordered 100→75→50→25→0 by openness;
-   old observer frames use elapsed-quarter labels. These cloud samples do not
-   substitute for this run with Fedora's normal renderer and settings.
-   Then check the desktop reduced-motion setting separately.
-5. While each panel mode is open, click/scroll the uncovered content, navigate,
-   change the playing occurrence and resize compact→medium→wide→compact.
-   Preserve the chosen open mode and permanent Player Bar. Open Diagnostics and
-   return: restore intent. Inspect 420×720, 720×650, 900×650, 1280×800,
-   1440×900, **1650×930**, 1920×1080 and actual maximize; light/dark and 1×/2×.
-   Check useful width, density, native window controls, long text, missing art,
-   focus and access to all actions. The narrow panel must not make Library
-   unusable. Compact uses explicit Back rather than a dismissing backdrop.
-   At 720 pixels also expand navigation labels: if remaining music content is
-   below 620 logical pixels, the dedicated panel subview is intentional. Long
-   information may scroll; verify wheel/keyboard access to below-fold actions.
-   At 420 pixels judge the footer title's native ellipsis and full tooltip/info
-   access separately from the readable artist and working compact controls.
-6. Play rows using mouse and Enter/Space. Verify exact context occurrences,
-   duplicate tracks, manual additions, current/noncurrent removal, clear and
-   unavailable positions. Queue's current/next order must match what actually
-   plays; a loaded page remains labelled partial. With information open, change
-   tracks using Next/Previous, queue selection and EOS: metadata/art update
-   together in place. Pause/Seek/Volume preserve an explicit Details selection;
-   the next actual current occurrence resumes following without restarting the
-   panel. Pane-only operations must never restart sound.
-7. Exercise Shuffle without changing the current song; follow several Next
-   transitions and use Previous to revisit actual history. Disable Shuffle and
-   confirm the original context order resumes from the current occurrence.
-   Cycle Repeat **Off → Queue → One → Off**. Test natural EOS for the same
-   occurrence under One, whose active control must visibly show **1**, and
-   manual Next/Previous under One, Queue wrapping,
-   Shuffle+Queue and Shuffle+One. Confirm unavailable tracks are skipped and a
-   failed source has a visible error rather than an automatic request loop.
-   No visible Stop button should appear; Stop remains a supported system action.
-8. Check KDE Media Widget cover/title/artist/duration/progress, transport,
-   seek/volume and modes against Karin's buttons. If `playerctl` is installed,
-   use its existing session-bus controls, including external mode writes:
+1. Start normally and restore the saved session or use **Войти**. Until a real
+   playback request/current active source exists, the footer should be absent,
+   without an empty bottom strip or focusable idle controls. Remembered sign-in
+   alone is not a restored playing state. No developer credentials, diagnostic
+   flags, token transfer or browser/network recording belongs in this run.
+2. Check lightweight **Моя волна / Нравится / Плейлисты** navigation and
+   accessible unified Search. Wave must clearly state that it is not implemented,
+   with no fake stations/recommendations or working-looking play action. Liked
+   and owned/liked playlist collections should use actual content and sections,
+   not a primary dropdown. Check search's four categories, Show All/Back, Retry,
+   details and server-confirmed playlist creation without publishing private data.
+3. Scroll real track lists through several portions, including liked tracks,
+   collection details and full track-search results where applicable. No visible
+   previous/next page switch should be required. Existing rows/scroll position
+   remain stable; a loading indicator, actual end or honest local-limit state
+   distinguishes progress. Repeated lower-edge scrolling must not duplicate
+   a page or consume unbounded work. If a read fails, Retry must read the failed
+   portion without destroying earlier rows or silently changing the playing queue.
+   Do not mistake repeated legitimate track occurrences for accidental duplicates.
+   The displayed feed is bounded at 2,000 positions/100 provider pages; a local
+   cap must say partial rather than end. Playing a row snapshots its aligned
+   500-position block; also check a row on each side of a 500-position boundary
+   if the account has enough data. Later view appends must not extend live Queue.
+4. Start an actual chosen Music track with mouse/Enter/Space and confirm audible
+   PipeWire output. The footer should slide up, show real metadata and retain
+   progress/seek/volume/Queue/modes. Pause keeps it visible. A replayable ended
+   source or failed active request may retain controls/Retry; explicit system
+   Stop, queue clear and logout hide it. No visible Stop button is needed.
+   Check normal and reduced motion separately, including the first appearance.
+   Cloud raw footer frames retain an actual cold 1× first-start 116,669 μs paint
+   gap; they do not accept smooth first appearance. Check footer and panel after
+   an ordinary fresh Fedora start, separately from repeated initialized motion.
+   Loading should use the Play-button spinner without a transient loading row
+   changing the bar's height. Focus the metadata target before external Stop,
+   then check that hidden footer controls do not retain a keyboard focus trap.
+   The cloud visibility/unmap assertions alone do not establish this final
+   post-Stop focus-routing result on Fedora.
+5. Click the cover, title, artist and available metadata-zone background, then
+   use keyboard activation: each opens Track Info as one native target. Like is
+   an independent focus/action and must not accidentally open the panel. Verify
+   unknown/loading Like state, then one deliberate Like/Unlike and server-confirmed
+   result. If Liked was already loaded, a membership change should retain its
+   old rows as library-changed and require Refresh before continuing under a new
+   cursor; that refresh must not replace the playing queue or leave a spinner.
+   Failure/uncertainty must not invent success or automatically repeat a write.
+   Dislike must stay absent while Karin's contract is unconfirmed; Unlike
+   is not Dislike. Report unperformed mutation/error cases honestly.
+6. Open Queue in the same pinned panel and switch back to Track Info without a
+   close/reopen. Outside clicks, scrolling, navigation, current-track changes,
+   seek/pause/volume and resizing preserve mode. Explicit Details never plays;
+   new actual occurrences, including duplicates, resume following. Verify X/
+   Ctrl+I/compact Back and focus return. Inspect first panel appearance after a
+   fresh ordinary start separately from warm repeats. Cold NGL/Vulkan phase
+   failures remain unaccepted; the old automated motion gallery measures only
+   graphics-initialized cycles. No renderer/cache override belongs in this run.
+7. Inspect 420×720, 720×650, 900×650, 1280×800, 1440×900, 1650×930, 1920×1080
+   and actual maximize; light/dark and 1×/2×. Check active/hidden footer, Wave,
+   Liked, Playlists, search, Queue/Info, long/missing art, density and keyboard
+   focus. Narrow content uses the dedicated panel subview while primary tabs
+   and active transport remain accessible. Check long Info scrolling
+   and full-title tooltip/metadata access when compact footer text ellipsizes.
+8. Recheck contextual duplicate order, manual queue edits/clear, Shuffle history,
+   Repeat Off/Queue/One, actual EOS, manual Next/Previous, seek/volume and KDE
+   metadata/cover/progress/modes. Supported external controls include:
 
    ```sh
    playerctl --player=io.github.tracerxbrhd.Karin shuffle On
@@ -138,25 +139,25 @@ Flatpak acceptance do not pass this new revision. Keep PR #15 Draft.
    playerctl --player=io.github.tracerxbrhd.Karin stop
    ```
 
-   Confirm native mode state follows external writes and vice versa, capabilities
-   match real next/previous choices, and Stop actually stops. Test physical media
-   keys separately; do not infer them from `playerctl` success.
-9. Recheck cache-off/Clear, Preferences, safe logout confirmation Cancel,
-   remembered-login restart and normal close. Presentation/cache operations
-   preserve live session/audio unless explicitly changed. Confirmed Logout stops
-   playback and clears personal panel/queue/cache and saved credentials, with
-   unknown cleanup outcomes kept visible. Repeat relevant auth/session/music/
-   modes/panel/KDE checks in the **current Flatpak** when available, without
-   broadening bus/filesystem permissions or disabling sandboxing.
+   Native and KDE/playerctl mode state must agree; external Stop still works
+   and hides the active bar. Test hardware media keys separately. Paging new
+   catalog data must not change an already playing context or fabricate its
+   completeness; it remains bounded at 500 exact occurrences.
+9. Check Preferences/cache-off/Clear, safe logout confirmation Cancel, remembered
+   login across restart and ordinary close. Storage/presentation operations must
+   preserve current session/audio unless explicitly changed. Confirmed logout
+   stops audio and clears personal panel/queue/cache and saved credentials; an
+   unknown cleanup outcome stays visible. Repeat relevant checks in the current
+   Flatpak when available, without widening bus/filesystem permissions or
+   disabling sandboxing. Record unavailable SDK/backend scenarios separately.
 
-Report exact revision, native/Flatpak, desktop environment and anonymized
-PASS/FAIL/N/D per scenario. The cloud matrix contains 96 current cases and
-honest before counterparts, plus page/state and animation-frame evidence; see
-[UI_QUALITY_GATE.md](UI_QUALITY_GATE.md#v04-native-music-gate). It is not Fedora
-acceptance. Never publish personal screenshots, account/library data, audio,
-cookies, tokens or signed addresses. Public service-distribution conditions,
-offline audio, My Wave and lyrics retain their separate gates. No merge is
-authorized by this procedure.
+Report exact revision, native/Flatpak, environment and anonymized PASS/FAIL/N/D
+for the scenarios. Fresh before evidence uses unmodified a70 source and harness;
+new active-footer captures use the real fixture resolver/generated MP3/paused
+worker, never a visibility override. Cloud output is not Fedora acceptance.
+Never publish private screenshots/reference images, library/account data, audio,
+cookies, tokens or signed addresses. Public service distribution, actual Wave,
+lyrics and persistent audio remain separate gates. No merge is authorized.
 
 <a id="v02-catalog-and-delivery-info-acceptance-on-fedora"></a>
 <a id="v03-seamless-experience-acceptance-on-fedora"></a>
@@ -299,8 +300,9 @@ diagnostic categories. A later runtime change needs its own targeted regression.
 The report does not identify every Secret Portal/backend or prove individual
 failure/deletion cases. Keep the current sandbox permissions. Persistent audio
 remains absent because storage rights are unconfirmed; see
-[AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md). My Wave remains hidden pending
-its full service contract, and public OAuth-distribution rights remain separate.
+[AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md). Functional My Wave remains gated
+pending its full service contract; the current explicit unimplemented landing
+is not radio support. Public OAuth-distribution rights remain separate.
 
 ### Session and preferences
 
@@ -441,11 +443,14 @@ playerctl --player=io.github.tracerxbrhd.Karin previous
 playerctl --player=io.github.tracerxbrhd.Karin stop
 ```
 
-The ordinary shortcuts remain Ctrl+H Home, Ctrl+L Library, Ctrl+F Search,
-Ctrl+J queue panel, Ctrl+B navigation and Ctrl+, preferences; Ctrl+I opens track
-information and Ctrl+Q closes Karin.
-My Wave and similar-track sections stay hidden when their complete real
-contracts/capabilities are unconfirmed. Unsupported source stubs are not features.
+The earlier workspace used Ctrl+H Home, Ctrl+L Library, Ctrl+F Search,
+Ctrl+J queue panel, Ctrl+B navigation and Ctrl+, preferences; Ctrl+I opened track
+information and Ctrl+Q closed Karin. The current refinement's visible tabs and
+accessible Search supersede those older route labels; retained aliases must
+navigate real current views rather than restore a hidden old primary screen.
+Functional My Wave and similar-track content remain gated while their contracts
+are unconfirmed. The latest Wave landing is explicitly unimplemented, not a
+source stub represented as a working radio feature.
 
 ### Repeat inside the current Flatpak
 
@@ -669,13 +674,19 @@ recorded in [VALIDATION.md](VALIDATION.md).
 
 The strict populated-matrix and whole-surface-motion fixtures are separate from
 the functional/compiler baseline. CI retains Ubuntu 24.04 stable/MSRV jobs for
-29 functional selectors, packages and both sandboxed navigating WebKit fixtures.
+the prior 29 functional selectors, new refinement cases, packages and both
+sandboxed navigating WebKit fixtures.
 Dedicated `Native UI <toolchain> (Debian 13)` jobs use the digest-pinned official
 Rust trixie image and GTK >= 4.18 / Libadwaita >= 1.7 for the two strict selectors,
 both scales, both compilers and matching captures. The compiled name partition
-checks all 31 = 29 + 2 selectors; none is dropped. These modern **test** libraries
+retains the earlier 31 = 29 + 2 selectors and includes new refinement cases;
+report the actual current partition and omit none. These modern **test** libraries
 do not change Karin's GTK >= 4.14/Libadwaita >= 1.5 application baseline, current
-Flatpak SDK or production renderer.
+Flatpak SDK or production renderer. Modern Mesa visual jobs explicitly set
+`LP_NUM_THREADS=2`; retain this value with the renderer/package record and use
+it for both the archived baseline and current controlled check. C7's default
+2× sampling failure remains recorded beside the controlled result. This setting
+is not an application launch requirement or evidence of a proven Mesa cause.
 
 The motion fixture records a fixed graphics-initialization cycle separately:
 one real normal opening, six bounded offscreen renders of the actual mapped
@@ -697,7 +708,7 @@ for toolchain in stable 1.98.1; do
     if [ "$scale" = 1 ]; then screen=1920x1080x24; else screen=3840x2160x24; fi
     for selector in native_design_matched_matrix_and_populated_surfaces \
       native_universal_panel_whole_surface_motion_and_mode_switch; do
-      GTK_A11Y=none GSK_RENDERER=ngl GSK_DEBUG=full-redraw \
+      LP_NUM_THREADS=2 GTK_A11Y=none GSK_RENDERER=ngl GSK_DEBUG=full-redraw \
         GDK_SCALE="$scale" GDK_DPI_SCALE=1 KARIN_V04_ASSERT_DENSITY=1 \
         KARIN_TEST_CAPTURE_DIR="$PWD/build/ui-captures/strict-$toolchain-scale$scale" \
         dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" \

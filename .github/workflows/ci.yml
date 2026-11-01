@@ -555,6 +555,12 @@ jobs:
           Check the entire surface slides together and switching Track Info/Queue never closes/reopens it.
           Test Shuffle, Repeat Queue/One, previous-history, actual upcoming order and external playerctl modes.
           Queue is reached from the Player Bar/Ctrl+J; no separate queue navigation or visible Stop remains.
+          Before Play the footer is hidden; real Play reveals it from below, Pause retains it, Stop/clear/logout hides it.
+          Click cover/title/artist/metadata space or press Enter/Space to open Track Info; Like remains independent.
+          Use Wave (explicitly unimplemented), Liked and Playlists tabs and the adjacent unified Search action.
+          Scroll track collections continuously; exercise loading/end/error/Retry without manual track pages.
+          More than 2000 loaded source positions requires search or another source; new playback uses a bounded 500-position context.
+          Direct Like must read membership and confirm the server result; unconfirmed Dislike is hidden.
           Next/Previous/EOS/MPRIS must follow the actual occurrence without closing/reopening.
           Explicit other-track selection must survive pause/seek/volume; current occurrence changes resume following.
           Resize wide/medium/compact and suspend via Diagnostics; open intent must survive.
@@ -620,6 +626,10 @@ jobs:
       RUST_BACKTRACE: 1
       RUSTUP_TOOLCHAIN: ${{ matrix.toolchain }}
       SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      # Bound software Mesa raster workers in this isolated capture job, leaving
+      # CPU capacity for GTK. This is not a production renderer/timing override;
+      # retain the unmodified normal-motion guards and record the environment.
+      LP_NUM_THREADS: 2
     steps:
       - name: Install modern native UI dependencies
         env:
@@ -692,6 +702,7 @@ jobs:
             done
             printf 'Capture: isolated Xvfb/Openbox, requested ngl/full-redraw, scale 1 and 2.\n'
             printf 'Fixtures record and assert the actual native renderer; no production renderer override.\n'
+            printf 'Software Mesa raster worker limit: LP_NUM_THREADS=%s (capture environment only).\n' "$LP_NUM_THREADS"
             printf 'Normal 240ms motion is measured after a separately recorded graphics initialization cycle; cold latency is not accepted.\n'
           } > build/ui-captures/native-quality-environment.txt
       - name: Strict populated matrix and normal motion after graphics initialization at both scales
@@ -717,7 +728,7 @@ jobs:
           KARIN_CAPTURE_SCALE: 2
           KARIN_CAPTURE_RENDERER: ngl
         run: scripts/capture-ui.sh build/ui-captures/hidpi
-      - name: Matched a9eed45 baseline GTK captures (isolated target)
+      - name: Matched a70bbf7 refinement baseline GTK captures (isolated target)
         env:
           KARIN_CAPTURE_RENDERER: ngl
         run: scripts/capture-native-music-baseline.sh build/ui-captures
