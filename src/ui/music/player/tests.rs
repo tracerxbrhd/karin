@@ -534,7 +534,7 @@ fn player_window(fixture: &Fixture) -> (adw::Application, crate::ui::MainWindow)
 }
 
 fn remove_queue_row(this: &Controller, index: i32) {
-    let row = this.widgets.queue_rows.row_at_index(index).unwrap();
+    let row = this.queue_row_at_physical(index as usize).unwrap();
     let mut descendants = vec![row.upcast::<gtk::Widget>()];
     while let Some(widget) = descendants.pop() {
         if let Some(button) = widget.downcast_ref::<gtk::Button>()
@@ -626,7 +626,7 @@ fn native_music_playback_resolver_queue_controls_and_logout() {
     for id in ["43", "44"] {
         this.enqueue(track(id));
     }
-    this.widgets.stack.set_visible_child_name("queue");
+    this.toggle_queue_panel();
     assert!(this.widgets.play.is_sensitive());
     assert!(contains_text(
         this.widgets.player_status.upcast_ref(),
@@ -983,7 +983,7 @@ fn native_music_playback_queue_races_remove_and_close() {
     for id in ["42", "43", "44", "45"] {
         this.enqueue(track(id));
     }
-    this.widgets.stack.set_visible_child_name("queue");
+    this.toggle_queue_panel();
 
     // The already-running request is held after its offer, before any media.
     // Two synchronous queue actions must retain only the latest pending intent.
@@ -1153,6 +1153,45 @@ fn wait_media_forbidden(this: &Controller) {
     );
 }
 
+/// Wait on actual native state, not an arbitrary delay: the panel must finish
+/// sliding and the footer must finish its responsive first-frame reparenting.
+/// The shared input helper then observes two stable completed frame-clock ticks
+/// for each measured control before the before/after anchoring comparison.
+fn wait_settled_player_error_layout(ui: &crate::ui::MainWindow) {
+    let this = &ui.music.controller;
+    let ready = || {
+        let panel_ready = this
+            .info_host
+            .borrow()
+            .as_ref()
+            .and_then(|host| host.revealer())
+            .is_some_and(|panel| panel.is_child_revealed());
+        let compact = ui.music.player_bar.width() < 720;
+        let mode_parent = this
+            .widgets
+            .shuffle
+            .ancestor(gtk::MenuButton::static_type())
+            .and_downcast::<gtk::MenuButton>();
+        let footer_ready = ui.music.player_bar.width() > 0
+            && ui.music.player_bar.has_css_class("music-player-compact") == compact
+            && if compact {
+                mode_parent.is_some_and(|menu| menu.is_mapped())
+                    && !this.widgets.shuffle.is_mapped()
+            } else {
+                mode_parent.is_none()
+                    && this.widgets.shuffle.is_mapped()
+                    && this.widgets.repeat.is_mapped()
+            };
+        panel_ready && footer_ready && ui.verify_layout().is_ok()
+    };
+    pump_until(ready);
+    super::super::test_input::wait_for_layout(&ui.window, &this.widgets.play);
+    super::super::test_input::wait_for_layout(&ui.window, &this.widgets.progress);
+    pump_until(ready);
+    ui.verify_layout()
+        .expect("the measured error-test layout must be structurally settled");
+}
+
 #[test]
 #[ignore = "requires an isolated GTK display and GStreamer HTTP/MP3 plugins; run under Xvfb"]
 fn native_music_playback_media_error_visibility_stop_retry_and_catalog_preservation() {
@@ -1162,11 +1201,43 @@ fn native_music_playback_media_error_visibility_stop_retry_and_catalog_preservat
     let (_app, ui) = player_window(&fixture);
     let this = &ui.music.controller;
     this.enqueue(track("42"));
-    this.widgets.stack.set_visible_child_name("queue");
+    this.toggle_queue_panel();
+    wait_settled_player_error_layout(&ui);
+    let play_before = this.widgets.play.compute_bounds(&ui.window).unwrap();
+    let progress_before = this.widgets.progress.compute_bounds(&ui.window).unwrap();
+    let window_before = (ui.window.width(), ui.window.height());
+    let panel_before = this
+        .info_host
+        .borrow()
+        .as_ref()
+        .and_then(|host| host.revealer())
+        .unwrap()
+        .progress();
 
     fixture.reject_media.store(true, Ordering::Release);
     this.widgets.play.emit_clicked();
     wait_media_forbidden(this);
+    // Safe feedback has its own full-width row above the transport. The
+    // bottom-anchored controls must not jump when that row becomes visible.
+    wait_settled_player_error_layout(&ui);
+    let play_after = this.widgets.play.compute_bounds(&ui.window).unwrap();
+    let progress_after = this.widgets.progress.compute_bounds(&ui.window).unwrap();
+    let window_after = (ui.window.width(), ui.window.height());
+    let panel_after = this
+        .info_host
+        .borrow()
+        .as_ref()
+        .and_then(|host| host.revealer())
+        .unwrap()
+        .progress();
+    assert!(
+        (play_before.y() - play_after.y()).abs() <= 1.0,
+        "feedback moved Play: play_before={play_before:?} play_after={play_after:?} progress_before={progress_before:?} progress_after={progress_after:?} window_before={window_before:?} window_after={window_after:?} panel_before={panel_before} panel_after={panel_after}"
+    );
+    assert!(
+        (progress_before.y() - progress_after.y()).abs() <= 1.0,
+        "feedback moved progress: play_before={play_before:?} play_after={play_after:?} progress_before={progress_before:?} progress_after={progress_after:?} window_before={window_before:?} window_after={window_after:?} panel_before={panel_before} panel_after={panel_after}"
+    );
     assert!(this.widgets.play.is_sensitive());
     assert!(this.widgets.stop.is_sensitive());
     assert!(!this.widgets.progress.is_sensitive());
@@ -1866,4 +1937,344 @@ fn native_music_context_mpris_shared_player_and_cleanup() {
         ],
     );
     assert_eq!(owned.trim(), "(false,)");
+}
+
+#[test]
+#[ignore = "requires isolated dbus-run-session, Xvfb, playerctl and GStreamer HTTP/MP3 plugins"]
+fn native_music_shuffle_repeat_mpris_shared_policy_and_eos() {
+    use crate::queue::{ContextKind, PlaybackContext, RepeatMode};
+    use std::collections::{BTreeMap, BTreeSet};
+    const PLAYER: &str = "io.github.tracerxbrhd.Karin";
+    gtk::init().unwrap();
+    adw::init().unwrap();
+    let fixture = Fixture::new();
+    let (_app, ui) = player_window(&fixture);
+    let this = &ui.music.controller;
+    pump_until(|| this.system_media_available());
+    this.play_music_context(
+        PlaybackContext::new(
+            ContextKind::Playlist,
+            Some("synthetic-mode-context".into()),
+            vec![track("42"), track("43"), track("42"), track("44")],
+            2,
+            true,
+        )
+        .unwrap(),
+    );
+    wait_playing(this, 2);
+    desktop_cli("playerctl", &["--player", PLAYER, "pause"]);
+    pump_until(|| {
+        this.music_snapshot()
+            .is_some_and(|snapshot| snapshot.state == PlaybackState::Paused)
+    });
+    let original = this.player.borrow().controller.clone().unwrap();
+    let serial = this.player.borrow().serial;
+    let generation = original.snapshot().generation;
+    let offers = fixture.offers(0);
+    let changed = Rc::new(RefCell::new(BTreeSet::<String>::new()));
+    let observed = changed.clone();
+    let bus = desktop_background(|| {
+        gio::bus_get_sync(gio::BusType::Session, gio::Cancellable::NONE).unwrap()
+    });
+    let subscription = bus.subscribe_to_signal(
+        Some(crate::mpris::BUS_NAME),
+        Some("org.freedesktop.DBus.Properties"),
+        Some("PropertiesChanged"),
+        Some("/org/mpris/MediaPlayer2"),
+        None,
+        gio::DBusSignalFlags::NONE,
+        move |signal| {
+            let (interface, properties, _) = signal
+                .parameters
+                .get::<(String, BTreeMap<String, glib::Variant>, Vec<String>)>()
+                .unwrap();
+            if interface == "org.mpris.MediaPlayer2.Player" {
+                observed.borrow_mut().extend(properties.into_keys());
+            }
+        },
+    );
+
+    let seeked = Rc::new(RefCell::new(Vec::<i64>::new()));
+    let observed_seek = seeked.clone();
+    let seek_subscription = bus.subscribe_to_signal(
+        Some(crate::mpris::BUS_NAME),
+        Some("org.mpris.MediaPlayer2.Player"),
+        Some("Seeked"),
+        Some("/org/mpris/MediaPlayer2"),
+        None,
+        gio::DBusSignalFlags::NONE,
+        move |signal| {
+            observed_seek
+                .borrow_mut()
+                .push(signal.parameters.get::<(i64,)>().unwrap().0)
+        },
+    );
+
+    // External writes and real native input share one policy. Neither may
+    // restart/replace the paused worker or make another resolver request.
+    desktop_cli("playerctl", &["--player", PLAYER, "shuffle", "On"]);
+    assert!(this.model.borrow().queue.shuffle());
+    assert!(this.widgets.shuffle.is_active());
+    assert_eq!(desktop_property("Shuffle").get::<bool>(), Some(true));
+    desktop_cli("playerctl", &["--player", PLAYER, "loop", "Playlist"]);
+    assert_eq!(this.model.borrow().queue.repeat_mode(), RepeatMode::Queue);
+    assert!(this.widgets.repeat.has_css_class("active"));
+    desktop_cli("playerctl", &["--player", PLAYER, "loop", "Track"]);
+    assert_eq!(this.model.borrow().queue.repeat_mode(), RepeatMode::One);
+    let repeat_badge = super::super::player_bar::repeat_one_badge(&this.widgets.repeat).unwrap();
+    assert_eq!(repeat_badge.text(), "1");
+    assert!(repeat_badge.is_visible());
+    drop(repeat_badge);
+    // The logical footer may be narrower than its outer window because the
+    // icon rail owns space. Open the actual compact overflow before targeting
+    // its shared controls; an unmapped control is not a click regression.
+    let mode_popover = if !this.widgets.shuffle.is_mapped() {
+        let menu = this
+            .widgets
+            .shuffle
+            .ancestor(gtk::MenuButton::static_type())
+            .and_downcast::<gtk::MenuButton>()
+            .expect("compact modes have a native menu");
+        native_click(&ui.window, &menu);
+        let popover = menu.popover().unwrap();
+        pump_until(|| popover.is_mapped() && this.widgets.shuffle.is_mapped());
+        Some(popover)
+    } else {
+        None
+    };
+    eprintln!("Karin synthetic modes phase=native-shuffle-click");
+    native_click(&ui.window, &this.widgets.shuffle);
+    pump_until(|| !this.model.borrow().queue.shuffle());
+    assert_eq!(desktop_property("Shuffle").get::<bool>(), Some(false));
+    for expected in [RepeatMode::Off, RepeatMode::Queue, RepeatMode::One] {
+        eprintln!("Karin synthetic modes phase=native-repeat-click mode={expected:?}");
+        native_click(&ui.window, &this.widgets.repeat);
+        pump_until(|| this.model.borrow().queue.repeat_mode() == expected);
+    }
+    pump_until(|| changed.borrow().contains("Shuffle") && changed.borrow().contains("LoopStatus"));
+    assert_eq!(this.player.borrow().serial, serial);
+    assert_eq!(original.snapshot().generation, generation);
+    assert_eq!(original.snapshot().state, PlaybackState::Paused);
+    assert_eq!(fixture.offers(0), offers);
+    assert_eq!(this.model.borrow().queue.current_index(), Some(2));
+    capture_native("music-player-modes-active-mpris");
+    if let Some(popover) = mode_popover {
+        assert!(
+            std::process::Command::new("xdotool")
+                .args(["key", "--clearmodifiers", "Escape"])
+                .status()
+                .unwrap()
+                .success()
+        );
+        pump_until(|| !popover.is_visible());
+    }
+
+    // Manual Next ignores Repeat One. Paused transport stays paused/ready.
+    desktop_cli("playerctl", &["--player", PLAYER, "next"]);
+    pump_until(|| {
+        this.model.borrow().queue.current_index() == Some(3)
+            && this.music_snapshot().is_some_and(|snapshot| {
+                matches!(snapshot.state, PlaybackState::Ready | PlaybackState::Paused)
+            })
+    });
+    assert_eq!(desktop_property("CanGoNext").get::<bool>(), Some(false));
+    desktop_cli("playerctl", &["--player", PLAYER, "previous"]);
+    pump_until(|| {
+        this.model.borrow().queue.current_index() == Some(2)
+            && this.music_snapshot().is_some_and(|snapshot| {
+                matches!(snapshot.state, PlaybackState::Ready | PlaybackState::Paused)
+            })
+    });
+    desktop_cli("playerctl", &["--player", PLAYER, "shuffle", "On"]);
+    this.set_info_open(true);
+    this.select_track_info(track("44"), None, false);
+    assert_pinned_track(this, "44");
+    let before = this.player.borrow().serial;
+    let offers = fixture.offers(0);
+    desktop_cli("playerctl", &["--player", PLAYER, "play"]);
+    wait_playing(this, 2);
+    pump_until(|| this.widgets.progress.is_sensitive());
+    desktop_cli("playerctl", &["--player", PLAYER, "position", "3.8"]);
+    pump_until(|| {
+        this.player.borrow().serial > before
+            && this
+                .music_snapshot()
+                .is_some_and(|snapshot| snapshot.state == PlaybackState::Playing)
+    });
+    assert_eq!(
+        this.model.borrow().queue.current_index(),
+        Some(2),
+        "EOS repeats exact duplicate occurrence"
+    );
+    assert_eq!(fixture.offers(0), offers + 1);
+    pump_until(|| seeked.borrow().iter().any(|position| *position < 500_000));
+    assert_pinned_track(this, "44");
+    desktop_cli("playerctl", &["--player", PLAYER, "pause"]);
+
+    // One refused replacement is shown honestly and never turns Repeat One
+    // into an automatic request loop. The previous case used actual worker EOS.
+    let refused_offers = fixture.offers(0);
+    fixture.reject_media.store(true, Ordering::Release);
+    this.skip_music(true, true);
+    wait_media_forbidden(this);
+    assert_eq!(this.model.borrow().queue.current_index(), Some(2));
+    let due = Instant::now() + Duration::from_millis(400);
+    pump_until(|| Instant::now() >= due);
+    assert_eq!(fixture.offers(0), refused_offers + 1);
+    assert_pinned_track(this, "44");
+    fixture.reject_media.store(false, Ordering::Release);
+    desktop_cli("playerctl", &["--player", PLAYER, "stop"]);
+    pump_until(|| this.music_snapshot().is_none());
+
+    // Natural EOS wraps the loaded context; no remote collection fetch occurs.
+    this.set_music_shuffle(false);
+    this.set_music_repeat(RepeatMode::Queue);
+    this.play_music_context(
+        PlaybackContext::new(
+            ContextKind::Album,
+            Some("synthetic-loaded-album".into()),
+            vec![track("42"), track("43")],
+            1,
+            true,
+        )
+        .unwrap(),
+    );
+    wait_playing(this, 1);
+    this.toggle_queue_panel();
+    assert_eq!(
+        this.panel_mode.get(),
+        super::super::workspace::PanelMode::Queue
+    );
+    pump_until(|| this.widgets.progress.is_sensitive());
+    desktop_cli("playerctl", &["--player", PLAYER, "position", "3.8"]);
+    wait_playing(this, 0);
+    assert_eq!(
+        this.panel_mode.get(),
+        super::super::workspace::PanelMode::Queue
+    );
+    this.set_music_shuffle(true);
+    let predicted = this.model.borrow().queue.upcoming_indices()[0];
+    pump_until(|| this.widgets.progress.is_sensitive());
+    desktop_cli("playerctl", &["--player", PLAYER, "position", "3.8"]);
+    wait_playing(this, predicted);
+    assert_eq!(
+        this.panel_mode.get(),
+        super::super::workspace::PanelMode::Queue
+    );
+    assert_eq!(desktop_property("Shuffle").get::<bool>(), Some(true));
+    assert_eq!(desktop_property("LoopStatus").str(), Some("Playlist"));
+    let source = this.model.borrow();
+    let context = source.queue.context().unwrap();
+    assert_eq!(
+        context
+            .items()
+            .iter()
+            .map(|track| track.id.as_str())
+            .collect::<Vec<_>>(),
+        ["42", "43"]
+    );
+    assert!(context.is_partial());
+    drop(source);
+
+    // Prove the real 420px control path, rather than treating an unmapped
+    // desktop control as usable. The same mode widgets live in the upward
+    // native overflow, and pointer/Space input reaches the shared policy.
+    desktop_cli("playerctl", &["--player", PLAYER, "pause"]);
+    pump_until(|| {
+        this.music_snapshot()
+            .is_some_and(|snapshot| snapshot.state == PlaybackState::Paused)
+    });
+    let compact_worker = this.player.borrow().controller.clone().unwrap();
+    let compact_serial = this.player.borrow().serial;
+    let compact_generation = compact_worker.snapshot().generation;
+    let compact_index = this.model.borrow().queue.current_index();
+    let compact_offers = fixture.counts.lock().unwrap().offers;
+    resize_player_window(&ui, 420, 720);
+    pump_until(|| {
+        this.widgets
+            .shuffle
+            .ancestor(gtk::MenuButton::static_type())
+            .is_some()
+            && !this.widgets.shuffle.is_mapped()
+    });
+    {
+        let menu = this
+            .widgets
+            .shuffle
+            .ancestor(gtk::MenuButton::static_type())
+            .and_downcast::<gtk::MenuButton>()
+            .expect("420px modes use the native overflow");
+        assert_eq!(menu.widget_name(), "music-playback-modes");
+        native_click(&ui.window, &menu);
+        let popover = menu.popover().unwrap();
+        pump_until(|| {
+            popover.is_mapped()
+                && this.widgets.shuffle.is_mapped()
+                && this.widgets.repeat.is_mapped()
+        });
+        native_click(&ui.window, &this.widgets.shuffle);
+        pump_until(|| !this.model.borrow().queue.shuffle());
+        assert_eq!(desktop_property("Shuffle").get::<bool>(), Some(false));
+        native_click(&ui.window, &this.widgets.repeat);
+        pump_until(|| this.model.borrow().queue.repeat_mode() == RepeatMode::One);
+        assert_eq!(desktop_property("LoopStatus").str(), Some("Track"));
+        {
+            let badge = super::super::player_bar::repeat_one_badge(&this.widgets.repeat).unwrap();
+            assert_eq!(badge.text(), "1");
+            assert!(
+                badge.is_mapped(),
+                "Repeat One is visible inside the actual overflow"
+            );
+        }
+        capture_native("music-player-modes-compact-repeat-one");
+        assert!(this.widgets.repeat.grab_focus());
+        assert!(
+            std::process::Command::new("xdotool")
+                .args(["key", "--clearmodifiers", "space"])
+                .status()
+                .unwrap()
+                .success()
+        );
+        pump_until(|| this.model.borrow().queue.repeat_mode() == RepeatMode::Off);
+        assert_eq!(desktop_property("LoopStatus").str(), Some("None"));
+        assert!(
+            !super::super::player_bar::repeat_one_badge(&this.widgets.repeat)
+                .unwrap()
+                .is_visible()
+        );
+        native_click(&ui.window, &this.widgets.repeat);
+        pump_until(|| this.model.borrow().queue.repeat_mode() == RepeatMode::Queue);
+        assert_eq!(desktop_property("LoopStatus").str(), Some("Playlist"));
+        native_click(&ui.window, &this.widgets.shuffle);
+        pump_until(|| this.model.borrow().queue.shuffle());
+        assert_eq!(desktop_property("Shuffle").get::<bool>(), Some(true));
+        assert!(
+            std::process::Command::new("xdotool")
+                .args(["key", "--clearmodifiers", "Escape"])
+                .status()
+                .unwrap()
+                .success()
+        );
+        pump_until(|| !popover.is_visible());
+    }
+    resize_player_window(&ui, 900, 650);
+    assert_eq!(
+        this.panel_mode.get(),
+        super::super::workspace::PanelMode::Queue
+    );
+    assert_eq!(this.model.borrow().queue.current_index(), compact_index);
+    assert_eq!(this.player.borrow().serial, compact_serial);
+    assert_eq!(compact_worker.snapshot().generation, compact_generation);
+    assert_eq!(compact_worker.snapshot().state, PlaybackState::Paused);
+    assert_eq!(
+        fixture.counts.lock().unwrap().offers,
+        compact_offers,
+        "compact mode input and resize cannot resolve or restart audio"
+    );
+    drop(compact_worker);
+    drop(subscription);
+    drop(seek_subscription);
+    let cleanup = ui.close_for_smoke();
+    pump_until(|| cleanup(false));
+    assert!(cleanup(true));
 }

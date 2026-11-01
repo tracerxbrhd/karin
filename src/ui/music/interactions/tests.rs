@@ -368,6 +368,122 @@ fn native_library_interactions_confirmed_fixture() {
         this.widgets.detail.upcast_ref(),
         "Треков пока нет"
     ));
+
+    // Current-track Likes are the existing confirmed service action in a lazy
+    // native footer popover. Ordinary rendering must not add membership reads.
+    let footer_track = crate::music::Track {
+        id: "42".into(),
+        title: "Synthetic footer track".into(),
+        artists: vec!["Synthetic artist".into()],
+        artist_links: Vec::new(),
+        album_id: None,
+        album_title: None,
+        duration_ms: Some(180_000),
+        cover: None,
+        explicit: false,
+        available: true,
+    };
+    this.model.borrow_mut().queue.replace_context(
+        crate::queue::PlaybackContext::new(
+            crate::queue::ContextKind::LikedTracks,
+            None,
+            vec![footer_track],
+            0,
+            false,
+        )
+        .unwrap(),
+    );
+    for _ in 0..3 {
+        this.render_queue();
+    }
+    let footer_like = this
+        .widgets
+        .current_like_slot
+        .first_child()
+        .unwrap()
+        .downcast::<gtk::MenuButton>()
+        .unwrap();
+    pump_until(|| footer_like.is_mapped());
+    assert_eq!(
+        reads.load(Ordering::Acquire),
+        5,
+        "select/render never reads Likes"
+    );
+    assert_eq!(posts.load(Ordering::Acquire), 4);
+    assert_eq!(
+        footer_like.icon_name().as_deref(),
+        Some("non-starred-symbolic")
+    );
+    let (x, y) = super::super::test_input::pointer(
+        &window,
+        &footer_like,
+        super::super::test_input::Target::Center,
+    );
+    assert!(
+        std::process::Command::new("xdotool")
+            .args([
+                "mousemove",
+                "--window",
+                id,
+                &x.to_string(),
+                &y.to_string(),
+                "click",
+                "1"
+            ])
+            .status()
+            .unwrap()
+            .success()
+    );
+    let footer_popover = footer_like.popover().unwrap();
+    let footer_controls = footer_popover.child().unwrap();
+    let footer_heart = button_named(&footer_controls, "music-like-toggle").unwrap();
+    pump_until(|| reads.load(Ordering::Acquire) == 6 && footer_heart.is_sensitive());
+    assert!(contains_text(&footer_controls, "В любимом"));
+    assert!(footer_heart.grab_focus());
+    assert!(
+        std::process::Command::new("xdotool")
+            .args(["key", "Return"])
+            .status()
+            .unwrap()
+            .success()
+    );
+    pump_until(|| {
+        posts.load(Ordering::Acquire) == 5
+            && reads.load(Ordering::Acquire) == 7
+            && footer_heart.is_sensitive()
+    });
+    assert!(!liked.load(Ordering::Acquire));
+    assert!(!contains_text(&footer_controls, "В любимом"));
+    let popup_settled = Instant::now() + Duration::from_millis(220);
+    pump_until(|| Instant::now() >= popup_settled);
+    let popup_bounds = footer_controls.compute_bounds(&window).unwrap();
+    assert!(
+        popup_bounds.y() >= 0.0
+            && popup_bounds.y() + popup_bounds.height() <= window.height() as f32,
+        "the actual footer popover must open above the footer inside the window: {popup_bounds:?}"
+    );
+    capture_native("footer-like-server-confirmed");
+    footer_popover.popdown();
+    this.render_queue();
+    assert_eq!(
+        this.widgets.current_like_slot.first_child().as_ref(),
+        Some(footer_like.upcast_ref())
+    );
+    assert_eq!(
+        reads.load(Ordering::Acquire),
+        7,
+        "same-current render keeps its confirmed controls"
+    );
+    this.model.borrow_mut().queue.clear();
+    this.render_queue();
+    assert!(this.widgets.current_like_slot.first_child().is_none());
+    footer_heart.emit_clicked();
+    assert_eq!(
+        posts.load(Ordering::Acquire),
+        5,
+        "retired current-track controls cannot mutate"
+    );
+
     hold_read.store(true, Ordering::Release);
     this.detail_header("Synthetic interaction track", "Synthetic artist");
     this.widgets.detail.append(&this.like_controls("42".into()));
@@ -383,7 +499,7 @@ fn native_library_interactions_confirmed_fixture() {
         "Synthetic interaction track"
     ));
     assert!(!contains_text(window.upcast_ref(), "В любимом"));
-    assert_eq!(posts.load(Ordering::Acquire), 4);
+    assert_eq!(posts.load(Ordering::Acquire), 5);
     stop.store(true, Ordering::Release);
     server.join().unwrap();
     window.close();

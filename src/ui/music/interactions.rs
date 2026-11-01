@@ -17,6 +17,7 @@ struct LikeWidgets {
     label: glib::WeakRef<gtk::Label>,
     message: glib::WeakRef<gtk::Label>,
     confirmed: Rc<Cell<Option<bool>>>,
+    compact: bool,
 }
 
 impl LikeWidgets {
@@ -47,6 +48,7 @@ impl LikeWidgets {
         }
         if let Some(label) = self.message.upgrade() {
             label.set_text(message);
+            label.set_visible(true);
         }
     }
 
@@ -91,14 +93,63 @@ impl LikeWidgets {
             } else {
                 "Другая правка библиотеки ещё выполняется. После завершения обновите состояние."
             });
+            // A confirmed footer action needs no explanatory paragraph.
+            // Pending, uncertain and refused operations retain their message.
+            message.set_visible(!self.compact || !mutable);
         }
     }
 }
 
 impl Controller {
+    /// The footer reuses the confirmed library operation. Merely changing a
+    /// track does not read or mutate likes: the native popover maps its existing
+    /// controls only after an explicit user action.
+    pub(super) fn sync_current_like(self: &Rc<Self>) {
+        let key = {
+            let model = self.model.borrow();
+            if model.account_valid && !model.closed {
+                model
+                    .queue
+                    .current()
+                    .map(|track| (model.generation, track.id.clone()))
+            } else {
+                None
+            }
+        };
+        if *self.current_like_key.borrow() == key {
+            return;
+        }
+        self.current_like_key.replace(key.clone());
+        super::clear_box(&self.widgets.current_like_slot);
+        self.widgets.current_like_slot.set_visible(key.is_some());
+        let Some((_, id)) = key else { return };
+        let menu = gtk::MenuButton::builder()
+            .icon_name("non-starred-symbolic")
+            .tooltip_text("Проверить отметку «Нравится»")
+            .build();
+        menu.set_widget_name("music-current-like");
+        menu.set_direction(gtk::ArrowType::Up);
+        menu.add_css_class("flat");
+        menu.update_property(&[gtk::accessible::Property::Label(
+            "Проверить отметку «Нравится» текущего трека",
+        )]);
+        let popover = gtk::Popover::new();
+        popover.set_position(gtk::PositionType::Top);
+        let content = self.like_controls_presentation(id, true);
+        content.set_width_request(260);
+        super::super::margins(&content, 12);
+        popover.set_child(Some(&content));
+        menu.set_popover(Some(&popover));
+        self.widgets.current_like_slot.append(&menu);
+    }
+
     /// Called only for an actual loaded track detail. Membership is read when
     /// these controls map; track metadata is never interpreted as a like.
     pub(super) fn like_controls(self: &Rc<Self>, id: String) -> gtk::Box {
+        self.like_controls_presentation(id, false)
+    }
+
+    fn like_controls_presentation(self: &Rc<Self>, id: String, compact: bool) -> gtk::Box {
         let container = gtk::Box::new(gtk::Orientation::Vertical, 8);
         container.set_widget_name("music-like-controls");
         let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
@@ -131,6 +182,7 @@ impl Controller {
             label: label.downgrade(),
             message: message.downgrade(),
             confirmed: Rc::new(Cell::new(None)),
+            compact,
         };
         let initialized = Cell::new(false);
         let weak = Rc::downgrade(self);

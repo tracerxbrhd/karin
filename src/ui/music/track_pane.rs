@@ -44,7 +44,8 @@ pub(super) struct TrackPane {
     pub album: gtk::Button,
     pub artists: gtk::Box,
     header: gtk::Box,
-    heading: gtk::Label,
+    pub(super) heading: gtk::Label,
+    pages: gtk::Stack,
     state: Rc<State>,
     empty: gtk::Box,
     content: gtk::Box,
@@ -67,17 +68,18 @@ impl TrackPane {
             action,
         });
         let widget = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        widget.set_widget_name("music-track-pane");
+        widget.set_widget_name("music-side-panel-surface");
         widget.add_css_class("karin-track-pane");
         widget.set_vexpand(true);
         let header = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         super::super::margins(&header, 6);
         header.add_css_class("karin-track-pane-header");
         let heading = label("О треке", "heading");
+        heading.set_widget_name("music-panel-heading");
         heading.set_hexpand(true);
         header.append(&heading);
         let close = button("window-close-symbolic", "Закрыть сведения о треке");
-        close.set_widget_name("music-track-pane-close");
+        close.set_widget_name("music-panel-close");
         close.add_css_class("flat");
         close.add_css_class("circular");
         close.connect_clicked({
@@ -208,7 +210,15 @@ impl TrackPane {
             .child(&viewport)
             .build();
         scroll.set_widget_name("music-track-pane-scroll");
-        widget.append(&scroll);
+        let pages = gtk::Stack::new();
+        pages.set_widget_name("music-panel-content");
+        pages.set_hhomogeneous(false);
+        pages.set_vhomogeneous(false);
+        pages.set_transition_type(gtk::StackTransitionType::Crossfade);
+        pages.set_transition_duration(100);
+        pages.add_named(&scroll, Some("track"));
+        pages.set_vexpand(true);
+        widget.append(&pages);
         Self {
             widget,
             close,
@@ -219,6 +229,7 @@ impl TrackPane {
             artists,
             header,
             heading,
+            pages,
             state,
             empty,
             content,
@@ -228,6 +239,21 @@ impl TrackPane {
             album_title,
             status,
         }
+    }
+
+    /// Queue and information share this exact surface and header.
+    pub(super) fn attach_queue(&self, queue: &impl IsA<gtk::Widget>) {
+        self.pages.add_named(queue, Some("queue"));
+    }
+
+    pub(super) fn set_queue_mode(&self, queue: bool) {
+        self.heading.set_text(if queue {
+            "Очередь"
+        } else {
+            "О треке"
+        });
+        self.pages
+            .set_visible_child_name(if queue { "queue" } else { "track" });
     }
 
     pub fn selected(&self) -> Option<Track> {
@@ -245,6 +271,9 @@ impl TrackPane {
             self.header
                 .reorder_child_after(&self.close, Some(&self.heading));
         }
+        // The compact native HeaderBar names this explicit subview. Keep one
+        // moving Back control here, without repeating its title below it.
+        self.heading.set_visible(!compact);
         self.close.set_icon_name(if compact {
             "go-previous-symbolic"
         } else {
@@ -253,7 +282,7 @@ impl TrackPane {
         let label = if compact {
             "Назад к музыке"
         } else {
-            "Закрыть сведения о треке"
+            "Закрыть правую панель"
         };
         self.close.set_tooltip_text(Some(label));
         self.close

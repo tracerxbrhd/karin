@@ -427,7 +427,6 @@ fn build_with_music_pane(
         ("music-home", "Главная", "go-home-symbolic"),
         ("music-library", "Библиотека", "folder-music-symbolic"),
         ("music-search", "Поиск", "system-search-symbolic"),
-        ("music-queue", "Очередь", "view-list-symbolic"),
     ] {
         let row = gtk::ListBoxRow::new();
         row.add_css_class("music-nav-item");
@@ -613,20 +612,17 @@ fn build_with_music_pane(
     track_info.add_css_class("music-information-host");
     let information_content = music.track_info_widget();
     information_content.add_css_class("music-information-view");
-    let information_view = gtk::Revealer::builder()
-        .transition_type(gtk::RevealerTransitionType::SlideLeft)
-        .transition_duration(220)
-        .reveal_child(false)
-        .width_request(320)
-        .halign(gtk::Align::End)
-        .valign(gtk::Align::Fill)
-        .child(&information_content)
-        .build();
+    let information_view = music::sliding_panel::SlidingPanel::new(&information_content);
+    information_view.set_width_request(320);
+    information_view.set_halign(gtk::Align::End);
+    information_view.set_valign(gtk::Align::Fill);
     information_view.set_widget_name("music-track-info-revealer");
     track_info.add_overlay(&information_view);
     track_info.set_measure_overlay(&information_view, false);
     toolbar.set_content(Some(&track_info));
     music.attach_track_info(&track_info, &information_view, stack.upcast_ref());
+    let reflow_panel = music.reflow_panel_callback();
+    sidebar_expand.connect_toggled(move |_| reflow_panel());
     let music_visibility = music.visibility_callback();
     stack.connect_visible_child_name_notify(move |stack| {
         music_visibility(stack.visible_child_name().as_deref() == Some("home"));
@@ -648,7 +644,7 @@ fn build_with_music_pane(
     status.append(&check);
     status.append(&spinner);
     diagnostics.append(&status);
-    let home_scroll = scroll_page(&home);
+    let home_scroll = scroll_music_page(&home);
     let diagnostics_scroll = scroll_page(&diagnostics);
     stack
         .add_titled(&home_scroll, Some("home"), "Музыка")
@@ -778,7 +774,7 @@ fn build_with_music_pane(
                         "music-home" => Some("home"),
                         "music-library" => Some("library"),
                         "music-search" => Some("search"),
-                        "music-queue" => Some("queue"),
+                        "music-queue" => None,
                         _ => None,
                     };
                     glib::spawn_future_local(async move {
@@ -831,6 +827,7 @@ fn build_with_music_pane(
         let sections = sections.downgrade();
         let destinations = destinations.downgrade();
         let title = title.downgrade();
+        let panel_title = music.panel_title_callback();
         move || {
             if let (Some(stack), Some(sections), Some(destinations), Some(title)) = (
                 stack.upgrade(),
@@ -846,7 +843,6 @@ fn build_with_music_pane(
                             Some("home") => (Some(0), "Главная"),
                             Some("library") => (Some(1), "Библиотека"),
                             Some("search") => (Some(2), "Поиск"),
-                            Some("queue") => (Some(3), "Очередь"),
                             Some("detail") => (None, "Сведения"),
                             _ => (None, "Karin"),
                         }
@@ -858,7 +854,7 @@ fn build_with_music_pane(
                 } else {
                     destinations.unselect_all();
                 }
-                title.set_title(page_title);
+                title.set_title(panel_title().unwrap_or(page_title));
             }
         }
     };
@@ -867,6 +863,14 @@ fn build_with_music_pane(
     stack.connect_visible_child_name_notify(move |_| sync());
     let sync = sync_navigation.clone();
     sections.connect_visible_child_name_notify(move |_| sync());
+    let sync = sync_navigation.clone();
+    music.panel_heading().connect_label_notify(move |_| sync());
+    let sync = sync_navigation.clone();
+    information_view.connect_notify_local(Some("progress"), move |_, _| sync());
+    let sync = sync_navigation.clone();
+    information_view.connect_width_request_notify(move |_| sync());
+    let sync = sync_navigation.clone();
+    information_view.connect_notify_local(Some("compact-presentation"), move |_, _| sync());
     sync_navigation();
     // Both real controls trigger the same state machine and bounded request.
     check
@@ -1056,6 +1060,17 @@ fn page(title: &str, subtitle: &str) -> (gtk::Box, gtk::Label) {
     (content, title)
 }
 
+fn scroll_music_page(content: &gtk::Box) -> gtk::ScrolledWindow {
+    let viewport = gtk::Viewport::builder()
+        .scroll_to_focus(true)
+        .child(content)
+        .build();
+    gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .child(&viewport)
+        .build()
+}
+
 fn scroll_page(content: &gtk::Box) -> gtk::ScrolledWindow {
     let clamp = adw::Clamp::builder()
         .maximum_size(1120)
@@ -1094,6 +1109,14 @@ fn check_widget_geometry(widget: &gtk::Widget, window: &gtk::Widget) -> Result<(
             let sidebar = split.sidebar().ok_or("Split view has no sidebar")?;
             check_widget_geometry(&sidebar, window)?;
         }
+        return Ok(());
+    }
+    if widget
+        .downcast_ref::<music::sliding_panel::SlidingPanel>()
+        .is_some_and(|panel| !panel.is_child_revealed())
+    {
+        // A translated, clipped surface is deliberately offscreen during its
+        // native transition. Settled frames retain the full geometry checks.
         return Ok(());
     }
     if widget.is_mapped() {

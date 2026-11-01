@@ -83,7 +83,7 @@ pub(super) fn catalog_tile(
     artist: bool,
 ) -> gtk::Button {
     let button = gtk::Button::new();
-    button.set_width_request(144);
+    button.set_width_request(176);
     button.set_hexpand(false);
     button.set_halign(gtk::Align::Start);
     button.set_valign(gtk::Align::Start);
@@ -91,7 +91,7 @@ pub(super) fn catalog_tile(
     button.add_css_class("music-catalog-tile");
     button.set_tooltip_text(Some(title));
     let content = gtk::Box::new(gtk::Orientation::Vertical, 8);
-    let art = cover_widget(loader, cover, 128);
+    let art = cover_widget(loader, cover, 160);
     art.set_halign(gtk::Align::Center);
     if artist {
         art.add_css_class("music-artist-art");
@@ -101,7 +101,7 @@ pub(super) fn catalog_tile(
     heading.set_wrap(true);
     heading.set_wrap_mode(gtk::pango::WrapMode::WordChar);
     heading.set_lines(2);
-    heading.set_max_width_chars(18);
+    heading.set_max_width_chars(22);
     heading.add_css_class("heading");
     content.append(&heading);
     if !subtitle.is_empty() {
@@ -118,9 +118,9 @@ pub(super) fn tile_grid() -> gtk::FlowBox {
     grid.set_selection_mode(gtk::SelectionMode::None);
     grid.set_focusable(false);
     grid.set_min_children_per_line(1);
-    grid.set_max_children_per_line(6);
-    grid.set_column_spacing(12);
-    grid.set_row_spacing(16);
+    grid.set_max_children_per_line(12);
+    grid.set_column_spacing(16);
+    grid.set_row_spacing(20);
     grid.set_homogeneous(true);
     grid.set_halign(gtk::Align::Start);
     grid.set_valign(gtk::Align::Start);
@@ -190,8 +190,15 @@ impl Controller {
         let labels = gtk::Box::new(gtk::Orientation::Vertical, 2);
         labels.set_hexpand(true);
         labels.set_valign(gtk::Align::Center);
-        let title = text(title, "heading");
-        labels.append(&title);
+        let already_named = self
+            .widgets
+            .library_mode
+            .selected_item()
+            .and_downcast::<gtk::StringObject>()
+            .is_some_and(|selected| selected.string().as_str() == title);
+        if !already_named {
+            labels.append(&text(title, "heading"));
+        }
         if !facts.is_empty() {
             let facts = text(facts, "dim-label");
             facts.add_css_class("caption");
@@ -221,9 +228,11 @@ impl Controller {
                     .map(|page| page.items.clone()),
             )
         };
-        self.widgets
-            .home_collections
-            .set_visible(valid && playlists.as_ref().is_some_and(|p| !p.is_empty()));
+        let has_collections = valid && playlists.as_ref().is_some_and(|p| !p.is_empty());
+        self.widgets.home_collections.set_visible(has_collections);
+        if let Some(section) = self.widgets.home_collections.parent() {
+            section.set_visible(has_collections);
+        }
         if !valid {
             return;
         }
@@ -277,7 +286,32 @@ impl Controller {
         let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         actions.add_css_class("music-collection-actions");
         actions.append(&play);
-        self.widgets.detail.append(&actions);
+        self.place_detail_actions(&actions);
+    }
+
+    /// Artwork, facts and the actual collection action form one compact hero.
+    /// Reuse the same buttons rather than reserving an extra full-width row
+    /// below the cover. Wrapped metadata can still grow naturally on compact.
+    fn place_detail_actions(&self, actions: &gtk::Box) {
+        if let Some(hero) = self
+            .widgets
+            .detail
+            .first_child()
+            .and_then(|back| back.next_sibling())
+            .and_downcast::<gtk::Box>()
+        {
+            let mut child = hero.first_child();
+            while let Some(widget) = child {
+                if widget.widget_name() == "music-detail-heading"
+                    && let Some(heading) = widget.downcast_ref::<gtk::Box>()
+                {
+                    heading.append(actions);
+                    return;
+                }
+                child = widget.next_sibling();
+            }
+        }
+        self.widgets.detail.append(actions);
     }
 
     pub(super) fn show_library(self: &Rc<Self>) {
@@ -367,6 +401,7 @@ impl Controller {
             let model = self.model.borrow();
             (model.account_valid, model.liked.clone())
         };
+        clear_box(&self.widgets.home_hero);
         if !valid {
             set_empty(
                 &self.widgets.home_preview,
@@ -376,13 +411,40 @@ impl Controller {
         }
         match result {
             Some(Ok(page)) if !page.items.is_empty() => {
+                let art = cover_widget(
+                    self.artwork.as_ref(),
+                    page.items.first().and_then(|track| track.cover.as_ref()),
+                    96,
+                );
+                art.add_css_class("music-home-hero-art");
+                self.widgets.home_hero.append(&art);
+                let labels = gtk::Box::new(gtk::Orientation::Vertical, 6);
+                labels.set_hexpand(true);
+                labels.set_valign(gtk::Align::Center);
+                labels.append(&text("Любимые треки", "title-1"));
+                let mut facts = track_count_text(page.items.len() as u64);
+                if page.has_more {
+                    facts.push_str(" · Часть коллекции");
+                }
+                labels.append(&text(&facts, "dim-label"));
+                if let Some(play) = self.collection_play(
+                    page.items.clone(),
+                    ContextKind::LikedTracks,
+                    None,
+                    page.has_more,
+                ) {
+                    play.set_widget_name("music-home-play-liked");
+                    play.set_halign(gtk::Align::Start);
+                    labels.append(&play);
+                }
+                self.widgets.home_hero.append(&labels);
                 self.tracks_from(
                     &self.widgets.home_preview,
                     page.items,
                     ContextKind::LikedTracks,
                     None,
                     page.has_more,
-                    0..5,
+                    0..3,
                 );
             }
             Some(Ok(_)) => set_empty(&self.widgets.home_preview, "Пока нет любимых треков."),
@@ -1160,7 +1222,7 @@ impl Controller {
                     });
                     actions.append(&add);
                     actions.append(&this.track_menu_context(&track, context.clone()));
-                    this.widgets.detail.append(&actions);
+                    this.place_detail_actions(&actions);
                     this.widgets
                         .detail
                         .append(&this.like_controls(track.id.clone()));

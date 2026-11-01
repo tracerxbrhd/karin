@@ -266,7 +266,21 @@ fn native_catalog_cache_provenance_interleaving_and_retired_replies() {
     // page-one provenance in the same library section.
     this.remember_library_origin(0, 1, Provenance::StaleCache, false);
     this.model.borrow_mut().library_displaying = Some((0, 1));
-    this.widgets.stack.set_visible_child_name("queue");
+    // Map the newly selected synthetic page through the ordinary route signal,
+    // exactly as navigation does; never manually refresh after switching.
+    this.widgets.stack.set_visible_child_name("search");
+    this.widgets.stack.set_visible_child_name("library");
+    pump_until(|| this.widgets.cache_notice.is_revealed());
+    // Queue is a companion surface, not a different provenance-bearing page.
+    // Opening it must leave the underlying library's saved-data status intact.
+    this.set_panel_mode(workspace::PanelMode::Queue);
+    assert_stale(&this);
+    assert_eq!(
+        this.widgets.stack.visible_child_name().as_deref(),
+        Some("library")
+    );
+    this.set_panel_mode(workspace::PanelMode::Closed);
+    this.widgets.stack.set_visible_child_name("search");
     assert_network(&this);
     this.widgets.stack.set_visible_child_name("library");
     pump_until(|| this.widgets.cache_notice.is_revealed());
@@ -279,8 +293,13 @@ fn native_catalog_cache_provenance_interleaving_and_retired_replies() {
     this.widgets.stack.set_visible_child_name("detail");
     pump_until(|| this.widgets.cache_notice.is_revealed());
     assert_stale(&this);
-    this.widgets.stack.set_visible_child_name("queue");
-    assert_network(&this);
+    this.set_panel_mode(workspace::PanelMode::Queue);
+    assert_stale(&this);
+    assert_eq!(
+        this.widgets.stack.visible_child_name().as_deref(),
+        Some("detail")
+    );
+    this.set_panel_mode(workspace::PanelMode::Closed);
     this.widgets.stack.set_visible_child_name("home");
     assert_network(&this); // page0 was freshly replaced by the network reply
     this.widgets.stack.set_visible_child_name("detail");

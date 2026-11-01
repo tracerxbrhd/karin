@@ -19,11 +19,13 @@ mod catalog_view;
 mod design_tests;
 #[cfg(test)]
 mod diagnostic_tests;
+mod home;
 mod interactions;
 #[cfg(test)]
 mod navigation_tests;
 mod persistence;
 mod player;
+mod player_bar;
 mod playlist_creation;
 mod playlist_grid;
 mod queue_view;
@@ -33,6 +35,7 @@ mod row_activation_tests;
 #[cfg(test)]
 mod search_tests;
 mod search_view;
+pub(in crate::ui) mod sliding_panel;
 mod system_media;
 #[cfg(test)]
 mod test_input;
@@ -106,6 +109,7 @@ struct Widgets {
     status_revealer: gtk::Revealer,
     home_signedout: gtk::Box,
     home_signedin: gtk::Box,
+    home_hero: gtk::Box,
     home_liked: gtk::Button,
     home_playlists: gtk::Button,
     home_search: gtk::Button,
@@ -137,11 +141,15 @@ struct Widgets {
     current_artist: gtk::Label,
     current_art: gtk::Box,
     current_art_button: gtk::Button,
+    current_like_slot: gtk::Box,
     player_main: gtk::Box,
     position: gtk::Label,
     player_status: gtk::Label,
     play: gtk::Button,
     stop: gtk::Button,
+    shuffle: gtk::ToggleButton,
+    repeat: gtk::Button,
+    queue: gtk::Button,
     progress: gtk::Scale,
     volume: gtk::Scale,
     previous: gtk::Button,
@@ -174,7 +182,9 @@ struct Controller {
     info_host: RefCell<Option<workspace::InfoHost>>,
     info_observed: RefCell<Option<workspace::CurrentOccurrence>>,
     info_target_epoch: Cell<u64>,
+    panel_mode: Cell<workspace::PanelMode>,
     catalog_rows: RefCell<Vec<catalog_layout::CatalogRow>>,
+    current_like_key: RefCell<Option<(u64, String)>>,
     catalog: RefCell<Option<crate::catalog_cache::CachedCatalog>>,
     playlist_dialog: RefCell<Option<adw::Dialog>>,
     can_create_playlist: Cell<bool>,
@@ -332,82 +342,26 @@ impl MusicPane {
         // The window owns one adaptive navigation surface. Internal pages
         // expose this stack to that surface and to keyboard actions.
         widget.append(&stack);
-        let home = gtk::Box::new(gtk::Orientation::Vertical, 24);
-        let home_signedout = gtk::Box::new(gtk::Orientation::Vertical, 16);
-        let welcome_icon = gtk::Image::from_icon_name("audio-x-generic-symbolic");
-        welcome_icon.set_pixel_size(72);
-        welcome_icon.set_halign(gtk::Align::Start);
-        welcome_icon.add_css_class("accent");
-        home_signedout.append(&welcome_icon);
-        home_signedout.append(&text("Ваша музыка — в Karin", "title-1"));
-        home_signedout.append(&text("Войдите в Яндекс, чтобы открыть понравившиеся треки, личные плейлисты и поиск по каталогу.", "dim-label"));
-        home_signedout.append(&text(
-            "Karin может запомнить вход в защищённом хранилище. Управляйте этим в настройках.",
-            "caption",
-        ));
-        home.append(&home_signedout);
-        let home_signedin = gtk::Box::new(gtk::Orientation::Vertical, 18);
-        home_signedin.append(&text("Ваша музыка", "title-1"));
-        let quick = gtk::FlowBox::new();
-        quick.set_selection_mode(gtk::SelectionMode::None);
-        quick.set_min_children_per_line(1);
-        quick.set_max_children_per_line(3);
-        quick.set_column_spacing(12);
-        quick.set_row_spacing(12);
-        quick.set_homogeneous(true);
-        let home_liked = destination("starred-symbolic", "Любимые треки", "Ваша коллекция");
-        let home_playlists = destination("view-list-symbolic", "Мои плейлисты", "Ваши подборки");
-        let home_search = destination("system-search-symbolic", "Поиск", "Весь каталог");
-        for button in [&home_liked, &home_playlists, &home_search] {
-            quick.insert(button, -1);
-        }
-        home_signedin.append(&quick);
-        let preview_heading = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-        preview_heading.append(&text("Из любимого", "title-3"));
-        let all_liked = gtk::Button::with_label("Все треки");
-        all_liked.add_css_class("flat");
-        all_liked.set_tooltip_text(Some("Открыть понравившиеся треки в библиотеке"));
-        let target = home_liked.downgrade();
-        all_liked.connect_clicked(move |_| {
-            if let Some(target) = target.upgrade() {
-                target.emit_clicked();
-            }
-        });
-        preview_heading.append(&all_liked);
-        home_signedin.append(&preview_heading);
-        let home_preview = list();
-        home_preview.set_widget_name("music-home-liked-preview");
-        set_empty(&home_preview, "Любимые треки появятся после входа.");
-        home_signedin.append(&home_preview);
-        let home_queue = text("Очередь пуста", "heading");
-        home_queue.set_visible(false);
-        home_signedin.append(&home_queue);
-        let open_queue = gtk::Button::with_label("Открыть очередь");
-        open_queue.set_action_name(Some("win.music-queue"));
-        open_queue.set_halign(gtk::Align::Start);
-        open_queue.set_visible(false);
-        home_signedin.append(&open_queue);
-        let home_collections = gtk::FlowBox::new();
-        home_collections.set_selection_mode(gtk::SelectionMode::None);
-        home_collections.set_min_children_per_line(1);
-        home_collections.set_max_children_per_line(5);
-        home_collections.set_column_spacing(16);
-        home_collections.set_row_spacing(16);
-        home_collections.set_homogeneous(true);
-        home_collections.set_visible(false);
-        home_collections.add_css_class("music-home-collections");
-        home_signedin.insert_child_after(&home_collections, Some(&quick));
-        home.append(&home_signedin);
+        let home::HomeParts {
+            home,
+            home_signedout,
+            home_signedin,
+            home_hero,
+            home_liked,
+            home_playlists,
+            home_search,
+            home_queue,
+            home_preview,
+            home_collections,
+        } = home::HomeParts::new();
         stack.add_titled(&home, Some("home"), "Главная");
         stack.set_visible_child_name("home");
 
         let library = gtk::Box::new(gtk::Orientation::Vertical, 10);
-        let library_mode = gtk::DropDown::from_strings(&[
-            "Понравившиеся треки",
-            "Мои плейлисты",
-            "Понравившиеся плейлисты",
-        ]);
-        library_mode.set_hexpand(true);
+        let library_mode =
+            gtk::DropDown::from_strings(&["Треки", "Мои плейлисты", "Избранные плейлисты"]);
+        library_mode.set_hexpand(false);
+        library_mode.set_halign(gtk::Align::Start);
         library_mode.update_property(&[gtk::accessible::Property::Label("Раздел библиотеки")]);
         let library_controls = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         library_controls.append(&library_mode);
@@ -493,134 +447,55 @@ impl MusicPane {
         let queue_page = gtk::Box::new(gtk::Orientation::Vertical, 10);
         let queue_tools = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         let queue_count = text("Очередь пуста", "dim-label");
+        queue_count.set_hexpand(true);
         queue_tools.append(&queue_count);
-        let clear_queue = icon_button("user-trash-symbolic", "Очистить очередь");
+        let clear_queue = icon_button(
+            "user-trash-symbolic",
+            "Очистить очередь и остановить воспроизведение",
+        );
         clear_queue.set_widget_name("music-clear-queue");
         clear_queue.set_halign(gtk::Align::Start);
         queue_tools.append(&clear_queue);
         queue_page.append(&queue_tools);
         let queue_rows = list();
-        queue_page.append(&queue_rows);
-        stack.add_titled(&queue_page, Some("queue"), "Очередь");
+        super::margins(&queue_page, 12);
+        queue_page.set_margin_top(8);
+        let queue_viewport = gtk::Viewport::builder()
+            .child(&queue_rows)
+            .scroll_to_focus(true)
+            .build();
+        let queue_scroll = gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .vscrollbar_policy(gtk::PolicyType::Automatic)
+            .vexpand(true)
+            .child(&queue_viewport)
+            .build();
+        queue_scroll.set_widget_name("music-panel-queue-scroll");
+        queue_page.append(&queue_scroll);
+        track_pane.attach_queue(&queue_page);
 
         let detail = gtk::Box::new(gtk::Orientation::Vertical, 12);
         stack.add_named(&detail, Some("detail"));
-        let player_bar = gtk::Box::new(gtk::Orientation::Vertical, 6);
-        player_bar.set_widget_name("music-player-bar");
-        super::margins(&player_bar, 8);
-        player_bar.add_css_class("music-player");
-        let player_top = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-        player_top.add_css_class("music-player-main");
-        player_top.set_widget_name("music-player-main");
-        let player_metadata = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-        player_metadata.set_hexpand(true);
-        let player_actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-        player_actions.set_halign(gtk::Align::Center);
-        player_actions.add_css_class("music-transport");
-        let player_utilities = gtk::Box::new(gtk::Orientation::Horizontal, 4);
-        player_utilities.set_hexpand(true);
-        player_utilities.set_halign(gtk::Align::End);
-        let current_art = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-        let current_art_button = gtk::Button::builder()
-            .has_frame(false)
-            .child(&current_art)
-            .tooltip_text("Показать сведения о текущем треке")
-            .sensitive(false)
-            .build();
-        current_art_button.add_css_class("flat");
-        current_art_button.set_widget_name("music-current-info");
-        current_art_button.update_property(&[gtk::accessible::Property::Label(
-            "Показать сведения о текущем треке",
-        )]);
-        player_metadata.append(&current_art_button);
-        let playing = gtk::Box::new(gtk::Orientation::Vertical, 2);
-        playing.set_hexpand(true);
-        let current = text("Трек не выбран", "heading");
-        current.add_css_class("music-player-title");
-        current.set_widget_name("music-current-title");
-        current.set_ellipsize(gtk::pango::EllipsizeMode::End);
-        current.set_lines(1);
-        current.set_wrap(false);
-        current.set_width_chars(1);
-        let current_artist = text("Выберите трек", "dim-label");
-        current_artist.add_css_class("music-player-artist");
-        current_artist.set_widget_name("music-current-artist");
-        current_artist.set_ellipsize(gtk::pango::EllipsizeMode::End);
-        current_artist.set_lines(1);
-        current_artist.set_wrap(false);
-        current_artist.set_width_chars(1);
-        playing.append(&current);
-        playing.append(&current_artist);
-        let player_status = text("", "caption");
-        player_status.set_width_chars(1);
-        player_status.set_visible(false);
-        playing.append(&player_status);
-        player_metadata.append(&playing);
-        player_top.append(&player_metadata);
-        let previous = icon_button("media-skip-backward-symbolic", "Предыдущий трек");
-        let play = icon_button(
-            "media-playback-start-symbolic",
-            "Воспроизвести выбранный трек",
-        );
-        play.set_widget_name("music-play");
-        play.set_sensitive(false);
-        play.add_css_class("circular");
-        play.add_css_class("suggested-action");
-        play.set_size_request(44, 44);
-        let stop = icon_button("media-playback-stop-symbolic", "Остановить воспроизведение");
-        stop.set_widget_name("music-stop");
-        stop.set_sensitive(false);
-        let next = icon_button("media-skip-forward-symbolic", "Следующий трек");
-        player_actions.append(&previous);
-        player_actions.append(&play);
-        player_actions.append(&next);
-        stop.add_css_class("flat");
-        player_utilities.append(&stop);
-        let queue = icon_button("view-list-symbolic", "Открыть очередь");
-        queue.set_action_name(Some("win.music-queue"));
-        queue.add_css_class("flat");
-        player_utilities.append(&queue);
-
-        let timeline = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-        timeline.add_css_class("music-player-timeline");
-        let progress = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 1.0, 0.01);
-        progress.set_draw_value(false);
-        progress.set_hexpand(true);
-        progress.set_sensitive(false);
-        progress.set_widget_name("music-progress");
-        progress.set_tooltip_text(Some("Позиция воспроизведения"));
-        progress.update_property(&[gtk::accessible::Property::Label("Позиция воспроизведения")]);
-        let position = text("— / —", "caption");
-        position.set_hexpand(false);
-        position.set_wrap(false);
-        timeline.append(&progress);
-        timeline.append(&position);
-        let volume_menu = gtk::MenuButton::builder()
-            .icon_name("audio-volume-high-symbolic")
-            .tooltip_text("Громкость")
-            .build();
-        volume_menu.set_widget_name("music-volume-menu");
-        volume_menu.add_css_class("flat");
-        volume_menu.update_property(&[gtk::accessible::Property::Label("Громкость")]);
-        let volume_popover = gtk::Popover::new();
-        volume_menu.set_popover(Some(&volume_popover));
-        let volume = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 1.0, 0.01);
-        volume.set_draw_value(false);
-        volume.set_value(0.7);
-        volume.set_widget_name("music-volume");
-        volume.set_width_request(140);
-        volume.set_sensitive(false);
-        volume.set_tooltip_text(Some("Громкость"));
-        volume.update_property(&[gtk::accessible::Property::Label(
-            "Громкость воспроизведения",
-        )]);
-        super::margins(&volume, 12);
-        volume_popover.set_child(Some(&volume));
-        player_utilities.append(&volume_menu);
-        player_top.append(&player_actions);
-        player_top.append(&player_utilities);
-        player_bar.append(&player_top);
-        player_bar.append(&timeline);
+        let player_bar::PlayerBarParts {
+            player_bar,
+            player_main,
+            current,
+            current_artist,
+            current_art,
+            current_art_button,
+            current_like_slot,
+            position,
+            player_status,
+            play,
+            stop,
+            previous,
+            next,
+            queue,
+            shuffle,
+            repeat,
+            progress,
+            volume,
+        } = player_bar::PlayerBarParts::new();
 
         let cache_notice = adw::Banner::builder()
             .title("Сохранённые данные могут быть устаревшими.")
@@ -652,6 +527,7 @@ impl MusicPane {
             status_revealer,
             home_signedout,
             home_signedin,
+            home_hero,
             home_liked,
             home_playlists,
             home_search,
@@ -683,11 +559,15 @@ impl MusicPane {
             current_artist,
             current_art,
             current_art_button,
-            player_main: player_top,
+            current_like_slot,
+            player_main,
             position,
             player_status,
             play,
             stop,
+            shuffle,
+            repeat,
+            queue,
             progress,
             volume,
             previous,
@@ -738,7 +618,9 @@ impl MusicPane {
             info_host: RefCell::new(None),
             info_observed: RefCell::new(None),
             info_target_epoch: Cell::new(0),
+            panel_mode: Cell::new(workspace::PanelMode::Closed),
             catalog_rows: RefCell::new(Vec::new()),
+            current_like_key: RefCell::new(None),
             catalog: RefCell::new(None),
             playlist_dialog: RefCell::new(None),
             can_create_playlist: Cell::new(true),
@@ -1561,7 +1443,6 @@ impl Controller {
             ("music-home", "home", "<Primary>h"),
             ("music-library", "library", "<Primary>l"),
             ("music-search", "search", "<Primary>f"),
-            ("music-queue", "queue", "<Primary>j"),
         ] {
             let action = gio::SimpleAction::new(name, None);
             let weak = Rc::downgrade(self);
@@ -1577,6 +1458,17 @@ impl Controller {
             if let Some(app) = self.app.upgrade() {
                 app.set_accels_for_action(&format!("win.{name}"), &[accelerator]);
             }
+        }
+        let queue_action = gio::SimpleAction::new("music-queue", None);
+        let weak = Rc::downgrade(self);
+        queue_action.connect_activate(move |_, _| {
+            if let Some(this) = weak.upgrade() {
+                this.toggle_queue_panel();
+            }
+        });
+        window.add_action(&queue_action);
+        if let Some(app) = self.app.upgrade() {
+            app.set_accels_for_action("win.music-queue", &["<Primary>j"]);
         }
         let back = gio::SimpleAction::new("music-back", None);
         let weak = Rc::downgrade(self);
@@ -1601,6 +1493,7 @@ impl Controller {
         self.widgets.home_liked.set_sensitive(ready);
         self.widgets.home_playlists.set_sensitive(ready);
         self.widgets.home_search.set_sensitive(ready);
+        self.widgets.queue.set_sensitive(ready);
         self.widgets.account_bar.set_visible(!model.account_valid);
         self.widgets.account_menu.set_visible(model.account_valid);
         self.widgets.account_menu.set_sensitive(ready);
@@ -1673,6 +1566,7 @@ impl Controller {
             token.invalidate();
         }
         model.queue.clear();
+        model.queue.reset_modes();
         model.liked = None;
         model.playlists = None;
         if let Some(attempt) = model.attempt.take() {
@@ -1691,6 +1585,7 @@ impl Controller {
 
     fn logout(self: &Rc<Self>) {
         self.begin_forget_session();
+        self.set_info_open(false);
         self.dismiss_logout_confirmation();
         self.stop_music();
         self.clear_system_media();
@@ -1712,6 +1607,7 @@ impl Controller {
             model.auth_busy = false;
             model.busy = false;
             model.queue.clear();
+            model.queue.reset_modes();
             model.liked = None;
             model.playlists = None;
             model.library_origins.clear();
@@ -1966,24 +1862,6 @@ impl Controller {
         }
         self.render_queue();
     }
-}
-
-fn destination(icon: &str, title: &str, subtitle: &str) -> gtk::Button {
-    let button = gtk::Button::new();
-    button.add_css_class("card");
-    let content = gtk::Box::new(gtk::Orientation::Vertical, 12);
-    super::margins(&content, 18);
-    let image = gtk::Image::from_icon_name(icon);
-    image.set_pixel_size(32);
-    image.set_halign(gtk::Align::Start);
-    image.add_css_class("accent");
-    content.append(&image);
-    content.append(&text(title, "heading"));
-    button.set_tooltip_text(Some(subtitle));
-    button.add_css_class("music-destination");
-    button.set_child(Some(&content));
-    button.set_hexpand(true);
-    button
 }
 
 fn cover_widget(
@@ -2891,7 +2769,7 @@ mod tests {
         );
         assert!(this.widgets.home_signedin.is_visible());
         assert!(!this.widgets.home_signedout.is_visible());
-        assert_eq!(rows(&this.widgets.home_preview), 5);
+        assert_eq!(rows(&this.widgets.home_preview), 3);
         assert!(contains_text(
             this.widgets.home_preview.upcast_ref(),
             "Synthetic UI track"
@@ -2980,8 +2858,15 @@ mod tests {
             .emit_clicked();
         assert_eq!(this.model.borrow().queue.items().len(), 1);
         assert_eq!(this.widgets.current.text(), "Synthetic UI track");
-        this.widgets.stack.set_visible_child_name("queue");
+        this.set_panel_mode(workspace::PanelMode::Queue);
+        pump_until(|| this.widgets.queue_rows.is_mapped());
+        assert_eq!(
+            this.widgets.stack.visible_child_name().as_deref(),
+            Some("search")
+        );
         capture_native("queue");
+        this.set_panel_mode(workspace::PanelMode::Closed);
+        pump_until(|| !this.info_is_open());
         this.widgets.stack.set_visible_child_name("search");
         menu.popup();
         pump_until(|| menu.popover().unwrap().is_visible());
@@ -3000,19 +2885,18 @@ mod tests {
             .unwrap()
             .emit_clicked();
         pump_until(|| !this.model.borrow().busy);
-        let album_rows = this
-            .widgets
-            .detail
-            .first_child()
-            .unwrap()
-            .next_sibling()
-            .unwrap()
-            .next_sibling()
-            .unwrap()
-            .next_sibling()
-            .unwrap()
-            .downcast::<gtk::ListBox>()
-            .unwrap();
+        // A collection's Play action belongs inside its hero. Locate the
+        // actual track list by type instead of an obsolete child position.
+        let album_rows = {
+            let mut child = this.widgets.detail.first_child();
+            loop {
+                let widget = child.expect("album detail must contain its real track list");
+                child = widget.next_sibling();
+                if let Ok(rows) = widget.downcast::<gtk::ListBox>() {
+                    break rows;
+                }
+            }
+        };
         assert_eq!(rows(&album_rows), 50);
         capture_native("album");
         this.widgets
@@ -3024,19 +2908,18 @@ mod tests {
             .downcast::<gtk::Button>()
             .unwrap()
             .emit_clicked();
-        let album_rows = this
-            .widgets
-            .detail
-            .first_child()
-            .unwrap()
-            .next_sibling()
-            .unwrap()
-            .next_sibling()
-            .unwrap()
-            .next_sibling()
-            .unwrap()
-            .downcast::<gtk::ListBox>()
-            .unwrap();
+        // A collection's Play action belongs inside its hero. Locate the
+        // actual track list by type instead of an obsolete child position.
+        let album_rows = {
+            let mut child = this.widgets.detail.first_child();
+            loop {
+                let widget = child.expect("album detail must contain its real track list");
+                child = widget.next_sibling();
+                if let Ok(rows) = widget.downcast::<gtk::ListBox>() {
+                    break rows;
+                }
+            }
+        };
         assert_eq!(rows(&album_rows), 13);
         this.widgets.stack.set_visible_child_name("search");
         this.widgets.search.set_text("Late result");

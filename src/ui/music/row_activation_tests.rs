@@ -59,6 +59,28 @@ fn named_button(widget: &gtk::Widget, name: &str) -> Option<gtk::Button> {
         .and_then(|widget| widget.downcast().ok())
 }
 
+// Queue actions live in the native row menu; open it with real input before
+// targeting its controls. The physical index is an occurrence, never a track ID.
+fn queue_action(
+    this: &Controller,
+    window: &adw::ApplicationWindow,
+    id: &str,
+    index: usize,
+    name: &str,
+) -> gtk::Button {
+    let row = this.queue_row_at_physical(index).unwrap();
+    let menu = descendants(row.upcast_ref())
+        .into_iter()
+        .find(|widget| widget.widget_name() == "music-queue-more")
+        .unwrap()
+        .downcast::<gtk::MenuButton>()
+        .unwrap();
+    click(window, id, &menu);
+    let button = named_button(row.upcast_ref(), name).unwrap();
+    pump_until(|| button.is_mapped());
+    button
+}
+
 fn displayed_cover(widget: &gtk::Widget) -> bool {
     descendants(widget).into_iter().any(|widget| {
         let Some(overlay) = widget.downcast_ref::<gtk::Overlay>() else {
@@ -603,8 +625,11 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
     unavailable.title = "Synthetic duplicate queued track".into();
     unavailable.available = true;
     this.enqueue(unavailable);
-    this.widgets.stack.set_visible_child_name("queue");
+    let queue_toggle = named_button(window.upcast_ref(), "music-queue-toggle").unwrap();
+    click(window, id, &queue_toggle);
     pump_until(|| this.widgets.queue_rows.is_mapped());
+    assert_eq!(this.panel_mode.get(), workspace::PanelMode::Queue);
+    assert!(this.widgets.stack.child_by_name("queue").is_none());
     assert_eq!(this.model.borrow().queue.items().len(), 4);
     assert_eq!(
         this.model
@@ -615,13 +640,13 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
             .manual_items_len(),
         3
     );
-    let first_row = first(&this.widgets.queue_rows);
+    let first_row = this.queue_row_at_physical(0).unwrap();
     pump_until(|| displayed_cover(first_row.upcast_ref()));
     let retired_remove = named_button(first_row.upcast_ref(), "music-queue-remove").unwrap();
     assert!(contains_text(first_row.upcast_ref(), "Сейчас"));
-    let next = this.widgets.queue_rows.row_at_index(2).unwrap();
+    let next = this.queue_row_at_physical(2).unwrap();
     assert!(contains_text(next.upcast_ref(), "Далее"));
-    let unavailable = this.widgets.queue_rows.row_at_index(1).unwrap();
+    let unavailable = this.queue_row_at_physical(1).unwrap();
     assert!(!unavailable.is_activatable());
     assert!(
         !named_button(unavailable.upcast_ref(), "music-queue-play")
@@ -653,7 +678,8 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
     }
     capture_native("input-native-music-queue-current-next");
     // A duplicate ID at the final position must select that occurrence, not0.
-    let duplicate = this.widgets.queue_rows.row_at_index(3).unwrap();
+    eprintln!("Karin synthetic input: target=queue-duplicate method=space");
+    let duplicate = this.queue_row_at_physical(3).unwrap();
     let before = count("/tracks/42/download-info");
     assert!(duplicate.grab_focus());
     input(&["key", "--clearmodifiers", "space"]);
@@ -673,44 +699,46 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
     assert_eq!(this.model.borrow().queue.items().len(), 4);
     assert_eq!(this.model.borrow().queue.current_index(), Some(3));
     assert!(contains_text(
-        this.widgets
-            .queue_rows
-            .row_at_index(3)
-            .unwrap()
-            .upcast_ref(),
+        this.queue_row_at_physical(3).unwrap().upcast_ref(),
         "Сейчас"
     ));
-    let second = this.widgets.queue_rows.row_at_index(2).unwrap();
+    eprintln!("Karin synthetic input: target=queue-occurrence method=mouse");
+    let second = this.queue_row_at_physical(2).unwrap();
     click(window, id, &second);
     pump_until(|| this.model.borrow().queue.current_index() == Some(2) && !this.music_requested());
     assert_eq!(this.widgets.current.text(), "Synthetic second queued track");
-    let first_row = first(&this.widgets.queue_rows);
+    let first_row = this.queue_row_at_physical(0).unwrap();
     assert!(first_row.grab_focus());
     input(&["key", "--clearmodifiers", "Return"]);
     pump_until(|| this.model.borrow().queue.current_index() == Some(0) && !this.music_requested());
     assert_eq!(this.widgets.current.text(), "Synthetic input track");
     assert!(!this.widgets.position.text().contains("0:00"));
     // Independent Details must preserve queue selection and emit no Play.
-    let duplicate = this.widgets.queue_rows.row_at_index(3).unwrap();
-    let details = named_button(duplicate.upcast_ref(), "music-queue-details").unwrap();
+    let details = queue_action(this, window, id, 3, "music-queue-details");
     let before_play = count("/tracks/42/download-info");
+    let central_route = this.widgets.stack.visible_child_name();
     click(window, id, &details);
     pump_until(|| {
-        this.widgets.stack.visible_child_name().as_deref() == Some("detail")
-            && !this.model.borrow().busy
+        this.panel_mode.get() == workspace::PanelMode::TrackInfo
+            && this.track_pane.widget.is_mapped()
     });
+    assert_eq!(this.widgets.stack.visible_child_name(), central_route);
     assert_eq!(this.model.borrow().queue.current_index(), Some(0));
     assert_eq!(count("/tracks/42/download-info"), before_play);
-    let back = named_button(this.widgets.detail.upcast_ref(), "music-detail-back").unwrap();
-    click(window, id, &back);
-    pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("queue"));
-    let duplicate = this.widgets.queue_rows.row_at_index(3).unwrap();
+    assert!(contains_text(
+        this.track_pane.widget.upcast_ref(),
+        "Synthetic duplicate queued track"
+    ));
+    click(window, id, &queue_toggle);
+    pump_until(|| {
+        this.panel_mode.get() == workspace::PanelMode::Queue && this.widgets.queue_rows.is_mapped()
+    });
+    let duplicate = this.queue_row_at_physical(3).unwrap();
     assert!(duplicate.grab_focus());
     input(&["key", "--clearmodifiers", "Return"]);
     pump_until(|| this.model.borrow().queue.current_index() == Some(3) && !this.music_requested());
     let before_remove = count("/tracks/42/download-info");
-    let old_first = first(&this.widgets.queue_rows);
-    let remove = named_button(old_first.upcast_ref(), "music-queue-remove").unwrap();
+    let remove = queue_action(this, window, id, 0, "music-queue-remove");
     click(window, id, &remove);
     pump_until(|| this.model.borrow().queue.items().len() == 3);
     assert_eq!(this.model.borrow().queue.current_index(), Some(2));
@@ -723,8 +751,7 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
         before_remove,
         "removing another occurrence cannot restart the current track"
     );
-    let unavailable = first(&this.widgets.queue_rows);
-    let remove = named_button(unavailable.upcast_ref(), "music-queue-remove").unwrap();
+    let remove = queue_action(this, window, id, 0, "music-queue-remove");
     click(window, id, &remove);
     pump_until(|| this.model.borrow().queue.items().len() == 2);
     assert_eq!(this.model.borrow().queue.current_index(), Some(1));

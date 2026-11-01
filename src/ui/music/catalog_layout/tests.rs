@@ -131,6 +131,51 @@ fn native_catalog_native_music_layout() {
     this.render_controls();
     this.set_info_open(false);
     this.render_home_preview();
+    let home_rows: Vec<_> = children(&this.widgets.home_preview)
+        .into_iter()
+        .filter_map(|child| child.downcast::<gtk::ListBoxRow>().ok())
+        .collect();
+    assert_eq!(
+        home_rows.len(),
+        3,
+        "Home previews loaded tracks instead of repeating navigation cards"
+    );
+    assert!(
+        children(&this.widgets.home_hero)
+            .iter()
+            .any(|child| { child.widget_name() == "music-home-play-liked" }),
+        "the real loaded liked collection has its own Play action"
+    );
+    assert!(
+        !children(&this.widgets.home_signedin)
+            .iter()
+            .any(|child| { child.has_css_class("music-destination") }),
+        "primary rail destinations must not become oversized Home cards"
+    );
+    window.set_default_size(1440, 900);
+    window.present();
+    super::super::test_input::wait_for_layout(window, &home_rows[0]);
+    assert!(
+        home_rows[0].compute_bounds(window).unwrap().y() < 270.0,
+        "real Home music starts near the first useful screen band"
+    );
+    capture_native("redesign-home-real-library-first");
+    let play_home = children(&this.widgets.home_hero)
+        .into_iter()
+        .find(|child| child.widget_name() == "music-home-play-liked")
+        .unwrap()
+        .downcast::<gtk::Button>()
+        .unwrap();
+    play_home.emit_clicked();
+    assert_eq!(
+        this.model.borrow().queue.context().unwrap().source_kind(),
+        ContextKind::LikedTracks
+    );
+    assert_eq!(
+        this.model.borrow().queue.items().len(),
+        12,
+        "the short Home preview still starts the actual loaded context"
+    );
     assert_eq!(
         children(&this.widgets.home_collections)
             .iter()

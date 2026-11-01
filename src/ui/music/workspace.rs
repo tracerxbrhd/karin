@@ -1,8 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Selection presentation around the accepted player; no transport ownership.
 
+use super::sliding_panel::SlidingPanel;
 use super::*;
 use crate::playback::PlaybackState;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum PanelMode {
+    Closed,
+    TrackInfo,
+    Queue,
+}
 
 pub(super) struct InfoSelection {
     track: Track,
@@ -45,11 +53,11 @@ pub(super) enum InfoPresentation {
 /// state. GTK Revealer has no backdrop or outside-click dismissal policy.
 pub(super) struct InfoHost {
     overlay: glib::WeakRef<gtk::Overlay>,
-    reveal: glib::WeakRef<gtk::Revealer>,
+    reveal: glib::WeakRef<SlidingPanel>,
     content: glib::WeakRef<gtk::Widget>,
 }
 impl InfoHost {
-    pub(super) fn revealer(&self) -> Option<gtk::Revealer> {
+    pub(super) fn revealer(&self) -> Option<SlidingPanel> {
         self.reveal.upgrade()
     }
     pub(super) fn content(&self) -> Option<gtk::Widget> {
@@ -61,6 +69,25 @@ impl InfoHost {
             .is_some_and(|view| view.reveals_child())
     }
     pub(super) fn presentation(&self) -> InfoPresentation {
+        // The available content width includes an explicitly expanded rail.
+        // A 720px window with labels must not squeeze music behind a 300px pane.
+        if self.overlay.upgrade().is_some_and(|overlay| {
+            let width = overlay.width();
+            let pending_rail_delta = overlay
+                .ancestor(adw::OverlaySplitView::static_type())
+                .and_downcast::<adw::OverlaySplitView>()
+                .filter(|split| !split.is_collapsed())
+                .map_or(0, |split| {
+                    split.sidebar().map_or(0, |sidebar| sidebar.width())
+                        - split
+                            .sidebar_width_unit()
+                            .to_px(split.min_sidebar_width(), Some(&split.settings()))
+                            as i32
+                });
+            width > 0 && width + pending_rail_delta < 620
+        }) {
+            return InfoPresentation::Compact;
+        }
         match self.reveal.upgrade().map(|view| view.width_request()) {
             Some(-1) => InfoPresentation::Compact,
             Some(300) => InfoPresentation::Medium,
@@ -77,7 +104,7 @@ impl MusicPane {
     pub(in crate::ui) fn attach_track_info(
         &self,
         overlay: &gtk::Overlay,
-        reveal: &gtk::Revealer,
+        reveal: &SlidingPanel,
         content: &gtk::Widget,
     ) {
         self.controller.info_host.replace(Some(InfoHost {
@@ -91,7 +118,59 @@ impl MusicPane {
                 this.sync_info_visibility();
             }
         });
+        let weak = Rc::downgrade(&self.controller);
+        reveal.connect_notify_local(Some("progress"), move |_, _| {
+            if let Some(this) = weak.upgrade() {
+                this.sync_info_visibility();
+            }
+        });
+        let weak = Rc::downgrade(&self.controller);
+        let last_compact = Cell::new(None);
+        overlay.add_tick_callback(move |_, _| {
+            let Some(this) = weak.upgrade() else {
+                return glib::ControlFlow::Break;
+            };
+            let compact = this
+                .info_host
+                .borrow()
+                .as_ref()
+                .is_some_and(|host| host.presentation() == InfoPresentation::Compact);
+            if last_compact.replace(Some(compact)) != Some(compact) {
+                this.sync_info_visibility();
+            }
+            glib::ControlFlow::Continue
+        });
         self.controller.sync_info_visibility();
+    }
+
+    pub(in crate::ui) fn reflow_panel_callback(&self) -> Rc<dyn Fn()> {
+        let weak = Rc::downgrade(&self.controller);
+        Rc::new(move || {
+            if let Some(this) = weak.upgrade() {
+                this.sync_info_visibility();
+            }
+        })
+    }
+
+    pub(in crate::ui) fn panel_heading(&self) -> gtk::Label {
+        self.controller.track_pane.heading.clone()
+    }
+
+    pub(in crate::ui) fn panel_title_callback(&self) -> Rc<dyn Fn() -> Option<&'static str>> {
+        let weak = Rc::downgrade(&self.controller);
+        Rc::new(move || {
+            let this = weak.upgrade()?;
+            let host = this.info_host.borrow();
+            let host = host.as_ref()?;
+            if host.presentation() != InfoPresentation::Compact || !host.is_open() {
+                return None;
+            }
+            match this.panel_mode.get() {
+                PanelMode::TrackInfo => Some("О треке"),
+                PanelMode::Queue => Some("Очередь"),
+                PanelMode::Closed => None,
+            }
+        })
     }
 
     pub(in crate::ui) fn preferences_callback(&self) -> Rc<dyn Fn()> {
@@ -353,15 +432,45 @@ impl Controller {
         else {
             return;
         };
-        let available = {
+        let ready = {
             let model = self.model.borrow();
-            model.account_valid
-                && !model.closed
-                && self.music_surface_visible.get()
-                && self.info_selection.borrow().is_some()
+            model.account_valid && !model.closed
         };
-        let open = available && self.track_info_preference();
+        if ready && self.panel_mode.get() == PanelMode::Closed && self.track_info_preference() {
+            self.panel_mode.set(PanelMode::TrackInfo);
+        }
+        let selected_mode = self.panel_mode.get();
+        let available = ready
+            && self.music_surface_visible.get()
+            && (selected_mode == PanelMode::Queue
+                || self.info_selection.borrow().is_some()
+                || reveal.progress() > 0.0
+                || reveal.reveals_child());
+        let open = available && selected_mode != PanelMode::Closed;
+        let queue_active = open && selected_mode == PanelMode::Queue;
+        if queue_active {
+            self.widgets.queue.add_css_class("accent");
+        } else {
+            self.widgets.queue.remove_css_class("accent");
+        }
+        let queue_label = if queue_active {
+            "Закрыть очередь"
+        } else {
+            "Открыть очередь"
+        };
+        self.widgets.queue.set_tooltip_text(Some(queue_label));
+        self.widgets
+            .queue
+            .update_property(&[gtk::accessible::Property::Label(queue_label)]);
+        self.widgets
+            .queue
+            .update_state(&[gtk::accessible::State::Pressed(if queue_active {
+                gtk::AccessibleTristate::True
+            } else {
+                gtk::AccessibleTristate::False
+            })]);
         let mode = host.presentation();
+        reveal.set_compact_presentation(mode == InfoPresentation::Compact);
         let hide_content = open && mode == InfoPresentation::Compact;
         // Clear focus before hiding its native subtree. Besides leaving a
         // usable keyboard destination, this avoids GTK4.14 retaining an old
@@ -401,6 +510,10 @@ impl Controller {
             self.clear_info_focus_within(self.track_pane.widget.upcast_ref());
         }
         self.track_pane.widget.set_visible(available);
+        if selected_mode != PanelMode::Closed {
+            self.track_pane
+                .set_queue_mode(selected_mode == PanelMode::Queue);
+        }
         self.track_pane
             .set_compact(mode == InfoPresentation::Compact);
         reveal.set_halign(if mode == InfoPresentation::Compact {
@@ -409,16 +522,22 @@ impl Controller {
             gtk::Align::End
         });
         reveal.set_hexpand(mode == InfoPresentation::Compact);
+        // An explicit close keeps the surface mounted through its final frame;
+        // unavailable/session-retired content is removed synchronously instead.
+        if !available {
+            reveal.hide_immediately();
+        }
         reveal.set_visible(available);
         reveal.set_can_target(open);
         // Reserve room for every persistent desktop pane. A medium overlay
         // without a reservation covered row menus and transport-side actions.
         // Compact is an explicit subview with the same retained pane.
-        content.set_margin_end(match (open, mode) {
-            (true, InfoPresentation::Wide) => 340,
-            (true, InfoPresentation::Medium) => 316,
-            _ => 0,
-        });
+        let reserved = match mode {
+            InfoPresentation::Wide => 340.0,
+            InfoPresentation::Medium => 316.0,
+            InfoPresentation::Compact => 0.0,
+        };
+        content.set_margin_end((reserved * reveal.progress()).ceil() as i32);
         content.set_visible(!hide_content);
         if host.is_open() != open {
             reveal.set_reveal_child(open);
@@ -428,7 +547,7 @@ impl Controller {
         }
     }
 
-    fn focus_compact_information(&self, reveal: &gtk::Revealer, content: &gtk::Widget) {
+    fn focus_compact_information(&self, reveal: &SlidingPanel, content: &gtk::Widget) {
         let window = self.window.clone();
         let reveal = reveal.downgrade();
         let content = content.downgrade();
@@ -451,7 +570,7 @@ impl Controller {
                     || window.visible_dialog().is_some()
                     || !reveal.is_visible()
                     || !reveal.reveals_child()
-                    || reveal.width_request() != -1
+                    || reveal.halign() != gtk::Align::Fill
                     || content.is_visible()
                 {
                     return;
@@ -510,8 +629,37 @@ impl Controller {
     }
 
     pub(super) fn set_info_open(self: &Rc<Self>, open: bool) {
-        self.set_track_info_preference(open);
+        self.set_panel_mode(if open {
+            PanelMode::TrackInfo
+        } else {
+            PanelMode::Closed
+        });
+    }
+
+    pub(super) fn set_panel_mode(self: &Rc<Self>, mode: PanelMode) {
+        self.panel_mode.set(mode);
+        let open = mode != PanelMode::Closed;
+        if self.track_info_preference() != open {
+            self.set_track_info_preference(open);
+        }
         self.sync_info_visibility();
+    }
+
+    pub(super) fn toggle_queue_panel(self: &Rc<Self>) {
+        if !self.model.borrow().account_valid {
+            return;
+        }
+        let mode = if self.panel_mode.get() == PanelMode::Queue {
+            PanelMode::Closed
+        } else {
+            PanelMode::Queue
+        };
+        self.set_panel_mode(mode);
+        if mode == PanelMode::Closed {
+            self.return_information_focus();
+        } else {
+            self.track_pane.close.grab_focus();
+        }
     }
 
     #[cfg(test)]
@@ -545,7 +693,7 @@ impl Controller {
         if self.info_selection.borrow().is_none() {
             return;
         }
-        let show = !self.track_info_preference();
+        let show = self.panel_mode.get() != PanelMode::TrackInfo;
         if show && self.model.borrow().queue.current().is_some() {
             self.follow_current_occurrence();
             self.sync_track_pane();
@@ -576,7 +724,10 @@ impl Controller {
             self.return_information_focus();
             return;
         }
-        if !self.model.borrow().account_valid || self.model.borrow().closed {
+        if !self.model.borrow().account_valid
+            || self.model.borrow().closed
+            || self.panel_mode.get() == PanelMode::Closed
+        {
             return;
         }
         let action_track = match &action {
@@ -638,11 +789,14 @@ impl Controller {
         if let Some(dialog) = dialog {
             dialog.close();
         }
+        self.panel_mode.set(PanelMode::Closed);
         self.info_selection.borrow_mut().take();
         self.info_observed.borrow_mut().take();
         self.info_target_epoch
             .set(self.info_target_epoch.get().wrapping_add(1));
         self.track_pane.set_track(None, self.artwork.as_ref());
+        clear_list(&self.widgets.queue_rows);
+        self.widgets.queue_count.set_text("Очередь пуста");
         self.playlist_grid.clear();
         self.widgets.cache_notice.set_revealed(false);
         self.widgets.cache_hint.set_visible(false);

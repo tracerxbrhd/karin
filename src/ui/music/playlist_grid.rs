@@ -50,7 +50,7 @@ impl PlaylistGrid {
         tiles.set_selection_mode(gtk::SelectionMode::None);
         tiles.set_focusable(false);
         tiles.set_min_children_per_line(1);
-        tiles.set_max_children_per_line(6);
+        tiles.set_max_children_per_line(12);
         tiles.set_column_spacing(16);
         tiles.set_row_spacing(24);
         tiles.set_homogeneous(true);

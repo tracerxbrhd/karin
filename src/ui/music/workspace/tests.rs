@@ -414,7 +414,20 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
     pump_until(|| !this.info_is_open());
     assert!(!this.track_info_preference());
     assert!(this.widgets.current_art_button.has_focus());
+    pump_until(|| reveal.progress() == 0.0);
     assert_eq!(content.margin_end(), 0);
+    assert!(!this.track_pane.close.is_mapped());
+    for _ in 0..12 {
+        input(&["key", "--clearmodifiers", "Tab"]);
+        settle();
+        assert!(
+            gtk::prelude::GtkWindowExt::focus(&ui.window).is_none_or(|focus| {
+                focus != *this.track_pane.widget.upcast_ref::<gtk::Widget>()
+                    && !focus.is_ancestor(&this.track_pane.widget)
+            }),
+            "closed information is not a keyboard-focus destination"
+        );
+    }
     layout(&ui);
     capture_native("workspace-shell-wide-closed-info");
     resize(&ui, 900, 650);
@@ -441,6 +454,25 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
     settle();
     assert!(!this.info_is_open());
     capture_native("workspace-shell-diagnostics-pane-hidden");
+    // Ctrl+J is a genuine global action: it must not be lost because the
+    // diagnostics surface is still mapped when its first handler executes.
+    input(&["key", "--clearmodifiers", "ctrl+j"]);
+    pump_until(|| {
+        this.music_surface_visible.get()
+            && this.info_is_open()
+            && this.panel_mode.get() == PanelMode::Queue
+    });
+    assert!(this.widgets.queue_count.is_mapped());
+    assert!(this.widgets.clear_queue.is_mapped());
+    assert!(
+        this.widgets
+            .queue_count
+            .ancestor(gtk::ScrolledWindow::static_type())
+            .is_none(),
+        "source/partial count and clear remain pinned outside queue scrolling"
+    );
+    input(&["key", "--clearmodifiers", "ctrl+i"]);
+    pump_until(|| this.info_is_open() && this.panel_mode.get() == PanelMode::TrackInfo);
     ui.show_page("music-home");
     pump_until(|| this.info_is_open());
     assert_selection(&this, "42", ContextKind::LikedTracks, 1);
@@ -494,10 +526,7 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
     );
     // Native motion is retained. Neither outside input nor the end of a close
     // transition reopens the view; reduced-motion uses the same intent state.
-    assert_eq!(
-        reveal.transition_type(),
-        gtk::RevealerTransitionType::SlideLeft
-    );
+    assert!(reveal.surface().is_some(), "one native surface is retained");
     assert!(reveal.transition_duration() > 0);
     let settings = gtk::Settings::default().unwrap();
     settings.set_gtk_enable_animations(true);
@@ -535,6 +564,29 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
         assert!(this.info_is_open());
         capture_native(&format!("workspace-shell-medium-{width}-central-actions"));
     }
+    // Expanding the rail at 720px leaves too little actual music width for a
+    // nonmodal column. Keep the same mode/surface and use its explicit subview.
+    resize_logical(&ui, 720, 650);
+    let before_expansion = this.model.borrow().queue.context().cloned();
+    click(&ui.window, id, &ui.sidebar_expand);
+    pump_until(|| presentation() == InfoPresentation::Compact && !content.is_visible());
+    assert!(this.info_is_open());
+    assert_eq!(this.panel_mode.get(), PanelMode::TrackInfo);
+    click(&ui.window, id, &ui.sidebar_expand);
+    pump_until(|| presentation() == InfoPresentation::Medium && content.is_visible());
+    assert_eq!(
+        this.model.borrow().queue.context(),
+        before_expansion.as_ref()
+    );
+    assert!(this.music_snapshot().is_none());
+    this.set_panel_mode(PanelMode::Queue);
+    click(&ui.window, id, &ui.sidebar_expand);
+    pump_until(|| presentation() == InfoPresentation::Compact && !content.is_visible());
+    assert_eq!(this.panel_mode.get(), PanelMode::Queue);
+    click(&ui.window, id, &ui.sidebar_expand);
+    pump_until(|| presentation() == InfoPresentation::Medium && content.is_visible());
+    assert_eq!(this.panel_mode.get(), PanelMode::Queue);
+    this.set_panel_mode(PanelMode::TrackInfo);
     ui.show_page("music-home");
 
     // A mounted pane survives both directions of every breakpoint. Compact
