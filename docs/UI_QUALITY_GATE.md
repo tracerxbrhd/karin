@@ -2,569 +2,88 @@
 
 # UI quality gate
 
-Every substantial UI change must include real visual inspection and GTK
-structural checks. A compiling widget tree, a visible window or a screenshot
-alone is insufficient. Review the existing technical prototype without adding
-fictional music catalogs, recommendations or player controls.
+Substantial UI changes need actual native image inspection, structural checks and
+real input. Neither build nor screenshot alone proves quality. Acceptance of
+`97093ee` in [VALIDATION.md](VALIDATION.md) does not waive later review.
 
 <a id="v04-native-music-gate"></a>
 
-For popover geometry across `GtkNative` boundaries, use the existing bounded
-[test input coordinate helper](../src/ui/music/test_input.rs) and stable actual
-layout. GTK 4.14 may return no direct `compute_bounds` to the window; do not skip
-the containment assertion or substitute guessed coordinates.
+## Visual matrix
 
-## v0.4 complete music-experience gate
+Inspect 420×720, 850×750, 900×650, 1440×900, 1650×930, 1920×1080 and actual
+maximize, plus fixture cases 720×650/1280×800; light/dark and scales 1/2. Match
+before/current actual logical allocation, theme, scale and content role, not just
+requested outer-window size.
 
-The owner's latest [specification](design/v0.4/DESIGN_SPEC.md) refines the
-implemented UI at `2e3ae41`. It retains the working audio and native mechanics.
-The new before baseline is exact 2e3 production source; one test-only 850×750
-matrix tuple is added to its archived harness, with original/adapted hashes and
-patch. Strict motion and production code are unchanged; do not claim that
-adapted harness is unmodified. Earlier a70/a9 evidence remains historical.
-Keep previous results and cold-motion limitations, but never relabel an old
-capture as the new after state.
+Cover Home, Liked, playlists/details, Search, Info/Queue; hidden/active/paused/error
+player; empty/partial/large data, missing art, long text, loading/Retry and focus.
+Assess density, hierarchy, contrast and actions. At 900×650, Liked leaves three
+complete 64-pixel rows, hero ≤32% viewport height and filter ≤56 pixels. Global
+search retains its density checks. Bounds alone are not visual acceptance.
 
-The client uses lightweight Home/Liked/Playlists tabs or segments, accessible
-unified Search, one universal Track Info/Queue panel and an activity-dependent
-Player Bar. Home has real useful shortcuts and a small explicitly unavailable
-Wave section without fictional radio content. Inspect real music hierarchy, useful density and aligned
-controls rather than only clipping. Liked/Playlists use actual loaded data and
-sections rather than primary dropdowns. The active footer has real Shuffle/
-Repeat and no visible Stop; MPRIS Stop remains. Short errors, Retry,
-confirmations, tooltips and accessible names remain necessary even when visible explanatory text is reduced.
+Check HeaderBar/window controls, spacing, wrapping, scrolling, hit targets and no
+horizontal overflow. Compact footer controls stay reachable. Use the native
+[input helper](../src/ui/music/test_input.rs) for popovers; missing cross-native
+bounds do not justify skipping containment or guessing coordinates.
 
-### Fresh matched matrix
+## Real interaction and state
 
-Capture the before and current revisions at **the same actual size, theme,
-scale and page**. Use 420×720, **850×750**, 720×650, 900×650, 1280×800, 1440×900,
-1650×930 (the owner-reported wide layout), 1920×1080 and actual window-manager
-maximize; light/dark; scales 1 and 2. Cover current
-`Closed`, `TrackInfo` and `Queue` modes. The 2e3 before already has the shared
-panel and actual-state footer.
-Current active-footer evidence must use actual playback, with hidden-idle cases
-shown separately. Compare real content roles and label changed navigation/footer
-states honestly; do not synthesize a before mode or force an after bar visible.
-The archived production remains unchanged; the sole 850×750 harness adapter
-is explicitly disclosed.
+- Activate exact track occurrences by mouse/Enter/Space, including duplicate IDs
+  across filtered 500-position windows. Details must not play. Filtering,
+  appending and navigation must not rewrite the active queue or restart audio.
+- Type Cyrillic/Unicode title, artist and album queries; test clear/reset, empty
+  matches, partial coverage, next-part errors/Retry and retired replies. Count
+  HTTP work to exclude per-key page/N+1 reads. Retain the 2,000-position/100-page
+  bounds and initial fill limit. See [ADR-0025](adr/0025-loaded-collection-search-and-playback-provenance.md).
+- Test the whole metadata Info target and independent Like focus. Membership
+  read/write/confirmation and playlist creation must not invent success or replay
+  ambiguous POSTs. Logout needs a clear label and default Cancel confirmation.
+- Selection alone cannot reveal an idle footer. Real resolver/generated-media
+  playback must expose controls; Pause retains them, Stop/clear/logout hide them
+  without a focus trap or hidden width constraint. Loading must not change footer
+  height. Focus Seek at 850×750 and resize to 420×720/back without audio restart.
+- Exercise queue edits, unavailable items, Next/Previous/EOS, Shuffle/Repeat and
+  MPRIS transport/seek/volume/modes on the same player. Check session restore,
+  cache clear/off and teardown for stale callbacks/private views.
 
-Record requested and achieved geometry, source revision, binary fingerprint,
-library versions, theme/scale and motion settings. Inspect all accepted images,
-including original HiDPI pixels. Supplement the matrix with useful Home, Liked hero/filter,
-Liked, owned/liked Playlists, playlist/album, four-category Search/Show All,
-queue edits, account/Preferences, initially hidden and actually active/paused
-footer, real Like, active Shuffle/Repeat, empty/sparse/large collections, long
-metadata, absent art, loading/error/Retry, unavailable tracks and visible focus.
-A selected queue row alone cannot stand in for actual active-footer proof: use
-the fixture StreamResolver, original generated MP3 and real PlaybackController.
-No production fake data or forced widget visibility supplies those images. The
-new 900×650 closed-Liked density floor is three fully visible 64-pixel rows,
-with hero at most 32% of viewport height and filter at most 56 pixels. This
-replaces the previous tiny-summary six-row structural budget because the owner
-now requires a real collection hero and search. Record actual row count and
-inspect pixel density; satisfying this budget alone is not visual PASS.
+## Pinned panel and motion
 
-### New refinement input and continuous-content gates
+Info/Queue share one fixed-size surface. Outside clicks, navigation, resize and
+playback preserve mode; explicit close/Back restores focus. Content switching
+must not close/reopen the host. Current-occurrence changes resume following;
+inspecting details must not play. See [ADR-0022](adr/0022-universal-music-panel.md).
 
-- Before an actual playback request, the footer consumes no idle strip or hit
-  area. A real request reveals it from below; Pause and retryable failure retain
-  it, a retained ended source can replay, and explicit Stop/logout/queue clear
-  hide it. Measure actual allocation, appearance/disappearance and normal versus
-  reduced motion; a revealer property alone is not visual proof. No player
-  presentation action may restart the worker or invent playing/progress state.
-  Verify the real held-request Play spinner and accessible loading state without
-  a transient loading-caption row changing footer height. Record first-start
-  native paint gaps separately: zero height reversals or a few raw intermediates
-  do not prove smooth cold reveal. The C9 1× first-start 116,669 μs gap remains
-  an unaccepted cold-footer result with unknown cause. Check final focus
-  routing after Stop hides a previously focused footer; do not infer it solely
-  from the revealer's requested state or a pre-Stop keyboard check.
-- Click the artwork, title, artist and blank metadata-zone portions separately,
-  then use Enter/Space. All must open Track Info through one accessible native
-  target. Like is independently focusable and must not accidentally activate
-  that target. Queue still switches within the same pinned panel.
-- Direct Like begins unknown/loading until account-bound membership GET, never
-  falsely unliked. Verify one explicit write plus independent confirmation,
-  safe error/retry, current-track/session change and late replies. Actual first
-  playback must map the lazy Like control safely while normal render borrows are
-  active; deferred lookup must reject a retired account/current-track intent.
-  Dislike stays
-  absent while its Karin contract is unconfirmed; Unlike is not Dislike.
-- Track lists use automatic bounded portions instead of visible page switches.
-  Exercise actual wheel/keyboard scrolling, near-end admission, one in-flight
-  request, loading/end versus local-limit states, failure/explicit read Retry,
-  repeated threshold notifications, refresh/query/account invalidation and late
-  replies. Initial sparse-viewport fill must stop at three provider pages total;
-  further zero-range wheel/PageDown/End intent may admit a read without a manual
-  Continue button or automatic empty-page drain. Preserve existing rows and
-  scroll anchor, exact repeated occurrences, search normalization and active PlaybackContext. Include direct Like while a
-  liked-feed read is in flight: invalidation must not leave a permanent loading
-  state, apply stale membership data or strand the next cursor. New visible data must not
-  silently replace an already playing queue or claim a partial source is complete.
-- Check Home's working shortcuts and compact unavailable Wave section, with no
-  fake stations, progress, play action or dynamic recommendations. Liked/Playlists tabs, section headings and
-  Search must remain native, light and accessible without primary dropdowns.
+With normal animation enabled, observe opening and closing near 0/25/50/75/100%
+openness using five distinct native frame times and indices. Closing is presented
+chronologically as 100→75→50→25→0. Background, border, header, art, text and actions
+must translate together, with stable relative geometry and correct clipping.
+A moving cover, fully open endpoint or disabled animation does not prove this.
+Check reduced motion separately; keep normal 240 ms and phase/geometry guards.
 
-### Final collection and footer refinement
+The strict fixture measures after a recorded setup open, six bounded renders of
+the mapped panel, then close. Setup changes no progress/clock and provides no
+proof PNGs; its quarters are not assessed. Separately
+observe fresh-process first Play before graphics initialization, using the actual
+request/worker and raw paint gaps. Monotonic height/lifecycle success is not cold
+smoothness. No delays, longer animation, conditional retries, synthetic frames or
+production prewarming may conceal failure.
 
-- Inspect the original heart hero at compact/medium/wide sizes, real collection
-  hierarchy, Play/Refresh, truthful loaded count and complete-only checked total
-  duration. Test missing duration, sparse, empty, long and partial collections.
-- Type in the actual collection SearchEntry: Cyrillic/casefold/combining Unicode,
-  title/artist/album, clear/reset, no matches, partial coverage, bounded explicit
-  continuation, error/Retry and retired source/session. Count collection requests to prove
-  typing does not fetch pages or create N+1. Verify exact repeated occurrences,
-  new filtered contexts and unchanged active Queue/worker on query/view changes.
-- Inspect the five inline transport controls, metadata-adjacent confirmed heart,
-  centered timeline and Queue/Volume at 420 and 850 pixels as well as wide views.
-  Controls remain real accessible native actions; no dummy padding/fixed footer
-  height restores an obsolete fixture assumption. Test actual mouse/Space on
-  compact Shuffle/Repeat and preserved MPRIS synchronization.
-- Capture raw first-footer appearance in a separate fresh-process selector with
-  no artificial wait, resize/static capture/graphics initialization before the
-  first Play; the shared native pointer helper still waits for its real input
-  target to have stable allocation. Record
-  actual paint intervals and measured allocation; do not transform functional
-  visibility PASS into cold smoothness acceptance. Old 117 ms evidence remains.
-- Covers must fit actual tile width: about 145–175 medium, 180–210 wide, compact
-  without overflow. Single-card, create, loading, empty and failed states must
-  remain coherent without refetching the same art on every resize.
+## Evidence and CI
 
-The current C14 separate empty-queue startup observer retains 0.90 s / 0.85 s
-maximum native after-paint gaps at 1×/2× in cloud NGL/LP2. Its lifecycle success
-is not a smoothness PASS. Preserve those observations and the old 117 ms
-post-static first-map scope separately; current Fedora/default-renderer first
-appearance remains an owner acceptance gate.
+Record source/binary identity, actual geometry, libraries, theme/scale, renderer,
+animation and test environment. Static uses full redraw; motion/cold use ordinary
+GTK damage. Render-node snapshots are not framebuffer-damage or physical-GPU proof.
+Record Mesa worker limits explicitly.
 
-### Whole-surface motion — measured graphics-ready scope
+Retain all native registrations: currently 30 functional and three modern visual/
+raw selectors in both Rust lanes, with sandboxed WebKit, actual input, fatal
+warnings and strict motion. Report namespace/SDK limits; do not disable sandbox
+or remove tests. Commands/platform placement live in
+[BUILDING.md](BUILDING.md) and the [workflow](../.github/workflows/ci.yml).
 
-Separate first-use responsiveness from motion after recorded graphics
-initialization. For each geometry/theme/mode, the fixture performs exactly one
-unconditional real normal 240 ms open, six bounded offscreen native GSK renders
-of the actual mapped panel at `.137/.317/.533/.787/.941/1` while fully open,
-then one real normal close. Raw setup carries `scope: graphics-initialization`
-and `quarter_phase_acceptance: not-assessed`; setup renders save no PNG, change
-neither UI progress nor animation clock and are not proof frames. Only the
-following mouse-driven native cycle is measured. No conditional retries or
-production prewarming are permitted. Label this **graphics-initialized normal
-motion**; it does not pass cold first-open responsiveness.
-
-
-With normal animation enabled, record opening and closing near 0%, 25%, 50%,
-75% and 100%. Background, border, fixed header/close, art, text and buttons must
-have a common translation and stable relative geometry at every intermediate
-frame. Each sequence must use **five distinct rendered native frame times and
-indices**, with measured progress near each requested quarter. Reusing one
-render for two labelled samples does not pass. Current motion filenames label
-openness; present closing in chronological **100 → 75 → 50 → 25 → 0** order.
-Historical earlier-before observers label elapsed fractions instead; retain
-those labels rather than relabelling them as current progress. The current 2e3
-strict observer and four guard/initialization blocks remain byte-identical.
-Check clipping and actual GTK allocation as well as screenshots. A fully
-open image, moving cover alone or disabled animation cannot prove this gate.
-TrackInfo ↔ Queue switches within the same open surface: fixed outer width,
-header/close position and no repeated slide. Check reduced-motion separately.
-Central actions must remain usable during motion and after it settles; no
-instant full-width content jump or temporary covering of row controls is valid.
-
-Record the actual GTK/Libadwaita/Mesa versions, renderer and frame timing. The
-strict normal-motion fixture uses NGL/GskGLRenderer under Xvfb at both scales;
-that is not proof of physical GPU rendering or Wayland. Local GTK 4.18/
-Libadwaita 1.7 PASS does not override the initial `709f5b3` hosted strict-motion
-FAIL on GTK 4.14/Libadwaita 1.5/Mesa 25.2 llvmpipe. A matching observer reproduced
-a roughly 915 ms first reveal paint gap without renderer fallback or a missing
-node; its internal cause remains unattributed. Preserve that scoped result in
-[VALIDATION.md](VALIDATION.md), including the much smaller observer cost.
-Modern GTK 4.18 NGL and actual Vulkan cold tests also missed strict phases;
-changing backend/distribution alone is not a proven solution. Cold latency
-remains unaccepted and must be tested on Fedora after an ordinary fresh start,
-separately from repeated openings. A slow Cairo run can also miss quarters.
-Report a sampling failure instead of
-duplicating frames, disabling animation, stretching production timing or
-weakening tolerances. Choosing a supported fixture renderer does not force a
-production backend; retain separate Cairo structural checks and owner-local
-default-renderer acceptance.
-
-### CI environment and selector coverage
-
-Keep Ubuntu 24.04 as the compiler, package, sandboxed-WebKit and functional
-baseline: retain the historical 29 named functional selectors and add the
-refinement's current cases in each stable/MSRV lane, with selected HiDPI repeats. Run both unchanged strict native visual
-selectors in dedicated `Native UI <toolchain> (Debian 13)` jobs for both Rust
-stable and exact 1.98.1, at both scales, on the modern native stack matching
-prepared cloud evidence (GTK >= 4.18, Libadwaita >= 1.7), with the explicit
-recorded graphics-initialization/measured-cycle separation above. Explicitly
-record the modern Mesa test setting `LP_NUM_THREADS=2`, including for the before
-baseline. Motion commands explicitly unset `GSK_DEBUG`, using ordinary GTK
-on-screen damage; static resize captures retain `GSK_DEBUG=full-redraw`. The
-motion oracle still takes a fresh full root render node at each actual native
-after-paint callback. Its frame/geometry/pixel assertions are not direct native
-framebuffer pixel-damage proof. Retain the original local C9 full-redraw PASS,
-both `144492f` hosted 2× FAILs and the separate one-pair ordinary-damage control;
-no causal driver or hosted-success claim follows from that control. Preserve
-the default-environment C7 2× sampling FAIL separately from
-controlled results; do not infer a driver cause, production repair or cold
-responsiveness from that one environment change. This environment
-does not raise Karin's application minimum, change Flatpak SDK or replace a
-failed Ubuntu result with an invented PASS.
-
-The compiled selector check must retain the earlier **31 = 29 + 2** baseline
-and include every new refinement selector in the appropriate job; report the
-actual current total in validation. The final refinement adds the functional
-collection-filter selector and separate raw startup-footer observer; register and
-execute both rather than treating the historical count as a ceiling. Omitting checks, weakening quarter tolerances
-or extending production duration is not permitted. Both quality lanes also retain ordinary
-captures, matched 2e3 refinement-baseline captures (disclosed 850×750 adapter) and source/package/renderer
-provenance in
-`karin-native-visual-<lane>-<github.sha>`. Ubuntu retains its functional
-`karin-ui-<github.sha>` evidence. Inspect actual run results before claiming
-success; a YAML definition and local PASS are not hosted evidence.
-
-### Input, queue and playback policy
-
-- Exercise actual mouse/Enter/Space, cover/Ctrl+I, footer Queue/Ctrl+J, mode
-  changes, repeat activation, X/compact Back, focus return, outside clicks,
-  scrolling, navigation and both directions of all breakpoints. Preserve mode
-  and open intent; Diagnostics may suspend presentation, logout clears it.
-  Include the 720-pixel boundary and actual content-width changes: dedicated
-  panel presentation must prevent unusably narrow simultaneous columns.
-- Check current occurrence following through Play, Next/Previous, queue pick,
-  EOS and MPRIS, including duplicate IDs and late metadata/artwork replies.
-  Explicit Details never plays. Pause/Seek/Volume retain explicit selection;
-  the next actual current occurrence resumes following without a pane restart.
-- Queue uses one widget tree and the existing local context. Test current and
-  noncurrent removal, clear, appends, unavailable items, duplicates, partial
-  collections and 500 positions. Its displayed next/history order must match
-  actual policy; rapidly replaced rows cannot dispatch stale actions.
-- Test Shuffle on/off without changing the current occurrence, bounded cycles,
-  actual Previous history and queue edits. Test Repeat Off/Queue/One, EOS versus
-  explicit Next/Previous, combinations with Shuffle, new contexts, logout and
-  close. A resolver failure must not create an automatic retry loop.
-  Repeat One needs an actual visible “1”, in addition to correct active state,
-  tooltip and accessible name; a differently shaped unlabeled repeat icon alone
-  does not satisfy that visual distinction.
-- Exercise writable MPRIS Shuffle and LoopStatus (`None`, `Track`, `Playlist`),
-  invalid writes, PropertiesChanged and capability updates. Native and D-Bus
-  controls share one policy and the same PlaybackController. Retain Stop,
-  acknowledged Seeked, opaque IDs, private local cover files and bus cleanup;
-  no token, cookie, account ID or signed media address crosses D-Bus.
-
-Screenshots supplement native geometry/input/worker tests. Generated local media
-and synthetic loopback metadata are test evidence only. New Fedora/KDE/Wayland/
-PipeWire, audible Music and current Flatpak acceptance remain owner-local.
-[PR #15](https://github.com/tracerxbrhd/karin/pull/15) stays Draft; no new PR or
-merge is authorized by a successful cloud run.
-
-## Required matrix
-
-The refined native shell uses adaptive tabs/segments without the old primary
-rail. Check actual labels/tooltips/accessibility, tab activation, explicit Search,
-cross-page keyboard focus and selected-view preservation in both directions of
-resizing. A retained old shortcut must route to a genuine current destination,
-not expose an obsolete hidden primary screen. Check
-Liked's actual cached track content, metadata rows, contextual actions and
-the active selected-track bar. Play may begin real source resolution; Pause/seek and other transport
-controls must reflect actual worker state/capability. An unresolved source must
-never show an invented playing state or measured progress.
-
-Use `KARIN_CAPTURE_SCALE=2 scripts/capture-ui.sh build/ui-captures/hidpi` for
-the same logical-size matrix on a 3840×2160 Xvfb display. Inspect actual scale-2
-textures as well as layout. Static synthetic native-fixture frames explicitly
-use GTK reduced motion to avoid recording a dialog's opening fade; the ordinary
-full-window capture, smoke and separate interactive WebKit processes retain
-their normal motion settings. Record these conditions with the evidence.
-
-Inspect the music interface and diagnostics at each size below, in **light and
-dark themes**. Cover signed-out library/search and queue-panel navigation and the single
-native sign-in dialog without real credentials. Account/search/detail states
-may use synthetic fixtures only in explicitly identified tests, never a release
-catalog. Use actual allocated dimensions; distinguish requested size from the
-size achieved under the window manager.
-
-| Window state | Approximate size | Main checks |
-| --- | --- | --- |
-| Compact | 420×720 | Narrow navigation, readable wrapping, reachable actions and vertical scrolling |
-| Compact boundary | 720×650 | Shared panel remains nonmodal; central actions stay reachable |
-| Medium | 900×650 | Appropriate header navigation, hierarchy and balanced density |
-| Wide boundary | 1280×800 | Content/panel split and footer alignment survive the transition |
-| Wide | 1440×900 | Bounded component widths, content aligned near the top, no oversized centered empty-state layout |
-| Owner wide | 1650×930 | Address the reported gap between central content and the panel |
-| Full HD | 1920×1080 | Useful wide composition, natural collection tile sizes and integrated panel |
-| Maximized | Available work area | Header/title/window controls stay intact; content scales with the actual available area |
-
-Resize across navigation breakpoints in both directions. Check that the selected
-page and current diagnostic state survive; only the appropriate navigation
-control should be shown. Remaining space is allowed when the prototype has little
-content, but meaningful content must not float in a disproportionately large
-centered void or stretch into unreadably wide rows.
-
-For each theme and relevant page:
-
-- Inspect title, subtitle, HeaderBar, window controls and top edge. No glyph or
-  control may be clipped, including when maximized.
-- Check heading levels, margins, group spacing and reasonable row/button widths.
-  Long status and error text must wrap without pushing actions off-screen.
-  The active player's single-line track title may use native ellipsis only
-  when its complete text is available through a tooltip and accessible label.
-  Playlist-tile metadata may use two wrapped lines with native ellipsis only
-  when its full title is available in a tooltip/accessibility label and detail
-  view. These exceptions do not apply to headings, errors, status text or action
-  labels.
-- Use Tab and Shift+Tab through navigation, menu and action buttons. Verify a
-  visible focus indicator, logical focus order, Enter/Space activation and
-  keyboard access to every implemented action. Check Ctrl+Q shutdown.
-- Check text correctness and contrast in light/dark themes. Do not rely on color
-  or an icon alone for connection, loading or error status.
-- Inspect existing initial, checking, unauthenticated/unavailable, error and
-  diagnostic-result states where they can be reached safely. Use test fixtures
-  only in explicitly identified tests; never present invented service data as a
-  working production integration.
-- Keep audio tests clearly labelled as synthetic. Do not make a screenshot run
-  play physical sound or contact an account without an explicit action.
-- Check music detail/back navigation, result paging and stale-search handling,
-  session cancel/logout, empty and unavailable-item text, queue editing and the
-  actual player state. Disabled player controls must not suggest
-  successful service playback. Default builds must not expose Device Flow.
-- Assess useful density as well as clipping: search input/results must remain
-  primary, playable rows and Details must have distinct understandable actions,
-  Back must be easy to find, and queue selection/removal/clear must be legible.
-  Check one plain-language search failure with Retry and optional safe details;
-  no duplicated global/inline error or technical code should dominate the page.
-- Judge the composition as a music application: navigation, account avatar,
-  covers, primary play actions and the player bar must have a clear hierarchy.
-  A structural minimum-row assertion or absence of clipped widgets does not
-  pass this design review. Avoid repeated account banners, redundant headings,
-  oversized separators and large dead areas around populated lists. Inspect
-  actual populated states, including long real-shaped titles and missing artwork.
-- For artwork changes, test validated Music metadata through the ordinary
-  `CoverArt` rendition builder, counted fixture HTTP, decode and GTK texture
-  attachment with the symbolic fallback hidden. Pre-seeding RAM or supplying a
-  replacement URL does not cover this path. Include independent image failures,
-  cancellation/logout, queue pressure, HiDPI and an empty-RAM disk-cache restart
-  with no extra HTTP request. Keep actual current-account cover display on
-  Fedora as a separate manual gate; synthetic colored pixels do not close it.
-- For unified search, inspect independent real-data track/album/artist/playlist
-  sections, their loading/empty/error states and section-specific Show All/Retry.
-  One failed section must not erase successful sections or become a fabricated
-  empty result. Successful empty categories are omitted; all-empty results have
-  one message. Section Retry must fetch that category only; Back to All runs a
-  fresh bounded aggregate query. Verify that opening details and returning
-  retains its query/section/paging, and a late reply cannot replace a newer query.
-- Verify account menu → **Выйти из аккаунта** → native confirmation. Cancel must
-  have default focus/response; Enter/Escape/cancel must preserve the current
-  session, queue and active audio until explicit confirmation. Opening the menu
-  alone must not log out. Check stale confirmation responses after session
-  changes, focus return, compact geometry and mouse/keyboard activation.
-- Exercise normalized search-row activation to actual Play, and the separate
-  explicit detail/Back path, with synthetic loopback
-  records, including unusual search display fields and partially missing lookup
-  records. Assert one batched normalization request rather than per-row requests,
-  retained provider pagination and disabled unavailable tracks. Owner Fedora
-  acceptance remains separate from this fixture.
-- Activate rendered track, playlist, album, artist and queue rows with actual
-  mouse input and keyboard Enter/Space. A playable track must start its exact
-  context position; collection rows open their details. Assert the action and
-  expected service request, including after refresh replaces rows. Clicking nested
-  buttons/menus must preserve their own action; empty/nonactivatable rows must
-  do nothing. Direct calls to detail handlers or emitting a row's keybinding
-  signal alone do not prove real user activation. The input-driven loopback
-  fixture is `native_catalog_rows_mouse_keyboard_details_and_delivery`.
-- Open the sign-in dialog at every size/theme. Automated checks use the explicitly
-  injected offline provider or local browser-session fixtures; check loading,
-  stage-specific errors, retry, Escape/cancel and focus return. No build mode may expose Client
-  ID/secret, device codes, pasted tokens or URL fields in this user journey.
-  Only validated Music account access may complete sign-in; test callback/state,
-  cancellation and late responses against local fixtures. Clear old errors on
-  logout, cancel and a fresh attempt; use native message rows with wrapped text.
-- When the WebKit component changes, check ephemeral-session construction and
-  destruction, trusted origin display, exact main-document return/state handling,
-  asynchronous own-session cookie collection/cancellation and callback interception
-  separately from provider permission. Exercise actual local page loading with the sandbox
-  enabled where supported; report namespace/sandbox restrictions as blocked.
-- Never capture real application credentials, verification codes, auth/browser
-  pages or account/library data for public evidence. Cloud capture should use
-  clean signed-out states; authenticated fixture coverage must be explicit.
-
-## Playback context and desktop controls
-
-Play a row from a multi-track library, playlist, album or search page. Check
-which returned tracks become its playback context, the selected position,
-Next/Previous and EOS, including skipping unavailable loaded items, retaining
-duplicate positions, paused/stopped intent and the 500-position context limit.
-Appending/removing/clearing queue entries, starting a different
-context and navigating away must have explicit, predictable effects. A partial
-loaded page is not an entire remote collection. Retry/error/logout/close must
-not restart stale audio or silently discard the user's newer queue action.
-
-Verify that the active player's artwork, title, transport, progress, seek,
-volume and queue controls match the actual selected source and worker state.
-Check empty, resolving, playing, paused, stopped, ended and failed states at
-compact and desktop sizes. A screenshot of a Play icon does not prove sound.
-
-Run a real isolated session-bus fixture and exercise
-the same native player through its exported methods, properties and signals.
-Compare capabilities and position/seek units with actual snapshots; verify no
-second audio engine, arbitrary URI input, stale track identifier, media address,
-credential or cookie is exposed. Bus-name ownership/release and application
-shutdown need lifecycle checks. Synthetic bus/media fixtures prove that contract
-only. Seeked must follow a successful worker acknowledgement, including a seek
-close to the current position; rejected/queued-only/stale seeks must not emit a
-false acknowledgement. Check optional cover-file cleanup and private file modes.
-Shuffle/LoopStatus must match the local queue policy and remain writable through
-the official values, with PropertiesChanged after actual mode changes. Stop
-remains available externally even though its visible footer button is removed.
-Fedora acceptance must separately verify an actual selected Music track,
-`playerctl`, KDE's media widget and physical media keys, in the native artifact
-and, when built, the current Flatpak sandbox. No manual result is passed until
-it is actually performed.
-
-## Retained session, storage and information-workspace gates
-
-Treat the accepted v0.3 service/audio/session/cache behavior as the regression
-baseline, not a pass for v0.4 presentation or new backend/failure scenarios.
-ADRs 0022/0023 extend the former information presentation and local playback
-policy without replacing secure-session/cache ownership. At every
-relevant size/theme/scale:
-
-- Inspect restoring, validated, invalid session, unavailable/locked store,
-  cancelled prompt and retryable deletion-error states. An issued or stored
-  token alone must not appear authenticated before Music validation.
-- Inspect remember-login effective availability, save/forget progress and the
-  durable pending-forget state. Turning remember-login off may preserve current
-  playback; logout must stop it and confirm saved-credential cleanup. No final
-  successful logout may hide an unknown delete/cache-clear outcome. Cancel from
-  the native logout confirmation remains the safe default.
-- Check persisted system/light/dark appearance and PreferencesDialog pages for
-  authorization and storage. Labels, toggles, maximum-size controls, measured
-  usage, clear progress/errors and repeated open/close must remain accessible
-  with keyboard, long messages and compact windows. No secret, token value,
-  account identifier, portal key or raw backend error is displayed.
-  Check a failure after scrolling to Storage: the inline operation outcome must
-  be reachable/visible, while repeated unchanged snapshots must not steal focus.
-- While actual generated fixture media plays, change cache policy, clear cache, open/close
-  track information, move through playlists/search and resize both directions.
-  These presentation/storage operations must preserve current audio, track ID,
-  queue/context and MPRIS state unless the user explicitly performs a playback
-  or logout action. Clearing cache must not remove the stored session or the
-  live MPRIS cover file.
-- Inspect cache-hit, loading, explicit refresh, saved/potentially stale fallback,
-  disabled-cache and empty/error states. A saved library/playlist is not current
-  authorization or confirmed membership. Never show an offline-available badge
-  or Offline switch unless a permitted audio cache actually exists.
-- Inspect the right track pane on wide windows and its adaptive compact
-  presentation. Check large/missing cover, long full title/credits/album,
-  selected-versus-playing state, close/focus return and only verified artist/
-  album navigation. Pane opening/closing must not implicitly Play or Stop.
-  Its menu action and Ctrl+I stay disabled on Diagnostics; switching back to
-  music restores the appropriate action without changing playback.
-- Activate tracks through mouse/Enter/Space and through distinct Details/pane
-  controls. Preserve exact source occurrence/duplicates, manual appends and the
-  visible partial-context boundary; a different information selection must not
-  silently replace the playing queue.
-- Inspect playlist tiles at one-column through wide-grid sizes, including a
-  sparse one-item collection, long/missing title, unknown counts, absent covers,
-  loading/empty/error/Retry and keyboard focus. Confirm navigation using actual
-  clicks/Enter/Space. Creation appears only when its server-confirmed workflow is
-  implemented; ambiguous writes must not create a fake local tile or replay POST.
-- The latest owner-authorized Home contains a small explicitly unavailable Wave
-  section only. Keep actual My Wave playback/recommendations and similar-track blocks
-  hidden when their real contracts are not established. Source stubs and a renamed normal queue do not
-  pass their capability gates.
-
-Automated persistence/cache captures must use isolated synthetic XDG directories,
-a fake credential boundary and local fixtures, as well as the existing explicit
-`--ui-fixture` provider. They must not restore a developer's real saved session,
-read a personal cache, unlock a real wallet or contact Yandex. Native keyring and
-Flatpak Secret Portal prompts are owner-local checks; never publish personal
-wallet/auth windows. Fixture passes and Xvfb do not establish those real backends.
-
-## GTK structure and behavior
-
-Run formatting, Clippy without warnings, tests, the build, GTK smoke test and
-GStreamer diagnostic. Structural checks must cover actual window/widget
-allocation, adaptive navigation visibility, page selection and normal close/
-resource release. Check that widgets remain inside the content area and that
-scrolling exposes diagnostics on short windows.
-For `OverlaySplitView`, use its public `shows_sidebar()` state at every width:
-Libadwaita may keep a closed sidebar mapped outside the viewport. Always check
-main content and assert that it reclaims the closed pane's width; keep all
-geometry checks for an open sidebar. A mapped closed pane alone is not visible
-clipping, and the correction must not skip open-pane or content assertions.
-That rule still applies to navigation containers; it does not substitute for
-v0.4's universal-panel checks. Verify actual motion/surface allocation,
-nonmodal hit testing, compact underlying-view hiding, selected mode and explicit
-open intent during intermediate frames as well as after the animation settles. No automatic dismiss/reopen
-handler may be used to make the visibility assertion pass.
-
-Screenshots supplement these assertions by revealing hierarchy, clipping and
-focus problems that structure tests cannot judge. Conversely, a plausible image
-does not prove that the controls work or the window closes correctly.
-
-## Cloud capture procedure and evidence
-
-When Xvfb and capture tools are available, run the real GTK application with a
-clean session D-Bus. Use the normal widget implementation and native Libadwaita
-theme. Capture the matrix, inspect the images themselves and record the commit,
-actual dimensions, theme, page and any action/focus state. Screenshots must be
-fresh for the reviewed code; changing filenames on old images is not evidence.
-
-For maximized-window evidence, use a window manager and request maximize. If the
-cloud cannot provide a managed/maximized window, mark that matrix cell unrun;
-a full-size undecorated window is not equivalent. Document the Xvfb/window-manager
-versions and distinguish cloud evidence from target-desktop acceptance.
-
-The repository capture helper runs a real application in isolated Xvfb/Openbox
-sessions, with a 1920×1080 virtual screen, native light/dark themes and no account
-data. It captures the visible application rectangle, including keyboard focus
-and silent diagnostic activation, then closes with Ctrl+Q:
-
-```sh
-cargo build --workspace --locked
-scripts/capture-ui.sh build/ui-captures
-```
-
-The helper always selects explicit `--ui-fixture` mode before opening/closing the
-sign-in dialog at all four sizes in both themes. This injected offline provider
-is automation-only; ordinary startup uses the real Cassette-compatible provider.
-These captures never load a real authorization page or claim successful provider
-login. Mark fixture evidence clearly and use local WebKit/HTTP fixtures to cover
-the session grant; the real Fedora owner test is a separate acceptance gate.
-
-It requires Xvfb, Openbox, ImageMagick (`import`), xdotool, wmctrl and xwininfo,
-plus the normal GTK/GStreamer libraries and SVG loader. In the prepared cloud
-visual environment use `/workspace/karin-environment/run-visual` to invoke those
-commands. Generated images, geometry and capture metadata go in ignored
-`build/ui-captures`; review fresh outputs before choosing any images to publish.
-Record the binary fingerprint and whether the worktree is dirty, so a baseline
-HEAD is never mistaken for the revision of an uncommitted build.
-
-The helper requests `GSK_DEBUG=full-redraw` with the Cairo renderer to avoid stale
-partial redraw pixels during X11 resize/page-change capture. This is a capture
-setting, not a change to the application's normal renderer or a retouch of the
-images. Inspect the actual PNGs; if an image preview omits repeated content,
-verify the relevant original pixels or an independent crop before treating that
-preview as an application defect.
-
-Capture only Karin and clean synthetic cloud content. Do not commit or upload
-user-supplied screenshots containing personal data, account information,
-unrelated applications or desktop elements without separate permission. Preserve
-the user's private review evidence outside the public checkout. Any shared cloud
-image must be inspected for accidental private content first.
-
-## PR evidence and acceptance
-
-The PR description/checklist must include:
-
-- The layout change and its intended behavior at compact, medium and wide sizes.
-- Links or artifacts for the inspected cloud screenshots, including theme and
-  size coverage; a matrix identifying any omitted or failed case.
-- Executed structural checks and their actual results.
-- A keyboard/focus/text review result; do not infer it from mouse navigation.
-- Remaining Fedora/KDE/Wayland manual checks, left pending until performed.
-- Any licensing or original/third-party asset changes, with notices preserved.
-
-Fedora 44 / KDE Plasma / Wayland acceptance remains a separate manual gate. Check
-window decorations/top-edge title behavior, maximize/restore, live resizing,
-both themes, keyboard/focus, HiDPI and accessibility there. Xvfb success never
-changes that gate to passed. Record user-reported functional acceptance and
-revised visual acceptance separately in [VALIDATION.md](VALIDATION.md).
+Cloud/CI use synthetic accounts, original art and generated audio. Never publish
+personal screenshots/cache, credentials or signed resources. Keep few current
+images in source; full matrices/geometry/logs belong in artifacts. Preserve key
+results/failures with durable Git/PR references in [VALIDATION.md](VALIDATION.md),
+not only expiring artifacts. Do not relabel old captures or FAILs. Desktop
+acceptance does not resolve cloud cold-frame observations.

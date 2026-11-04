@@ -140,7 +140,7 @@ usable central actions. Verify stable mode switches, normal and reduced motion
 separately, actual mouse/keyboard, outside input, focus, all responsive crossings,
 duplicate occurrences, delayed replies, logout and weak-reference cleanup.
 Compare fresh matched before/current frames across the complete
-[quality gate](../UI_QUALITY_GATE.md#v04-native-music-gate).
+[quality gate](../UI_QUALITY_GATE.md).
 
 The current strict fixture measures a graphics-initialized cycle. One fixed real
 normal open/close and six bounded offscreen renders of the actual mapped panel
@@ -151,6 +151,7 @@ Cold NGL/Vulkan first-paint phase failures on old and modern stacks remain
 unaccepted; initialized motion PASS cannot certify fresh-first-open latency.
 
 The earlier `a9eed45` cloud PASS and owner UI FAIL remain historical results.
-Executed current checks belong in [VALIDATION.md](../VALIDATION.md); this ADR
-is not a test PASS or Fedora/KDE/Wayland acceptance. Existing PR #15 stays Draft
-pending the owner's new native/Flatpak review. No merge or new PR is authorized.
+Executed checks and the owner’s native/UI and Flatpak acceptance of `97093ee`
+belong in [VALIDATION.md](../VALIDATION.md). This ADR is not a test result; that
+acceptance does not resolve the cloud cold-rendering observations. Merge and
+public release remain separate decisions.

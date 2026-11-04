@@ -2,7 +2,7 @@
 
 # ADR-0012: Independent catalog requests and an owner-local delivery probe
 
-Status: Accepted for Issue #9 implementation; live catalog/audio acceptance pending
+Status: Accepted; subsequent delivery/search acceptance is recorded by ADR-0015 and ADR-0016
 Date: 2026-10-29
 Supersedes: ADR-0009's deferral of all delivery-info investigation
 
@@ -58,8 +58,9 @@ The first repair increment contains executable catalog fixes and an executable
 local audio investigation, not another source-only deferral. Independent native
 navigation, artwork and supported interactions can progress if delivery is still
 blocked. The exact probe outcome must determine the next audio implementation.
-Until an entitled owner hears an actual selected track through PipeWire/GStreamer
-on Fedora, the overall v0.2 audible-player criterion remains **not met**.
+At this decision’s original stage, the v0.2 audible-player criterion remained
+**not met** until the owner heard an actual track through PipeWire/GStreamer.
+Subsequent acceptance is recorded in [VALIDATION.md](../VALIDATION.md).
 
 The prototype's source license, unresolved registration/service distribution
 conditions and concrete HTTP/schema errors remain separate. No persistent

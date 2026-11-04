@@ -89,10 +89,10 @@ EOS, one requested repeat, refusal/error boundaries and shared transport.
 Use isolated session D-Bus to test property reads/writes, invalid values,
 PropertiesChanged, capabilities and cleanup. Compare native and external state,
 including in HiDPI/compact controls. Follow the
-[quality gate](../UI_QUALITY_GATE.md#v04-native-music-gate) and record executed
+[quality gate](../UI_QUALITY_GATE.md) and record executed
 results in [VALIDATION.md](../VALIDATION.md); this decision is not a test PASS.
 
-The owner must separately confirm modes, KDE integration and audible real Music
-on the current Fedora native/Flatpak build. Cloud generated audio does not
-replace that criterion. Public distribution, persistent audio and unverified
-service features retain their independent boundaries.
+Owner acceptance and performed desktop checks are recorded in
+[VALIDATION.md](../VALIDATION.md). Cloud generated audio does not establish
+audible real Music or an unreported per-device/backend result. Public distribution,
+persistent audio and unverified service features retain their independent boundaries.

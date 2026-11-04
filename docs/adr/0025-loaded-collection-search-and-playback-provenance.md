@@ -79,7 +79,8 @@ filtering. Test delayed source/logout callbacks and identity shared with MPRIS.
 The visible view remains a bounded GtkListBox, not unbounded virtualization.
 These decisions do not establish an unverified server endpoint or guarantee
 whole-library search beyond the admitted boundary. Source-matched screenshots,
-structural checks and executed results belong in VALIDATION; real Fedora music,
-first-cold footer/panel, physical desktop integration and current full Flatpak
-remain separate owner gates. Preserve every earlier failure and do not alter
-timing, sandbox, renderer or phase assertions merely to obtain green tests.
+structural checks and executed results belong in [VALIDATION.md](../VALIDATION.md).
+The owner reported native/UI and Flatpak acceptance of `97093ee`; cloud cold
+responsiveness and unreported backend/device details remain separate. Preserve
+earlier failures and do not alter timing, sandbox, renderer or phase assertions
+merely to obtain green tests.

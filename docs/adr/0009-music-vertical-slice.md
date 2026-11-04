@@ -14,7 +14,7 @@ worked at status without the Android-client header. That observation narrows a
 transport hypothesis; it does not authorize distributing another application's
 OAuth identity or establish a permitted service-stream contract.
 
-The [pinned Rust-client review](../RUST_API_CLIENT_REVIEW.md) found useful typed
+The [pinned Rust-client review](https://github.com/tracerxbrhd/karin/blob/97093ee71f8df7b47b5809ca8c1d4774a2c5b22d/docs/RUST_API_CLIENT_REVIEW.md) found useful typed
 endpoint/model designs but incompatible default identities, raw errors, token
 formatting and transport policies. The [delivery review](../STREAM_DELIVERY_REVIEW.md)
 found no confirmed unsigned, identity-neutral Music source: the inspected path
@@ -77,4 +77,4 @@ visual quality or the exact sandboxed artifact. Fresh owner-local acceptance,
 public identity/distribution approval, persistent sessions and permitted audio
 delivery remain open gates. See [validation](../VALIDATION.md),
 [API facts](../API_FEASIBILITY.md) and
-[Fedora instructions](../BUILDING.md#experimental-music-session-and-fedora-acceptance).
+[Fedora instructions](../BUILDING.md).

@@ -10,7 +10,7 @@ Supersedes: ADR-0020's collapsed right-overlay presentation and wide-only open p
 ## Context
 
 The owner accepted v0.3's music path and pane opening/closing mechanics, but not
-its visual design. The approved [Native Music specification](../design/v0.4/DESIGN_SPEC.md)
+its visual design. The original [Native Music specification](https://github.com/tracerxbrhd/karin/blob/97093ee71f8df7b47b5809ca8c1d4774a2c5b22d/docs/design/v0.4/DESIGN_SPEC.md)
 requires information to stay open until an explicit close, including through
 outside clicks, navigation and resizing. A collapsed modal sidebar that closes
 on its backdrop cannot satisfy that contract. Reopening it after dismissal
@@ -98,9 +98,10 @@ during presentation-only actions.
 
 Inspect matched baseline/current actual GTK captures at four sizes, both themes,
 1×/2× and open/closed information, plus populated pages, error states and focus.
-Follow [UI_QUALITY_GATE.md](../UI_QUALITY_GATE.md#v04-native-music-gate), with
+Follow [UI_QUALITY_GATE.md](../UI_QUALITY_GATE.md), with
 stable/exact-1.98.1, GTK/WebKit/GStreamer/MPRIS and available Flatpak checks.
 Execution belongs in [VALIDATION.md](../VALIDATION.md); this decision is not a
-test PASS. Real Fedora/KDE/Wayland/PipeWire visual acceptance remains owner-local
-and keeps PR #15 Draft until supplied. The original SVG references do not prove
-native rendering or authorize copying service artwork into public fixtures.
+test PASS. The owner’s subsequent native/UI and Flatpak acceptance at `97093ee`
+is recorded there separately from unresolved cloud cold responsiveness. Original
+SVG references do not prove native rendering or authorize copying service artwork
+into public fixtures.

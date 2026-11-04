@@ -94,7 +94,7 @@ permit real account use in Cloud/CI. Check stable and exact Rust 1.98.1, default
 all-feature and no-feature builds, native dialog/browser cancellation and sandbox
 lifecycle. Preserve GTK Rust 0.10, WebKit 0.5 and the existing GNOME 50 SDK/runtime.
 
-The [single Fedora acceptance procedure](../BUILDING.md#music-sign-in-and-fedora-acceptance)
+The [single Fedora acceptance procedure](../BUILDING.md)
 checks actual login, the session grant, Music account validation, real liked
 tracks/playlists and search. Until the owner performs it, the working live path
 is **unverified**, and fixture success must not be called finished authentication.

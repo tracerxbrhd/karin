@@ -151,15 +151,17 @@ without misleading row highlighting or spontaneous context replacement.
 
 Capture actual hidden/appearing/paused/failed/footer states with a real fixture
 resolver and generated-media worker. Test the full metadata target by mouse,
-Enter/Space and separate Like focus. New before evidence uses the unchanged
-a70 production source and original harness, not a9 or a relabelled older after
-image. [VALIDATION.md](../VALIDATION.md) records executed results; this ADR is
-not an implementation PASS. Keep per-candidate source manifests and binary
-fingerprints: a successful visual run or compiler matrix for C7 must not be
-presented as an executed check of a later lifecycle correction.
+Enter/Space and separate Like focus. This decision’s original comparison used
+unchanged a70 production source and its original harness. Later comparison
+protocols and their disclosed adaptations belong to their own validation records.
+[VALIDATION.md](../VALIDATION.md) records executed results; this ADR is not an
+implementation PASS. Retain source/binary identity with test artifacts and
+essential summaries in maintained documentation. An older successful run must
+not be presented as a check of a later lifecycle correction.
 
 Keep prior CI and cold-paint failures. Graphics-initialized right-panel proof
 does not accept first-use responsiveness or the new footer's motion. Follow the
-[quality gate](../UI_QUALITY_GATE.md#v04-native-music-gate) and the separate
-[Fedora guide](../BUILDING.md#v04-native-music-acceptance-on-fedora). PR #15 stays
-Draft; this decision authorizes neither a new PR nor merge/public release.
+[quality gate](../UI_QUALITY_GATE.md) and the separate
+[Fedora guide](../BUILDING.md). The owner’s subsequent native/UI and Flatpak
+acceptance of `97093ee` is recorded in VALIDATION; it does not resolve cloud
+cold responsiveness or authorize merge/public release.

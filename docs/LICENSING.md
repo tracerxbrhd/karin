@@ -1,238 +1,88 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
-# Licensing and dependency review
 
-Reviewed on **2026-10-24**, with the Gate B1 additions reviewed **2026-10-26**
-and optional authentication bindings reviewed **2026-10-29**,
-against the committed Cargo.lock and the Debian 13
-development environment. Karin's own code and original materials are
-**GPL-3.0-or-later**, unless an individual material states otherwise. The full
-standard GPLv3 text is in [LICENSE](../LICENSE); [ADR-0005](adr/0005-licensing.md)
-records the approved decision. Third-party files retain their original licenses.
+# Licensing
 
-The Issue #7 slice was reviewed on **2026-10-28** without adding a crate or
-changing `Cargo.lock`. The thin Music adapter uses endpoint/schema knowledge
-from the pinned yamu review, with original implementations and GPL SPDX notices;
-that Music adapter imports no upstream OAuth defaults, signing/decryption code
-or media. The subsequent Cassette auth adaptation described below is separate.
-The locked dependency inventory and supplied notices remain applicable. Clean UI
-captures use only signed-out states or explicitly synthetic test metadata.
+Karin's own code and original materials use **GPL-3.0-or-later**, unless a file
+states otherwise. [LICENSE](../LICENSE) contains the complete standard GPLv3
+text; the later-version grant is expressed in source notices and Cargo metadata.
+[ADR-0005](adr/0005-licensing.md) records the decision. Third-party code, fonts,
+theme icons, service content and user material retain their respective rights.
 
-PR #8 adds optional `webkit6`/`webkit6-sys` and
-`javascriptcore6`/`javascriptcore6-sys` **0.5.0**, plus
-`soup3`/`soup3-sys` **0.8.0**. All six Rust bindings declare MIT. Their notices
-are preserved, including the exact-commit recovery for four archive omissions
-described below. Default `cassette-auth` now selects these bindings; the inventory
-continues auditing the all-feature graph, including the no-GUI Device Flow option.
-Neither these licenses nor native WebKit availability establishes service access,
-Linux embedded-auth approval or registration distribution rights.
+## Adapted code and notices
 
-### Cassette authentication adaptation
+The browser-session authentication contract is adapted from Cassette v0.2.4,
+revision `fc6c6e689bd0c60fa662b03aa2aa3c05534b4811`, under GPL-3.0-or-later,
+Copyright 2023–2024 Vladimir Vaskov. Preserve:
 
-`src/auth/cassette.rs` adapts the published browser-session/token contract from
-Cassette v0.2.4, commit `fc6c6e689bd0c60fa662b03aa2aa3c05534b4811`, under
-**GPL-3.0-or-later**, preserving Copyright 2023–2024 Vladimir Vaskov. The published
-shared application configuration is retained in `src/auth/cassette_client.json`;
-it is upstream app material, not a user's password, OAuth token or session cookie.
-The unmodified upstream GPL text and exact provenance are retained at
-[`packaging/third-party-licenses/cassette-auth/`](../packaging/third-party-licenses/cassette-auth/).
-The source snapshot carries these materials; distributors must preserve them
-with Karin's GPL text, notices and corresponding source. This supplemental
-source adaptation is outside the Cargo-only crate inventory; no crate license
-is silently changed or used to stand in for its attribution.
+- [Cassette COPYING](../packaging/third-party-licenses/cassette-auth/COPYING)
+  and [provenance](../packaging/third-party-licenses/cassette-auth/PROVENANCE.md),
+  including the pinned authentication and legacy playback references;
+- the [application-configuration attribution](../src/auth/cassette_client.json.license)
+  beside `src/auth/cassette_client.json`;
+- existing source copyright and SPDX notices.
 
-The owner's functional-prototype scope permits this adaptation without requiring
-a Karin-owned registration. GPL source reuse does **not** grant rights to the
-shared OAuth registration, Music API/content or trademarks. Express approval
-for Karin's reuse/public distribution and Linux WebKit is not established; this
-is an unresolved condition, not a confirmed blanket service prohibition or a
-technical token/API error. A successful private prototype test does not settle
-public release conditions. No official-client Music header, stream-signing key,
-DRM logic or protected media is imported. See [ADR-0011](adr/0011-cassette-session-auth-prototype.md)
-and [the authentication review](AUTHENTICATION_REVIEW.md).
-
-### v0.2 metadata parser and original presentation
-
-Issue #9 adds pinned `roxmltree` **0.21.1** (`MIT OR Apache-2.0`) for bounded
-metadata-only XML classification. Its MIT option is compatible with Karin's
-GPL-3.0-or-later distribution; retain the supplied upstream license and notice.
-This parser performs no external entity resolution, signing, decryption or media
-delivery. The refreshed inventory contains **207 external crates**, **178** in
-the Linux graph.
-
-Catalog repair, the delivery probe and subsequent original navigation/artwork
-code retain Karin SPDX notices. Endpoint/model analysis cites pinned sources;
-no new Cassette artwork, graphical assets, checksum prefix, media-signing key,
-protected media or OAuth identity is imported. Public source licensing does not
-settle the existing experimental registration or service-distribution conditions.
-Fetched cover images are remote service material, not relicensed Karin assets.
-Presentation remains bounded, with no bundled private art. MPRIS additionally
-exports a decoded cover-only PNG in a temporary private app-cache directory
-(directory 0700, file 0600), removed on replacement, logout and normal shutdown.
-It contains no source URL or original embedded metadata; music is not cached.
-
-### v0.3 protected persistence and bounded presentation cache
-
-The session/cache/workspace additions are original GPL-3.0-or-later Rust and
-use the existing GIO, ring, Rustix and Serde dependency families. They do not
-import KWallet/libsecret implementation code, a new OAuth identity, media keys,
-third-party graphics or a service recording. Reviewed protocol/source references
-remain references rather than silently relicensed bundled material.
-
-Native credential I/O uses the user's system Secret Service; its at-rest policy
-belongs to that configured keyring. The standard local D-Bus `plain` session is
-not a claim of separately encrypted IPC or a plaintext Karin credential file.
-Flatpak uses the Secret Portal contract and an authenticated encrypted token
-envelope in app-private XDG data, with the portal key retained only in memory.
-Actual backend support and package/runtime checks are recorded separately from
-source availability. See [ADR-0018](adr/0018-persistent-session-and-settings.md).
-
-Reduced catalog metadata and explicitly cacheable decoded covers may now persist
-in a bounded private account cache. Service images remain third-party material;
-they are not Karin-owned GPL assets and are not bundled with the repository or
-prototype artifact. Respect explicit HTTP cache restrictions and source freshness
-bounds, strip embedded metadata from normalized raster records and retain clear
-cache/forget controls. The transient MPRIS PNG remains separately owned so ordinary
-cache clearing does not remove a live media-widget image.
-
-No service audio cache or offline-availability claim follows from code licensing,
-a subscription or the accepted legacy stream. The separate permission and
-offline-entitlement review is in [AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md).
-Unestablished third-party persistence rights are not described as a blanket
-technical failure or an assertion that every MP3 checksum is DRM.
-
-## License text and scope
-
-`LICENSE` is copied byte-for-byte from the Debian base image's standard
-`/usr/share/common-licenses/GPL-3` (35,149 bytes, SHA-256
-`3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986`). It includes
-all GPLv3 terms and the standard application guidance, with no Karin edits.
-References are the [GNU text](https://www.gnu.org/licenses/gpl-3.0.txt) and the
-[SPDX GPL-3.0-or-later text](https://raw.githubusercontent.com/spdx/license-list-data/main/text/GPL-3.0-or-later.txt).
-Comparison with the latter found presentation differences and a different final
-GNU guidance-link path, with the license terms unchanged. The
-`GPL-3.0-or-later` grant is expressed by the source notices and metadata; the
-standard GPLv3 license document itself is unchanged.
-
-The scope includes Karin's original Rust/Python source, original icon and original
-documentation/build materials. It does not relicense third-party dependencies,
-GNOME theme icons, fonts, user screenshots, Yandex content or service responses.
-No third-party source or license text is overwritten with a Karin SPDX header.
+The shared configuration identifies the published upstream OAuth registration.
+It must not be presented as Karin's own registration. Source-code permission,
+registration reuse, service access and public distribution require separate
+consideration; GPL does not grant Yandex API, music-content or trademark rights.
+Express approval for Karin's registration reuse/public distribution and Linux
+embedded authentication remains unestablished. Local interoperability does not
+settle those conditions. See [authentication](AUTHENTICATION_REVIEW.md).
 
 ## Locked Rust dependencies
 
-[`DEPENDENCY_LICENSES.md`](DEPENDENCY_LICENSES.md) records **207 external crates**
-across the resolved all-feature lockfile graph and **178** in Cargo's
-`x86_64-unknown-linux-gnu` graph, including build dependencies. This includes
-platform alternatives/build tools and is not a claim that every resolved package
-is linked into the Linux executable. No crate is missing a reviewed declaration.
-Four published binding archives omit their declared MIT license text; their
-repository's actual license is preserved through a narrowly pinned fallback.
+[DEPENDENCY_LICENSES.md](DEPENDENCY_LICENSES.md) is the reproducible inventory:
+207 external crates in the all-feature lockfile graph, 178 in the inspected Linux
+graph, including build dependencies. These counts do not imply every package is
+linked into the executable. No incompatible requirement was identified in that
+reviewed graph using the available compatible license alternatives.
 
-Reproduce the inventory with the trusted Cargo registry configuration:
+Regenerate it after a dependency change:
 
 ```sh
 python3 packaging/license_inventory.py --output docs/DEPENDENCY_LICENSES.md
 ```
 
-In the prepared cloud environment, prefix the command with
-`/workspace/karin-environment/run`. The script uses
-`cargo metadata --locked --all-features`, never changes Cargo.lock and fails on
-missing/unreviewed expressions or absent supplied notices unless the exact
-reviewed fallback below applies. A successful inventory is not a substitute for reviewing new
-dependency versions and their source-level notices.
+The generator uses locked metadata, preserves supplied notices and rejects
+missing or unreviewed terms. Review actual sources when adding dependencies;
+retain cumulative `AND` obligations, Unicode notices, exceptions and nested
+notices such as ring's Apache/ISC material. A Cargo declaration alone does not
+replace source-level notice review.
 
-### WebKit binding archive notice recovery
+Four MIT-licensed 0.5.0 binding archives omit their license text:
+`javascriptcore6`, `javascriptcore6-sys`, `webkit6` and `webkit6-sys`. Their exact
+upstream MIT text and [VCS/archive provenance](../packaging/third-party-licenses/webkit6-rs-0.5.0/PROVENANCE.md)
+are retained under `packaging/third-party-licenses/webkit6-rs-0.5.0/`.
+The pinned fallback checks names, versions, repository, VCS paths and license
+SHA-256. Preserve it unmodified; other missing notices must fail review.
+The soup3 bindings supply their own MIT notices.
 
-The `javascriptcore6`, `javascriptcore6-sys`, `webkit6` and `webkit6-sys` **0.5.0**
-archives declare MIT but omit license files. Their published `Cargo.toml` and
-`.cargo_vcs_info.json` identify `webkit6-rs` commit
-`545df16de5ca5bba4b1b8b456f75a508c98d5ba2`. The repository-root
-[upstream LICENSE at that commit][webkit-license] is retained unmodified at
-[`packaging/third-party-licenses/webkit6-rs-0.5.0/LICENSE`](../packaging/third-party-licenses/webkit6-rs-0.5.0/LICENSE):
-**1069 bytes**, SHA-256
-`44dad7b2e199b0d355adf4437df5c9bb18633d47804242f24dab5a633faba5f7`, copyright
-**2023 World / Rust**. It is not a Karin-authored or GPL-relabeled text.
+## Native components and distribution
 
-The [provenance record](../packaging/third-party-licenses/webkit6-rs-0.5.0/PROVENANCE.md)
-includes immutable source, VCS paths and archive checksums verified against
-Cargo.lock. The generator uses this text only for the four explicit name/version
-pairs after checking repository, MIT declaration, VCS commit/path and license
-hash. Missing fallback files, changed license/source provenance, other versions and unknown
-omissions fail review. It copies the upstream LICENSE and its provenance into
-each affected crate's generated notices without altering archives or vendored
-crate sources. The two soup3 archives already supply their actual MIT notices
-and require no fallback.
+Rust-binding licenses do not replace the licenses of GTK, Libadwaita, GLib/GIO,
+WebKitGTK, JavaScriptCore, libsoup, GStreamer, codecs or system runtimes. These
+components have LGPL, BSD-style and other per-file terms. Review the exact
+libraries/plugins/runtime being conveyed, including source, relinking and notice
+obligations. A GNOME runtime manifest or Cargo inventory is not its complete SBOM.
+Build tools installed on a developer machine are not automatically shipped.
 
-| Declared terms / reviewed case | Compatibility basis and obligations |
-| --- | --- |
-| MIT, Apache-2.0, ISC, BSD-3-Clause, BSL-1.0, Zlib; alternatives including Unlicense | Permissive grants can be combined with GPLv3 while retaining their notices. For dual/multiple licensing, a compatible offered option is sufficient; obligations attached by `AND` remain cumulative. Apache-2.0 is compatible with GPLv3, not a statement about GPLv2-only. |
-| Legacy `MIT/Apache-2.0` in `option-operations` and `serde_urlencoded` | Upstream supplies both license files; treated as the customary offered MIT/Apache alternatives, not an invented new license. Preserve both supplied texts in the notice bundle. |
-| Unicode-3.0; `(MIT OR Apache-2.0) AND Unicode-3.0` | Reviewed the actual Unicode notice in ICU4X/`unicode-ident`: permissive copying/modification grant with copyright/permission-notice retention and name/trademark restrictions. The additional Unicode notice is retained even when MIT is selected for code. |
-| `Apache-2.0 WITH LLVM-exception` in `target-lexicon` | Reviewed the supplied Apache license and LLVM exceptions. The additional permission does not prevent GPLv3 combination; retain the entire supplied text. WASI's target-only alternative also permits plain MIT/Apache. |
-| `ring 0.17.14`: `Apache-2.0 AND ISC` | Inspected `LICENSE`, `LICENSE-BoringSSL`, `LICENSE-other-bits`, nested once_cell licenses and `third_party/fiat/LICENSE`. Both Apache and ISC obligations apply, with nested notices preserved. This version does **not** declare the older `OpenSSL` license expression; no blanket OpenSSL exception is being added to Karin. |
-| `r-efi` offers `MIT OR Apache-2.0 OR LGPL-2.1-or-later` | A compatible permissive option is available; this crate is not in the inspected Linux target graph. |
-| Gate B1: `rustix 1.1.5`, `linux-raw-sys 0.12.1`, `errno 0.3.14` | Reviewed supplied COPYRIGHT/license files. The first two offer MIT, Apache-2.0 or Apache-2.0 with LLVM exception; `errno` offers MIT/Apache-2.0. A compatible permissive choice exists and original notices are retained. These support bounded, no-echo local terminal input. `base64`, `ring`, `subtle` and `zeroize` become direct dependencies at their already reviewed locked versions. |
-| Optional WebKit/JavaScriptCore 0.5.0 and soup3 0.8.0 Rust bindings | MIT permits GPLv3 combination with the original copyright/permission notice retained. Preserve the reviewed upstream WebKit license for the four archive omissions and supplied soup3 notices. This covers Rust bindings, not the native engine/runtime or service rights. |
+`packaging/flatpak/prepare-source.py` vendors locked dependencies and creates
+`third-party-notices/`. The inventory copies supplied LICENSE, COPYING, NOTICE,
+COPYRIGHT and related files at their original relative paths, including nested
+notices and the reviewed binding fallback. The Flatpak manifest installs Karin's
+GPL text, this document and the notice bundle under `/app/share/licenses/karin`.
+Keep `packaging/third-party-licenses/` in source snapshots and binary notice bundles.
 
-No incompatible license requirement was identified in the reviewed declarations
-and uncommon source notices. This is a scoped engineering review, not legal
-advice or a guarantee about future versions, other targets or a final packaged
-artifact. Relevant compatibility guidance:
-[GNU's license list](https://www.gnu.org/licenses/license-list.html) and
-[GPLv3 compatibility discussion](https://www.gnu.org/licenses/gpl-faq.html#GPLCompatMatrix).
+Before conveying a covered binary, provide complete corresponding source and
+build/install information through an applicable GPL section 6 method. Preserve
+dependency and runtime distributors' obligations. A repository link or LICENSE
+file alone is not a universal substitute. Inspect generated source snapshots for
+unintended files before distribution. v0.4 acceptance does not publish a release.
 
-## Native libraries and distribution components
+## Service material
 
-The Rust binding crates' licenses do not replace the native libraries' licenses.
-`ldd target/debug/karin` was inspected: GTK, Libadwaita, GLib and GStreamer are
-dynamically linked, along with their system dependencies. Installed Debian
-copyright files were reviewed for the principal components below.
-
-| Component | Reviewed native scope |
-| --- | --- |
-| GTK4, Libadwaita, GLib/GIO and libsecret | Principally LGPL-2.1-or-later; individual bundled files/materials have their own notices. Dynamic use is compatible with the GPLv3 application, while native-library source/relinking and notice duties remain with distributors. Karin implements the standard credential protocols through existing GIO rather than linking a new libsecret binding. Native service/runtime availability remains separate from the component's license. |
-| Optional WebKitGTK6, JavaScriptCore and libsoup | Native components have their own LGPL-2.1-or-later/BSD-style and per-file terms, separate from the MIT Rust bindings. They are supplied by the host or GNOME 50 runtime; no extra native module/runtime version or sandbox grant is introduced. Distributors must preserve the exact components' notices and satisfy applicable source/relinking obligations. Review the actual runtime revision and bundled subcomponents before a release; the Cargo inventory is not that review. |
-| GStreamer core and installed base/good plugins | Principally LGPL-2.0-or-later / LGPL-2.1-or-later with per-file exceptions. The real player uses host-provided playbin, HTTPS source, MP3 decoding and output plugins; separate diagnostics use synthetic/local media. No codec pack or service recording is bundled. Additional plugins/codecs must be reviewed for their actual licenses and applicable patent/distribution constraints. |
-| D-Bus | The installed shared library offers `GPL-2.0-or-later OR AFL-2.1`; the GPL-later route permits GPLv3 combination. Karin currently uses GIO's D-Bus implementation and does not bundle a bus daemon. Separate utility/package files can have different terms. |
-| glibc and GCC runtime | glibc is principally LGPL-2.1-or-later; libgcc uses GPLv3 with GCC Runtime Library Exception. These are native runtime components, not relicensed by Karin. |
-| OpenSSL 3 in the development environment | Apache-2.0. Karin's HTTP implementation uses rustls/ring, not reqwest's OpenSSL backend. An installed development package is not proof that it is shipped or linked. Old OpenSSL versions would require their own review. |
-| Rust standard library/toolchain, GNOME SDK, Blueprint and build tools | Build tools are not automatically part of the shipped application. Rust's distributed components include their own MIT/Apache/LLVM-related notices; retain applicable notices for linked runtime pieces. The SDK and its tools retain their own component licenses. |
-| GNOME Flatpak runtime | A separately managed runtime with many component licenses. The manifest is not a complete runtime SBOM. The owner reports successful final v0.3 Flatpak functional checks; this cloud container did not run that package. Exact shipped runtime/extension/license-content validation remains a release prerequisite. |
-
-Do not add codec bundles, proprietary media, third-party artwork, or runtime
-libraries to a release merely because they are installed in a developer machine.
-The exact shipped native libraries, plugins, fonts/icons and runtime revisions
-must be inventoried when making a release, including any extra notices or source
-obligations not captured by Cargo metadata.
-
-## Preserving notices and corresponding source
-
-`packaging/flatpak/prepare-source.py` vendors the locked source without changing
-its license files and runs the inventory tool. A generated
-`build/flatpak-source/third-party-notices/` tree preserves supplied
-LICENSE/LICENCE/COPYING/NOTICE/COPYRIGHT/AUTHORS files at their original relative
-paths, including nested notices. For the four pinned archive omissions it also
-copies the recovered upstream LICENSE and provenance into each crate's notice
-directory. It covers all resolved all-feature crates so optional and platform/build
-alternatives are not silently discarded; the inventory distinguishes scope.
-The manifest installs Karin's LICENSE, this document and that tree under
-`/app/share/licenses/karin`. Do not commit generated vendored sources or notices
-as if they were original GPL code.
-
-Before conveying a binary or Flatpak, provide the complete corresponding source
-and build/install information required by the GPL using an applicable section 6
-method. That includes Karin modifications, dependency sources actually needed to
-build the covered artifact, and required notices; a GitHub link or a LICENSE file
-alone is not a universal substitute. Preserve runtime/library distributors'
-notices and satisfy their applicable obligations. Source generated from a worktree
-must be reviewed before distribution, including licenses and unintended files.
-
-The owner accepted v0.3 runtime `0232548` and reported successful final Flatpak
-authorization/playback/system integration on 2026-10-31. This does not supply an
-exact backend failure matrix or a release SBOM. This iteration does not publish
-a release. GPL grants
-rights in software, **not** permission to access Yandex Music, use its API or
-trademarks, or distribute its audio. Service terms, account rights and the
-blockers in [API_FEASIBILITY.md](API_FEASIBILITY.md) remain separate.
-
-[webkit-license]: https://gitlab.gnome.org/World/Rust/webkit6-rs/-/raw/545df16de5ca5bba4b1b8b456f75a508c98d5ba2/LICENSE
+Remote covers and catalog metadata are service material, not original GPL artwork.
+Karin's bounded data cache respects explicit HTTP cache restrictions and freshness;
+it stores neither music nor signed media URLs. Public screenshots use original
+synthetic fixture art. The [offline-audio decision](AUDIO_CACHE_REVIEW.md) remains
+separate from the working [online player](STREAM_DELIVERY_REVIEW.md).

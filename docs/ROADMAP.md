@@ -1,189 +1,52 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 
-# Karin Roadmap
+# Roadmap
 
-## Current v0.4 final UX refinement — Draft PR #15
+## v0.4: accepted functionality, integration under review
 
-Continue `feature/v0.4-native-music-ui` from `2e3ae41` without replacing the
-working account, MusicService or playback path. The current scope is musical
-Liked hierarchy, honest loaded-collection search, useful Home, larger covers and
-a tightly grouped native footer, retaining the pinned Info/Queue surface and
-MPRIS. ADR-0025 defines original occurrence identity for filtered contexts.
-Source-matched stable/MSRV/native/visual/CI and downloaded Fedora build evidence
-must precede owner review. Real Fedora visual/cold-first-use/full Flatpak gates
-remain separate. Keep the existing PR Draft; no new branch/PR or merge is authorized.
+The owner accepted `97093ee` on Fedora 44/KDE Plasma/Wayland/PipeWire for native
+functionality and the current UI/UX, with separate successful Flatpak acceptance.
+[PR #15](https://github.com/tracerxbrhd/karin/pull/15) prepares integration into
+`master`; merge still requires explicit owner approval. Acceptance is not a public
+release: Cargo remains at `0.0.0`, and no v0.4 release/tag or Flathub publication
+is implied. See [VALIDATION.md](VALIDATION.md) for exact evidence.
 
-## Accepted v0.2 foundation
+The accepted client includes protected sign-in, liked tracks/playlists, catalog
+and loaded-collection search, real playback with contextual queues/Shuffle/Repeat,
+MPRIS, metadata/artwork caching and the adaptive native music workspace.
 
-[PR #13](https://github.com/tracerxbrhd/karin/pull/13) is merged into `master` at
-`09f76355684873f32aaf83b8050e047df6077143`. The owner reports **17 PASS, 0 FAIL
-and 1 N/D** on Fedora 44 / KDE Plasma / Wayland / PipeWire, including the Flatpak.
-Real sign-in, library/search, entitled Music playback, contextual queues,
-transport/seek/volume, MPRIS registration, KDE Media Widget and shutdown form
-the accepted baseline. Hardware media keys are N/D. This supersedes older UI,
-search and packaging gaps for their recorded revisions; the complete dated
-history remains in [VALIDATION.md](VALIDATION.md).
+## Maintenance priorities
 
-Preserve the accepted native stack, Cassette-compatible voluntary sign-in,
-bounded identity-neutral MusicService, guarded StreamResolver, existing
-GStreamer worker, 500-position PlaybackContext and in-process MPRIS adapter.
-No generated audio, replacement provider or metadata-only queue may stand in
-for that working service path. A new revision still requires regression checks.
+- Investigate cold first-appearance frame gaps without attributing an unproven
+  driver cause or changing production timing to conceal them. Desktop acceptance
+  does not resolve the separate cloud observation.
+- Improve refusal-driven cache invalidation when storage I/O is busy or fails.
+- Consider stable identities for manually appended queue items; original source
+  occurrences already retain their identity through filtering and removal.
+- Preserve Rust 1.98.1 compatibility, native GTK/WebKit/GStreamer lifecycle,
+  protected-session cleanup and the narrow Flatpak permissions as dependencies
+  and runtime components evolve.
 
-## v0.3 — Seamless Experience: functional acceptance
+These are follow-ups with explicit scope, not claims of new blocking functional
+defects. [LIMITATIONS.md](LIMITATIONS.md) records their current boundaries.
 
-Delivered through one `feature/v0.3-seamless-experience` branch and
-[PR #14](https://github.com/tracerxbrhd/karin/pull/14). On **2026-10-31** the owner
-accepted runtime `02325489d23ead9da4471de9cc35e2c063ac8bab`: persistent sign-in
-and restart restoration, real covers in lists/Player Bar/right pane, actual
-Music playback, pane mechanics and KDE Media Widget cover/metadata. The owner
-also reported successful final Flatpak authorization, playback and system
-integration, with no blocking functional defect reported. Exact scope and
-historical failures remain in [VALIDATION.md](VALIDATION.md).
+## Features requiring separate contracts
 
-PR #14 is merged into `master` at `5e85e8d`; its accepted runtime remains the
-separately identified `0232548` above. The feature branch was retained. The
-sections below record the delivered implementation scope and its continuing
-constraints; new v0.4 code still needs its own verification and owner acceptance.
+My Wave needs a confirmed radio-session, batch and listening-feedback lifecycle;
+a station list or ordinary queue is insufficient. Recommendations, similar tracks
+and lyrics need independently confirmed permitted endpoints. Dislike must have
+verified semantics distinct from removing a Like. Full collection search/sorting
+must not present one loaded prefix as the complete remote library.
 
-### A. Persistent Session and Settings
+Persistent audio requires service permission, a storage contract and enforceable
+offline entitlement/expiry behavior before implementation. The existing MP3 path
+is not that permission. See [API_FEASIBILITY.md](API_FEASIBILITY.md) and
+[AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md). Unverified features stay absent or,
+for the explicitly labelled Wave section, visibly unavailable.
 
-Add asynchronous secure-store discovery, saved-token recovery and independent
-Music account validation. Store only the needed token after accepted Music
-validation; keep WebKit cookies, sessionid, password and temporary OAuth material
-ephemeral. Support the available native Secret Service and investigate the
-Flatpak Secret Portal/runtime contract without assuming either exists.
+## Public release
 
-Keep restoring, authenticated, invalid session and unavailable storage distinct.
-A missing/locked/broken backend permits ordinary sign-in without plaintext
-fallback. Remember-login is effective by default only when secure storage is
-supported; turning it off deletes saved credentials while the current in-memory
-session can continue. Logout stops playback, invalidates old work, clears
-personal presentation and confirms saved-secret deletion; unknown/failed deletion
-must remain visible. Do not claim refresh or server revocation.
-
-Persist actual application preferences, with private atomic XDG storage and
-safe recovery from invalid settings. GTK must not wait for disk, keyring or
-network work. [ADR-0018](adr/0018-persistent-session-and-settings.md) records the
-new lifecycle boundary; the existing authentication identity is retained.
-
-### B. Bounded Metadata and Artwork Cache
-
-Add private per-account metadata and normalized-cover persistence, independent
-of GTK. Use TTL, explicit refresh, byte limits, LRU-like eviction, atomic writes,
-corruption recovery, bounded jobs and generation-aware cancellation. Disabling
-cache prevents persistent reads and new writes; existing records remain until
-explicit clearing. Clearing cache must preserve the secure session and current
-playback. Live authorization, membership, playlist revision and write confirmation
-remain server facts, not cached assertions.
-
-Expose enabled state, size limit, actual usage and clear progress/errors in
-Storage preferences. Label network-fallback records as saved/potentially stale.
-[ADR-0019](adr/0019-bounded-account-cache.md) defines policy and isolation.
-
-Persistent audio is a separate permission/entitlement problem. Implement it only
-if a permitted third-party download/storage contract and enforceable offline
-rights lifecycle are established. Otherwise keep audio off disk, omit an inert
-Offline switch and record the exact blocker in
-[AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md). That blocker does not defer
-metadata, artwork, session or workspace work.
-
-### C. Music Workspace
-
-Add an adaptive track information pane with actual cover/title/artist/album,
-explicit actions and only verified navigable identities. Keep click/Enter/Space
-as playback and Details as its separate action. Use an appropriate compact
-presentation, and preserve the accepted player bar and loaded-context behavior.
-
-Present playlists as adaptive native cover tiles with real metadata, long-title
-and missing-cover handling, loading/empty/error states and keyboard activation.
-Expose creation only through a source-confirmed server contract and independent
-server confirmation; an ambiguous write is not a local success or automatic
-retry. [ADR-0020](adr/0020-seamless-music-workspace.md) records these UI choices.
-
-My Wave requires a complete radio-session/batch/listening-feedback contract,
-not a renamed ordinary queue. Similar tracks require a confirmed real endpoint.
-Keep unsupported functions hidden and document precise gaps; do not add fake
-recommendations or decorative disabled controls. The updated
-[capability audit](CASSETTE_PARITY.md) separates upstream source evidence, Karin
-implementation, fixture checks and live acceptance.
-
-### D. Integration and Regression
-
-Run stable and exact Rust 1.98.1 formatting, warning-free Clippy, default/all-
-feature/minimal tests/builds, offline release and packaging/license checks.
-Exercise secure-store recovery/failure/delete races, cache isolation/TTL/
-corruption/limits/clear/disable and settings persistence with synthetic local
-fixtures. Reuse the accepted GTK/WebKit/GStreamer/MPRIS lifecycle regressions.
-
-Inspect fresh actual screenshots and GTK structure at approximately 420×720,
-900×650, 1440×900 and maximized, in light/dark themes and scale 2, including
-keyboard/focus, track pane, playlist tiles and preferences. Xvfb does not establish
-Fedora Wayland acceptance. New native and Flatpak runs must check real music,
-session recovery, storage availability, cache behavior and shutdown.
-
-The integration PR records implemented code, executed commands/results, inspected
-images, actual native/Flatpak storage evidence, blocked service features and
-[one Fedora acceptance procedure](BUILDING.md#v03-seamless-experience-acceptance-on-fedora).
-The separate v0.3 owner report accepts its stated functional scope, not every
-unreported backend/failure case or future code change.
-
-## v0.4 — refinement of the existing music experience
-
-Continue existing [Draft PR #15](https://github.com/tracerxbrhd/karin/pull/15) on
-`feature/v0.4-native-music-ui` from `a70bbf7`; no new PR, merge or branch deletion
-is authorized. The latest owner request refines that implementation rather than
-starting another concept. It supersedes the earlier mandatory three-route
-Home/Search/Library rail, permanently visible footer and visible track paging.
-The previous [complete redesign](design/v0.4/CODEX_TASK.md) remains history where
-its requirements conflict with the current refinement specification.
-
-- Use lightweight “Моя волна”, “Нравится” and “Плейлисты” tabs/segments, with
-  accessible unified Search. Wave is the explicitly requested unimplemented
-  landing only; do not invent radio activity or recommendations.
-- Hide the Player Bar before a real playback request; reveal it natively from
-  below, retain it during Pause, replayable ended state and retryable failure,
-  and hide it for explicit Stop/logout/cleared context. Full current metadata
-  opens Track Info; confirmed Like is a separate real action. Dislike remains
-  hidden until Karin's contract is established, rather than masquerading as
-  Unlike or a working decoration.
-- Retain one pinned TrackInfo/Queue surface, controlled mode, occurrence-based
-  following, whole-surface presentation, exact queue/modes and MPRIS. Refine
-  real artwork/metadata grouping without fake related-content blocks.
-- Replace visible track page controls with bounded continuous loading, safe
-  single-flight read/retry/end states and stable scrolling. Keep the existing
-  active PlaybackContext immutable under catalog append and preserve its
-  500-position and visible partial-source limits.
-
-Fresh equal-size before evidence must use the unchanged `a70bbf7` production
-and test harness, not a9 or renamed prior after images. New active-footer
-captures use a real fixture resolver, generated MP3 and paused PlaybackController;
-selection alone or a forced visibility flag is not active-player proof.
-Follow the [quality gate](UI_QUALITY_GATE.md#v04-native-music-gate), updated
-[design/task](design/v0.4/README.md), stable/exact-1.98.1/native regressions and
-[single Fedora guide](BUILDING.md#v04-native-music-acceptance-on-fedora).
-The refinement implements these routes, real active-footer/Like presentation,
-bounded continuous views, original-occurrence provenance and cached immutable
-500-position playback windows. Current cache-origin warnings follow retained
-content, not the last completed reply. Local compiler/fixture evidence remains
-candidate-specific; later lifecycle fixes require their own checks.
-Old CI/cold-paint failures, initialized-motion scope and accepted service/audio
-history remain in [VALIDATION.md](VALIDATION.md). A controlled modern-Mesa worker
-setting does not replace a default-environment sampling FAIL or prove
-cold-first-use responsiveness. Keep PR #15 Draft pending new
-owner review; public service-distribution and offline-audio gates remain separate.
-
-## Independent release conditions
-
-Code licensing, working account access and technical playback are distinct from
-public OAuth-registration/service-distribution permission and content rights.
-Keep GPL-3.0-or-later, third-party notices, the GNOME 50 / Freedesktop 25.08
-foundation and Rust 1.98.1 compatibility. No real account or secret enters Cloud,
-CI or GitHub; audio tests use original generated media and loopback fixtures.
-
-v0.3 is not a public-release declaration. The supplied functional acceptance and
-explicit PR #14 merge authorization do not establish public OAuth distribution
-rights, offline-audio rights or a later release approval. New runtime changes
-still require their own checks and acceptance.
-Earlier v0.0/v0.1 feasibility decisions and test histories remain in the ADRs and
-validation record; superseded restrictions do not replace the current task.
+A release decision must settle package version/tag consistency, authentication
+distribution conditions, packaging and the supported runtime matrix. Retain GPL
+text and third-party attribution. Add a Flathub link only after publication; no
+release date is scheduled.

@@ -2,7 +2,7 @@
 
 # ADR-0014: Explicit library writes with independent confirmation
 
-Status: Accepted for the Issue #9 prototype; provider acceptance remains local
+Status: Accepted; provider-side results are recorded separately in VALIDATION.md
 Date: 2026-10-29
 Supersedes: ADR-0009's read-only limit for the scoped confirmed like/unlike methods
 
