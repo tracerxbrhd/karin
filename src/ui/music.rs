@@ -2971,8 +2971,14 @@ mod tests {
         assert_eq!(rows(&this.widgets.home_preview), 0);
         assert!(contains_text(
             this.widgets.home_signedin.upcast_ref(),
-            "Персональная волна пока не подключена"
+            "Функция проходит проверку"
         ));
+        assert!(contains_text(
+            this.widgets.home_signedin.upcast_ref(),
+            "Персональная музыка, которая подстраивается под ваш вкус."
+        ));
+        assert!(!this.widgets.home_wave.primary.is_sensitive());
+        assert!(!this.widgets.home_wave.cancel.is_visible());
         capture_native("home");
         gtk::prelude::WidgetExt::activate_action(&window, "win.diagnostics", None).unwrap();
         gtk::prelude::WidgetExt::activate_action(&window, "win.music-search", None).unwrap();

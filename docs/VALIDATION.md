@@ -211,6 +211,15 @@ directories, unchanged license inventory and scoped Flatpak permissions. These
 are not an installed GNOME 50 SDK/Flatpak test. Final-head hosted checks remain
 recorded in [PR #25](https://github.com/tracerxbrhd/karin/pull/25/checks).
 
+The first [push MSRV job at `8bd9317`](https://github.com/tracerxbrhd/karin/actions/runs/41870601613/job/126716292210)
+failed an existing session/catalog test that still expected the removed Home
+placeholder wording. Its failure is retained. The corrective test checks the
+new subtitle/caption and still requires disabled service access and no Cancel
+on ordinary startup; it changes no production behavior or deadline. The complete
+native session/catalog/queue/logout fixture then passed locally on stable 1.99.1
+and exact 1.98.1 (one executed, zero ignored each), with formatting and strict
+all-feature Clippy.
+
 The new Hero's state/structure/input matrix passed on Rust 1.98.1 at 1× and 2×,
 with fatal GTK warnings, both themes, 420×720, 850×750, 1440×900, 1920×1080 and
 maximized. Twenty fresh clean captures cover representative states; the two
