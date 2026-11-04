@@ -2,7 +2,7 @@
 
 # ADR-0027: Experimental My Wave on the shared player
 
-Status: Accepted for opt-in implementation; live service acceptance pending
+Status: Opt-in preview; positive live chain confirmed, feedback 400 repeat acceptance pending
 Date: 2026-11-04
 Extends: ADR-0017, ADR-0023 and ADR-0026
 
@@ -18,11 +18,25 @@ feedback `from` placement differs; retain the existing Cassette `event.from`
 shape until a specific real result warrants changing it. Older station APIs
 are not automatic fallbacks. No new OAuth identity, secret or dependency follows.
 
+The owner subsequently confirmed real session creation, normalized tracks,
+heard Music, accepted `radioStarted`/`trackStarted`/`skip` and a further batch on
+Fedora. A later feedback returned HTTP 400 without an event in the old log.
+Its type and cause cannot be recovered from that sequence alone. Cassette's
+constant for `radioFinished` is not proof of effective server support; its
+reviewed [Flow](https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/player/mods/flow.vala#L69)
+does not send it, and the reviewed MarshalX helpers omit it.
+Keep the existing wire shape/events until a real result identifies a violation;
+do not infer that this particular event caused the refusal.
+
 ## Decision
 
-Ordinary Home keeps Wave unavailable. Process-local `--experimental-wave`
-exposes a labelled owner-local experiment through the existing validated Music
-session, with no token input, alternative sign-in or persisted feature flag.
+Home starts with a musical Wave Hero and secondary existing library routes.
+Process-local `--experimental-wave` gates service access through the existing
+validated session, with no token input, alternative sign-in or persisted feature
+flag. One primary action reflects the actual shared player: Listen, Pause or
+Resume; a failure permits a deliberate fresh session. Opening Home does not
+start or recreate radio. Only pending startup has Cancel; there is no persistent
+Finish/Stop control in the Hero.
 MusicService owns session/batch/feedback POSTs and one canonical lookup per
 batch. Preserve validated IDs, exact composite precedence, provider order,
 duplicates and honest omissions. Unknown/terminated status stops admission
@@ -67,16 +81,20 @@ become success. An uncertain POST outcome retires continuation without replay.
 A deliberate fresh-session action creates a new identity; local Busy is distinct
 from an already-dispatched write.
 
-Explicit Finish, MPRIS Stop or source replacement under the same account may drain ordered
-final reports once, then cancel locally. This is not verified remote deletion.
+Pause keeps the radio context and excludes paused time. MPRIS Stop or source
+replacement under the same account may drain ordered final reports once, then
+cancel locally; there is no separate user-facing Finish operation. This is not verified remote deletion.
 Account change, logout and close cancel queued work and fence late results;
 they schedule no final reports with retired authorization. An admitted bounded
 HTTP request cannot be unsent or allowed to update a new context/account/window.
 Current audio may stay controllable after feedback failure, while further radio
 admission stops.
 
-Diagnostics expose only fixed stage/category/event, known HTTP status and
-bounded counts, never identifiers, tokens, URLs, raw JSON or listening payloads.
+Provider failures produce one diagnostic carrying the submitted local event,
+origin (playback/selection/retirement), completion-time local lifecycle phase and Stop/source-change
+reason where relevant. A pending typed failure remains primary if cancellation
+is observed before its main-context callback. Diagnostics expose only those
+fixed classifications, known HTTP status and bounded counts, never identifiers, tokens, URLs, raw JSON or listening payloads.
 Radio markers/listening state are memory-only; protected sign-in storage stays
 unchanged. MPRIS keeps ordinary safe track metadata and opaque track paths.
 
@@ -88,8 +106,9 @@ restoration and uncertain feedback without replay. Native synthetic media must
 use the shared player. Executed results belong in [VALIDATION](../VALIDATION.md).
 
 Default enablement needs the owner's [Fedora procedure](../BUILDING.md#my-wave-local-acceptance):
-real session, normalized tracks, heard Music, accepted feedback and a further
-batch, plus transport/MPRIS and cleanup. Until then Issue #16 stays open and the
-ordinary UI remains unavailable. Public distribution remains separate Issue #5
+repeat the real session/audio/feedback/batch sequence, including natural EOS,
+several skips, source change and MPRIS Stop, with the refused event now observable.
+An injected HTTP 400 verifies handling, not its real service cause. Until this
+repeat succeeds Issue #16 stays open and normal service access remains gated. Public distribution remains separate Issue #5
 in [API_FEASIBILITY](../API_FEASIBILITY.md). No DRM bypass, audio persistence or
 new Flatpak permissions follows from this decision.

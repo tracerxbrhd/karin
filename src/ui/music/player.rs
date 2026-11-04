@@ -588,7 +588,7 @@ impl Controller {
     }
 
     pub(super) fn stop_music(&self) {
-        self.leave_wave();
+        self.leave_wave_for_stop();
         self.stop_music_engine();
     }
 

@@ -1550,21 +1550,15 @@ impl Controller {
                 }
             });
         let weak = Rc::downgrade(self);
-        self.widgets.home_wave.start.connect_clicked(move |_| {
+        self.widgets.home_wave.primary.connect_clicked(move |_| {
             if let Some(this) = weak.upgrade() {
-                this.start_wave();
+                this.activate_wave_hero();
             }
         });
         let weak = Rc::downgrade(self);
         self.widgets.home_wave.cancel.connect_clicked(move |_| {
             if let Some(this) = weak.upgrade() {
-                this.cancel_wave();
-            }
-        });
-        let weak = Rc::downgrade(self);
-        self.widgets.home_wave.toggle.connect_clicked(move |_| {
-            if let Some(this) = weak.upgrade() {
-                this.toggle_music();
+                this.cancel_wave_start();
             }
         });
         let weak = Rc::downgrade(self);

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Modest native starting surface over the existing real music destinations.
+//! Native music Home: a gated Wave hero and the existing library destinations.
 
 use super::radio::{RadioFailure, RadioPhase, RadioStage, RadioStatus};
 use super::*;
@@ -42,14 +42,8 @@ impl HomeParts {
 
         let home_signedin = gtk::Box::new(gtk::Orientation::Vertical, 24);
         home_signedin.set_widget_name("music-home-library");
-        let introduction = gtk::Box::new(gtk::Orientation::Vertical, 6);
-        introduction.set_widget_name("music-home-introduction");
-        introduction.append(&text("Ваша музыка", "title-1"));
-        introduction.append(&text(
-            "Вернитесь к любимому или найдите новое.",
-            "dim-label",
-        ));
-        home_signedin.append(&introduction);
+        let home_wave = WaveParts::new();
+        home_signedin.append(&home_wave.widget);
 
         // These are ordinary existing controller actions, not another library
         // snapshot or an eager read of personalized recommendations.
@@ -88,8 +82,6 @@ impl HomeParts {
         }
         home_signedin.append(&routes);
 
-        let home_wave = WaveParts::new();
-        home_signedin.append(&home_wave.widget);
         let home_queue = text("", "caption");
         home_queue.set_widget_name("music-home-queue-summary");
         home_queue.add_css_class("dim-label");
@@ -128,85 +120,83 @@ impl HomeParts {
 #[derive(Clone)]
 pub(super) struct WaveParts {
     pub widget: gtk::Box,
-    pub start: gtk::Button,
+    pub primary: gtk::Button,
     pub cancel: gtk::Button,
-    pub toggle: gtk::Button,
+    primary_content: adw::ButtonContent,
     experiment: gtk::Label,
     message: gtk::Label,
     details: gtk::Label,
+    disclosure: gtk::Expander,
     spinner: gtk::Spinner,
-    actions: gtk::Box,
-    transport: gtk::Box,
 }
 
 impl WaveParts {
     fn new() -> Self {
-        let widget = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-        // Preserve the ordinary, unavailable Home presentation until local
-        // experimental mode is explicitly enabled by the caller.
-        widget.set_widget_name("music-wave-placeholder");
-        widget.add_css_class("music-home-wave");
+        let widget = gtk::Box::new(gtk::Orientation::Vertical, 12);
+        widget.set_widget_name("music-wave-hero");
+        widget.add_css_class("card");
+        widget.add_css_class("music-wave-hero");
         widget.set_valign(gtk::Align::Start);
-        let icon = gtk::Image::from_icon_name("radio-symbolic");
-        icon.set_pixel_size(24);
-        icon.set_valign(gtk::Align::Start);
-        icon.add_css_class("dim-label");
-        widget.append(&icon);
-
-        let labels = gtk::Box::new(gtk::Orientation::Vertical, 4);
-        labels.set_hexpand(true);
-        labels.append(&text("Моя волна", "heading"));
-        let experiment = text(
-            "Экспериментальная проверка. Работа с Яндекс Музыкой пока не подтверждена.",
-            "caption",
+        let heading = gtk::Box::new(gtk::Orientation::Horizontal, 16);
+        let title = text("Моя волна", "music-wave-title");
+        title.set_hexpand(true);
+        title.set_valign(gtk::Align::Center);
+        heading.append(&title);
+        heading.append(&wave_motif());
+        widget.append(&heading);
+        let subtitle = text(
+            "Персональная музыка, которая подстраивается под ваш вкус.",
+            "music-wave-subtitle",
         );
-        experiment.set_widget_name("music-wave-experimental-note");
-        labels.append(&experiment);
-        let progress = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        subtitle.add_css_class("dim-label");
+        widget.append(&subtitle);
+
+        let actions = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+        actions.set_widget_name("music-wave-actions");
+        actions.set_margin_top(4);
+        let primary = gtk::Button::new();
+        primary.set_widget_name("music-wave-primary");
+        primary.set_halign(gtk::Align::Start);
+        primary.add_css_class("suggested-action");
+        primary.add_css_class("music-wave-primary");
+        let primary_content = adw::ButtonContent::builder()
+            .icon_name("media-playback-start-symbolic")
+            .label("Слушать")
+            .build();
+        primary.set_child(Some(&primary_content));
+        actions.append(&primary);
         let spinner = gtk::Spinner::new();
         spinner.set_widget_name("music-wave-spinner");
         spinner.set_valign(gtk::Align::Center);
-        progress.append(&spinner);
-        let message = text("Персональная волна пока не подключена.", "dim-label");
-        message.set_widget_name("music-wave-status");
-        progress.append(&message);
-        labels.append(&progress);
-        let details = text("", "caption");
-        details.set_widget_name("music-wave-safe-diagnostic");
-        details.add_css_class("dim-label");
-        labels.append(&details);
-
-        // Keep a possible fresh-session action above the existing-session
-        // controls: even an error while audio finishes must fit compact Home.
-        let actions = gtk::Box::new(gtk::Orientation::Vertical, 8);
-        actions.set_margin_top(8);
-        let start = gtk::Button::with_label("Запустить волну");
-        start.set_widget_name("music-wave-start");
-        start.set_halign(gtk::Align::Start);
-        start.add_css_class("suggested-action");
-        start.set_tooltip_text(Some("Начать новую экспериментальную радиосессию"));
-        actions.append(&start);
-        let transport = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-        let toggle = gtk::Button::with_label("Продолжить");
-        toggle.set_widget_name("music-wave-toggle");
-        transport.append(&toggle);
+        actions.append(&spinner);
         let cancel = gtk::Button::with_label("Отменить");
         cancel.set_widget_name("music-wave-cancel");
-        transport.append(&cancel);
-        actions.append(&transport);
-        labels.append(&actions);
-        widget.append(&labels);
+        cancel.set_valign(gtk::Align::Center);
+        actions.append(&cancel);
+        widget.append(&actions);
+
+        let experiment = text("", "caption");
+        experiment.set_widget_name("music-wave-experimental-note");
+        widget.append(&experiment);
+        let message = text("", "body");
+        message.set_widget_name("music-wave-status");
+        widget.append(&message);
+        let details = text("", "caption");
+        details.set_widget_name("music-wave-safe-diagnostic");
+        let disclosure = gtk::Expander::new(Some("Подробности"));
+        disclosure.set_widget_name("music-wave-error-details");
+        disclosure.set_child(Some(&details));
+        widget.append(&disclosure);
         let parts = Self {
             widget,
-            start,
+            primary,
             cancel,
-            toggle,
+            primary_content,
             experiment,
             message,
             details,
+            disclosure,
             spinner,
-            actions,
-            transport,
         };
         parts.render(RadioStatus {
             phase: RadioPhase::Disabled,
@@ -218,44 +208,86 @@ impl WaveParts {
 
     pub(super) fn render(&self, status: RadioStatus) {
         let enabled = status.phase != RadioPhase::Disabled;
-        self.experiment.set_visible(enabled);
-        let busy = matches!(
-            status.phase,
-            RadioPhase::Starting | RadioPhase::LoadingNext | RadioPhase::Finishing
+        let failed = matches!(status.phase, RadioPhase::Failed { .. });
+        // The service already supplied audible tracks and accepted feedback on
+        // Fedora; the pending gate concerns repeat acceptance after an HTTP400.
+        self.experiment.set_text(if enabled {
+            "Предварительная версия"
+        } else {
+            "Функция проходит проверку"
+        });
+        self.experiment.set_tooltip_text(Some(if enabled {
+            "Запуск и воспроизведение подтверждены. Обратная связь проходит повторную проверку."
+        } else {
+            "Моя волна пока доступна для локальной проверки"
+        }));
+        let transport = matches!(status.phase, RadioPhase::Active | RadioPhase::LoadingNext);
+        let playing = status.playback == Some(PlaybackState::Playing);
+        let resumable = matches!(
+            status.playback,
+            Some(PlaybackState::Paused | PlaybackState::Ready)
         );
+        let starting = status.phase == RadioPhase::Starting;
+        let finishing = status.phase == RadioPhase::Finishing;
+        let preparing = transport && !playing && !resumable;
+        let busy = starting || finishing || preparing;
         self.spinner.set_spinning(busy);
         self.spinner.set_visible(busy);
+        let label = if failed {
+            "Начать новую волну"
+        } else if transport && playing {
+            "Пауза"
+        } else if transport && resumable {
+            "Продолжить"
+        } else if starting || preparing {
+            "Загрузка…"
+        } else {
+            "Слушать"
+        };
+        self.primary_content.set_label(label);
+        self.primary_content.set_icon_name(if transport && playing {
+            "media-playback-pause-symbolic"
+        } else {
+            "media-playback-start-symbolic"
+        });
+        self.primary
+            .update_property(&[gtk::accessible::Property::Label(label)]);
+        self.primary.set_sensitive(
+            enabled
+                && status.authenticated
+                && !busy
+                && (matches!(status.phase, RadioPhase::Ready | RadioPhase::Failed { .. })
+                    || (transport && (playing || resumable))),
+        );
+        self.primary.set_tooltip_text(Some(if !enabled {
+            "Моя волна пока доступна для локальной проверки"
+        } else if !status.authenticated {
+            "Войдите в Яндекс, чтобы слушать музыку"
+        } else {
+            label
+        }));
+        // Cancel is a startup operation. Active radio has no separate Finish or
+        // Stop affordance: the common player/source change owns that lifecycle.
+        self.cancel.set_visible(enabled && starting);
+        self.cancel.set_sensitive(enabled && starting);
+
         let message = match status.phase {
-            RadioPhase::Disabled => "Персональная волна пока не подключена.",
-            RadioPhase::Ready if !status.authenticated => {
-                "Войдите в Яндекс, чтобы выполнить локальную проверку волны."
-            }
-            RadioPhase::Ready => "Запустите персональное радио с текущим музыкальным аккаунтом.",
-            RadioPhase::Starting => "Создаём радиосессию и получаем первые треки…",
-            RadioPhase::LoadingNext => "Получаем следующую партию треков…",
-            RadioPhase::Finishing => "Завершаем радиосессию локально…",
-            RadioPhase::Active => match status.playback {
-                Some(PlaybackState::Playing) => "Волна играет в плеере Karin.",
-                Some(PlaybackState::Paused) => "Волна на паузе.",
-                Some(PlaybackState::Loading | PlaybackState::Ready) => {
-                    "Подготавливаем воспроизведение…"
-                }
-                _ => "Радиосессия активна. Управление воспроизведением — в плеере Karin.",
-            },
+            RadioPhase::Ready if !status.authenticated => "Войдите в Яндекс, чтобы слушать музыку.",
+            RadioPhase::Starting => "Подбираем первые треки…",
+            RadioPhase::LoadingNext if preparing => "Подбираем следующие треки…",
+            RadioPhase::Finishing => "Готовимся к следующему запуску…",
             RadioPhase::Failed { failure, .. } => failure_message(failure),
+            _ => "",
         };
         self.message.set_text(message);
-        let failed = matches!(status.phase, RadioPhase::Failed { .. });
+        self.message.set_visible(!message.is_empty());
         if failed {
-            self.message.remove_css_class("dim-label");
             self.message.add_css_class("error");
         } else {
             self.message.remove_css_class("error");
-            self.message.add_css_class("dim-label");
         }
         if let RadioPhase::Failed { stage, failure } = status.phase {
-            // Both substitutions come exclusively from closed local enums.
-            // Never format an API error/response or a service/session identity.
+            // Closed local enums only; no response body or service identity.
             self.details.set_text(&format!(
                 "Этап: {} · Причина: {}",
                 stage_label(stage),
@@ -263,55 +295,27 @@ impl WaveParts {
             ));
         } else {
             self.details.set_text("");
+            self.disclosure.set_expanded(false);
         }
-        self.details.set_visible(failed);
-
-        let can_start = enabled
-            && status.authenticated
-            && matches!(status.phase, RadioPhase::Ready | RadioPhase::Failed { .. });
-        self.start.set_visible(can_start);
-        self.start.set_sensitive(can_start);
-        self.start.set_label(if failed {
-            "Начать новую волну"
-        } else {
-            "Запустить волну"
-        });
-        let has_transport = enabled
-            && status.authenticated
-            && matches!(
-                status.playback,
-                Some(PlaybackState::Playing | PlaybackState::Paused | PlaybackState::Ready)
-            );
-        self.toggle.set_visible(has_transport);
-        self.toggle
-            .set_sensitive(has_transport && status.phase != RadioPhase::Finishing);
-        self.toggle
-            .set_label(if status.playback == Some(PlaybackState::Playing) {
-                "Пауза"
-            } else {
-                "Продолжить"
-            });
-        let can_cancel = enabled
-            && (matches!(
-                status.phase,
-                RadioPhase::Starting
-                    | RadioPhase::Active
-                    | RadioPhase::LoadingNext
-                    | RadioPhase::Finishing
-            ) || failed);
-        self.cancel.set_visible(can_cancel);
-        self.cancel
-            .set_sensitive(can_cancel && status.phase != RadioPhase::Finishing);
-        self.cancel
-            .set_label(if status.phase == RadioPhase::Starting {
-                "Отменить"
-            } else {
-                "Завершить волну"
-            });
-        self.transport.set_visible(has_transport || can_cancel);
-        self.actions
-            .set_visible(can_start || has_transport || can_cancel);
+        self.disclosure.set_visible(failed);
     }
+}
+
+/// Original static decoration. It never animates or claims playback activity.
+fn wave_motif() -> gtk::Box {
+    let motif = gtk::Box::new(gtk::Orientation::Horizontal, 5);
+    motif.set_widget_name("music-wave-motif");
+    motif.add_css_class("music-wave-motif");
+    motif.set_valign(gtk::Align::Center);
+    motif.set_halign(gtk::Align::End);
+    motif.set_can_target(false);
+    for height in [10, 20, 32, 44, 32, 20, 10] {
+        let bar = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        bar.set_size_request(4, height);
+        bar.set_valign(gtk::Align::Center);
+        motif.append(&bar);
+    }
+    motif
 }
 
 impl Controller {
@@ -363,12 +367,12 @@ fn failure_message(failure: RadioFailure) -> &'static str {
             "Не удалось связаться с Яндекс Музыкой. Проверьте подключение."
         }
         RadioFailure::Http => "Яндекс Музыка отклонила запрос волны.",
-        RadioFailure::Unsupported => "Ответ сервиса не соответствует проверяемому контракту волны.",
+        RadioFailure::Unsupported => "Не удалось обработать ответ сервиса.",
         RadioFailure::Empty => "В этой партии сервис не вернул доступных треков.",
         RadioFailure::Unavailable => "Не удалось подготовить аудио для трека волны.",
         RadioFailure::Busy => "Предыдущая операция ещё выполняется.",
         RadioFailure::OutcomeUnknown => {
-            "Неизвестно, принял ли сервис событие. Этот запрос не будет повторён автоматически."
+            "Неизвестно, принят ли запрос. Автоматического повтора не будет."
         }
         RadioFailure::Capacity => "Достигнут локальный предел волны. Можно начать новую сессию.",
     }
@@ -379,8 +383,8 @@ fn shortcut(name: &str, icon: &str, title: &str, description: &str) -> gtk::Butt
     button.set_widget_name(name);
     button.add_css_class("flat");
     button.add_css_class("music-home-shortcut");
-    button.set_width_request(216);
-    button.set_height_request(84);
+    button.set_width_request(200);
+    button.set_height_request(72);
     button.set_hexpand(true);
     button.set_tooltip_text(Some(title));
     button.update_property(&[gtk::accessible::Property::Label(title)]);

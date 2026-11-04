@@ -1291,3 +1291,304 @@ fn canonical_lookup_failure_before_headers_does_not_inherit_session_http_200() {
     assert!(cancellation.is_cancelled());
     assert_eq!(complete(server, listener).len(), 3);
 }
+
+// This server sequence models a rejection at a chosen local event. In
+// particular, rejecting radioFinished here is NOT evidence that the live
+// service rejects that event, or that it caused the owner's HTTP400.
+fn feedback_sequence_with_optional_rejection(rejected: Option<WaveEventKind>) {
+    let rejected_request = rejected.map(|kind| match kind {
+        WaveEventKind::RadioStarted => 3,
+        WaveEventKind::TrackStarted => 16, // First start from the next batch.
+        WaveEventKind::Skip => 15,         // Fifth heard occurrence, original batch.
+        WaveEventKind::TrackFinished => 17,
+        WaveEventKind::RadioFinished => 18,
+    });
+    let mut responses = vec![
+        (200, ACCOUNT.into()),
+        (
+            200,
+            session_body(
+                "private-original-batch",
+                &[42, 43, 44, 45, 46],
+                Some("private-radio"),
+            ),
+        ),
+        (200, track_body(&[42, 43, 44, 45, 46])),
+        (200, r#"{"result":"ok"}"#.into()), // radioStarted
+        (200, r#"{"result":"ok"}"#.into()), // first trackStarted
+        (200, r#"{"result":"ok"}"#.into()), // first skip
+        (200, r#"{"result":"ok"}"#.into()), // second trackStarted
+        (
+            200,
+            session_body("private-next-batch", &[47, 48, 49, 50, 51], None),
+        ),
+        (200, track_body(&[47, 48, 49, 50, 51])),
+    ];
+    responses.extend(std::iter::repeat_n((200, r#"{"result":"ok"}"#.into()), 10));
+    if let Some(index) = rejected_request {
+        responses[index] = (
+            400,
+            serde_json::json!({"error":{"message":format!(
+                "private-response-sentinel {TOKEN} private-radio private-original-batch private-next-batch https://fixture.invalid/private?secret=synthetic"
+            )}}).to_string(),
+        );
+        responses.truncate(index + 1);
+    }
+    let (service, server, listener) = fixture(responses, None);
+    let token = token();
+    service.account(&token).unwrap();
+    let cancellation = WaveCancellation::default();
+    let (session, first) = service.begin_wave(&token, &cancellation).unwrap();
+    let mut coordinator = WaveCoordinator::new(&session);
+    let now = Instant::now();
+    let mut failed_event = None;
+    let mut accepted = Vec::new();
+    let mut send = |events: Vec<WaveEvent>| {
+        for event in events {
+            match service.wave_feedback(&token, &session, &event) {
+                Ok(ack) => {
+                    assert_eq!(ack.http_status, 200);
+                    accepted.push(event.kind());
+                }
+                Err(error) => {
+                    assert_eq!(Some(event.kind()), rejected);
+                    assert_eq!(error.stage(), Some(WaveStage::Feedback));
+                    assert_eq!(error.http_status(), Some(400));
+                    assert_eq!(error.category(), "http-rejected");
+                    assert_eq!(error.music_error(), Some(MusicError::Http(400)));
+                    let safe = format!("{error:?} {error}");
+                    for private in [
+                        TOKEN,
+                        "private-response-sentinel",
+                        "private-radio",
+                        "private-original-batch",
+                        "private-next-batch",
+                        "https://fixture.invalid",
+                        "synthetic Wave person",
+                    ] {
+                        assert!(
+                            !safe.contains(private),
+                            "fixed errors cannot echo wire fields"
+                        );
+                    }
+                    failed_event = Some(event);
+                    return false;
+                }
+            }
+        }
+        true
+    };
+    'sequence: {
+        let mut next = None;
+        for (index, track) in first.tracks.iter().enumerate() {
+            let at = now + Duration::from_secs(index as u64 * 2);
+            let terminal = coordinator
+                .select(index as u64 + 1, track, &first.marker(), at)
+                .unwrap();
+            if !send(terminal) {
+                break 'sequence;
+            }
+            if !send(
+                coordinator
+                    .observe_measured(PlaybackState::Playing, Duration::ZERO, at)
+                    .unwrap(),
+            ) {
+                break 'sequence;
+            }
+            assert!(
+                coordinator
+                    .observe_measured(
+                        PlaybackState::Paused,
+                        Duration::from_millis(1250),
+                        at + Duration::from_millis(1250),
+                    )
+                    .unwrap()
+                    .is_empty()
+            );
+            if index == 1 {
+                // As in the reported accepted prefix, a later batch is admitted
+                // while feedback still belongs to original-batch occurrences.
+                next = Some(
+                    service
+                        .wave_batch(
+                            &token,
+                            &session,
+                            &first
+                                .tracks
+                                .iter()
+                                .map(|track| track.id.clone())
+                                .collect::<Vec<_>>(),
+                        )
+                        .unwrap(),
+                );
+            }
+        }
+        let next = next.expect("the next batch was admitted before the fifth skip");
+        if !send(
+            coordinator
+                .select(
+                    6,
+                    &next.tracks[0],
+                    &next.marker(),
+                    now + Duration::from_secs(10),
+                )
+                .unwrap(),
+        ) {
+            break 'sequence;
+        }
+        if !send(
+            coordinator
+                .observe_measured(
+                    PlaybackState::Playing,
+                    Duration::ZERO,
+                    now + Duration::from_secs(10),
+                )
+                .unwrap(),
+        ) {
+            break 'sequence;
+        }
+        if !send(
+            coordinator
+                .observe_measured(
+                    PlaybackState::Ended,
+                    Duration::from_millis(2250),
+                    now + Duration::from_secs(13),
+                )
+                .unwrap(),
+        ) {
+            break 'sequence;
+        }
+        assert!(
+            coordinator
+                .observe_measured(
+                    PlaybackState::Ended,
+                    Duration::from_millis(2250),
+                    now + Duration::from_secs(14)
+                )
+                .unwrap()
+                .is_empty(),
+            "EOS cannot emit another terminal report"
+        );
+        if !send(coordinator.finish(now + Duration::from_secs(15)).unwrap()) {
+            break 'sequence;
+        }
+        assert!(matches!(
+            coordinator.finish(now + Duration::from_secs(16)),
+            Err(WaveError::InvalidObservation)
+        ));
+    }
+    if let Some(event) = failed_event {
+        assert!(session.is_cancelled());
+        assert!(cancellation.is_cancelled());
+        assert_eq!(
+            service.wave_feedback(&token, &session, &event),
+            Err(WaveError::Cancelled)
+        );
+        assert_eq!(
+            service.wave_batch(&token, &session, &[]).unwrap_err(),
+            WaveError::Cancelled
+        );
+        assert_eq!(
+            coordinator
+                .finish(now + Duration::from_secs(17))
+                .unwrap_err(),
+            WaveError::Cancelled
+        );
+        assert_eq!(
+            service.begin_wave(&token, &cancellation).unwrap_err(),
+            WaveError::Cancelled
+        );
+    } else {
+        assert!(rejected.is_none());
+        assert!(!session.is_cancelled());
+        assert_eq!(
+            accepted
+                .iter()
+                .filter(|kind| **kind == WaveEventKind::RadioStarted)
+                .count(),
+            1
+        );
+        assert_eq!(
+            accepted
+                .iter()
+                .filter(|kind| **kind == WaveEventKind::TrackStarted)
+                .count(),
+            6
+        );
+        assert_eq!(
+            accepted
+                .iter()
+                .filter(|kind| **kind == WaveEventKind::Skip)
+                .count(),
+            5
+        );
+        assert_eq!(
+            accepted
+                .iter()
+                .filter(|kind| **kind == WaveEventKind::TrackFinished)
+                .count(),
+            1
+        );
+        assert_eq!(
+            accepted
+                .iter()
+                .filter(|kind| **kind == WaveEventKind::RadioFinished)
+                .count(),
+            1
+        );
+        coordinator.cancel();
+    }
+    let requests = complete(server, listener);
+    assert_eq!(
+        requests.len(),
+        rejected_request.map_or(19, |index| index + 1)
+    );
+    if let Some(index) = rejected_request {
+        let request = json_body(&requests[index]);
+        assert_eq!(request["event"]["type"], rejected.unwrap().as_str());
+        assert_eq!(
+            request["batchId"],
+            if index < 16 {
+                "private-original-batch"
+            } else {
+                "private-next-batch"
+            }
+        );
+        if index == 16 {
+            assert_eq!(request["event"]["trackId"], "47");
+            assert_eq!(request["event"]["totalPlayedSeconds"], 0.0);
+        }
+    } else {
+        assert_eq!(
+            json_body(&requests[15])["batchId"],
+            "private-original-batch"
+        );
+        assert_eq!(
+            json_body(&requests[15])["event"]["totalPlayedSeconds"],
+            1.25
+        );
+        assert_eq!(json_body(&requests[16])["batchId"], "private-next-batch");
+        assert_eq!(
+            json_body(&requests[17])["event"]["totalPlayedSeconds"],
+            2.25
+        );
+    }
+}
+
+#[test]
+fn feedback_accepts_the_complete_cross_batch_sequence_without_duplicate_terminals() {
+    feedback_sequence_with_optional_rejection(None);
+}
+
+#[test]
+fn feedback_400_for_each_event_is_precise_redacted_and_never_replayed() {
+    for kind in [
+        WaveEventKind::RadioStarted,
+        WaveEventKind::TrackStarted,
+        WaveEventKind::Skip,
+        WaveEventKind::TrackFinished,
+        WaveEventKind::RadioFinished,
+    ] {
+        feedback_sequence_with_optional_rejection(Some(kind));
+    }
+}

@@ -35,8 +35,9 @@ defines both contracts. The owner accepted `9d54834`; it was squash-merged at
 
 ## Next functional directions
 
-- [My Wave](https://github.com/tracerxbrhd/karin/issues/16): establish the actual
-  session, batch, listening and feedback lifecycle using the existing backend.
+- [My Wave](https://github.com/tracerxbrhd/karin/issues/16): the owner confirmed
+  session/audio/start-skip feedback/continuation; identify the later HTTP 400
+  event and repeat the corrected lifecycle before default enablement.
 - [Dislike](https://github.com/tracerxbrhd/karin/issues/17): verify semantics and
   confirmation independently of removing a Like.
 - [Lyrics and related tracks](https://github.com/tracerxbrhd/karin/issues/18): confirm permitted endpoints/resources before
@@ -51,11 +52,12 @@ defines both contracts. The owner accepted `9d54834`; it was squash-merged at
   prefix honestly without silently changing the playing queue.
 
 Each direction needs its own confirmed contract and acceptance criteria.
-The v0.5 branch integrates the existing Wave backend with the shared queue,
-player and MPRIS behind `--experimental-wave`. Live service creation, heard
-music, accepted feedback and next-batch delivery remain the owner acceptance
-gate for [#16](https://github.com/tracerxbrhd/karin/issues/16). Normal startup
-keeps Home's Wave section unavailable. See [ADR-0027](adr/0027-experimental-wave-lifecycle.md).
+The v0.5 branch presents a musical Hero first on Home and uses the shared queue,
+player and MPRIS behind `--experimental-wave`. Pause keeps the session; ordinary
+music selection and MPRIS Stop retire radio without a separate Finish control.
+The owner-confirmed positive chain and unresolved feedback 400 are recorded in
+[VALIDATION](VALIDATION.md). Service access stays gated pending repeat acceptance;
+see [ADR-0027](adr/0027-experimental-wave-lifecycle.md).
 Unsupported actions remain absent.
 See [API_FEASIBILITY.md](API_FEASIBILITY.md) and
 [AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md).

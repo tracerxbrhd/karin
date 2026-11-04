@@ -41,3 +41,73 @@ fn outbox_admission_is_finite_and_overflow_does_not_wrap() {
     assert!(!event_capacity(MAX_EVENTS, 1));
     assert!(!event_capacity(usize::MAX, 1));
 }
+
+#[test]
+fn provider_rejection_diagnostic_retains_every_fixed_event_and_local_origin() {
+    use crate::music::wave::WaveEventKind;
+    for event in [
+        WaveEventKind::RadioStarted,
+        WaveEventKind::TrackStarted,
+        WaveEventKind::TrackFinished,
+        WaveEventKind::Skip,
+        WaveEventKind::RadioFinished,
+    ] {
+        let error = WaveError::Music(MusicError::Http(400));
+        let diagnostic = OperationDiagnostic {
+            stage: RadioStage::Feedback,
+            category: error.category(),
+            http: error.http_status(),
+            event: Some(event),
+            phase: DiagnosticPhase::Retiring,
+            origin: Some(FeedbackOrigin::Retirement),
+            finish: Some(FinishReason::SourceChange),
+        }
+        .to_string();
+        assert_eq!(
+            diagnostic,
+            format!(
+                "Karin wave: stage=feedback category=http-rejected http=400 event={} phase=retiring origin=retirement finish=source-change",
+                event.as_str()
+            )
+        );
+        for forbidden in [
+            "http://",
+            "https://",
+            "radioSessionId",
+            "batchId",
+            "trackId",
+            "accountId",
+            "token",
+            "cookie",
+            "totalPlayedSeconds",
+            "timestamp",
+            "{{",
+            "}}",
+        ] {
+            assert!(
+                !diagnostic.contains(forbidden),
+                "diagnostics expose fixed categories only"
+            );
+        }
+        assert!(diagnostic.len() <= 200);
+    }
+}
+
+#[test]
+fn uncertain_write_diagnostic_never_fabricates_http_or_event_values() {
+    let error = WaveError::WriteOutcomeUnknown;
+    let diagnostic = OperationDiagnostic {
+        stage: RadioStage::Feedback,
+        category: error.category(),
+        http: error.http_status(),
+        event: Some(crate::music::wave::WaveEventKind::Skip),
+        phase: DiagnosticPhase::Active,
+        origin: Some(FeedbackOrigin::Selection),
+        finish: None,
+    }
+    .to_string();
+    assert_eq!(
+        diagnostic,
+        "Karin wave: stage=feedback category=write-outcome-unknown http=none event=skip phase=active origin=selection finish=none"
+    );
+}

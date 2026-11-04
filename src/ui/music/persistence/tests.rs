@@ -415,6 +415,12 @@ fn native_persistent_session_restore_settings_forget_and_close() {
         this.persistence.borrow().values.appearance,
         Appearance::Dark
     );
+    let style = adw::StyleManager::default();
+    assert_eq!(style.color_scheme(), adw::ColorScheme::ForceDark);
+    assert!(
+        style.is_dark(),
+        "the restored choice reaches native Adwaita"
+    );
     assert_eq!(
         this.persistence.borrow().manager.as_ref().unwrap().state(),
         crate::session_lifecycle::PersistenceState::Remembered
@@ -432,6 +438,30 @@ fn native_persistent_session_restore_settings_forget_and_close() {
             .is_some_and(|s| s.state == PlaybackState::Playing)
     });
     let original = this.music_snapshot().unwrap();
+    let original_serial = this.music_serial();
+    // Appearance is applied through AdwStyleManager at runtime. In System mode
+    // the desktop decides the actual light/dark result; never force a presumed
+    // portal preference or write GtkSettings' legacy prefer-dark property.
+    for (appearance, scheme, expected_dark) in [
+        (Appearance::Light, adw::ColorScheme::ForceLight, Some(false)),
+        (Appearance::System, adw::ColorScheme::Default, None),
+        (Appearance::Dark, adw::ColorScheme::ForceDark, Some(true)),
+    ] {
+        let mut changed = this.persistence.borrow().values.clone();
+        changed.appearance = appearance;
+        this.preferences_changed(changed);
+        pump_until(|| settled(this));
+        assert_eq!(style.color_scheme(), scheme);
+        if let Some(dark) = expected_dark {
+            assert_eq!(style.is_dark(), dark);
+        }
+        assert_eq!(settings.load().unwrap().preferences.appearance, appearance);
+        assert_eq!(this.music_serial(), original_serial);
+        let playing = this.music_snapshot().unwrap();
+        assert_eq!(playing.state, PlaybackState::Playing);
+        assert_eq!(playing.generation, original.generation);
+        assert_eq!(this.model.borrow().queue.current().unwrap().id, "42");
+    }
     let mut changed = this.persistence.borrow().values.clone();
     changed.remember_login = false;
     this.preferences_changed(changed);
@@ -478,6 +508,10 @@ fn native_persistent_session_restore_settings_forget_and_close() {
     this.close();
     ui.window.close();
 
+    // The next window must reapply its saved Dark choice rather than pass
+    // merely because the process-global manager retained the preceding window.
+    style.set_color_scheme(adw::ColorScheme::ForceLight);
+    assert!(!style.is_dark());
     // Remember-off persisted independently of current-account/audio state.
     let (_app2, ui2) = window(&api, &settings, &backend, &cache);
     let second = &ui2.music.controller;
@@ -488,6 +522,8 @@ fn native_persistent_session_restore_settings_forget_and_close() {
         second.persistence.borrow().values.appearance,
         Appearance::Dark
     );
+    assert_eq!(style.color_scheme(), adw::ColorScheme::ForceDark);
+    assert!(style.is_dark());
     let mut changed = second.persistence.borrow().values.clone();
     changed.remember_login = true;
     second.preferences_changed(changed);

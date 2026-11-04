@@ -11,6 +11,12 @@ pub(super) fn install() {
         let provider = gtk::CssProvider::new();
         provider.load_from_string(r#"
             .music-shell { background: @window_bg_color; }
+            .music-wave-hero { padding: 22px; border-radius: 18px; }
+            .music-wave-title { font-size: 1.8em; font-weight: 800; }
+            .music-wave-subtitle { font-size: 1.05em; }
+            .music-wave-primary { min-width: 128px; min-height: 40px; border-radius: 999px; }
+            .music-wave-motif > box { background: @accent_bg_color; border-radius: 999px; }
+
             .music-workspace { background: @window_bg_color; }
             .music-header { min-height: 48px; }
             .music-rail { background: @window_bg_color; }

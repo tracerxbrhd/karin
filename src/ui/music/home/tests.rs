@@ -111,66 +111,91 @@ fn reveal_wave(ui: &crate::ui::MainWindow, wave: &WaveParts) {
 }
 
 fn assert_structure(ui: &crate::ui::MainWindow, wave: &WaveParts, state: RadioStatus) {
-    assert_eq!(wave.widget.widget_name(), "music-wave-placeholder");
-    let disabled = state.phase == RadioPhase::Disabled;
-    assert_eq!(wave.experiment.is_visible(), !disabled);
+    assert_eq!(wave.widget.widget_name(), "music-wave-hero");
+    assert!(wave.widget.has_css_class("card"));
+    assert!(contains_text(wave.widget.upcast_ref(), "Моя волна"));
+    assert!(contains_text(
+        wave.widget.upcast_ref(),
+        "Персональная музыка, которая подстраивается под ваш вкус."
+    ));
+    assert!(wave.primary.is_visible());
     assert_eq!(
-        wave.spinner.is_spinning(),
-        matches!(
-            state.phase,
-            RadioPhase::Starting | RadioPhase::LoadingNext | RadioPhase::Finishing
-        )
+        wave.cancel.is_visible(),
+        state.phase == RadioPhase::Starting
     );
-    if disabled {
-        assert_eq!(
-            wave.message.text(),
-            "Персональная волна пока не подключена."
-        );
-        assert!(!wave.start.is_visible() && !wave.cancel.is_visible() && !wave.toggle.is_visible());
-        assert!(!wave.actions.is_visible() && !wave.details.is_visible());
-    } else {
-        assert!(wave.experiment.text().contains("пока не подтверждена"));
-        assert!(!wave.experiment.has_css_class("dim-label"));
-    }
-    if matches!(state.phase, RadioPhase::Failed { .. }) {
-        assert!(wave.message.has_css_class("error"));
-        assert!(!wave.message.has_css_class("dim-label"));
-        assert!(wave.details.is_visible());
+    assert_eq!(
+        wave.cancel.is_sensitive(),
+        state.phase == RadioPhase::Starting
+    );
+    let disabled = state.phase == RadioPhase::Disabled;
+    assert_eq!(
+        wave.experiment.text(),
+        if disabled {
+            "Функция проходит проверку"
+        } else {
+            "Предварительная версия"
+        }
+    );
+    let transport = matches!(state.phase, RadioPhase::Active | RadioPhase::LoadingNext);
+    let playing = state.playback == Some(PlaybackState::Playing);
+    let resumable = matches!(
+        state.playback,
+        Some(PlaybackState::Paused | PlaybackState::Ready)
+    );
+    let busy = matches!(state.phase, RadioPhase::Starting | RadioPhase::Finishing)
+        || (transport && !playing && !resumable);
+    assert_eq!(wave.spinner.is_spinning(), busy);
+    assert_eq!(wave.spinner.is_visible(), busy);
+    let failed = matches!(state.phase, RadioPhase::Failed { .. });
+    assert_eq!(wave.message.has_css_class("error"), failed);
+    assert_eq!(wave.disclosure.is_visible(), failed);
+    if failed {
         assert!(wave.details.text().starts_with("Этап: "));
         assert!(wave.details.text().contains(" · Причина: "));
+        assert_eq!(wave.primary_content.label(), "Начать новую волну");
         assert!(
-            wave.cancel.is_visible(),
-            "even a pre-engine failure must offer local retirement"
+            !wave.cancel.is_visible(),
+            "failure never reintroduces Finish"
         );
-        assert_eq!(wave.start.label().as_deref(), Some("Начать новую волну"));
     } else {
-        assert!(!wave.message.has_css_class("error"));
-        assert!(wave.message.has_css_class("dim-label"));
-        assert_eq!(
-            wave.details.text(),
-            "",
-            "old failure must not survive a new state"
-        );
+        assert_eq!(wave.details.text(), "");
+        assert!(!wave.disclosure.is_expanded());
+        if transport && playing {
+            assert_eq!(wave.primary_content.label(), "Пауза");
+        } else if transport && resumable {
+            assert_eq!(wave.primary_content.label(), "Продолжить");
+        } else if !busy {
+            assert_eq!(wave.primary_content.label(), "Слушать");
+        }
     }
-    if !state.authenticated {
-        assert!(!wave.start.is_visible() && !wave.start.is_sensitive());
-        assert!(!wave.toggle.is_visible() && !wave.toggle.is_sensitive());
+    assert_eq!(
+        wave.primary.is_sensitive(),
+        !disabled
+            && state.authenticated
+            && !busy
+            && (matches!(state.phase, RadioPhase::Ready | RadioPhase::Failed { .. })
+                || (transport && (playing || resumable)))
+    );
+    for widget in descendants(wave.widget.upcast_ref()) {
+        if let Some(button) = widget.downcast_ref::<gtk::Button>() {
+            assert!(
+                !button
+                    .tooltip_text()
+                    .is_some_and(|t| t.contains("Завершить"))
+            );
+            assert!(!button.label().is_some_and(|t| t.contains("Завершить")));
+        }
     }
-    if state.phase == RadioPhase::Finishing {
-        assert!(wave.cancel.is_visible() && !wave.cancel.is_sensitive());
-        assert!(!wave.toggle.is_sensitive());
-    }
-
     let scroll = wave
         .widget
         .ancestor(gtk::ScrolledWindow::static_type())
         .unwrap();
     let viewport = scroll.compute_bounds(&ui.window).unwrap();
     let area = wave.widget.compute_bounds(&ui.window).unwrap();
-    assert!(area.width() >= 200.0 && area.height() >= 30.0);
+    assert!(area.width() >= 200.0 && area.height() >= 140.0);
     assert!(
         area.height() <= 320.0,
-        "bounded Home panel must not become a second full-screen player: {area:?}"
+        "musical Hero must stay compact even for error/loading: {area:?}"
     );
     assert!(
         area.x() >= viewport.x() - 1.0
@@ -179,7 +204,7 @@ fn assert_structure(ui: &crate::ui::MainWindow, wave: &WaveParts, state: RadioSt
     assert!(
         area.y() >= viewport.y() - 1.0
             && area.y() + area.height() <= viewport.y() + viewport.height() + 1.0,
-        "the complete Wave state must be reachable in the actual viewport: {area:?} / {viewport:?}"
+        "the complete Hero must fit the actual viewport: {area:?}/{viewport:?}"
     );
     for widget in descendants(wave.widget.upcast_ref()) {
         assert!(!widget.is::<gtk::Entry>() && !widget.is::<gtk::PasswordEntry>());
@@ -190,7 +215,7 @@ fn assert_structure(ui: &crate::ui::MainWindow, wave: &WaveParts, state: RadioSt
         assert!(
             bounds.x() >= area.x() - 1.0
                 && bounds.x() + bounds.width() <= area.x() + area.width() + 1.0,
-            "Home content must fit its row: {} {bounds:?}/{area:?}",
+            "Hero child fits horizontally: {} {bounds:?}/{area:?}",
             widget.widget_name()
         );
         if let Some(label) = widget.downcast_ref::<gtk::Label>() {
@@ -198,29 +223,24 @@ fn assert_structure(ui: &crate::ui::MainWindow, wave: &WaveParts, state: RadioSt
             let (width, height) = layout.pixel_size();
             assert!(
                 !layout.is_ellipsized(),
-                "fixed guidance/actions must not be ellipsized"
+                "guidance/actions cannot be ellipsized"
             );
             assert!(
                 width <= label.width() + 2 && height <= label.height() + 2,
-                "all fixed text must wrap completely: {} layout={width}x{height} allocation={}x{}",
+                "fixed text wraps fully: {} layout={width}x{height} allocation={}x{}",
                 label.widget_name(),
                 label.width(),
                 label.height()
             );
         }
     }
-    for button in [&wave.start, &wave.cancel, &wave.toggle] {
+    for button in [&wave.primary, &wave.cancel] {
         if button.is_visible() {
-            // GtkWidget::width/height exclude CSS padding/border. Measure the
-            // actual pointer target, with the same bounds used by real input.
             let bounds = button.compute_bounds(&ui.window).unwrap();
             assert!(
                 button.is_mapped() && bounds.width() >= 44.0 && bounds.height() >= 30.0,
-                "native button target must remain usable: {} mapped={} content={}x{} bounds={bounds:?}",
-                button.widget_name(),
-                button.is_mapped(),
-                button.width(),
-                button.height()
+                "native action remains usable: {} {bounds:?}",
+                button.widget_name()
             );
         }
     }
@@ -368,12 +388,24 @@ fn native_wave_home_experiment_layout_and_controls() {
         .map(|widget| widget.downgrade())
         .collect();
     let previous = this.widgets.home_wave.widget.prev_sibling();
+    assert!(
+        previous.is_none(),
+        "Wave is the first signed-in Home element"
+    );
     this.widgets
         .home_signedin
         .remove(&this.widgets.home_wave.widget);
     this.widgets
         .home_signedin
         .insert_child_after(&wave.widget, previous.as_ref());
+    assert_eq!(
+        this.widgets.home_signedin.first_child(),
+        Some(wave.widget.clone().upcast())
+    );
+    assert_eq!(
+        wave.widget.next_sibling().unwrap().widget_name(),
+        "music-home-shortcuts"
+    );
     pump_until(|| wave.widget.is_mapped() && ui.window.width() >= 400);
     let id = window_id();
     let unknown = RadioPhase::Failed {
@@ -382,8 +414,9 @@ fn native_wave_home_experiment_layout_and_controls() {
     };
     for (width, height, shape) in [
         (420, 720, "compact"),
-        (900, 650, "medium"),
+        (850, 750, "medium"),
         (1440, 900, "wide"),
+        (1920, 1080, "full"),
         (0, 0, "maximized"),
     ] {
         if shape == "maximized" {
@@ -414,13 +447,21 @@ fn native_wave_home_experiment_layout_and_controls() {
                 assert_structure(&ui, &wave, state);
                 if shape == "compact" && theme == "light" {
                     match name {
-                        "ready" => native_input(&ui, &id, &wave.start),
-                        "playing" => native_input(&ui, &id, &wave.toggle),
-                        "failed" => native_input(&ui, &id, &wave.cancel),
+                        "ready" => native_input(&ui, &id, &wave.primary),
+                        "playing" => native_input(&ui, &id, &wave.primary),
+                        "failed" => native_input(&ui, &id, &wave.primary),
                         _ => unreachable!(),
                     }
                 }
-                capture(&ui, &id, shape, name, theme);
+                // A compact, representative current set supplements all-state
+                // structural checks without publishing an enormous image tree.
+                if (shape == "compact" && name == "ready")
+                    || (shape == "medium" && name == "playing")
+                    || (shape == "wide" && name == "failed")
+                    || (shape == "full" && name == "ready")
+                {
+                    capture(&ui, &id, shape, name, theme);
+                }
             }
             if shape == "compact" {
                 for (name, state) in [
@@ -443,7 +484,10 @@ fn native_wave_home_experiment_layout_and_controls() {
                     wave.render(state);
                     reveal_wave(&ui, &wave);
                     assert_structure(&ui, &wave, state);
-                    if name == "disabled" {
+                    if name == "starting" && theme == "light" {
+                        native_input(&ui, &id, &wave.cancel);
+                    }
+                    if (name == "disabled" || name == "paused") && theme == "dark" {
                         capture(&ui, &id, shape, name, theme);
                     }
                 }

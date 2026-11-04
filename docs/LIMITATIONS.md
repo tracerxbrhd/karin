@@ -20,14 +20,21 @@ rights. Public service/distribution conditions remain unresolved. See [LICENSING
 [AUTHENTICATION_REVIEW.md](AUTHENTICATION_REVIEW.md) and
 [STREAM_DELIVERY_REVIEW.md](STREAM_DELIVERY_REVIEW.md).
 
-Normal startup keeps My Wave explicitly unavailable. `--experimental-wave`
-enables an unverified local integration with the existing Music session/player;
-published protocol and synthetic fixtures do not establish live radio access,
-accepted feedback or batch continuation. See the
-[local acceptance procedure](BUILDING.md#my-wave-local-acceptance). No account
-secrets may enter Cloud/CI. An already admitted HTTP request cannot be unsent;
-logout/cancellation fence queued work and late results. Ambiguous POST outcomes
-are never automatically replayed.
+Normal Home shows the prepared My Wave Hero, with service access gated.
+`--experimental-wave` enables the preview using the existing session/player.
+The owner confirmed a real session, heard Music, accepted radio/track starts
+and skips, and another batch on Fedora. A later feedback POST returned HTTP 400;
+the old log omitted its event, so its exact type and violated contract remain
+unidentified. New diagnostics include only local event/origin/phase/finish enums
+and the known HTTP status. A synthetic refusal does not establish the real
+cause or prove a particular terminal event unsupported. Repeat the
+[local acceptance procedure](BUILDING.md#my-wave-local-acceptance) before default
+enablement; no automatic start or session restoration is added.
+
+An already admitted HTTP request cannot be unsent; logout/cancellation fence
+queued work and late results. Ambiguous POST outcomes are never automatically
+replayed. There is no separate user-facing Finish action: Pause retains radio,
+while ordinary source selection or MPRIS Stop retires it internally.
 
 Recommendations/similar tracks, lyrics, Dislike and persistent/offline audio are
 not implemented. Unlike is not Dislike. A working short-lived MP3 stream does not
@@ -88,3 +95,12 @@ Xvfb/generated-media/HTTP fixtures do not independently prove physical GPU,
 Wayland, heard service music or every hardware key/backend. Do not infer those
 individual results from general owner acceptance. Missing cloud SDK/user
 namespaces must be reported, never worked around by weakening the sandbox.
+
+## Theme input
+
+Karin uses AdwStyleManager for Light/Dark/System. The Libadwaita warning about
+`gtk-application-prefer-dark-theme` was reproduced with an external legacy GTK4
+setting loaded before Adwaita initialization, using the unchanged earlier
+binary. The specific writer/source on the owner's Fedora remains unestablished.
+Karin does not suppress this warning or overwrite desktop settings. See the
+[read-only theme check](BUILDING.md#theme-input-check).

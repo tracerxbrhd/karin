@@ -109,13 +109,20 @@ shared by native controls and MPRIS.
 ## Experimental My Wave
 
 The existing `music::wave` protocol/observation components feed the same queue,
-resolver and player through `ui::music::radio`. Normal startup keeps Wave
-unavailable; `--experimental-wave` exposes the unverified owner-local workflow.
+resolver and player through `ui::music::radio`. A first-position Home Hero is
+prepared for normal use, while `--experimental-wave` gates service requests
+until repeat feedback acceptance. It delegates Listen/Pause/Resume to the same
+lifecycle/player; opening Home never creates a session. Only pending startup
+has a Cancel action. There is no separate user-facing Finish control.
+
 Original batch markers stay attached to opaque occurrence identities in memory.
 Feedback and continuation use one serialized bounded lane; an uncertain POST
-terminates continuation without replay. Ordinary source switches retire Wave;
-account/logout/close cancel queued work. Shuffle/Repeat are off only for Wave,
-then restored. See [ADR-0027](adr/0027-experimental-wave-lifecycle.md) and the
+terminates continuation without replay. Pause preserves context and excludes
+paused time. Ordinary source selection or MPRIS Stop retires radio and restores
+modes; account/logout/close cancel queued work. Exact admitted event and local
+origin/phase/finish classifications accompany safe HTTP diagnostics. JSON/body,
+identities and listening payloads never enter those logs. See
+[ADR-0027](adr/0027-experimental-wave-lifecycle.md) and the
 [Fedora acceptance procedure](BUILDING.md#my-wave-local-acceptance).
 
 ## Metadata and artwork cache

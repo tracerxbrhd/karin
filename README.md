@@ -47,10 +47,14 @@ This is a development milestone, not a published release; the Cargo package
 version remains `0.0.0`. See [validation](docs/VALIDATION.md) for the accepted scope.
 
 The accepted stability update [PR #24](https://github.com/tracerxbrhd/karin/pull/24)
-is merged at `920fd71`. v0.5 adds an opt-in **experimental My Wave** path through
-this same player; live radio creation, feedback and continuation still require
-[local owner acceptance](docs/BUILDING.md#my-wave-local-acceptance). Normal startup
-keeps Wave unavailable. No credentials need to be copied for the experiment.
+is merged at `920fd71`. The v0.5 **My Wave preview** uses this same player.
+The owner confirmed real session creation, heard Music, accepted start/skip
+feedback and another batch on Fedora. One later feedback returned HTTP 400;
+its event was absent from the old log. The new music Home prepares the Hero;
+service access and precise safe feedback diagnostics remain behind
+`--experimental-wave` until [repeat owner acceptance](docs/BUILDING.md#my-wave-local-acceptance).
+Normal Home shows the Hero with service access gated. No credentials
+need to be copied for the preview.
 
 The Music API is unofficial and may change. Dislike, recommendations,
 lyrics and offline audio are not implemented. Cold first-player appearance in Cloud

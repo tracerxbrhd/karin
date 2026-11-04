@@ -64,7 +64,8 @@ reviewable and consistent with the accepted application.
 - Mutations need server confirmation; never replay an ambiguous write. Use clear
   loading/empty/error/Retry states. No fake radio, recommendations, lyrics,
   offline mode or inert controls. Normal Wave stays unavailable until owner E2E
-  acceptance; `--experimental-wave` is an explicit local test, not service proof.
+  repeat acceptance of the unresolved feedback 400; the owner already confirmed
+  real audio, Start/Skip and a further batch. `--experimental-wave` remains opt-in.
   Preserve its original occurrence/batch markers, actual worker Playing ledger,
   bounded serialized feedback and no replay after an ambiguous POST.
 - Catalog refusals fence key epochs before cache I/O; cached UI replies recheck

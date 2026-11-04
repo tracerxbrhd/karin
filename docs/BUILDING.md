@@ -204,8 +204,10 @@ My Wave needs its separate opt-in acceptance below.
 
 ## My Wave local acceptance
 
-Wave is an unverified, explicitly labelled experiment. Ordinary Home keeps it
-unavailable. Quit any running Karin instance so an older binary cannot handle
+The owner has heard real Wave audio and confirmed accepted session, feedback and
+continuation. A later feedback HTTP 400 remains unresolved: the old log omitted
+its event. Keep the labelled preview opt-in until the repeat below succeeds.
+Quit any running Karin instance so an older binary cannot handle
 the launch, build this PR revision, and use the normal desktop session:
 
 ```sh
@@ -220,15 +222,18 @@ Use normal protected restoration or ordinary **Войти**. No token, cookie,
 Client ID/secret, alternative account identity or tracing option is required.
 The flag is not saved; quit and launch without it to return to ordinary Home.
 
-1. Open **Главная**, read the experimental note and choose **Запустить волну**.
+1. Open **Главная → Моя волна → Слушать**.
    Require an actual admitted session and normalized real tracks; a loading
    screen or visible title alone is insufficient.
-2. Hear a real entitled track through PipeWire. Check Pause/Resume, Seek, Volume
+2. Hear a real entitled track through PipeWire. Check Hero **Пауза/Продолжить**,
+   return to Home without restarting the session, and change Light/Dark/System
+   while audio continues. Check Seek, Volume
    and KDE media controls against the same Player Bar/current track. Cloud's
    generated-media tests cannot substitute for heard Music.
 3. Use Next, and Previous within retained history. Continue deliberately toward
    the admitted batch's end until a further batch is accepted. Shuffle/Repeat
    are off in Wave; no old session/history is reconstructed beyond the bound.
+   Include a natural track ending, not just skips.
 4. Confirm the experiment's safe `Karin wave:` terminal lines: `stage=session` and
    `stage=normalization` with `category=accepted`, feedback with
    `stage=feedback category=accepted http=200` and a fixed `event`, and a later
@@ -236,16 +241,20 @@ The flag is not saved; quit and launch without it to return to ordinary Home.
    `trackStarted` and a terminal `skip` or `trackFinished`, not only
    `radioStarted`. `count`/`omitted` are bounded track counts, not identifiers.
    Hearing alone does not prove feedback or continuation.
-5. Choose **Завершить волну**, or play a track from an ordinary collection.
-   Check ordinary playback and mode restoration. System MPRIS Stop also ends
-   Wave gracefully. Test logout/close during
+5. Play a track from **Плейлисты** or **Нравится**: Wave leaves automatically,
+   ordinary playback continues and previous Shuffle/Repeat return. There is no
+   Finish control; **Отмена** appears only during startup. In another deliberate
+   Wave session test KDE/MPRIS Stop and its safe feedback result. Test logout/close during
    pending work: personal views and queue clear, late results cannot revive
    them, and no queued feedback starts with the retired session. An already
    dispatched request cannot be recalled. Restart without the flag: no radio
    session should resume automatically.
 
-If an operation fails, report only the displayed fixed stage/category, HTTP
-status when present and anonymized PASS/FAIL/not-tested outcomes. An unknown
+If feedback fails, share only its safe `Karin wave:` line containing fixed
+`stage/category/http/event/phase/origin/finish` classifications and the preceding
+action (for example Next, natural end, source change or system Stop).
+For other failures report fixed stage/category/HTTP and PASS/FAIL/not-tested.
+No event is inferred from a neighboring success line. An unknown
 POST outcome is never automatically replayed; **Начать новую волну** is a new
 session, not confirmation or replay of that event. Do not share full terminal
 output, HTTP/WebKit/GStreamer traces, titles/IDs, session/batch markers, URLs,
@@ -253,6 +262,29 @@ credentials, screenshots of a personal library or audio recordings.
 
 Record revision, native/Flatpak environment, heard sound, feedback acceptance,
 further batch, transport/MPRIS and cleanup separately. Until this whole chain is
-confirmed with the existing authorized account, My Wave remains opt-in and
+confirmed again without the rejected sequence, My Wave remains opt-in and
 Issue #16 stays open. Public-distribution Issue #5 remains independent. See
 [ADR-0027](adr/0027-experimental-wave-lifecycle.md).
+
+## Theme input check
+
+Karin applies Light/Dark/System through `AdwStyleManager`; it does not set
+`gtk-application-prefer-dark-theme`. In a controlled comparison the unchanged
+baseline binary emitted zero startup warnings with a clean profile, and one
+reported warning with an externally seeded GTK4 legacy flag. Libadwaita checks it during initialization, before Karin applies
+its saved appearance. KDE's published
+[`kde-gtk-config`](https://github.com/KDE/kde-gtk-config/blob/c400d9b44fb2616ac8fe48c5e4cd91d83c103afe/kded/gtkconfig.cpp#L291)
+can write this key, but the
+writer/effective input on the owner's Fedora installation is not established.
+
+If the warning persists, this optional read-only check prints only bounded fixed
+origin labels and that one boolean, without paths or other configuration:
+
+```sh
+python3 scripts/check-gtk4-theme-key.py
+```
+
+The output reports file declarations, not effective precedence or which process
+wrote them. It changes no preferences/files; do not delete GTK/KDE settings or
+force a theme to hide the warning. Continue to verify all three appearance modes
+and uninterrupted playback in the normal desktop session.

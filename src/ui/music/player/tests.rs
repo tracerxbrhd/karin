@@ -34,6 +34,7 @@ struct Counts {
     wave_hold_begin: bool,
     wave_hold_batch: bool,
     wave_feedback_status: Option<u16>,
+    wave_reject_event: Option<&'static str>,
     wave_initial: Option<Vec<u64>>,
     wave_next: Option<Vec<u64>>,
     wave_unavailable: Vec<u64>,
@@ -240,11 +241,17 @@ fn serve(
         let event: serde_json::Value = serde_json::from_slice(&body).unwrap();
         let (hold, status) = {
             let mut state = counts.lock().unwrap();
+            let selected = state
+                .wave_reject_event
+                .is_none_or(|kind| event["event"]["type"] == kind);
             state.wave_events.push(event);
             if state.wave_hold_feedback {
                 state.slow_started = true;
             }
-            (state.wave_hold_feedback, state.wave_feedback_status)
+            (
+                state.wave_hold_feedback,
+                selected.then_some(state.wave_feedback_status).flatten(),
+            )
         };
         if hold {
             wait_wave_fixture(release);
@@ -2762,7 +2769,7 @@ fn native_wave_shared_player_feedback_batches_and_cleanup() {
     this.set_music_shuffle(true);
     this.set_music_repeat(RepeatMode::Queue);
     this.enable_wave_experiment();
-    native_click(&ui.window, &this.widgets.home_wave.start);
+    native_click(&ui.window, &this.widgets.home_wave.primary);
     wait_playing(this, 0);
     pump_until(|| {
         let counts = fixture.counts.lock().unwrap();
@@ -2808,7 +2815,22 @@ fn native_wave_shared_player_feedback_batches_and_cleanup() {
         desktop_property("LoopStatus").get::<String>().unwrap(),
         "None"
     );
-    this.pause_music();
+    let home_serial = this.music_serial();
+    let home_sessions = fixture.counts.lock().unwrap().wave_sessions;
+    native_click(&ui.window, &this.widgets.nav_liked);
+    pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("library"));
+    native_click(&ui.window, &this.widgets.nav_wave);
+    pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("home"));
+    assert_eq!(this.music_serial(), home_serial);
+    assert_eq!(fixture.counts.lock().unwrap().wave_sessions, home_sessions);
+    let hero_clicks = Rc::new(Cell::new(0));
+    let observed_clicks = hero_clicks.clone();
+    this.widgets.home_wave.primary.connect_clicked(move |_| {
+        observed_clicks.set(observed_clicks.get() + 1);
+    });
+    assert_inline_transport_target(&ui, this.widgets.home_wave.primary.upcast_ref());
+    native_click(&ui.window, &this.widgets.home_wave.primary);
+    pump_until(|| hero_clicks.get() == 1);
     pump_until(|| engine.snapshot().state == PlaybackState::Paused);
     let paused = engine.snapshot().playing_time;
     let until = Instant::now() + Duration::from_millis(300);
@@ -3157,6 +3179,32 @@ fn native_wave_shared_player_feedback_batches_and_cleanup() {
     pending_this.enable_wave_experiment();
     pending_this.start_wave();
     pump_until(|| pending.counts.lock().unwrap().slow_started);
+    let ordinary_serial = pending_this.music_serial();
+    let ordinary_worker = pending_this.player.borrow().controller.clone().unwrap();
+    let ordinary_occurrence = pending_this
+        .model
+        .borrow()
+        .queue
+        .current_occurrence_id()
+        .cloned();
+    pending_this.cancel_wave_start();
+    pending.release_descriptor();
+    pump_until(|| pending_this.radio_idle_for_test());
+    assert_eq!(pending_this.music_serial(), ordinary_serial);
+    assert_eq!(
+        pending_this
+            .model
+            .borrow()
+            .queue
+            .current_occurrence_id()
+            .cloned(),
+        ordinary_occurrence
+    );
+    assert_eq!(ordinary_worker.snapshot().state, PlaybackState::Playing);
+    assert!(pending.counts.lock().unwrap().wave_events.is_empty());
+    pending.hold_descriptor();
+    pending_this.start_wave();
+    pump_until(|| pending.counts.lock().unwrap().slow_started);
     pending_this.play_music_queue(1);
     wait_playing(pending_this, 1);
     let selected = pending_this
@@ -3266,4 +3314,123 @@ fn native_wave_shared_player_feedback_batches_and_cleanup() {
     assert_eq!(poisoned.counts.lock().unwrap().wave_batches, 0);
     poison_this.close();
     poison_ui.window.close();
+
+    use crate::music::wave::WaveEventKind;
+    for (kind, stop) in [
+        (WaveEventKind::RadioStarted, false),
+        (WaveEventKind::TrackStarted, false),
+        (WaveEventKind::Skip, false),
+        (WaveEventKind::TrackFinished, false),
+        (WaveEventKind::RadioFinished, false),
+        (WaveEventKind::RadioFinished, true),
+    ] {
+        let refusal = Fixture::new();
+        {
+            let mut counts = refusal.counts.lock().unwrap();
+            counts.wave_feedback_status = Some(400);
+            counts.wave_reject_event = Some(kind.as_str());
+        }
+        let (_refusal_app, refusal_ui) = player_window(&refusal);
+        let radio = &refusal_ui.music.controller;
+        radio.enable_wave_experiment();
+        radio.start_wave();
+        wait_playing(radio, 0);
+        if !matches!(
+            kind,
+            WaveEventKind::RadioStarted | WaveEventKind::TrackStarted
+        ) {
+            pump_until(|| {
+                refusal
+                    .counts
+                    .lock()
+                    .unwrap()
+                    .wave_events
+                    .iter()
+                    .any(|event| event["event"]["type"] == "trackStarted")
+            });
+            match kind {
+                WaveEventKind::Skip => radio.skip_music(true, false),
+                WaveEventKind::TrackFinished => {
+                    pump_until(|| {
+                        radio
+                            .music_snapshot()
+                            .is_some_and(|snapshot| snapshot.seekable)
+                    });
+                    radio.seek_music(Duration::from_millis(3_800));
+                }
+                WaveEventKind::RadioFinished if stop => {
+                    pump_until(|| radio.system_media_available());
+                    desktop_method("Stop", ().to_variant());
+                }
+                WaveEventKind::RadioFinished => radio.play_music_context(
+                    PlaybackContext::new(
+                        ContextKind::LikedTracks,
+                        None,
+                        vec![track("43")],
+                        0,
+                        false,
+                    )
+                    .unwrap(),
+                ),
+                _ => unreachable!(),
+            }
+        }
+        pump_until(|| {
+            matches!(
+                radio.radio_status().phase,
+                RadioPhase::Failed {
+                    stage: RadioStage::Feedback,
+                    failure: RadioFailure::Http
+                }
+            )
+        });
+        pump_until(|| radio.radio_idle_for_test());
+        let line = radio.wave_diagnostic_for_test().unwrap();
+        assert!(
+            line.starts_with("Karin wave: stage=feedback category=http-rejected http=400 event=")
+        );
+        assert!(line.contains(&format!(" event={} ", kind.as_str())));
+        let origin = match kind {
+            WaveEventKind::Skip => "selection",
+            WaveEventKind::RadioFinished => "retirement",
+            _ => "playback",
+        };
+        assert!(line.contains(&format!(" origin={origin} ")));
+        assert!(line.ends_with(if kind == WaveEventKind::RadioFinished {
+            if stop {
+                "finish=stop"
+            } else {
+                "finish=source-change"
+            }
+        } else {
+            "finish=none"
+        }));
+        assert!(line.contains(if kind == WaveEventKind::RadioFinished {
+            " phase=retiring "
+        } else {
+            " phase=active "
+        }));
+        let sent = refusal.counts.lock().unwrap().wave_events.len();
+        assert_eq!(
+            refusal.counts.lock().unwrap().wave_events.last().unwrap()["event"]["type"],
+            kind.as_str()
+        );
+        for _ in 0..3 {
+            radio.tick_radio(radio.music_snapshot().as_ref());
+        }
+        assert_eq!(
+            refusal.counts.lock().unwrap().wave_events.len(),
+            sent,
+            "confirmed400 is not success, repeated or followed by another event"
+        );
+        if kind == WaveEventKind::RadioFinished && !stop {
+            wait_playing(radio, 0);
+            assert_eq!(
+                radio.model.borrow().queue.context().unwrap().source_kind(),
+                ContextKind::LikedTracks
+            );
+        }
+        radio.close();
+        refusal_ui.window.close();
+    }
 }

@@ -565,7 +565,7 @@ jobs:
             printf 'Binary SHA256: '; sha256sum target/release/karin
           } > "$artifact/BUILD-INFO.txt"
           cat > "$artifact/README.txt" <<'EOF'
-          Karin v0.4 Native Music: Fedora 44 UI/UX acceptance build.
+          Karin native music: Fedora 44 acceptance prototype with opt-in v0.5 My Wave.
           Verify SHA256SUMS and BUILD-INFO.txt against this PR's exact head.
           This is an Ubuntu 24.04 x86_64 native prototype, not a Flatpak/public release.
           Fedora runtime: sudo dnf install gtk4 libadwaita gstreamer1 gstreamer1-plugins-base gstreamer1-plugins-good webkitgtk6.0 librsvg2 libsecret
@@ -582,7 +582,7 @@ jobs:
           Queue is reached from the Player Bar/Ctrl+J; no separate queue navigation or visible Stop remains.
           Before Play the footer is hidden; real Play reveals it from below, Pause retains it, Stop/clear/logout hides it.
           Click cover/title/artist/metadata space or press Enter/Space to open Track Info; Like remains independent.
-          Use Home (working shortcuts, compact unavailable Wave), Liked and Playlists tabs and the adjacent unified Search action.
+          Use Home (prepared Wave Hero with gated service access and working shortcuts), Liked and Playlists tabs and the adjacent unified Search action.
           Scroll track collections continuously; exercise loading/end/error/Retry without manual track pages.
           More than 2000 loaded source positions requires search or another source; new playback uses a bounded 500-position context.
           In Liked/opened playlists type title/artist/album locally; typing must not fetch collection pages or replace the playing Queue.
@@ -598,10 +598,10 @@ jobs:
           Native and current Flatpak acceptance require separate local checks; no broad bus grants.
           Preserve GPL and third-party notices. Shared OAuth public-distribution/service permission remains unresolved separately.
           Do not enable network/GStreamer logs or share tokens, URLs, account data, private screenshots or audio.
-          Optional v0.5 My Wave experiment (unverified live service): ./karin --experimental-wave
-          Sign in normally or use the existing protected session, then Home -> Запустить волну.
+          Optional v0.5 My Wave preview (feedback400 repeat acceptance pending): ./karin --experimental-wave
+          Sign in normally or use the existing protected session, then Home -> Моя волна -> Слушать.
           Read docs/BUILDING.md#my-wave-local-acceptance for the complete bounded acceptance sequence.
-          Keep only the fixed Wave stage/category/HTTP/feedback-kind and numeric counters; never enable network logs.
+          Keep only fixed Wave stage/category/http/event/phase/origin/finish and bounded counters; never enable network logs.
           A generated-media fixture is not proof of real radio, accepted service feedback or heard Yandex music.
           Report exact source revision and anonymized PASS/FAIL/not-assessed results only.
           EOF

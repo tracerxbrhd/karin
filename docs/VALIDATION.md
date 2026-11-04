@@ -124,12 +124,9 @@ v0.4 acceptance.
 ## v0.5 My Wave experiment
 
 The branch from `920fd71` adds an explicit `--experimental-wave` local path.
-Normal startup remains unavailable. Cloud tests use only synthetic HTTP and
-generated media, without a real account. Live session creation, authorized
-Yandex audio, accepted feedback and continued batches are **not yet accepted**.
-Use [the Fedora procedure](BUILDING.md#my-wave-local-acceptance); Issue #16 remains
-open until that complete sequence is confirmed. Issues #5 and #23 remain open.
-Local implementation checks on 2026-11-04 used stable **1.99.1** and exact
+Normal startup remains gated. Cloud uses synthetic HTTP and generated media,
+without a real account; the owner's subsequent real results are separate below.
+The initial implementation at `b2bef76` used stable **1.99.1** and exact
 **1.98.1**: formatting, strict Clippy/default/all/minimal, **417 / 425 / 403
 library tests + 4 CLI tests** per compiler/configuration and locked debug builds.
 The final exact-head CI remains a separate gate; ignored tests are not passes.
@@ -161,7 +158,80 @@ the local implementation matrix. Source preparation and vendored offline metadat
 including Karin, 207 notice directories and an unchanged license inventory.
 These remain packaging checks, not installed GNOME 50/Flatpak acceptance.
 The current draft PR/checks record final-head results and the Fedora prototype;
-the complete real Wave sequence above remains pending.
+the subsequent production-integration revision has separate checks below.
+
+### Owner's first real Wave test
+
+On Fedora 44 / KDE Plasma / Wayland / PipeWire the owner confirmed an admitted
+session (five tracks), normalization, heard real Music, accepted `radioStarted`,
+repeated `trackStarted` and `skip`, and a further five-track batch. Later one
+feedback POST returned HTTP 400. Its old diagnostic omitted the event and emitted
+a second generic failure line. The supplied sequence does not establish which
+event or action failed; subsequent catalog successes do not identify it either.
+Explicit Finish worked locally but was rejected as unnecessary UX.
+
+This confirms a positive live chain with an unresolved refusal, not complete Wave
+acceptance. Issue #16 stays open; Issues #5 and #23 are separate and unchanged.
+
+### Production-integration revision
+
+The new Home Hero uses the shared player, has no active Finish control and limits
+Cancel to startup. Pause preserves the session; ordinary source selection and
+MPRIS Stop retire it internally. Logout/close fence queued and late work. Refused
+feedback now has one fixed diagnostic with the submitted enum event, lifecycle
+phase and origin/reason, without provider bodies, identifiers or resources.
+No proven wire violation was found in the refreshed published protocol review:
+accepted `event.from`, original markers, actual heard time and request policy
+remain unchanged. In particular, a synthetic `radioFinished` refusal does not
+prove actual service support or explain the owner's event.
+
+The added HTTP fixture reproduces an accepted cross-batch prefix and independent
+400s for each of the five local event kinds, checking poisoning, redaction and no
+replayed POST. Native tests exercise the real shared worker and Home controls;
+these synthetic refusals verify handling, not resolution of the real 400.
+
+The local stable **1.99.1** / exact **1.98.1** matrix passed formatting,
+strict Clippy/default/all/minimal, **421 / 429 / 407 library + 4 CLI tests**
+per compiler/configuration and all locked debug builds. The extended native
+Wave fixture passed at both scales, including six event-specific HTTP 400 cases
+(source-change and system Stop have separate retirement cases), actual Home
+navigation/CTA, shared worker identity and startup cancellation.
+An intermediate new mouse test failed after an immediate programmatic stack
+remap: instrumentation showed no clicked signal. The final fixture follows
+actual native navigation before its one click and retains the pointer-target,
+callback, player-state and original deadline assertions; production timing and
+the engine were unchanged. This is separate from the owner's service refusal.
+
+MSRV ordinary/all-feature locked offline release, hidden terminal tests,
+silent GStreamer/generated-WAV transport and both GTK smoke modes passed.
+The new ordinary executable also passed isolated ordinary/opt-in primary launch,
+single-instance forwarding and cleanup without an account/radio. Source
+preparation and offline vendored metadata again passed: 208 packages, 207 notice
+directories, unchanged license inventory and scoped Flatpak permissions. These
+are not an installed GNOME 50 SDK/Flatpak test. Final-head hosted checks remain
+recorded in [PR #25](https://github.com/tracerxbrhd/karin/pull/25/checks).
+
+The new Hero's state/structure/input matrix passed on Rust 1.98.1 at 1× and 2×,
+with fatal GTK warnings, both themes, 420×720, 850×750, 1440×900, 1920×1080 and
+maximized. Twenty fresh clean captures cover representative states; the two
+[Home previews](screenshots/README.md#my-wave-home-preview) illustrate only
+presentation, without a real account, network request or audible service music.
+
+The existing native preferences fixture also passed at both scales: actual
+Light/System/Dark changes, saved Dark restoration and the same continuously
+Playing worker/current occurrence. Karin contains no setter for the legacy GTK
+dark flag. The identical baseline executable emitted zero startup warnings with
+a clean profile and exactly the reported warning with only an externally seeded
+GTK4 legacy flag. Libadwaita reads it before Karin's appearance application;
+published KDE code can write it. The owner's actual effective input/writer is
+still unknown. No warning suppression or forced preference was added; use the
+optional [read-only check](BUILDING.md#theme-input-check).
+
+Repeat [the single Fedora procedure](BUILDING.md#my-wave-local-acceptance),
+including natural EOS, skips, source replacement, Stop and safe refused-event
+classification. This revision is not newly accepted on Fedora or in an installed
+Flatpak. Default Wave enablement remains blocked until the refused sequence is
+identified/corrected and its repeat accepted.
 
 ### Separate post-squash startup failure
 

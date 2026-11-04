@@ -11,7 +11,7 @@ use crate::{
     playback::{PlaybackSnapshot, PlaybackState},
     queue::{OccurrenceId, RepeatMode},
 };
-use std::{collections::VecDeque, time::Instant};
+use std::{collections::VecDeque, fmt, time::Instant};
 
 const MAX_EVENTS: usize = 16;
 const KEEP_HISTORY: usize = 25;
@@ -69,13 +69,102 @@ struct Binding {
     // Position in this admitted normalized batch, independent of queue edits.
     _batch_position: usize,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FeedbackOrigin {
+    Playback,
+    Selection,
+    Retirement,
+}
+impl FeedbackOrigin {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Playback => "playback",
+            Self::Selection => "selection",
+            Self::Retirement => "retirement",
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FinishReason {
+    SourceChange,
+    Stop,
+}
+impl FinishReason {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::SourceChange => "source-change",
+            Self::Stop => "stop",
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DiagnosticPhase {
+    Starting,
+    Active,
+    Retiring,
+}
+impl DiagnosticPhase {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Starting => "starting",
+            Self::Active => "active",
+            Self::Retiring => "retiring",
+        }
+    }
+}
+struct PendingFeedback {
+    event: WaveEvent,
+    origin: FeedbackOrigin,
+}
+fn pending_events(
+    events: Vec<WaveEvent>,
+    origin: FeedbackOrigin,
+) -> impl Iterator<Item = PendingFeedback> {
+    events
+        .into_iter()
+        .map(move |event| PendingFeedback { event, origin })
+}
+/// Closed local classifications only. No provider payload, identity, listening
+/// duration or URL is accepted by this diagnostic boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct OperationDiagnostic {
+    stage: RadioStage,
+    category: &'static str,
+    http: Option<u16>,
+    event: Option<crate::music::wave::WaveEventKind>,
+    phase: DiagnosticPhase,
+    origin: Option<FeedbackOrigin>,
+    finish: Option<FinishReason>,
+}
+impl fmt::Display for OperationDiagnostic {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Karin wave: stage={} category={} http=",
+            stage_name(self.stage),
+            self.category
+        )?;
+        match self.http {
+            Some(http) => write!(f, "{http}")?,
+            None => f.write_str("none")?,
+        }
+        write!(
+            f,
+            " event={} phase={} origin={} finish={}",
+            self.event.map_or("none", |event| event.as_str()),
+            self.phase.as_str(),
+            self.origin.map_or("none", FeedbackOrigin::as_str),
+            self.finish.map_or("none", FinishReason::as_str)
+        )
+    }
+}
 struct Active {
     epoch: u64,
     context: String,
     session: WaveSession,
     coordinator: WaveCoordinator,
     bindings: Vec<Binding>,
-    events: VecDeque<WaveEvent>,
+    events: VecDeque<PendingFeedback>,
     cycle: Option<u64>,
     batch_pending: bool,
     batch_running: bool,
@@ -83,9 +172,10 @@ struct Active {
     waiting_next: Option<bool>,
 }
 struct Retiring {
+    reason: FinishReason,
     epoch: u64,
     session: WaveSession,
-    events: VecDeque<WaveEvent>,
+    events: VecDeque<PendingFeedback>,
 }
 #[derive(Default)]
 pub(super) struct RadioLifecycle {
@@ -99,6 +189,8 @@ pub(super) struct RadioLifecycle {
     retiring: Option<Retiring>,
     failure: Option<(RadioStage, RadioFailure)>,
     saved_modes: Option<(bool, RepeatMode)>,
+    #[cfg(test)]
+    last_diagnostic: Option<OperationDiagnostic>,
 }
 impl RadioLifecycle {
     fn cancel(&mut self) {
@@ -113,6 +205,10 @@ impl RadioLifecycle {
         }
         self.begin_pending = false;
         self.failure = None;
+        #[cfg(test)]
+        {
+            self.last_diagnostic = None;
+        }
         self.epoch = self.epoch.wrapping_add(1);
         // An admitted worker retains the only running slot until it actually
         // completes. Cancellation cannot create overlapping replacement jobs.
@@ -121,7 +217,7 @@ impl RadioLifecycle {
 enum Work {
     Begin(WaveCancellation),
     Batch(WaveSession, Vec<String>),
-    Feedback(WaveSession, WaveEvent),
+    Feedback(WaveSession, PendingFeedback),
 }
 enum ResultValue {
     Begin(Result<(WaveSession, WaveBatch), WaveError>),
@@ -134,6 +230,8 @@ struct Task {
     retiring: bool,
     stage: RadioStage,
     event: Option<crate::music::wave::WaveEventKind>,
+    origin: Option<FeedbackOrigin>,
+    finish: Option<FinishReason>,
     work: Work,
 }
 
@@ -208,6 +306,31 @@ impl Controller {
         self.render_wave();
         self.drive_radio();
     }
+    /// One Hero action delegates to the existing player/session. Navigating
+    /// Home never calls this method and cannot create another radio identity.
+    pub(super) fn activate_wave_hero(self: &Rc<Self>) {
+        let status = self.radio_status();
+        match status.phase {
+            RadioPhase::Ready | RadioPhase::Failed { .. } => self.start_wave(),
+            RadioPhase::Active | RadioPhase::LoadingNext => match status.playback {
+                Some(PlaybackState::Playing) => self.toggle_music(),
+                Some(PlaybackState::Paused | PlaybackState::Ready) => self.play_music(),
+                _ => {}
+            },
+            RadioPhase::Disabled | RadioPhase::Starting | RadioPhase::Finishing => {}
+        }
+    }
+    /// Cancel only a pending request. Current ordinary/already admitted audio
+    /// and its queue stay intact; there is no active-radio Finish UI action.
+    pub(super) fn cancel_wave_start(self: &Rc<Self>) {
+        let mut radio = self.radio.borrow_mut();
+        if let Some(begin) = radio.begin.take() {
+            begin.cancel();
+        }
+        radio.begin_pending = false;
+        drop(radio);
+        self.render_wave();
+    }
     pub(super) fn is_wave_queue(&self) -> bool {
         self.model
             .borrow()
@@ -247,9 +370,9 @@ impl Controller {
         if self.is_wave_queue() {
             self.widgets
                 .status
-                .set_title("Чтобы изменить очередь, сначала завершите «Мою волну».");
+                .set_title("Волна использует очередь рекомендаций.");
             self.widgets.status.set_subtitle(
-                "Чтобы добавить свои треки, сначала завершите «Мою волну» на Главной.",
+                "Выберите обычный трек или плейлист, затем добавьте нужные треки в очередь.",
             );
             self.render_controls();
             false
@@ -295,6 +418,12 @@ impl Controller {
     /// Normal source replacement while the validated account still exists:
     /// finish once, drain in order, then locally retire the opaque identity.
     pub(super) fn leave_wave(&self) {
+        self.leave_wave_with_reason(FinishReason::SourceChange);
+    }
+    pub(super) fn leave_wave_for_stop(&self) {
+        self.leave_wave_with_reason(FinishReason::Stop);
+    }
+    fn leave_wave_with_reason(&self, reason: FinishReason) {
         self.observe_wave_snapshot(self.music_snapshot().as_ref());
         let (saved, failure) = {
             let mut radio = self.radio.borrow_mut();
@@ -307,8 +436,11 @@ impl Controller {
             if let Some(mut active) = radio.active.take() {
                 match active.coordinator.finish(Instant::now()) {
                     Ok(events) if event_capacity(active.events.len(), events.len()) => {
-                        active.events.extend(events);
+                        active
+                            .events
+                            .extend(pending_events(events, FeedbackOrigin::Retirement));
                         radio.retiring = Some(Retiring {
+                            reason,
                             epoch: active.epoch,
                             session: active.session,
                             events: active.events,
@@ -320,6 +452,7 @@ impl Controller {
                         // epoch, not any unsent reports, so its primary HTTP or
                         // unknown-write category survives a source switch.
                         radio.retiring = Some(Retiring {
+                            reason,
                             epoch: active.epoch,
                             session: active.session,
                             events: VecDeque::new(),
@@ -347,7 +480,7 @@ impl Controller {
         }
     }
     pub(super) fn cancel_wave(self: &Rc<Self>) {
-        self.leave_wave();
+        self.leave_wave_for_stop();
         if self.is_wave_queue() {
             self.stop_music_engine();
             self.model.borrow_mut().queue.clear();
@@ -385,7 +518,9 @@ impl Controller {
             .select(serial, &track, &marker, Instant::now())
         {
             Ok(events) if event_capacity(active.events.len(), events.len()) => {
-                active.events.extend(events);
+                active
+                    .events
+                    .extend(pending_events(events, FeedbackOrigin::Selection));
                 active.cycle = Some(serial);
                 // A later row/Previous selection supersedes a waiting Next.
                 // Its in-flight batch remains useful, but cannot auto-select.
@@ -417,9 +552,9 @@ impl Controller {
             snapshot.playing_time,
             Instant::now(),
         ) {
-            Ok(events) if event_capacity(active.events.len(), events.len()) => {
-                active.events.extend(events)
-            }
+            Ok(events) if event_capacity(active.events.len(), events.len()) => active
+                .events
+                .extend(pending_events(events, FeedbackOrigin::Playback)),
             Err(WaveError::Cancelled) if pending => {}
             Ok(_) => {
                 drop(radio);
@@ -492,7 +627,48 @@ impl Controller {
         }
         trimmed
     }
+    fn record_radio_diagnostic(&self, diagnostic: OperationDiagnostic) {
+        #[cfg(test)]
+        {
+            self.radio.borrow_mut().last_diagnostic = Some(diagnostic);
+        }
+        eprintln!("{diagnostic}");
+    }
+    #[cfg(test)]
+    pub(super) fn wave_diagnostic_for_test(&self) -> Option<String> {
+        self.radio
+            .borrow()
+            .last_diagnostic
+            .map(|value| value.to_string())
+    }
     fn fail_radio(&self, stage: RadioStage, failure: RadioFailure) {
+        let (phase, finish) = self.diagnostic_phase(None);
+        self.record_radio_diagnostic(OperationDiagnostic {
+            stage,
+            category: failure_name(failure),
+            http: None,
+            event: None,
+            phase,
+            origin: None,
+            finish,
+        });
+        self.apply_radio_failure(stage, failure);
+    }
+    fn diagnostic_phase(&self, epoch: Option<u64>) -> (DiagnosticPhase, Option<FinishReason>) {
+        let radio = self.radio.borrow();
+        if let Some(retiring) = radio
+            .retiring
+            .as_ref()
+            .filter(|retiring| epoch.is_none_or(|epoch| retiring.epoch == epoch))
+        {
+            (DiagnosticPhase::Retiring, Some(retiring.reason))
+        } else if radio.begin.is_some() {
+            (DiagnosticPhase::Starting, None)
+        } else {
+            (DiagnosticPhase::Active, None)
+        }
+    }
+    fn apply_radio_failure(&self, stage: RadioStage, failure: RadioFailure) {
         let mut radio = self.radio.borrow_mut();
         if let Some(begin) = radio.begin.take() {
             begin.cancel();
@@ -507,11 +683,6 @@ impl Controller {
         radio.failure = Some((stage, failure));
         // Current audio is independent. It may finish, pause or resume; failed
         // radio cannot automatically select another unreported occurrence.
-        eprintln!(
-            "Karin wave: stage={} category={}",
-            stage_name(stage),
-            failure_name(failure)
-        );
     }
     fn drive_radio(self: &Rc<Self>) {
         if !self.radio_status().authenticated {
@@ -584,16 +755,19 @@ impl Controller {
             radio.serial = radio.serial.wrapping_add(1);
             let serial = radio.serial;
             radio.running = Some(serial);
-            let event = match &work {
-                Work::Feedback(_, event) => Some(event.kind()),
-                _ => None,
+            let (event, origin) = match &work {
+                Work::Feedback(_, feedback) => (Some(feedback.event.kind()), Some(feedback.origin)),
+                _ => (None, None),
             };
+            let finish = retiring.then(|| radio.retiring.as_ref().unwrap().reason);
             Task {
                 serial,
                 epoch,
                 retiring,
                 stage,
                 event,
+                origin,
+                finish,
                 work,
             }
         };
@@ -617,9 +791,9 @@ impl Controller {
                 Work::Batch(session, queue) => {
                     ResultValue::Batch(service.wave_batch(&token, &session, &queue))
                 }
-                Work::Feedback(session, event) => ResultValue::Feedback(
+                Work::Feedback(session, feedback) => ResultValue::Feedback(
                     service
-                        .wave_feedback(&token, &session, &event)
+                        .wave_feedback(&token, &session, &feedback.event)
                         .map(|ack| ack.http_status),
                 ),
             })
@@ -673,10 +847,16 @@ impl Controller {
                         }
                     }
                     Ok(ResultValue::Feedback(Ok(http))) => {
-                        eprintln!(
-                            "Karin wave: stage=feedback category=accepted http={http} event={}",
-                            task.event.map_or("none", |event| event.as_str())
-                        );
+                        let (phase, finish) = this.diagnostic_phase(Some(task.epoch));
+                        this.record_radio_diagnostic(OperationDiagnostic {
+                            stage: RadioStage::Feedback,
+                            category: "accepted",
+                            http: Some(http),
+                            event: task.event,
+                            phase,
+                            origin: task.origin,
+                            finish: finish.or(task.finish),
+                        });
                     }
                     Ok(ResultValue::Begin(Err(error)))
                     | Ok(ResultValue::Batch(Err(error)))
@@ -687,17 +867,31 @@ impl Controller {
                             WaveStage::Normalization => RadioStage::Normalization,
                             WaveStage::Feedback => RadioStage::Feedback,
                         });
-                        eprintln!(
-                            "Karin wave: stage={} category={} http={}",
-                            stage_name(stage),
-                            error.category(),
-                            error
-                                .http_status()
-                                .map_or_else(|| "none".to_owned(), |http| http.to_string())
-                        );
-                        this.fail_radio(stage, classify(error));
+                        let (phase, finish) = this.diagnostic_phase(Some(task.epoch));
+                        this.record_radio_diagnostic(OperationDiagnostic {
+                            stage,
+                            category: error.category(),
+                            http: error.http_status(),
+                            event: task.event,
+                            phase,
+                            origin: task.origin,
+                            finish: finish.or(task.finish),
+                        });
+                        this.apply_radio_failure(stage, classify(error));
                     }
-                    Err(_) => this.fail_radio(task.stage, RadioFailure::Unavailable),
+                    Err(_) => {
+                        let (phase, finish) = this.diagnostic_phase(Some(task.epoch));
+                        this.record_radio_diagnostic(OperationDiagnostic {
+                            stage: task.stage,
+                            category: "worker-unavailable",
+                            http: None,
+                            event: task.event,
+                            phase,
+                            origin: task.origin,
+                            finish: finish.or(task.finish),
+                        });
+                        this.apply_radio_failure(task.stage, RadioFailure::Unavailable);
+                    }
                 }
             } else if let Ok(ResultValue::Begin(Ok((session, _)))) = result {
                 session.cancel();
