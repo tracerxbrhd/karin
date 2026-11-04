@@ -105,6 +105,15 @@ Current results for the exact final HEAD belong to
 [PR #24 checks](https://github.com/tracerxbrhd/karin/pull/24/checks), not predecessor
 runs. Required native coverage and the WebKit sandbox remain unchanged.
 
+The [first stability PR run](https://github.com/tracerxbrhd/karin/actions/runs/41786819946)
+at `ec220a7` failed the 2× Preferences clear-callback assertion. Its fixed 150 ms
+input delay acknowledged neither focus scrolling nor event delivery. The fixture
+now requires an actual GTK hit and two stable frames before one real click, then
+waits for the callback and retains `== 1` under the existing eight-second bound.
+Production Preferences is unchanged. Four corrected stable/MSRV 1×/2× cases
+passed; the exact original event was not reproduced in nine local baseline runs.
+That CI failure remains a FAIL, separate from subsequent final-head checks.
+
 New owner-native/Flatpak acceptance is **pending**. Use the short
 [stability checklist](BUILDING.md#stability-acceptance); earlier owner acceptance
 and generated media do not pass those new desktop checks.

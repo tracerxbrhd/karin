@@ -132,6 +132,18 @@ fn coordinates(window: &adw::ApplicationWindow, widget: &gtk::Widget) -> Option<
     }
     let native = widget.native()?;
     let bounds = widget.compute_bounds(native.upcast_ref::<gtk::Widget>())?;
+    // A mapped allocation can still be clipped by the preferences viewport
+    // while focus scrolling is animating. Require the actual GTK hit target,
+    // rather than accepting any center inside the toplevel surface.
+    let center_x = f64::from(bounds.x()) + f64::from(bounds.width()) / 2.0;
+    let center_y = f64::from(bounds.y()) + f64::from(bounds.height()) / 2.0;
+    let picked =
+        native
+            .upcast_ref::<gtk::Widget>()
+            .pick(center_x, center_y, gtk::PickFlags::DEFAULT)?;
+    if picked != *widget && !picked.is_ancestor(widget) {
+        return None;
+    }
     let (dx, dy) = native.surface_transform();
     let mut x = f64::from(bounds.x()) + f64::from(bounds.width()) / 2.0 + dx;
     let mut y = f64::from(bounds.y()) + f64::from(bounds.height()) / 2.0 + dy;
@@ -158,10 +170,43 @@ fn coordinates(window: &adw::ApplicationWindow, widget: &gtk::Widget) -> Option<
 }
 
 fn click(window: &adw::ApplicationWindow, id: &str, widget: &impl IsA<gtk::Widget>) {
-    widget.grab_focus();
-    settle();
-    pump_until(|| coordinates(window, widget.as_ref()).is_some());
-    let (x, y) = coordinates(window, widget.as_ref()).unwrap();
+    let widget = widget.as_ref();
+    let focus_accepted = widget.grab_focus();
+    // Focus can start a 200 ms viewport scroll. Two matching frame-clock
+    // observations plus a real hit-test acknowledge its settled input target;
+    // a fixed delay does not establish either condition.
+    let ready = Rc::new(Cell::new(None));
+    let previous = Rc::new(Cell::new(None));
+    let stable = Rc::new(Cell::new(0));
+    let admitted = ready.clone();
+    let host = window.downgrade();
+    widget.add_tick_callback(move |widget, _| {
+        let Some(window) = host.upgrade() else {
+            return glib::ControlFlow::Break;
+        };
+        let current = coordinates(&window, widget);
+        if current.is_some() && previous.get() == current {
+            stable.set(stable.get() + 1);
+        } else {
+            stable.set(1);
+        }
+        previous.set(current);
+        if stable.get() >= 2 && current.is_some() {
+            admitted.set(current);
+            glib::ControlFlow::Break
+        } else {
+            glib::ControlFlow::Continue
+        }
+    });
+    pump_until(|| ready.get().is_some());
+    let (x, y) = ready.get().unwrap();
+    eprintln!(
+        "Karin synthetic preferences pointer: widget={} target={} physical=({x},{y}) scale={} focus-accepted={focus_accepted} focusable={} native-hit=true stable-frames=2",
+        widget.type_().name(),
+        widget.widget_name(),
+        window.scale_factor(),
+        widget.is_focusable(),
+    );
     input(&[
         "mousemove",
         "--window",
@@ -318,11 +363,13 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
         512 * MIB
     );
     click(&window, id, &view.cache_clear);
+    pump_until(|| clear.get() > 0);
     assert_eq!(clear.get(), 1);
     view.cache_refresh.grab_focus();
     input(&["key", "Return"]);
     pump_until(|| stats.get() == 1);
     click(&window, id, &view.session_retry);
+    pump_until(|| retry.get() > 0);
     assert_eq!(retry.get(), 1);
 
     let count = changes.borrow().len();
