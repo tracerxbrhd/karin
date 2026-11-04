@@ -17,13 +17,7 @@ use std::{
 #[derive(Default)]
 pub(super) struct SystemMedia {
     bus: Option<Mpris>,
-    binding: Option<(
-        u64,
-        workspace::OccurrencePosition,
-        String,
-        ContextKind,
-        Option<String>,
-    )>,
+    binding: Option<(u64, crate::queue::OccurrenceId)>,
     serial: u64,
     repeat_restart: Option<u64>,
     snapshot: Snapshot,
@@ -224,25 +218,10 @@ impl Controller {
             && !model.closed
             && model.token.as_ref().is_some_and(|t| !t.is_expired());
         let selected = if ready { model.queue.current() } else { None };
-        let position = model
-            .queue
-            .context()
-            .map(workspace::OccurrencePosition::from_context);
-        let key = selected.zip(position).map(|(track, position)| {
-            (
-                model.generation,
-                position,
-                track.id.clone(),
-                model
-                    .queue
-                    .context()
-                    .map_or(ContextKind::Queue, PlaybackContext::source_kind),
-                model
-                    .queue
-                    .context()
-                    .and_then(|c| c.source_id().map(str::to_owned)),
-            )
-        });
+        let key = selected
+            .and_then(|_| model.queue.current_occurrence_id())
+            .cloned()
+            .map(|occurrence| (model.generation, occurrence));
         let snapshot = self.music_snapshot();
         let state = snapshot.as_ref().map_or(PlaybackState::Idle, |s| s.state);
         let requested = self.music_requested();

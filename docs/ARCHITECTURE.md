@@ -73,8 +73,10 @@ query. An incomplete prefix is not complete remote search or sorting.
 Play snapshots an aligned window of up to 500 matches in provider order, including
 the selected item; at most four windows are cached. Opaque feed binding and original
 admitted positions distinguish duplicates across windows/reindexing. Filtering,
-appending and navigation never rewrite active playback. Manual additions retain a
-physical-index [limitation](LIMITATIONS.md#catalog-workspace-and-playback).
+appending and navigation never rewrite active playback. MusicQueue also owns a
+bounded opaque identity token for every admitted occurrence, including manual
+duplicates. Removing another row preserves that token; a replacement context
+gets new tokens. Info and MPRIS share this identity without publishing it.
 ADR-0016 and ADR-0024 cover normalization/loading;
 [ADR-0025](adr/0025-loaded-collection-search-and-playback-provenance.md) defines filtering/provenance.
 
@@ -114,9 +116,17 @@ Stable reads can use fresh data; mutable pages are network-first. Only eligible
 network/timeout errors allow labelled saved-data fallback. Cached values never
 establish authentication, membership/revision or write success. Per-reply leases
 are rechecked at presentation; a fresh reply does not hide retained stale origins.
+Catalog leases also bind a key epoch: known API refusals retire cached replies
+and older writers before storage work. Fixed tombstones and bounded cleanup keep
+Busy/I/O failures from reviving refused entries. After restart, account binding
+or a policy change, metadata needs a new successful write before fresh reuse;
+otherwise it is eligible only for labelled saved-data fallback. Artwork keeps
+its separate HTTP/TTL policy. State admission never holds its mutex over disk I/O.
 Refresh bypasses fresh hits. Cache-off stops persistent reads/writes; Clear keeps
 session/audio/textures, while logout purges personal records.
-[ADR-0019](adr/0019-bounded-account-cache.md) defines the cache contract.
+[ADR-0019](adr/0019-bounded-account-cache.md) defines the cache contract;
+[ADR-0026](adr/0026-refusal-fences-and-queue-occurrence-identity.md) defines the
+refusal fence and stable queue identity extensions.
 
 ## GTK workspace, MPRIS and Flatpak
 

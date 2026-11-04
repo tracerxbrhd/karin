@@ -24,39 +24,12 @@ enum InfoTarget {
     ExplicitSelection,
 }
 
-#[derive(Clone, PartialEq, Eq)]
-pub(super) struct CurrentOccurrence {
-    kind: ContextKind,
-    source: Option<String>,
-    position: OccurrencePosition,
-    id: String,
-}
-
-/// Queue indices are presentation positions; a filtered result at local zero
-/// can refer to original occurrence 500. Keep manual additions in another
-/// namespace so an equal numeric fallback cannot impersonate a source item.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum OccurrencePosition {
-    Source(usize),
-    Manual(usize),
-}
-
-impl OccurrencePosition {
-    pub(super) fn from_context(context: &PlaybackContext) -> Self {
-        context
-            .source_position(context.current_index())
-            .map_or_else(|| Self::Manual(context.current_index()), Self::Source)
-    }
-}
+pub(super) struct CurrentOccurrence(crate::queue::OccurrenceId);
 
 impl CurrentOccurrence {
-    fn from_context(context: &PlaybackContext) -> Self {
-        Self {
-            kind: context.source_kind(),
-            source: context.source_id().map(str::to_owned),
-            position: OccurrencePosition::from_context(context),
-            id: context.items()[context.current_index()].id.clone(),
-        }
+    fn from_queue(queue: &MusicQueue) -> Option<Self> {
+        queue.current_occurrence_id().cloned().map(Self)
     }
 }
 
@@ -243,13 +216,8 @@ impl Controller {
         context: Option<PlaybackContext>,
         following_current: bool,
     ) {
-        self.info_observed.replace(
-            self.model
-                .borrow()
-                .queue
-                .context()
-                .map(CurrentOccurrence::from_context),
-        );
+        self.info_observed
+            .replace(CurrentOccurrence::from_queue(&self.model.borrow().queue));
         self.info_selection.replace(Some(InfoSelection {
             track,
             context,
@@ -285,17 +253,17 @@ impl Controller {
     /// Called by existing playback selection paths, never by pause/seek/volume.
     /// A replacement/selection can identify a new occurrence even at the same ID.
     pub(super) fn follow_current_occurrence(&self) {
-        let (track, context) = {
+        let (track, context, occurrence) = {
             let model = self.model.borrow();
             (
                 model.queue.current().cloned(),
                 model.queue.context().cloned(),
+                CurrentOccurrence::from_queue(&model.queue),
             )
         };
         self.info_target_epoch
             .set(self.info_target_epoch.get().wrapping_add(1));
-        self.info_observed
-            .replace(context.as_ref().map(CurrentOccurrence::from_context));
+        self.info_observed.replace(occurrence);
         self.info_selection
             .replace(track.map(|track| InfoSelection {
                 track,
@@ -307,30 +275,25 @@ impl Controller {
     /// Removing another queue row can reindex the same playing occurrence.
     /// A structural queue edit is not a new playback selection.
     pub(super) fn observe_current_occurrence(&self) {
-        self.info_observed.replace(
-            self.model
-                .borrow()
-                .queue
-                .context()
-                .map(CurrentOccurrence::from_context),
-        );
+        self.info_observed
+            .replace(CurrentOccurrence::from_queue(&self.model.borrow().queue));
     }
 
     pub(super) fn sync_track_pane(&self) {
-        let (ready, current, context, queue_full) = {
+        let (ready, current, context, queue_full, observed) = {
             let model = self.model.borrow();
             (
                 model.account_valid && !model.closed,
                 model.queue.current().cloned(),
                 model.queue.context().cloned(),
                 model.queue.items().len() >= 500,
+                CurrentOccurrence::from_queue(&model.queue),
             )
         };
         if !ready {
             self.info_selection.borrow_mut().take();
             self.info_observed.borrow_mut().take();
         } else {
-            let observed = context.as_ref().map(CurrentOccurrence::from_context);
             if *self.info_observed.borrow() != observed {
                 self.follow_current_occurrence();
             }

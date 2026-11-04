@@ -6,6 +6,11 @@ Status: Accepted for final v0.4 implementation; executed and Fedora acceptance r
 Date: 2026-11-02
 Extends: ADR-0024 bounded views and ADR-0017 exact playback occurrences
 
+Stability extension, 2026-11-04: [ADR-0026](0026-refusal-fences-and-queue-occurrence-identity.md)
+supersedes the manual physical-index fallback described below. Queue-owned opaque
+occurrence tokens preserve Info/MPRIS identity through reindexing; original source
+positions and filtering semantics remain unchanged.
+
 ## Context
 
 The final owner task continues Draft PR #15 from `2e3ae41`. Liked and every

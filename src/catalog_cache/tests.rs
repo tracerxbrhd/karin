@@ -450,3 +450,195 @@ fn concurrent_stable_misses_share_one_network_load_then_reuse_its_cache_record()
     assert_eq!(a.value, b.value);
     assert_eq!(complete(server, listener).len(), 2);
 }
+
+#[test]
+fn refused_track_with_busy_storage_never_masks_the_next_network_response() {
+    let (_temp, cache, catalog, service, token, server, listener) = prepare(
+        vec![
+            Reply::Json(200, ACCOUNT),
+            Reply::Json(200, FIRST),
+            Reply::Json(403, "{}"),
+            Reply::Json(200, SECOND),
+        ],
+        CachePolicy::default(),
+    );
+    catalog.track(&service, &token, "42", false).unwrap();
+    let cached = catalog.track(&service, &token, "42", false).unwrap();
+    assert_eq!(cached.provenance, Provenance::FreshCache);
+    let io = cache.test_io();
+    assert_eq!(
+        catalog.track(&service, &token, "42", true).unwrap_err(),
+        MusicError::Forbidden
+    );
+    assert!(
+        !cached.lease.unwrap().is_current(),
+        "already-returned UI lease is retired"
+    );
+    drop(io);
+    let next = catalog.track(&service, &token, "42", false).unwrap();
+    assert_eq!(next.provenance, Provenance::Network);
+    assert_eq!(next.value.title, "Second synthetic title");
+    assert_eq!(next.cache_error, Some(CacheError::Busy));
+    assert_eq!(
+        catalog
+            .track(&service, &token, "42", false)
+            .unwrap()
+            .provenance,
+        Provenance::FreshCache
+    );
+    assert_eq!(complete(server, listener).len(), 4);
+}
+#[test]
+fn cold_restart_metadata_is_only_saved_fallback_until_positive_network_refresh() {
+    let (temp, cache, catalog, service, token, server, listener) = prepare(
+        vec![
+            Reply::Json(200, ACCOUNT),
+            Reply::Json(200, FIRST),
+            Reply::Disconnect,
+            Reply::Json(200, SECOND),
+        ],
+        CachePolicy::default(),
+    );
+    catalog.track(&service, &token, "42", false).unwrap();
+    let restarted = Cache::new(temp.root(), CachePolicy::default()).unwrap();
+    restarted.bind(Some(service.cache_scope(&token).unwrap()));
+    let restored = CachedCatalog::new(restarted);
+    let saved = restored.track(&service, &token, "42", false).unwrap();
+    assert_eq!(saved.provenance, Provenance::StaleCache);
+    assert!(saved.lease.unwrap().is_current());
+    assert_eq!(
+        restored
+            .track(&service, &token, "42", false)
+            .unwrap()
+            .provenance,
+        Provenance::Network
+    );
+    assert_eq!(
+        restored
+            .track(&service, &token, "42", false)
+            .unwrap()
+            .provenance,
+        Provenance::FreshCache
+    );
+    assert_eq!(cache.usage().unwrap().entries, 1);
+    assert_eq!(complete(server, listener).len(), 4);
+}
+#[test]
+fn successful_old_network_reply_after_refusal_does_not_repopulate_the_key() {
+    let (_temp, cache, catalog, service, token, server, listener) = prepare(
+        vec![Reply::Json(200, ACCOUNT), Reply::Json(200, FIRST)],
+        CachePolicy::default(),
+    );
+    // Drive the same read path with channel barriers; the synthetic response
+    // arrives after a concurrently confirmed refusal of the captured key.
+    let key = CacheKey::new(EntryKind::Track, "42", 0).unwrap();
+    let (entered, ready) = mpsc::sync_channel(1);
+    let (release, wait) = mpsc::channel();
+    let worker_catalog = catalog.clone();
+    let worker_service = service.clone();
+    let worker_token = token.clone();
+    let worker_key = key.clone();
+    let worker = thread::spawn(move || {
+        worker_catalog.read(
+            &worker_service,
+            &worker_token,
+            Ok(worker_key),
+            false,
+            true,
+            || {
+                entered.send(()).unwrap();
+                wait.recv_timeout(Duration::from_secs(3)).unwrap();
+                worker_service
+                    .track(&worker_token, "42")
+                    .map(MetadataRecord::Track)
+            },
+        )
+    });
+    ready.recv_timeout(Duration::from_secs(2)).unwrap();
+    let lease = cache.entry_lease(&cache.lease().unwrap(), &key).unwrap();
+    cache.invalidate(&lease, &key).unwrap();
+    release.send(()).unwrap();
+    let result = worker.join().unwrap().unwrap();
+    assert_eq!(
+        result.provenance,
+        Provenance::Network,
+        "good API data is not a cache dependency"
+    );
+    assert!(result.lease.is_none());
+    assert!(cache.get(&cache.lease().unwrap(), &key).unwrap().is_none());
+    assert_eq!(complete(server, listener).len(), 2);
+}
+
+#[test]
+fn refusal_while_disabled_is_fenced_without_reading_or_writing_disk() {
+    let (_temp, cache, catalog, service, token, server, listener) = prepare(
+        vec![
+            Reply::Json(200, ACCOUNT),
+            Reply::Json(200, FIRST),
+            Reply::Json(403, "{}"),
+            Reply::Disconnect,
+        ],
+        CachePolicy::default(),
+    );
+    catalog.track(&service, &token, "42", false).unwrap();
+    cache
+        .configure(CachePolicy {
+            enabled: false,
+            ..CachePolicy::default()
+        })
+        .unwrap();
+    // No storage admission is permitted or needed by the disabled refusal.
+    let io = cache.test_io();
+    assert_eq!(
+        catalog.track(&service, &token, "42", true).unwrap_err(),
+        MusicError::Forbidden
+    );
+    drop(io);
+    cache.configure(CachePolicy::default()).unwrap();
+    assert_eq!(
+        catalog.track(&service, &token, "42", false).unwrap_err(),
+        MusicError::Network,
+        "known refusal cannot become even saved transport fallback in this process"
+    );
+    assert_eq!(cache.usage().unwrap().entries, 0);
+    assert_eq!(complete(server, listener).len(), 4);
+}
+#[test]
+fn policy_change_during_refused_request_retires_confirmation_before_reenable() {
+    let (_temp, cache, catalog, service, token, server, listener) = prepare(
+        vec![Reply::Json(200, ACCOUNT), Reply::Json(200, FIRST)],
+        CachePolicy::default(),
+    );
+    catalog.track(&service, &token, "42", false).unwrap();
+    let (entered, ready) = mpsc::sync_channel(1);
+    let (release, wait) = mpsc::channel();
+    let worker_catalog = catalog.clone();
+    let worker_key = CacheKey::new(EntryKind::Track, "42", 0).unwrap();
+    let worker = thread::spawn(move || {
+        worker_catalog.read(&service, &token, Ok(worker_key), false, true, || {
+            entered.send(()).unwrap();
+            wait.recv_timeout(Duration::from_secs(3)).unwrap();
+            Err(MusicError::Forbidden)
+        })
+    });
+    ready.recv_timeout(Duration::from_secs(2)).unwrap();
+    cache
+        .configure(CachePolicy {
+            enabled: false,
+            ..CachePolicy::default()
+        })
+        .unwrap();
+    release.send(()).unwrap();
+    assert_eq!(worker.join().unwrap().unwrap_err(), MusicError::Forbidden);
+    cache.configure(CachePolicy::default()).unwrap();
+    let key = CacheKey::new(EntryKind::Track, "42", 0).unwrap();
+    assert_eq!(
+        cache
+            .get(&cache.lease().unwrap(), &key)
+            .unwrap()
+            .unwrap()
+            .freshness,
+        Freshness::Stale
+    );
+    assert_eq!(complete(server, listener).len(), 2);
+}

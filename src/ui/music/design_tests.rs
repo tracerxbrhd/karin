@@ -1568,7 +1568,7 @@ fn native_first_footer_reveal_after_startup_without_graphics_initialization() {
     assert_eq!(this.widgets.player_revealer.height(), 0);
     assert_hidden_footer_geometry(&ui);
     let first = this.widgets.library_rows.row_at_index(0).unwrap();
-    observe_footer_transition_with_baseline(&ui, "startup-first-start", true, false, || {
+    observe_footer_transition_with_baseline(&ui, "startup-first-start", true, false, false, || {
         native_click(&ui, &first)
     });
     pump(|| {
@@ -1592,6 +1592,23 @@ fn native_first_footer_reveal_after_startup_without_graphics_initialization() {
     observe_footer_transition(&ui, "startup-explicit-stop", false, || this.stop_music());
     assert_eq!(this.widgets.player_revealer.height(), 0);
     assert!(!this.widgets.play.is_mapped());
+
+    // Measure a real repeated request separately, after the unchanged cold
+    // observation and completed Stop. This never initializes graphics before
+    // the first click and is not evidence of cold first-use responsiveness.
+    let repeat = this.widgets.library_rows.row_at_index(0).unwrap();
+    observe_footer_transition_with_baseline(&ui, "startup-repeat-start", true, false, true, || {
+        native_click(&ui, &repeat)
+    });
+    pump(|| {
+        this.music_snapshot()
+            .is_some_and(|snapshot| snapshot.state == crate::playback::PlaybackState::Playing)
+    });
+    observe_footer_transition_with_baseline(&ui, "startup-repeat-stop", false, true, true, || {
+        this.stop_music()
+    });
+    assert_eq!(this.widgets.player_revealer.height(), 0);
+    assert!(!this.widgets.play.is_mapped());
     ui.music.close();
     ui.window.close();
     settle();
@@ -1606,7 +1623,7 @@ fn observe_footer_transition(
     opening: bool,
     activate: impl FnOnce(),
 ) {
-    observe_footer_transition_with_baseline(ui, name, opening, true, activate);
+    observe_footer_transition_with_baseline(ui, name, opening, true, false, activate);
 }
 
 fn observe_footer_transition_with_baseline(
@@ -1614,6 +1631,7 @@ fn observe_footer_transition_with_baseline(
     name: &str,
     opening: bool,
     capture_initial_frame: bool,
+    prior_playback: bool,
     activate: impl FnOnce(),
 ) {
     struct Frame {
@@ -1761,7 +1779,12 @@ fn observe_footer_transition_with_baseline(
         .filter(|frame| !frame.child_visible || !frame.child_mapped || frame.height == 0)
         .filter_map(|frame| frame.child.map(|rect| rect.height() as i32))
         .collect::<std::collections::BTreeSet<_>>();
-    let summary = json!({"transition":name,"scope":"raw-first-start-or-stop-observation",
+    let scope = if prior_playback {
+        "raw-repeat-start-or-stop-observation"
+    } else {
+        "raw-first-start-or-stop-observation"
+    };
+    let summary = json!({"transition":name,"scope":scope,
         "cold_first_use_latency_accepted":false,"synthetic_frames":false,
         "animations_enabled":gtk::Settings::default().unwrap().is_gtk_enable_animations(),
         "transition_type":"SlideUp","transition_duration_ms":240,
@@ -1769,7 +1792,8 @@ fn observe_footer_transition_with_baseline(
         "initial_height":initial_height,"initial_requested":initial_requested,
         "initial_hidden_geometry":initial_hidden_geometry,"final_hidden_geometry":final_hidden_geometry,
         "activation_started_us":activation_started_us,
-        "graphics_initialization_before_play":false,
+        "graphics_initialization_before_play":prior_playback,
+        "prior_playback_completed":prior_playback,
         "scale":scale,"renderer":ui.window.renderer().unwrap().type_().name(),
         "after_paint_count":frames.len(),"intermediate_frame_count":intermediate.len(),
         "node_none_count":frames.iter().filter(|frame|frame.node.is_none()).count(),
