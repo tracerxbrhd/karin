@@ -10,8 +10,9 @@
 //! session/tracks/feedback acceptance is established with Karin on Fedora.
 
 use super::{
-    Id, MusicError, MusicService, PAGE_SIZE, SearchBinding, Track, decode_track_batch,
-    forbidden_error, network_error, read_body, validate_id,
+    Id, MusicError, MusicService, PAGE_SIZE, SearchBinding, SearchTrackHit, Track,
+    decode_track_batch, forbidden_error, network_error, order_search_tracks, read_body,
+    validate_id,
 };
 use crate::{playback::PlaybackState, session::AccessToken};
 use reqwest::{
@@ -42,6 +43,28 @@ pub enum WaveStage {
     Normalization,
     Feedback,
 }
+impl WaveStage {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Session => "session",
+            Self::Tracks => "tracks",
+            Self::Normalization => "normalization",
+            Self::Feedback => "feedback",
+        }
+    }
+}
+
+/// Only fixed classifications may accompany an observed HTTP response. No
+/// provider values, serde paths or session/track identifiers cross this boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WaveResponseCause {
+    Music(MusicError),
+    Unsupported,
+    UnknownSession,
+    Terminated,
+    NoTracks,
+    WriteOutcomeUnknown,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum WaveError {
@@ -49,6 +72,12 @@ pub enum WaveError {
     Music(#[from] MusicError),
     #[error("Wave {stage:?} request failed: {error}")]
     Request { stage: WaveStage, error: MusicError },
+    #[error("Wave {stage:?} response failed ({cause:?}, HTTP {http})")]
+    Response {
+        stage: WaveStage,
+        cause: WaveResponseCause,
+        http: u16,
+    },
     #[error("The Wave operation was cancelled locally")]
     Cancelled,
     #[error("Another Wave operation is still running")]
@@ -57,6 +86,8 @@ pub enum WaveError {
     UnsupportedResponse,
     #[error("The Wave session is no longer recognized")]
     UnknownSession,
+    #[error("The Wave session has ended")]
+    Terminated,
     #[error("The Wave response has no normalized tracks")]
     NoTracks,
     #[error("Invalid Wave lifecycle observation")]
@@ -65,15 +96,48 @@ pub enum WaveError {
     WriteOutcomeUnknown,
 }
 impl WaveError {
+    pub fn category(self) -> &'static str {
+        match self {
+            Self::Music(error) | Self::Request { error, .. } => error.category(),
+            Self::Response { cause, .. } => match cause {
+                WaveResponseCause::Music(error) => error.category(),
+                WaveResponseCause::Unsupported => "unsupported-response",
+                WaveResponseCause::UnknownSession => "unknown-session",
+                WaveResponseCause::Terminated => "session-terminated",
+                WaveResponseCause::NoTracks => "no-tracks",
+                WaveResponseCause::WriteOutcomeUnknown => "write-outcome-unknown",
+            },
+            Self::Cancelled => "cancelled",
+            Self::Busy => "busy",
+            Self::UnsupportedResponse => "unsupported-response",
+            Self::UnknownSession => "unknown-session",
+            Self::Terminated => "session-terminated",
+            Self::NoTracks => "no-tracks",
+            Self::InvalidObservation => "invalid-observation",
+            Self::WriteOutcomeUnknown => "write-outcome-unknown",
+        }
+    }
+
+    pub fn http_status(self) -> Option<u16> {
+        match self {
+            Self::Response { http, .. } => Some(http),
+            _ => self.music_error().and_then(MusicError::http_status),
+        }
+    }
+
     pub fn stage(self) -> Option<WaveStage> {
         match self {
-            Self::Request { stage, .. } => Some(stage),
+            Self::Request { stage, .. } | Self::Response { stage, .. } => Some(stage),
             _ => None,
         }
     }
     pub fn music_error(self) -> Option<MusicError> {
         match self {
             Self::Music(error) | Self::Request { error, .. } => Some(error),
+            Self::Response {
+                cause: WaveResponseCause::Music(error),
+                ..
+            } => Some(error),
             _ => None,
         }
     }
@@ -82,6 +146,21 @@ impl WaveError {
             Self::Music(error) => Self::Request { stage, error },
             error => error,
         }
+    }
+
+    fn after_response(self, stage: WaveStage, http: u16) -> Self {
+        let cause = match self {
+            Self::Music(error) | Self::Request { error, .. } => WaveResponseCause::Music(error),
+            Self::UnsupportedResponse => WaveResponseCause::Unsupported,
+            Self::UnknownSession => WaveResponseCause::UnknownSession,
+            Self::Terminated => WaveResponseCause::Terminated,
+            Self::NoTracks => WaveResponseCause::NoTracks,
+            Self::WriteOutcomeUnknown => WaveResponseCause::WriteOutcomeUnknown,
+            // Existing context and local cancellation/observation errors are
+            // not reattributed to an unrelated response.
+            error => return error,
+        };
+        Self::Response { stage, cause, http }
     }
 }
 
@@ -232,16 +311,25 @@ impl MusicService {
         let binding = self.search_binding(token)?;
         let body = serde_json::json!({"seeds":["user:onyourwave"],"includeTracksInResponse":true,"includeWaveModel":true});
         let (bytes, http) = self
-            .wave_post(token, &["rotor", "session", "new"], &body)
+            .wave_post(
+                token,
+                cancellation,
+                &binding,
+                WaveStage::Session,
+                &["rotor", "session", "new"],
+                &body,
+            )
             .map_err(|error| error.at(WaveStage::Session))
             .inspect_err(|_| cancellation.cancel())?;
         cancellation.check()?;
         self.check_search_binding(token, &binding)?;
-        let wire = decode_session(&bytes).inspect_err(|_| cancellation.cancel())?;
+        let wire = decode_session(&bytes)
+            .map_err(|error| error.after_response(WaveStage::Session, http))
+            .inspect_err(|_| cancellation.cancel())?;
         let radio_id = wire
             .radio_session_id
             .clone()
-            .ok_or(WaveError::UnsupportedResponse)
+            .ok_or_else(|| WaveError::UnsupportedResponse.after_response(WaveStage::Session, http))
             .inspect_err(|_| cancellation.cancel())?;
         let session = WaveSession(Arc::new(Identity {
             binding,
@@ -280,20 +368,25 @@ impl MusicService {
         let (bytes, http) = self
             .wave_post(
                 token,
+                &session.0.cancellation,
+                &session.0.binding,
+                WaveStage::Tracks,
                 &["rotor", "session", &session.0.radio_id, "tracks"],
                 &serde_json::json!({"queue":queue}),
             )
             .map_err(|error| error.at(WaveStage::Tracks))
             .inspect_err(|_| session.cancel())?;
         self.wave_check(token, session)?;
-        let wire = decode_session(&bytes).inspect_err(|_| session.cancel())?;
+        let wire = decode_session(&bytes)
+            .map_err(|error| error.after_response(WaveStage::Tracks, http))
+            .inspect_err(|_| session.cancel())?;
         if wire
             .radio_session_id
             .as_ref()
             .is_some_and(|id| id != session.0.radio_id.as_str())
         {
             session.cancel();
-            return Err(WaveError::UnsupportedResponse);
+            return Err(WaveError::UnsupportedResponse.after_response(WaveStage::Tracks, http));
         }
         self.wave_normalize(token, session, wire, http)
             .map_err(|error| error.at(WaveStage::Normalization))
@@ -340,6 +433,9 @@ impl MusicService {
         let (body, http) = self
             .wave_post(
                 token,
+                &session.0.cancellation,
+                &session.0.binding,
+                WaveStage::Feedback,
                 &["rotor", "session", &session.0.radio_id, "feedback"],
                 &body,
             )
@@ -350,12 +446,27 @@ impl MusicService {
         // body. Still refuse an explicit error/malformed nonempty JSON instead
         // of calling it success. No inferred recommendation effect is reported.
         if !body.is_empty() {
-            let value: serde_json::Value = serde_json::from_slice(&body)
-                .map_err(|_| WaveError::WriteOutcomeUnknown)
-                .inspect_err(|_| session.cancel())?;
-            if !value.is_object() || value.get("error").is_some_and(|e| !e.is_null()) {
+            if body
+                .iter()
+                .copied()
+                .find(|byte| !byte.is_ascii_whitespace())
+                != Some(b'{')
+            {
                 session.cancel();
-                return Err(WaveError::WriteOutcomeUnknown);
+                return Err(
+                    WaveError::WriteOutcomeUnknown.after_response(WaveStage::Feedback, http)
+                );
+            }
+            let value: FeedbackEnvelope = serde_json::from_slice(&body)
+                .map_err(|_| {
+                    WaveError::WriteOutcomeUnknown.after_response(WaveStage::Feedback, http)
+                })
+                .inspect_err(|_| session.cancel())?;
+            if value.error.is_some() {
+                session.cancel();
+                return Err(
+                    WaveError::WriteOutcomeUnknown.after_response(WaveStage::Feedback, http)
+                );
             }
         }
         Ok(WaveFeedbackAck { http_status: http })
@@ -384,22 +495,30 @@ impl MusicService {
             .track_batch_response(token, &ids)
             .map_err(|error| WaveError::Music(error).at(WaveStage::Normalization))?;
         let lookup_http_status = response.status().as_u16();
-        let bytes = read_body(response)
-            .map_err(|error| WaveError::Music(error).at(WaveStage::Normalization))?;
+        let bytes = read_body(response).map_err(|error| {
+            WaveError::Music(error).after_response(WaveStage::Normalization, lookup_http_status)
+        })?;
         let distinct = ids.iter().collect::<std::collections::BTreeSet<_>>().len();
-        let normalized = decode_track_batch(&bytes, distinct)
-            .map_err(|error| WaveError::Music(error).at(WaveStage::Normalization))?;
+        let normalized = decode_track_batch(&bytes, distinct).map_err(|error| {
+            WaveError::Music(error).after_response(WaveStage::Normalization, lookup_http_status)
+        })?;
         self.wave_check(token, session)?;
-        let mut tracks = Vec::with_capacity(ids.len());
-        for id in &ids {
-            let bare = id.split(':').next().ok_or(MusicError::InvalidInput)?;
-            if let Some(track) = normalized.iter().find(|t| t.id == *id || t.id == bare) {
-                tracks.push(track.clone());
-            }
-        }
-        let omitted = ids.len() - tracks.len();
+        // Reuse the established strict identity normalization: an exact
+        // composite wins over a bare alias regardless of reply order, duplicate
+        // positions survive, and unsolicited/conflicting records are rejected.
+        let (tracks, omitted) = order_search_tracks(
+            ids.into_iter()
+                .map(|id| SearchTrackHit { id: Id(id) })
+                .collect(),
+            normalized,
+        )
+        .map_err(|error| {
+            WaveError::Music(error).after_response(WaveStage::Normalization, lookup_http_status)
+        })?;
         if tracks.is_empty() {
-            return Err(WaveError::NoTracks);
+            return Err(
+                WaveError::NoTracks.after_response(WaveStage::Normalization, lookup_http_status)
+            );
         }
         let marker = WaveBatchMarker {
             identity: session.0.clone(),
@@ -418,12 +537,14 @@ impl MusicService {
     fn wave_post<T: Serialize>(
         &self,
         token: &AccessToken,
+        cancellation: &WaveCancellation,
+        binding: &SearchBinding,
+        stage: WaveStage,
         path: &[&str],
         value: &T,
     ) -> Result<(Zeroizing<Vec<u8>>, u16), WaveError> {
-        if token.is_expired() {
-            return Err(MusicError::Unauthenticated.into());
-        }
+        cancellation.check()?;
+        self.check_search_binding(token, binding)?;
         let mut url = self.origin.clone();
         {
             let mut parts = url
@@ -447,16 +568,18 @@ impl MusicService {
         let mut header =
             HeaderValue::from_str(&authorization).map_err(|_| MusicError::Unauthenticated)?;
         header.set_sensitive(true);
-        let response = self
+        let request = self
             .client
             .post(url)
             .header(ACCEPT, "application/json")
             .header(AUTHORIZATION, header)
             .header(CONTENT_TYPE, "application/json")
-            .body(Body::sized(Cursor::new(payload), length))
-            .send()
-            .map_err(network_error)
-            .map_err(uncertain)?;
+            .body(Body::sized(Cursor::new(payload), length));
+        // Recheck admission immediately before dispatch. Cancellation cannot
+        // retroactively unsend an already dispatched bounded HTTP operation.
+        cancellation.check()?;
+        self.check_search_binding(token, binding)?;
+        let response = request.send().map_err(network_error).map_err(uncertain)?;
         let status = response.status().as_u16();
         if status != 200 {
             return Err(match status {
@@ -469,9 +592,13 @@ impl MusicService {
                     .into(),
                 200..=399 | 500..=599 => WaveError::WriteOutcomeUnknown,
                 _ => MusicError::Http(status).into(),
-            });
+            }
+            .after_response(stage, status));
         }
-        Ok((read_body(response).map_err(uncertain)?, status))
+        Ok((
+            read_body(response).map_err(|error| uncertain(error).after_response(stage, status))?,
+            status,
+        ))
     }
 }
 
@@ -489,10 +616,14 @@ fn uncertain(error: MusicError) -> WaveError {
 #[serde(rename_all = "camelCase")]
 struct SessionWire {
     radio_session_id: Option<String>,
+    #[serde(default)]
     batch_id: String,
+    #[serde(default)]
     sequence: Vec<Sequence>,
     #[serde(default)]
     unknown_session: bool,
+    #[serde(default)]
+    terminated: bool,
 }
 #[derive(Deserialize)]
 struct Sequence {
@@ -507,6 +638,13 @@ struct TrackIdentity {
 #[derive(Deserialize)]
 struct SessionEnvelope {
     result: Option<SessionWire>,
+    error: Option<Box<RawValue>>,
+}
+
+#[derive(Deserialize)]
+struct FeedbackEnvelope {
+    // Deriving a typed envelope rejects duplicate known keys instead of losing
+    // an earlier error through serde_json::Value's last-key-wins map behavior.
     error: Option<Box<RawValue>>,
 }
 
@@ -527,6 +665,9 @@ fn decode_session(body: &[u8]) -> Result<SessionWire, WaveError> {
     let wire = envelope.result.ok_or(WaveError::UnsupportedResponse)?;
     if wire.unknown_session {
         return Err(WaveError::UnknownSession);
+    }
+    if wire.terminated {
+        return Err(WaveError::Terminated);
     }
     if wire
         .radio_session_id
@@ -604,6 +745,13 @@ struct Active {
     playing: bool,
     heard: Duration,
     last: Instant,
+    clock: HeardClock,
+}
+
+enum HeardClock {
+    Unobserved,
+    Observed,
+    Measured(Duration),
 }
 
 /// Feedback observation only, not an audio engine or a synthetic Wave queue.
@@ -664,6 +812,7 @@ impl WaveCoordinator {
             playing: false,
             heard: Duration::ZERO,
             last: now,
+            clock: HeardClock::Unobserved,
         });
         Ok(events)
     }
@@ -672,34 +821,81 @@ impl WaveCoordinator {
         state: PlaybackState,
         now: Instant,
     ) -> Result<Vec<WaveEvent>, WaveError> {
+        self.observe_inner(state, None, now)
+    }
+
+    /// Observe the existing worker's cumulative actual Playing clock, starting
+    /// at zero for this selected source/intent cycle. It is not media position:
+    /// seek and GTK callback delays cannot inflate it. A new worker generation
+    /// needs a new `select` cycle; decreasing clocks and mixed clock modes are
+    /// rejected. A positive clock also proves an actual Playing interval when
+    /// GTK missed that snapshot; selection/position/duration cannot prove one.
+    pub fn observe_measured(
+        &mut self,
+        state: PlaybackState,
+        total_playing: Duration,
+        now: Instant,
+    ) -> Result<Vec<WaveEvent>, WaveError> {
+        self.observe_inner(state, Some(total_playing), now)
+    }
+
+    fn observe_inner(
+        &mut self,
+        state: PlaybackState,
+        total_playing: Option<Duration>,
+        now: Instant,
+    ) -> Result<Vec<WaveEvent>, WaveError> {
         self.check()?;
         let Some(active) = self.active.as_mut() else {
             return Ok(Vec::new());
         };
-        advance(active, now)?;
+        match total_playing {
+            Some(total) => {
+                if now < active.last
+                    || total > MAX_HEARD
+                    || matches!(active.clock, HeardClock::Observed)
+                    || matches!(active.clock, HeardClock::Measured(previous) if total < previous)
+                {
+                    return Err(WaveError::InvalidObservation);
+                }
+                active.clock = HeardClock::Measured(total);
+                active.heard = total;
+                active.last = now;
+            }
+            None => {
+                if matches!(active.clock, HeardClock::Measured(_)) {
+                    return Err(WaveError::InvalidObservation);
+                }
+                advance(active, now)?;
+                active.clock = HeardClock::Observed;
+            }
+        }
         if active.completed {
             return Ok(Vec::new());
         }
         let mut events = Vec::new();
-        if state == PlaybackState::Playing {
-            if !active.started {
-                if !self.radio_started {
-                    events.push(event(
-                        active,
-                        WaveEventKind::RadioStarted,
-                        None,
-                        Duration::ZERO,
-                    ));
-                    self.radio_started = true;
-                }
+        if !active.started
+            && (state == PlaybackState::Playing
+                || total_playing.is_some_and(|total| !total.is_zero()))
+        {
+            if !self.radio_started {
                 events.push(event(
                     active,
-                    WaveEventKind::TrackStarted,
-                    Some(active.track_id.clone()),
+                    WaveEventKind::RadioStarted,
+                    None,
                     Duration::ZERO,
                 ));
-                active.started = true;
+                self.radio_started = true;
             }
+            events.push(event(
+                active,
+                WaveEventKind::TrackStarted,
+                Some(active.track_id.clone()),
+                Duration::ZERO,
+            ));
+            active.started = true;
+        }
+        if state == PlaybackState::Playing {
             active.playing = true;
         } else {
             active.playing = false;
@@ -781,7 +977,7 @@ fn advance(active: &mut Active, now: Instant) -> Result<(), WaveError> {
     let elapsed = now
         .checked_duration_since(active.last)
         .ok_or(WaveError::InvalidObservation)?;
-    if active.playing {
+    if active.playing && !matches!(active.clock, HeardClock::Measured(_)) {
         active.heard = active.heard.saturating_add(elapsed);
     }
     active.last = now;

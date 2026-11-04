@@ -15,6 +15,8 @@ const ACCOUNT: &str =
 enum Hook {
     ClearAccount(usize),
     Cancel(usize, WaveCancellation),
+    Truncate(usize),
+    DropHeaders(usize),
 }
 fn fixture(
     responses: Vec<(u16, String)>,
@@ -47,7 +49,16 @@ fn fixture(
                 Some(Hook::Cancel(i, c)) if *i == index => c.cancel(),
                 _ => {}
             }
-            write!(stream,"HTTP/1.1 {status} Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).unwrap();
+            if matches!(&hook, Some(Hook::DropHeaders(i)) if *i == index) {
+                continue;
+            }
+            let declared = body.len()
+                + if matches!(&hook, Some(Hook::Truncate(i)) if *i == index) {
+                    16
+                } else {
+                    0
+                };
+            write!(stream,"HTTP/1.1 {status} Fixture\r\nContent-Type: application/json\r\nContent-Length: {declared}\r\nConnection: close\r\n\r\n{body}").unwrap();
         }
         requests
     });
@@ -307,6 +318,7 @@ fn session_and_normalization_refusals_have_distinct_safe_stages() {
     let error = service.begin_wave(&token, &cancel).unwrap_err();
     assert_eq!(error.stage(), Some(WaveStage::Normalization));
     assert_eq!(error.music_error(), Some(MusicError::Forbidden));
+    assert_eq!(error.http_status(), Some(403));
     assert!(cancel.is_cancelled());
     assert!(service.validate_session(&token).is_ok());
     assert!(!format!("{error:?} {error}").contains("private"));
@@ -342,6 +354,11 @@ fn rejected_or_uncertain_session_write_has_no_identity_fallback_or_retry() {
         ),
         (500, "private unknown", WaveError::WriteOutcomeUnknown),
         (302, "private redirect", WaveError::WriteOutcomeUnknown),
+        (
+            201,
+            "private unexpected success",
+            WaveError::WriteOutcomeUnknown,
+        ),
     ] {
         let (service, server, listener) =
             fixture(vec![(200, ACCOUNT.into()), (status, body.into())], None);
@@ -349,7 +366,10 @@ fn rejected_or_uncertain_session_write_has_no_identity_fallback_or_retry() {
         service.account(&token).unwrap();
         let cancel = WaveCancellation::default();
         let error = service.begin_wave(&token, &cancel).unwrap_err();
-        assert_eq!(error, expected);
+        assert_eq!(error.stage(), Some(WaveStage::Session));
+        assert_eq!(error.http_status(), Some(status));
+        assert_eq!(error.category(), expected.category());
+        assert_eq!(error.music_error(), expected.music_error());
         assert!(cancel.is_cancelled());
         assert!(!format!("{error:?} {error}").contains("private"));
         assert_eq!(complete(server, listener).len(), 2);
@@ -387,7 +407,10 @@ fn unsupported_mixed_or_unknown_session_response_does_not_continue() {
         let token = token();
         service.account(&token).unwrap();
         let cancel = WaveCancellation::default();
-        assert_eq!(service.begin_wave(&token, &cancel).unwrap_err(), expected);
+        let error = service.begin_wave(&token, &cancel).unwrap_err();
+        assert_eq!(error.stage(), Some(WaveStage::Session));
+        assert_eq!(error.http_status(), Some(200));
+        assert_eq!(error.category(), expected.category());
         assert!(cancel.is_cancelled());
         assert_eq!(complete(server, listener).len(), 2);
     }
@@ -430,6 +453,9 @@ fn feedback_ambiguous_outcome_poisoning_prevents_replay() {
         (500, "private failed"),
         (200, "private malformed"),
         (200, r#"{"error":{"message":"private error"}}"#),
+        (200, r#"{"error":{"message":"private error"},"error":null}"#),
+        (200, r#"{"error":null,"error":null}"#),
+        (200, "[null]"),
     ] {
         let (service, server, listener) = fixture(
             vec![
@@ -453,7 +479,11 @@ fn feedback_ambiguous_outcome_poisoning_prevents_replay() {
         let reports = coordinator.observe(PlaybackState::Playing, now).unwrap();
         assert_eq!(
             service.wave_feedback(&token, &session, &reports[0]),
-            Err(WaveError::WriteOutcomeUnknown)
+            Err(WaveError::Response {
+                stage: WaveStage::Feedback,
+                cause: WaveResponseCause::WriteOutcomeUnknown,
+                http: status,
+            })
         );
         assert!(session.is_cancelled());
         assert_eq!(
@@ -696,7 +726,11 @@ fn next_batch_cannot_rebind_the_session_or_replay_a_lost_cursor_result() {
             .unwrap();
         assert!(matches!(
             service.wave_batch(&token, &session, &["42".into()]),
-            Err(WaveError::UnsupportedResponse)
+            Err(WaveError::Response {
+                stage: WaveStage::Tracks,
+                cause: WaveResponseCause::Unsupported,
+                http: 200,
+            })
         ));
         assert!(session.is_cancelled());
         assert!(matches!(
@@ -720,4 +754,540 @@ fn feedback_timestamp_is_utc_bounded_and_handles_leap_years() {
     );
     assert!(utc_timestamp(UNIX_EPOCH - Duration::from_secs(1)).is_err());
     assert!(utc_timestamp(UNIX_EPOCH + Duration::from_secs(253_402_300_800)).is_err());
+}
+
+#[test]
+fn normalization_keeps_composite_selectors_and_exact_matches_in_provider_order() {
+    for reverse in [false, true] {
+        let ids = ["42:7", "42", "42:7", "43", "44"];
+        let sequence = serde_json::json!({"result":{
+            "radioSessionId":"private-radio",
+            "batchId":"private-batch",
+            "sequence":ids.iter().map(|id|serde_json::json!({"type":"track","track":{"id":id}})).collect::<Vec<_>>()
+        }});
+        let mut canonical = serde_json::json!({"result":[
+            {"id":"42","title":"bare synthetic","available":true},
+            {"id":"42:7","title":"exact synthetic","available":true},
+            {"id":"43","title":"unavailable synthetic","available":false}
+        ]});
+        if reverse {
+            canonical["result"].as_array_mut().unwrap().reverse();
+        }
+        let (service, server, listener) = fixture(
+            vec![
+                (200, ACCOUNT.into()),
+                (200, sequence.to_string()),
+                (200, canonical.to_string()),
+            ],
+            None,
+        );
+        let token = token();
+        service.account(&token).unwrap();
+        let (session, batch) = service
+            .begin_wave(&token, &WaveCancellation::default())
+            .unwrap();
+        assert_eq!(
+            batch
+                .tracks
+                .iter()
+                .map(|track| track.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["42:7", "42", "42:7", "43"]
+        );
+        assert_eq!(batch.tracks[0].title, "exact synthetic");
+        assert_eq!(batch.tracks[1].title, "bare synthetic");
+        assert_eq!(batch.tracks[2].title, "exact synthetic");
+        assert!(!batch.tracks[3].available);
+        assert_eq!(batch.omitted, 1);
+        let mut coordinator = WaveCoordinator::new(&session);
+        coordinator
+            .select(1, &batch.tracks[0], &batch.marker(), Instant::now())
+            .unwrap();
+        let requests = complete(server, listener);
+        assert_eq!(requests.len(), 3);
+        assert!(requests[2].ends_with("track-ids=42%3A7&track-ids=42&track-ids=43&track-ids=44"));
+    }
+}
+
+#[test]
+fn normalization_refuses_duplicate_and_unsolicited_canonical_records() {
+    for canonical in [track_body(&[42, 42]), track_body(&[42, 99])] {
+        let (service, server, listener) = fixture(
+            vec![
+                (200, ACCOUNT.into()),
+                (200, session_body("batch-1", &[42, 43], Some("radio-1"))),
+                (200, canonical),
+            ],
+            None,
+        );
+        let token = token();
+        service.account(&token).unwrap();
+        let cancellation = WaveCancellation::default();
+        let error = service.begin_wave(&token, &cancellation).unwrap_err();
+        assert_eq!(error.stage(), Some(WaveStage::Normalization));
+        assert_eq!(error.music_error(), Some(MusicError::InvalidResponse));
+        assert_eq!(error.http_status(), Some(200));
+        assert!(cancellation.is_cancelled());
+        assert_eq!(complete(server, listener).len(), 3);
+    }
+}
+
+#[test]
+fn status_only_unknown_and_terminated_responses_stop_before_track_lookup() {
+    for (flag, expected) in [
+        ("unknownSession", WaveError::UnknownSession),
+        ("terminated", WaveError::Terminated),
+    ] {
+        for next in [false, true] {
+            let terminal = serde_json::json!({"result":{flag:true}}).to_string();
+            let mut responses = vec![(200, ACCOUNT.into())];
+            if next {
+                responses.extend([
+                    (200, session_body("batch-1", &[42], Some("radio-1"))),
+                    (200, track_body(&[42])),
+                ]);
+            }
+            responses.push((200, terminal));
+            let (service, server, listener) = fixture(responses, None);
+            let token = token();
+            service.account(&token).unwrap();
+            let cancellation = WaveCancellation::default();
+            if next {
+                let (session, _) = service.begin_wave(&token, &cancellation).unwrap();
+                let error = service.wave_batch(&token, &session, &[]).unwrap_err();
+                assert_eq!(error.stage(), Some(WaveStage::Tracks));
+                assert_eq!(error.http_status(), Some(200));
+                assert_eq!(error.category(), expected.category());
+                assert!(session.is_cancelled());
+                assert_eq!(
+                    service.wave_batch(&token, &session, &[]).unwrap_err(),
+                    WaveError::Cancelled
+                );
+            } else {
+                let error = service.begin_wave(&token, &cancellation).unwrap_err();
+                assert_eq!(error.stage(), Some(WaveStage::Session));
+                assert_eq!(error.http_status(), Some(200));
+                assert_eq!(error.category(), expected.category());
+            }
+            assert!(cancellation.is_cancelled());
+            assert_eq!(complete(server, listener).len(), if next { 4 } else { 2 });
+        }
+    }
+}
+
+#[test]
+fn cancellation_and_account_retirement_during_encoding_prevent_dispatch() {
+    struct RetireDuringEncode<'a> {
+        service: &'a MusicService,
+        cancellation: &'a WaveCancellation,
+        logout: bool,
+    }
+    impl Serialize for RetireDuringEncode<'_> {
+        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            if self.logout {
+                self.service.clear_session();
+            } else {
+                self.cancellation.cancel();
+            }
+            serde_json::json!({"seeds":["user:onyourwave"]}).serialize(serializer)
+        }
+    }
+    for logout in [false, true] {
+        let (service, server, listener) = fixture(vec![(200, ACCOUNT.into())], None);
+        let token = token();
+        service.account(&token).unwrap();
+        let binding = service.search_binding(&token).unwrap();
+        let cancellation = WaveCancellation::default();
+        let error = service
+            .wave_post(
+                &token,
+                &cancellation,
+                &binding,
+                WaveStage::Session,
+                &["rotor", "session", "new"],
+                &RetireDuringEncode {
+                    service: &service,
+                    cancellation: &cancellation,
+                    logout,
+                },
+            )
+            .unwrap_err();
+        assert_eq!(
+            error,
+            if logout {
+                WaveError::Music(MusicError::Unauthenticated)
+            } else {
+                WaveError::Cancelled
+            }
+        );
+        assert_eq!(complete(server, listener).len(), 1);
+    }
+}
+
+#[test]
+fn measured_clock_excludes_callback_delays_pause_and_completion_wall_time() {
+    let (session, marker, track) = pure_session();
+    let mut c = WaveCoordinator::new(&session);
+    let now = Instant::now();
+    c.select(1, &track, &marker, now).unwrap();
+    assert!(
+        c.observe_measured(
+            PlaybackState::Loading,
+            Duration::ZERO,
+            now + Duration::from_secs(100)
+        )
+        .unwrap()
+        .is_empty()
+    );
+    let start = c
+        .observe_measured(
+            PlaybackState::Playing,
+            Duration::from_millis(10),
+            now + Duration::from_secs(101),
+        )
+        .unwrap();
+    assert_eq!(
+        start.iter().map(WaveEvent::kind).collect::<Vec<_>>(),
+        vec![WaveEventKind::RadioStarted, WaveEventKind::TrackStarted]
+    );
+    for (state, millis, seconds) in [
+        (PlaybackState::Playing, 250, 1_000),
+        (PlaybackState::Paused, 500, 2_000),
+        (PlaybackState::Paused, 500, 3_000),
+        (PlaybackState::Playing, 600, 5_000),
+    ] {
+        assert!(
+            c.observe_measured(
+                state,
+                Duration::from_millis(millis),
+                now + Duration::from_secs(seconds)
+            )
+            .unwrap()
+            .is_empty()
+        );
+    }
+    let finished = c
+        .observe_measured(
+            PlaybackState::Ended,
+            Duration::from_millis(700),
+            now + Duration::from_secs(6_000),
+        )
+        .unwrap();
+    assert_eq!(finished.len(), 1);
+    assert_eq!(finished[0].kind(), WaveEventKind::TrackFinished);
+    assert_eq!(finished[0].heard(), Duration::from_millis(700));
+    assert!(
+        c.observe_measured(
+            PlaybackState::Ended,
+            Duration::from_millis(700),
+            now + Duration::from_secs(7_000)
+        )
+        .unwrap()
+        .is_empty()
+    );
+
+    // A completed old cycle stays idempotent. An intentional new source cycle
+    // resets the absolute worker counter even for the same metadata/marker.
+    assert!(
+        c.select(1, &track, &marker, now + Duration::from_secs(8_000))
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        c.observe_measured(
+            PlaybackState::Playing,
+            Duration::from_millis(700),
+            now + Duration::from_secs(8_001)
+        )
+        .unwrap()
+        .is_empty()
+    );
+    c.select(2, &track, &marker, now + Duration::from_secs(9_000))
+        .unwrap();
+    let restarted = c
+        .observe_measured(
+            PlaybackState::Playing,
+            Duration::ZERO,
+            now + Duration::from_secs(9_001),
+        )
+        .unwrap();
+    assert_eq!(restarted.len(), 1);
+    assert_eq!(restarted[0].kind(), WaveEventKind::TrackStarted);
+    c.observe_measured(
+        PlaybackState::Paused,
+        Duration::from_millis(25),
+        now + Duration::from_secs(9_002),
+    )
+    .unwrap();
+    let closed = c.finish(now + Duration::from_secs(50_000)).unwrap();
+    assert_eq!(closed.len(), 2);
+    assert_eq!(closed[0].kind(), WaveEventKind::Skip);
+    assert_eq!(closed[0].heard(), Duration::from_millis(25));
+    assert_eq!(closed[1].kind(), WaveEventKind::RadioFinished);
+}
+
+#[test]
+fn positive_worker_clock_recovers_a_missed_playing_snapshot_without_faking_zero_time() {
+    for state in [
+        PlaybackState::Ended,
+        PlaybackState::Paused,
+        PlaybackState::Error,
+    ] {
+        let (session, marker, track) = pure_session();
+        let mut c = WaveCoordinator::new(&session);
+        let now = Instant::now();
+        c.select(1, &track, &marker, now).unwrap();
+        let events = c
+            .observe_measured(
+                state,
+                Duration::from_millis(35),
+                now + Duration::from_secs(30),
+            )
+            .unwrap();
+        let mut expected = vec![WaveEventKind::RadioStarted, WaveEventKind::TrackStarted];
+        if state != PlaybackState::Paused {
+            expected.push(if state == PlaybackState::Ended {
+                WaveEventKind::TrackFinished
+            } else {
+                WaveEventKind::Skip
+            });
+            assert_eq!(events.last().unwrap().heard(), Duration::from_millis(35));
+        }
+        assert_eq!(
+            events.iter().map(WaveEvent::kind).collect::<Vec<_>>(),
+            expected
+        );
+        if state == PlaybackState::Paused {
+            let events = c
+                .observe_measured(
+                    PlaybackState::Ended,
+                    Duration::from_millis(35),
+                    now + Duration::from_secs(60),
+                )
+                .unwrap();
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].kind(), WaveEventKind::TrackFinished);
+            assert_eq!(events[0].heard(), Duration::from_millis(35));
+        }
+    }
+    for state in [
+        PlaybackState::Loading,
+        PlaybackState::Ended,
+        PlaybackState::Error,
+    ] {
+        let (session, marker, track) = pure_session();
+        let mut c = WaveCoordinator::new(&session);
+        let now = Instant::now();
+        c.select(1, &track, &marker, now).unwrap();
+        assert!(
+            c.observe_measured(state, Duration::ZERO, now + Duration::from_secs(30))
+                .unwrap()
+                .is_empty()
+        );
+        assert!(c.finish(now + Duration::from_secs(60)).unwrap().is_empty());
+    }
+}
+
+#[test]
+fn measured_clock_rejects_reset_backwards_time_and_mixed_observation_modes() {
+    let (session, marker, track) = pure_session();
+    let mut c = WaveCoordinator::new(&session);
+    let now = Instant::now();
+    c.select(1, &track, &marker, now).unwrap();
+    c.observe_measured(PlaybackState::Playing, Duration::from_millis(100), now)
+        .unwrap();
+    for (total, time) in [
+        (Duration::ZERO, now + Duration::from_secs(1)),
+        (Duration::from_millis(100), now - Duration::from_millis(1)),
+        (
+            MAX_HEARD + Duration::from_millis(1),
+            now + Duration::from_secs(1),
+        ),
+    ] {
+        assert!(matches!(
+            c.observe_measured(PlaybackState::Paused, total, time),
+            Err(WaveError::InvalidObservation)
+        ));
+    }
+    assert!(matches!(
+        c.observe(PlaybackState::Paused, now + Duration::from_secs(10)),
+        Err(WaveError::InvalidObservation)
+    ));
+    let finished = c
+        .observe_measured(
+            PlaybackState::Ended,
+            Duration::from_millis(150),
+            now + Duration::from_secs(20),
+        )
+        .unwrap();
+    assert_eq!(finished[0].heard(), Duration::from_millis(150));
+
+    c.select(2, &track, &marker, now + Duration::from_secs(21))
+        .unwrap();
+    c.observe(PlaybackState::Loading, now + Duration::from_secs(22))
+        .unwrap();
+    assert!(matches!(
+        c.observe_measured(
+            PlaybackState::Playing,
+            Duration::ZERO,
+            now + Duration::from_secs(23)
+        ),
+        Err(WaveError::InvalidObservation)
+    ));
+    assert_eq!(
+        c.observe(PlaybackState::Playing, now + Duration::from_secs(23))
+            .unwrap()[0]
+            .kind(),
+        WaveEventKind::TrackStarted
+    );
+}
+
+#[test]
+fn diagnostic_accessors_keep_fixed_categories_and_do_not_invent_http_status() {
+    let error = WaveError::Request {
+        stage: WaveStage::Feedback,
+        error: MusicError::Forbidden,
+    };
+    assert_eq!(error.stage().map(WaveStage::as_str), Some("feedback"));
+    assert_eq!(error.category(), MusicError::Forbidden.category());
+    assert_eq!(error.http_status(), Some(403));
+    assert_eq!(WaveError::WriteOutcomeUnknown.http_status(), None);
+    assert_eq!(WaveError::UnsupportedResponse.http_status(), None);
+    assert_eq!(WaveError::Terminated.category(), "session-terminated");
+    let safe = format!(
+        "{} {} {:?}",
+        error.stage().unwrap().as_str(),
+        error.category(),
+        error.http_status()
+    );
+    for private in [
+        TOKEN,
+        "private-radio",
+        "private-batch",
+        "private-account",
+        "synthetic artist",
+    ] {
+        assert!(!safe.contains(private));
+    }
+}
+
+#[test]
+fn empty_session_and_empty_canonical_lookup_keep_the_actual_failed_stage_and_http() {
+    for canonical in [false, true] {
+        let mut replies = vec![
+            (200, ACCOUNT.into()),
+            (
+                200,
+                session_body(
+                    "private-batch",
+                    if canonical { &[42] } else { &[] },
+                    Some("private-radio"),
+                ),
+            ),
+        ];
+        if canonical {
+            replies.push((200, r#"{"result":[null]}"#.into()));
+        }
+        let (service, server, listener) = fixture(replies, None);
+        let token = token();
+        service.account(&token).unwrap();
+        let cancellation = WaveCancellation::default();
+        let error = service.begin_wave(&token, &cancellation).unwrap_err();
+        assert_eq!(
+            error,
+            WaveError::Response {
+                stage: if canonical {
+                    WaveStage::Normalization
+                } else {
+                    WaveStage::Session
+                },
+                cause: WaveResponseCause::NoTracks,
+                http: 200,
+            }
+        );
+        assert_eq!(error.category(), "no-tracks");
+        assert_eq!(error.http_status(), Some(200));
+        assert!(cancellation.is_cancelled());
+        for private in [TOKEN, "private-batch", "private-radio", "private-account"] {
+            assert!(!format!("{error:?} {error}").contains(private));
+        }
+        assert_eq!(
+            complete(server, listener).len(),
+            if canonical { 3 } else { 2 }
+        );
+    }
+}
+
+#[test]
+fn failed_body_after_headers_keeps_http_and_poisoned_write_is_never_replayed() {
+    for feedback in [false, true] {
+        let mut responses = vec![(200, ACCOUNT.into())];
+        if feedback {
+            responses.extend([
+                (200, session_body("batch-1", &[42], Some("radio-1"))),
+                (200, track_body(&[42])),
+            ]);
+        }
+        responses.push((200, "{}".into()));
+        let (service, server, listener) = fixture(
+            responses,
+            Some(Hook::Truncate(if feedback { 3 } else { 1 })),
+        );
+        let token = token();
+        service.account(&token).unwrap();
+        let cancellation = WaveCancellation::default();
+        let error = if feedback {
+            let (session, batch) = service.begin_wave(&token, &cancellation).unwrap();
+            let now = Instant::now();
+            let mut c = WaveCoordinator::new(&session);
+            c.select(1, &batch.tracks[0], &batch.marker(), now).unwrap();
+            let event = c.observe(PlaybackState::Playing, now).unwrap().remove(0);
+            let error = service.wave_feedback(&token, &session, &event).unwrap_err();
+            assert_eq!(
+                service.wave_feedback(&token, &session, &event),
+                Err(WaveError::Cancelled)
+            );
+            error
+        } else {
+            service.begin_wave(&token, &cancellation).unwrap_err()
+        };
+        assert_eq!(
+            error,
+            WaveError::Response {
+                stage: if feedback {
+                    WaveStage::Feedback
+                } else {
+                    WaveStage::Session
+                },
+                cause: WaveResponseCause::WriteOutcomeUnknown,
+                http: 200,
+            }
+        );
+        assert!(cancellation.is_cancelled());
+        assert_eq!(
+            complete(server, listener).len(),
+            if feedback { 4 } else { 2 }
+        );
+    }
+}
+
+#[test]
+fn canonical_lookup_failure_before_headers_does_not_inherit_session_http_200() {
+    let (service, server, listener) = fixture(
+        vec![
+            (200, ACCOUNT.into()),
+            (200, session_body("batch-1", &[42], Some("radio-1"))),
+            (200, String::new()),
+        ],
+        Some(Hook::DropHeaders(2)),
+    );
+    let token = token();
+    service.account(&token).unwrap();
+    let cancellation = WaveCancellation::default();
+    let error = service.begin_wave(&token, &cancellation).unwrap_err();
+    assert_eq!(error.stage(), Some(WaveStage::Normalization));
+    assert_eq!(error.music_error(), Some(MusicError::Network));
+    assert_eq!(error.http_status(), None);
+    assert!(cancellation.is_cancelled());
+    assert_eq!(complete(server, listener).len(), 3);
 }
