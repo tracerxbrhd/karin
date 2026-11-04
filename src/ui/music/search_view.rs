@@ -28,6 +28,9 @@ impl Controller {
         }
         let query = self.widgets.search.text().trim().to_owned();
         let scope = self.model.borrow().search_scope;
+        self.track_feeds
+            .borrow_mut()
+            .retain(|feed| feed.rows != self.widgets.search_rows);
         self.reset_search_sections();
         self.clear_search_feedback();
         clear_list(&self.widgets.search_rows);
@@ -54,6 +57,18 @@ impl Controller {
                 .search_scope_title
                 .set_text(section_title(kind));
             self.widgets.search_scope_title.set_visible(true);
+            if kind == SearchKind::Tracks {
+                let feed = self.new_track_feed(
+                    continuous_loading::FeedSource::Search(query),
+                    ContextKind::Search,
+                    None,
+                    &self.widgets.search_rows,
+                    &self.widgets.search_feedback,
+                );
+                self.widgets.search_feedback.set_visible(true);
+                self.request_track_feed(&feed, false);
+                return;
+            }
             self.run(
                 Operation::Search,
                 move |service, token| service.search(&token, &query, kind, page),
@@ -71,19 +86,16 @@ impl Controller {
                                 0..usize::MAX,
                             ),
                             SearchKind::Albums => {
-                                for album in result.albums {
-                                    this.album_row(&this.widgets.search_rows, album);
-                                }
+                                this.search_album_tiles(&this.widgets.search_rows, result.albums);
                             }
                             SearchKind::Artists => {
-                                for artist in result.artists {
-                                    this.artist_row(&this.widgets.search_rows, artist);
-                                }
+                                this.search_artist_tiles(&this.widgets.search_rows, result.artists);
                             }
                             SearchKind::Playlists => {
-                                for playlist in result.playlists {
-                                    this.search_playlist_row(&this.widgets.search_rows, playlist);
-                                }
+                                this.search_playlist_tiles(
+                                    &this.widgets.search_rows,
+                                    result.playlists,
+                                );
                             }
                         }
                         if this.widgets.search_rows.first_child().is_none() {
@@ -141,23 +153,17 @@ impl Controller {
         }
         if let Some((rows, section)) = self.search_section(SearchKind::Albums, result.albums, None)
         {
-            for album in section.items.into_iter().take(5) {
-                self.album_row(&rows, album);
-            }
+            self.search_album_tiles(&rows, section.items.into_iter().take(5).collect());
         }
         if let Some((rows, section)) =
             self.search_section(SearchKind::Artists, result.artists, None)
         {
-            for artist in section.items.into_iter().take(5) {
-                self.artist_row(&rows, artist);
-            }
+            self.search_artist_tiles(&rows, section.items.into_iter().take(5).collect());
         }
         if let Some((rows, section)) =
             self.search_section(SearchKind::Playlists, result.playlists, None)
         {
-            for playlist in section.items.into_iter().take(5) {
-                self.search_playlist_row(&rows, playlist);
-            }
+            self.search_playlist_tiles(&rows, section.items.into_iter().take(5).collect());
         }
         if self.widgets.search_sections.first_child().is_none() {
             self.widgets.search_sections.append(&text(
@@ -182,11 +188,12 @@ impl Controller {
     ) -> Option<(gtk::ListBox, SearchSection<T>)> {
         if result
             .as_ref()
-            .is_ok_and(|s| s.items.is_empty() && s.omitted == 0)
+            .is_ok_and(|s| s.items.is_empty() && s.omitted == 0 && !s.has_more)
         {
             return None;
         }
         let section = gtk::Box::new(gtk::Orientation::Vertical, 8);
+        section.add_css_class("music-search-section");
         section.set_widget_name(match kind {
             SearchKind::Tracks => "music-results-tracks",
             SearchKind::Albums => "music-results-albums",
@@ -248,70 +255,147 @@ impl Controller {
         }
     }
 
-    fn search_playlist_row(self: &Rc<Self>, rows: &gtk::ListBox, playlist: SearchPlaylist) {
-        let subtitle = playlist
-            .track_count
-            .map(track_count_text)
-            .unwrap_or_else(|| "Плейлист".into());
-        let (row, body) = item(&playlist.title, &subtitle);
-        body.prepend(&cover_widget(
-            self.artwork.as_ref(),
-            playlist.cover.as_ref(),
-            48,
-        ));
-        body.append(&gtk::Image::from_icon_name("go-next-symbolic"));
-        self.row_action(&row, RowAction::SearchPlaylist(playlist));
-        rows.append(&row);
+    fn search_album_tiles(self: &Rc<Self>, rows: &gtk::ListBox, albums: Vec<Album>) {
+        if albums.is_empty() {
+            return;
+        }
+        let grid = search_grid(rows);
+        for album in albums {
+            let tile = catalog_layout::catalog_tile(
+                self.artwork.as_ref(),
+                album.cover.as_ref(),
+                &album.title,
+                &album.artists.join(", "),
+                false,
+            );
+            tile.set_widget_name("music-search-album-tile");
+            tile.update_property(&[gtk::accessible::Property::Label(&format!(
+                "Открыть альбом: {}",
+                album.title
+            ))]);
+            self.search_tile_action(&tile, RowAction::Album(album.id));
+            catalog_layout::append_tile(&grid, &tile);
+        }
     }
 
-    pub(super) fn open_search_playlist(self: &Rc<Self>, playlist: SearchPlaylist, page: u32) {
-        let id = playlist.id.clone();
-        self.detail_loading(&playlist.title, "Загрузка плейлиста…");
-        self.run(
-            Operation::Detail,
-            move |service, token| service.playlist_tracks(&token, &id, page),
-            move |this, result| match result {
-                Ok(data) => {
-                    this.detail_header(
-                        &playlist.title,
-                        &format!("Плейлист · страница {}", page + 1),
-                    );
-                    this.detail_cover(playlist.cover.as_ref());
-                    let rows = list();
-                    this.tracks_from(
-                        &rows,
-                        data.items,
-                        ContextKind::Playlist,
-                        Some(format!("{}:{}", playlist.id.owner, playlist.id.kind)),
-                        page > 0 || data.has_more,
-                        0..usize::MAX,
-                    );
-                    this.widgets.detail.append(&rows);
-                    let pages = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-                    for (label, target, visible) in [
-                        ("Предыдущая страница", page.saturating_sub(1), page > 0),
-                        ("Следующая страница", page.saturating_add(1), data.has_more),
-                    ] {
-                        if visible {
-                            let button = gtk::Button::with_label(label);
-                            let weak = Rc::downgrade(this);
-                            let selected = playlist.clone();
-                            button.connect_clicked(move |_| {
-                                if let Some(this) = weak.upgrade() {
-                                    this.open_search_playlist(selected.clone(), target);
-                                }
-                            });
-                            pages.append(&button);
-                        }
-                    }
-                    this.widgets.detail.append(&pages);
-                }
-                Err(error) => this.detail_error(error, move |this| {
-                    this.open_search_playlist(playlist.clone(), page)
-                }),
-            },
-        );
+    fn search_artist_tiles(self: &Rc<Self>, rows: &gtk::ListBox, artists: Vec<Artist>) {
+        if artists.is_empty() {
+            return;
+        }
+        let grid = search_grid(rows);
+        for artist in artists {
+            let tile = catalog_layout::catalog_tile(
+                self.artwork.as_ref(),
+                artist.cover.as_ref(),
+                &artist.name,
+                "Исполнитель",
+                true,
+            );
+            tile.set_widget_name("music-search-artist-tile");
+            tile.update_property(&[gtk::accessible::Property::Label(&format!(
+                "Открыть исполнителя: {}",
+                artist.name
+            ))]);
+            self.search_tile_action(&tile, RowAction::Artist(artist));
+            catalog_layout::append_tile(&grid, &tile);
+        }
     }
+
+    fn search_playlist_tiles(self: &Rc<Self>, rows: &gtk::ListBox, playlists: Vec<SearchPlaylist>) {
+        if playlists.is_empty() {
+            return;
+        }
+        let grid = search_grid(rows);
+        for playlist in playlists {
+            let subtitle = playlist
+                .track_count
+                .map(track_count_text)
+                .unwrap_or_else(|| "Плейлист".into());
+            let tile = catalog_layout::catalog_tile(
+                self.artwork.as_ref(),
+                playlist.cover.as_ref(),
+                &playlist.title,
+                &subtitle,
+                false,
+            );
+            tile.set_widget_name("music-search-playlist-tile");
+            tile.update_property(&[gtk::accessible::Property::Label(&format!(
+                "Открыть плейлист: {}",
+                playlist.title
+            ))]);
+            self.search_tile_action(&tile, RowAction::SearchPlaylist(playlist));
+            catalog_layout::append_tile(&grid, &tile);
+        }
+    }
+
+    fn search_tile_action(self: &Rc<Self>, tile: &gtk::Button, action: RowAction) {
+        let generation = self.model.borrow().generation;
+        let weak = Rc::downgrade(self);
+        tile.connect_clicked(move |_| {
+            let Some(this) = weak.upgrade() else { return };
+            let model = this.model.borrow();
+            if model.closed || !model.account_valid || model.generation != generation {
+                return;
+            }
+            drop(model);
+            match &action {
+                RowAction::Album(id) => this.open_album(id.clone()),
+                RowAction::Artist(artist) => this.open_artist(artist.clone(), 0),
+                RowAction::SearchPlaylist(playlist) => {
+                    this.open_search_playlist(playlist.clone(), 0)
+                }
+                _ => {}
+            }
+        });
+    }
+
+    pub(super) fn open_search_playlist(self: &Rc<Self>, playlist: SearchPlaylist, _page: u32) {
+        self.open_search_playlist_policy(playlist, false);
+    }
+
+    fn open_search_playlist_policy(self: &Rc<Self>, playlist: SearchPlaylist, force: bool) {
+        self.detail_loading(&playlist.title, "Загрузка плейлиста…");
+        let refresh = playlist.clone();
+        self.detail_refresh.replace(Some(Rc::new(move |this| {
+            this.open_search_playlist_policy(refresh.clone(), true)
+        })));
+        self.detail_header(
+            &playlist.title,
+            &playlist
+                .track_count
+                .map(track_count_text)
+                .map_or_else(|| "Плейлист".into(), |count| format!("Плейлист · {count}")),
+        );
+        self.detail_cover(playlist.cover.as_ref());
+        let rows = list();
+        let status = gtk::Box::new(gtk::Orientation::Vertical, 6);
+        self.widgets.detail.append(&rows);
+        self.widgets.detail.append(&status);
+        let id = Some(format!("{}:{}", playlist.id.owner, playlist.id.kind));
+        let feed = self.new_track_feed(
+            continuous_loading::FeedSource::SearchPlaylist(playlist),
+            ContextKind::Playlist,
+            id,
+            &rows,
+            &status,
+        );
+        self.detail_primary(Some(self.feed_play_button(&feed)));
+        self.request_track_feed(&feed, force);
+    }
+}
+
+fn search_grid(rows: &gtk::ListBox) -> gtk::FlowBox {
+    rows.remove_css_class("boxed-list");
+    rows.add_css_class("music-catalog-results");
+    let row = gtk::ListBoxRow::new();
+    row.set_activatable(false);
+    row.set_selectable(false);
+    row.set_focusable(false);
+    row.add_css_class("music-catalog-grid-row");
+    let grid = catalog_layout::tile_grid();
+    row.set_child(Some(&grid));
+    rows.append(&row);
+    grid
 }
 
 fn section_title(kind: SearchKind) -> &'static str {

@@ -47,6 +47,30 @@ fn settle() {
     pump_until(|| Instant::now() >= deadline);
 }
 
+fn resize(window: &adw::ApplicationWindow, pane: &TrackPane, width: i32, height: i32) {
+    let (minimum, natural, _, _) = pane.widget.measure(gtk::Orientation::Horizontal, -1);
+    assert!(
+        minimum <= width,
+        "pane minimum={minimum} natural={natural} exceeds requested width={width}"
+    );
+    window.set_default_size(width, height);
+    let previous = Cell::new(None);
+    pump_until(|| {
+        let current = (window.width(), window.height(), pane.widget.width());
+        if previous.replace(Some(current)) != Some(current) {
+            eprintln!(
+                "Synthetic track pane resize: requested={width}x{height} window={}x{} pane={} minimum={minimum} natural={natural}",
+                current.0, current.1, current.2,
+            );
+        }
+        // Wait for the actual GTK allocation; a fixed delay can inspect the
+        // preceding frame. Native CSD shadows account for a small size delta.
+        (current.0 - width).abs() <= 24 && (current.1 - height).abs() <= 24
+    });
+    pane.set_available_size(pane.widget.width(), pane.widget.height());
+    settle();
+}
+
 fn click(window: &adw::ApplicationWindow, id: &str, widget: &impl IsA<gtk::Widget>) {
     let (x, y) = test_input::pointer(window, widget, test_input::Target::Center);
     input(&[
@@ -61,11 +85,34 @@ fn click(window: &adw::ApplicationWindow, id: &str, widget: &impl IsA<gtk::Widge
     settle();
 }
 
+fn assert_centered_music_cluster(pane: &TrackPane) {
+    let cover = pane.cover.compute_bounds(&pane.widget).unwrap();
+    let expected = cover.x() + cover.width() / 2.0;
+    for widget in [
+        pane.title.clone().upcast::<gtk::Widget>(),
+        pane.play.parent().unwrap(),
+        pane.album.clone().upcast(),
+        pane.artists.first_child().unwrap(),
+    ] {
+        let bounds = widget.compute_bounds(&pane.widget).unwrap();
+        assert!(
+            (bounds.x() + bounds.width() / 2.0 - expected).abs() <= 1.0,
+            "artwork, metadata and actions must share the music-cluster axis: widget={} cover={cover:?} bounds={bounds:?}",
+            widget.widget_name()
+        );
+        assert!(
+            bounds.x() >= 0.0 && bounds.x() + bounds.width() <= pane.widget.width() as f32,
+            "the music cluster stays inside the allocated pane: {bounds:?}"
+        );
+    }
+}
+
 #[test]
 #[ignore = "requires isolated Xvfb, xdotool and GTK; synthetic metadata only"]
 fn native_workspace_track_pane_actions_state_and_cleanup() {
     gtk::init().unwrap();
     adw::init().unwrap();
+    crate::ui::style::install();
     let app = adw::Application::builder()
         .application_id("io.github.tracerxbrhd.Karin.TrackPaneFixture")
         .flags(gio::ApplicationFlags::NON_UNIQUE)
@@ -119,15 +166,40 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
     pane.set_track(Some(&selected), None);
     pane.set_playback("Приостановлено", true, true);
     pane.set_context(Some("Понравившиеся треки · загруженная часть коллекции"));
+    assert!(
+        !pane.status.is_visible(),
+        "the Player Bar owns transport status"
+    );
+    assert!(
+        !pane.album_title.is_visible(),
+        "verified album is shown once as a link"
+    );
+    assert!(
+        !pane.credits.is_visible(),
+        "verified artist is shown once as a link"
+    );
+    assert!(pane.play.label().is_none());
+    assert!(pane.details.label().is_none());
+    assert_eq!(pane.play.parent(), pane.enqueue.parent());
+    assert_eq!(pane.play.parent(), pane.details.parent());
+    let host = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    spacer.set_hexpand(true);
+    spacer.set_visible(false);
+    host.append(&spacer);
+    pane.widget.set_hexpand(true);
+    host.append(&pane.widget);
     let window = adw::ApplicationWindow::builder()
         .application(&app)
         .title("Karin synthetic HTTP fixture")
         .default_width(420)
         .default_height(980)
-        .content(&pane.widget)
+        .content(&host)
         .build();
     window.present();
     pump_until(|| pane.play.is_mapped() && pane.play.width() > 0);
+    settle();
+    assert_centered_music_cluster(&pane);
     let output = Command::new("xdotool")
         .args([
             "search",
@@ -170,9 +242,20 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
     pane.set_playback("Воспроизведение", true, true);
     assert_eq!(pane.status.text(), "Воспроизведение");
     assert_eq!(pane.selected().as_ref(), Some(&selected));
-    assert_eq!(pane.cover.first_child().unwrap().width_request(), 224);
+    let cover = pane.cover.first_child().unwrap();
+    assert_eq!(cover.width_request(), 256);
+    assert_eq!(cover.height_request(), 256);
+    assert_eq!(cover.width(), cover.height());
+    assert!((224..=272).contains(&cover.width()));
     capture_native("workspace-track-info");
-    window.set_default_size(420, 720);
+    resize(&window, &pane, 420, 720);
+    pane.set_compact(true);
+    assert_eq!(pane.header.first_child(), Some(pane.close.clone().upcast()));
+    assert_eq!(
+        pane.close.icon_name().as_deref(),
+        Some("go-previous-symbolic")
+    );
+    assert_eq!(pane.close.tooltip_text().as_deref(), Some("Назад к музыке"));
     pane.close.grab_focus();
     settle();
     let scale = window.scale_factor();
@@ -196,16 +279,82 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
     );
     capture_native("workspace-track-info-compact");
 
+    // AdwApplicationWindow itself has a native minimum outer width near 360 px.
+    // Exercise the actual 300 px sidebar inside a valid window, rather than
+    // mistaking the window's own minimum for information-content overflow.
+    let (minimum, natural, _, _) = pane.widget.measure(gtk::Orientation::Horizontal, -1);
+    assert!(
+        minimum <= 300,
+        "pane minimum={minimum} natural={natural} exceeds 300 px"
+    );
+    spacer.set_visible(true);
+    pane.widget.set_hexpand(false);
+    pane.widget.set_halign(gtk::Align::End);
+    pane.widget.set_width_request(300);
+    resize(&window, &pane, 420, 650);
+    pump_until(|| pane.widget.width() == 300);
+    pane.set_compact(false);
+    assert_eq!(pane.header.last_child(), Some(pane.close.clone().upcast()));
+    settle();
+    assert!(
+        pane.widget.width() == 300,
+        "pane retains its real sidebar allocation: window={} pane={}",
+        window.width(),
+        pane.widget.width(),
+    );
+    let cover_bounds = cover.compute_bounds(&pane.widget).unwrap();
+    assert!(cover_bounds.x() >= 0.0);
+    assert!(cover_bounds.x() + cover_bounds.width() <= pane.widget.width() as f32);
+    assert_centered_music_cluster(&pane);
+    assert_eq!(
+        pane.close.icon_name().as_deref(),
+        Some("window-close-symbolic")
+    );
+    pane.details.grab_focus();
+    settle();
+    assert!(pane.details.has_focus());
+    capture_native("native-music-track-info-sidebar");
+
+    // A short ordinary track must expose primary actions even in the smaller
+    // viewport left by a visible player. Resize the existing art in place;
+    // long metadata remains an independent native scrolling case above.
+    let short = track("42", "Synthetic short track");
+    pane.set_track(Some(&short), None);
+    pane.set_playback("", true, true);
+    let art = pane.cover.first_child().unwrap();
+    for height in [420, 650, 420] {
+        resize(&window, &pane, 420, height);
+        assert_eq!(pane.cover.first_child().as_ref(), Some(&art));
+        assert!((96..=256).contains(&art.width_request()));
+        assert_eq!(art.width_request(), art.height_request());
+        let actions = pane.transport.compute_bounds(&pane.scroll).unwrap();
+        assert!(
+            actions.y() >= 0.0 && actions.y() + actions.height() <= pane.scroll.height() as f32,
+            "short metadata actions must fit the actual viewport: actions={actions:?} viewport={}x{} art={}",
+            pane.scroll.width(),
+            pane.scroll.height(),
+            art.width_request()
+        );
+        assert!(pane.play.width() >= 44 && pane.play.height() >= 44);
+        assert_centered_music_cluster(&pane);
+    }
+    capture_native("native-music-track-info-height-responsive");
+
     let mut unavailable = track("43", "Synthetic unavailable track");
     unavailable.available = false;
     unavailable.artist_links.clear();
     unavailable.album_id = None;
-    unavailable.album_title = None;
+    unavailable.album_title = Some("Album without a verified catalog ID".into());
     pane.set_track(Some(&unavailable), None);
     pane.set_playback("Недоступен", true, false);
     assert!(!pane.play.is_sensitive());
     assert!(!pane.enqueue.is_sensitive());
     assert!(!pane.album.is_visible());
+    assert!(pane.album_title.is_visible());
+    assert!(
+        pane.credits.is_visible(),
+        "unlinked credit remains honest display text"
+    );
     assert!(!pane.artists.is_visible());
     artist.emit_clicked();
     assert_eq!(
@@ -224,11 +373,15 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
     assert!(!pane.content.is_visible());
     assert!(pane.empty.is_visible());
     assert!(!pane.play.is_sensitive());
+    assert!(pane.title.tooltip_text().is_none());
+    assert!(pane.state.context.borrow().is_none());
     reenter.set(false);
     click(&window, id, &pane.close);
     assert_eq!(events.borrow().last(), Some(&"close"));
     window.set_content(gtk::Widget::NONE);
     window.close();
+    drop(host);
+    drop(spacer);
     drop(artist);
     drop(window);
     let widget = pane.widget.downgrade();

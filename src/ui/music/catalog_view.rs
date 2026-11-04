@@ -123,7 +123,7 @@ impl Controller {
         }
         let stale = provenance == Provenance::StaleCache;
         self.widgets.cache_notice.set_title(if stale {
-            "Показаны сохранённые данные: сеть недоступна. Сведения могут быть устаревшими."
+            "Часть данных показана из сохранённой копии и может быть устаревшей."
         } else {
             "Данные получены, но не сохранены в кеше."
         });
@@ -143,20 +143,50 @@ impl Controller {
         storage_error: bool,
     ) {
         let mut model = self.model.borrow_mut();
-        let displayed = model.library_displaying;
-        model.library_origins.retain(|(s, p, _, _)| {
-            *s != section || (*p != page && (*p == 0 || displayed == Some((*s, *p))))
-        });
         model
             .library_origins
-            .push((section, page, provenance, storage_error));
+            .retain(|(s, p, _, _)| *s != section || *p != page);
+        if page < 100 {
+            model
+                .library_origins
+                .push((section, page, provenance, storage_error));
+        }
     }
 
     pub(super) fn refresh_catalog_notice(&self) {
+        if let Some(origin) = self.visible_feed_cache_state() {
+            if let Some((origin, error)) = origin {
+                self.show_cache_provenance(origin, error);
+            } else {
+                self.widgets.cache_notice.set_revealed(false);
+                self.widgets.cache_hint.set_visible(false);
+            }
+            return;
+        }
         let model = self.model.borrow();
         let key = match self.widgets.stack.visible_child_name().as_deref() {
             Some("library") => model.library_displaying,
-            Some("home") if model.liked.as_ref().is_some_and(Result::is_ok) => Some((0, 0)),
+            Some("playlists") => {
+                let source = continuous_loading::aggregate_origins(
+                    model
+                        .library_origins
+                        .iter()
+                        .filter(|(section, _, _, _)| match section {
+                            1 => model.playlists.as_ref().is_some_and(Result::is_ok),
+                            2 => model.liked_playlists.as_ref().is_some_and(Result::is_ok),
+                            _ => false,
+                        })
+                        .map(|(_, _, origin, error)| (*origin, *error)),
+                );
+                drop(model);
+                if let Some((origin, error)) = source {
+                    self.show_cache_provenance(origin, error);
+                } else {
+                    self.widgets.cache_notice.set_revealed(false);
+                    self.widgets.cache_hint.set_visible(false);
+                }
+                return;
+            }
             Some("detail") => {
                 let source = self.detail_cache.get();
                 drop(model);
@@ -193,6 +223,7 @@ impl Controller {
                 let page = self.model.borrow().library_page;
                 self.load_library_refresh(page);
             }
+            Some("playlists") => self.load_playlist_sections(true),
             Some("detail") => {
                 let action = self.detail_refresh.borrow().clone();
                 if let Some(action) = action {

@@ -49,7 +49,7 @@ jobs:
             gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
             libssl-dev libdbus-1-dev libsecret-1-dev libwebkitgtk-6.0-dev dbus-x11 xvfb xauth \
             librsvg2-common openbox imagemagick xdotool wmctrl x11-utils apparmor \
-            playerctl libglib2.0-bin
+            playerctl libglib2.0-bin libgl1-mesa-dri libegl-mesa0 libglx-mesa0
       - name: Install selected Rust toolchain
         run: |
           rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
@@ -118,27 +118,64 @@ jobs:
           cargo clippy --workspace --all-targets --no-default-features --locked -- -D warnings
           cargo test --workspace --no-default-features --locked
           cargo build --workspace --no-default-features --locked
-      - name: Verify explicit v0.3 native fixture selectors exist
+      - name: Verify explicit native fixture selectors exist
         run: |
-          cargo test --lib --all-features --locked -- --list > /tmp/karin-v03-native-fixtures.txt
+          cargo test --lib --all-features --locked -- --ignored --list > /tmp/karin-v03-native-fixtures.txt
           python3 - <<'PY'
+          import re
           from pathlib import Path
 
           listed = Path('/tmp/karin-v03-native-fixtures.txt').read_text().splitlines()
           selectors = [
               'native_secure_storage_secret_service_and_portal_protocol',
+              'native_mpris_session_bus_methods_properties_signals_and_shutdown',
+              'artwork_thumbnail_maps_caches_hidpi_and_cancels_without_network',
+              'webkit_auth_interactive_navigation_frames_and_first_rejection',
+              'webkit_auth_construction_and_shutdown_without_navigation',
+              'webkit_auth_local_startup_cookie_isolation_and_cancel',
+              'native_account_menu_logout_cancel_default_confirm_and_stale_session',
+              'native_cover_metadata_http_cache_and_render_lifecycle',
+              'native_visible_cover_retries_after_worker_queue_saturation_without_remap',
               'native_workspace_track_pane_actions_state_and_cleanup',
+              'native_catalog_native_music_layout',
+              'native_catalog_navigation_latest_actions',
+              'native_library_interactions_confirmed_fixture',
+              'native_catalog_rows_mouse_keyboard_details_and_delivery',
+              'native_search_retry_normalized_results_and_density',
+              'native_music_session_catalog_queue_and_logout',
+              'native_music_context_mpris_shared_player_and_cleanup',
+              'native_music_playback_context_occurrences_and_shared_transport',
+              'native_music_playback_media_error_visibility_stop_retry_and_catalog_preservation',
+              'native_music_playback_queue_races_remove_and_close',
+              'native_music_playback_resolver_queue_controls_and_logout',
+              'native_design_matched_matrix_and_populated_surfaces',
+              'native_universal_panel_whole_surface_motion_and_mode_switch',
+              'native_first_footer_reveal_after_startup_without_graphics_initialization',
+              'native_collection_filter_continuation_and_exact_occurrences',
+              'native_music_shuffle_repeat_mpris_shared_policy_and_eos',
+              'native_queue_space_mouse_enter_dispatch_exact_occurrence_once',
               'native_workspace_playlist_grid_input_states_and_resize',
               'native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup',
               'native_preferences_persistent_controls_snapshot_updates_and_cleanup',
               'native_playlist_creation_confirmation_refresh_refusal_and_late_widgets',
               'native_persistent_session_restore_settings_forget_and_close',
               'native_catalog_cache_provenance_interleaving_and_retired_replies',
-              'native_cover_metadata_http_cache_and_render_lifecycle',
-              'native_visible_cover_retries_after_worker_queue_saturation_without_remap',
           ]
-          for selector in selectors:
-              assert any(line.endswith(f'::{selector}: test') for line in listed), f'Missing compiled native fixture: {selector}'
+          compiled = {line.rsplit('::', 1)[-1].removesuffix(': test')
+                      for line in listed if line.endswith(': test')}
+          assert compiled == set(selectors), f'Native selector registration mismatch: {compiled ^ set(selectors)}'
+          workflow = Path('.github/workflows/ci.yml').read_text()
+          main, modern = workflow.split('\n  native_ui:', 1)
+          pattern = r'cargo test --lib --all-features --locked ([a-z_0-9]+) -- --ignored'
+          visual = {'native_design_matched_matrix_and_populated_surfaces',
+                    'native_universal_panel_whole_surface_motion_and_mode_switch',
+                    'native_first_footer_reveal_after_startup_without_graphics_initialization'}
+          main_runs = set(re.findall(pattern, main))
+          modern_runs = set(re.findall(pattern, modern))
+          assert set(selectors) - visual <= main_runs, 'A functional native selector was removed from Ubuntu'
+          assert not visual & main_runs, 'Strict visual selectors belong to the modern quality runtime'
+          assert visual <= modern_runs, 'The modern job must execute every visual fixture'
+          print(f'Compiled {len(compiled)} selectors: {len(compiled - visual)} Ubuntu functional + {len(visual)} modern visual, in both Rust lanes')
           PY
       - name: MPRIS methods, properties, signals and shutdown on an isolated session bus
         run: |
@@ -178,6 +215,23 @@ jobs:
           dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup -- --ignored --test-threads=1
           dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_preferences_persistent_controls_snapshot_updates_and_cleanup -- --ignored --test-threads=1
           dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_playlist_creation_confirmation_refresh_refusal_and_late_widgets -- --ignored --test-threads=1
+      - name: Native Music layout, playback policy and exact queue input
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+          GSK_DEBUG: full-redraw
+          KARIN_V04_ASSERT_DENSITY: 1
+        run: |
+          for scale in 1 2; do
+            if [ "$scale" = 1 ]; then screen=1920x1080x24; else screen=3840x2160x24; fi
+            if [ '${{ matrix.lane }}' = stable ]; then
+              export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/native-music-$scale"
+            fi
+            GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_catalog_native_music_layout -- --ignored --test-threads=1
+            G_DEBUG=fatal-warnings GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_collection_filter_continuation_and_exact_occurrences -- --ignored --test-threads=1
+            G_DEBUG=fatal-warnings GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_music_shuffle_repeat_mpris_shared_policy_and_eos -- --ignored --test-threads=1
+            GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_queue_space_mouse_enter_dispatch_exact_occurrence_once -- --ignored --test-threads=1
+          done
       - name: Persistent session lifecycle and catalog cache provenance integration
         env:
           GTK_A11Y: none
@@ -490,68 +544,40 @@ jobs:
             printf 'Binary SHA256: '; sha256sum target/release/karin
           } > "$artifact/BUILD-INFO.txt"
           cat > "$artifact/README.txt" <<'EOF'
-          Karin v0.3 functional stabilization: Fedora 44 acceptance build.
-          Verify the downloaded archive with: sha256sum -c SHA256SUMS
-          Extract the archive and enter karin-fedora-prototype-1.98.1.
-          Verify the exact source revision, features, native library versions and binary hash in BUILD-INFO.txt.
-          This is an Ubuntu 24.04 x86_64 native prototype, not a Flatpak or a public release.
-          Install Fedora runtime packages if needed:
-          sudo dnf install gtk4 libadwaita gstreamer1 gstreamer1-plugins-base gstreamer1-plugins-good webkitgtk6.0 librsvg2 libsecret
-          Optional system-media test tool: sudo dnf install playerctl
-          Disable core dumps for this local session, then use the ordinary entry point:
+          Karin v0.4 Native Music: Fedora 44 UI/UX acceptance build.
+          Verify SHA256SUMS and BUILD-INFO.txt against this PR's exact head.
+          This is an Ubuntu 24.04 x86_64 native prototype, not a Flatpak/public release.
+          Fedora runtime: sudo dnf install gtk4 libadwaita gstreamer1 gstreamer1-plugins-base gstreamer1-plugins-good webkitgtk6.0 librsvg2 libsecret
+          Optional MPRIS tool: sudo dnf install playerctl
           ulimit -c 0
           ./karin
-          No experimental flag, Client ID/secret, token, URL copying or application registration is required.
-          Read docs/BUILDING.md#v03-seamless-experience-acceptance-on-fedora at the exact source commit in BUILD-INFO.txt.
-          Its focused-cover-and-cache-stabilization-retest subsection remains a reusable regression guide.
-          Owner accepted runtime 02325489d23ead9da4471de9cc35e2c063ac8bab on 2026-10-31: persistent login/restart, real list/player/pane covers, actual music, pane mechanics and KDE cover/metadata.
-          Final Flatpak authorization/playback/system-integration checks were also reported successful; individual backend/deletion/media-key results were not supplied.
-          Earlier all-cover failure at 23174b0 remains historical; finalization changes documentation and artifact guidance, not that accepted runtime.
-          If needed, close the app and run ./karin --artwork-diagnostic alone for bounded fixed image-stage categories.
-          Share only Karin artwork: category lines, never complete logs or resource addresses; normal startup keeps this disabled.
-          Baseline: owner accepted merged master 09f7635 on Fedora 44 / KDE / Wayland / PipeWire: 17 PASS, 0 FAIL, 1 not assessed.
-          The baseline included native and Flatpak Music playback, queues, MPRIS, KDE media widget and clean exit.
-          Hardware media keys were not individually reported. Build source identities and owner-tested runtime remain distinct.
-          Unlock the normal desktop keyring. Karin must report whether protected session storage is usable.
-          Click Войти, finish the real Yandex dialog and wait for Music account validation and the actual library.
-          With Запоминать вход enabled and usable protected storage, close and restart: restoration must validate Music asynchronously.
-          If storage is unavailable, ordinary memory-only login must remain usable without a plaintext fallback.
-          In Settings, check persisted system/light/dark appearance and authorization/storage preferences across restart.
-          Turn Запоминать вход off: saved credentials must be removed while the active session can continue.
-          Open the account avatar and choose Выйти из аккаунта: Отмена/default Enter/Escape must preserve session and sound.
-          Explicit confirmed logout must stop audio, clear personal state and delete saved credentials.
-          A failed/unknown deletion must remain visibly incomplete, with recovery; it must not be reported as final logout.
-          This client does not claim server-side token revocation or an invented refresh-token flow.
-          In Settings -> Storage, check cache enable/disable, configured limit, actual occupied bytes and Clear cache.
-          Disabling persistence must stop cache reads/new writes; existing data remains until explicit clear.
-          Clear while an entitled track plays: settings, protected session, live sound and current texture must remain intact.
-          Reopen previously loaded library/album/playlist/track views and cover images; check reduced repeated requests.
-          When stale/saved metadata is used during a network failure, its saved-data status must be visible.
-          Cached metadata is not proof of authorization, current likes, current playlist contents or playback rights.
-          Metadata/normalized-cover cache does not contain OAuth values, browser cookies, sessionid or signed media URLs.
-          This build does not save service audio or claim offline Music playback; see the separate service-rights review.
-          Start a real track with click/Enter/Space from liked tracks, album, playlist and unified search.
-          Check source-context ordering, duplicate positions, partial loaded collections, manual additions, Next/Previous and EOS.
-          Check Play/Pause/Resume/Stop, progress/Seek, volume, errors, source cancellation and clean shutdown.
-          Inspect the track information pane's real cover/name/artist/album/actions, desktop column and narrow-window presentation.
-          Open album/artist details only when returned identities exist; closing the pane or navigating must preserve playback.
-          Open playlist cover tiles using mouse and keyboard; check long/missing titles/covers, empty/loading/error states and paging.
-          Unsupported playlist creation or My Wave must remain hidden; no local imitation or inactive placeholder may imply service support.
-          Inspect compact 420x720, medium 900x650, wide 1440x900, maximized, light/dark, HiDPI and keyboard focus.
-          Preserve the compact expandable rail, account avatar, four-section search, explicit details and the accepted player bar.
-          During an actual playing Music track, check KDE media widget and playerctl --player=io.github.tracerxbrhd.Karin controls.
-          Verify position/volume/cover in both directions, logout cleanup, hardware media keys and bus-name release on exit.
-          Repeat storage/Portal/session/cache/private-path and real-music checks in the actual current Flatpak when built.
-          Do not add broad session-bus/filesystem permissions or direct Secret Service grants to hide a missing Portal/backend.
-          A usable Secret Portal/Secret Service is detected at runtime; installed packages alone do not prove availability.
-          Cloud D-Bus/GTK/generated-media fixtures do not accept Fedora keyrings, KDE keys, audible music or the current Flatpak.
-          The shared OAuth registration's public-distribution/service permission remains separate from local technical success.
-          Report exact revision and anonymized PASS/FAIL or not-assessed results only.
-          Do not enable network/GStreamer debugging, record complete logs, or share raw JSON, metadata dumps, URLs, credentials, cookies, private screenshots or audio.
-          CI uses synthetic data, isolated D-Bus fixtures and original generated media; it never uses a real account.
-          Functional v0.3 acceptance does not approve public release or settle shared-registration distribution rights.
-          The pane's visual design remains unaccepted; a separate UI/UX iteration follows this functional baseline.
-          See BUILD-INFO.txt, licenses and the single Fedora guide.
+          No experimental flag or developer credentials required. Keep the desktop keyring unlocked.
+          Follow docs/BUILDING.md#v04-native-music-acceptance-on-fedora at the source commit in BUILD-INFO.txt.
+          Test the real account/library/search/playlists/context queue, audible Music playback and KDE MPRIS.
+          Inspect light/dark, HiDPI, 420x720,850x750,720x650,900x650,1280x800,1440x900,1650x930,1920x1080 and maximized.
+          Open Track Info or Queue in the same right panel; outside click/scroll/navigation must not close it.
+          Check the entire surface slides together and switching Track Info/Queue never closes/reopens it.
+          Test Shuffle, Repeat Queue/One, previous-history, actual upcoming order and external playerctl modes.
+          Queue is reached from the Player Bar/Ctrl+J; no separate queue navigation or visible Stop remains.
+          Before Play the footer is hidden; real Play reveals it from below, Pause retains it, Stop/clear/logout hides it.
+          Click cover/title/artist/metadata space or press Enter/Space to open Track Info; Like remains independent.
+          Use Home (working shortcuts, compact unavailable Wave), Liked and Playlists tabs and the adjacent unified Search action.
+          Scroll track collections continuously; exercise loading/end/error/Retry without manual track pages.
+          More than 2000 loaded source positions requires search or another source; new playback uses a bounded 500-position context.
+          In Liked/opened playlists type title/artist/album locally; typing must not fetch collection pages or replace the playing Queue.
+          Partial coverage is explicit; search the next bounded part deliberately and verify duplicate occurrences in filtered playback.
+          Inspect the heart hero/truthful duration, larger playlist covers and tight centered footer at 850x750 and compact/wide sizes.
+          Direct Like must read membership and confirm the server result; unconfirmed Dislike is hidden.
+          Next/Previous/EOS/MPRIS must follow the actual occurrence without closing/reopening.
+          Explicit other-track selection must survive pause/seek/volume; current occurrence changes resume following.
+          Resize wide/medium/compact and suspend via Diagnostics; open intent must survive.
+          Close only via X, Ctrl+I or explicit compact Back. Logout must clear private state and pending jobs.
+          Recheck restart/protected login/cache clearing/preferences and safe default-cancel logout.
+          Cloud fixtures establish synthetic GTK behavior, not Fedora audio/keyring/KDE/Flatpak acceptance.
+          Native and current Flatpak acceptance require separate local checks; no broad bus grants.
+          Preserve GPL and third-party notices. Shared OAuth public-distribution/service permission remains unresolved separately.
+          Do not enable network/GStreamer logs or share tokens, URLs, account data, private screenshots or audio.
+          Report exact source revision and anonymized PASS/FAIL/not-assessed results only.
           EOF
           tar -C build -czf build/karin-fedora-prototype-1.98.1.tar.gz karin-fedora-prototype-1.98.1
           (cd build && sha256sum karin-fedora-prototype-1.98.1.tar.gz > SHA256SUMS)
@@ -565,15 +591,7 @@ jobs:
             build/SHA256SUMS
           retention-days: 14
           if-no-files-found: error
-      - name: Capture real GTK visual review matrix
-        if: matrix.lane == 'stable'
-        run: scripts/capture-ui.sh build/ui-captures
-      - name: Capture HiDPI GTK visual review matrix
-        if: matrix.lane == 'stable'
-        env:
-          KARIN_CAPTURE_SCALE: 2
-        run: scripts/capture-ui.sh build/ui-captures/hidpi
-      - name: Retain visual review evidence
+      - name: Retain Ubuntu functional UI evidence
         if: always() && matrix.lane == 'stable'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6, Node.js 24
         with:
@@ -581,6 +599,175 @@ jobs:
           path: |
             build/ui-captures/**/*.png
             build/ui-captures/**/*.geometry.txt
+            build/ui-captures/**/*.jsonl
+          retention-days: 7
+          if-no-files-found: error
+
+  # Strict visual evidence uses the prepared modern native stack and recorded
+  # graphics initialization. Ubuntu keeps compiler/package/functional coverage;
+  # cold software-paint limits remain explicit in VALIDATION.md.
+  # The motion fixture records graphics initialization separately before the
+  # unchanged normal-animation phase gate. Cold first-use latency is not
+  # accepted by this measurement; retain its raw observations and Fedora gate.
+  native_ui:
+    name: Native UI ${{ matrix.toolchain }} (Debian 13)
+    runs-on: ubuntu-24.04
+    container:
+      image: rust:1.98.1-slim-trixie@sha256:4cd829461bd5c4d511c32e269da9cb8929223b666519d8004e35fc8d1d771ab7
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lane: stable
+            toolchain: stable
+          - lane: msrv
+            toolchain: '1.98.1'
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_BUILD_JOBS: 2
+      CARGO_INCREMENTAL: 0
+      RUST_BACKTRACE: 1
+      RUSTUP_TOOLCHAIN: ${{ matrix.toolchain }}
+      SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      # Bound software Mesa raster workers in this isolated capture job, leaving
+      # CPU capacity for GTK. This is not a production renderer/timing override;
+      # retain the unmodified normal-motion guards and record the environment.
+      LP_NUM_THREADS: 2
+    steps:
+      - name: Install modern native UI dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential pkg-config python3 git ca-certificates \
+            libgtk-4-dev libadwaita-1-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+            gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+            libssl-dev libdbus-1-dev libsecret-1-dev libwebkitgtk-6.0-dev dbus-x11 xvfb xauth \
+            librsvg2-common adwaita-icon-theme fonts-cantarell fonts-dejavu-core \
+            openbox imagemagick xdotool wmctrl x11-utils \
+            libgl1-mesa-dri libegl-mesa0 libglx-mesa0
+          pkg-config --atleast-version=4.18 gtk4
+          pkg-config --atleast-version=1.7 libadwaita-1
+          printf 'XDG_CONFIG_HOME=%s/build/ci-ui-xdg/config\n' "$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
+          printf 'XDG_CACHE_HOME=%s/build/ci-ui-xdg/cache\n' "$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
+          printf 'XDG_DATA_HOME=%s/build/ci-ui-xdg/data\n' "$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
+          printf 'XDG_STATE_HOME=%s/build/ci-ui-xdg/state\n' "$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6, Node.js 24
+      - name: Trust only the checked-out container workspace
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          test "$(git rev-parse --show-toplevel)" = "$GITHUB_WORKSPACE"
+      - name: Install selected Rust toolchain
+        run: |
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
+          rustc --version
+          cargo --version
+      - name: Build modern native fixtures and ordinary offline-provider capture client
+        run: |
+          mkdir -p build/ui-captures
+          cargo test --lib --all-features --locked --no-run --message-format=json > /tmp/karin-native-quality-artifacts.jsonl
+          cargo build --workspace --locked
+          cargo test --lib --all-features --locked -- --ignored --list > /tmp/karin-native-quality-fixtures.txt
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          listed = Path('/tmp/karin-native-quality-fixtures.txt').read_text().splitlines()
+          for selector in ['native_design_matched_matrix_and_populated_surfaces',
+                           'native_universal_panel_whole_surface_motion_and_mode_switch',
+                           'native_first_footer_reveal_after_startup_without_graphics_initialization']:
+              assert any(line.endswith(f'::{selector}: test') for line in listed), f'Missing compiled visual fixture: {selector}'
+          artifacts = [json.loads(line) for line in Path('/tmp/karin-native-quality-artifacts.jsonl').read_text().splitlines()]
+          binaries = [item['executable'] for item in artifacts
+                      if item.get('reason') == 'compiler-artifact'
+                      and item.get('target', {}).get('name') == 'karin'
+                      and item.get('target', {}).get('kind') == ['lib']
+                      and item.get('profile', {}).get('test') and item.get('executable')]
+          assert len(binaries) == 1, 'Expected one compiled visual fixture executable'
+          sources = subprocess.check_output(['git', 'ls-files', '-z', '--', 'src', 'Cargo.toml', 'Cargo.lock']).decode().split('\0')
+          record = {'source_commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+                    'source_head_sha': os.environ['SOURCE_HEAD_SHA'],
+                    'rustc': subprocess.check_output(['rustc', '--version'], text=True).strip(),
+                    'test_executable_sha256': hashlib.sha256(Path(binaries[0]).read_bytes()).hexdigest(),
+                    'ordinary_binary_sha256': hashlib.sha256(Path('target/debug/karin').read_bytes()).hexdigest(),
+                    'sources': {name: hashlib.sha256(Path(name).read_bytes()).hexdigest() for name in sources if name}}
+          Path('build/ui-captures/native-quality-source.json').write_text(json.dumps(record, indent=2) + '\n')
+          PY
+          {
+            cat /etc/os-release
+            rustc --version --verbose
+            cargo --version
+            for package in gtk4 libadwaita-1 gstreamer-1.0 webkitgtk-6.0; do
+              printf '%s: ' "$package"; pkg-config --modversion "$package"
+            done
+            printf 'Capture: isolated Xvfb/Openbox, requested ngl/full-redraw, scale 1 and 2.\n'
+            printf 'Fixtures record and assert the actual native renderer; no production renderer override.\n'
+            printf 'Software Mesa raster worker limit: LP_NUM_THREADS=%s (capture environment only).\n' "$LP_NUM_THREADS"
+            printf 'Static captures force full redraw; normal-motion checks unset GSK_DEBUG and use ordinary damage tracking.\n'
+            printf 'Motion PNGs render complete real after-paint scene nodes; this is not framebuffer-damage or cold-latency acceptance.\n'
+            printf 'Normal 240ms motion is measured after a separately recorded graphics initialization cycle; cold latency is not accepted.\n'
+          } > build/ui-captures/native-quality-environment.txt
+      - name: Fresh startup footer, populated matrix and initialized motion at both scales
+        env:
+          G_DEBUG: fatal-warnings
+          GTK_A11Y: none
+          GSK_RENDERER: ngl
+          GSK_DEBUG: full-redraw
+          GDK_DPI_SCALE: 1
+          KARIN_V04_ASSERT_DENSITY: 1
+        run: |
+          # Observe fresh-process startup first, in its own profile. Neither
+          # scale inherits settings/shader caches from the static/motion suite.
+          for scale in 1 2; do
+            if [ "$scale" = 1 ]; then screen=1920x1080x24; else screen=3840x2160x24; fi
+            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/native-music-$scale"
+            cold_profile="$GITHUB_WORKSPACE/build/ci-ui-cold-$scale"
+            test ! -e "$cold_profile"
+            mkdir -p "$cold_profile/config" "$cold_profile/cache" "$cold_profile/data" "$cold_profile/state"
+            env -u GSK_DEBUG GDK_SCALE="$scale" XDG_CONFIG_HOME="$cold_profile/config" XDG_CACHE_HOME="$cold_profile/cache" XDG_DATA_HOME="$cold_profile/data" XDG_STATE_HOME="$cold_profile/state" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_first_footer_reveal_after_startup_without_graphics_initialization -- --ignored --test-threads=1
+          done
+          for scale in 1 2; do
+            if [ "$scale" = 1 ]; then screen=1920x1080x24; else screen=3840x2160x24; fi
+            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/native-music-$scale"
+            GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_design_matched_matrix_and_populated_surfaces -- --ignored --test-threads=1
+            env -u GSK_DEBUG GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_universal_panel_whole_surface_motion_and_mode_switch -- --ignored --test-threads=1
+          done
+      - name: Capture real GTK visual review matrix
+        env:
+          KARIN_CAPTURE_RENDERER: ngl
+        run: scripts/capture-ui.sh build/ui-captures
+      - name: Capture HiDPI GTK visual review matrix
+        env:
+          KARIN_CAPTURE_SCALE: 2
+          KARIN_CAPTURE_RENDERER: ngl
+        run: scripts/capture-ui.sh build/ui-captures/hidpi
+      - name: Matched 2e3ae41 refinement baseline GTK captures (isolated target)
+        env:
+          KARIN_CAPTURE_RENDERER: ngl
+        run: scripts/capture-native-music-baseline.sh build/ui-captures
+      - name: Retain modern native visual evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6, Node.js 24
+        with:
+          name: karin-native-visual-${{ matrix.lane }}-${{ github.sha }}
+          path: |
+            build/ui-captures/**/*.png
+            build/ui-captures/**/*.geometry.txt
+            build/ui-captures/**/*.jsonl
+            build/ui-captures/**/*.json
+            build/ui-captures/baseline-source.json
+            build/ui-captures/baseline-geometry-adapter.patch
+            build/ui-captures/native-quality-source.json
+            build/ui-captures/native-quality-environment.txt
+            build/ui-captures/comparison-info.txt
             build/ui-captures/capture-info.txt
             build/ui-captures/hidpi/capture-info.txt
           retention-days: 7

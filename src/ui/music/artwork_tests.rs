@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Synthetic Music metadata -> ordinary artwork request -> HTTP -> native pixels.
-//! No RAM seeding, external service, account, credential store or media resource.
+//! No RAM seeding, external service, account, credential store or service media.
 
 use super::tests::{capture_native, contains_text};
 use super::*;
@@ -156,6 +156,146 @@ fn assert_native_cover(overlay: &gtk::Overlay) {
     );
 }
 
+/// Downloading a Picture's own texture proves decode, but cannot prove that
+/// another mapped widget has not painted over it. Snapshot the whole window,
+/// including the information overlay, and inspect the known synthetic coral
+/// image inside the actually visible library row.
+#[track_caller]
+fn assert_composited_library_cover(ui: &crate::ui::MainWindow, cover: &gtk::Overlay) {
+    assert!(cover.is_mapped());
+    let scroll = cover
+        .ancestor(gtk::ScrolledWindow::static_type())
+        .expect("the library cover belongs to the scrollable central workspace");
+    let panel = ui
+        .music
+        .controller
+        .info_host
+        .borrow()
+        .as_ref()
+        .and_then(|host| host.revealer())
+        .expect("the ordinary shell's native information surface");
+    assert!(!panel.reveals_child(), "the fixture explicitly closed Info");
+    let renderer = ui.window.renderer().expect("realized native renderer");
+
+    struct ComposedFrame {
+        time: i64,
+        width: i32,
+        height: i32,
+        bounds: gtk::graphene::Rect,
+        viewport: gtk::graphene::Rect,
+        panel_closed: bool,
+        node: Option<gtk::gsk::RenderNode>,
+    }
+    fn same_rect(left: &gtk::graphene::Rect, right: &gtk::graphene::Rect) -> bool {
+        [left.x(), left.y(), left.width(), left.height()]
+            .into_iter()
+            .zip([right.x(), right.y(), right.width(), right.height()])
+            .all(|(left, right)| (left - right).abs() < 0.01)
+    }
+
+    for scheme in [adw::ColorScheme::ForceLight, adw::ColorScheme::ForceDark] {
+        adw::StyleManager::default().set_color_scheme(scheme);
+        // A responsive hero changes its size request from a tick callback. A
+        // mapped/decoded thumbnail or the new window width alone does not prove
+        // that the resulting allocation has painted. Observe three completed
+        // native frames with stable geometry, not a longer arbitrary sleep or
+        // a loop that waits until a coral pixel happens to appear.
+        let frames = Rc::new(RefCell::new((None::<ComposedFrame>, 0_u8)));
+        let captured = frames.clone();
+        let window = ui.window.clone();
+        let observed_cover = cover.clone();
+        let observed_scroll = scroll.clone();
+        let observed_panel = panel.clone();
+        let clock = ui.window.frame_clock().expect("mapped native frame clock");
+        let handler = clock.connect_after_paint(move |clock| {
+            let (width, height) = (window.width(), window.height());
+            let bounds = observed_cover
+                .compute_bounds(&window)
+                .expect("allocated library cover after native paint");
+            let viewport = observed_scroll
+                .compute_bounds(&window)
+                .expect("allocated library viewport after native paint");
+            // As in the native motion observer, take a fresh root paintable in
+            // after-paint. The retained node and its sample bounds then belong
+            // to this same completed allocation, not pre-resize cached bounds.
+            let paintable = gtk::WidgetPaintable::new(Some(&window));
+            let snapshot = gtk::Snapshot::new();
+            paintable.snapshot(&snapshot, f64::from(width), f64::from(height));
+            let current = ComposedFrame {
+                time: clock.frame_time(),
+                width,
+                height,
+                bounds,
+                viewport,
+                panel_closed: !observed_panel.reveals_child() && observed_panel.progress() == 0.0,
+                node: snapshot.to_node(),
+            };
+            let mut frames = captured.borrow_mut();
+            let stable = frames.0.as_ref().is_some_and(|previous| {
+                current.time > previous.time
+                    && current.width == previous.width
+                    && current.height == previous.height
+                    && same_rect(&current.bounds, &previous.bounds)
+                    && same_rect(&current.viewport, &previous.viewport)
+                    && current.panel_closed
+                    && previous.panel_closed
+            });
+            frames.1 = if stable { frames.1 + 1 } else { 0 };
+            frames.0 = Some(current);
+        });
+        let tick = ui.window.add_tick_callback(|window, _| {
+            window.queue_draw();
+            glib::ControlFlow::Continue
+        });
+        ui.window.queue_draw();
+        pump(|| frames.borrow().1 >= 2);
+        tick.remove();
+        clock.disconnect(handler);
+        let frame = frames.borrow_mut().0.take().unwrap();
+        let (width, height) = (frame.width, frame.height);
+        let (bounds, viewport) = (frame.bounds, frame.viewport);
+        assert!(width > 0 && height > 0 && frame.panel_closed);
+        assert!(cover.is_mapped());
+        assert!(bounds.width() >= 32.0 && bounds.height() >= 32.0);
+        assert!(bounds.x() >= viewport.x() - 1.0 && bounds.y() >= viewport.y() - 1.0);
+        assert!(bounds.x() + bounds.width() <= viewport.x() + viewport.width() + 1.0);
+        assert!(bounds.y() + bounds.height() <= viewport.y() + viewport.height() + 1.0);
+        let node = frame
+            .node
+            .expect("the settled native frame must produce the composed window render node");
+        let texture = renderer.render_texture(
+            &node,
+            Some(&gtk::graphene::Rect::new(
+                0.0,
+                0.0,
+                width as f32,
+                height as f32,
+            )),
+        );
+        let stride = texture.width() as usize * 4;
+        let mut pixels = vec![0; stride * texture.height() as usize];
+        texture.download(&mut pixels, stride);
+        let scale_x = texture.width() as f32 / width as f32;
+        let scale_y = texture.height() as f32 / height as f32;
+        for (dx, dy) in [(-4.0, -4.0), (0.0, 0.0), (4.0, 4.0)] {
+            let x = ((bounds.x() + bounds.width() / 2.0 + dx) * scale_x).floor() as usize;
+            let y = ((bounds.y() + bounds.height() / 2.0 + dy) * scale_y).floor() as usize;
+            let offset = y * stride + x * 4;
+            // gdk_texture_download uses native-endian CAIRO_FORMAT_ARGB32.
+            let argb = u32::from_ne_bytes(pixels[offset..offset + 4].try_into().unwrap());
+            let channels = [(argb >> 16) & 255, (argb >> 8) & 255, argb & 255];
+            assert!(
+                channels
+                    .iter()
+                    .zip([230_i32, 83, 57])
+                    .all(|(actual, expected)| (*actual as i32 - expected).abs() <= 12),
+                "closed information must not obscure the real composited coral cover: theme={scheme:?} size={width}x{height} frame={} bounds={bounds:?} viewport={viewport:?} rgb={channels:?}",
+                frame.time
+            );
+        }
+    }
+}
+
 fn response(stream: &mut TcpStream, status: u16, mime: &str, body: &[u8]) {
     let _ = write!(
         stream,
@@ -210,6 +350,7 @@ impl Fixture {
         }
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let origin = format!("http://{}/", listener.local_addr().unwrap());
+        let media = player::tests::generated_mp3();
         listener.set_nonblocking(true).unwrap();
         let stop = Arc::new(AtomicBool::new(false));
         let image_count = Arc::new(AtomicUsize::new(0));
@@ -224,6 +365,7 @@ impl Fixture {
             let invalid_preset = invalid_preset.clone();
             let late_started = late_started.clone();
             let late_release = late_release.clone();
+            let media_origin = origin.clone();
             thread::spawn(move || {
                 while !stop.load(Ordering::Acquire) {
                     let (mut stream, _) = match listener.accept() {
@@ -268,6 +410,25 @@ impl Fixture {
                         .nth(1)
                         .unwrap();
                     let url = reqwest::Url::parse(&format!("http://127.0.0.1{target}")).unwrap();
+                    if url.path().starts_with("/download-info/")
+                        || url.path().starts_with("/get-mp3/")
+                    {
+                        assert!(
+                            !lower.contains("authorization:")
+                                && !lower.contains("cookie:")
+                                && !lower.contains("referer:")
+                        );
+                        if url.path().starts_with("/download-info/") {
+                            response(&mut stream, 200, "application/xml", b"<download-info><host>s268myt.storage.yandex.net</host><path>/karin-original-artwork.mp3</path><ts>1700000000</ts><s>original-synthetic-input</s></download-info>");
+                        } else {
+                            super::design_tests::serve_original_media(
+                                &mut stream,
+                                &request,
+                                &media,
+                            );
+                        }
+                        continue;
+                    }
                     if url.path().starts_with("/get-music-") {
                         assert!(
                             !lower.contains("authorization:") && !lower.contains("cookie:"),
@@ -330,9 +491,11 @@ impl Fixture {
                     );
                     let track = synthetic_track();
                     let body = match url.path() {
+                        path if path.starts_with("/tracks/") && path.ends_with("/download-info") => json!({"result":[{"codec":"mp3","bitrateInKbps":192,"preview":false,"direct":false,"downloadInfoUrl":format!("{media_origin}download-info/42")}]}),
                         "/account/status" => json!({"result":{"account":{"uid":1234,"displayName":"Synthetic artwork account"}}}),
                         "/users/1234/likes/tracks" => json!({"result":{"library":{"uid":1234,"revision":1,"tracks":[{"id":42,"track":track}]}}}),
                         "/users/1234/playlists/list" => json!({"result":[{"owner":{"uid":1234},"kind":3,"title":"Synthetic green playlist","trackCount":1,"cover":{"itemsUri":[PLAYLIST_COVER]}}]}),
+                        "/users/1234/likes/playlists" => json!({"result":[]}),
                         "/albums/7/with-tracks" => json!({"result":{"id":7,"title":"Synthetic blue album","coverUri":ALBUM_COVER,"artists":[],"volumes":[[track]]}}),
                         "/albums/8/with-tracks" => {
                             let mut tracks = vec![track];
@@ -487,13 +650,32 @@ fn native_cover_metadata_http_cache_and_render_lifecycle() {
     this.render_controls();
     this.render_queue();
     this.render_liked(Ok(liked), 0);
-    this.select_track_info(track.clone(), Some(context), true);
+    this.select_track_info(track.clone(), Some(context.clone()), true);
     this.widgets.stack.set_visible_child_name("library");
     ui.window.set_title(Some("Karin synthetic HTTP fixture"));
     ui.window.set_default_size(1440, 900);
+    this.set_fixture_resolver_for_test(crate::stream::StreamResolver::for_test(
+        &fixture.origin,
+        &fixture.origin,
+        &fixture.origin,
+    ));
     ui.window.present();
+    pump(|| !rendered_covers(&this.widgets.library_rows).is_empty());
+    assert!(!this.widgets.player_revealer.reveals_child());
+    assert!(!this.widgets.current_art.is_mapped());
+    // Covers in a hidden idle player cannot be native visible pixels. Traverse
+    // the real resolver and generated MP3 worker, then pause for stable evidence.
+    this.play_music_context(context);
     pump(|| {
-        !rendered_covers(&this.widgets.library_rows).is_empty()
+        this.music_snapshot()
+            .is_some_and(|snapshot| snapshot.state == crate::playback::PlaybackState::Playing)
+    });
+    this.pause_music();
+    pump(|| {
+        this.music_snapshot()
+            .is_some_and(|snapshot| snapshot.state == crate::playback::PlaybackState::Paused)
+            && this.widgets.player_revealer.is_child_revealed()
+            && !rendered_covers(&this.widgets.library_rows).is_empty()
             && !rendered_covers(&this.widgets.current_art).is_empty()
     });
     for root in [
@@ -504,15 +686,12 @@ fn native_cover_metadata_http_cache_and_render_lifecycle() {
             assert_native_cover(&overlay);
         }
     }
-    if let Some(split) = this
-        .info_split
-        .borrow()
-        .as_ref()
-        .and_then(glib::WeakRef::upgrade)
-    {
-        split.set_show_sidebar(true);
-    }
-    pump(|| !rendered_covers(&this.track_pane.widget).is_empty());
+    assert!(
+        this.info_host.borrow().is_some(),
+        "ordinary shell attaches an information host"
+    );
+    this.set_info_open(true);
+    pump(|| this.info_is_open() && !rendered_covers(&this.track_pane.widget).is_empty());
     for overlay in rendered_covers(&this.track_pane.widget) {
         assert_native_cover(&overlay);
     }
@@ -521,16 +700,11 @@ fn native_cover_metadata_http_cache_and_render_lifecycle() {
     // Real textures in the ordinary shell across the required responsive
     // sizes, themes (capture_native) and maximized state. GDK_SCALE=2 runs this
     // same metadata/HTTP/decode path in a separate native process.
-    if let Some(split) = this
-        .info_split
-        .borrow()
-        .as_ref()
-        .and_then(glib::WeakRef::upgrade)
-    {
-        // Compact captures show the music surface rather than a detail overlay
-        // covering it. The wide populated pane above has already been asserted.
-        split.set_show_sidebar(false);
-    }
+    // Compact captures intentionally show the music surface rather than its
+    // explicit information subview. Close through the controller's open intent,
+    // never the presentation container's incidental mapped/revealed state.
+    this.set_info_open(false);
+    pump(|| !this.info_is_open());
     for (width, height, name) in [
         (420, 720, "compact"),
         (900, 650, "medium"),
@@ -549,16 +723,14 @@ fn native_cover_metadata_http_cache_and_render_lifecycle() {
                 assert_native_cover(&overlay);
             }
         }
+        let visible_library_cover = rendered_covers(&this.widgets.library_rows)
+            .into_iter()
+            .next()
+            .expect("a real metadata/HTTP/decode library thumbnail is visible");
+        assert_composited_library_cover(&ui, &visible_library_cover);
         if name == "wide" {
-            if let Some(split) = this
-                .info_split
-                .borrow()
-                .as_ref()
-                .and_then(glib::WeakRef::upgrade)
-            {
-                split.set_show_sidebar(true);
-            }
-            pump(|| !rendered_covers(&this.track_pane.widget).is_empty());
+            this.set_info_open(true);
+            pump(|| this.info_is_open() && !rendered_covers(&this.track_pane.widget).is_empty());
         }
         capture_native(&format!("cover-http-{name}"));
     }
@@ -569,13 +741,13 @@ fn native_cover_metadata_http_cache_and_render_lifecycle() {
     pump(|| !ui.window.is_maximized());
     resize_cover_window(&ui, 1440, 900);
 
-    // Exercise the real selector handler so the displayed mode matches the
-    // playlist grid. It may reuse the already validated model page or request
-    // it; finish that request lane before opening an album below.
+    // Exercise the section handler and its actual mapped combined page. It may
+    // reuse the admitted owned snapshot while fetching only missing liked data.
     this.widgets.library_mode.set_selected(1);
     pump(|| {
         !this.model.borrow().busy
-            && this.model.borrow().library_displaying == Some((1, 0))
+            && this.widgets.stack.visible_child_name().as_deref() == Some("playlists")
+            && this.playlist_grid.widget.is_mapped()
             && !rendered_covers(&this.playlist_grid.widget).is_empty()
     });
     for overlay in rendered_covers(&this.playlist_grid.widget) {

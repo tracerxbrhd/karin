@@ -168,5 +168,5 @@ clarification and independent stream entitlement remain future gates. GPL and
 scope selection do not override Yandex Music terms. Current Rust 1.98.1 and native
 GTK/Libadwaita/GStreamer/Flatpak SDK baselines are preserved.
 
-See [API feasibility](../API_FEASIBILITY.md), [local instructions](../BUILDING.md#local-oauth-diagnostic-gate-b1)
-and [validation](../VALIDATION.md) for dated evidence, commands and pending results.
+See [API feasibility](../API_FEASIBILITY.md), [authentication notes](../AUTHENTICATION_REVIEW.md)
+and [validation](../VALIDATION.md) for evidence and the current diagnostic boundaries.

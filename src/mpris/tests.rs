@@ -22,6 +22,8 @@ fn fixture() -> Snapshot {
         }),
         position_us: 1_000_000,
         volume: 0.7,
+        repeat_mode: RepeatMode::Off,
+        shuffle: false,
         can_play: true,
         can_pause: true,
         can_seek: true,
@@ -84,10 +86,12 @@ fn metadata_has_typed_opaque_identity_and_no_delivery_fields() {
         assert!(player.lookup_method(method).is_some());
     }
     assert!(player.lookup_signal("Seeked").is_some());
-    for unsupported in ["LoopStatus", "Shuffle"] {
-        assert!(player.lookup_property(unsupported).is_none());
-        assert!(!snapshot.properties().contains_key(unsupported));
+    for supported in ["LoopStatus", "Shuffle"] {
+        assert!(player.lookup_property(supported).is_some());
+        assert!(snapshot.properties().contains_key(supported));
     }
+    assert_eq!(snapshot.properties()["LoopStatus"].str(), Some("None"));
+    assert_eq!(snapshot.properties()["Shuffle"].get::<bool>(), Some(false));
     assert_eq!(snapshot.properties()["Rate"].get::<f64>(), Some(1.0));
     assert!(gio::dbus_is_name(BUS_NAME));
 }
@@ -266,6 +270,8 @@ fn native_mpris_session_bus_methods_properties_signals_and_shutdown() {
                         snapshot.position_us = 0;
                     }
                     Command::SetVolume(value) => snapshot.volume = value,
+                    Command::SetShuffle(enabled) => snapshot.shuffle = enabled,
+                    Command::SetRepeat(mode) => snapshot.repeat_mode = mode,
                     Command::SetPosition { position_us, .. } => {
                         snapshot.position_us = position_us;
                         seeked = Some(position_us);
@@ -370,19 +376,12 @@ fn native_mpris_session_bus_methods_properties_signals_and_shutdown() {
                         .get::<(BTreeMap<String, glib::Variant>,)>()
                         .unwrap()
                         .0;
-                    for unsupported in ["LoopStatus", "Shuffle"] {
-                        assert!(!introspection.contains(unsupported));
-                        assert!(!exported.contains_key(unsupported));
-                        assert!(
-                            call(
-                                &client,
-                                PROPERTIES,
-                                "Get",
-                                &(PLAYER, unsupported).to_variant()
-                            )
-                            .is_err()
-                        );
+                    for supported in ["LoopStatus", "Shuffle"] {
+                        assert!(introspection.contains(supported));
+                        assert!(exported.contains_key(supported));
                     }
+                    assert_eq!(get(&client, "LoopStatus").str(), Some("None"));
+                    assert_eq!(get(&client, "Shuffle").get::<bool>(), Some(false));
                     for forbidden in ["access_token", "get-mp3", "storage.yandex.net", "OAuth "] {
                         assert!(!introspection.contains(forbidden));
                     }
@@ -419,8 +418,26 @@ fn native_mpris_session_bus_methods_properties_signals_and_shutdown() {
                     assert_eq!(get(&client, "PlaybackStatus").str(), Some("Paused"));
                     assert_eq!(get(&client, "Rate").get::<f64>(), Some(1.0));
                     assert!(set(&client, "Rate", 2.0f64.to_variant()).is_err());
-                    assert!(set(&client, "Shuffle", true.to_variant()).is_err());
-                    assert!(set(&client, "LoopStatus", "Track".to_variant()).is_err());
+                    cli("playerctl", &["--player", selection, "shuffle", "On"]);
+                    assert_eq!(get(&client, "Shuffle").get::<bool>(), Some(true));
+                    cli("playerctl", &["--player", selection, "loop", "Playlist"]);
+                    assert_eq!(get(&client, "LoopStatus").str(), Some("Playlist"));
+                    set(&client, "LoopStatus", "Track".to_variant()).unwrap();
+                    assert_eq!(get(&client, "LoopStatus").str(), Some("Track"));
+                    set(&client, "LoopStatus", "None".to_variant()).unwrap();
+                    assert_eq!(get(&client, "LoopStatus").str(), Some("None"));
+                    set(&client, "Shuffle", false.to_variant()).unwrap();
+                    assert_eq!(get(&client, "Shuffle").get::<bool>(), Some(false));
+                    assert!(set(&client, "Shuffle", "On".to_variant()).is_err());
+                    assert!(set(&client, "LoopStatus", true.to_variant()).is_err());
+                    assert!(
+                        set(
+                            &client,
+                            "LoopStatus",
+                            "invalid-untrusted-value".to_variant()
+                        )
+                        .is_err()
+                    );
                     call(
                         &client,
                         PLAYER,
@@ -503,6 +520,7 @@ fn native_mpris_session_bus_methods_properties_signals_and_shutdown() {
             let mut seeks = Vec::new();
             let mut changed_volume = false;
             let mut changed_track = false;
+            let mut changed_modes = (false, false);
             for (name, value) in signals.iter() {
                 if name == "Seeked" {
                     seeks.push(value.get::<(i64,)>().unwrap().0);
@@ -519,13 +537,21 @@ fn native_mpris_session_bus_methods_properties_signals_and_shutdown() {
                     );
                     changed_volume |= properties.contains_key("Volume");
                     changed_track |= properties.contains_key("Metadata");
+                    changed_modes.0 |= properties.contains_key("LoopStatus");
+                    changed_modes.1 |= properties.contains_key("Shuffle");
                 }
             }
             assert_eq!(seeks, [5_000_000, 3_000_000, 2_000_000]);
             assert!(changed_volume && changed_track);
+            assert_eq!(changed_modes, (true, true));
             drop(signals);
             let commands = commands.borrow();
             assert!(commands.contains(&Command::Raise) && commands.contains(&Command::Quit));
+            assert!(commands.contains(&Command::SetShuffle(true)));
+            assert!(commands.contains(&Command::SetShuffle(false)));
+            for mode in [RepeatMode::Off, RepeatMode::Queue, RepeatMode::One] {
+                assert!(commands.contains(&Command::SetRepeat(mode)));
+            }
             assert_eq!(
                 commands
                     .iter()

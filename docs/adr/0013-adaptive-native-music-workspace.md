@@ -2,7 +2,7 @@
 
 # ADR-0013: Adaptive native music navigation and bounded cover loading
 
-Status: Accepted foundation; persistent preferences/artwork and the v0.3 workspace extend it via ADR-0018, ADR-0019 and ADR-0020
+Status: Accepted foundation; later presentation and persistence decisions are recorded in ADR-0018 through ADR-0025
 Date: 2026-10-29
 
 ## Decision

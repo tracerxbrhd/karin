@@ -2,7 +2,7 @@
 
 # ADR-0020: Adaptive track information and playlist tiles
 
-Status: Accepted for v0.3 implementation; visual and owner acceptance remain separate
+Status: Accepted foundation; pane/navigation presentation is extended by ADR-0021, ADR-0022 and ADR-0024
 Date: 2026-10-31
 Extends: ADR-0017's accepted navigation, contextual playback, account and player bar
 
@@ -92,8 +92,9 @@ large/absent covers, long titles, current/up-next hierarchy, focus, full reachab
 scroll content and footer separation, alongside GTK allocation/lifecycle tests.
 A compiling layout or a successful capture script is not a visual review.
 
-The owner's prior baseline acceptance does not accept this new workspace. Repeat
-ordinary login/restore, library/search/playlist navigation, actual entitled-track
+The original validation required a new owner run rather than inferring acceptance
+from the prior baseline. Results are recorded in
+[VALIDATION.md](../VALIDATION.md). Exercise ordinary login/restore, library/search/playlist navigation, actual entitled-track
 sound, contextual controls and KDE MPRIS on Fedora 44/Wayland/PipeWire, both
 native and current Flatpak. Hardware media keys remain unconfirmed until
 actually exercised. No personal screenshots or real service data belong in

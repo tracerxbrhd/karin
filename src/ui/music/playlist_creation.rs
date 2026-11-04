@@ -284,7 +284,7 @@ impl Controller {
                     return;
                 }
                 form.close();
-                this.widgets.stack.set_visible_child_name("library");
+                this.widgets.stack.set_visible_child_name("playlists");
                 this.widgets.library_mode.set_selected(1);
                 this.load_library_refresh(0);
             }
@@ -396,9 +396,9 @@ impl Controller {
                             model.view_generation == view && model.library_page == page
                         };
                         if same_view
-                            && mode == 1
-                            && this.widgets.library_mode.selected() == 1
-                            && this.widgets.stack.visible_child_name().as_deref() == Some("library")
+                            && mode != 0
+                            && this.widgets.library_mode.selected() != 0
+                            && this.widgets.stack.visible_child_name().as_deref() == Some("playlists")
                         {
                             this.load_library_refresh(0);
                         }
@@ -424,13 +424,19 @@ impl Controller {
     }
 
     fn invalidate_creation_reads(self: &Rc<Self>) {
+        self.interrupt_feed_reads(Operation::Library);
         let mut requests = self.requests.borrow_mut();
         requests.invalidate(Operation::Library);
         requests.invalidate(Operation::InitialLibrary);
+        requests.invalidate(Operation::PlaylistSections);
+        requests.invalidate(Operation::OwnedPlaylistsMore);
+        requests.invalidate(Operation::LikedPlaylistsMore);
         drop(requests);
+        self.playlist_refreshing.set([false, false]);
         let mut model = self.model.borrow_mut();
         model.liked = None;
         model.playlists = None;
+        model.liked_playlists = None;
         drop(model);
         self.render_home_preview();
     }

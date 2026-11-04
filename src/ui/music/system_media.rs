@@ -17,8 +17,15 @@ use std::{
 #[derive(Default)]
 pub(super) struct SystemMedia {
     bus: Option<Mpris>,
-    binding: Option<(u64, usize, String, ContextKind, Option<String>)>,
+    binding: Option<(
+        u64,
+        workspace::OccurrencePosition,
+        String,
+        ContextKind,
+        Option<String>,
+    )>,
     serial: u64,
+    repeat_restart: Option<u64>,
     snapshot: Snapshot,
     cover_request: Option<ArtworkRequest>,
     cover_admission: Option<(CoverArt, u8, Instant)>,
@@ -142,6 +149,8 @@ impl Controller {
             Command::Next => self.skip_music(true, false),
             Command::Previous => self.skip_music(false, false),
             Command::SetVolume(value) => self.set_music_volume(value.clamp(0.0, 1.0)),
+            Command::SetShuffle(enabled) => self.set_music_shuffle(enabled),
+            Command::SetRepeat(mode) => self.set_music_repeat(mode),
             Command::SetPosition {
                 track_id,
                 position_us,
@@ -184,9 +193,14 @@ impl Controller {
         self.publish_mpris();
     }
 
+    pub(super) fn note_repeat_restart(&self, serial: u64) {
+        self.system_media.borrow_mut().repeat_restart = Some(serial);
+    }
+
     pub(super) fn clear_system_media(&self) {
         let mut media = self.system_media.borrow_mut();
         media.binding = None;
+        media.repeat_restart = None;
         media.cover_request = None;
         media.cover_admission = None;
         media.cover_encoding = None;
@@ -210,11 +224,14 @@ impl Controller {
             && !model.closed
             && model.token.as_ref().is_some_and(|t| !t.is_expired());
         let selected = if ready { model.queue.current() } else { None };
-        let current = model.queue.current_index().unwrap_or(0);
-        let key = selected.map(|track| {
+        let position = model
+            .queue
+            .context()
+            .map(workspace::OccurrencePosition::from_context);
+        let key = selected.zip(position).map(|(track, position)| {
             (
                 model.generation,
-                current,
+                position,
                 track.id.clone(),
                 model
                     .queue
@@ -232,6 +249,7 @@ impl Controller {
         let mut media = self.system_media.borrow_mut();
         if media.binding != key {
             media.binding = key;
+            media.repeat_restart = None;
             media.serial = media.serial.wrapping_add(1).max(1);
             media.cover_request = None;
             media.cover_encoding = None;
@@ -311,18 +329,8 @@ impl Controller {
                 state,
                 PlaybackState::Playing | PlaybackState::Paused | PlaybackState::Ready
             );
-        let next = model
-            .queue
-            .items()
-            .iter()
-            .skip(current.saturating_add(1))
-            .any(|track| track.available);
-        let previous = model
-            .queue
-            .items()
-            .iter()
-            .take(current)
-            .any(|track| track.available);
+        let next = model.queue.can_go_next();
+        let previous = model.queue.can_go_previous();
         let published = Snapshot {
             status,
             metadata: selected.map(|track| Metadata {
@@ -351,13 +359,31 @@ impl Controller {
             can_go_next: ready && selected.is_some() && next,
             can_go_previous: ready && selected.is_some() && previous,
             can_control: !model.closed,
+            repeat_mode: model.queue.repeat_mode(),
+            shuffle: model.queue.shuffle(),
         };
         // A stopped/replaced/loading pipeline cannot acknowledge a seek from
         // the previous worker, even when the same queue item remains selected.
         if !can_seek {
             media.seek = None;
         }
+        // A same-occurrence replay keeps its opaque track path. Acknowledge
+        // the new worker's real position once; an unrelated Stop/replacement
+        // invalidates the serial and cannot resurrect a discarded seek.
         let mut acknowledged_seek = None;
+        if let Some(expected) = media.repeat_restart {
+            if expected != self.music_serial() || state == PlaybackState::Error {
+                media.repeat_restart = None;
+            } else if can_seek {
+                acknowledged_seek = snapshot
+                    .as_ref()
+                    .and_then(|snapshot| snapshot.position)
+                    .map(micros);
+                if acknowledged_seek.is_some() {
+                    media.repeat_restart = None;
+                }
+            }
+        }
         if let Some((serial, before, target)) = media.seek {
             if serial != media.serial {
                 media.seek = None;

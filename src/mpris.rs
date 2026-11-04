@@ -12,6 +12,7 @@ use std::{
     rc::Rc,
 };
 
+use crate::queue::RepeatMode;
 use gio::prelude::FileExt;
 use glib::variant::{ObjectPath, ToVariant};
 use gtk::{gio, glib};
@@ -22,9 +23,7 @@ const ROOT: &str = "org.mpris.MediaPlayer2";
 const PLAYER: &str = "org.mpris.MediaPlayer2.Player";
 const PROPERTIES: &str = "org.freedesktop.DBus.Properties";
 
-// LoopStatus and Shuffle are optional in the official MPRIS 2.2 specification
-// (v2.2, Player_Node.xml). Omit them until repeat/shuffle actually work, so
-// desktop clients do not display controls which this player cannot perform.
+// These standard properties adapt the same local queue policy used by GTK.
 const XML: &str = r#"<node>
 <interface name="org.mpris.MediaPlayer2">
  <method name="Raise"/><method name="Quit"/>
@@ -47,6 +46,8 @@ const XML: &str = r#"<node>
  <signal name="Seeked"><arg name="Position" type="x"/></signal>
  <property name="PlaybackStatus" type="s" access="read"/>
  <property name="Rate" type="d" access="readwrite"/>
+ <property name="LoopStatus" type="s" access="readwrite"/>
+ <property name="Shuffle" type="b" access="readwrite"/>
  <property name="Metadata" type="a{sv}" access="read"/>
  <property name="Volume" type="d" access="readwrite"/>
  <property name="Position" type="x" access="read"><annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="false"/></property>
@@ -132,6 +133,8 @@ pub struct Snapshot {
     pub metadata: Option<Metadata>,
     pub position_us: i64,
     pub volume: f64,
+    pub repeat_mode: RepeatMode,
+    pub shuffle: bool,
     pub can_play: bool,
     pub can_pause: bool,
     pub can_seek: bool,
@@ -147,6 +150,8 @@ impl Default for Snapshot {
             metadata: None,
             position_us: 0,
             volume: 0.7,
+            repeat_mode: RepeatMode::Off,
+            shuffle: false,
             can_play: false,
             can_pause: false,
             can_seek: false,
@@ -206,6 +211,16 @@ impl Snapshot {
             ("Rate".into(), 1.0f64.to_variant()),
             ("Metadata".into(), metadata_variant(self.metadata.as_ref())),
             ("Volume".into(), self.volume.to_variant()),
+            (
+                "LoopStatus".into(),
+                match self.repeat_mode {
+                    RepeatMode::Off => "None",
+                    RepeatMode::One => "Track",
+                    RepeatMode::Queue => "Playlist",
+                }
+                .to_variant(),
+            ),
+            ("Shuffle".into(), self.shuffle.to_variant()),
             ("Position".into(), self.position_us.to_variant()),
             ("MinimumRate".into(), 1.0f64.to_variant()),
             ("MaximumRate".into(), 1.0f64.to_variant()),
@@ -267,6 +282,8 @@ pub enum Command {
     Seek(i64),
     SetPosition { track_id: u64, position_us: i64 },
     SetVolume(f64),
+    SetShuffle(bool),
+    SetRepeat(RepeatMode),
 }
 
 struct Inner {
@@ -569,6 +586,23 @@ impl Inner {
             return false;
         }
         match name {
+            "Shuffle" => {
+                let Some(enabled) = value.get::<bool>() else {
+                    return false;
+                };
+                (self.callback)(Command::SetShuffle(enabled));
+                true
+            }
+            "LoopStatus" => {
+                let mode = match value.str() {
+                    Some("None") => RepeatMode::Off,
+                    Some("Track") => RepeatMode::One,
+                    Some("Playlist") => RepeatMode::Queue,
+                    _ => return false,
+                };
+                (self.callback)(Command::SetRepeat(mode));
+                true
+            }
             "Volume" => {
                 let Some(value) = value.get::<f64>().filter(|value| value.is_finite()) else {
                     return false;

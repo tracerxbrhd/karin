@@ -59,6 +59,50 @@ fn named_button(widget: &gtk::Widget, name: &str) -> Option<gtk::Button> {
         .and_then(|widget| widget.downcast().ok())
 }
 
+// Queue actions live in the native row menu; open it with real input before
+// targeting its controls. The physical index is an occurrence, never a track ID.
+fn queue_action(
+    this: &Controller,
+    window: &adw::ApplicationWindow,
+    id: &str,
+    index: usize,
+    name: &str,
+) -> gtk::Button {
+    let row = this.queue_row_at_physical(index).unwrap();
+    let menu = descendants(row.upcast_ref())
+        .into_iter()
+        .find(|widget| widget.widget_name() == "music-queue-more")
+        .unwrap()
+        .downcast::<gtk::MenuButton>()
+        .unwrap();
+    click(window, id, &menu);
+    let button = named_button(row.upcast_ref(), name).unwrap();
+    pump_until(|| button.is_mapped());
+    button
+}
+
+fn displayed_cover(widget: &gtk::Widget) -> bool {
+    descendants(widget).into_iter().any(|widget| {
+        let Some(overlay) = widget.downcast_ref::<gtk::Overlay>() else {
+            return false;
+        };
+        let decoded = descendants(overlay.upcast_ref()).into_iter().any(|widget| {
+            widget
+                .downcast_ref::<gtk::Picture>()
+                .is_some_and(|picture| {
+                    picture.is_visible()
+                        && picture
+                            .paintable()
+                            .is_some_and(|value| value.is::<gtk::gdk::Texture>())
+                })
+        });
+        decoded
+            && overlay
+                .child()
+                .is_some_and(|fallback| !fallback.is_visible())
+    })
+}
+
 fn first(list: &gtk::ListBox) -> gtk::ListBoxRow {
     list.first_child().unwrap().downcast().unwrap()
 }
@@ -66,6 +110,7 @@ fn first(list: &gtk::ListBox) -> gtk::ListBoxRow {
 fn playlist_tile(this: &Controller, title: &str) -> Option<gtk::Button> {
     descendants(this.playlist_grid.widget.upcast_ref())
         .into_iter()
+        .chain(descendants(this.liked_playlist_grid.widget.upcast_ref()))
         .filter(|widget| widget.widget_name() == "music-playlist-tile")
         .filter_map(|widget| widget.downcast::<gtk::Button>().ok())
         .find(|button| contains_text(button.upcast_ref(), title))
@@ -81,6 +126,10 @@ fn settle() {
 fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
     gtk::init().unwrap();
     adw::init().unwrap();
+    let pixels =
+        gtk::gdk_pixbuf::Pixbuf::new(gtk::gdk_pixbuf::Colorspace::Rgb, false, 8, 512, 512).unwrap();
+    pixels.fill(0xe653_39ff);
+    let cover_png = pixels.save_to_bufferv("png", &[]).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     listener.set_nonblocking(true).unwrap();
@@ -115,7 +164,6 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
                     continue;
                 }
                 let request = String::from_utf8(bytes).unwrap();
-                assert!(request.contains("authorization: OAuth synthetic-row-input-token"));
                 assert!(
                     !request
                         .to_ascii_lowercase()
@@ -139,8 +187,28 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
                     .nth(1)
                     .unwrap();
                 let url = reqwest::Url::parse(&format!("http://127.0.0.1{target}")).unwrap();
+                if url
+                    .path()
+                    .starts_with("/get-music-content/fixture/input-cover/")
+                {
+                    let headers = request.to_ascii_lowercase();
+                    assert!(!headers.contains("authorization:") && !headers.contains("cookie:"));
+                    assert!(matches!(
+                        url.path().rsplit('/').next(),
+                        Some("200x200" | "400x400" | "1000x1000")
+                    ));
+                    let _ = write!(
+                        stream,
+                        "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        cover_png.len()
+                    );
+                    let _ = stream.write_all(&cover_png);
+                    continue;
+                }
+                assert!(request.contains("authorization: OAuth synthetic-row-input-token"));
                 *counts.lock().unwrap().entry(url.path().into()).or_default() += 1;
                 let track = json!({"id":42,"title":"Synthetic input track","durationMs":123000,
+                    "coverUri":"avatars.yandex.net/get-music-content/fixture/input-cover/%%",
                     "available":true,"artists":[{"id":11,"name":"Synthetic input artist"}],
                     "albums":[{"id":7,"title":"Synthetic input album"}]});
                 let body = match url.path() {
@@ -218,6 +286,13 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
     let pane = &ui.music;
     let this = &pane.controller;
     let fixture_origin = format!("http://{address}/");
+    this.artwork
+        .as_ref()
+        .unwrap()
+        .set_test_origin(&fixture_origin)
+        .unwrap();
+    this.set_track_info_preference(false);
+    this.sync_info_visibility();
     this.set_fixture_resolver_for_test(crate::stream::StreamResolver::for_test(
         &fixture_origin,
         &fixture_origin,
@@ -376,7 +451,7 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
                 "/users/1234/likes/playlists"
             };
             let before_refresh = count(refresh_path);
-            click(window, id, &this.widgets.library_refresh);
+            input(&["key", "--clearmodifiers", "ctrl+r"]);
             pump_until(|| count(refresh_path) > before_refresh && !this.model.borrow().busy);
         }
         for method in [None, Some("Return"), Some("space")] {
@@ -406,7 +481,7 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
                 "Synthetic input track"
             ));
             click(window, id, &this.widgets.detail.first_child().unwrap());
-            pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("library"));
+            pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("playlists"));
         }
     }
     for (kind, enter, path, title) in [
@@ -486,7 +561,13 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
             assert_eq!(count(path), before + 1);
         } else {
             let before = count(path);
-            click(window, id, &first(&this.widgets.search_rows));
+            let name = if kind == SearchKind::Albums {
+                "music-search-album-tile"
+            } else {
+                "music-search-artist-tile"
+            };
+            let tile = named_button(this.widgets.search_rows.upcast_ref(), name).unwrap();
+            click(window, id, &tile);
             pump_until(|| {
                 this.widgets.stack.visible_child_name().as_deref() == Some("detail")
                     && !this.model.borrow().busy
@@ -516,10 +597,23 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
 
     // Queue rows start the existing playback intent at the selected occurrence.
     // The explicit loopback resolver returns no audio; no sound is claimed here.
+    let mut unavailable = Track {
+        id: "44".into(),
+        title: "Synthetic unavailable queue track".into(),
+        artists: vec!["Synthetic queue artist".into()],
+        artist_links: Vec::new(),
+        album_id: None,
+        album_title: None,
+        duration_ms: None,
+        available: false,
+        cover: CoverArt::parse("avatars.yandex.net/get-music-content/fixture/input-cover/%%"),
+        explicit: false,
+    };
+    this.enqueue(unavailable.clone());
     this.enqueue(Track {
         id: "43".into(),
         title: "Synthetic second queued track".into(),
-        artists: vec![],
+        artists: vec!["Synthetic queue artist".into()],
         artist_links: Vec::new(),
         album_id: None,
         album_title: None,
@@ -528,26 +622,170 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
         cover: None,
         explicit: false,
     });
-    this.widgets.stack.set_visible_child_name("queue");
-    let second = this.widgets.queue_rows.row_at_index(1).unwrap();
+    unavailable.id = "42".into();
+    unavailable.title = "Synthetic duplicate queued track".into();
+    unavailable.available = true;
+    this.enqueue(unavailable);
+    let queue_toggle = named_button(window.upcast_ref(), "music-queue-toggle").unwrap();
+    assert!(
+        !this.widgets.player_revealer.reveals_child() && !queue_toggle.is_mapped(),
+        "manual additions after Stop must not expose an idle player"
+    );
+    // No request is active after the explicit Stops above. Use the available
+    // native Queue shortcut; subsequent actual row playback attempts reveal
+    // the footer, whose Queue button is exercised below.
+    input(&["key", "--clearmodifiers", "ctrl+j"]);
+    pump_until(|| this.widgets.queue_rows.is_mapped());
+    assert_eq!(this.panel_mode.get(), workspace::PanelMode::Queue);
+    assert!(this.widgets.stack.child_by_name("queue").is_none());
+    assert_eq!(this.model.borrow().queue.items().len(), 4);
+    assert_eq!(
+        this.model
+            .borrow()
+            .queue
+            .context()
+            .unwrap()
+            .manual_items_len(),
+        3
+    );
+    let first_row = this.queue_row_at_physical(0).unwrap();
+    pump_until(|| displayed_cover(first_row.upcast_ref()));
+    let retired_remove = named_button(first_row.upcast_ref(), "music-queue-remove").unwrap();
+    assert!(contains_text(first_row.upcast_ref(), "Сейчас"));
+    let next = this.queue_row_at_physical(2).unwrap();
+    assert!(contains_text(next.upcast_ref(), "Далее"));
+    let unavailable = this.queue_row_at_physical(1).unwrap();
+    assert!(!unavailable.is_activatable());
+    assert!(
+        !named_button(unavailable.upcast_ref(), "music-queue-play")
+            .unwrap()
+            .is_sensitive()
+    );
+    let before_unavailable = counts.lock().unwrap().clone();
+    click(window, id, &unavailable);
+    assert_eq!(*counts.lock().unwrap(), before_unavailable);
+    assert_eq!(this.model.borrow().queue.current_index(), Some(0));
+    for row in [first_row, next, unavailable] {
+        pump_until(|| row.height() >= 60);
+        assert!(
+            row.height() <= 72,
+            "queue rows retain compact music density"
+        );
+        for action in [
+            "music-queue-play",
+            "music-queue-details",
+            "music-queue-remove",
+        ] {
+            let button = named_button(row.upcast_ref(), action).unwrap();
+            assert!(button.label().is_none(), "queue actions use native icons");
+            assert!(
+                button.tooltip_text().is_some(),
+                "icon actions retain understandable names"
+            );
+        }
+    }
+    capture_native("input-native-music-queue-current-next");
+    // A duplicate ID at the final position must select that occurrence, not0.
+    eprintln!("Karin synthetic input: target=queue-duplicate method=space");
+    let duplicate = this.queue_row_at_physical(3).unwrap();
+    let before = count("/tracks/42/download-info");
+    assert!(duplicate.grab_focus());
+    input(&["key", "--clearmodifiers", "space"]);
+    pump_until(|| {
+        this.model.borrow().queue.current_index() == Some(3)
+            && count("/tracks/42/download-info") == before + 1
+            && !this.music_requested()
+    });
+    assert_eq!(
+        this.widgets.current.text(),
+        "Synthetic duplicate queued track"
+    );
+    // A released gesture from a row replaced by render_queue must not remove
+    // an occurrence from the newer presentation. Normal actions below still
+    // use actual X11 mouse/keyboard input; this injects its late GTK signal.
+    retired_remove.emit_clicked();
+    assert_eq!(this.model.borrow().queue.items().len(), 4);
+    assert_eq!(this.model.borrow().queue.current_index(), Some(3));
+    assert!(contains_text(
+        this.queue_row_at_physical(3).unwrap().upcast_ref(),
+        "Сейчас"
+    ));
+    eprintln!("Karin synthetic input: target=queue-occurrence method=mouse");
+    let second = this.queue_row_at_physical(2).unwrap();
     click(window, id, &second);
-    pump_until(|| this.model.borrow().queue.current_index() == Some(1));
+    pump_until(|| this.model.borrow().queue.current_index() == Some(2) && !this.music_requested());
     assert_eq!(this.widgets.current.text(), "Synthetic second queued track");
-    let first_row = first(&this.widgets.queue_rows);
+    let first_row = this.queue_row_at_physical(0).unwrap();
     assert!(first_row.grab_focus());
     input(&["key", "--clearmodifiers", "Return"]);
-    pump_until(|| this.model.borrow().queue.current_index() == Some(0));
+    pump_until(|| this.model.borrow().queue.current_index() == Some(0) && !this.music_requested());
     assert_eq!(this.widgets.current.text(), "Synthetic input track");
     assert!(!this.widgets.position.text().contains("0:00"));
-    let second = this.widgets.queue_rows.row_at_index(1).unwrap();
-    let remove = descendants(second.upcast_ref())
-        .into_iter()
-        .filter_map(|widget| widget.downcast::<gtk::Button>().ok())
-        .find(|button| button.tooltip_text().as_deref() == Some("Удалить трек из очереди"))
-        .unwrap();
-    click(window, id, &remove);
-    pump_until(|| this.model.borrow().queue.items().len() == 1);
+    // Independent Details must preserve queue selection and emit no Play.
+    let details = queue_action(this, window, id, 3, "music-queue-details");
+    let before_play = count("/tracks/42/download-info");
+    let central_route = this.widgets.stack.visible_child_name();
+    click(window, id, &details);
+    pump_until(|| {
+        this.panel_mode.get() == workspace::PanelMode::TrackInfo
+            && this.track_pane.widget.is_mapped()
+    });
+    assert_eq!(this.widgets.stack.visible_child_name(), central_route);
     assert_eq!(this.model.borrow().queue.current_index(), Some(0));
+    assert_eq!(count("/tracks/42/download-info"), before_play);
+    assert!(contains_text(
+        this.track_pane.widget.upcast_ref(),
+        "Synthetic duplicate queued track"
+    ));
+    click(window, id, &queue_toggle);
+    pump_until(|| {
+        this.panel_mode.get() == workspace::PanelMode::Queue && this.widgets.queue_rows.is_mapped()
+    });
+    let duplicate = this.queue_row_at_physical(3).unwrap();
+    assert!(duplicate.grab_focus());
+    input(&["key", "--clearmodifiers", "Return"]);
+    pump_until(|| this.model.borrow().queue.current_index() == Some(3) && !this.music_requested());
+    let before_remove = count("/tracks/42/download-info");
+    let remove = queue_action(this, window, id, 0, "music-queue-remove");
+    click(window, id, &remove);
+    pump_until(|| this.model.borrow().queue.items().len() == 3);
+    assert_eq!(this.model.borrow().queue.current_index(), Some(2));
+    assert_eq!(
+        this.model.borrow().queue.current().unwrap().title,
+        "Synthetic duplicate queued track"
+    );
+    assert_eq!(
+        count("/tracks/42/download-info"),
+        before_remove,
+        "removing another occurrence cannot restart the current track"
+    );
+    let remove = queue_action(this, window, id, 0, "music-queue-remove");
+    click(window, id, &remove);
+    pump_until(|| this.model.borrow().queue.items().len() == 2);
+    assert_eq!(this.model.borrow().queue.current_index(), Some(1));
+    assert_eq!(
+        this.model
+            .borrow()
+            .queue
+            .context()
+            .unwrap()
+            .manual_items_len(),
+        2
+    );
+    assert_eq!(count("/tracks/42/download-info"), before_remove);
+    capture_native("input-native-music-queue-after-remove");
+    assert!(this.widgets.clear_queue.grab_focus());
+    input(&["key", "--clearmodifiers", "space"]);
+    pump_until(|| this.model.borrow().queue.items().is_empty() && !this.music_requested());
+    assert!(this.model.borrow().account_valid);
+    assert!(this.model.borrow().queue.current().is_none());
+    assert!(!this.widgets.clear_queue.is_sensitive());
+    assert!(!first(&this.widgets.queue_rows).is_activatable());
+    assert!(contains_text(
+        this.widgets.queue_rows.upcast_ref(),
+        "Очередь пуста"
+    ));
+    capture_native("input-native-music-queue-empty");
 
     pane.close();
     window.close();
