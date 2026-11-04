@@ -36,8 +36,8 @@ defines both contracts. The owner accepted `9d54834`; it was squash-merged at
 ## Next functional directions
 
 - [My Wave](https://github.com/tracerxbrhd/karin/issues/16): the owner confirmed
-  session/audio/start-skip feedback/continuation; identify the later HTTP 400
-  event and repeat the corrected lifecycle before default enablement.
+  session/audio/four supported feedback events/continuation; repeat the local
+  retirement fix after the identified `radioFinished` HTTP 400 before default enablement.
 - [Dislike](https://github.com/tracerxbrhd/karin/issues/17): verify semantics and
   confirmation independently of removing a Like.
 - [Lyrics and related tracks](https://github.com/tracerxbrhd/karin/issues/18): confirm permitted endpoints/resources before
@@ -55,7 +55,7 @@ Each direction needs its own confirmed contract and acceptance criteria.
 The v0.5 branch presents a musical Hero first on Home and uses the shared queue,
 player and MPRIS behind `--experimental-wave`. Pause keeps the session; ordinary
 music selection and MPRIS Stop retire radio without a separate Finish control.
-The owner-confirmed positive chain and unresolved feedback 400 are recorded in
+The owner-confirmed positive chain and identified retirement-event refusal are recorded in
 [VALIDATION](VALIDATION.md). Service access stays gated pending repeat acceptance;
 see [ADR-0027](adr/0027-experimental-wave-lifecycle.md).
 Unsupported actions remain absent.

@@ -119,7 +119,9 @@ Original batch markers stay attached to opaque occurrence identities in memory.
 Feedback and continuation use one serialized bounded lane; an uncertain POST
 terminates continuation without replay. Pause preserves context and excludes
 paused time. Ordinary source selection or MPRIS Stop retires radio and restores
-modes; account/logout/close cancel queued work. Exact admitted event and local
+modes; account/logout/close cancel queued work. Local retirement uses no separate
+network session-finished event: only an interrupted heard track can add one final
+skip; completed EOS and unheard tracks add none. Exact admitted event and local
 origin/phase/finish classifications accompany safe HTTP diagnostics. JSON/body,
 identities and listening payloads never enter those logs. See
 [ADR-0027](adr/0027-experimental-wave-lifecycle.md) and the

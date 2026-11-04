@@ -110,6 +110,9 @@ fn complete(server: JoinHandle<Vec<String>>, listener: TcpListener) -> Vec<Strin
         );
         assert!(!request.contains("client_secret"));
         assert!(!request.lines().next().unwrap().contains(TOKEN));
+        if request.lines().next().unwrap().contains("/feedback ") {
+            assert_ne!(json_body(request)["event"]["type"], "radioFinished");
+        }
     }
     requests
 }
@@ -576,8 +579,11 @@ fn coordinator_uses_actual_playing_time_and_never_position_or_declared_duration(
             .is_empty()
     );
     let end = c.finish(now + Duration::from_secs(49)).unwrap();
-    assert_eq!(end.len(), 1);
-    assert_eq!(end[0].kind(), WaveEventKind::RadioFinished);
+    assert!(end.is_empty(), "natural EOS already completed the track");
+    assert!(matches!(
+        c.finish(now + Duration::from_secs(50)),
+        Err(WaveError::InvalidObservation)
+    ));
 }
 
 #[test]
@@ -1020,10 +1026,9 @@ fn measured_clock_excludes_callback_delays_pause_and_completion_wall_time() {
     )
     .unwrap();
     let closed = c.finish(now + Duration::from_secs(50_000)).unwrap();
-    assert_eq!(closed.len(), 2);
+    assert_eq!(closed.len(), 1);
     assert_eq!(closed[0].kind(), WaveEventKind::Skip);
     assert_eq!(closed[0].heard(), Duration::from_millis(25));
-    assert_eq!(closed[1].kind(), WaveEventKind::RadioFinished);
 }
 
 #[test]
@@ -1072,6 +1077,8 @@ fn positive_worker_clock_recovers_a_missed_playing_snapshot_without_faking_zero_
     }
     for state in [
         PlaybackState::Loading,
+        PlaybackState::Ready,
+        PlaybackState::Paused,
         PlaybackState::Ended,
         PlaybackState::Error,
     ] {
@@ -1292,16 +1299,15 @@ fn canonical_lookup_failure_before_headers_does_not_inherit_session_http_200() {
     assert_eq!(complete(server, listener).len(), 3);
 }
 
-// This server sequence models a rejection at a chosen local event. In
-// particular, rejecting radioFinished here is NOT evidence that the live
-// service rejects that event, or that it caused the owner's HTTP400.
+// This server sequence models a rejection at any remaining supported event.
+// HTTP400 must remain an error even after removing the rejected session-end
+// event identified by the owner's separate real-service acceptance.
 fn feedback_sequence_with_optional_rejection(rejected: Option<WaveEventKind>) {
     let rejected_request = rejected.map(|kind| match kind {
         WaveEventKind::RadioStarted => 3,
         WaveEventKind::TrackStarted => 16, // First start from the next batch.
         WaveEventKind::Skip => 15,         // Fifth heard occurrence, original batch.
         WaveEventKind::TrackFinished => 17,
-        WaveEventKind::RadioFinished => 18,
     });
     let mut responses = vec![
         (200, ACCOUNT.into()),
@@ -1324,7 +1330,7 @@ fn feedback_sequence_with_optional_rejection(rejected: Option<WaveEventKind>) {
         ),
         (200, track_body(&[47, 48, 49, 50, 51])),
     ];
-    responses.extend(std::iter::repeat_n((200, r#"{"result":"ok"}"#.into()), 10));
+    responses.extend(std::iter::repeat_n((200, r#"{"result":"ok"}"#.into()), 9));
     if let Some(index) = rejected_request {
         responses[index] = (
             400,
@@ -1469,9 +1475,12 @@ fn feedback_sequence_with_optional_rejection(rejected: Option<WaveEventKind>) {
                 .is_empty(),
             "EOS cannot emit another terminal report"
         );
-        if !send(coordinator.finish(now + Duration::from_secs(15)).unwrap()) {
-            break 'sequence;
-        }
+        assert!(
+            coordinator
+                .finish(now + Duration::from_secs(15))
+                .unwrap()
+                .is_empty()
+        );
         assert!(matches!(
             coordinator.finish(now + Duration::from_secs(16)),
             Err(WaveError::InvalidObservation)
@@ -1529,19 +1538,12 @@ fn feedback_sequence_with_optional_rejection(rejected: Option<WaveEventKind>) {
                 .count(),
             1
         );
-        assert_eq!(
-            accepted
-                .iter()
-                .filter(|kind| **kind == WaveEventKind::RadioFinished)
-                .count(),
-            1
-        );
         coordinator.cancel();
     }
     let requests = complete(server, listener);
     assert_eq!(
         requests.len(),
-        rejected_request.map_or(19, |index| index + 1)
+        rejected_request.map_or(18, |index| index + 1)
     );
     if let Some(index) = rejected_request {
         let request = json_body(&requests[index]);
@@ -1587,8 +1589,210 @@ fn feedback_400_for_each_event_is_precise_redacted_and_never_replayed() {
         WaveEventKind::TrackStarted,
         WaveEventKind::Skip,
         WaveEventKind::TrackFinished,
-        WaveEventKind::RadioFinished,
     ] {
         feedback_sequence_with_optional_rejection(Some(kind));
+    }
+}
+
+#[test]
+fn local_retirement_drains_only_track_feedback_then_allows_a_fresh_session() {
+    // Source replacement and MPRIS Stop share this coordinator contract. The
+    // native controller fixture separately exercises their actual entrypoints.
+    for (snapshot, heard) in [
+        (None, false),
+        (Some(PlaybackState::Loading), false),
+        (Some(PlaybackState::Ready), false),
+        (Some(PlaybackState::Paused), false),
+        (Some(PlaybackState::Ended), false),
+        (Some(PlaybackState::Error), false),
+        (Some(PlaybackState::Playing), true),
+        (Some(PlaybackState::Paused), true),
+        (Some(PlaybackState::Ended), true),
+        (Some(PlaybackState::Stopped), true),
+    ] {
+        let accepted = (200, r#"{"result":"ok"}"#.into());
+        let mut responses = vec![
+            (200, ACCOUNT.into()),
+            (
+                200,
+                session_body("original-batch", &[42], Some("old-radio")),
+            ),
+            (200, track_body(&[42])),
+        ];
+        if heard {
+            responses.extend([accepted.clone(), accepted.clone()]);
+            responses.push((200, session_body("prefetched-batch", &[43], None)));
+            responses.push((200, track_body(&[43])));
+            responses.push(accepted.clone());
+        }
+        responses.push((200, session_body("fresh-batch", &[44], Some("new-radio"))));
+        responses.push((200, track_body(&[44])));
+        responses.extend([accepted.clone(), accepted.clone(), accepted]);
+        let expected_requests = responses.len();
+        let (service, server, listener) = fixture(responses, None);
+        let token = token();
+        service.account(&token).unwrap();
+        let cancellation = WaveCancellation::default();
+        let (session, batch) = service.begin_wave(&token, &cancellation).unwrap();
+        let mut coordinator = WaveCoordinator::new(&session);
+        let now = Instant::now();
+        let mut reports = Vec::new();
+        if let Some(snapshot) = snapshot {
+            coordinator
+                .select(1, &batch.tracks[0], &batch.marker(), now)
+                .unwrap();
+            if heard {
+                let started = coordinator
+                    .observe_measured(PlaybackState::Playing, Duration::ZERO, now)
+                    .unwrap();
+                assert_eq!(
+                    started.iter().map(WaveEvent::kind).collect::<Vec<_>>(),
+                    [WaveEventKind::RadioStarted, WaveEventKind::TrackStarted]
+                );
+                for event in &started {
+                    service.wave_feedback(&token, &session, event).unwrap();
+                }
+                reports.extend(started);
+                // Fetching a new batch cannot replace the original marker of
+                // an interrupted or naturally completed current occurrence.
+                let next = service
+                    .wave_batch(&token, &session, &["42".into()])
+                    .unwrap();
+                assert_eq!(next.marker.batch_id.as_str(), "prefetched-batch");
+            }
+            let observed = coordinator
+                .observe_measured(
+                    snapshot,
+                    if heard {
+                        Duration::from_millis(1250)
+                    } else {
+                        Duration::ZERO
+                    },
+                    now + Duration::from_secs(100),
+                )
+                .unwrap();
+            for event in &observed {
+                service.wave_feedback(&token, &session, event).unwrap();
+            }
+            reports.extend(observed);
+        }
+        let terminal = coordinator
+            .finish(now + Duration::from_secs(10_000))
+            .unwrap();
+        let interrupted = heard
+            && matches!(
+                snapshot,
+                Some(PlaybackState::Playing | PlaybackState::Paused)
+            );
+        assert_eq!(
+            terminal.len(),
+            usize::from(interrupted),
+            "{snapshot:?}, heard={heard}"
+        );
+        for event in &terminal {
+            service.wave_feedback(&token, &session, event).unwrap();
+        }
+        reports.extend(terminal);
+        if heard {
+            assert_eq!(reports.len(), 3);
+            let terminal = reports.last().unwrap();
+            assert_eq!(
+                terminal.kind(),
+                if snapshot == Some(PlaybackState::Ended) {
+                    WaveEventKind::TrackFinished
+                } else {
+                    WaveEventKind::Skip
+                }
+            );
+            assert_eq!(terminal.track_id.as_deref(), Some("42"));
+            assert_eq!(terminal.marker.batch_id.as_str(), "original-batch");
+            assert_eq!(
+                terminal.heard(),
+                Duration::from_millis(1250),
+                "pause, completion delay and declared duration cannot inflate actual Playing"
+            );
+        } else {
+            assert!(
+                reports.is_empty(),
+                "unheard/never-selected retirement cannot fabricate feedback"
+            );
+        }
+        assert!(
+            !session.is_cancelled(),
+            "the original identity must survive until its final skip drains"
+        );
+        assert!(matches!(
+            coordinator.finish(now + Duration::from_secs(10_001)),
+            Err(WaveError::InvalidObservation)
+        ));
+        assert!(matches!(
+            coordinator.observe_measured(
+                PlaybackState::Playing,
+                Duration::from_millis(1250),
+                now + Duration::from_secs(10_002)
+            ),
+            Err(WaveError::InvalidObservation)
+        ));
+        coordinator.cancel();
+        assert!(session.is_cancelled());
+        assert!(matches!(
+            coordinator.finish(now + Duration::from_secs(10_003)),
+            Err(WaveError::Cancelled)
+        ));
+        assert!(matches!(
+            service.wave_batch(&token, &session, &[]),
+            Err(WaveError::Cancelled)
+        ));
+        if let Some(event) = reports.last() {
+            assert_eq!(
+                service.wave_feedback(&token, &session, event),
+                Err(WaveError::Cancelled)
+            );
+        }
+        assert!(matches!(
+            service.begin_wave(&token, &cancellation),
+            Err(WaveError::Cancelled)
+        ));
+
+        // A deliberate later start has a distinct one-shot local identity.
+        // Retiring the old identity neither recreates it nor prevents this.
+        let fresh_cancellation = WaveCancellation::default();
+        let (fresh, batch) = service.begin_wave(&token, &fresh_cancellation).unwrap();
+        assert!(!Arc::ptr_eq(&session.0, &fresh.0));
+        let mut fresh_coordinator = WaveCoordinator::new(&fresh);
+        let at = now + Duration::from_secs(20_000);
+        fresh_coordinator
+            .select(1, &batch.tracks[0], &batch.marker(), at)
+            .unwrap();
+        let started = fresh_coordinator
+            .observe_measured(PlaybackState::Playing, Duration::from_millis(25), at)
+            .unwrap();
+        for event in started {
+            service.wave_feedback(&token, &fresh, &event).unwrap();
+        }
+        let terminal = fresh_coordinator
+            .finish(at + Duration::from_secs(1))
+            .unwrap();
+        assert_eq!(terminal.len(), 1);
+        assert_eq!(terminal[0].kind(), WaveEventKind::Skip);
+        assert_eq!(terminal[0].heard(), Duration::from_millis(25));
+        service.wave_feedback(&token, &fresh, &terminal[0]).unwrap();
+        fresh_coordinator.cancel();
+        let requests = complete(server, listener);
+        assert_eq!(requests.len(), expected_requests);
+        let feedback = requests
+            .iter()
+            .filter(|request| request.lines().next().unwrap().contains("/feedback "))
+            .map(|request| json_body(request))
+            .collect::<Vec<_>>();
+        assert_eq!(feedback.len(), if heard { 6 } else { 3 });
+        assert!(feedback.iter().all(|body| matches!(
+            body["event"]["type"].as_str(),
+            Some("radioStarted" | "trackStarted" | "trackFinished" | "skip")
+        )));
+        if heard {
+            assert_eq!(feedback[2]["batchId"], "original-batch");
+            assert_eq!(feedback[2]["event"]["totalPlayedSeconds"], 1.25);
+        }
     }
 }

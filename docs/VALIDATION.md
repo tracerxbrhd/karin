@@ -170,25 +170,28 @@ a second generic failure line. The supplied sequence does not establish which
 event or action failed; subsequent catalog successes do not identify it either.
 Explicit Finish worked locally but was rejected as unnecessary UX.
 
-This confirms a positive live chain with an unresolved refusal, not complete Wave
-acceptance. Issue #16 stays open; Issues #5 and #23 are separate and unchanged.
+This first test confirmed a positive live chain while leaving the refusal
+unidentified. Issue #16 stays open; Issues #5 and #23 are separate and unchanged.
 
-### Production-integration revision
+<a id="production-integration-revision"></a>
+
+### Production-integration revision (`8bd9317` / `a69dc79`)
 
 The new Home Hero uses the shared player, has no active Finish control and limits
 Cancel to startup. Pause preserves the session; ordinary source selection and
 MPRIS Stop retire it internally. Logout/close fence queued and late work. Refused
 feedback now has one fixed diagnostic with the submitted enum event, lifecycle
 phase and origin/reason, without provider bodies, identifiers or resources.
-No proven wire violation was found in the refreshed published protocol review:
-accepted `event.from`, original markers, actual heard time and request policy
-remain unchanged. In particular, a synthetic `radioFinished` refusal does not
-prove actual service support or explain the owner's event.
+At this revision the published protocol review and the first eventless owner
+log had not established the refused event. The accepted `event.from`, original
+markers, actual heard time and request policy remained unchanged. A synthetic
+`radioFinished` refusal alone did not establish the live cause.
 
-The added HTTP fixture reproduces an accepted cross-batch prefix and independent
-400s for each of the five local event kinds, checking poisoning, redaction and no
-replayed POST. Native tests exercise the real shared worker and Home controls;
-these synthetic refusals verify handling, not resolution of the real 400.
+The then-added HTTP fixture reproduced an accepted cross-batch prefix and
+independent 400s for each of the five then-existing local event kinds, checking
+poisoning, redaction and no replayed POST. Native tests exercised the real shared
+worker and Home controls; those synthetic refusals verified handling rather
+than resolution of the owner's real 400.
 
 The local stable **1.99.1** / exact **1.98.1** matrix passed formatting,
 strict Clippy/default/all/minimal, **421 / 429 / 407 library + 4 CLI tests**
@@ -220,6 +223,12 @@ native session/catalog/queue/logout fixture then passed locally on stable 1.99.1
 and exact 1.98.1 (one executed, zero ignored each), with formatting and strict
 all-feature Clippy.
 
+At the prior `a69dc79` handoff seven hosted checks had passed and one remained
+pending; that same attempt subsequently completed all eight successfully
+([PR run](https://github.com/tracerxbrhd/karin/actions/runs/41872993299),
+[push run](https://github.com/tracerxbrhd/karin/actions/runs/41872983694)). Those
+results belong to that revision, not the feedback correction below.
+
 The new Hero's state/structure/input matrix passed on Rust 1.98.1 at 1× and 2×,
 with fatal GTK warnings, both themes, 420×720, 850×750, 1440×900, 1920×1080 and
 maximized. Twenty fresh clean captures cover representative states; the two
@@ -236,11 +245,57 @@ published KDE code can write it. The owner's actual effective input/writer is
 still unknown. No warning suppression or forced preference was added; use the
 optional [read-only check](BUILDING.md#theme-input-check).
 
-Repeat [the single Fedora procedure](BUILDING.md#my-wave-local-acceptance),
-including natural EOS, skips, source replacement, Stop and safe refused-event
-classification. This revision is not newly accepted on Fedora or in an installed
-Flatpak. Default Wave enablement remains blocked until the refused sequence is
-identified/corrected and its repeat accepted.
+### Owner's `a69dc79` repeat and final feedback correction
+
+The owner subsequently tested
+[`a69dc79686ba066f194fb3b28b5deaa318016d3c`](https://github.com/tracerxbrhd/karin/commit/a69dc79686ba066f194fb3b28b5deaa318016d3c)
+on Fedora 44 / KDE Plasma / Wayland / PipeWire and accepted the current Home
+design. Real session creation, normalized tracks, heard Music, all four feedback
+events (`radioStarted`, `trackStarted`, `skip`, `trackFinished`) and multiple
+further batches succeeded with HTTP 200. During a switch to an ordinary source,
+the safe diagnostics identified the previously unresolved retirement fault:
+
+```text
+stage=feedback category=accepted http=200 event=skip phase=retiring origin=retirement finish=source-change
+stage=feedback category=http-rejected http=400 event=radioFinished phase=retiring origin=retirement finish=source-change
+```
+
+`WaveCoordinator::finish()` added the rejected `radioFinished` after the valid
+track report. The correction removes it from the outgoing protocol and shared
+retirement path. It preserves one eligible final `skip`, natural-EOS
+`trackFinished`, original markers, actual Playing time, serialized feedback,
+late-result fences and ordinary playback/mode restoration. It adds no new
+authentication or UI path. An HTTP 400 for any remaining supported event still
+stops continuation without replay.
+
+The correction passed the local stable **1.99.1** / exact **1.98.1** matrix:
+formatting, strict Clippy/default/all/minimal, **422 / 430 / 408 library + 4 CLI
+tests** per compiler/configuration and locked debug builds. The 28 Wave API tests
+include a retirement/recreation table, original markers, fractional actual time,
+all four supported HTTP 400 refusals and no replay. The new native retirement
+selector exercises eleven cases across all ten requested categories, including
+separate logout/close, a never-started resolver, natural EOS, paused time,
+in-flight feedback/batch, real MPRIS Stop and a fresh session. It and the preserved
+full Wave fixture each ran one test with zero ignored at both scales on MSRV,
+with fatal GTK warnings. The local retired identity is cancelled after draining
+eligible reports, including an empty outbox; no path emits `radioFinished`.
+
+MSRV ordinary/all-feature locked offline release, hidden terminal regressions,
+generated-media GStreamer/transport, both GTK smoke modes and isolated ordinary/
+opt-in startup/forwarding/cleanup passed. Flatpak-source preparation and offline
+metadata passed with 208 packages, 207 external notice directories and unchanged
+license inventory, SDK/runtime requirements and scoped permissions.
+
+Final-head hosted results are recorded separately in
+[PR #25 checks](https://github.com/tracerxbrhd/karin/pull/25/checks). The new CI
+selector is additional to the prior coverage. CI now requires **36 compiled /
+33 unique functional selectors and 52 explicit Ubuntu executions** per compiler lane.
+No post-fix Fedora or installed-Flatpak acceptance has been reported. Repeat
+[the focused Fedora procedure](BUILDING.md#my-wave-local-acceptance), including
+source change after Playing/Pause/natural EOS, MPRIS Stop and starting a new
+Wave session. `--experimental-wave` and Issue #16 remain until the owner accepts
+those paths without the rejected event. The theme warning and public
+distribution question remain separate.
 
 ### Separate post-squash startup failure
 

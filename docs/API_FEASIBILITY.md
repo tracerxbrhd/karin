@@ -17,7 +17,7 @@ success establishes neither playback entitlement nor public-distribution rights.
 | Likes | Read membership/revision, perform one deliberate mutation, then independently confirm the desired state. |
 | Playlist creation | One explicit create request followed by independent identity/title/visibility confirmation; ambiguous writes remain unresolved. |
 | Online playback | Use the separate guarded [resolver](STREAM_DELIVERY_REVIEW.md) for an explicitly selected track. Availability metadata alone is insufficient. |
-| My Wave preview | Opt-in shared player; owner confirmed real session/audio/Start/Skip/next batch. Later feedback 400 needs event-specific repeat acceptance. |
+| My Wave preview | Opt-in shared player; real session/audio/four feedback events/continuation confirmed. Removed the source-change `radioFinished` rejected with HTTP 400; repeat retirement acceptance pending. |
 
 Ambiguous writes require read/confirmation, never fabricated success or POST
 retries. Broader playlist edits, recommendations and lyrics are not shipped
@@ -66,14 +66,17 @@ Cassette `event.from` contract. The reviewed yamu/yamuse station routes do not
 confirm this modern flow and are not automatic fallbacks. No new identity,
 OAuth mechanism, signing secret or API dependency is introduced.
 
-The owner subsequently confirmed real session creation, normalized tracks,
-heard Music, accepted `radioStarted`/`trackStarted`/`skip` and a further batch.
-A later feedback HTTP 400 had no event in the old log. Its event/cause remains
-unknown; neither its position after a skip nor the five-track count identifies it.
-The reviewed Cassette Flow does not send its defined `radioFinished` constant;
-MarshalX's documented helpers omit it. This leaves support uncertain, not proven
-unsupported, and does not identify the owner's refused event. No demonstrated
-wire violation warrants changing accepted `from`, markers or timing speculatively.
+The owner confirmed real sessions, normalized tracks, heard Music, accepted
+`radioStarted`/`trackStarted`/`trackFinished`/`skip` and several further batches.
+The first eventless HTTP 400 report was inconclusive. The repeat at `a69dc79`
+identified an accepted retirement `skip` followed by rejected `radioFinished`
+on source change. That extra event is absent from the reviewed modern MarshalX
+event list; Cassette's reviewed Flow does not send its defined constant either.
+Karin now excludes it from its outgoing modern protocol. Retirement still drains
+one interrupted track's final skip when appropriate, then cancels locally; EOS
+does not gain another skip. This is local cleanup, not a remote deletion claim.
+Accepted `from`, original markers and actual heard-time fields stay unchanged.
+Real source-change and MPRIS Stop acceptance of the fix remain pending.
 
 Cloud fixtures cannot establish real service behavior. HTTP 200 with an admitted
 feedback acknowledgment proves receipt under this envelope contract, not its

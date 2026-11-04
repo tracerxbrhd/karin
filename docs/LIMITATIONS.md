@@ -22,12 +22,15 @@ rights. Public service/distribution conditions remain unresolved. See [LICENSING
 
 Normal Home shows the prepared My Wave Hero, with service access gated.
 `--experimental-wave` enables the preview using the existing session/player.
-The owner confirmed a real session, heard Music, accepted radio/track starts
-and skips, and another batch on Fedora. A later feedback POST returned HTTP 400;
-the old log omitted its event, so its exact type and violated contract remain
-unidentified. New diagnostics include only local event/origin/phase/finish enums
-and the known HTTP status. A synthetic refusal does not establish the real
-cause or prove a particular terminal event unsupported. Repeat the
+At `a69dc79` the owner confirmed a real session, heard Music, all four feedback
+events (`radioStarted`, `trackStarted`, `skip`, `trackFinished`) with HTTP 200,
+and several further batches on Fedora. The source-change failure is now
+identified: an accepted final `skip` was followed by `radioFinished` HTTP 400.
+The correction removes that additional event from the outgoing protocol;
+retirement remains local, with at most one eligible terminal track report.
+This does not yet establish post-fix Fedora or installed-Flatpak acceptance.
+Fixed event/origin/phase/finish diagnostics remain available; HTTP 400 on a
+remaining supported event still fails honestly without automatic replay. Repeat the
 [local acceptance procedure](BUILDING.md#my-wave-local-acceptance) before default
 enablement; no automatic start or session restoration is added.
 

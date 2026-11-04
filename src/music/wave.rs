@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Opt-in modern radio-session protocol, not a visible or accepted My Wave UI.
+//! Opt-in modern radio-session protocol with local retirement.
 //!
 //! Endpoint/JSON/event knowledge was compared with Cassette v0.2.4 at
 //! 9d34251d01bcd414ffbec2bef7931090d33c9124 (api/yam-client.vala,
 //! api/objects/rotor, player/mods/flow.vala and client/utils.vala). This original
 //! adapter imports no upstream implementation, OAuth identity or signing code.
 //! Published protocol, successful HTTP acknowledgement and real service/playing
-//! acceptance are separate facts. Normal UI stays hidden until end-to-end
-//! session/tracks/feedback acceptance is established with Karin on Fedora.
+//! acceptance are separate facts. Ordinary service access stays gated until
+//! repeat retirement acceptance is established with Karin on Fedora.
 
 use super::{
     Id, MusicError, MusicService, PAGE_SIZE, SearchBinding, SearchTrackHit, Track,
@@ -254,7 +254,6 @@ pub enum WaveEventKind {
     TrackStarted,
     TrackFinished,
     Skip,
-    RadioFinished,
 }
 impl WaveEventKind {
     pub fn as_str(self) -> &'static str {
@@ -263,7 +262,6 @@ impl WaveEventKind {
             Self::TrackStarted => "trackStarted",
             Self::TrackFinished => "trackFinished",
             Self::Skip => "skip",
-            Self::RadioFinished => "radioFinished",
         }
     }
 }
@@ -918,22 +916,14 @@ impl WaveCoordinator {
         }
         Ok(events)
     }
-    /// Normal explicit session end while credentials are still valid. Send the
-    /// returned reports once in order, then cancel locally; no server-delete
-    /// endpoint or completed remote teardown is implied.
+    /// Retire locally while credentials are still valid. Return only the final
+    /// skip of an interrupted heard track, if any; a completed or unheard cycle
+    /// has no extra feedback. Drain reports once, then cancel the session. The
+    /// modern protocol has no separate outgoing session-finished event, and no
+    /// server-delete endpoint or completed remote teardown is implied.
     pub fn finish(&mut self, now: Instant) -> Result<Vec<WaveEvent>, WaveError> {
         self.check()?;
-        let mut reports = self.complete(WaveEventKind::Skip, now)?;
-        if self.radio_started
-            && let Some(active) = self.active.as_ref()
-        {
-            reports.push(event(
-                active,
-                WaveEventKind::RadioFinished,
-                None,
-                Duration::ZERO,
-            ));
-        }
+        let reports = self.complete(WaveEventKind::Skip, now)?;
         self.closed = true;
         Ok(reports)
     }

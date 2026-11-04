@@ -357,6 +357,14 @@ impl Controller {
         radio.running.is_none() && !radio.begin_pending && radio.retiring.is_none()
     }
     #[cfg(test)]
+    pub(super) fn wave_session_for_test(&self) -> Option<WaveSession> {
+        self.radio
+            .borrow()
+            .active
+            .as_ref()
+            .map(|active| active.session.clone())
+    }
+    #[cfg(test)]
     pub(super) fn poison_wave_session_for_test(&self) {
         self.radio
             .borrow()

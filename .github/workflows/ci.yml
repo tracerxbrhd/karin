@@ -145,6 +145,7 @@ jobs:
               'native_music_session_catalog_queue_and_logout',
               'native_music_context_mpris_shared_player_and_cleanup',
               'native_wave_shared_player_feedback_batches_and_cleanup',
+              'native_wave_retirement_supported_feedback_and_cleanup',
               'native_wave_home_experiment_layout_and_controls',
               'native_music_playback_context_occurrences_and_shared_transport',
               'native_music_playback_media_error_visibility_stop_retry_and_catalog_preservation',
@@ -277,8 +278,10 @@ jobs:
             export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
           fi
           dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_wave_shared_player_feedback_batches_and_cleanup -- --ignored --test-threads=1
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_wave_retirement_supported_feedback_and_cleanup -- --ignored --test-threads=1
           dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_wave_home_experiment_layout_and_controls -- --ignored --test-threads=1
           GDK_SCALE=2 GDK_DPI_SCALE=1 dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_wave_shared_player_feedback_batches_and_cleanup -- --ignored --test-threads=1
+          GDK_SCALE=2 GDK_DPI_SCALE=1 dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_wave_retirement_supported_feedback_and_cleanup -- --ignored --test-threads=1
           GDK_SCALE=2 GDK_DPI_SCALE=1 dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_wave_home_experiment_layout_and_controls -- --ignored --test-threads=1
       - name: Native catalog concurrent actions, detail navigation and stale results
         env:

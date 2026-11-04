@@ -2,7 +2,7 @@
 
 # ADR-0027: Experimental My Wave on the shared player
 
-Status: Opt-in preview; positive live chain confirmed, feedback 400 repeat acceptance pending
+Status: Opt-in preview; retirement feedback defect identified, post-fix acceptance pending
 Date: 2026-11-04
 Extends: ADR-0017, ADR-0023 and ADR-0026
 
@@ -18,15 +18,19 @@ feedback `from` placement differs; retain the existing Cassette `event.from`
 shape until a specific real result warrants changing it. Older station APIs
 are not automatic fallbacks. No new OAuth identity, secret or dependency follows.
 
-The owner subsequently confirmed real session creation, normalized tracks,
-heard Music, accepted `radioStarted`/`trackStarted`/`skip` and a further batch on
-Fedora. A later feedback returned HTTP 400 without an event in the old log.
-Its type and cause cannot be recovered from that sequence alone. Cassette's
-constant for `radioFinished` is not proof of effective server support; its
+The owner's first Fedora test confirmed a positive live chain but left one
+HTTP 400 unidentified because its log omitted the event. The repeat at
+[`a69dc79`](https://github.com/tracerxbrhd/karin/commit/a69dc79686ba066f194fb3b28b5deaa318016d3c)
+confirmed real session creation, normalization, heard Music, all four events
+`radioStarted`/`trackStarted`/`skip`/`trackFinished` with HTTP 200, and several
+further batches. It then identified an accepted terminal `skip` followed by
+`radioFinished` HTTP 400 during ordinary source replacement. The additional
+event came from `WaveCoordinator::finish()`; the skip was not the refusal.
+Cassette's constant for `radioFinished` does not establish server support: its
 reviewed [Flow](https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/player/mods/flow.vala#L69)
-does not send it, and the reviewed MarshalX helpers omit it.
-Keep the existing wire shape/events until a real result identifies a violation;
-do not infer that this particular event caused the refusal.
+does not send it, and the reviewed modern MarshalX event contract omits it.
+The live result now justifies removing that event, while retaining the accepted
+`event.from` shape and the four confirmed events.
 
 ## Decision
 
@@ -82,8 +86,16 @@ A deliberate fresh-session action creates a new identity; local Busy is distinct
 from an already-dispatched write.
 
 Pause keeps the radio context and excludes paused time. MPRIS Stop or source
-replacement under the same account may drain ordered final reports once, then
-cancel locally; there is no separate user-facing Finish operation. This is not verified remote deletion.
+replacement under the same account may drain ordered final track reports once,
+then cancel locally; there is no separate user-facing Finish operation. Local
+retirement sends no `radioFinished`: remove that variant from the outgoing
+protocol and coordinator rather than retain an unused compatibility branch.
+An interrupted, actually started cycle may send one terminal `skip`, preserving
+its original batch marker and actual Playing time. An already naturally finished
+cycle sends no additional `skip`; an unheard cycle invents no feedback. This
+applies to every shared retirement path, including Stop before playback starts,
+without leaving the local coordinator stuck in retiring/finishing. Local
+completion does not claim remote deletion.
 Account change, logout and close cancel queued work and fence late results;
 they schedule no final reports with retired authorization. An admitted bounded
 HTTP request cannot be unsent or allowed to update a new context/account/window.
@@ -106,9 +118,12 @@ restoration and uncertain feedback without replay. Native synthetic media must
 use the shared player. Executed results belong in [VALIDATION](../VALIDATION.md).
 
 Default enablement needs the owner's [Fedora procedure](../BUILDING.md#my-wave-local-acceptance):
-repeat the real session/audio/feedback/batch sequence, including natural EOS,
-several skips, source change and MPRIS Stop, with the refused event now observable.
-An injected HTTP 400 verifies handling, not its real service cause. Until this
-repeat succeeds Issue #16 stays open and normal service access remains gated. Public distribution remains separate Issue #5
+repeat source changes after Playing, Pause and natural EOS, MPRIS Stop and a new
+Wave session after local retirement. Require no `radioFinished` request and no
+new refusal in those paths. Retain tests for pending feedback/batch cancellation,
+logout/close, exact-once terminal reporting and honest HTTP 400 handling for each
+remaining event. Fixtures do not establish the post-fix live result. Until the
+owner accepts the repeat, Issue #16 stays open and normal service access remains
+gated. Public distribution remains separate Issue #5
 in [API_FEASIBILITY](../API_FEASIBILITY.md). No DRM bypass, audio persistence or
 new Flatpak permissions follows from this decision.

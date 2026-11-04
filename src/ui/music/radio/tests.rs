@@ -50,7 +50,6 @@ fn provider_rejection_diagnostic_retains_every_fixed_event_and_local_origin() {
         WaveEventKind::TrackStarted,
         WaveEventKind::TrackFinished,
         WaveEventKind::Skip,
-        WaveEventKind::RadioFinished,
     ] {
         let error = WaveError::Music(MusicError::Http(400));
         let diagnostic = OperationDiagnostic {

@@ -48,10 +48,11 @@ version remains `0.0.0`. See [validation](docs/VALIDATION.md) for the accepted s
 
 The accepted stability update [PR #24](https://github.com/tracerxbrhd/karin/pull/24)
 is merged at `920fd71`. The v0.5 **My Wave preview** uses this same player.
-The owner confirmed real session creation, heard Music, accepted start/skip
-feedback and another batch on Fedora. One later feedback returned HTTP 400;
-its event was absent from the old log. The new music Home prepares the Hero;
-service access and precise safe feedback diagnostics remain behind
+The owner confirmed real sessions, heard Music, all four supported feedback
+events and continued batches on Fedora. The repeat test localized HTTP 400 to
+the additional `radioFinished` sent after an accepted final `skip` on source
+change. Local retirement now uses only supported track feedback; its source-change
+and MPRIS Stop correction awaits repeat acceptance. Service access remains behind
 `--experimental-wave` until [repeat owner acceptance](docs/BUILDING.md#my-wave-local-acceptance).
 Normal Home shows the Hero with service access gated. No credentials
 need to be copied for the preview.
