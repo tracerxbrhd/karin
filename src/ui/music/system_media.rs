@@ -139,6 +139,7 @@ impl Controller {
             Command::Play => self.play_music(),
             Command::Pause => self.pause_music(),
             Command::PlayPause => self.toggle_music(),
+            Command::Stop if self.is_wave_queue() => self.cancel_wave(),
             Command::Stop => self.stop_music(),
             Command::Next => self.skip_music(true, false),
             Command::Previous => self.skip_music(false, false),
@@ -308,8 +309,14 @@ impl Controller {
                 state,
                 PlaybackState::Playing | PlaybackState::Paused | PlaybackState::Ready
             );
-        let next = model.queue.can_go_next();
-        let previous = model.queue.can_go_previous();
+        let radio_navigation = self.wave_current_allowed();
+        let resumable_audio = has_source
+            && matches!(
+                state,
+                PlaybackState::Playing | PlaybackState::Paused | PlaybackState::Ready
+            );
+        let next = radio_navigation && (model.queue.can_go_next() || self.is_wave_queue());
+        let previous = radio_navigation && model.queue.can_go_previous();
         let published = Snapshot {
             status,
             metadata: selected.map(|track| Metadata {
@@ -327,13 +334,15 @@ impl Controller {
             can_play: ready
                 && selected.is_some_and(|track| track.available)
                 && !requested
-                && state != PlaybackState::Loading,
+                && state != PlaybackState::Loading
+                && (radio_navigation || resumable_audio),
             // PlayPause is gated by CanPause in MPRIS, including a selected
             // stopped track that the same media key can explicitly restart.
             can_pause: ready
                 && selected.is_some_and(|track| track.available)
                 && !requested
-                && state != PlaybackState::Loading,
+                && state != PlaybackState::Loading
+                && (radio_navigation || resumable_audio),
             can_seek,
             can_go_next: ready && selected.is_some() && next,
             can_go_previous: ready && selected.is_some() && previous,

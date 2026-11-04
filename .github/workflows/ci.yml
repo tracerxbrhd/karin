@@ -144,6 +144,8 @@ jobs:
               'native_search_retry_normalized_results_and_density',
               'native_music_session_catalog_queue_and_logout',
               'native_music_context_mpris_shared_player_and_cleanup',
+              'native_wave_shared_player_feedback_batches_and_cleanup',
+              'native_wave_home_experiment_layout_and_controls',
               'native_music_playback_context_occurrences_and_shared_transport',
               'native_music_playback_media_error_visibility_stop_retry_and_catalog_preservation',
               'native_music_playback_queue_races_remove_and_close',
@@ -265,6 +267,19 @@ jobs:
             export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
           fi
           dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_music_session_catalog_queue_and_logout -- --ignored --test-threads=1
+      - name: Experimental Wave with the shared native player, feedback and cleanup
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+          GSK_DEBUG: full-redraw
+        run: |
+          if [ '${{ matrix.lane }}' = stable ]; then
+            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
+          fi
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_wave_shared_player_feedback_batches_and_cleanup -- --ignored --test-threads=1
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_wave_home_experiment_layout_and_controls -- --ignored --test-threads=1
+          GDK_SCALE=2 GDK_DPI_SCALE=1 dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_wave_shared_player_feedback_batches_and_cleanup -- --ignored --test-threads=1
+          GDK_SCALE=2 GDK_DPI_SCALE=1 dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_wave_home_experiment_layout_and_controls -- --ignored --test-threads=1
       - name: Native catalog concurrent actions, detail navigation and stale results
         env:
           GTK_A11Y: none
@@ -470,6 +485,12 @@ jobs:
         run: cargo build --workspace --locked
       - name: Local OAuth terminal boundaries (synthetic input, no browser or network)
         run: python3 scripts/test-oauth-terminal.py ./target/debug/karin
+      - name: Wave opt-in startup, forwarding and cleanup without an account
+        env:
+          GTK_A11Y: none
+          G_DEBUG: fatal-warnings
+          GSK_RENDERER: cairo
+        run: xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' python3 scripts/test-wave-launch.py ./target/debug/karin
       - name: Fetch locked dependencies for the offline release build
         if: matrix.lane == 'msrv'
         run: cargo fetch --locked
@@ -577,6 +598,11 @@ jobs:
           Native and current Flatpak acceptance require separate local checks; no broad bus grants.
           Preserve GPL and third-party notices. Shared OAuth public-distribution/service permission remains unresolved separately.
           Do not enable network/GStreamer logs or share tokens, URLs, account data, private screenshots or audio.
+          Optional v0.5 My Wave experiment (unverified live service): ./karin --experimental-wave
+          Sign in normally or use the existing protected session, then Home -> Запустить волну.
+          Read docs/BUILDING.md#my-wave-local-acceptance for the complete bounded acceptance sequence.
+          Keep only the fixed Wave stage/category/HTTP/feedback-kind and numeric counters; never enable network logs.
+          A generated-media fixture is not proof of real radio, accepted service feedback or heard Yandex music.
           Report exact source revision and anonymized PASS/FAIL/not-assessed results only.
           EOF
           tar -C build -czf build/karin-fedora-prototype-1.98.1.tar.gz karin-fedora-prototype-1.98.1

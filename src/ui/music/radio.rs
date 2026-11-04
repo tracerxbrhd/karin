@@ -1,0 +1,849 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//! Opt-in radio intent, bounded provenance and serialized provider work. Audio,
+//! queue selection and media-system metadata remain owned by the existing player.
+
+use super::*;
+use crate::{
+    music::wave::{
+        WaveBatch, WaveBatchMarker, WaveCancellation, WaveCoordinator, WaveError, WaveEvent,
+        WaveSession, WaveStage,
+    },
+    playback::{PlaybackSnapshot, PlaybackState},
+    queue::{OccurrenceId, RepeatMode},
+};
+use std::{collections::VecDeque, time::Instant};
+
+const MAX_EVENTS: usize = 16;
+const KEEP_HISTORY: usize = 25;
+const MAX_BUFFERED: usize = 100;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum RadioStage {
+    Session,
+    Tracks,
+    Normalization,
+    Delivery,
+    Playback,
+    Feedback,
+    Local,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum RadioFailure {
+    Authentication,
+    Forbidden,
+    Restricted,
+    RateLimited,
+    Network,
+    Timeout,
+    Http,
+    Unsupported,
+    Empty,
+    Unavailable,
+    Busy,
+    OutcomeUnknown,
+    Capacity,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum RadioPhase {
+    Disabled,
+    Ready,
+    Starting,
+    Active,
+    LoadingNext,
+    Finishing,
+    Failed {
+        stage: RadioStage,
+        failure: RadioFailure,
+    },
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct RadioStatus {
+    pub phase: RadioPhase,
+    pub playback: Option<PlaybackState>,
+    pub authenticated: bool,
+}
+
+struct Binding {
+    occurrence: OccurrenceId,
+    marker: WaveBatchMarker,
+    // Position in this admitted normalized batch, independent of queue edits.
+    _batch_position: usize,
+}
+struct Active {
+    epoch: u64,
+    context: String,
+    session: WaveSession,
+    coordinator: WaveCoordinator,
+    bindings: Vec<Binding>,
+    events: VecDeque<WaveEvent>,
+    cycle: Option<u64>,
+    batch_pending: bool,
+    batch_running: bool,
+    batch_for: Option<OccurrenceId>,
+    waiting_next: Option<bool>,
+}
+struct Retiring {
+    epoch: u64,
+    session: WaveSession,
+    events: VecDeque<WaveEvent>,
+}
+#[derive(Default)]
+pub(super) struct RadioLifecycle {
+    enabled: bool,
+    epoch: u64,
+    serial: u64,
+    running: Option<u64>,
+    begin: Option<WaveCancellation>,
+    begin_pending: bool,
+    active: Option<Active>,
+    retiring: Option<Retiring>,
+    failure: Option<(RadioStage, RadioFailure)>,
+    saved_modes: Option<(bool, RepeatMode)>,
+}
+impl RadioLifecycle {
+    fn cancel(&mut self) {
+        if let Some(begin) = self.begin.take() {
+            begin.cancel();
+        }
+        if let Some(mut active) = self.active.take() {
+            active.coordinator.cancel();
+        }
+        if let Some(retiring) = self.retiring.take() {
+            retiring.session.cancel();
+        }
+        self.begin_pending = false;
+        self.failure = None;
+        self.epoch = self.epoch.wrapping_add(1);
+        // An admitted worker retains the only running slot until it actually
+        // completes. Cancellation cannot create overlapping replacement jobs.
+    }
+}
+enum Work {
+    Begin(WaveCancellation),
+    Batch(WaveSession, Vec<String>),
+    Feedback(WaveSession, WaveEvent),
+}
+enum ResultValue {
+    Begin(Result<(WaveSession, WaveBatch), WaveError>),
+    Batch(Result<WaveBatch, WaveError>),
+    Feedback(Result<u16, WaveError>),
+}
+struct Task {
+    serial: u64,
+    epoch: u64,
+    retiring: bool,
+    stage: RadioStage,
+    event: Option<crate::music::wave::WaveEventKind>,
+    work: Work,
+}
+
+impl Controller {
+    pub(super) fn enable_wave_experiment(self: &Rc<Self>) {
+        self.radio.borrow_mut().enabled = true;
+        self.render_wave();
+    }
+    pub(super) fn radio_status(&self) -> RadioStatus {
+        let model = self.model.borrow();
+        let authenticated = !model.closed
+            && model.account_valid
+            && model
+                .token
+                .as_ref()
+                .is_some_and(|token| !token.is_expired());
+        let radio = self.radio.borrow();
+        let phase = if !radio.enabled {
+            RadioPhase::Disabled
+        } else if let Some((stage, failure)) = radio.failure.or_else(|| {
+            radio
+                .active
+                .as_ref()
+                .and_then(|_| self.wave_playback_failure())
+        }) {
+            RadioPhase::Failed { stage, failure }
+        } else if radio.retiring.is_some() {
+            RadioPhase::Finishing
+        } else if radio.begin.is_some() {
+            RadioPhase::Starting
+        } else if let Some(active) = &radio.active {
+            if active.waiting_next.is_some() {
+                RadioPhase::LoadingNext
+            } else {
+                RadioPhase::Active
+            }
+        } else {
+            RadioPhase::Ready
+        };
+        let playback = self
+            .is_wave_queue()
+            .then(|| self.music_snapshot().map(|s| s.state))
+            .flatten();
+        RadioStatus {
+            phase,
+            playback,
+            authenticated,
+        }
+    }
+    pub(super) fn start_wave(self: &Rc<Self>) {
+        let status = self.radio_status();
+        if !status.authenticated {
+            return;
+        }
+        if self.radio.borrow().active.is_some() {
+            if !matches!(status.phase, RadioPhase::Failed { .. }) {
+                return;
+            }
+            self.leave_wave();
+        }
+        {
+            let mut radio = self.radio.borrow_mut();
+            if !radio.enabled || radio.begin.is_some() || radio.active.is_some() {
+                return;
+            }
+            radio.epoch = radio.epoch.wrapping_add(1);
+            radio.begin = Some(WaveCancellation::default());
+            radio.begin_pending = true;
+            radio.failure = None;
+        }
+        // Keep the user's ordinary source intact until playable data arrives.
+        self.render_wave();
+        self.drive_radio();
+    }
+    pub(super) fn is_wave_queue(&self) -> bool {
+        self.model
+            .borrow()
+            .queue
+            .context()
+            .is_some_and(|c| c.source_kind() == ContextKind::Wave)
+    }
+    /// A later deliberate ordinary-source action supersedes a pending start.
+    /// Automatic EOS never calls this; final reports already retiring retain
+    /// their separate bounded lane and validated-account binding.
+    pub(super) fn cancel_pending_wave_for_ordinary_action(&self) {
+        if self.is_wave_queue() {
+            return;
+        }
+        let mut radio = self.radio.borrow_mut();
+        if let Some(begin) = radio.begin.take() {
+            begin.cancel();
+        }
+        radio.begin_pending = false;
+    }
+    #[cfg(test)]
+    pub(super) fn radio_idle_for_test(&self) -> bool {
+        let radio = self.radio.borrow();
+        radio.running.is_none() && !radio.begin_pending && radio.retiring.is_none()
+    }
+    pub(super) fn wave_manual_append_allowed(&self) -> bool {
+        if self.is_wave_queue() {
+            self.widgets
+                .status
+                .set_title("Чтобы изменить очередь, сначала завершите «Мою волну».");
+            self.widgets.status.set_subtitle(
+                "Чтобы добавить свои треки, сначала завершите «Мою волну» на Главной.",
+            );
+            self.render_controls();
+            false
+        } else {
+            true
+        }
+    }
+    pub(super) fn wave_current_allowed(&self) -> bool {
+        if !self.is_wave_queue() {
+            return true;
+        }
+        let model = self.model.borrow();
+        let radio = self.radio.borrow();
+        radio.active.as_ref().is_some_and(|active| {
+            !active.session.is_cancelled()
+                && model.queue.context().and_then(PlaybackContext::source_id)
+                    == Some(active.context.as_str())
+                && model.queue.current_occurrence_id().is_some_and(|id| {
+                    active
+                        .bindings
+                        .iter()
+                        .any(|binding| &binding.occurrence == id)
+                })
+        })
+    }
+    /// Hard account/window retirement: no new POST may be dispatched, including
+    /// already queued final feedback. An already admitted HTTP call may finish.
+    pub(super) fn cancel_radio(&self) {
+        let saved = {
+            let mut radio = self.radio.borrow_mut();
+            radio.cancel();
+            radio.saved_modes.take()
+        };
+        self.restore_radio_modes(saved);
+    }
+    fn restore_radio_modes(&self, saved: Option<(bool, RepeatMode)>) {
+        if let Some((shuffle, repeat)) = saved {
+            let mut model = self.model.borrow_mut();
+            model.queue.set_shuffle(shuffle);
+            model.queue.set_repeat_mode(repeat);
+        }
+    }
+    /// Normal source replacement while the validated account still exists:
+    /// finish once, drain in order, then locally retire the opaque identity.
+    pub(super) fn leave_wave(&self) {
+        self.observe_wave_snapshot(self.music_snapshot().as_ref());
+        let saved = {
+            let mut radio = self.radio.borrow_mut();
+            if let Some(begin) = radio.begin.take() {
+                begin.cancel();
+            }
+            radio.begin_pending = false;
+            if let Some(mut active) = radio.active.take() {
+                let final_events = active.coordinator.finish(Instant::now());
+                match final_events {
+                    Ok(events) if event_capacity(active.events.len(), events.len()) => {
+                        active.events.extend(events);
+                        radio.retiring = Some(Retiring {
+                            epoch: active.epoch,
+                            session: active.session,
+                            events: active.events,
+                        });
+                    }
+                    _ => {
+                        active.session.cancel();
+                    }
+                }
+            }
+            radio.failure = None;
+            radio.saved_modes.take()
+        };
+        self.restore_radio_modes(saved);
+    }
+    pub(super) fn cancel_wave(self: &Rc<Self>) {
+        self.leave_wave();
+        if self.is_wave_queue() {
+            self.stop_music_engine();
+            self.model.borrow_mut().queue.clear();
+            self.render_queue();
+        }
+        self.render_wave();
+        self.drive_radio();
+    }
+    pub(super) fn select_wave_cycle(&self, serial: u64) {
+        let (occurrence, track) = {
+            let model = self.model.borrow();
+            (
+                model.queue.current_occurrence_id().cloned(),
+                model.queue.current().cloned(),
+            )
+        };
+        let mut radio = self.radio.borrow_mut();
+        let Some(active) = radio.active.as_mut() else {
+            return;
+        };
+        let (Some(occurrence), Some(track)) = (occurrence, track) else {
+            return;
+        };
+        let Some(marker) = active
+            .bindings
+            .iter()
+            .find(|b| b.occurrence == occurrence)
+            .map(|b| b.marker.clone())
+        else {
+            return;
+        };
+        match active
+            .coordinator
+            .select(serial, &track, &marker, Instant::now())
+        {
+            Ok(events) if event_capacity(active.events.len(), events.len()) => {
+                active.events.extend(events);
+                active.cycle = Some(serial);
+                // A later row/Previous selection supersedes a waiting Next.
+                // Its in-flight batch remains useful, but cannot auto-select.
+                active.waiting_next = None;
+            }
+            _ => {
+                drop(radio);
+                self.fail_radio(RadioStage::Local, RadioFailure::Capacity);
+            }
+        }
+    }
+    pub(super) fn observe_wave_snapshot(&self, snapshot: Option<&PlaybackSnapshot>) {
+        let serial = self.music_serial();
+        let Some(snapshot) = snapshot else {
+            return;
+        };
+        let mut radio = self.radio.borrow_mut();
+        let Some(active) = radio.active.as_mut().filter(|a| a.cycle == Some(serial)) else {
+            return;
+        };
+        match active.coordinator.observe_measured(
+            snapshot.state,
+            snapshot.playing_time,
+            Instant::now(),
+        ) {
+            Ok(events) if event_capacity(active.events.len(), events.len()) => {
+                active.events.extend(events)
+            }
+            _ => {
+                drop(radio);
+                self.fail_radio(RadioStage::Local, RadioFailure::Capacity);
+            }
+        }
+    }
+    pub(super) fn tick_radio(self: &Rc<Self>, snapshot: Option<&PlaybackSnapshot>) {
+        self.observe_wave_snapshot(snapshot);
+        let refresh_queue = snapshot.is_some_and(|snapshot| {
+            matches!(
+                snapshot.state,
+                PlaybackState::Playing | PlaybackState::Paused | PlaybackState::Ended
+            )
+        }) && self.maybe_wave_batch(false, false);
+        if refresh_queue {
+            self.render_queue();
+        }
+        self.drive_radio();
+        self.render_wave();
+    }
+    pub(super) fn wave_wait_for_next(self: &Rc<Self>, eos: bool) -> bool {
+        if !self.is_wave_queue() {
+            return false;
+        }
+        if !self.wave_current_allowed() {
+            return true;
+        }
+        if self.maybe_wave_batch(true, eos) {
+            self.render_queue();
+        }
+        self.drive_radio();
+        self.render_wave();
+        true
+    }
+    fn maybe_wave_batch(&self, waiting: bool, eos: bool) -> bool {
+        if self.radio.borrow().active.is_none() {
+            return false;
+        }
+        let (occurrence, upcoming, count, trimmed) = {
+            let mut model = self.model.borrow_mut();
+            let before = model.queue.items().len();
+            model.queue.trim_wave_history(KEEP_HISTORY);
+            (
+                model.queue.current_occurrence_id().cloned(),
+                model.queue.upcoming_indices().len(),
+                model.queue.items().len(),
+                before != model.queue.items().len(),
+            )
+        };
+        let mut radio = self.radio.borrow_mut();
+        let Some(active) = radio.active.as_mut() else {
+            return trimmed;
+        };
+        if waiting {
+            active.waiting_next = Some(active.waiting_next.unwrap_or(false) || eos);
+        }
+        if count < MAX_BUFFERED
+            && (waiting || upcoming <= 3)
+            && !active.batch_pending
+            && !active.batch_running
+            && (waiting || active.batch_for != occurrence)
+        {
+            active.batch_pending = true;
+            active.batch_for = occurrence;
+        }
+        trimmed
+    }
+    fn fail_radio(&self, stage: RadioStage, failure: RadioFailure) {
+        let mut radio = self.radio.borrow_mut();
+        if let Some(begin) = radio.begin.take() {
+            begin.cancel();
+        }
+        radio.begin_pending = false;
+        if let Some(mut active) = radio.active.take() {
+            active.coordinator.cancel();
+        }
+        if let Some(retiring) = radio.retiring.take() {
+            retiring.session.cancel();
+        }
+        radio.failure = Some((stage, failure));
+        // Current audio is independent. It may finish, pause or resume; failed
+        // radio cannot automatically select another unreported occurrence.
+        eprintln!(
+            "Karin wave: stage={} category={}",
+            stage_name(stage),
+            failure_name(failure)
+        );
+    }
+    fn drive_radio(self: &Rc<Self>) {
+        if !self.radio_status().authenticated {
+            self.cancel_radio();
+            return;
+        }
+        let task = {
+            let mut radio = self.radio.borrow_mut();
+            if radio.running.is_some() {
+                return;
+            }
+            if radio.retiring.as_ref().is_some_and(|r| r.events.is_empty())
+                && let Some(retiring) = radio.retiring.take()
+            {
+                retiring.session.cancel();
+            }
+            let picked = if let Some(retiring) = radio.retiring.as_mut() {
+                retiring.events.pop_front().map(|event| {
+                    (
+                        retiring.epoch,
+                        true,
+                        RadioStage::Feedback,
+                        Work::Feedback(retiring.session.clone(), event),
+                    )
+                })
+            } else if radio.begin_pending {
+                radio.begin_pending = false;
+                radio.begin.as_ref().map(|cancel| {
+                    (
+                        radio.epoch,
+                        false,
+                        RadioStage::Session,
+                        Work::Begin(cancel.clone()),
+                    )
+                })
+            } else if let Some(active) = radio.active.as_mut() {
+                if let Some(event) = active.events.pop_front() {
+                    Some((
+                        active.epoch,
+                        false,
+                        RadioStage::Feedback,
+                        Work::Feedback(active.session.clone(), event),
+                    ))
+                } else if active.batch_pending {
+                    active.batch_pending = false;
+                    active.batch_running = true;
+                    let queue = self
+                        .model
+                        .borrow()
+                        .queue
+                        .items()
+                        .iter()
+                        .map(|t| t.id.clone())
+                        .collect();
+                    Some((
+                        active.epoch,
+                        false,
+                        RadioStage::Tracks,
+                        Work::Batch(active.session.clone(), queue),
+                    ))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            let Some((epoch, retiring, stage, work)) = picked else {
+                return;
+            };
+            radio.serial = radio.serial.wrapping_add(1);
+            let serial = radio.serial;
+            radio.running = Some(serial);
+            let event = match &work {
+                Work::Feedback(_, event) => Some(event.kind()),
+                _ => None,
+            };
+            Task {
+                serial,
+                epoch,
+                retiring,
+                stage,
+                event,
+                work,
+            }
+        };
+        let (Some(app), Some(service), Some(token)) = (
+            self.app.upgrade(),
+            self.service.clone(),
+            self.model.borrow().token.clone(),
+        ) else {
+            self.radio.borrow_mut().running = None;
+            self.fail_radio(RadioStage::Local, RadioFailure::Unavailable);
+            return;
+        };
+        let generation = self.model.borrow().generation;
+        let hold = app.hold();
+        let weak = Rc::downgrade(self);
+        glib::spawn_future_local(async move {
+            let _hold = hold;
+            let work = task.work;
+            let result = gio::spawn_blocking(move || match work {
+                Work::Begin(cancel) => ResultValue::Begin(service.begin_wave(&token, &cancel)),
+                Work::Batch(session, queue) => {
+                    ResultValue::Batch(service.wave_batch(&token, &session, &queue))
+                }
+                Work::Feedback(session, event) => ResultValue::Feedback(
+                    service
+                        .wave_feedback(&token, &session, &event)
+                        .map(|ack| ack.http_status),
+                ),
+            })
+            .await;
+            let Some(this) = weak.upgrade() else {
+                return;
+            };
+            let same_account = {
+                let model = this.model.borrow();
+                !model.closed && model.generation == generation && model.account_valid
+            };
+            let current = {
+                let mut radio = this.radio.borrow_mut();
+                if radio.running != Some(task.serial) {
+                    return;
+                }
+                radio.running = None;
+                same_account
+                    && if task.retiring {
+                        radio
+                            .retiring
+                            .as_ref()
+                            .is_some_and(|r| r.epoch == task.epoch)
+                    } else if task.stage == RadioStage::Session {
+                        radio.epoch == task.epoch && radio.begin.is_some()
+                    } else {
+                        radio.active.as_ref().is_some_and(|a| a.epoch == task.epoch)
+                            || radio
+                                .retiring
+                                .as_ref()
+                                .is_some_and(|r| r.epoch == task.epoch)
+                    }
+            };
+            if current {
+                match result {
+                    Ok(ResultValue::Begin(Ok((session, batch)))) => {
+                        this.install_wave(task.epoch, session, batch)
+                    }
+                    Ok(ResultValue::Batch(Ok(batch))) => {
+                        let active = this
+                            .radio
+                            .borrow()
+                            .active
+                            .as_ref()
+                            .is_some_and(|a| a.epoch == task.epoch);
+                        if active {
+                            if let Some(active) = this.radio.borrow_mut().active.as_mut() {
+                                active.batch_running = false;
+                            }
+                            this.append_wave(batch);
+                        }
+                    }
+                    Ok(ResultValue::Feedback(Ok(http))) => {
+                        eprintln!(
+                            "Karin wave: stage=feedback category=accepted http={http} event={}",
+                            task.event.map_or("none", |event| event.as_str())
+                        );
+                    }
+                    Ok(ResultValue::Begin(Err(error)))
+                    | Ok(ResultValue::Batch(Err(error)))
+                    | Ok(ResultValue::Feedback(Err(error))) => {
+                        let stage = error.stage().map_or(task.stage, |stage| match stage {
+                            WaveStage::Session => RadioStage::Session,
+                            WaveStage::Tracks => RadioStage::Tracks,
+                            WaveStage::Normalization => RadioStage::Normalization,
+                            WaveStage::Feedback => RadioStage::Feedback,
+                        });
+                        eprintln!(
+                            "Karin wave: stage={} category={} http={}",
+                            stage_name(stage),
+                            error.category(),
+                            error
+                                .http_status()
+                                .map_or_else(|| "none".to_owned(), |http| http.to_string())
+                        );
+                        this.fail_radio(stage, classify(error));
+                    }
+                    Err(_) => this.fail_radio(task.stage, RadioFailure::Unavailable),
+                }
+            } else if let Ok(ResultValue::Begin(Ok((session, _)))) = result {
+                session.cancel();
+            }
+            // Apply a confirmed radio failure/cancellation to the existing
+            // transport and MPRIS capabilities in this same reply, not only
+            // after the next periodic player poll.
+            this.render_music_player();
+            this.render_wave();
+            this.drive_radio();
+        });
+    }
+    fn install_wave(self: &Rc<Self>, epoch: u64, session: WaveSession, batch: WaveBatch) {
+        let Some(index) = batch.tracks.iter().position(|t| t.available) else {
+            session.cancel();
+            self.fail_radio(RadioStage::Normalization, RadioFailure::Empty);
+            return;
+        };
+        eprintln!(
+            "Karin wave: stage=session category=accepted http={} count={} omitted={}",
+            batch.http_status,
+            batch.tracks.len(),
+            batch.omitted
+        );
+        eprintln!(
+            "Karin wave: stage=normalization category=accepted http={} count={}",
+            batch.lookup_http_status,
+            batch.tracks.len()
+        );
+        let marker = batch.marker();
+        let context_id = format!("wave-{epoch}");
+        let Ok(context) = PlaybackContext::new(
+            ContextKind::Wave,
+            Some(context_id.clone()),
+            batch.tracks,
+            index,
+            true,
+        ) else {
+            session.cancel();
+            self.fail_radio(RadioStage::Local, RadioFailure::Capacity);
+            return;
+        };
+        // Deliberate successful source replacement, through the same engine.
+        self.stop_music_engine();
+        let (saved_modes, bindings) = {
+            let mut model = self.model.borrow_mut();
+            let saved = (model.queue.shuffle(), model.queue.repeat_mode());
+            model.queue.set_shuffle(false);
+            model.queue.set_repeat_mode(RepeatMode::Off);
+            model.queue.replace_context(context);
+            let bindings = (0..model.queue.items().len())
+                .map(|position| Binding {
+                    occurrence: model.queue.occurrence_id(position).unwrap().clone(),
+                    marker: marker.clone(),
+                    _batch_position: position,
+                })
+                .collect();
+            (saved, bindings)
+        };
+        {
+            let mut radio = self.radio.borrow_mut();
+            // A failed Wave may still own the queue's forced Off modes.
+            // Explicit fresh-session start preserves the original user modes.
+            radio.saved_modes.get_or_insert(saved_modes);
+            radio.begin = None;
+            radio.active = Some(Active {
+                epoch,
+                context: context_id,
+                coordinator: WaveCoordinator::new(&session),
+                session,
+                bindings,
+                events: VecDeque::new(),
+                cycle: None,
+                batch_pending: false,
+                batch_running: false,
+                batch_for: None,
+                waiting_next: None,
+            });
+        }
+        self.follow_current_occurrence();
+        self.render_queue();
+        self.request_music(true, None);
+    }
+    fn append_wave(self: &Rc<Self>, batch: WaveBatch) {
+        eprintln!(
+            "Karin wave: stage=tracks category=accepted http={} count={} omitted={}",
+            batch.http_status,
+            batch.tracks.len(),
+            batch.omitted
+        );
+        if !batch.tracks.iter().any(|t| t.available) {
+            self.fail_radio(RadioStage::Normalization, RadioFailure::Empty);
+            return;
+        }
+        let marker = batch.marker();
+        let count = batch.tracks.len();
+        let bindings = {
+            let mut model = self.model.borrow_mut();
+            model.queue.trim_wave_history(KEEP_HISTORY);
+            let first = model.queue.items().len();
+            if first.saturating_add(count) > MAX_BUFFERED
+                || model.queue.append_wave_batch(batch.tracks).is_err()
+            {
+                drop(model);
+                self.fail_radio(RadioStage::Local, RadioFailure::Capacity);
+                return;
+            }
+            (0..count)
+                .map(|position| Binding {
+                    occurrence: model.queue.occurrence_id(first + position).unwrap().clone(),
+                    marker: marker.clone(),
+                    _batch_position: position,
+                })
+                .collect::<Vec<_>>()
+        };
+        let waiting = {
+            let model = self.model.borrow();
+            let mut radio = self.radio.borrow_mut();
+            let Some(active) = radio.active.as_mut() else {
+                return;
+            };
+            active.bindings.retain(|binding| {
+                (0..model.queue.items().len())
+                    .any(|index| model.queue.occurrence_id(index) == Some(&binding.occurrence))
+            });
+            active.bindings.extend(bindings);
+            active.waiting_next.take()
+        };
+        self.render_queue();
+        if let Some(eos) = waiting {
+            self.skip_music(true, eos);
+        }
+    }
+}
+
+fn event_capacity(queued: usize, additional: usize) -> bool {
+    queued
+        .checked_add(additional)
+        .is_some_and(|count| count <= MAX_EVENTS)
+}
+
+fn classify(error: WaveError) -> RadioFailure {
+    if let Some(error) = error.music_error() {
+        return match error {
+            MusicError::Unauthenticated | MusicError::AccessDenied => RadioFailure::Authentication,
+            MusicError::Forbidden => RadioFailure::Forbidden,
+            MusicError::Restricted => RadioFailure::Restricted,
+            MusicError::RateLimited => RadioFailure::RateLimited,
+            MusicError::Network => RadioFailure::Network,
+            MusicError::Timeout => RadioFailure::Timeout,
+            MusicError::Http(_) => RadioFailure::Http,
+            _ => RadioFailure::Unsupported,
+        };
+    }
+    match error.category() {
+        "write-outcome-unknown" => RadioFailure::OutcomeUnknown,
+        "busy" => RadioFailure::Busy,
+        "no-tracks" => RadioFailure::Empty,
+        "cancelled" | "session-terminated" | "unknown-session" => RadioFailure::Unavailable,
+        _ => RadioFailure::Unsupported,
+    }
+}
+
+fn stage_name(stage: RadioStage) -> &'static str {
+    match stage {
+        RadioStage::Session => "session",
+        RadioStage::Tracks => "tracks",
+        RadioStage::Normalization => "normalization",
+        RadioStage::Delivery => "delivery",
+        RadioStage::Playback => "playback",
+        RadioStage::Feedback => "feedback",
+        RadioStage::Local => "local",
+    }
+}
+fn failure_name(failure: RadioFailure) -> &'static str {
+    match failure {
+        RadioFailure::Authentication => "authentication",
+        RadioFailure::Forbidden => "forbidden",
+        RadioFailure::Restricted => "restricted",
+        RadioFailure::RateLimited => "rate-limited",
+        RadioFailure::Network => "network",
+        RadioFailure::Timeout => "timeout",
+        RadioFailure::Http => "http",
+        RadioFailure::Unsupported => "unsupported",
+        RadioFailure::Empty => "empty",
+        RadioFailure::Unavailable => "unavailable",
+        RadioFailure::Busy => "busy",
+        RadioFailure::OutcomeUnknown => "write-outcome-unknown",
+        RadioFailure::Capacity => "capacity",
+    }
+}
+
+#[cfg(test)]
+mod tests;

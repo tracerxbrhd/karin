@@ -73,6 +73,7 @@ pub enum ContextKind {
     Artist,
     Queue,
     SingleTrack,
+    Wave,
 }
 
 /// An admitted loaded context. Manual additions remain after its loaded prefix.
@@ -279,6 +280,60 @@ impl MusicQueue {
         }
         self.occurrences.push(OccurrenceId::new());
         Ok(())
+    }
+
+    /// Append one server-normalized radio batch without replacing identities
+    /// of already admitted occurrences. Only an explicit Wave context accepts
+    /// this operation; manual additions retain their ordinary separate meaning.
+    pub(crate) fn append_wave_batch(&mut self, tracks: Vec<Track>) -> Result<(), QueueError> {
+        let Some(context) = self
+            .context
+            .as_mut()
+            .filter(|context| context.source_kind == ContextKind::Wave)
+        else {
+            return Err(QueueError);
+        };
+        if tracks.is_empty() || context.items.len().saturating_add(tracks.len()) > MAX_QUEUE {
+            return Err(QueueError);
+        }
+        let mut position = context
+            .source_positions
+            .iter()
+            .flatten()
+            .copied()
+            .max()
+            .and_then(|value| value.checked_add(1))
+            .ok_or(QueueError)?;
+        position.checked_add(tracks.len()).ok_or(QueueError)?;
+        for track in tracks {
+            let index = context.items.len();
+            let available = track.available;
+            Arc::make_mut(&mut context.items).push(track);
+            Arc::make_mut(&mut context.source_positions).push(Some(position));
+            position = position.checked_add(1).ok_or(QueueError)?;
+            context.loaded_items += 1;
+            self.occurrences.push(OccurrenceId::new());
+            self.order.append(index, available);
+        }
+        Ok(())
+    }
+    /// Keep a bounded heard prefix while preserving the current occurrence and
+    /// upcoming order. Removed entries lose their provenance/Previous history.
+    pub(crate) fn trim_wave_history(&mut self, keep: usize) {
+        if self
+            .context
+            .as_ref()
+            .is_none_or(|context| context.source_kind != ContextKind::Wave)
+        {
+            return;
+        }
+        let remove = self
+            .current_index()
+            .unwrap_or_default()
+            .saturating_sub(keep);
+        for _ in 0..remove {
+            self.remove(0);
+        }
     }
 
     /// A replacement keeps the user's local modes but starts a fresh bounded
@@ -1419,5 +1474,73 @@ mod tests {
             "OccurrenceId([opaque])"
         );
         assert_policy_bounds(&queue);
+    }
+}
+
+#[cfg(test)]
+mod wave_tests {
+    use super::*;
+    fn track() -> Track {
+        Track {
+            id: "42".into(),
+            title: "Synthetic Wave occurrence".into(),
+            artists: Vec::new(),
+            artist_links: Vec::new(),
+            album_id: None,
+            album_title: None,
+            duration_ms: None,
+            cover: None,
+            explicit: false,
+            available: true,
+        }
+    }
+    #[test]
+    fn wave_append_and_history_trim_preserve_exact_current_and_duplicate_identities() {
+        let mut queue = MusicQueue::default();
+        queue.replace_context(
+            PlaybackContext::new(
+                ContextKind::Wave,
+                Some("wave-1".into()),
+                vec![track(); 40],
+                39,
+                true,
+            )
+            .unwrap(),
+        );
+        let current = queue.current_occurrence_id().unwrap().clone();
+        let previous = queue.occurrence_id(38).unwrap().clone();
+        queue.trim_wave_history(25);
+        assert_eq!(queue.current_index(), Some(25));
+        assert_eq!(queue.current_occurrence_id(), Some(&current));
+        assert_eq!(queue.context().unwrap().source_position(25), Some(39));
+        queue.append_wave_batch(vec![track(), track()]).unwrap();
+        assert_eq!(queue.current_occurrence_id(), Some(&current));
+        assert_ne!(queue.occurrence_id(26), queue.occurrence_id(27));
+        assert_ne!(queue.occurrence_id(26), Some(&current));
+        queue.previous_track().unwrap();
+        assert_eq!(queue.current_occurrence_id(), Some(&previous));
+        assert_eq!(queue.items().len(), 28);
+    }
+    #[test]
+    fn wave_append_rejects_nonradio_capacity_and_position_overflow_atomically() {
+        let mut queue = MusicQueue::default();
+        queue.replace_context(
+            PlaybackContext::new(ContextKind::Playlist, None, vec![track()], 0, false).unwrap(),
+        );
+        assert!(queue.append_wave_batch(vec![track()]).is_err());
+        assert_eq!(queue.items().len(), 1);
+        queue.replace_context(
+            PlaybackContext::new(ContextKind::Wave, None, vec![track()], 0, true).unwrap(),
+        );
+        let before = queue.current_occurrence_id().unwrap().clone();
+        queue.context.as_mut().unwrap().source_positions = Arc::new(vec![Some(usize::MAX)]);
+        assert!(queue.append_wave_batch(vec![track()]).is_err());
+        assert_eq!(queue.items().len(), 1);
+        assert_eq!(queue.current_occurrence_id(), Some(&before));
+        queue.replace_context(
+            PlaybackContext::new(ContextKind::Wave, None, vec![track(); 500], 0, true).unwrap(),
+        );
+        assert!(queue.append_wave_batch(vec![track()]).is_err());
+        assert_eq!(queue.items().len(), 500);
     }
 }

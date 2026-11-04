@@ -20,6 +20,7 @@ impl Controller {
                 ContextKind::Search => "Результаты поиска",
                 ContextKind::Artist => "Исполнитель",
                 ContextKind::SingleTrack => "Выбранный трек",
+                ContextKind::Wave => "Моя волна · эксперимент",
                 ContextKind::Queue => "Ваша очередь",
             })
             .unwrap_or("Очередь");

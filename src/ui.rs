@@ -37,8 +37,13 @@ pub struct MainWindow {
 }
 
 impl MainWindow {
-    /// Enable the owner's explicitly requested metadata-only local experiment.
-    /// Credentials stay in this window's ordinary ephemeral Music session.
+    /// Opt in to local Wave validation through the existing Music session/player.
+    /// Normal startup never enables this unverified service workflow.
+    pub fn enable_wave_experiment(&self) {
+        self.music.enable_wave_experiment();
+    }
+
+    /// Enable the explicitly requested metadata-only delivery experiment.
     pub fn enable_delivery_diagnostic(&self) {
         self.music.enable_delivery_diagnostic();
     }

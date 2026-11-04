@@ -209,6 +209,12 @@ impl Controller {
     }
 
     pub(super) fn play_music_context(self: &Rc<Self>, context: PlaybackContext) {
+        if context.source_kind() == crate::queue::ContextKind::Wave {
+            self.widgets
+                .status
+                .set_title("Запустите новую «Мою волну» на Главной.");
+            return;
+        }
         if !context.items()[context.current_index()].available {
             self.widgets
                 .status
@@ -216,7 +222,7 @@ impl Controller {
             return;
         }
         {
-            let mut model = self.model.borrow_mut();
+            let model = self.model.borrow();
             if model.closed || !model.account_valid {
                 return;
             }
@@ -225,6 +231,9 @@ impl Controller {
                 self.show_error(MusicError::Unauthenticated);
                 return;
             }
+            drop(model);
+            self.leave_wave();
+            let mut model = self.model.borrow_mut();
             // A context contains one already loaded, bounded list. Replace it
             // atomically and keep the exact clicked occurrence, including IDs
             // repeated within a playlist or a search page. No catalog fetch is
@@ -237,6 +246,12 @@ impl Controller {
     }
 
     pub(super) fn play_music_queue(self: &Rc<Self>, index: usize) {
+        if self.is_wave_queue() && !self.wave_current_allowed() {
+            self.widgets
+                .status
+                .set_title("Радиосессия завершена. Запустите новую волну на Главной.");
+            return;
+        }
         {
             let mut model = self.model.borrow_mut();
             if model.closed || !model.account_valid {
@@ -252,12 +267,25 @@ impl Controller {
             }
             model.queue.select(index);
         }
+        self.cancel_pending_wave_for_ordinary_action();
         self.follow_current_occurrence();
         self.render_queue();
         self.request_music(true, None);
     }
 
     pub(super) fn play_music_track(self: &Rc<Self>, track: Track) {
+        if self.is_wave_queue() {
+            if let Ok(context) = PlaybackContext::new(
+                crate::queue::ContextKind::SingleTrack,
+                None,
+                vec![track],
+                0,
+                false,
+            ) {
+                self.play_music_context(context);
+            }
+            return;
+        }
         if !track.available {
             self.widgets
                 .status
@@ -291,6 +319,7 @@ impl Controller {
             };
             model.queue.select(index);
         }
+        self.cancel_pending_wave_for_ordinary_action();
         self.follow_current_occurrence();
         self.render_queue();
         self.request_music(true, None);
@@ -387,7 +416,14 @@ impl Controller {
         self.render_music_player();
     }
 
-    fn request_music(self: &Rc<Self>, autoplay: bool, position: Option<Duration>) {
+    pub(super) fn request_music(self: &Rc<Self>, autoplay: bool, position: Option<Duration>) {
+        if !self.wave_current_allowed() {
+            self.widgets
+                .status
+                .set_title("Радиосессия завершена. Запустите новую волну на Главной.");
+            return;
+        }
+        self.observe_wave_snapshot(self.music_snapshot().as_ref());
         let (session, track) = {
             let model = self.model.borrow();
             if model.closed || !model.account_valid {
@@ -410,7 +446,7 @@ impl Controller {
             }
             (model.generation, track.id.clone())
         };
-        self.stop_music();
+        self.stop_music_engine();
         self.widgets.status.set_title("Получаем источник аудио…");
         self.widgets.status.set_subtitle("");
         {
@@ -427,6 +463,7 @@ impl Controller {
             player.requested = true;
             player.stopped = false;
         }
+        self.select_wave_cycle(self.music_serial());
         self.render_music_player();
         self.begin_music_resolution();
     }
@@ -551,6 +588,11 @@ impl Controller {
     }
 
     pub(super) fn stop_music(&self) {
+        self.leave_wave();
+        self.stop_music_engine();
+    }
+
+    pub(super) fn stop_music_engine(&self) {
         let (old, owned_error) = {
             let mut player = self.player.borrow_mut();
             player.serial = player.serial.wrapping_add(1);
@@ -713,6 +755,8 @@ impl Controller {
             return;
         }
         let snapshot = self.music_snapshot();
+        // Confirm native listening and EOS before the ordinary queue advances.
+        self.tick_radio(snapshot.as_ref());
         let mut ready = None;
         let mut ended = false;
         let mut failure = None;
@@ -782,11 +826,25 @@ impl Controller {
                 .is_some_and(|id| model.queue.current().is_none_or(|track| &track.id != id))
         };
         if mismatched {
-            self.stop_music();
+            if !self.is_wave_queue() {
+                // A natural ordinary EOS is older than a pending Wave start.
+                // Explicit ordinary actions cancel that pending intent in
+                // their own handlers; binding repair only retires the engine.
+                self.stop_music_engine();
+            } else if self.wave_current_allowed() {
+                self.observe_wave_snapshot(self.music_snapshot().as_ref());
+                self.stop_music_engine();
+            } else {
+                self.stop_music();
+            }
         }
     }
 
     pub(super) fn skip_music(self: &Rc<Self>, forward: bool, eos: bool) {
+        if self.is_wave_queue() && !self.wave_current_allowed() {
+            return;
+        }
+        self.observe_wave_snapshot(self.music_snapshot().as_ref());
         let (active, autoplay) = self.continuation();
         let (advanced, changed_occurrence) = {
             let mut model = self.model.borrow_mut();
@@ -801,7 +859,13 @@ impl Controller {
             (advanced, before != model.queue.current_index())
         };
         if !advanced {
+            if forward {
+                self.wave_wait_for_next(eos);
+            }
             return;
+        }
+        if !eos {
+            self.cancel_pending_wave_for_ordinary_action();
         }
         // Repeat One is another resource/playback cycle of the same position,
         // not a new occurrence: explicit metadata must stay selected.
@@ -836,6 +900,12 @@ impl Controller {
     }
 
     pub(super) fn remove_music_queue(self: &Rc<Self>, index: usize) {
+        if index >= self.model.borrow().queue.items().len() {
+            return;
+        }
+        self.cancel_pending_wave_for_ordinary_action();
+        let was_wave = self.is_wave_queue();
+        self.observe_wave_snapshot(self.music_snapshot().as_ref());
         let (active, autoplay) = self.continuation();
         let removed_current = {
             let mut model = self.model.borrow_mut();
@@ -843,6 +913,9 @@ impl Controller {
             model.queue.remove(index);
             current
         };
+        if was_wave && !self.is_wave_queue() {
+            self.leave_wave();
+        }
         if removed_current {
             self.follow_current_occurrence();
         } else {
@@ -850,7 +923,7 @@ impl Controller {
         }
         self.render_queue();
         if active && removed_current {
-            self.stop_music();
+            self.stop_music_engine();
             if self
                 .model
                 .borrow()
@@ -864,6 +937,9 @@ impl Controller {
     }
 
     pub(super) fn set_music_shuffle(self: &Rc<Self>, enabled: bool) {
+        if self.is_wave_queue() {
+            return;
+        }
         let mut model = self.model.borrow_mut();
         if model.closed || model.queue.shuffle() == enabled {
             return;
@@ -875,6 +951,9 @@ impl Controller {
     }
 
     pub(super) fn set_music_repeat(self: &Rc<Self>, mode: crate::queue::RepeatMode) {
+        if self.is_wave_queue() {
+            return;
+        }
         let mut model = self.model.borrow_mut();
         if model.closed || model.queue.repeat_mode() == mode {
             return;
@@ -883,6 +962,40 @@ impl Controller {
         drop(model);
         self.render_queue();
         self.publish_mpris();
+    }
+
+    pub(super) fn wave_playback_failure(
+        &self,
+    ) -> Option<(super::radio::RadioStage, super::radio::RadioFailure)> {
+        use super::radio::{RadioFailure, RadioStage};
+        let player = self.player.borrow();
+        match player.failure? {
+            Failure::Delivery(report) => {
+                use crate::stream::DeliveryCategory;
+                let category = match report.category {
+                    DeliveryCategory::Network => RadioFailure::Network,
+                    DeliveryCategory::Timeout => RadioFailure::Timeout,
+                    DeliveryCategory::AccessDenied | DeliveryCategory::SessionRequired => {
+                        RadioFailure::Authentication
+                    }
+                    DeliveryCategory::Forbidden => RadioFailure::Forbidden,
+                    DeliveryCategory::Restricted => RadioFailure::Restricted,
+                    DeliveryCategory::RateLimited => RadioFailure::RateLimited,
+                    DeliveryCategory::HttpRejected => RadioFailure::Http,
+                    _ => RadioFailure::Unsupported,
+                };
+                Some((RadioStage::Delivery, category))
+            }
+            Failure::Engine(_)
+                if player
+                    .controller
+                    .as_ref()
+                    .is_some_and(|p| p.snapshot().state == PlaybackState::Error) =>
+            {
+                Some((RadioStage::Playback, RadioFailure::Unavailable))
+            }
+            _ => None,
+        }
     }
 
     pub(super) fn render_music_player(&self) {
@@ -975,9 +1088,16 @@ impl Controller {
         self.widgets
             .play
             .update_property(&[gtk::accessible::Property::Label(play_label)]);
-        self.widgets
-            .play
-            .set_sensitive(ready && selected.is_some_and(|track| track.available) && !loading);
+        self.widgets.play.set_sensitive(
+            ready
+                && selected.is_some_and(|track| track.available)
+                && !loading
+                && (self.wave_current_allowed()
+                    || matches!(
+                        state,
+                        PlaybackState::Ready | PlaybackState::Playing | PlaybackState::Paused
+                    )),
+        );
         self.widgets
             .stop
             .set_sensitive(player.requested || player.controller.is_some());
@@ -986,13 +1106,21 @@ impl Controller {
             .set_sensitive(ready && player.controller.is_some() && state != PlaybackState::Error);
         self.widgets.volume.set_value(player.volume);
         self.widgets.shuffle.set_active(model.queue.shuffle());
-        self.widgets.shuffle.set_sensitive(ready);
+        self.widgets
+            .shuffle
+            .set_sensitive(ready && !self.is_wave_queue());
         let shuffle_label = if model.queue.shuffle() {
             "Перемешивание включено"
         } else {
             "Перемешивание выключено"
         };
-        self.widgets.shuffle.set_tooltip_text(Some(shuffle_label));
+        self.widgets
+            .shuffle
+            .set_tooltip_text(Some(if self.is_wave_queue() {
+                "В «Моей волне» порядок определяет сервис"
+            } else {
+                shuffle_label
+            }));
         self.widgets
             .shuffle
             .update_property(&[gtk::accessible::Property::Label(shuffle_label)]);
@@ -1005,8 +1133,16 @@ impl Controller {
             &self.widgets.repeat,
             model.queue.repeat_mode() == crate::queue::RepeatMode::One,
         );
-        self.widgets.repeat.set_sensitive(ready);
-        self.widgets.repeat.set_tooltip_text(Some(repeat_label));
+        self.widgets
+            .repeat
+            .set_sensitive(ready && !self.is_wave_queue());
+        self.widgets
+            .repeat
+            .set_tooltip_text(Some(if self.is_wave_queue() {
+                "Повтор не применяется к непрерывной «Моей волне»"
+            } else {
+                repeat_label
+            }));
         self.widgets
             .repeat
             .update_property(&[gtk::accessible::Property::Label(repeat_label)]);
@@ -1017,10 +1153,12 @@ impl Controller {
         }
         self.widgets
             .previous
-            .set_sensitive(ready && model.queue.can_go_previous());
-        self.widgets
-            .next
-            .set_sensitive(ready && model.queue.can_go_next());
+            .set_sensitive(ready && self.wave_current_allowed() && model.queue.can_go_previous());
+        self.widgets.next.set_sensitive(
+            ready
+                && self.wave_current_allowed()
+                && (model.queue.can_go_next() || self.is_wave_queue()),
+        );
         let seekable = ready
             && snapshot.as_ref().is_some_and(|snapshot| snapshot.seekable)
             && matches!(
