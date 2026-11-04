@@ -40,14 +40,14 @@ Actual GTK captures with synthetic library data and original test artwork.
 
 ## Status
 
-The v0.4 iteration has passed owner acceptance on Fedora 44 with KDE Plasma,
-Wayland and PipeWire, including the native UI and Flatpak build. Integration
-continues in [PR #15](https://github.com/tracerxbrhd/karin/pull/15).
+The v0.4 baseline is merged into `master` through
+[PR #15](https://github.com/tracerxbrhd/karin/pull/15). The owner accepted its native
+functionality, UI and Flatpak build on Fedora 44 with KDE Plasma, Wayland and PipeWire.
 This is a development milestone, not a published release; the Cargo package
 version remains `0.0.0`. See [validation](docs/VALIDATION.md) for the accepted scope.
 
-The Music API is unofficial and may change. My Wave, recommendations, lyrics
-and offline audio are not implemented. Cold first-player appearance in Cloud
+The Music API is unofficial and may change. My Wave, Dislike, recommendations,
+lyrics and offline audio are not implemented. Cold first-player appearance in Cloud
 still has unresolved frame gaps; desktop acceptance does not establish their
 cause or resolution. See [known limitations](docs/LIMITATIONS.md).
 

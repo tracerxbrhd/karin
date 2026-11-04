@@ -2,51 +2,66 @@
 
 # Roadmap
 
-## v0.4: accepted functionality, integration under review
+## Completed v0.4
 
-The owner accepted `97093ee` on Fedora 44/KDE Plasma/Wayland/PipeWire for native
-functionality and the current UI/UX, with separate successful Flatpak acceptance.
-[PR #15](https://github.com/tracerxbrhd/karin/pull/15) prepares integration into
-`master`; merge still requires explicit owner approval. Acceptance is not a public
-release: Cargo remains at `0.0.0`, and no v0.4 release/tag or Flathub publication
-is implied. See [VALIDATION.md](VALIDATION.md) for exact evidence.
+[PR #15](https://github.com/tracerxbrhd/karin/pull/15) was squash-merged into
+`master` at [`562596b`](https://github.com/tracerxbrhd/karin/commit/562596b990b5cd87c763af41120bad7830fda551).
+The owner accepted runtime `97093ee` on Fedora 44/KDE Plasma/Wayland/PipeWire
+for native functionality and UI/UX, with separate successful Flatpak acceptance.
+[VALIDATION.md](VALIDATION.md) records the scope; unreported individual scenarios
+are not inferred. Cargo remains at `0.0.0`, with no public v0.4 release or Flathub
+publication implied.
 
-The accepted client includes protected sign-in, liked tracks/playlists, catalog
-and loaded-collection search, real playback with contextual queues/Shuffle/Repeat,
-MPRIS, metadata/artwork caching and the adaptive native music workspace.
+The baseline includes protected sign-in, library/playlists, global and
+loaded-collection search, GStreamer playback, contextual queues, Shuffle/Repeat,
+MPRIS, metadata/artwork caching and the adaptive Track Info/Queue workspace.
 
-## Maintenance priorities
+## Stability maintenance
 
-- Investigate cold first-appearance frame gaps without attributing an unproven
-  driver cause or changing production timing to conceal them. Desktop acceptance
-  does not resolve the separate cloud observation.
-- Improve refusal-driven cache invalidation when storage I/O is busy or fails.
-- Consider stable identities for manually appended queue items; original source
-  occurrences already retain their identity through filtering and removal.
-- Preserve Rust 1.98.1 compatibility, native GTK/WebKit/GStreamer lifecycle,
-  protected-session cleanup and the narrow Flatpak permissions as dependencies
-  and runtime components evolve.
+The [stability change](https://github.com/tracerxbrhd/karin/pull/24) adds refusal
+fences before cache I/O and stable queue occurrence IDs shared by Info/MPRIS.
+Rejected metadata cannot return as fresh after failed removal; cold metadata
+needs a new positive write. Source provenance, modes and the audio path remain
+unchanged. [ADR-0026](adr/0026-refusal-fences-and-queue-occurrence-identity.md)
+defines both contracts; [VALIDATION.md](VALIDATION.md) separates tests from the
+pending scoped Fedora regression check.
 
-These are follow-ups with explicit scope, not claims of new blocking functional
-defects. [LIMITATIONS.md](LIMITATIONS.md) records their current boundaries.
+- Continue the bounded [cold Player Bar investigation](https://github.com/tracerxbrhd/karin/issues/23).
+  Software-render LLVM compilation contributes to the measured Cloud stall;
+  its complete trigger/cause and ordinary Wayland behavior remain unproven.
+  Preserve production timing, renderer policy and tests without artificial prewarm.
+- Maintain Rust 1.98.1 compatibility, protected-session cleanup and the narrow
+  native/Flatpak permission boundaries as dependencies evolve.
 
-## Features requiring separate contracts
+## Next functional directions
 
-My Wave needs a confirmed radio-session, batch and listening-feedback lifecycle;
-a station list or ordinary queue is insufficient. Recommendations, similar tracks
-and lyrics need independently confirmed permitted endpoints. Dislike must have
-verified semantics distinct from removing a Like. Full collection search/sorting
-must not present one loaded prefix as the complete remote library.
+- [My Wave](https://github.com/tracerxbrhd/karin/issues/16): establish the actual
+  session, batch, listening and feedback lifecycle using the existing backend.
+- [Dislike](https://github.com/tracerxbrhd/karin/issues/17): verify semantics and
+  confirmation independently of removing a Like.
+- [Lyrics and related tracks](https://github.com/tracerxbrhd/karin/issues/18): confirm permitted endpoints/resources before
+  exposing a user workflow; no extracted official-client signing material.
+- [Playlist editing](https://github.com/tracerxbrhd/karin/issues/19): extend beyond
+  confirmed creation only with ownership/revision and ambiguous-write recovery.
+- [Offline audio](https://github.com/tracerxbrhd/karin/issues/20): establish storage permission and verifiable account/device/track
+  entitlement, expiry and renewal. A working MP3 source is not that contract.
+- [Restart playback state](https://github.com/tracerxbrhd/karin/issues/21): define
+  bounded same-account context/position restoration without storing media URLs.
+- Whole-collection search/sorting: provide complete coverage or label a loaded
+  prefix honestly without silently changing the playing queue.
 
-Persistent audio requires service permission, a storage contract and enforceable
-offline entitlement/expiry behavior before implementation. The existing MP3 path
-is not that permission. See [API_FEASIBILITY.md](API_FEASIBILITY.md) and
-[AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md). Unverified features stay absent or,
-for the explicitly labelled Wave section, visibly unavailable.
+Each direction needs its own confirmed contract and acceptance criteria.
+Unsupported actions remain absent; Home's Wave section is explicitly unavailable.
+See [API_FEASIBILITY.md](API_FEASIBILITY.md) and
+[AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md).
 
-## Public release
+## Public distribution
 
-A release decision must settle package version/tag consistency, authentication
-distribution conditions, packaging and the supported runtime matrix. Retain GPL
-text and third-party attribution. Add a Flathub link only after publication; no
-release date is scheduled.
+Resolve the OAuth-registration and Music API distribution conditions tracked in
+[Issue #5](https://github.com/tracerxbrhd/karin/issues/5), separately from technical
+interoperability. GPL source reuse and private account success do not establish
+provider approval.
+
+A [public release](https://github.com/tracerxbrhd/karin/issues/22) also needs a version/tag decision, packaging/runtime checks,
+corresponding source and preserved third-party notices. Add a Flathub link only
+after publication. No release date is scheduled.

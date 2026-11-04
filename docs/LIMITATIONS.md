@@ -32,13 +32,16 @@ establish persistent download rights or an offline entitlement lifecycle; see
   Views stop at 2,000 positions or 100 pages; a new playback context contains at
   most 500 matching occurrences. Partial coverage is labelled. Loading more data
   does not grow an active queue, and no complete remote sort is offered.
-- Original source positions remain stable through queue edits. Manual additions
-  retain the earlier physical-index Info/MPRIS identity fallback: removing an
-  earlier row can change their opaque identity without restarting audio. See
-  [ADR-0025](adr/0025-loaded-collection-search-and-playback-provenance.md).
-- Refusal-driven removal of cached metadata is best effort. If cache I/O is busy
-  or unavailable, an earlier fresh record may survive and be returned by a later
-  stable read. This consistency edge does not validate a session or audio source.
+- Queue occurrence identity now survives reindexing for both loaded and manual
+  duplicates; original source positions remain provenance. Queue/current-position
+  restoration after application restart is not implemented.
+- Refusal fences prevent rejected metadata from returning as fresh despite
+  Busy/I/O failure. A complete disk failure cannot durably record a new refusal:
+  after restart, inherited metadata is therefore Stale until a successful new
+  write, and only eligible transport errors allow labelled saved-data fallback.
+  Known tombstones are never served. The 8,192-key/account fence limit pauses
+  persistence until a successful Clear; this does not stop live playback. See
+  [ADR-0026](adr/0026-refusal-fences-and-queue-occurrence-identity.md).
 - The reviewed HTTPS descriptor/CDN policy is deliberately narrow, not an
   exhaustive list of Yandex storage hosts. A source's sixty-second admission
   lease can reject a new connection, resume or seek; an already playing track is
@@ -66,8 +69,10 @@ describes the lifecycle.
 
 Cloud first-appearance smoothness remains unresolved despite the accepted desktop
 UI. Fresh-process footer observations at the accepted code retain gaps of roughly
-0.77–1.12 seconds across local/hosted runs. The cause and significance of
-differences are unknown; exact observations remain in [VALIDATION.md](VALIDATION.md).
+0.77–1.12 seconds across local/hosted runs. Bounded profiling measured a
+substantial LLVM optimization/JIT contributor in the Cloud Mesa/Xvfb stack; the complete
+trigger, remaining time and ordinary Wayland relevance remain unresolved in
+[#23](https://github.com/tracerxbrhd/karin/issues/23). Exact observations remain in [VALIDATION.md](VALIDATION.md).
 No height reversal or successful initialized animation turns these observations
 into a cold-smoothness PASS. Earlier failures remain in Git/PR history.
 

@@ -165,3 +165,36 @@ Report the exact revision and native/Flatpak environment with anonymized
 PASS/FAIL/not-tested outcomes. No account data, audio, secret values or personal
 screenshots are needed. Source preparation, a headless smoke test and a full
 Flatpak desktop run are different checks.
+
+### Stability acceptance
+
+For the `fix/stability-backlog-cleanup` branch, build the exact PR HEAD using the
+native or Flatpak commands above. This is a regression check after accepted v0.4,
+not a public release. Keep HTTP/WebKit/GStreamer tracing disabled.
+
+1. Launch ordinary Karin. Check protected session restoration, or complete normal
+   sign-in if storage is unavailable. Open library, search and a playlist.
+2. Play a real entitled track through PipeWire. Check Pause/Resume, Seek, Volume,
+   Next/Previous and EOS; no synthetic signal substitutes for heard service music.
+3. Append the same track twice manually. Play the second occurrence, inspect
+   another track in Track Info, then remove a row before the playing occurrence
+   and a row after it. Audio and the inspected selection must remain unchanged;
+   KDE's media widget must not report a track switch. Previous must select the
+   other duplicate; removing the current occurrence must select its successor.
+4. Check Shuffle, Repeat Queue/One and history with native controls and KDE media
+   keys/widget. Optional tools: `playerctl -p io.github.tracerxbrhd.Karin status`,
+   `playerctl -p io.github.tracerxbrhd.Karin shuffle On`, and
+   `playerctl -p io.github.tracerxbrhd.Karin loop Track`.
+5. Clear metadata/artwork cache in Preferences while playing. Audio, queue and
+   live session must survive. Disable/re-enable caching, restart normally and
+   check restoration. Cached metadata never establishes a valid login.
+6. Check both themes, ordinary/HiDPI sizing and pinned Info/Queue for obvious UI
+   regressions. Record first Player Bar appearance separately from later reveals.
+   Cloud cold gaps remain unresolved; this checklist does not presume a fix.
+7. Confirm logout cancellation is harmless; confirm deliberate logout clears
+   personal views, queue and system metadata. Repeat the relevant steps in the
+   current installed Flatpak without adding filesystem or session-bus grants.
+
+Report only revision, native/Flatpak environment and PASS/FAIL/not-tested per
+step. New desktop results remain pending until performed by the owner; storage
+failure/concurrency and rejected-record behavior use synthetic automated tests.

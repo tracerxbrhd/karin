@@ -52,6 +52,8 @@ reviewable and consistent with the accepted application.
 - Row click/Enter/Space plays the exact occurrence; Details is separate. Preserve
   duplicates and original source positions. Views stay bounded at 2,000 positions/
   100 pages; new contexts at 500. Filtering/appending must not rewrite active Queue.
+  Info/MPRIS use queue-owned opaque occurrence IDs, never mutable indices or IDs
+  of service tracks. Original source positions remain separate provenance.
 - Search admitted collection metadata with Unicode matching and honest partial
   coverage. No whole-library drain on typing. Total duration needs complete data
   with every duration known and a checked sum.
@@ -62,6 +64,9 @@ reviewable and consistent with the accepted application.
 - Mutations need server confirmation; never replay an ambiguous write. Use clear
   loading/empty/error/Retry states. No fake radio, recommendations, lyrics,
   offline mode or inert controls; a labelled unavailable Wave section is allowed.
+- Catalog refusals fence key epochs before cache I/O; cached UI replies recheck
+  those leases. Cold metadata stays Stale until a current positive write. Never
+  hold the cache state mutex used by GTK over filesystem operations.
 - Follow [UI_QUALITY_GATE](docs/UI_QUALITY_GATE.md) for substantial UI changes:
   real captures plus GTK structure, compact/medium/wide/maximized, both themes,
   HiDPI, mouse/keyboard/focus and normal/reduced motion. Private screenshots need
@@ -69,8 +74,7 @@ reviewable and consistent with the accepted application.
 
 ## Workflow and documentation
 
-- Continue the requested branch/PR. Current work uses
-  `feature/v0.4-native-music-ui` and PR #15. Do not merge, close PRs, delete branches,
+- Continue the branch/PR requested by the owner. Do not merge, close PRs, delete branches,
   rewrite history or publish releases without explicit authorization.
 - Keep docs concise. Audit code/CI/packaging consumers before deleting a file;
   verify links and assets are tracked in Git. Preserve important history through
@@ -100,5 +104,5 @@ modern static/motion/cold observers. Ignored tests are not executed tests. Never
 relax timing, geometry, sandbox or renderer checks just to obtain green CI.
 
 Before handoff verify final-head CI, links, license inventory and packaging.
-Owner acceptance permits preparing PR #15 for review; merge still needs a
-separate explicit instruction. Report actual checks and remaining limitations.
+Merge still needs a separate explicit instruction. Report actual checks and
+remaining limitations.

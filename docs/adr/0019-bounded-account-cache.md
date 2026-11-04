@@ -6,6 +6,10 @@ Status: Accepted for v0.3; implementation checks and owner acceptance are record
 Date: 2026-10-31
 Supersedes: ADR-0013's memory-only artwork policy for explicitly cacheable covers
 
+Stability extension, 2026-11-04: [ADR-0026](0026-refusal-fences-and-queue-occurrence-identity.md)
+adds per-key refusal fences/tombstones and conservative cold-metadata freshness.
+Physical removal failure no longer permits a later fresh cache hit.
+
 ## Context
 
 The accepted music client repeatedly loads the same metadata and cover images.

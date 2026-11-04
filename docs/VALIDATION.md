@@ -24,7 +24,9 @@ was reported. Acceptance does not establish that the cloud cold-rendering issue
 below is fixed, nor authorize a merge or public service distribution.
 
 Karin v0.4 is a development milestone. `Cargo.toml` still declares `0.0.0`; this
-record does not announce a tagged or published release.
+record does not announce a tagged or published release. PR #15 was merged into
+`master` as [`562596b`](https://github.com/tracerxbrhd/karin/commit/562596b990b5cd87c763af41120bad7830fda551).
+That merge does not automatically accept later stability changes on Fedora.
 
 ## Automated coverage
 
@@ -61,9 +63,51 @@ six current-source executions followed by four archived-baseline executions.
 The separate local stable 1.99.1 / 1.98.1 matrix and 56 interactive GTK executions
 also passed for the same runtime source.
 
-These are revision-specific results. For a later repository-cleanup commit,
-check the [current PR checks](https://github.com/tracerxbrhd/karin/pull/15/checks)
-for that exact HEAD; the runs and packages above do not become new-tree results.
+The squash baseline also passed [master CI](https://github.com/tracerxbrhd/karin/actions/runs/41780378135).
+These remain revision-specific results, separate from the stability checks below.
+
+## Stability verification
+
+[PR #24](https://github.com/tracerxbrhd/karin/pull/24) starts from `562596b`.
+Its runtime/test source at [`193cfa0`](https://github.com/tracerxbrhd/karin/commit/193cfa04ed05c852186bd31aab952e379da3d78e)
+has the following executed synthetic checks on 2026-11-04:
+
+- Both original defects reproduced against the unchanged baseline runtime:
+  a real loopback HTTP 403 with held cache I/O returned `FreshCache` instead of
+  the next Network response; deleting a row before a manual occurrence changed
+  its actual MPRIS path `t6` → `t7` while the same GStreamer source remained.
+- Stable **1.99.1** and exact **1.98.1**: fmt, strict Clippy/default/all/minimal,
+  tests **399 / 407 / 385 library + 4 CLI** per compiler/configuration, and locked
+  debug builds. The 20 new unit regressions cover refusal/storage races and
+  stable occurrence identity; ignored native tests are not included as passes.
+- Focused cache tests: **44 PASS per compiler**, including 15 new cases for
+  Busy/removal failure, durable tombstones, old readers/writers, restart,
+  account/logout/policy/disabled/Clear transitions and bounded fence saturation.
+  Paused commits also prove state admission does not wait for disk I/O.
+- MSRV ordinary and all-feature locked/offline release, hidden terminal fixtures,
+  silent GStreamer, generated-WAV transport/seek/volume/EOS/cleanup, ordinary and
+  all-feature GTK smoke, and exact dependency-license inventory comparison passed.
+- Flatpak-source preparation and vendored offline metadata resolution passed:
+  208 packages including Karin and 207 notice directories. SDK/runtime/permissions
+  are unchanged; this is not an installed sandbox build.
+- The extended native shared-player/MPRIS fixture passed: manual duplicates,
+  before/after/current removal, retained worker and TrackId, retained SetPosition,
+  rejected stale SetPosition after a real switch, Metadata signals and logout.
+- Eleven additional explicit native executions passed on private session buses,
+  including protected Secret Service/Portal, restore/forget/close, cache reply
+  retirement, Shuffle/Repeat/EOS, queue races, collection filtering, pinned Info,
+  WebKit construction/cancel and scale-2 shared MPRIS/cache presentation.
+
+The native build was forced after an isolated baseline build shared its target;
+the fresh compiler artifact and all 111 Rust/Cargo source hashes were checked
+before execution. A cached executable was not substituted as new-source proof.
+Current results for the exact final HEAD belong to
+[PR #24 checks](https://github.com/tracerxbrhd/karin/pull/24/checks), not predecessor
+runs. Required native coverage and the WebKit sandbox remain unchanged.
+
+New owner-native/Flatpak acceptance is **pending**. Use the short
+[stability checklist](BUILDING.md#stability-acceptance); earlier owner acceptance
+and generated media do not pass those new desktop checks.
 
 ## Known unresolved checks
 
@@ -81,8 +125,49 @@ gaps during the first actual fixture Play:
 Each first appearance retained only one intermediate footer frame. Functional
 Play/Pause/Stop, released hidden-footer size requests and monotonic height do
 not establish smooth cold appearance. The cause and meaning of the timing
-variation remain unknown. The owner's UI acceptance does not resolve these
+variation are not fully explained. The owner's UI acceptance does not resolve these
 cloud observations or establish a driver diagnosis.
+
+The bounded stability investigation adds a same-process real row-click repeat
+only after the unchanged first Play and completed Stop. On source `193cfa0`,
+Rust 1.98.1/all features, GTK 4.18.6/Libadwaita 1.7.6 and scale-1 Mesa/Xvfb
+with normal damage and animations, the retained diagnostic scripts recorded:
+
+| Run | First-open maximum gap | Repeated Play maximum gap |
+| --- | ---: | ---: |
+| Uninstrumented control | 916,685 µs | 33,334 µs |
+| Fixed-stage timing | 1,033,354 µs | 50,001 µs |
+
+Both four-transition lifecycle runs passed, not cold smoothness. The instrumented
+cold GTK iteration took 1,015,964 µs wall / 1,009,686 µs thread CPU, containing 64
+non-overlapping LLVM optimization/JIT spans totalling 655,224 µs. Repeat opening
+contained three spans totalling 21,498 µs; an earlier matched run contained none.
+This establishes a substantial first-render compilation
+contributor, not the complete cause, exact shader/layout trigger or behavior on
+a physical GPU/Wayland. A separate companion GLX context reported llvmpipe;
+that is not a direct query of the application's GL context. The reveal call itself and observed worker GStreamer
+startup do not account for the near-second gap; PNG exports happen afterwards.
+No production fix is justified by these measurements. Followup
+[#23](https://github.com/tracerxbrhd/karin/issues/23) calls for a bounded GTK-thread
+stack profile and ordinary Wayland comparison. No prewarm, duration stretch,
+global renderer change or weakened test/sandbox guard was introduced.
+
+For a synthetic rerun, build the ignored native test executable using the
+workflow's Cargo artifact selection and record its exact source/binary hashes.
+Run these CPU-exclusively with different new private output directories:
+
+```sh
+scripts/observe-cold-playerbar.sh control /absolute/native-tests /tmp/karin-cold-control-new
+scripts/observe-cold-playerbar.sh trace /absolute/native-tests /tmp/karin-cold-trace-new
+```
+
+The [runner](../scripts/observe-cold-playerbar.sh) executes only the exact fixture
+on isolated X11/Xvfb. The opt-in [timing shim](../scripts/cold-playerbar-timing.c)
+records fixed numeric stages, never shader contents, addresses or user fields;
+it is not loaded by normal Karin. It perturbs execution, does not cover every
+render path, and marks absent LLVM coverage unobserved. The tested fallback is
+LLVM 19.1; unsupported symbols fail explicitly. Logs/images remain generated
+local artifacts, not a repository archive or a Fedora performance PASS.
 
 Initialized panel motion uses the unchanged 240 ms animation after separately
 recorded graphics initialization, with test-only `LP_NUM_THREADS=2`. Static
