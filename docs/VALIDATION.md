@@ -141,7 +141,10 @@ accepted feedback/continuation, bounded rolling history and visible Queue,
 coalesced pending Next, later selection winning over a late batch, failed-session
 mode restoration, MPRIS Stop, logout and uncertain writes without replay. Held
 startup tests distinguish a later manual ordinary selection from automatic EOS.
-These are synthetic service acknowledgments and silent playback, not live radio.
+These are synthetic service acknowledgments and silent playback, not live radio. A controlled pre-fix test also reproduced a cancelled-session flag
+incorrectly replacing a pending HTTP 403 with Local/Capacity. The corrected
+1×/2× native runs preserve the typed Feedback/Forbidden/403 result across a tick
+and ordinary-source switch, without further POSTs.
 
 Home presentation passed mouse/Enter/Space, focus, wrapping, structure and cleanup
 at compact/medium/wide/maximized sizes in both themes and scales: **52 clean

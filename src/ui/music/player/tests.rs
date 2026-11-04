@@ -3195,4 +3195,55 @@ fn native_wave_shared_player_feedback_batches_and_cleanup() {
     pending_this.cancel_wave();
     pending_this.close();
     pending_ui.window.close();
+
+    // Force the exact worker-error/UI-callback gap: an admitted feedback will
+    // return403, while its local session has already been marked cancelled.
+    // A timer observation and an ordinary source switch must retain that job's
+    // typed primary result instead of inventing a local outbox-capacity error.
+    let poisoned = Fixture::new();
+    poisoned.hold_descriptor();
+    {
+        let mut counts = poisoned.counts.lock().unwrap();
+        counts.wave_hold_feedback = true;
+        counts.wave_feedback_status = Some(403);
+    }
+    let (_poison_app, poison_ui) = player_window(&poisoned);
+    let poison_this = &poison_ui.music.controller;
+    poison_this.enable_wave_experiment();
+    poison_this.start_wave();
+    wait_playing(poison_this, 0);
+    pump_until(|| poisoned.counts.lock().unwrap().slow_started);
+    poison_this.poison_wave_session_for_test();
+    poison_this.tick_radio(poison_this.music_snapshot().as_ref());
+    assert!(
+        !matches!(poison_this.radio_status().phase, RadioPhase::Failed { .. }),
+        "pending typed provider failure owns the diagnosis"
+    );
+    poison_this.play_music_context(
+        PlaybackContext::new(ContextKind::Playlist, None, vec![track("43")], 0, false).unwrap(),
+    );
+    assert_eq!(
+        poison_this.radio_status().phase,
+        RadioPhase::Finishing,
+        "retain the pending epoch even though coordinator finish is cancelled"
+    );
+    poisoned.release_descriptor();
+    pump_until(|| {
+        matches!(
+            poison_this.radio_status().phase,
+            RadioPhase::Failed {
+                stage: RadioStage::Feedback,
+                failure: RadioFailure::Forbidden
+            }
+        )
+    });
+    wait_playing(poison_this, 0);
+    assert_eq!(
+        poisoned.counts.lock().unwrap().wave_events.len(),
+        1,
+        "no queued final feedback after the primary refusal"
+    );
+    assert_eq!(poisoned.counts.lock().unwrap().wave_batches, 0);
+    poison_this.close();
+    poison_ui.window.close();
 }

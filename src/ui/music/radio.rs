@@ -233,6 +233,16 @@ impl Controller {
         let radio = self.radio.borrow();
         radio.running.is_none() && !radio.begin_pending && radio.retiring.is_none()
     }
+    #[cfg(test)]
+    pub(super) fn poison_wave_session_for_test(&self) {
+        self.radio
+            .borrow()
+            .active
+            .as_ref()
+            .expect("synthetic active Wave")
+            .session
+            .cancel();
+    }
     pub(super) fn wave_manual_append_allowed(&self) -> bool {
         if self.is_wave_queue() {
             self.widgets
@@ -286,15 +296,16 @@ impl Controller {
     /// finish once, drain in order, then locally retire the opaque identity.
     pub(super) fn leave_wave(&self) {
         self.observe_wave_snapshot(self.music_snapshot().as_ref());
-        let saved = {
+        let (saved, failure) = {
             let mut radio = self.radio.borrow_mut();
             if let Some(begin) = radio.begin.take() {
                 begin.cancel();
             }
             radio.begin_pending = false;
+            let pending = radio.running.is_some();
+            let mut failure = None;
             if let Some(mut active) = radio.active.take() {
-                let final_events = active.coordinator.finish(Instant::now());
-                match final_events {
+                match active.coordinator.finish(Instant::now()) {
                     Ok(events) if event_capacity(active.events.len(), events.len()) => {
                         active.events.extend(events);
                         radio.retiring = Some(Retiring {
@@ -303,15 +314,37 @@ impl Controller {
                             events: active.events,
                         });
                     }
-                    _ => {
+                    Err(WaveError::Cancelled) if pending => {
+                        // The provider has poisoned its identity but the typed
+                        // result is still pending on GTK. Retain that exact job
+                        // epoch, not any unsent reports, so its primary HTTP or
+                        // unknown-write category survives a source switch.
+                        radio.retiring = Some(Retiring {
+                            epoch: active.epoch,
+                            session: active.session,
+                            events: VecDeque::new(),
+                        });
+                    }
+                    Ok(_) => {
                         active.session.cancel();
+                        failure = Some(RadioFailure::Capacity);
+                    }
+                    Err(error) => {
+                        active.session.cancel();
+                        failure = Some(classify(error));
                     }
                 }
             }
-            radio.failure = None;
-            radio.saved_modes.take()
+            radio.failure = failure.map(|failure| (RadioStage::Local, failure));
+            (radio.saved_modes.take(), failure)
         };
         self.restore_radio_modes(saved);
+        if let Some(failure) = failure {
+            eprintln!(
+                "Karin wave: stage=local category={} http=none",
+                failure_name(failure)
+            );
+        }
     }
     pub(super) fn cancel_wave(self: &Rc<Self>) {
         self.leave_wave();
@@ -332,6 +365,7 @@ impl Controller {
             )
         };
         let mut radio = self.radio.borrow_mut();
+        let pending = radio.running.is_some();
         let Some(active) = radio.active.as_mut() else {
             return;
         };
@@ -357,9 +391,14 @@ impl Controller {
                 // Its in-flight batch remains useful, but cannot auto-select.
                 active.waiting_next = None;
             }
-            _ => {
+            Err(WaveError::Cancelled) if pending => {}
+            Ok(_) => {
                 drop(radio);
                 self.fail_radio(RadioStage::Local, RadioFailure::Capacity);
+            }
+            Err(error) => {
+                drop(radio);
+                self.fail_radio(RadioStage::Local, classify(error));
             }
         }
     }
@@ -369,6 +408,7 @@ impl Controller {
             return;
         };
         let mut radio = self.radio.borrow_mut();
+        let pending = radio.running.is_some();
         let Some(active) = radio.active.as_mut().filter(|a| a.cycle == Some(serial)) else {
             return;
         };
@@ -380,9 +420,14 @@ impl Controller {
             Ok(events) if event_capacity(active.events.len(), events.len()) => {
                 active.events.extend(events)
             }
-            _ => {
+            Err(WaveError::Cancelled) if pending => {}
+            Ok(_) => {
                 drop(radio);
                 self.fail_radio(RadioStage::Local, RadioFailure::Capacity);
+            }
+            Err(error) => {
+                drop(radio);
+                self.fail_radio(RadioStage::Local, classify(error));
             }
         }
     }
