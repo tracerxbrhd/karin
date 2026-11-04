@@ -1698,6 +1698,135 @@ fn desktop_method(method: &str, parameters: glib::Variant) {
     });
 }
 
+/// Exercise the production queue bridge with actual MP3 preroll and session
+/// D-Bus. Equal service IDs are different manual occurrences; reindexing a
+/// retained occurrence must not change its public opaque path or restart audio.
+fn manual_occurrence_mpris_reindexing(this: &Rc<Controller>) {
+    use std::collections::BTreeMap;
+
+    let metadata_path = || {
+        desktop_property("Metadata")
+            .get::<BTreeMap<String, glib::Variant>>()
+            .unwrap()["mpris:trackid"]
+            .get::<glib::variant::ObjectPath>()
+            .unwrap()
+    };
+    this.pause_music();
+    pump_until(|| {
+        this.music_snapshot()
+            .is_some_and(|snapshot| snapshot.state == PlaybackState::Paused)
+    });
+    {
+        let mut model = this.model.borrow_mut();
+        model.queue.append(track("42")).unwrap();
+        model.queue.append(track("42")).unwrap();
+        model.queue.append(track("43")).unwrap();
+    }
+    this.render_queue();
+    this.select_music_queue(4);
+    pump_until(|| {
+        this.model.borrow().queue.current_index() == Some(4)
+            && this
+                .music_snapshot()
+                .is_some_and(|snapshot| snapshot.state == PlaybackState::Ready && snapshot.seekable)
+    });
+    assert_pinned_track(this, "42");
+    let worker = this.player.borrow().controller.clone().unwrap();
+    let generation = worker.snapshot().generation;
+    let playback_serial = this.player.borrow().serial;
+    let path = metadata_path();
+    this.select_track_info(track("43"), None, false);
+
+    let bus = desktop_background(|| {
+        gio::bus_get_sync(gio::BusType::Session, gio::Cancellable::NONE).unwrap()
+    });
+    let paths = Rc::new(RefCell::new(Vec::new()));
+    let observed = paths.clone();
+    let subscription = bus.subscribe_to_signal(
+        Some(crate::mpris::BUS_NAME),
+        Some("org.freedesktop.DBus.Properties"),
+        Some("PropertiesChanged"),
+        Some("/org/mpris/MediaPlayer2"),
+        None,
+        gio::DBusSignalFlags::NONE,
+        move |signal| {
+            let (interface, changed, _) = signal
+                .parameters
+                .get::<(String, BTreeMap<String, glib::Variant>, Vec<String>)>()
+                .unwrap();
+            if interface == "org.mpris.MediaPlayer2.Player"
+                && let Some(metadata) = changed
+                    .get("Metadata")
+                    .and_then(|value| value.get::<BTreeMap<String, glib::Variant>>())
+                && let Some(path) = metadata
+                    .get("mpris:trackid")
+                    .and_then(|value| value.get::<glib::variant::ObjectPath>())
+            {
+                observed.borrow_mut().push(path);
+            }
+        },
+    );
+
+    this.remove_music_queue(0);
+    assert_eq!(this.model.borrow().queue.current_index(), Some(3));
+    assert_eq!(metadata_path(), path, "reindexing is not a track change");
+    assert_pinned_track(this, "43");
+    this.remove_music_queue(4);
+    assert_eq!(
+        metadata_path(),
+        path,
+        "removing the next row keeps identity"
+    );
+    assert_pinned_track(this, "43");
+    assert_eq!(this.player.borrow().serial, playback_serial);
+    assert_eq!(worker.snapshot().generation, generation);
+    assert_eq!(worker.snapshot().state, PlaybackState::Ready);
+    assert!(worker.snapshot().worker_running);
+    assert!(paths.borrow().iter().all(|observed| observed == &path));
+
+    // A previously published SetPosition remains valid after removing a row
+    // before this manual occurrence, and is acknowledged by the same worker.
+    let seek_serial = worker.snapshot().seek_serial;
+    desktop_method("SetPosition", (path.clone(), 1_000_000_i64).to_variant());
+    pump_until(|| worker.snapshot().seek_serial > seek_serial);
+    assert_eq!(
+        worker.snapshot().seek_position,
+        Some(Duration::from_secs(1))
+    );
+    assert_eq!(metadata_path(), path);
+    assert_pinned_track(this, "43");
+
+    this.skip_music(false, false);
+    pump_until(|| {
+        this.model.borrow().queue.current_index() == Some(2)
+            && this
+                .music_snapshot()
+                .is_some_and(|snapshot| snapshot.state == PlaybackState::Ready && snapshot.seekable)
+    });
+    let previous_path = metadata_path();
+    assert_ne!(previous_path, path, "equal IDs remain distinct occurrences");
+    pump_until(|| paths.borrow().contains(&previous_path));
+    assert_pinned_track(this, "42");
+    let previous_worker = this.player.borrow().controller.clone().unwrap();
+    let seek_serial = previous_worker.snapshot().seek_serial;
+    desktop_method("SetPosition", (path, 2_000_000_i64).to_variant());
+    assert_eq!(previous_worker.snapshot().seek_serial, seek_serial);
+
+    this.remove_music_queue(2);
+    pump_until(|| {
+        !previous_worker.snapshot().worker_running
+            && this
+                .music_snapshot()
+                .is_some_and(|snapshot| snapshot.state == PlaybackState::Ready && snapshot.seekable)
+    });
+    let successor_path = metadata_path();
+    assert_ne!(successor_path, previous_path);
+    pump_until(|| paths.borrow().contains(&successor_path));
+    assert_pinned_track(this, "42");
+    drop(subscription);
+    eprintln!("Karin synthetic MPRIS phase=manual-occurrence-reindexing-and-removal");
+}
+
 #[test]
 #[ignore = "requires isolated dbus-run-session, Xvfb, playerctl, gdbus and GStreamer HTTP/MP3 plugins"]
 fn native_music_context_mpris_shared_player_and_cleanup() {
@@ -2088,6 +2217,7 @@ fn native_music_context_mpris_shared_player_and_cleanup() {
         "actual worker EOS advances the same context once"
     );
     assert_pinned_track(this, "44");
+    manual_occurrence_mpris_reindexing(this);
     let closing = this.player.borrow().controller.clone().unwrap();
     this.widgets.logout.emit_clicked();
     pump_until(|| {

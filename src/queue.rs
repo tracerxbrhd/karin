@@ -29,9 +29,36 @@ impl RepeatMode {
 
 const MAX_QUEUE: usize = 500;
 
+/// Internal identity of one admitted queue entry, independent of its position
+/// and provider Track ID. Keeping a clone alive prevents allocation reuse while
+/// an observer still refers to the entry. It is never serialized or exported.
+#[derive(Clone)]
+pub(crate) struct OccurrenceId(Arc<()>);
+
+impl OccurrenceId {
+    fn new() -> Self {
+        Self(Arc::new(()))
+    }
+}
+
+impl PartialEq for OccurrenceId {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for OccurrenceId {}
+
+impl std::fmt::Debug for OccurrenceId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("OccurrenceId([opaque])")
+    }
+}
+
 #[derive(Default)]
 pub struct MusicQueue {
     context: Option<PlaybackContext>,
+    occurrences: Vec<OccurrenceId>,
     order: OrderPolicy,
 }
 
@@ -203,6 +230,7 @@ impl MusicQueue {
     pub fn with_seed(seed: u64) -> Self {
         Self {
             context: None,
+            occurrences: Vec::new(),
             order: OrderPolicy::with_seed(seed),
         }
     }
@@ -249,12 +277,18 @@ impl MusicQueue {
             });
             self.reset_order();
         }
+        self.occurrences.push(OccurrenceId::new());
         Ok(())
     }
 
     /// A replacement keeps the user's local modes but starts a fresh bounded
     /// plan/history for this exact loaded context. No hidden remote pagination.
     pub fn replace_context(&mut self, context: PlaybackContext) {
+        // Admission starts a new scope even when the caller reuses an immutable
+        // source snapshot. Source positions remain provenance, not entry IDs.
+        self.occurrences = (0..context.items.len())
+            .map(|_| OccurrenceId::new())
+            .collect();
         self.context = Some(context);
         self.reset_order();
     }
@@ -279,6 +313,15 @@ impl MusicQueue {
     pub fn current(&self) -> Option<&Track> {
         self.current_index()
             .and_then(|index| self.items().get(index))
+    }
+
+    pub(crate) fn occurrence_id(&self, index: usize) -> Option<&OccurrenceId> {
+        self.occurrences.get(index)
+    }
+
+    pub(crate) fn current_occurrence_id(&self) -> Option<&OccurrenceId> {
+        self.current_index()
+            .and_then(|index| self.occurrence_id(index))
     }
 
     pub fn select(&mut self, index: usize) -> Option<&Track> {
@@ -382,6 +425,7 @@ impl MusicQueue {
         let context = self.context.as_mut()?;
         let removed = Arc::make_mut(&mut context.items).remove(index);
         Arc::make_mut(&mut context.source_positions).remove(index);
+        self.occurrences.remove(index);
         if index < context.loaded_items {
             context.loaded_items -= 1;
         }
@@ -410,6 +454,7 @@ impl MusicQueue {
     /// a context. They are session-local and contain no account metadata.
     pub fn clear(&mut self) {
         self.context = None;
+        self.occurrences.clear();
         self.order.clear();
     }
 }
@@ -1003,13 +1048,24 @@ mod tests {
         assert!(!queue.can_go_previous());
     }
     fn assert_policy_bounds(queue: &MusicQueue) {
+        assert_eq!(queue.occurrences.len(), queue.items().len());
+        for (index, occurrence) in queue.occurrences.iter().enumerate() {
+            assert!(
+                queue.occurrences[..index]
+                    .iter()
+                    .all(|earlier| earlier != occurrence),
+                "each live entry needs a distinct identity"
+            );
+        }
         if queue.items().is_empty() {
             assert!(queue.context().is_none());
             assert!(queue.current_index().is_none());
             assert!(queue.current().is_none());
+            assert!(queue.current_occurrence_id().is_none());
         } else {
             assert!(queue.current_index().unwrap() < queue.items().len());
             assert!(queue.current().is_some());
+            assert!(queue.current_occurrence_id().is_some());
             assert_eq!(
                 queue.context().unwrap().source_positions.len(),
                 queue.items().len()
@@ -1179,5 +1235,189 @@ mod tests {
         assert_eq!(source.source_position(0), Some(499));
         queue.append(track("42")).unwrap();
         assert_eq!(queue.context().unwrap().source_position(1), None);
+    }
+
+    #[test]
+    fn manual_occurrence_ids_survive_reindexing_and_distinguish_equal_track_ids() {
+        let mut queue = MusicQueue::new();
+        for _ in 0..5 {
+            queue.append(track("41")).unwrap();
+        }
+        let original = queue.occurrences.clone();
+        queue.select(2);
+        assert_eq!(queue.current_occurrence_id(), Some(&original[2]));
+
+        queue.remove(4); // A following entry does not change the current one.
+        assert_eq!(queue.current_occurrence_id(), Some(&original[2]));
+        queue.remove(0); // The old physical-index fallback changed here.
+        assert_eq!(queue.current_index(), Some(1));
+        assert_eq!(queue.current_occurrence_id(), Some(&original[2]));
+        assert_eq!(queue.context().unwrap().source_position(1), None);
+        assert_eq!(queue.occurrences.as_slice(), &original[1..4]);
+
+        queue.remove(1); // Removing current selects the actual successor.
+        assert_eq!(queue.current_occurrence_id(), Some(&original[3]));
+        queue.append(track("41")).unwrap();
+        let appended = queue.occurrence_id(2).unwrap().clone();
+        assert!(original.iter().all(|previous| previous != &appended));
+        queue.select(2);
+        queue.remove(1);
+        assert_eq!(queue.current_index(), Some(1));
+        assert_eq!(queue.current_occurrence_id(), Some(&appended));
+        queue.previous_track().unwrap();
+        assert_eq!(queue.current_occurrence_id(), Some(&original[1]));
+        queue.next_track().unwrap();
+        assert_eq!(queue.current_occurrence_id(), Some(&appended));
+        assert!(queue.advance_eos().is_none());
+        assert_eq!(queue.current_occurrence_id(), Some(&appended));
+        assert_policy_bounds(&queue);
+    }
+
+    #[test]
+    fn entry_identity_is_separate_from_source_projection_and_replacement_scope() {
+        let source = PlaybackContext::with_source_positions(
+            ContextKind::LikedTracks,
+            Some("synthetic-loaded-source".into()),
+            vec![track("41"); 3],
+            1,
+            true,
+            vec![0, 499, 1_999],
+        )
+        .unwrap();
+        let mut queue = MusicQueue::new();
+        queue.replace_context(source.clone());
+        assert_eq!(queue.context(), Some(&source));
+        let loaded = queue.current_occurrence_id().unwrap().clone();
+        queue.remove(0);
+        assert_eq!(queue.current_occurrence_id(), Some(&loaded));
+        assert_eq!(queue.context().unwrap().source_position(0), Some(499));
+        assert_eq!(source.source_position(1), Some(499));
+
+        // Merely creating/selecting another immutable view context must not
+        // rewrite the live queue, including its manually appended occurrences.
+        let filtered = source.with_current_index(2).unwrap();
+        queue.append(track("41")).unwrap();
+        queue.select(2);
+        let manual = queue.current_occurrence_id().unwrap().clone();
+        assert_ne!(manual, loaded);
+        assert_eq!(queue.context().unwrap().source_position(2), None);
+        assert_eq!(filtered.source_position(2), Some(1_999));
+        assert_eq!(queue.current_occurrence_id(), Some(&manual));
+
+        queue.replace_context(filtered.clone());
+        assert_eq!(queue.context(), Some(&filtered));
+        let first_admission = queue.current_occurrence_id().unwrap().clone();
+        assert_ne!(first_admission, loaded);
+        assert_ne!(first_admission, manual);
+        queue.replace_context(filtered);
+        assert_ne!(queue.current_occurrence_id(), Some(&first_admission));
+        assert_eq!(queue.context().unwrap().source_position(2), Some(1_999));
+        assert_policy_bounds(&queue);
+    }
+
+    #[test]
+    fn occurrence_ids_follow_shuffle_history_repeat_and_eos_without_being_reissued() {
+        for shuffle in [false, true] {
+            for repeat in [RepeatMode::Off, RepeatMode::Queue, RepeatMode::One] {
+                let mut queue = MusicQueue::with_seed(31);
+                for _ in 0..5 {
+                    queue.append(track("41")).unwrap();
+                }
+                let entries = queue.occurrences.clone();
+                queue.select(1);
+                queue.select(2);
+                queue.select(3);
+                queue.set_shuffle(shuffle);
+                queue.set_repeat_mode(repeat);
+                assert_eq!(queue.occurrences, entries);
+                let current = queue.current_occurrence_id().unwrap().clone();
+                if repeat == RepeatMode::One {
+                    queue.advance_eos().unwrap();
+                    assert_eq!(queue.current_occurrence_id(), Some(&current));
+                }
+                queue.next_track().unwrap();
+                let next = queue.current_occurrence_id().unwrap().clone();
+                assert_ne!(current, next);
+                queue.previous_track().unwrap();
+                assert_eq!(queue.current_occurrence_id(), Some(&current));
+                queue.advance_eos().unwrap();
+                assert_eq!(
+                    queue.current_occurrence_id(),
+                    Some(if repeat == RepeatMode::One {
+                        &current
+                    } else {
+                        &next
+                    })
+                );
+
+                queue.select(3);
+                queue.remove(0);
+                assert_eq!(queue.current_occurrence_id(), Some(&entries[3]));
+                assert_eq!(queue.occurrences.as_slice(), &entries[1..]);
+                queue.set_repeat_mode(RepeatMode::Queue);
+                for _ in 0..10 {
+                    queue.advance_eos().unwrap();
+                    assert!(entries[1..].contains(queue.current_occurrence_id().unwrap()));
+                }
+                assert_eq!(queue.occurrences.as_slice(), &entries[1..]);
+                assert_policy_bounds(&queue);
+            }
+        }
+    }
+
+    #[test]
+    fn entry_tokens_retire_on_clear_replacement_session_retirement_and_drop() {
+        let mut queue = MusicQueue::new();
+        queue.append(track("41")).unwrap();
+        let observed = queue.current_occurrence_id().unwrap().clone();
+        let retired = Arc::downgrade(&observed.0);
+        queue.set_shuffle(true);
+        queue.set_repeat_mode(RepeatMode::Queue);
+        queue.clear();
+        assert!(queue.current_occurrence_id().is_none());
+        assert!(queue.occurrences.is_empty());
+        assert_eq!(Arc::strong_count(&observed.0), 1);
+        queue.append(track("41")).unwrap();
+        assert_ne!(queue.current_occurrence_id(), Some(&observed));
+        drop(observed);
+        assert!(retired.upgrade().is_none());
+
+        let source = context(2, 1);
+        queue.replace_context(source.clone());
+        let replaced = Arc::downgrade(&queue.current_occurrence_id().unwrap().0);
+        let retained_source_snapshot = queue.context().unwrap().clone();
+        queue.replace_context(source);
+        assert!(replaced.upgrade().is_none());
+        assert_eq!(retained_source_snapshot.current_index(), 1);
+        let logout = Arc::downgrade(&queue.current_occurrence_id().unwrap().0);
+        // The existing logout/account-close boundary clears contents and modes.
+        queue.clear();
+        queue.reset_modes();
+        assert!(logout.upgrade().is_none());
+        assert!(!queue.shuffle());
+        assert_eq!(queue.repeat_mode(), RepeatMode::Off);
+        queue.append(track("41")).unwrap();
+        let closed = Arc::downgrade(&queue.current_occurrence_id().unwrap().0);
+        drop(queue);
+        assert!(closed.upgrade().is_none());
+    }
+
+    #[test]
+    fn entry_identity_stays_bounded_and_opaque_when_mutations_are_rejected() {
+        let mut queue = MusicQueue::new();
+        for _ in 0..MAX_QUEUE {
+            queue.append(track("synthetic-private-track-id")).unwrap();
+        }
+        let before = queue.occurrences.clone();
+        assert_eq!(queue.append(track("extra")), Err(QueueError));
+        assert!(queue.remove(MAX_QUEUE).is_none());
+        assert!(queue.select(MAX_QUEUE).is_none());
+        assert_eq!(queue.occurrences, before);
+        assert!(queue.occurrence_id(MAX_QUEUE).is_none());
+        assert_eq!(
+            format!("{:?}", queue.current_occurrence_id().unwrap()),
+            "OccurrenceId([opaque])"
+        );
+        assert_policy_bounds(&queue);
     }
 }

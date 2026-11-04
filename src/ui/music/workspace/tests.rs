@@ -350,35 +350,35 @@ fn assert_selection(this: &Controller, id: &str, kind: ContextKind, index: usize
 }
 
 #[test]
-fn current_occurrence_distinguishes_duplicate_positions_and_source() {
+fn current_occurrence_distinguishes_duplicate_entries_and_admission_scope() {
     let item = track("41", "Synthetic occurrence");
-    let first = PlaybackContext::new(
+    let source = PlaybackContext::new(
         ContextKind::Playlist,
         Some("7".into()),
-        vec![item.clone(), item.clone()],
+        vec![item.clone(), item],
         0,
         false,
     )
     .unwrap();
-    let second = PlaybackContext::new(
-        ContextKind::Playlist,
-        Some("7".into()),
-        vec![item.clone(), item.clone()],
-        1,
-        false,
-    )
-    .unwrap();
-    let other_source =
-        PlaybackContext::new(ContextKind::Album, Some("7".into()), vec![item], 0, false).unwrap();
-    assert!(CurrentOccurrence::from_context(&first) != CurrentOccurrence::from_context(&second));
-    assert!(
-        CurrentOccurrence::from_context(&first) != CurrentOccurrence::from_context(&other_source)
-    );
-    assert!(CurrentOccurrence::from_context(&first) == CurrentOccurrence::from_context(&first));
+    let mut queue = MusicQueue::new();
+    assert!(CurrentOccurrence::from_queue(&queue).is_none());
+    queue.replace_context(source.clone());
+    let first = CurrentOccurrence::from_queue(&queue).unwrap();
+    queue.select(1);
+    let second = CurrentOccurrence::from_queue(&queue).unwrap();
+    assert_ne!(first, second, "equal Track IDs remain distinct entries");
+    assert_eq!(second, CurrentOccurrence::from_queue(&queue).unwrap());
+    queue.remove(0);
+    assert_eq!(second, CurrentOccurrence::from_queue(&queue).unwrap());
+    assert_eq!(queue.context().unwrap().source_position(0), Some(1));
+    queue.replace_context(source.with_current_index(1).unwrap());
+    assert_ne!(second, CurrentOccurrence::from_queue(&queue).unwrap());
+    queue.clear();
+    assert!(CurrentOccurrence::from_queue(&queue).is_none());
 }
 
 #[test]
-fn projected_occurrence_keys_preserve_absolute_duplicates_across_result_windows() {
+fn projected_occurrence_identity_preserves_provenance_and_manual_reindexing() {
     let item = track("41", "Synthetic duplicate");
     let project = |positions: Vec<usize>, selected| {
         PlaybackContext::with_source_positions(
@@ -391,32 +391,31 @@ fn projected_occurrence_keys_preserve_absolute_duplicates_across_result_windows(
         )
         .unwrap()
     };
-    let first = project(vec![0], 0);
-    let later = project(vec![500], 0);
-    assert!(CurrentOccurrence::from_context(&first) != CurrentOccurrence::from_context(&later));
-    assert_eq!(
-        OccurrencePosition::from_context(&later),
-        OccurrencePosition::Source(500)
-    );
-    let wider = project(vec![0, 500], 1);
-    assert!(CurrentOccurrence::from_context(&wider) == CurrentOccurrence::from_context(&later));
     let mut queue = MusicQueue::new();
-    queue.replace_context(wider);
+    queue.replace_context(project(vec![0, 500], 1));
+    let loaded = CurrentOccurrence::from_queue(&queue).unwrap();
     queue.remove(0);
-    assert!(
-        CurrentOccurrence::from_context(queue.context().unwrap())
-            == CurrentOccurrence::from_context(&later)
-    );
-    queue.append(item.clone()).unwrap();
+    assert_eq!(loaded, CurrentOccurrence::from_queue(&queue).unwrap());
+    assert_eq!(queue.context().unwrap().source_position(0), Some(500));
+
+    // A view/filter can create another source projection without admitting it
+    // into the actual playing queue or rewriting that entry's identity.
+    let filtered = project(vec![500], 0);
+    assert_eq!(filtered.source_position(0), Some(500));
+    assert_eq!(loaded, CurrentOccurrence::from_queue(&queue).unwrap());
+    queue.append(item).unwrap();
     queue.select(1);
-    assert_eq!(
-        OccurrencePosition::from_context(queue.context().unwrap()),
-        OccurrencePosition::Manual(1)
-    );
-    assert_ne!(
-        OccurrencePosition::from_context(&project(vec![1], 0)),
-        OccurrencePosition::Manual(1)
-    );
+    let manual = CurrentOccurrence::from_queue(&queue).unwrap();
+    assert_ne!(manual, loaded);
+    assert_eq!(queue.context().unwrap().source_position(1), None);
+    queue.remove(0);
+    assert_eq!(manual, CurrentOccurrence::from_queue(&queue).unwrap());
+    assert_eq!(queue.context().unwrap().source_position(0), None);
+    queue.replace_context(filtered);
+    let replacement = CurrentOccurrence::from_queue(&queue).unwrap();
+    assert_ne!(replacement, manual);
+    assert_ne!(replacement, loaded);
+    assert_eq!(queue.context().unwrap().source_position(0), Some(500));
 }
 
 #[test]
