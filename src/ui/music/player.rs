@@ -1197,6 +1197,7 @@ impl Controller {
         self.publish_mpris();
         self.sync_track_pane();
         self.sync_catalog_rows();
+        self.sync_wave_queue_controls();
     }
 }
 

@@ -9,6 +9,7 @@ impl Controller {
         clear_list(&self.widgets.queue_rows);
         self.widgets.queue_rows.remove_css_class("boxed-list");
         self.widgets.queue_rows.add_css_class("music-track-list");
+        let radio_playable = self.wave_current_allowed();
         let model = self.model.borrow();
         let source = model
             .queue
@@ -212,7 +213,7 @@ impl Controller {
             let play = icon_button("media-playback-start-symbolic", "Воспроизвести трек");
             play.set_widget_name("music-queue-play");
             play.add_css_class("flat");
-            play.set_sensitive(track.available);
+            play.set_sensitive(track.available && radio_playable);
             let weak = Rc::downgrade(self);
             let expected = queue_snapshot.clone();
             play.connect_clicked(move |_| {
@@ -279,7 +280,7 @@ impl Controller {
             }
             body.append(&menu);
             self.row_action(&row, RowAction::Queue(index));
-            row.set_activatable(track.available);
+            row.set_activatable(track.available && radio_playable);
             let state = queue_badge(index, current_index, next_index)
                 .map(|caption| format!("{caption} · "))
                 .unwrap_or_default();
@@ -299,7 +300,9 @@ impl Controller {
                     " · Недоступен"
                 },
             ))]);
-            row.set_tooltip_text(Some(if track.available {
+            row.set_tooltip_text(Some(if !radio_playable {
+                "Радиосессия завершена. Запустите новую волну на Главной."
+            } else if track.available {
                 "Воспроизвести трек"
             } else {
                 "Трек недоступен"
@@ -312,6 +315,35 @@ impl Controller {
         drop(model);
         self.sync_current_like();
         self.render_music_player();
+    }
+
+    /// Reflect a retired radio identity without rebuilding the queue on every
+    /// snapshot. Keep Details/remove available; only playback is unsupported.
+    pub(super) fn sync_wave_queue_controls(&self) {
+        if !self.is_wave_queue() || self.wave_current_allowed() {
+            return;
+        }
+        let guidance = "Радиосессия завершена. Запустите новую волну на Главной.";
+        let mut child = self.widgets.queue_rows.first_child();
+        while let Some(widget) = child {
+            child = widget.next_sibling();
+            let Some(row) = widget.downcast_ref::<gtk::ListBoxRow>() else {
+                continue;
+            };
+            if !row.has_css_class("music-queue-row") {
+                continue;
+            }
+            row.set_activatable(false);
+            row.set_tooltip_text(Some(guidance));
+            let mut action = row.child().and_then(|body| body.first_child());
+            while let Some(widget) = action {
+                action = widget.next_sibling();
+                if widget.widget_name() == "music-queue-play" {
+                    widget.set_sensitive(false);
+                    widget.set_tooltip_text(Some(guidance));
+                }
+            }
+        }
     }
 
     #[cfg(test)]

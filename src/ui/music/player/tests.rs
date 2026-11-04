@@ -3101,6 +3101,26 @@ fn native_wave_shared_player_feedback_batches_and_cleanup() {
         )
     });
     assert!(!modes_this.widgets.next.is_sensitive());
+    for index in 0..modes_this.model.borrow().queue.items().len() {
+        let row = modes_this.queue_row_at_physical(index).unwrap();
+        assert!(
+            !row.is_activatable(),
+            "retired Wave rows cannot offer playback"
+        );
+        let mut child = row.child().unwrap().first_child();
+        let mut play_checked = false;
+        while let Some(widget) = child {
+            child = widget.next_sibling();
+            if widget.widget_name() == "music-queue-play" {
+                assert!(!widget.is_sensitive());
+                play_checked = true;
+            } else if widget.widget_name() == "music-queue-more" {
+                assert!(widget.is_sensitive(), "Details/remove remain available");
+            }
+        }
+        assert!(play_checked);
+    }
+
     assert!(!modes_this.widgets.previous.is_sensitive());
     modes.counts.lock().unwrap().wave_feedback_status = None;
     modes_this.start_wave();
