@@ -46,7 +46,13 @@ functionality, UI and Flatpak build on Fedora 44 with KDE Plasma, Wayland and Pi
 This is a development milestone, not a published release; the Cargo package
 version remains `0.0.0`. See [validation](docs/VALIDATION.md) for the accepted scope.
 
-The Music API is unofficial and may change. My Wave, Dislike, recommendations,
+The accepted stability update [PR #24](https://github.com/tracerxbrhd/karin/pull/24)
+is merged at `920fd71`. v0.5 adds an opt-in **experimental My Wave** path through
+this same player; live radio creation, feedback and continuation still require
+[local owner acceptance](docs/BUILDING.md#my-wave-local-acceptance). Normal startup
+keeps Wave unavailable. No credentials need to be copied for the experiment.
+
+The Music API is unofficial and may change. Dislike, recommendations,
 lyrics and offline audio are not implemented. Cold first-player appearance in Cloud
 still has unresolved frame gaps; desktop acceptance does not establish their
 cause or resolution. See [known limitations](docs/LIMITATIONS.md).

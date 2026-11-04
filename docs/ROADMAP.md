@@ -23,8 +23,8 @@ fences before cache I/O and stable queue occurrence IDs shared by Info/MPRIS.
 Rejected metadata cannot return as fresh after failed removal; cold metadata
 needs a new positive write. Source provenance, modes and the audio path remain
 unchanged. [ADR-0026](adr/0026-refusal-fences-and-queue-occurrence-identity.md)
-defines both contracts; [VALIDATION.md](VALIDATION.md) separates tests from the
-pending scoped Fedora regression check.
+defines both contracts. The owner accepted `9d54834`; it was squash-merged at
+`920fd71`. [VALIDATION.md](VALIDATION.md) separates the acceptance and tests.
 
 - Continue the bounded [cold Player Bar investigation](https://github.com/tracerxbrhd/karin/issues/23).
   Software-render LLVM compilation contributes to the measured Cloud stall;
@@ -51,7 +51,12 @@ pending scoped Fedora regression check.
   prefix honestly without silently changing the playing queue.
 
 Each direction needs its own confirmed contract and acceptance criteria.
-Unsupported actions remain absent; Home's Wave section is explicitly unavailable.
+The v0.5 branch integrates the existing Wave backend with the shared queue,
+player and MPRIS behind `--experimental-wave`. Live service creation, heard
+music, accepted feedback and next-batch delivery remain the owner acceptance
+gate for [#16](https://github.com/tracerxbrhd/karin/issues/16). Normal startup
+keeps Home's Wave section unavailable. See [ADR-0027](adr/0027-experimental-wave-lifecycle.md).
+Unsupported actions remain absent.
 See [API_FEASIBILITY.md](API_FEASIBILITY.md) and
 [AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md).
 

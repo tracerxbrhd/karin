@@ -168,9 +168,10 @@ Flatpak desktop run are different checks.
 
 ### Stability acceptance
 
-For the `fix/stability-backlog-cleanup` branch, build the exact PR HEAD using the
-native or Flatpak commands above. This is a regression check after accepted v0.4,
-not a public release. Keep HTTP/WebKit/GStreamer tracing disabled.
+The owner accepted the scoped native Fedora stability fixes at `9d54834`;
+PR #24 was squash-merged as `920fd71`. This does not add an installed-Flatpak
+acceptance claim. For later changes, build the exact revision and repeat the
+relevant regression checks below. Keep HTTP/WebKit/GStreamer tracing disabled.
 
 1. Launch ordinary Karin. Check protected session restoration, or complete normal
    sign-in if storage is unavailable. Open library, search and a playlist.
@@ -196,5 +197,62 @@ not a public release. Keep HTTP/WebKit/GStreamer tracing disabled.
    current installed Flatpak without adding filesystem or session-bus grants.
 
 Report only revision, native/Flatpak environment and PASS/FAIL/not-tested per
-step. New desktop results remain pending until performed by the owner; storage
-failure/concurrency and rejected-record behavior use synthetic automated tests.
+step. Unreported individual/backend cases remain unconfirmed; storage failure,
+concurrency and rejected-record behavior also use synthetic automated tests.
+My Wave needs its separate opt-in acceptance below.
+
+
+## My Wave local acceptance
+
+Wave is an unverified, explicitly labelled experiment. Ordinary Home keeps it
+unavailable. Quit any running Karin instance so an older binary cannot handle
+the launch, build this PR revision, and use the normal desktop session:
+
+```sh
+cargo +1.98.1 build --release --locked
+./target/release/karin --experimental-wave
+```
+
+For a locally built/installed Flatpak from the same revision, use
+`flatpak run io.github.tracerxbrhd.Karin --experimental-wave`. This needs no new
+permissions; source preparation alone does not prove an installed Flatpak run.
+Use normal protected restoration or ordinary **Войти**. No token, cookie,
+Client ID/secret, alternative account identity or tracing option is required.
+The flag is not saved; quit and launch without it to return to ordinary Home.
+
+1. Open **Главная**, read the experimental note and choose **Запустить волну**.
+   Require an actual admitted session and normalized real tracks; a loading
+   screen or visible title alone is insufficient.
+2. Hear a real entitled track through PipeWire. Check Pause/Resume, Seek, Volume
+   and KDE media controls against the same Player Bar/current track. Cloud's
+   generated-media tests cannot substitute for heard Music.
+3. Use Next, and Previous within retained history. Continue deliberately toward
+   the admitted batch's end until a further batch is accepted. Shuffle/Repeat
+   are off in Wave; no old session/history is reconstructed beyond the bound.
+4. Confirm the experiment's safe `Karin wave:` terminal lines: `stage=session` and
+   `stage=normalization` with `category=accepted`, feedback with
+   `stage=feedback category=accepted http=200` and a fixed `event`, and a later
+   `stage=tracks category=accepted`. Require feedback acknowledgment for
+   `trackStarted` and a terminal `skip` or `trackFinished`, not only
+   `radioStarted`. `count`/`omitted` are bounded track counts, not identifiers.
+   Hearing alone does not prove feedback or continuation.
+5. Choose **Завершить волну**, or play a track from an ordinary collection.
+   Check ordinary playback and mode restoration. System MPRIS Stop also ends
+   Wave gracefully. Test logout/close during
+   pending work: personal views and queue clear, late results cannot revive
+   them, and no queued feedback starts with the retired session. An already
+   dispatched request cannot be recalled. Restart without the flag: no radio
+   session should resume automatically.
+
+If an operation fails, report only the displayed fixed stage/category, HTTP
+status when present and anonymized PASS/FAIL/not-tested outcomes. An unknown
+POST outcome is never automatically replayed; **Начать новую волну** is a new
+session, not confirmation or replay of that event. Do not share full terminal
+output, HTTP/WebKit/GStreamer traces, titles/IDs, session/batch markers, URLs,
+credentials, screenshots of a personal library or audio recordings.
+
+Record revision, native/Flatpak environment, heard sound, feedback acceptance,
+further batch, transport/MPRIS and cleanup separately. Until this whole chain is
+confirmed with the existing authorized account, My Wave remains opt-in and
+Issue #16 stays open. Public-distribution Issue #5 remains independent. See
+[ADR-0027](adr/0027-experimental-wave-lifecycle.md).

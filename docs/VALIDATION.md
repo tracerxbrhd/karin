@@ -114,9 +114,62 @@ Production Preferences is unchanged. Four corrected stable/MSRV 1×/2× cases
 passed; the exact original event was not reproduced in nine local baseline runs.
 That CI failure remains a FAIL, separate from subsequent final-head checks.
 
-New owner-native/Flatpak acceptance is **pending**. Use the short
-[stability checklist](BUILDING.md#stability-acceptance); earlier owner acceptance
-and generated media do not pass those new desktop checks.
+The owner accepted the scoped Fedora regression at `9d54834` and explicitly
+authorized PR #24's squash merge on 2026-11-04. It merged as
+[`920fd71`](https://github.com/tracerxbrhd/karin/commit/920fd7103d98d99a4fd6a89d8b4013b38d61237e),
+with an identical Git tree and all eight accepted-head checks successful.
+This does not assert a new installed Flatpak test beyond the previously reported
+v0.4 acceptance.
+
+## v0.5 My Wave experiment
+
+The branch from `920fd71` adds an explicit `--experimental-wave` local path.
+Normal startup remains unavailable. Cloud tests use only synthetic HTTP and
+generated media, without a real account. Live session creation, authorized
+Yandex audio, accepted feedback and continued batches are **not yet accepted**.
+Use [the Fedora procedure](BUILDING.md#my-wave-local-acceptance); Issue #16 remains
+open until that complete sequence is confirmed. Issues #5 and #23 remain open.
+Local implementation checks on 2026-11-04 used stable **1.99.1** and exact
+**1.98.1**: formatting, strict Clippy/default/all/minimal, **417 / 425 / 403
+library tests + 4 CLI tests** per compiler/configuration and locked debug builds.
+The final exact-head CI remains a separate gate; ignored tests are not passes.
+
+The explicit Wave native fixture passed at 1× and 2× with fatal GTK warnings,
+loopback HTTP, generated MP3, the existing resolver/worker and private MPRIS bus.
+It checks real Playing/Pause/Resume/seek/EOS, original duplicate/batch markers,
+accepted feedback/continuation, bounded rolling history and visible Queue,
+coalesced pending Next, later selection winning over a late batch, failed-session
+mode restoration, MPRIS Stop, logout and uncertain writes without replay. Held
+startup tests distinguish a later manual ordinary selection from automatic EOS.
+These are synthetic service acknowledgments and silent playback, not live radio.
+
+Home presentation passed mouse/Enter/Space, focus, wrapping, structure and cleanup
+at compact/medium/wide/maximized sizes in both themes and scales: **52 clean
+captures**, with 18 originals visually inspected. Those state-only captures do
+not establish a provider response or an audible track. The offline CLI startup
+regression also passed ordinary/opt-in primary launch, forwarding to the running
+instance and D-Bus cleanup on an isolated bus without wallet/portal activation.
+CI explicitly registers **35 native selectors**, retaining all previous coverage
+and adding both new Wave fixtures at both scales in both compiler lanes.
+
+Locked ordinary/all-feature offline release, hidden terminal fixtures, silent
+GStreamer, generated-WAV transport and ordinary/all-feature GTK smoke passed in
+the local implementation matrix. Source preparation and vendored offline metadata resolution passed: 208 packages
+including Karin, 207 notice directories and an unchanged license inventory.
+These remain packaging checks, not installed GNOME 50/Flatpak acceptance.
+The current draft PR/checks record final-head results and the Fedora prototype;
+the complete real Wave sequence above remains pending.
+
+### Separate post-squash startup failure
+
+The first [master run at `920fd71`](https://github.com/tracerxbrhd/karin/actions/runs/41814183326/attempts/1)
+passed three jobs but failed the MSRV workspace fixture at its initial 1440×900
+resize: the native window allocation remained **0×0** until the existing
+eight-second deadline. This is separate from PR #24's eight successful
+accepted-head checks and owner acceptance. Its exact cause is unestablished.
+The original failure is retained; an unchanged failed-job rerun has its own
+attempt in that run. No deadline, renderer policy, sandbox or production timing
+was relaxed, and this is not a resolution of Issue #23.
 
 ## Known unresolved checks
 

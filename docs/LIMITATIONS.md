@@ -20,8 +20,16 @@ rights. Public service/distribution conditions remain unresolved. See [LICENSING
 [AUTHENTICATION_REVIEW.md](AUTHENTICATION_REVIEW.md) and
 [STREAM_DELIVERY_REVIEW.md](STREAM_DELIVERY_REVIEW.md).
 
-My Wave is an explicitly unavailable Home section. Functional radio,
-recommendations/similar tracks, lyrics, Dislike and persistent/offline audio are
+Normal startup keeps My Wave explicitly unavailable. `--experimental-wave`
+enables an unverified local integration with the existing Music session/player;
+published protocol and synthetic fixtures do not establish live radio access,
+accepted feedback or batch continuation. See the
+[local acceptance procedure](BUILDING.md#my-wave-local-acceptance). No account
+secrets may enter Cloud/CI. An already admitted HTTP request cannot be unsent;
+logout/cancellation fence queued work and late results. Ambiguous POST outcomes
+are never automatically replayed.
+
+Recommendations/similar tracks, lyrics, Dislike and persistent/offline audio are
 not implemented. Unlike is not Dislike. A working short-lived MP3 stream does not
 establish persistent download rights or an offline entitlement lifecycle; see
 [AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md).

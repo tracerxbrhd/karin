@@ -17,10 +17,13 @@ success establishes neither playback entitlement nor public-distribution rights.
 | Likes | Read membership/revision, perform one deliberate mutation, then independently confirm the desired state. |
 | Playlist creation | One explicit create request followed by independent identity/title/visibility confirmation; ambiguous writes remain unresolved. |
 | Online playback | Use the separate guarded [resolver](STREAM_DELIVERY_REVIEW.md) for an explicitly selected track. Availability metadata alone is insufficient. |
+| My Wave experiment | Explicit `--experimental-wave` in the ordinary signed-in app; bounded session/batch/feedback integration, with live end-to-end compatibility pending. |
 
 Ambiguous writes require read/confirmation, never fabricated success or POST
-retries. Broader playlist edits, recommendations, Wave and lyrics are not shipped
-workflows merely because backend methods exist. Home labels Wave unavailable.
+retries. Broader playlist edits, recommendations and lyrics are not shipped
+workflows merely because backend methods exist. Ordinary Home keeps Wave
+unavailable; its separately labelled local experiment does not establish live
+service support or default readiness.
 
 ## Transport and models
 
@@ -43,6 +46,39 @@ result. Missing/unavailable data remains explicit. See
 Local collection search issues no per-key metadata requests. UI views admit
 2,000 positions/100 pages and playback snapshots at most 500 occurrences; neither
 filtering nor continuation rewrites an active queue. See [ADR-0025](adr/0025-loaded-collection-search-and-playback-provenance.md).
+
+## Experimental My Wave
+
+The existing `music::wave` adapter uses the published modern JSON session flow:
+`POST /rotor/session/new`, then session-bound `/tracks` and `/feedback` POSTs.
+First/next batches undergo one bounded canonical lookup, with the same strict
+identity/order/composite normalization as search. Session/batch identity is
+opaque and memory-only; status-only unknown/terminated replies stop admission.
+The controller binds original markers to exact queue occurrences and uses the
+existing resolver/player/MPRIS. Listening comes from the worker's actual Playing
+ledger, not media position, selection or GTK callback elapsed time.
+
+The core request shapes are corroborated by
+[Cassette v0.2.4](https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/api/yam-client.vala#L948)
+and [modern MarshalX](https://github.com/MarshalX/yandex-music-api/blob/9ca132e5c18a72aab779c1fc68c169380a9357d0/yandex_music/_client/rotor_sessions.py).
+Their optional feedback `from` placement differs; Karin retains its existing
+Cassette `event.from` contract. The reviewed yamu/yamuse station routes do not
+confirm this modern flow and are not automatic fallbacks. No new identity,
+OAuth mechanism, signing secret or API dependency is introduced.
+
+This is source-level evidence. Ordinary account access does not prove radio
+permission. Cloud fixtures cannot establish real session creation, audibility,
+accepted feedback or continuation with Karin's token. HTTP 200 with an admitted
+feedback acknowledgment proves receipt under this envelope contract, not its
+recommendation effect. Uncertain writes are not repeated; queued work and late
+results are retired on account/logout/close, while an in-flight request cannot
+be recalled. Only fixed stage/category, known HTTP status and bounded counts may
+be reported, never wire bodies, session/batch/track identifiers or resources.
+
+See [ADR-0027](adr/0027-experimental-wave-lifecycle.md) and the
+[Fedora opt-in procedure](BUILDING.md#my-wave-local-acceptance). Keep default Wave
+disabled and Issue #16 open until the owner confirms the whole real chain.
+Successful local use still does not resolve public-distribution Issue #5.
 
 ## Authorization evidence and client choice
 

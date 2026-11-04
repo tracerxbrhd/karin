@@ -30,8 +30,9 @@ flowchart LR
 
 GIO workers perform bounded blocking work; main-context futures admit results
 under current account/request/source generations. Twelve lanes each retain one
-running and one latest pending job. Source changes, logout and close retire old
-work. GTK textures/updates stay on the main thread; deferred Like reads use weak
+running and one latest pending job. The opt-in Wave lifecycle uses a separate
+bounded FIFO lane because feedback must not be coalesced or retried. Source
+changes, logout and close retire old work. GTK textures/updates stay on the main thread; deferred Like reads use weak
 ownership outside render-time borrows. Reqwest owns its HTTP runtime.
 
 ## Authentication and protected sessions
@@ -92,7 +93,8 @@ Play. See [stream delivery](STREAM_DELIVERY_REVIEW.md) and
 
 PlaybackController sends commands through a 32-entry channel to one worker-owned
 `playbin`. Snapshots supply actual state, position/duration, seekability, volume
-and safe errors. Commands alone do not imply Playing; Seeked requires worker
+and safe errors. A worker-owned cumulative Playing clock excludes pause and seek
+distance independently of GTK scheduling. Commands alone do not imply Playing; Seeked requires worker
 acknowledgement. Local-file diagnostics remain; service audio is not persisted.
 Shutdown bypasses channel capacity and releases the pipeline in `Null` before
 completion, without GTK joining the worker.
@@ -103,6 +105,18 @@ repeat covers admitted items only, without library autofetch or error retry loop
 Modes survive normal clear/context replacement and reset on logout or close.
 [ADR-0023](adr/0023-local-playback-order-and-mpris-modes.md) defines the policy
 shared by native controls and MPRIS.
+
+## Experimental My Wave
+
+The existing `music::wave` protocol/observation components feed the same queue,
+resolver and player through `ui::music::radio`. Normal startup keeps Wave
+unavailable; `--experimental-wave` exposes the unverified owner-local workflow.
+Original batch markers stay attached to opaque occurrence identities in memory.
+Feedback and continuation use one serialized bounded lane; an uncertain POST
+terminates continuation without replay. Ordinary source switches retire Wave;
+account/logout/close cancel queued work. Shuffle/Repeat are off only for Wave,
+then restored. See [ADR-0027](adr/0027-experimental-wave-lifecycle.md) and the
+[Fedora acceptance procedure](BUILDING.md#my-wave-local-acceptance).
 
 ## Metadata and artwork cache
 
