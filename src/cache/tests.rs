@@ -608,3 +608,364 @@ fn a_symlink_to_an_otherwise_valid_record_is_not_read() {
     assert!(cache.get(&lease, &key(1)).unwrap().is_none());
     assert_eq!(fs::read(outside).unwrap(), original);
 }
+
+fn metadata_key() -> CacheKey {
+    CacheKey::new(EntryKind::Track, "42", 0).unwrap()
+}
+fn metadata_lease(cache: &Cache) -> CacheLease {
+    cache
+        .entry_lease(&cache.lease().unwrap(), &metadata_key())
+        .unwrap()
+}
+#[test]
+fn refusal_retires_cached_reply_and_old_writer_before_busy_cleanup_can_run() {
+    let (_temp, _clock, cache, base) = setup(CachePolicy::default());
+    let key = metadata_key();
+    let old = cache.entry_lease(&base, &key).unwrap();
+    cache.put(&old, &key, &track_record()).unwrap();
+    assert_eq!(
+        cache.get(&old, &key).unwrap().unwrap().freshness,
+        Freshness::Fresh
+    );
+    let io = cache.0.io.lock().unwrap();
+    let rejecting = cache.clone();
+    let obsolete = old.clone();
+    let worker = thread::spawn(move || rejecting.invalidate(&obsolete, &metadata_key()));
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while old.is_current() && Instant::now() < deadline {
+        thread::yield_now();
+    }
+    assert!(
+        !old.is_current(),
+        "UI replies retire before storage admission"
+    );
+    assert_eq!(worker.join().unwrap(), Err(CacheError::Busy));
+    assert_eq!(
+        cache.put(&old, &key, &track_record()),
+        Err(CacheError::Cancelled)
+    );
+    assert_eq!(cache.get(&old, &key).unwrap_err(), CacheError::Cancelled);
+    let next = metadata_lease(&cache);
+    let started = Instant::now();
+    assert_eq!(cache.get(&next, &key).unwrap_err(), CacheError::Busy);
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "one finite cleanup admission"
+    );
+    drop(io);
+    // The recovered cleanup still reports its previous failure once.
+    assert_eq!(cache.get(&next, &key).unwrap_err(), CacheError::Busy);
+    assert!(cache.get(&next, &key).unwrap().is_none());
+    cache.put(&next, &key, &track_record()).unwrap();
+    assert_eq!(
+        cache.get(&next, &key).unwrap().unwrap().freshness,
+        Freshness::Fresh
+    );
+}
+#[test]
+fn durable_tombstone_survives_failed_removal_and_restart_without_payload() {
+    let (temp, clock, cache, base) = setup(CachePolicy::default());
+    let key = metadata_key();
+    let old = cache.entry_lease(&base, &key).unwrap();
+    cache.put(&old, &key, &track_record()).unwrap();
+    cache.0.fail_removal.store(true, Ordering::Release);
+    assert_eq!(cache.invalidate(&old, &key), Err(CacheError::Unavailable));
+    assert!(!old.is_current());
+    let next = metadata_lease(&cache);
+    let path = cache.path(&next, &key, false).unwrap().unwrap();
+    let raw = fs::read(&path).unwrap();
+    assert_eq!(raw.len(), HEADER_BYTES);
+    assert!(valid_tombstone(&raw, &next, &key));
+    assert!(!String::from_utf8_lossy(&raw).contains("Synthetic"));
+    assert!(!String::from_utf8_lossy(&raw).contains("1234"));
+    let restarted = Cache::with_clock(temp.root(), CachePolicy::default(), clock).unwrap();
+    restarted.bind(Some(AccountScope::from_account_id("1234").unwrap()));
+    let after_restart = metadata_lease(&restarted);
+    assert!(restarted.get(&after_restart, &key).unwrap().is_none());
+    // Only a current, positive network-derived write replaces a refusal.
+    restarted
+        .put(&after_restart, &key, &track_record())
+        .unwrap();
+    assert_eq!(
+        restarted
+            .get(&after_restart, &key)
+            .unwrap()
+            .unwrap()
+            .freshness,
+        Freshness::Fresh
+    );
+}
+#[test]
+fn unavailable_tombstone_storage_and_restart_never_promote_old_metadata_to_fresh() {
+    let (temp, clock, cache, base) = setup(CachePolicy::default());
+    let key = metadata_key();
+    let old = cache.entry_lease(&base, &key).unwrap();
+    cache.put(&old, &key, &track_record()).unwrap();
+    cache.put(&base, &super::tests::key(1), &raster(1)).unwrap();
+    let path = cache.path(&old, &key, false).unwrap().unwrap();
+    let original = fs::read(&path).unwrap();
+    // Exact private-directory validation fails even when tests run as root.
+    fs::set_permissions(path.parent().unwrap(), fs::Permissions::from_mode(0o500)).unwrap();
+    assert_eq!(cache.invalidate(&old, &key), Err(CacheError::Unavailable));
+    fs::set_permissions(path.parent().unwrap(), fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(
+        fs::read(&path).unwrap(),
+        original,
+        "no durable change was possible"
+    );
+    let restarted = Cache::with_clock(temp.root(), CachePolicy::default(), clock).unwrap();
+    restarted.bind(Some(AccountScope::from_account_id("1234").unwrap()));
+    let base = restarted.lease().unwrap();
+    assert_eq!(
+        restarted.get(&base, &key).unwrap().unwrap().freshness,
+        Freshness::Stale
+    );
+    assert_eq!(
+        restarted
+            .get(&base, &super::tests::key(1))
+            .unwrap()
+            .unwrap()
+            .freshness,
+        Freshness::Fresh,
+        "artwork retains its independent HTTP/TTL policy"
+    );
+}
+#[test]
+fn refusal_is_account_scoped_and_survives_rebind_disable_and_failed_clear() {
+    let (_temp, _clock, cache, base) = setup(CachePolicy::default());
+    let key = metadata_key();
+    let a = cache.entry_lease(&base, &key).unwrap();
+    cache.put(&a, &key, &track_record()).unwrap();
+    cache.bind(Some(AccountScope::from_account_id("9876").unwrap()));
+    let b = metadata_lease(&cache);
+    cache.put(&b, &key, &track_record()).unwrap();
+    assert_eq!(
+        cache.invalidate(&a, &key),
+        Err(CacheError::Cancelled),
+        "old account cannot poison B"
+    );
+    cache.bind(Some(AccountScope::from_account_id("1234").unwrap()));
+    let a = metadata_lease(&cache);
+    let path = cache.path(&a, &key, false).unwrap().unwrap();
+    fs::set_permissions(&cache.0.root, fs::Permissions::from_mode(0o500)).unwrap();
+    assert_eq!(cache.invalidate(&a, &key), Err(CacheError::Unavailable));
+    assert_eq!(cache.clear(), Err(CacheError::Unavailable));
+    cache.bind(None); // Logout without successful physical cleanup.
+    assert!(cache.lease().is_none());
+    cache
+        .configure(CachePolicy {
+            enabled: false,
+            ..CachePolicy::default()
+        })
+        .unwrap();
+    assert!(cache.lease().is_none());
+    cache.configure(CachePolicy::default()).unwrap();
+    cache.bind(Some(AccountScope::from_account_id("1234").unwrap()));
+    let a = metadata_lease(&cache);
+    assert_eq!(cache.get(&a, &key).unwrap_err(), CacheError::Unavailable);
+    fs::set_permissions(&cache.0.root, fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(path.exists());
+    assert_eq!(cache.get(&a, &key).unwrap_err(), CacheError::Unavailable);
+    assert!(cache.get(&a, &key).unwrap().is_none());
+    cache.bind(Some(AccountScope::from_account_id("9876").unwrap()));
+    let b = metadata_lease(&cache);
+    assert!(
+        cache.get(&b, &key).unwrap().is_some(),
+        "refusal must not delete another account"
+    );
+    cache.clear().unwrap();
+    assert!(cache.get(&metadata_lease(&cache), &key).unwrap().is_none());
+}
+
+struct PausedReadClock {
+    pause: Mutex<Option<(mpsc::SyncSender<()>, mpsc::Receiver<()>)>>,
+}
+impl Clock for PausedReadClock {
+    fn seconds(&self) -> u64 {
+        if let Some((entered, release)) = self.pause.lock().unwrap().take() {
+            entered.send(()).unwrap();
+            release.recv_timeout(Duration::from_secs(3)).unwrap();
+        }
+        100
+    }
+}
+#[test]
+fn refusal_during_disk_read_retires_the_reply_before_its_commit() {
+    let temp = Temp::new();
+    let clock = Arc::new(PausedReadClock {
+        pause: Mutex::new(None),
+    });
+    let cache = Cache::with_clock(temp.root(), CachePolicy::default(), clock.clone()).unwrap();
+    cache.bind(Some(AccountScope::from_account_id("1234").unwrap()));
+    let lease = metadata_lease(&cache);
+    cache.put(&lease, &metadata_key(), &track_record()).unwrap();
+    let (entered, ready) = mpsc::sync_channel(1);
+    let (release, wait) = mpsc::channel();
+    *clock.pause.lock().unwrap() = Some((entered, wait));
+    let reader = cache.clone();
+    let old = lease.clone();
+    let reading = thread::spawn(move || reader.get(&old, &metadata_key()));
+    ready.recv_timeout(Duration::from_secs(2)).unwrap();
+    let rejecting = cache.clone();
+    let old = lease.clone();
+    let rejected = thread::spawn(move || rejecting.invalidate(&old, &metadata_key()));
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while lease.is_current() && Instant::now() < deadline {
+        thread::yield_now();
+    }
+    assert!(!lease.is_current());
+    release.send(()).unwrap();
+    assert_eq!(reading.join().unwrap().unwrap_err(), CacheError::Cancelled);
+    rejected.join().unwrap().unwrap();
+    assert!(
+        cache
+            .get(&metadata_lease(&cache), &metadata_key())
+            .unwrap()
+            .is_none()
+    );
+}
+#[test]
+fn late_cleanup_cannot_delete_newly_revalidated_metadata() {
+    let (_temp, _clock, cache, base) = setup(CachePolicy::default());
+    let key = metadata_key();
+    let old = cache.entry_lease(&base, &key).unwrap();
+    cache.put(&old, &key, &track_record()).unwrap();
+    cache.invalidate(&old, &key).unwrap();
+    let replacement = metadata_lease(&cache);
+    cache.put(&replacement, &key, &track_record()).unwrap();
+    assert_eq!(cache.invalidate(&old, &key), Err(CacheError::Cancelled));
+    assert_eq!(
+        cache.get(&replacement, &key).unwrap().unwrap().freshness,
+        Freshness::Fresh
+    );
+}
+#[test]
+fn bounded_fence_overflow_pauses_persistence_until_successful_clear() {
+    let (_temp, _clock, cache, base) = setup(CachePolicy::default());
+    {
+        let mut state = cache.state().unwrap();
+        for number in 0..MAX_FENCES {
+            state.fences.push(EntryFence {
+                scope: base.scope.clone(),
+                key: hash(&number.to_be_bytes()),
+                epoch: 1,
+                blocked: true,
+                confirmed: false,
+                failure: None,
+            });
+        }
+    }
+    assert_eq!(
+        cache.entry_lease(&base, &metadata_key()).unwrap_err(),
+        CacheError::TooLarge
+    );
+    assert!(!base.is_current());
+    assert!(cache.lease().is_none());
+    cache.bind(Some(AccountScope::from_account_id("9876").unwrap()));
+    assert!(
+        cache.lease().is_none(),
+        "account changes cannot discard refusal barriers"
+    );
+    cache.clear().unwrap();
+    assert!(cache.lease().is_some());
+    assert!(cache.state().unwrap().fences.is_empty());
+}
+
+#[test]
+fn cache_state_used_by_gtk_remains_responsive_while_refusal_commit_is_paused() {
+    let (_temp, _clock, cache, base) = setup(CachePolicy::default());
+    let old = cache.entry_lease(&base, &metadata_key()).unwrap();
+    cache.put(&old, &metadata_key(), &track_record()).unwrap();
+    let (entered, ready) = mpsc::sync_channel(1);
+    let (release, wait) = mpsc::channel();
+    *cache.0.commit_pause.lock().unwrap() = Some((entered, wait));
+    let rejecting = cache.clone();
+    let worker = thread::spawn(move || rejecting.invalidate(&old, &metadata_key()));
+    ready.recv_timeout(Duration::from_secs(2)).unwrap();
+    let ui_cache = cache.clone();
+    let (done, response) = mpsc::sync_channel(1);
+    let ui = thread::spawn(move || {
+        let lease = ui_cache.lease().unwrap();
+        assert!(lease.is_current());
+        ui_cache
+            .configure(CachePolicy {
+                metadata_ttl: Duration::from_secs(30),
+                ..CachePolicy::default()
+            })
+            .unwrap();
+        done.send(()).unwrap();
+    });
+    let responsive = response.recv_timeout(Duration::from_millis(300)).is_ok();
+    release.send(()).unwrap();
+    worker.join().unwrap().unwrap_err(); // Changed policy retires physical cleanup.
+    ui.join().unwrap();
+    assert!(
+        responsive,
+        "cache I/O must not hold the state lock used by GTK"
+    );
+    assert!(
+        !cache
+            .get(&metadata_lease(&cache), &metadata_key())
+            .is_ok_and(|entry| entry.is_some())
+    );
+}
+#[test]
+fn pending_cleanup_preserves_a_positive_write_that_won_io_admission() {
+    let (_temp, _clock, cache, base) = setup(CachePolicy::default());
+    let old = cache.entry_lease(&base, &metadata_key()).unwrap();
+    cache.put(&old, &metadata_key(), &track_record()).unwrap();
+    cache.invalidate(&old, &metadata_key()).unwrap();
+    let current = metadata_lease(&cache);
+    let (entered, ready) = mpsc::sync_channel(1);
+    let (release, wait) = mpsc::channel();
+    *cache.0.commit_pause.lock().unwrap() = Some((entered, wait));
+    let writing = cache.clone();
+    let producer = current.clone();
+    let write = thread::spawn(move || writing.put(&producer, &metadata_key(), &track_record()));
+    ready.recv_timeout(Duration::from_secs(2)).unwrap();
+    // The cleanup captures the same key epoch while positive I/O is active.
+    let cleaning = cache.clone();
+    let cleanup_lease = current.clone();
+    let cleanup = thread::spawn(move || cleaning.cleanup_rejected(&cleanup_lease, &metadata_key()));
+    release.send(()).unwrap();
+    write.join().unwrap().unwrap();
+    cleanup.join().unwrap().unwrap();
+    assert_eq!(
+        cache
+            .get(&current, &metadata_key())
+            .unwrap()
+            .unwrap()
+            .freshness,
+        Freshness::Fresh,
+        "delayed cleanup must not delete a newly confirmed same-epoch replacement"
+    );
+}
+#[test]
+fn refusal_during_positive_commit_prevents_late_confirmation() {
+    let (_temp, _clock, cache, base) = setup(CachePolicy::default());
+    let old = cache.entry_lease(&base, &metadata_key()).unwrap();
+    let (entered, ready) = mpsc::sync_channel(1);
+    let (release, wait) = mpsc::channel();
+    *cache.0.commit_pause.lock().unwrap() = Some((entered, wait));
+    let writing = cache.clone();
+    let producer = old.clone();
+    let write = thread::spawn(move || writing.put(&producer, &metadata_key(), &track_record()));
+    ready.recv_timeout(Duration::from_secs(2)).unwrap();
+    let rejecting = cache.clone();
+    let rejected_lease = old.clone();
+    let refusal = thread::spawn(move || rejecting.invalidate(&rejected_lease, &metadata_key()));
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while old.is_current() && Instant::now() < deadline {
+        thread::yield_now();
+    }
+    assert!(!old.is_current());
+    release.send(()).unwrap();
+    assert_eq!(write.join().unwrap(), Err(CacheError::Cancelled));
+    refusal.join().unwrap().unwrap();
+    assert!(
+        cache
+            .get(&metadata_lease(&cache), &metadata_key())
+            .unwrap()
+            .is_none()
+    );
+}

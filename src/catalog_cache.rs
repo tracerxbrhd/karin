@@ -254,14 +254,25 @@ impl CachedCatalog {
         fetch: impl FnOnce() -> Result<MetadataRecord, MusicError>,
     ) -> Result<Cached<MetadataRecord>, MusicError> {
         let scope = service.cache_scope(token)?;
-        let lease = self
-            .cache
-            .lease()
-            .filter(|lease| lease.matches_scope(&scope));
         let (key, mut cache_error) = match key {
             Ok(key) => (Some(key), None),
             Err(error) => (None, Some(error)),
         };
+        // Capture the key epoch before cache access or starting HTTP, even
+        // with persistence disabled. Policy/account changes retire the ticket.
+        let refusal_lease =
+            key.as_ref()
+                .and_then(|key| match self.cache.refusal_lease(&scope, key) {
+                    Ok(lease) => Some(lease),
+                    Err(error) => {
+                        cache_error = notice(error);
+                        None
+                    }
+                });
+        let lease = refusal_lease
+            .as_ref()
+            .filter(|lease| lease.is_current())
+            .cloned();
         if let (Some(lease), Some(key)) = (&lease, &key) {
             match self.cache.get(lease, key) {
                 Ok(Some(entry)) => {
@@ -358,8 +369,17 @@ impl CachedCatalog {
             Err(error) => {
                 // Never let a known refusal/unsupported response leave a fresh
                 // record masking that outcome on the next visit.
-                if let (Some(lease), Some(key)) = (&lease, &key) {
-                    let _ = self.cache.remove(lease, key);
+                if let (Some(lease), Some(key)) = (&refusal_lease, &key) {
+                    match self.cache.invalidate(lease, key) {
+                        Ok(()) | Err(CacheError::Cancelled | CacheError::Disabled) => {}
+                        Err(_) => {
+                            // The key fence is installed before storage work.
+                            // Failure stays recorded there: subsequent reads
+                            // retry bounded cleanup and surface CacheError while
+                            // this call preserves the authoritative API error.
+                            debug_assert!(!lease.is_current());
+                        }
+                    }
                 }
                 Err(error)
             }

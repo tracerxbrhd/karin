@@ -19,6 +19,8 @@ use ring::{
 };
 
 const MAGIC: &[u8; 8] = b"KARNC3A\0";
+const TOMBSTONE_MAGIC: &[u8; 8] = b"KARNC3X\0";
+const MAX_FENCES: usize = MAX_ENTRIES * 2;
 const HEADER_BYTES: usize = 144;
 const MAX_PAYLOAD_BYTES: usize = 2 * 1024 * 1024;
 const MAX_ENTRIES: usize = 4096;
@@ -224,11 +226,21 @@ impl Clock for WallClock {
             .as_secs()
     }
 }
+struct EntryFence {
+    scope: AccountScope,
+    key: [u8; 32],
+    epoch: u64,
+    blocked: bool,
+    confirmed: bool,
+    failure: Option<CacheError>,
+}
 struct State {
     policy: CachePolicy,
     scope: Option<AccountScope>,
     generation: u64,
     clearing: bool,
+    fences: Vec<EntryFence>,
+    saturated: bool,
 }
 impl State {
     fn advance(&mut self) {
@@ -240,6 +252,15 @@ struct Inner {
     state: Mutex<State>,
     io: Mutex<()>,
     clock: Arc<dyn Clock>,
+    #[cfg(test)]
+    fail_removal: std::sync::atomic::AtomicBool,
+    #[cfg(test)]
+    commit_pause: Mutex<
+        Option<(
+            std::sync::mpsc::SyncSender<()>,
+            std::sync::mpsc::Receiver<()>,
+        )>,
+    >,
 }
 #[derive(Clone)]
 pub struct Cache(Arc<Inner>);
@@ -254,6 +275,7 @@ pub struct CacheLease {
     cache: Arc<Inner>,
     scope: AccountScope,
     generation: u64,
+    entry: Option<([u8; 32], u64)>,
 }
 impl CacheLease {
     pub fn matches_scope(&self, scope: &AccountScope) -> bool {
@@ -271,6 +293,7 @@ impl PartialEq for CacheLease {
         Arc::ptr_eq(&self.cache, &other.cache)
             && self.scope == other.scope
             && self.generation == other.generation
+            && self.entry == other.entry
     }
 }
 impl Eq for CacheLease {}
@@ -280,8 +303,17 @@ impl fmt::Debug for CacheLease {
     }
 }
 fn current(state: &State, lease: &CacheLease) -> bool {
-    state.policy.enabled
-        && !state.clearing
+    state.policy.enabled && admitted(state, lease)
+}
+fn admitted(state: &State, lease: &CacheLease) -> bool {
+    !state.clearing
+        && !state.saturated
+        && lease.entry.is_none_or(|(key, epoch)| {
+            state
+                .fences
+                .iter()
+                .any(|fence| fence.scope == lease.scope && fence.key == key && fence.epoch == epoch)
+        })
         && state.generation == lease.generation
         && state.scope.as_ref() == Some(&lease.scope)
 }
@@ -312,9 +344,15 @@ impl Cache {
                 scope: None,
                 generation: 1,
                 clearing: false,
+                fences: Vec::new(),
+                saturated: false,
             }),
             io: Mutex::new(()),
             clock,
+            #[cfg(test)]
+            fail_removal: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(test)]
+            commit_pause: Mutex::new(None),
         })))
     }
     /// Binding, including binding the same account after a new session, retires
@@ -322,6 +360,9 @@ impl Cache {
     pub fn bind(&self, scope: Option<AccountScope>) {
         if let Ok(mut state) = self.0.state.lock() {
             state.scope = scope;
+            for fence in &mut state.fences {
+                fence.confirmed = false;
+            }
             state.advance();
         }
     }
@@ -333,14 +374,98 @@ impl Cache {
     }
     pub fn lease(&self) -> Option<CacheLease> {
         let state = self.0.state.lock().ok()?;
-        if !state.policy.enabled || state.clearing {
+        if !state.policy.enabled || state.clearing || state.saturated {
             return None;
         }
         Some(CacheLease {
             cache: Arc::clone(&self.0),
             scope: state.scope.clone()?,
             generation: state.generation,
+            entry: None,
         })
+    }
+    /// Capture before starting a cacheable network request. A known refusal
+    /// retires this key's cached UI replies and older successful producers only.
+    /// This operation is memory-only, bounded and safe on the UI thread.
+    pub fn entry_lease(
+        &self,
+        lease: &CacheLease,
+        key: &CacheKey,
+    ) -> Result<CacheLease, CacheError> {
+        self.key_lease(lease, key, true)
+    }
+    /// Memory-only ticket for a validated account's request, including while
+    /// persistence is disabled. A refusal must survive disable/re-enable.
+    pub(crate) fn refusal_lease(
+        &self,
+        scope: &AccountScope,
+        key: &CacheKey,
+    ) -> Result<CacheLease, CacheError> {
+        let state = self.state()?;
+        if state.scope.as_ref() != Some(scope) {
+            return Err(CacheError::Cancelled);
+        }
+        let lease = CacheLease {
+            cache: Arc::clone(&self.0),
+            scope: scope.clone(),
+            generation: state.generation,
+            entry: None,
+        };
+        drop(state);
+        self.key_lease(&lease, key, false)
+    }
+    fn key_lease(
+        &self,
+        lease: &CacheLease,
+        key: &CacheKey,
+        require_enabled: bool,
+    ) -> Result<CacheLease, CacheError> {
+        if !Arc::ptr_eq(&self.0, &lease.cache)
+            || lease.entry.is_some_and(|(hash, _)| hash != key.hash)
+        {
+            return Err(CacheError::Cancelled);
+        }
+        let mut state = self.state()?;
+        if require_enabled && !state.policy.enabled {
+            return Err(CacheError::Disabled);
+        }
+        if !admitted(&state, lease) {
+            return Err(CacheError::Cancelled);
+        }
+        let index = match state
+            .fences
+            .iter()
+            .position(|fence| fence.scope == lease.scope && fence.key == key.hash)
+        {
+            Some(index) => index,
+            None => {
+                if state.fences.len() >= MAX_FENCES {
+                    // Never evict a refusal fence while an old producer/reply
+                    // may still exist. Explicit successful Clear recovers this.
+                    state.saturated = true;
+                    state.advance();
+                    return Err(CacheError::TooLarge);
+                }
+                state.fences.push(EntryFence {
+                    scope: lease.scope.clone(),
+                    key: key.hash,
+                    epoch: 1,
+                    blocked: false,
+                    confirmed: false,
+                    failure: None,
+                });
+                state.fences.len() - 1
+            }
+        };
+        let mut lease = lease.clone();
+        lease.entry = Some((key.hash, state.fences[index].epoch));
+        Ok(lease)
+    }
+    fn check_key(&self, lease: &CacheLease, key: &CacheKey) -> Result<CachePolicy, CacheError> {
+        if lease.entry.is_some_and(|(hash, _)| hash != key.hash) {
+            return Err(CacheError::Cancelled);
+        }
+        self.check(lease)
     }
     /// Fast policy update, with no disk access. Call `trim` on a worker after
     /// reducing the budget. Disabled policy performs no entry reads or writes.
@@ -349,6 +474,9 @@ impl Cache {
         let mut state = self.state()?;
         if state.policy != policy {
             state.policy = policy;
+            for fence in &mut state.fences {
+                fence.confirmed = false;
+            }
             state.advance();
         }
         Ok(())
@@ -414,9 +542,25 @@ impl Cache {
         lease: &CacheLease,
         key: &CacheKey,
     ) -> Result<Option<CacheEntry>, CacheError> {
-        self.check(lease)?;
+        self.check_key(lease, key)?;
+        let previous_failure = {
+            let state = self.state()?;
+            state
+                .fences
+                .iter()
+                .find(|fence| fence.scope == lease.scope && fence.key == key.hash && fence.blocked)
+                .map(|fence| fence.failure)
+        };
+        if let Some(previous_failure) = previous_failure {
+            let admitted = self.entry_lease(lease, key)?;
+            self.cleanup_rejected(&admitted, key)?;
+            if let Some(error) = previous_failure {
+                return Err(error);
+            }
+            return Ok(None);
+        }
         let _io = self.admit()?;
-        self.check(lease)?;
+        self.check_key(lease, key)?;
         let Some(path) = self.path(lease, key, false)? else {
             return Ok(None);
         };
@@ -438,8 +582,11 @@ impl Cache {
             .read_to_end(&mut record)
             .map_err(|_| CacheError::Unavailable)?;
         let now = self.0.clock.seconds();
+        if valid_tombstone(&record, lease, key) {
+            return Ok(None);
+        }
         let entry = decode_record(&record, lease, key, now, self.state()?.policy);
-        let Ok(entry) = entry else {
+        let Ok(mut entry) = entry else {
             let _ = fs::remove_file(&path);
             return Ok(None);
         };
@@ -452,6 +599,25 @@ impl Cache {
                 CacheError::Disabled
             });
         }
+        if state
+            .fences
+            .iter()
+            .any(|fence| fence.scope == lease.scope && fence.key == key.hash && fence.blocked)
+        {
+            return Ok(None);
+        }
+        // A complete disk failure cannot durably record a refusal. Therefore
+        // previous-process metadata is saved/stale, never confirmed fresh.
+        // Artwork keeps its independent HTTP/TTL freshness contract.
+        if key.kind != EntryKind::Artwork
+            && !state
+                .fences
+                .iter()
+                .any(|fence| fence.scope == lease.scope && fence.key == key.hash && fence.confirmed)
+        {
+            entry.freshness = Freshness::Stale;
+        }
+        drop(state);
         if let Ok(file) = private_file(&path, true) {
             let _ = file.set_times(
                 fs::FileTimes::new().set_modified(UNIX_EPOCH + Duration::from_secs(now)),
@@ -474,7 +640,9 @@ impl Cache {
         bytes: &[u8],
         ttl: Duration,
     ) -> Result<(), CacheError> {
-        let policy = self.check(lease)?;
+        let admitted = self.entry_lease(lease, key)?;
+        let lease = &admitted;
+        let policy = self.check_key(lease, key)?;
         if bytes.len() > MAX_PAYLOAD_BYTES {
             return Err(CacheError::TooLarge);
         }
@@ -533,11 +701,157 @@ impl Cache {
                 CacheError::Disabled
             });
         }
+        // Disk work is serialized by io, never by the state lock used by GTK.
+        // A retirement during rename remains fenced; the postcheck below
+        // prevents confirmation, and Clear waits for io before deleting.
+        drop(state);
+        #[cfg(test)]
+        self.pause_commit();
         fs::rename(&temp, &path).map_err(|_| CacheError::Unavailable)?;
+        sync_directory(parent)?;
+        let mut state = self.state()?;
+        if !current(&state, lease) {
+            return Err(CacheError::Cancelled);
+        }
+        if let Some(fence) = state
+            .fences
+            .iter_mut()
+            .find(|fence| fence.scope == lease.scope && fence.key == key.hash)
+        {
+            fence.blocked = false;
+            fence.confirmed = true;
+            fence.failure = None;
+        }
         drop(state);
         drop(guard);
-        sync_directory(parent)?;
         Ok(())
+    }
+    /// Install a logical refusal fence BEFORE bounded worker I/O admission.
+    /// Failure cannot revive cached replies or older producers. The failure is
+    /// retained in the fence and retried/reported by the next read, once per
+    /// operation; there is no detached or unbounded retry loop.
+    pub fn invalidate(&self, lease: &CacheLease, key: &CacheKey) -> Result<(), CacheError> {
+        let ticket = self.key_lease(lease, key, false)?;
+        let mut state = self.state()?;
+        if !admitted(&state, &ticket) {
+            return Err(CacheError::Cancelled);
+        }
+        let fence = state
+            .fences
+            .iter_mut()
+            .find(|fence| fence.scope == lease.scope && fence.key == key.hash)
+            .ok_or(CacheError::Cancelled)?;
+        fence.epoch = fence.epoch.wrapping_add(1).max(1);
+        fence.blocked = true;
+        fence.confirmed = false;
+        fence.failure = None;
+        let mut replacement = ticket;
+        replacement.entry = Some((key.hash, fence.epoch));
+        let enabled = state.policy.enabled;
+        drop(state);
+        if enabled {
+            self.cleanup_rejected(&replacement, key)
+        } else {
+            // Persistence is off: the refusal fence still survives in memory,
+            // and the first re-enabled read performs bounded physical cleanup.
+            Err(CacheError::Disabled)
+        }
+    }
+    fn cleanup_rejected(&self, lease: &CacheLease, key: &CacheKey) -> Result<(), CacheError> {
+        let result = self.delete_rejected(lease, key);
+        if let Ok(mut state) = self.state()
+            && current(&state, lease)
+            && let Some(fence) = state
+                .fences
+                .iter_mut()
+                .find(|fence| fence.scope == lease.scope && fence.key == key.hash)
+        {
+            fence.failure = result.as_ref().err().copied();
+        }
+        result
+    }
+    fn delete_rejected(&self, lease: &CacheLease, key: &CacheKey) -> Result<(), CacheError> {
+        let _io = self.admit()?;
+        self.check_key(lease, key)?;
+        if !self
+            .state()?
+            .fences
+            .iter()
+            .any(|fence| fence.scope == lease.scope && fence.key == key.hash && fence.blocked)
+        {
+            // A newer successful producer may have completed while this
+            // cleanup waited for I/O. Never delete its confirmed replacement.
+            return Ok(());
+        }
+        let Some(path) = self.path(lease, key, false)? else {
+            return Ok(());
+        };
+        match fs::symlink_metadata(&path) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(_) => return Err(CacheError::Unavailable),
+            Ok(_) => {}
+        }
+        let parent = path.parent().ok_or(CacheError::Unavailable)?;
+        let mut random = [0u8; 16];
+        SystemRandom::new()
+            .fill(&mut random)
+            .map_err(|_| CacheError::Unavailable)?;
+        let temp = parent.join(format!(".tmp-{}", hex(&random)));
+        let _temporary = Temporary(temp.clone());
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .custom_flags(nofollow_flags())
+            .open(&temp)
+            .map_err(|_| CacheError::Unavailable)?;
+        let mut marker = encode_header(lease, key, self.0.clock.seconds(), 0, &[]);
+        marker[..8].copy_from_slice(TOMBSTONE_MAGIC);
+        marker[48..80].fill(0);
+        let checksum = record_hash(&marker, &[]);
+        marker[48..80].copy_from_slice(&checksum);
+        file.write_all(&marker)
+            .and_then(|_| file.sync_all())
+            .map_err(|_| CacheError::Unavailable)?;
+        let state = self.state()?;
+        if !current(&state, lease) {
+            return Err(CacheError::Cancelled);
+        }
+        drop(state);
+        #[cfg(test)]
+        self.pause_commit();
+        fs::rename(&temp, &path).map_err(|_| CacheError::Unavailable)?;
+        sync_directory(parent)?;
+        #[cfg(test)]
+        if self
+            .0
+            .fail_removal
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Err(CacheError::Unavailable);
+        }
+        let state = self.state()?;
+        if !current(&state, lease) {
+            return Err(CacheError::Cancelled);
+        }
+        drop(state);
+        match fs::remove_file(&path) {
+            Ok(()) => sync_directory(parent),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(_) => Err(CacheError::Unavailable),
+        }
+    }
+    #[cfg(test)]
+    fn pause_commit(&self) {
+        let pause = self.0.commit_pause.lock().unwrap().take();
+        if let Some((entered, release)) = pause {
+            entered.send(()).unwrap();
+            release.recv_timeout(Duration::from_secs(3)).unwrap();
+        }
+    }
+    #[cfg(test)]
+    pub(crate) fn test_io(&self) -> MutexGuard<'_, ()> {
+        self.0.io.lock().unwrap()
     }
     /// Forget one admitted record after a successful noncacheable response.
     pub fn remove(&self, lease: &CacheLease, key: &CacheKey) -> Result<(), CacheError> {
@@ -550,6 +864,7 @@ impl Cache {
         if !current(&state, lease) {
             return Err(CacheError::Cancelled);
         }
+        drop(state);
         match fs::remove_file(&path) {
             Ok(()) => sync_directory(path.parent().ok_or(CacheError::Unavailable)?),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -577,10 +892,16 @@ impl Cache {
         let _clearing = self.begin_clear()?;
         let _io = self.0.io.lock().map_err(|_| CacheError::Unavailable)?;
         let Some(base) = self.base(false)? else {
+            let mut state = self.state()?;
+            state.fences.clear();
+            state.saturated = false;
             return Ok(CacheStats::default());
         };
         fs::remove_dir_all(&base).map_err(|_| CacheError::Unavailable)?;
         sync_directory(&self.0.root)?;
+        let mut state = self.state()?;
+        state.fences.clear();
+        state.saturated = false;
         Ok(CacheStats::default())
     }
     /// Library writes may have an ambiguous server result. Invalidate every
@@ -608,6 +929,9 @@ impl Cache {
             return Err(CacheError::Busy);
         }
         state.clearing = true;
+        for fence in &mut state.fences {
+            fence.confirmed = false;
+        }
         state.advance();
         Ok(Clearing(Arc::clone(&self.0)))
     }
@@ -848,6 +1172,15 @@ fn encode_header(
     let checksum = record_hash(&header, payload);
     header[48..80].copy_from_slice(&checksum);
     header
+}
+fn valid_tombstone(bytes: &[u8], lease: &CacheLease, key: &CacheKey) -> bool {
+    bytes.len() == HEADER_BYTES
+        && &bytes[..8] == TOMBSTONE_MAGIC
+        && bytes[8] == key.kind as u8
+        && bytes[9..16].iter().all(|byte| *byte == 0)
+        && bytes[80..112] == lease.scope.0
+        && bytes[112..144] == key.hash
+        && record_hash(bytes, &[]) == bytes[48..80]
 }
 fn decode_record(
     bytes: &[u8],
