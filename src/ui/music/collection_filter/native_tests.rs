@@ -98,7 +98,20 @@ fn serve(mut stream: TcpStream, counts: &Counts, release: &(Mutex<bool>, Condvar
         .split('?')
         .next()
         .unwrap();
-    counts.all.fetch_add(1, Ordering::AcqRel);
+    let category = match path {
+        "/account/status" => "account",
+        "/users/1234/likes/tracks" => "membership",
+        "/tracks" => "track-batch",
+        "/users/1234/playlists/7" | "/users/4321/playlists/8" | "/users/4321/playlists/9" => {
+            "playlist"
+        }
+        "/albums/7/with-tracks" => "album",
+        "/artists/11/tracks" => "artist",
+        path if path.starts_with("/tracks/") && path.ends_with("/download-info") => "delivery-info",
+        _ => "unexpected",
+    };
+    let total = counts.all.fetch_add(1, Ordering::AcqRel) + 1;
+    eprintln!("Karin synthetic collection request: category={category} total={total}");
     let (status, value) = match path {
         "/account/status" => (
             200,
@@ -211,7 +224,39 @@ fn click(window: &adw::ApplicationWindow, id: &str, widget: &impl IsA<gtk::Widge
     settle(100);
 }
 fn drain(this: &Rc<Controller>) {
-    pump_until(|| !this.music_requested() && !this.model.borrow().busy);
+    pump_until(|| {
+        if this.music_requested() || this.model.borrow().busy {
+            return false;
+        }
+        let expects_like = {
+            let model = this.model.borrow();
+            !model.closed && model.account_valid && model.queue.current().is_some()
+        } && this.widgets.player_revealer.reveals_child();
+        // The native footer maps its real membership control before an idle
+        // callback admits its read. Busy=false alone can precede that request.
+        // Wait for the visible control's confirmed state, not elapsed time.
+        !expects_like
+            || find_button(
+                this.widgets.current_like_slot.upcast_ref(),
+                "music-current-like",
+            )
+            .is_some_and(|button| button.is_mapped() && button.is_sensitive())
+    });
+}
+fn request_snapshot(this: &Rc<Controller>, counts: &Counts, phase: &'static str) {
+    let like = find_button(
+        this.widgets.current_like_slot.upcast_ref(),
+        "music-current-like",
+    );
+    eprintln!(
+        "Karin synthetic collection state: phase={phase} total={} busy={} requested={} footer-mapped={} like-mapped={} like-confirmed={}",
+        counts.all.load(Ordering::Acquire),
+        this.model.borrow().busy,
+        this.music_requested(),
+        this.widgets.player_revealer.is_mapped(),
+        like.as_ref().is_some_and(gtk::Button::is_mapped),
+        like.as_ref().is_some_and(gtk::Button::is_sensitive),
+    );
 }
 fn find_button(widget: &gtk::Widget, name: &str) -> Option<gtk::Button> {
     if widget.widget_name() == name {
@@ -582,8 +627,30 @@ fn native_collection_filter_continuation_and_exact_occurrences() {
         let feed = detail_feed(this);
         assert!(feed.filter_ui.as_ref().unwrap().search.text().is_empty());
         drain(this);
+        // Deterministically exercise a pending map-deferred footer read. It is
+        // independent of this collection query and must finish before its
+        // network baseline. The old busy-only drain returned too early here.
+        let before_pending_like = counts.all.load(Ordering::Acquire);
+        this.current_like_key.replace(None);
+        this.sync_current_like();
+        assert!(
+            !find_button(
+                this.widgets.current_like_slot.upcast_ref(),
+                "music-current-like"
+            )
+            .unwrap()
+            .is_sensitive()
+        );
+        drain(this);
+        assert_eq!(
+            counts.all.load(Ordering::Acquire),
+            before_pending_like + 1,
+            "the pending footer membership read completes before measuring local filtering"
+        );
+        request_snapshot(this, &counts, "before-query");
         let before = counts.all.load(Ordering::Acquire);
         query(window, id, &feed, "гРУППА аЛЬБОМ");
+        request_snapshot(this, &counts, "after-query");
         assert_eq!(visible(&feed), [0, 1, 2, 3]);
         assert_eq!(counts.all.load(Ordering::Acquire), before);
         assert_eq!(this.model.borrow().queue.context(), Some(&active));

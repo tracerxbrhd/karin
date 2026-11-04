@@ -290,6 +290,22 @@ Final-head hosted results are recorded separately in
 [PR #25 checks](https://github.com/tracerxbrhd/karin/pull/25/checks). The new CI
 selector is additional to the prior coverage. CI now requires **36 compiled /
 33 unique functional selectors and 52 explicit Ubuntu executions** per compiler lane.
+
+The first [push MSRV job at `3302c87`](https://github.com/tracerxbrhd/karin/actions/runs/41883448638/job/126761563952)
+failed the unchanged collection-filter fixture at scale 2: its global HTTP count
+changed from 20 to 21 during typing. The original log did not identify that extra
+request's route; the other seven jobs passed. A controlled local reproduction
+proved that its busy-only drain could sample before the footer's map-deferred
+membership read was admitted, producing the same count failure (21 to 22).
+The test-only correction waits for the expected native Like control to be mapped
+and confirmed before the baseline. A permanent deferred-read interleaving retains
+the original exact global-count equality across real filter input. The full
+fixture passed on stable and 1.98.1 at both scales (one executed, zero ignored
+each), without changing production UI, deadlines, input or rendering policy.
+This explains a reproduced fixture race class, not the unrecorded original route
+or a Wave regression. The original hosted failure remains separate from final
+checks of the correcting revision.
+
 No post-fix Fedora or installed-Flatpak acceptance has been reported. Repeat
 [the focused Fedora procedure](BUILDING.md#my-wave-local-acceptance), including
 source change after Playing/Pause/natural EOS, MPRIS Stop and starting a new
