@@ -57,8 +57,24 @@ revocation. [ADR-0018](adr/0018-persistent-session-and-settings.md) defines deta
 MusicService validates account/IDs, bounds work and returns typed models. Search
 accepts minimal hit IDs and one canonical batch of at most fifty distinct IDs,
 preserving order, duplicates, unavailable records and paging. Optional display
-fields cannot invalidate valid IDs. Like/playlist writes require independent
+fields cannot invalidate valid IDs. Reaction/playlist writes require independent
 confirmation; ambiguous POSTs are not replayed.
+
+`music::interactions` distinguishes Like, Unlike, account Dislike and removing
+Dislike. Current-track reactions use compact live reads of both collections,
+with account/track generations and a bounded write lane. A deliberate reaction
+sends one POST and confirms both memberships/revision when dual reads are
+available; opposite marks are not optimistically inferred. If Dislike cannot be
+verified, a fresh independent Like read preserves the existing Like-only control
+and its established confirmation path. Dislike remains hidden/unknown. Only a
+confirmed Dislike addition on the same current occurrence invokes the existing
+Next path once. Account/request generation and the queue-owned occurrence identity
+fence late results, including repeated Track IDs; a replaced playback intent must
+not be advanced. Removing Dislike and changing Like never advance playback.
+A refusal or ambiguous result leaves playback alone and offers read-only recovery;
+authorization loss still follows normal session teardown.
+[ADR-0028](adr/0028-confirmed-track-reactions.md) separates account membership
+from the unchanged Wave feedback protocol.
 
 Continuous views admit fifty-position portions, at most 2,000 positions/100 pages.
 Initial filling stops at three pages; further reads require user demand. Errors
@@ -167,8 +183,10 @@ See [ADR-0022](adr/0022-universal-music-panel.md).
 
 The footer appears for real playback intent, stays through Pause/retryable failure
 and hides on Stop/clear/logout. Its child conceals at the closed native endpoint
-to release hidden width. Metadata/Like are separate targets; resize retains the
-same controls/controller.
+to release hidden width. Metadata, Like and Dislike are separate focus/click
+targets; resize retains the same controls/controller. Reaction pending/error
+state never changes the current source or opens Track Info. Confirmed current
+Dislike addition alone delegates to Next after presenting the confirmed state.
 
 The in-process GIO MPRIS 2.2 adapter exposes actual state, opaque track paths and
 temporary cover PNGs, never credentials, account IDs or media URLs. Flatpak keeps

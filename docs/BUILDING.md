@@ -270,6 +270,60 @@ heard sound, feedback, transport, restoration and cleanup. Issue #16 stays open
 until final ordinary-native and installed-Flatpak acceptance. Public-distribution
 Issue #5 remains independent. See [ADR-0027](adr/0027-experimental-wave-lifecycle.md).
 
+## Track reaction acceptance
+
+Use the current Dislike PR's native build with ordinary `./target/release/karin`,
+then repeat in its installed Flatpak using the [source build](#flatpak-source-build).
+Quit an older running instance before testing. Sign in normally; no diagnostic
+credentials or account data are needed in terminal arguments.
+
+1. Play a real track whose reaction you consent to change. Wait for the current
+   Like/Dislike reads. Dislike must appear only after a valid account-bound
+   result; a refused/unknown response must not look like an unmarked track.
+   A Dislike-read failure must preserve Like/Unlike if a fresh independent Like
+   read succeeds, without claiming a Dislike state. Record the initial known
+   marks locally, without sharing the track or account ID.
+2. With an ordinary queue containing a next item, activate **«Не нравится»** by
+   mouse, then exercise its keyboard focus on another deliberate change. Pending
+   feedback must be visible. Only independent confirmation of Dislike and Like
+   permits one Next; the queue context is preserved and the new current track,
+   footer and KDE/MPRIS agree. Adding Dislike is expected to clear Like. There
+   must be no optimistic advance, duplicate write or Track Info opening.
+3. Revisit the track, or restart and select it again, to read the state anew.
+   Remove Dislike: it clears without adding Like or advancing. Add/remove Like
+   explicitly and confirm it separately without advancing; adding Like is
+   expected to clear Dislike. Restore original marks only through deliberate,
+   independently confirmed actions.
+4. Check compact/medium/wide layouts, both themes, scale 1/2, Tab/Enter/Space and
+   independent metadata Info/reaction targets. Change track during a pending
+   reaction, including to another occurrence of the same Track ID: a late reply
+   must not advance the new occurrence or apply one track's state to another.
+   Logout and cancellation
+   retire playback effects. Synthetic fixtures cover forced timing races; do
+   not manipulate a real account or network to manufacture them.
+5. During ordinary Wave, add Dislike to a consenting current track. Confirmation
+   invokes the existing Next and applicable listening Skip once; it must not
+   create another radio session or a new negative Wave event. Removal/Like and
+   refused or ambiguous writes do not advance. Transport, feedback, Info/Queue
+   and KDE/MPRIS keep working. No immediate recommendation effect is claimed.
+
+If a change is rejected, ambiguous or unconfirmed, use the UI's state refresh
+(GET only). Do not repeatedly click to replay an uncertain POST. The error must
+remain understandable and audio must remain controllable. Authorization loss
+still follows normal session teardown. Synthetic tests cover forced timeout,
+schema/conflict and concurrent-account cases; do not manufacture those failures
+with a real account.
+
+Report revision, Native/installed-Flatpak environment, initial/readback agreement
+and PASS/FAIL/not-tested per step. Share only fixed operation/category/HTTP values
+if needed, never tokens, identifiers, responses, headers, URLs, personal screenshots
+or recordings. A published helper or Cloud fixture is not live confirmation.
+The owner confirmed real server reactions and their interaction at `1877a6c`.
+That report does not establish the revised automatic Next or installed Flatpak
+acceptance. Record these separately in
+[Issue #17](https://github.com/tracerxbrhd/karin/issues/17); service/public-distribution
+Issue #5 remains separate.
+
 ## Theme input check
 
 Karin applies Light/Dark/System through `AdwStyleManager`; it does not set

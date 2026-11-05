@@ -448,7 +448,7 @@ fn native_search_retry_normalized_results_and_density() {
                             .or_default() += 1;
                         (200, json!({"result":[]}))
                     }
-                    "/users/1234/likes/tracks" => (
+                    "/users/1234/likes/tracks" | "/users/1234/dislikes/tracks" => (
                         200,
                         json!({"result":{"library":{"uid":1234,"revision":1,"tracks":[]}}}),
                     ),

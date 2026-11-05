@@ -368,6 +368,77 @@ The original failure is retained; an unchanged failed-job rerun has its own
 attempt in that run. No deadline, renderer policy, sandbox or production timing
 was relaxed, and this is not a resolution of Issue #23.
 
+## v0.6 track reactions
+
+The Dislike direction starts independently from merged v0.5 master
+[`860672b`](https://github.com/tracerxbrhd/karin/commit/860672b2f0973b86624e69d6f9e9d9176efba5a5).
+[ADR-0028](adr/0028-confirmed-track-reactions.md) records the pinned published
+contract: account Dislike and removal are distinct from Like/Unlike and from
+recommendation-only Wave events. Paired reactions require both readbacks; when
+Dislike is unavailable, fresh independent Like readback preserves the established
+Like-only workflow and leaves Dislike unknown/hidden. No optimistic complement,
+automatic POST replay or radio-protocol extension is permitted. The owner later
+confirmed real server mark changes, Like/Dislike interaction and existing functions
+at `1877a6c`. That live report identifies missing automatic Next as the remaining
+behavior correction; it does not report installed Flatpak or revised-code results.
+
+The correction delegates only a confirmed Dislike addition on the unchanged
+current playback occurrence to existing Next. Opaque occurrence and playback-
+intent guards reject late effects after duplicate IDs, replay, cancellation or
+account replacement; removal/Like and errors do not advance. Wave uses its existing
+Skip lifecycle, with no new feedback type. Revised execution results must be
+recorded separately from the original candidate checks below.
+
+The automatic-Next correction passed four new guard regressions on Rust 1.98.1
+and four explicit native executions: confirmed reactions and the full shared-player
+Wave lifecycle at both 1× and 2× (each one actual test, zero ignored). Native
+fixtures cover exactly one POST/resolution/Next, removal/Like/refusal/ambiguous
+outcomes without advance, duplicate occurrences, leaving/returning, held
+confirmation during logout/close, and one original-batch Wave Skip. Fatal warnings
+were enabled and the sandbox was not disabled. Thirty-six synthetic captures were
+produced; the new 900×650 dark successor capture was inspected without overlap or
+clipping. Source/vendor preparation retained 208 packages, 207 notices and the
+existing GNOME 50 permissions; 46 Markdown files/207 links passed. Full compiler,
+release and final-HEAD hosted results are reported in [PR #27](https://github.com/tracerxbrhd/karin/pull/27).
+These checks do not establish revised Fedora or installed Flatpak acceptance.
+
+Verification of the original `1877a6c` candidate passed on stable **1.99.1** and
+exact **1.98.1**: fmt,
+strict default/all/minimal Clippy/tests/builds, **434 / 442 / 420** library tests
+plus **4** CLI tests per configuration, MSRV ordinary/all-feature locked offline
+release, hidden terminal boundaries and GTK/GStreamer smoke tests. The twelve
+new backend regressions cover both memberships/revisions, refusal/conflict,
+ambiguous writes and account-epoch replacement without replay.
+
+Fourteen explicit native executions passed at 1×/2×: actual reaction mouse/Enter/
+Space input, pending indicators, Info isolation, opposite marks and detail-view
+synchronization, HTTP403/lost-response playback preservation, GET-only recovery
+and Like-only fallback; the design matrix in both themes; strict collection
+filter counts; full Wave/eleven-case retirement; normal account/navigation/logout
+and protected restoration. Original captures were inspected at compact/medium/
+wide/maximized allocations, with separate 44px reactions and reachable transport.
+These are synthetic Cloud checks, not a Music-account acceptance report.
+
+The first candidate passed native reaction input at both scales and the 1×
+design matrix, but its 2× design run timed out before any reaction-read result.
+The constructor started a spinner before DEFAULT_IDLE-deferred request admission.
+The correction keeps that initial state static until a request is admitted;
+actual pending requests still animate. Explicit native assertions cover both
+states, and the complete corrected 1×/2× matrix passed with unchanged deadlines,
+renderer and geometry. GLib scheduling starvation is a plausible interpretation,
+not a traced scheduler result. The original failure is retained separately from
+the corrected evidence; it is not a resolution of cold-rendering Issue #23.
+
+Final-head hosted native/MPRIS/WebKit checks belong to this PR's checks; source,
+license/Flatpak preparation and new installed-Flatpak acceptance remain separate.
+
+The owner-reported live `1877a6c` result is separate from Cloud fixtures. Revised
+automatic Next and installed Flatpak acceptance have not been reported. The
+[short Fedora procedure](BUILDING.md#track-reaction-acceptance) covers them;
+Issue #17 retains unreported acceptance. Issue #20's audio-storage permission/
+lifecycle and Issue #5's public-distribution conditions are independent. No Cloud
+fixture establishes service recommendation effect or grants audio-storage rights.
+
 ## Known unresolved checks
 
 ### Cold Player Bar rendering in Cloud

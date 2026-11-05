@@ -382,3 +382,417 @@ fn library_revision_matches_unsigned_integer_contract_without_guessing_missing_v
         assert!(serde_json::from_value::<RevisionWire>(value).is_err());
     }
 }
+
+#[test]
+fn reactions_read_distinct_account_libraries_without_guessing_unknown_or_conflicting_state() {
+    for (liked, disliked) in [(false, false), (true, false), (false, true), (true, true)] {
+        let (service, server, listener) = fixture(vec![
+            (200, ACCOUNT.into()),
+            (200, membership(1234, 7, liked)),
+            (200, membership(1234, 9, disliked)),
+        ]);
+        let token = token();
+        service.account(&token).unwrap();
+        let result = service.track_reactions(&token, "42:7");
+        if liked && disliked {
+            assert_eq!(result, Err(MusicError::InvalidResponse.into()));
+        } else {
+            assert_eq!(result, Ok(TrackReactions { liked, disliked }));
+        }
+        let requests = complete(server, listener);
+        assert_eq!(requests.len(), 3);
+        assert!(
+            requests[1]
+                .starts_with("GET /users/1234/likes/tracks?if-modified-since-revision=0 HTTP/1.1")
+        );
+        assert!(
+            requests[2].starts_with(
+                "GET /users/1234/dislikes/tracks?if_modified_since_revision=0 HTTP/1.1"
+            )
+        );
+        assert!(requests.iter().all(|request| request.starts_with("GET ")));
+    }
+}
+
+#[test]
+fn dislike_and_undislike_are_distinct_from_unlike_and_confirm_both_marks() {
+    let (service, server, listener) = fixture(vec![
+        (200, ACCOUNT.into()),
+        (200, membership(1234, 3, true)),
+        (200, membership(1234, 2, false)),
+        (200, r#"{"result":{"revision":4}}"#.into()),
+        (200, membership(1234, 4, false)),
+        (200, membership(1234, 4, true)),
+        (200, r#"{"result":{"revision":5}}"#.into()),
+        (200, membership(1234, 4, false)),
+        (200, membership(1234, 5, false)),
+    ]);
+    let token = token();
+    service.account(&token).unwrap();
+    assert_eq!(
+        service.track_reactions(&token, "42:7"),
+        Ok(TrackReactions {
+            liked: true,
+            disliked: false
+        })
+    );
+    assert_eq!(
+        service.set_track_disliked(&token, "42:7", true),
+        Ok(TrackReactions {
+            liked: false,
+            disliked: true
+        })
+    );
+    assert_eq!(
+        service.set_track_disliked(&token, "42:7", false),
+        Ok(TrackReactions {
+            liked: false,
+            disliked: false
+        })
+    );
+    let requests = complete(server, listener);
+    assert!(requests[3].starts_with("POST /users/1234/dislikes/tracks/add-multiple HTTP/1.1"));
+    assert!(requests[6].starts_with("POST /users/1234/dislikes/tracks/remove HTTP/1.1"));
+    assert!(requests[3].ends_with("track-ids=42%3A7"));
+    assert!(requests[6].ends_with("track-ids=42%3A7"));
+    assert_eq!(
+        requests
+            .iter()
+            .filter(|request| request.starts_with("POST "))
+            .count(),
+        2
+    );
+    assert!(
+        requests
+            .iter()
+            .all(|request| !request.contains("/rotor/") && !request.contains("/download-info"))
+    );
+}
+
+#[test]
+fn adding_like_confirms_server_removed_dislike_and_unlike_does_not_invent_dislike() {
+    let (service, server, listener) = fixture(vec![
+        (200, ACCOUNT.into()),
+        (200, r#"{"result":{"revision":7}}"#.into()),
+        (200, membership(1234, 7, true)),
+        (200, membership(1234, 6, false)),
+        (200, r#"{"result":{"revision":8}}"#.into()),
+        (200, membership(1234, 8, false)),
+        (200, membership(1234, 6, false)),
+    ]);
+    let token = token();
+    service.account(&token).unwrap();
+    assert_eq!(
+        service.set_track_reaction(&token, "42", TrackReaction::Like, true),
+        Ok(TrackReactions {
+            liked: true,
+            disliked: false
+        })
+    );
+    assert_eq!(
+        service.set_track_reaction(&token, "42", TrackReaction::Like, false),
+        Ok(TrackReactions {
+            liked: false,
+            disliked: false
+        })
+    );
+    let requests = complete(server, listener);
+    assert!(requests[1].starts_with("POST /users/1234/likes/tracks/add-multiple HTTP/1.1"));
+    assert!(requests[4].starts_with("POST /users/1234/likes/tracks/remove HTTP/1.1"));
+}
+
+#[test]
+fn reaction_confirmation_requires_requested_state_revision_and_opposite_mark_cleared() {
+    for (reaction, enabled, like_revision, liked, dislike_revision, disliked) in [
+        (TrackReaction::Dislike, true, 8, true, 8, true),
+        (TrackReaction::Like, true, 8, true, 8, true),
+        (TrackReaction::Dislike, true, 8, false, 7, true),
+        (TrackReaction::Like, true, 7, true, 8, false),
+        (TrackReaction::Dislike, true, 8, false, 8, false),
+        (TrackReaction::Dislike, false, 8, false, 8, true),
+        (TrackReaction::Like, false, 8, true, 8, false),
+    ] {
+        let (service, server, listener) = fixture(vec![
+            (200, ACCOUNT.into()),
+            (200, r#"{"result":{"revision":8}}"#.into()),
+            (200, membership(1234, like_revision, liked)),
+            (200, membership(1234, dislike_revision, disliked)),
+        ]);
+        let token = token();
+        service.account(&token).unwrap();
+        assert_eq!(
+            service.set_track_reaction(&token, "42", reaction, enabled),
+            Err(InteractionError::ConfirmationMismatch)
+        );
+        let requests = complete(server, listener);
+        assert_eq!(requests.len(), 4);
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|request| request.starts_with("POST "))
+                .count(),
+            1
+        );
+    }
+}
+
+#[test]
+fn removing_dislike_returns_observed_like_without_inventing_a_restore() {
+    let (service, server, listener) = fixture(vec![
+        (200, ACCOUNT.into()),
+        (200, r#"{"result":{"revision":8}}"#.into()),
+        (200, membership(1234, 9, true)),
+        (200, membership(1234, 8, false)),
+    ]);
+    let token = token();
+    service.account(&token).unwrap();
+    assert_eq!(
+        service.set_track_disliked(&token, "42", false),
+        Ok(TrackReactions {
+            liked: true,
+            disliked: false
+        })
+    );
+    let requests = complete(server, listener);
+    assert_eq!(requests.len(), 4);
+    assert_eq!(
+        requests
+            .iter()
+            .filter(|request| request.starts_with("POST "))
+            .count(),
+        1
+    );
+    assert!(requests[1].starts_with("POST /users/1234/dislikes/tracks/remove HTTP/1.1"));
+}
+
+#[test]
+fn dislike_explicit_rejections_do_not_confirm_or_retry_the_write() {
+    for (status, error) in [
+        (400, InteractionError::Music(MusicError::Http(400))),
+        (401, InteractionError::Music(MusicError::AccessDenied)),
+        (403, InteractionError::Music(MusicError::Forbidden)),
+        (409, InteractionError::Conflict),
+        (429, InteractionError::Music(MusicError::RateLimited)),
+        (451, InteractionError::Music(MusicError::Restricted)),
+    ] {
+        let (service, server, listener) = fixture(vec![
+            (200, ACCOUNT.into()),
+            (status, "synthetic-private-dislike-body".into()),
+        ]);
+        let token = token();
+        service.account(&token).unwrap();
+        assert_eq!(service.set_track_disliked(&token, "42", true), Err(error));
+        assert_eq!(complete(server, listener).len(), 2);
+        assert!(!format!("{error} {error:?}").contains("synthetic-private"));
+    }
+}
+
+#[test]
+fn uncertain_dislike_acknowledgment_never_replays_or_guesses_membership() {
+    for (status, body) in [
+        (200, "private unsupported response"),
+        (200, r#"{"result":{}}"#),
+        (200, r#"{"result":{"revision":"8"}}"#),
+        (200, r#"{"result":{"revision":-1}}"#),
+        (204, ""),
+        (302, "private redirect"),
+        (503, "private server body"),
+    ] {
+        let (service, server, listener) =
+            fixture(vec![(200, ACCOUNT.into()), (status, body.into())]);
+        let token = token();
+        service.account(&token).unwrap();
+        assert_eq!(
+            service.set_track_disliked(&token, "42", true),
+            Err(InteractionError::WriteOutcomeUnknown)
+        );
+        assert_eq!(complete(server, listener).len(), 2);
+    }
+}
+
+#[test]
+fn reaction_confirmation_keeps_authorization_rejections_and_never_uses_cache() {
+    for (status, body, expected) in [
+        (
+            401,
+            "private",
+            InteractionError::Music(MusicError::AccessDenied),
+        ),
+        (403, "private", InteractionError::ConfirmationUnavailable),
+        (429, "private", InteractionError::ConfirmationUnavailable),
+        (
+            200,
+            r#"{"result":{"library":null}}"#,
+            InteractionError::ConfirmationUnavailable,
+        ),
+    ] {
+        let (service, server, listener) = fixture(vec![
+            (200, ACCOUNT.into()),
+            (200, r#"{"result":{"revision":8}}"#.into()),
+            (200, membership(1234, 8, false)),
+            (status, body.into()),
+        ]);
+        let token = token();
+        service.account(&token).unwrap();
+        assert_eq!(
+            service.set_track_disliked(&token, "42", true),
+            Err(expected)
+        );
+        assert_eq!(complete(server, listener).len(), 4);
+    }
+}
+
+#[test]
+fn reaction_reads_reject_missing_foreign_or_oversized_library_without_claiming_false() {
+    let oversized = serde_json::json!({"result":{"library":{"uid":1234,"revision":8,"tracks":vec![serde_json::json!({"id":42}); MAX_COLLECTION+1]}}}).to_string();
+    for body in [
+        r#"{"result":{"library":null}}"#.into(),
+        membership(5678, 8, false),
+        oversized,
+    ] {
+        let expected = if body.len() > 100_000 {
+            MusicError::ResponseTooLarge
+        } else {
+            MusicError::InvalidResponse
+        };
+        let (service, server, listener) = fixture(vec![
+            (200, ACCOUNT.into()),
+            (200, membership(1234, 8, false)),
+            (200, body),
+        ]);
+        let token = token();
+        service.account(&token).unwrap();
+        assert_eq!(service.track_reactions(&token, "42"), Err(expected.into()));
+        assert_eq!(complete(server, listener).len(), 3);
+    }
+}
+
+#[test]
+fn reactions_validate_identity_and_music_account_before_network() {
+    let (service, server, listener) = fixture(vec![]);
+    let token = token();
+    for id in ["", "../private", "private?token=secret", "private\nfield"] {
+        assert_eq!(
+            service.track_reactions(&token, id),
+            Err(MusicError::InvalidInput.into())
+        );
+        assert_eq!(
+            service.set_track_disliked(&token, id, true),
+            Err(MusicError::InvalidInput.into())
+        );
+    }
+    assert_eq!(
+        service.track_reactions(&token, "42"),
+        Err(MusicError::Unauthenticated.into())
+    );
+    assert_eq!(
+        service.set_track_disliked(&token, "42", true),
+        Err(MusicError::Unauthenticated.into())
+    );
+    assert!(complete(server, listener).is_empty());
+}
+
+fn next_request(listener: &TcpListener) -> (TcpStream, String) {
+    let deadline = Instant::now() + Duration::from_secs(4);
+    loop {
+        match listener.accept() {
+            Ok((mut stream, _)) => {
+                let request = read_request(&mut stream);
+                return (stream, request);
+            }
+            Err(error)
+                if error.kind() == std::io::ErrorKind::WouldBlock && Instant::now() < deadline =>
+            {
+                thread::sleep(Duration::from_millis(5))
+            }
+            Err(_) => panic!("missing bounded reaction fixture request"),
+        }
+    }
+}
+fn send_response(stream: &mut TcpStream, body: &str) {
+    write!(stream, "HTTP/1.1 200 Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+}
+
+#[test]
+fn reaction_late_reads_and_write_acks_cannot_cross_logout_same_account_revalidation() {
+    for write in [false, true] {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let service =
+            MusicService::for_test(&format!("http://{}/", listener.local_addr().unwrap()));
+        let retained = listener.try_clone().unwrap();
+        let (started, wait_started) = std::sync::mpsc::channel();
+        let (release, wait_release) = std::sync::mpsc::channel();
+        let server = thread::spawn(move || {
+            let mut requests = Vec::new();
+            let (mut account, request) = next_request(&listener);
+            requests.push(request);
+            send_response(&mut account, ACCOUNT);
+            drop(account);
+            let (mut pending, request) = next_request(&listener);
+            requests.push(request);
+            started.send(()).unwrap();
+            let (mut revalidation, request) = next_request(&listener);
+            requests.push(request);
+            send_response(&mut revalidation, ACCOUNT);
+            drop(revalidation);
+            wait_release.recv_timeout(Duration::from_secs(4)).unwrap();
+            let body = if write {
+                r#"{"result":{"revision":8}}"#.into()
+            } else {
+                membership(1234, 8, false)
+            };
+            send_response(&mut pending, &body);
+            requests
+        });
+        let token = token();
+        service.account(&token).unwrap();
+        let worker_service = service.clone();
+        let worker_token = token.clone();
+        let worker = thread::spawn(move || {
+            if write {
+                worker_service.set_track_disliked(&worker_token, "42", true)
+            } else {
+                worker_service.track_reactions(&worker_token, "42")
+            }
+        });
+        wait_started.recv_timeout(Duration::from_secs(4)).unwrap();
+        service.clear_session();
+        service.account(&token).unwrap();
+        release.send(()).unwrap();
+        assert_eq!(
+            worker.join().unwrap(),
+            Err(MusicError::Unauthenticated.into())
+        );
+        let requests = complete(server, retained);
+        assert_eq!(
+            requests.len(),
+            3,
+            "no readback or retry under the replacement epoch"
+        );
+        assert!(requests[2].starts_with("GET /account/status HTTP/1.1"));
+    }
+}
+
+#[test]
+fn lost_dislike_write_response_is_ambiguous_without_retry() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let service = MusicService::for_test(&format!("http://{}/", listener.local_addr().unwrap()));
+    let retained = listener.try_clone().unwrap();
+    let server = thread::spawn(move || {
+        let (mut account, first) = next_request(&listener);
+        send_response(&mut account, ACCOUNT);
+        drop(account);
+        let (pending, second) = next_request(&listener);
+        drop(pending);
+        vec![first, second]
+    });
+    let token = token();
+    service.account(&token).unwrap();
+    assert_eq!(
+        service.set_track_disliked(&token, "42", true),
+        Err(InteractionError::WriteOutcomeUnknown)
+    );
+    assert_eq!(complete(server, retained).len(), 2);
+}

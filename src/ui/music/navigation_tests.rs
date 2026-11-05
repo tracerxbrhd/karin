@@ -106,6 +106,7 @@ fn native_catalog_navigation_latest_actions() {
                         library.store(true, Ordering::Release); delayed = true;
                         (200, json!({"result":{"library":{"tracks":[]}}}))
                     }
+                    "/users/1234/dislikes/tracks" => (200, json!({"result":{"library":{"uid":1234,"revision":1,"tracks":[]}}})),
                     "/search" => {
                         assert!(url.query_pairs().any(|(name,value)|name=="type"&&value=="track"),"this coalescing fixture explicitly requests the track scope");
                         let query = url.query_pairs().find(|(name, _)| name == "text").unwrap().1.into_owned();
