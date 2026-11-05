@@ -166,7 +166,11 @@ fn serve(
     };
     let api = matches!(
         url.path(),
-        "/account/status" | "/search" | "/tracks" | "/users/1234/likes/tracks"
+        "/account/status"
+            | "/search"
+            | "/tracks"
+            | "/users/1234/likes/tracks"
+            | "/users/1234/dislikes/tracks"
     ) || url.path().starts_with("/tracks/")
         || url.path().starts_with("/rotor/");
     if api {
@@ -279,7 +283,11 @@ fn serve(
             &mut stream,
             json!({"result":{"account":{"uid":1234,"displayName":"Synthetic player account"}}}),
         );
-    } else if url.path() == "/users/1234/likes/tracks" {
+    } else if matches!(
+        url.path(),
+        "/users/1234/likes/tracks" | "/users/1234/dislikes/tracks"
+    ) {
+        assert_eq!(first[0], "GET");
         json_response(
             &mut stream,
             json!({"result":{"library":{"uid":1234,"revision":1,"tracks":[]}}}),

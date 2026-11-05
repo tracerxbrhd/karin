@@ -149,7 +149,10 @@ impl Fixture {
                             .find(|item| item["kind"].as_u64() == Some(kind as u64))
                             .cloned();
                         (200, serde_json::json!({"result":data}).to_string())
-                    } else if path == "/users/1234/likes/tracks" {
+                    } else if matches!(
+                        path,
+                        "/users/1234/likes/tracks" | "/users/1234/dislikes/tracks"
+                    ) {
                         (200,serde_json::json!({"result":{"library":{"uid":1234,"revision":1,"tracks":[]}}}).to_string())
                     } else if path == "/users/1234/likes/playlists" {
                         (200, r#"{"result":[]}"#.into())

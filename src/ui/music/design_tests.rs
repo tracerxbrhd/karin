@@ -391,6 +391,10 @@ impl Fixture {
                         "/users/1234/likes/tracks" => {
                             json!({"result":{"library":{"uid":1234,"revision":1,"tracks":references}}})
                         }
+                        "/users/1234/dislikes/tracks" => {
+                            assert!(headers.starts_with("GET "));
+                            json!({"result":{"library":{"uid":1234,"revision":1,"tracks":[]}}})
+                        }
                         "/users/1234/playlists/list" => {
                             json!({"result":(0..3).map(playlist).collect::<Vec<_>>()})
                         }
@@ -626,7 +630,7 @@ fn assert_footer_geometry(ui: &crate::ui::MainWindow) {
             .widgets
             .current_like_slot
             .is_ancestor(&this.widgets.current_art_button),
-        "Like stays outside the metadata button, preserving its independent input/focus"
+        "Like/Dislike stay outside the metadata button, preserving independent input/focus"
     );
     let badge = player_bar::repeat_one_badge(&this.widgets.repeat)
         .expect("stable native literal-one badge");
@@ -644,6 +648,7 @@ fn assert_footer_geometry(ui: &crate::ui::MainWindow) {
     for name in [
         "music-current-info",
         "music-current-like",
+        "music-current-dislike",
         "music-play",
         "music-next",
         "music-queue-toggle",
@@ -657,10 +662,13 @@ fn assert_footer_geometry(ui: &crate::ui::MainWindow) {
         );
         let rect = control.compute_bounds(&ui.window).unwrap();
         assert!(rect.width() > 10.0 && rect.height() > 10.0);
-        if name == "music-current-info" || name == "music-current-like" {
+        if matches!(
+            name,
+            "music-current-info" | "music-current-like" | "music-current-dislike"
+        ) {
             assert!(
                 rect.width() >= 44.0 && rect.height() >= 44.0,
-                "metadata and confirmed Like remain usable pointer targets"
+                "metadata and confirmed reactions remain usable pointer targets"
             );
         }
         assert!(
@@ -720,6 +728,18 @@ fn assert_footer_geometry(ui: &crate::ui::MainWindow) {
     assert!(
         (-1.0..=16.0).contains(&like_gap),
         "confirmed Like must stay adjacent to the track block: {like:?}/{metadata:?}"
+    );
+    let dislike = named_widget(&ui.music.player_bar, "music-current-dislike")
+        .compute_bounds(&ui.window)
+        .unwrap();
+    assert!(
+        (dislike.width() - dislike.height()).abs() <= 1.0,
+        "the confirmed Dislike target must stay square: {dislike:?}"
+    );
+    let reaction_gap = dislike.x() - like.x() - like.width();
+    assert!(
+        (-1.0..=16.0).contains(&reaction_gap),
+        "independent reactions must stay adjacent: {like:?}/{dislike:?}"
     );
     if ui.music.player_bar.width() >= 720 {
         let transport = named_widget(&ui.music.player_bar, "music-transport")
@@ -1197,7 +1217,14 @@ fn activate_design_player_observed(ui: &crate::ui::MainWindow, fixture: &Fixture
             .is_some_and(|state| state.state == PlaybackState::Paused)
     });
     pump(|| {
-        this.widgets.player_revealer.is_child_revealed() && textures(&this.widgets.current_art) > 0
+        this.widgets.player_revealer.is_child_revealed()
+            && textures(&this.widgets.current_art) > 0
+            && ["music-current-like", "music-current-dislike"]
+                .iter()
+                .all(|name| {
+                    let button = named_widget(&ui.music.player_bar, name);
+                    button.is_mapped() && button.is_sensitive()
+                })
     });
     assert_decoded_artwork(&this.widgets.current_art);
     settle();

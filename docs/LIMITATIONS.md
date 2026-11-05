@@ -38,8 +38,19 @@ queued work and late results. Ambiguous POST outcomes are never automatically
 replayed. There is no separate user-facing Finish action: Pause retains radio,
 while ordinary source selection or MPRIS Stop retires it internally.
 
-Other recommendation shelves/similar tracks, lyrics, Dislike and persistent/offline audio are
-not implemented. Unlike is not Dislike. A working short-lived MP3 stream does not
+Account Dislike and removal use a source-backed contract with independent
+Like/Dislike readback. The new controls require successful state reads; refusals
+or schema conflicts leave Dislike hidden/unknown, without guessed state or
+mutation retry. A fresh independent Like membership read can still enable the
+existing Like/Unlike path and its confirmation; a Dislike refusal must not
+disable working Like. The fallback never establishes Dislike state.
+Live Native/Flatpak reaction acceptance is pending. Unlike is
+not Dislike; adding either mark is not locally assumed to clear the other.
+No negative Wave feedback, automatic skip or recommendation-effect guarantee is
+introduced; see [ADR-0028](adr/0028-confirmed-track-reactions.md).
+
+Other recommendation shelves/similar tracks, lyrics and persistent/offline audio
+are not implemented. A working short-lived MP3 stream does not
 establish persistent download rights or an offline entitlement lifecycle; see
 [AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md).
 

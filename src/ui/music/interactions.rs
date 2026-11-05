@@ -41,6 +41,27 @@ struct LikeWidgets {
     feedback: glib::WeakRef<gtk::MenuButton>,
 }
 
+/// Weak presentation subscriptions, never a membership cache. A confirmed write
+/// retires in-flight detail reads before updating all surviving views of its ID.
+pub(super) struct DetailLike {
+    generation: u64,
+    id: String,
+    widgets: LikeWidgets,
+}
+
+pub(super) struct RetiredDetailLikes(Vec<LikeWidgets>);
+
+impl RetiredDetailLikes {
+    pub(super) fn finish(&self, result: Result<bool, InteractionError>, mutable: bool) {
+        for widgets in self.0.iter().filter(|widgets| widgets.alive()) {
+            match result {
+                Ok(liked) => widgets.confirmed(liked, mutable),
+                Err(error) => widgets.unknown(interaction_message(error), true),
+            }
+        }
+    }
+}
+
 impl LikeWidgets {
     fn alive(&self) -> bool {
         self.button
@@ -163,6 +184,39 @@ impl LikeWidgets {
 }
 
 impl Controller {
+    pub(super) fn retire_detail_likes(&self, id: &str) -> RetiredDetailLikes {
+        let generation = self.model.borrow().generation;
+        let (views, pending_other) = {
+            let mut entries = self.detail_like_controls.borrow_mut();
+            entries.retain(|entry| entry.generation == generation && entry.widgets.alive());
+            let matching = |entry: &&DetailLike| entry.id.split(':').next() == id.split(':').next();
+            let views = entries
+                .iter()
+                .filter(matching)
+                .map(|entry| entry.widgets.clone())
+                .collect::<Vec<_>>();
+            let pending = entries
+                .iter()
+                .filter(|entry| !matching(entry) && entry.widgets.confirmed.get().is_none())
+                .map(|entry| entry.widgets.clone())
+                .collect::<Vec<_>>();
+            (views, pending)
+        };
+        if !views.is_empty() {
+            self.requests.borrow_mut().invalidate(Operation::LikeRead);
+            for widgets in pending_other {
+                widgets.unknown(
+                    "Проверка отложена из-за правки библиотеки. Обновите отметку.",
+                    true,
+                );
+            }
+        }
+        for widgets in &views {
+            widgets.unknown("Сохраняем и проверяем отметку…", false);
+        }
+        RetiredDetailLikes(views)
+    }
+
     /// A direct confirmed action, looked up once only when the active footer
     /// maps. Queue selection alone leaves the hidden footer and network idle.
     /// Identity is account generation + track, not a duplicate queue occurrence.
@@ -185,130 +239,8 @@ impl Controller {
         super::clear_box(&self.widgets.current_like_slot);
         self.widgets.current_like_slot.set_visible(key.is_some());
         let Some((generation, id)) = key else { return };
-        let container = gtk::Box::new(gtk::Orientation::Horizontal, 2);
-        container.set_widget_name("music-current-like-controls");
-        container.set_valign(gtk::Align::Center);
-        let button = gtk::Button::new();
-        button.set_widget_name("music-current-like");
-        button.set_size_request(44, 44);
-        button.set_valign(gtk::Align::Center);
-        button.add_css_class("flat");
-        button.set_sensitive(false);
-        button.set_tooltip_text(Some("Проверяем отметку «Нравится»"));
-        button.update_property(&[gtk::accessible::Property::Label(
-            "Отметка «Нравится» не проверена",
-        )]);
-        let surface = gtk::Overlay::new();
-        let icon = gtk::Image::from_icon_name(like_icon_name(None));
-        icon.set_widget_name("music-current-like-icon");
-        icon.set_pixel_size(16);
-        icon.add_css_class("dim-label");
-        surface.set_child(Some(&icon));
-        let spinner = gtk::Spinner::new();
-        spinner.set_widget_name("music-current-like-spinner");
-        spinner.set_halign(gtk::Align::Center);
-        spinner.set_valign(gtk::Align::Center);
-        spinner.set_can_target(false);
-        spinner.set_visible(false);
-        surface.add_overlay(&spinner);
-        button.set_child(Some(&surface));
-        container.append(&button);
-
-        // Uncertain/error states expose an explicit GET-only retry and safe
-        // explanation. The main heart never mutates an unconfirmed state.
-        let feedback = gtk::MenuButton::builder()
-            .icon_name("dialog-warning-symbolic")
-            .build();
-        feedback.set_widget_name("music-current-like-feedback");
-        feedback.set_direction(gtk::ArrowType::Up);
-        feedback.add_css_class("flat");
-        feedback.set_visible(false);
-        feedback.update_property(&[gtk::accessible::Property::Label(
-            "Состояние отметки и повторная проверка",
-        )]);
-        let popover = gtk::Popover::new();
-        popover.set_position(gtk::PositionType::Top);
-        let feedback_content = gtk::Box::new(gtk::Orientation::Vertical, 8);
-        super::super::margins(&feedback_content, 12);
-        feedback_content.set_width_request(230);
-        let message = text("Проверка отметки в вашей библиотеке…", "caption");
-        message.set_max_width_chars(30);
-        message.set_widget_name("music-like-message");
-        let refresh = gtk::Button::with_label("Обновить отметку");
-        refresh.set_widget_name("music-like-refresh");
-        refresh.set_sensitive(false);
-        feedback_content.append(&message);
-        feedback_content.append(&refresh);
-        popover.set_child(Some(&feedback_content));
-        feedback.set_popover(Some(&popover));
-        container.append(&feedback);
-        let widgets = LikeWidgets {
-            button: button.downgrade(),
-            refresh: refresh.downgrade(),
-            icon: icon.downgrade(),
-            label: glib::WeakRef::new(),
-            message: message.downgrade(),
-            confirmed: Rc::new(Cell::new(None)),
-            compact: true,
-            spinner: spinner.downgrade(),
-            feedback: feedback.downgrade(),
-        };
-        let initialized = Rc::new(Cell::new(false));
-        let weak = Rc::downgrade(self);
-        let read_widgets = widgets.clone();
-        let read_id = id.clone();
-        button.connect_map(move |_| {
-            if initialized.replace(true) {
-                return;
-            }
-            let weak = weak.clone();
-            let widgets = read_widgets.clone();
-            let id = read_id.clone();
-            let initialized = initialized.clone();
-            // Mapping can occur synchronously inside a render's immutable
-            // model borrow, especially with reduced motion. Start the bounded
-            // read only after that native callback has unwound. No widget or
-            // controller is kept alive, and retirement invalidates the work.
-            glib::idle_add_local_once(move || {
-                let Some(this) = weak.upgrade() else {
-                    return;
-                };
-                let current = {
-                    let model = this.model.borrow();
-                    !model.closed
-                        && model.account_valid
-                        && model.generation == generation
-                        && model.queue.current().is_some_and(|track| track.id == id)
-                };
-                if current
-                    && widgets.alive()
-                    && widgets
-                        .button
-                        .upgrade()
-                        .is_some_and(|button| button.is_mapped())
-                {
-                    this.read_like(id, widgets);
-                } else {
-                    initialized.set(false);
-                }
-            });
-        });
-        let weak = Rc::downgrade(self);
-        let read_widgets = widgets.clone();
-        let read_id = id.clone();
-        refresh.connect_clicked(move |_| {
-            if let Some(this) = weak.upgrade() {
-                this.read_like(read_id.clone(), read_widgets.clone());
-            }
-        });
-        let weak = Rc::downgrade(self);
-        button.connect_clicked(move |_| {
-            if let Some(this) = weak.upgrade() {
-                this.change_like(id.clone(), widgets.clone());
-            }
-        });
-        // Connect map before parenting: an already visible footer can map a
-        // freshly inserted button synchronously.
+        let container = self.footer_reaction_controls(id, generation);
+        // Connect map before parenting: a visible footer can map synchronously.
         self.widgets.current_like_slot.append(&container);
     }
 
@@ -355,6 +287,20 @@ impl Controller {
             spinner: glib::WeakRef::new(),
             feedback: glib::WeakRef::new(),
         };
+        {
+            let mut entries = self.detail_like_controls.borrow_mut();
+            entries.retain(|entry| entry.widgets.alive());
+            // Only the current detail is ordinarily mapped. Bound retained
+            // weak subscriptions even if a synthetic host mounts many views.
+            if entries.len() == 64 {
+                entries.remove(0);
+            }
+            entries.push(DetailLike {
+                generation: self.model.borrow().generation,
+                id: id.clone(),
+                widgets: widgets.clone(),
+            });
+        }
         let initialized = Cell::new(false);
         let weak = Rc::downgrade(self);
         let read_widgets = widgets.clone();
@@ -444,6 +390,7 @@ impl Controller {
         // Clear known UI state while the one explicit write and its confirming
         // read are in flight. Repeated clicks cannot enqueue another POST.
         widgets.unknown("Сохранение и проверка отметки…", false);
+        let detail_views = self.retire_detail_likes(&id);
         self.requests.borrow_mut().invalidate(Operation::Library);
         self.requests
             .borrow_mut()
@@ -501,8 +448,10 @@ impl Controller {
                     this.sync_current_like();
                 }
                 if !widgets.alive() {
+                    detail_views.finish(result.map(|state| state.liked), true);
                     return;
                 }
+                detail_views.finish(result.map(|state| state.liked), true);
                 match result {
                     Ok(state) => widgets.confirmed(state.liked, true),
                     Err(error) => widgets.unknown(interaction_message(error), true),
@@ -512,7 +461,7 @@ impl Controller {
     }
 }
 
-fn interaction_message(error: InteractionError) -> &'static str {
+pub(super) fn interaction_message(error: InteractionError) -> &'static str {
     match error {
         InteractionError::Conflict => {
             "Библиотека изменилась. Обновите состояние перед новой правкой."
@@ -530,7 +479,7 @@ fn interaction_message(error: InteractionError) -> &'static str {
     }
 }
 
-fn interaction_diagnostic(operation: &'static str, error: Option<InteractionError>) {
+pub(super) fn interaction_diagnostic(operation: &'static str, error: Option<InteractionError>) {
     use std::io::Write;
     let (category, http) = match error {
         None => ("confirmed", None),

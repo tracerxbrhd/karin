@@ -14,7 +14,7 @@ success establishes neither playback entitlement nor public-distribution rights.
 | Account | Validate the actual Music account before admitting a session; Yandex ID success alone is insufficient. |
 | Library and playlists | Account-bound liked-track and own/liked playlist reads, strict owner/kind identities, bounded contents and explicit partial/end/error states. |
 | Search and details | Independent track/album/artist/playlist sections and paging. Validate minimal track-hit IDs, then normalize through one canonical batch lookup. |
-| Likes | Read membership/revision, perform one deliberate mutation, then independently confirm the desired state. |
+| Track reactions | Distinct Like/Unlike and account Dislike/removal. Valid dual reads enable paired mutations confirmed from both collections. Unavailable Dislike stays hidden; a fresh independent Like read preserves established Like-only confirmation. Owner acceptance of the new contract is pending. |
 | Playlist creation | One explicit create request followed by independent identity/title/visibility confirmation; ambiguous writes remain unresolved. |
 | Online playback | Use the separate guarded [resolver](STREAM_DELIVERY_REVIEW.md) for an explicitly selected track. Availability metadata alone is insufficient. |
 | My Wave | Ordinary signed-in Home using the shared player; explicit Listen starts radio. Real sessions/audio/four feedback events/continuation confirmed; owner repeated the corrected candidate without reporting new issues. Final normal-startup and installed Flatpak v0.5 acceptance remain separate. |
@@ -46,6 +46,30 @@ result. Missing/unavailable data remains explicit. See
 Local collection search issues no per-key metadata requests. UI views admit
 2,000 positions/100 pages and playback snapshots at most 500 occurrences; neither
 filtering nor continuation rewrites an active queue. See [ADR-0025](adr/0025-loaded-collection-search-and-playback-provenance.md).
+
+## Track reactions
+
+Unlike and removing Dislike are independent operations; neither adds the other
+mark. The pinned [MarshalX account helpers](https://github.com/MarshalX/yandex-music-api/blob/9ca132e5c18a72aab779c1fc68c169380a9357d0/yandex_music/_client/likes.py#L451)
+corroborate a disliked-track collection, `add-multiple`/`remove` form writes and
+revision acknowledgments. [Cassette v0.2.4](https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/api/yam-client.vala#L578)
+has separate singular helpers; Karin does not try alternate routes after refusal.
+Published Like/Dislike helpers describe clearing an opposite mark when adding
+one. Karin confirms both states from the service rather than inventing the
+complement or issuing compensating POSTs. Unknown, conflicting, stale or
+unauthorized state cannot enable a false success. If the Dislike contract cannot
+be read, a fresh independent liked-track membership read keeps Like/Unlike usable
+through its existing confirmed path. That fallback leaves Dislike unknown and
+hidden, without guessing a persisted state. Recovery reads are GET-only.
+
+The account mutation is separate from recommendation-only negative Wave events.
+The [modern event model](https://github.com/MarshalX/yandex-music-api/blob/9ca132e5c18a72aab779c1fc68c169380a9357d0/yandex_music/rotor/session_event.py#L10)
+does not by itself establish Karin's negative-feedback lifecycle. This change
+adds no Wave event or automatic skip and claims no measured recommendation
+effect. The accepted four-event protocol remains intact. See
+[ADR-0028](adr/0028-confirmed-track-reactions.md) and the
+[local read/write/read procedure](BUILDING.md#track-reaction-acceptance). No live
+Dislike result or public API/distribution permission is established by fixtures.
 
 ## My Wave
 

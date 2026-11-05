@@ -568,7 +568,7 @@ jobs:
             printf 'Binary SHA256: '; sha256sum target/release/karin
           } > "$artifact/BUILD-INFO.txt"
           cat > "$artifact/README.txt" <<'EOF'
-          Karin native music: Fedora 44 acceptance prototype with ordinary v0.5 My Wave.
+          Karin native music: v0.6 confirmed-track-reaction candidate for Fedora 44 acceptance.
           Verify SHA256SUMS and BUILD-INFO.txt against this PR's exact head.
           This is an Ubuntu 24.04 x86_64 native prototype, not a Flatpak/public release.
           Fedora runtime: sudo dnf install gtk4 libadwaita gstreamer1 gstreamer1-plugins-base gstreamer1-plugins-good webkitgtk6.0 librsvg2 libsecret
@@ -601,6 +601,8 @@ jobs:
           Native and current Flatpak acceptance require separate local checks; no broad bus grants.
           Preserve GPL and third-party notices. Shared OAuth public-distribution/service permission remains unresolved separately.
           Do not enable network/GStreamer logs or share tokens, URLs, account data, private screenshots or audio.
+          Active-footer Like and Dislike require independent live membership confirmation; Dislike stays hidden if unavailable, while fresh Like-only remains supported.
+          Test separate marks, their removal/opposite clearing, pending/error GET recovery and unchanged playback; a reaction never implies an automatic skip or new Wave feedback.
           My Wave is available in ordinary ./karin; no experimental flag is required and radio never starts automatically.
           Sign in normally or use the existing protected session, then Home -> Моя волна -> Слушать.
           Read docs/BUILDING.md#my-wave-local-acceptance for the complete bounded acceptance sequence.

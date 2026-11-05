@@ -214,6 +214,7 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
                 let body = match url.path() {
                     "/account/status" => json!({"result":{"account":{"uid":1234,"displayName":"Synthetic input account"}}}),
                     "/users/1234/likes/tracks" => json!({"result":{"library":{"uid":1234,"revision":1,"tracks":[{"id":42,"track":track}]}}}),
+                        "/users/1234/dislikes/tracks" => json!({"result":{"library":{"uid":1234,"revision":1,"tracks":[]}}}),
                     "/users/1234/playlists/list" => json!({"result":[{"kind":3,"title":"Synthetic owned playlist","trackCount":1,"owner":{"uid":1234}}]}),
                     "/users/1234/likes/playlists" => json!({"result":[{"playlist":{"kind":9,"title":"Synthetic liked playlist","trackCount":1,"owner":{"uid":4321}}}]}),
                     "/users/1234/playlists/3" | "/users/4321/playlists/9" => json!({"result":{"kind":3,"trackCount":1,"tracks":[{"id":42,"track":track}]}}),

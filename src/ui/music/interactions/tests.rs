@@ -62,6 +62,9 @@ fn native_library_interactions_confirmed_fixture() {
     listener.set_nonblocking(true).unwrap();
     let stop = Arc::new(AtomicBool::new(false));
     let liked = Arc::new(AtomicBool::new(false));
+    let disliked = Arc::new(AtomicBool::new(false));
+    let refuse_dislike_read = Arc::new(AtomicBool::new(false));
+    let refuse_dislike_write = Arc::new(AtomicBool::new(false));
     let posts = Arc::new(AtomicUsize::new(0));
     let reads = Arc::new(AtomicUsize::new(0));
     let playlist_reads = Arc::new(AtomicUsize::new(0));
@@ -76,6 +79,9 @@ fn native_library_interactions_confirmed_fixture() {
         let stop = stop.clone();
         let origin = origin.clone();
         let liked = liked.clone();
+        let disliked = disliked.clone();
+        let refuse_dislike_read = refuse_dislike_read.clone();
+        let refuse_dislike_write = refuse_dislike_write.clone();
         let posts = posts.clone();
         let reads = reads.clone();
         let playlist_reads = playlist_reads.clone();
@@ -146,13 +152,29 @@ fn native_library_interactions_confirmed_fixture() {
                         }
                         (200, json!({"result":{"library":{"uid":1234,"revision":revision,"tracks":if liked.load(Ordering::Acquire) {vec![json!({"id":42})]} else {vec![]}}}}).to_string())
                     }
-                    ("POST", "/users/1234/likes/tracks/add-multiple" | "/users/1234/likes/tracks/remove") => {
+                    ("GET", "/users/1234/dislikes/tracks") => {
+                        if refuse_dislike_read.load(Ordering::Acquire) {
+                            (403, json!({"error":{"message":"synthetic-private-dislike-refusal"}}).to_string())
+                        } else {
+                            (200, json!({"result":{"library":{"uid":1234,"revision":revision,"tracks":if disliked.load(Ordering::Acquire) {vec![json!({"id":42})]} else {vec![]}}}}).to_string())
+                        }
+                    }
+                    ("POST", "/users/1234/likes/tracks/add-multiple" | "/users/1234/likes/tracks/remove" | "/users/1234/dislikes/tracks/add-multiple" | "/users/1234/dislikes/tracks/remove") => {
                         posts.fetch_add(1, Ordering::AcqRel);
                         assert_eq!(std::str::from_utf8(&body).unwrap(), "track-ids=42");
-                        if conflict_write.swap(false, Ordering::AcqRel) {
+                        if url.path().contains("/dislikes/") && refuse_dislike_write.swap(false, Ordering::AcqRel) {
+                            (403, json!({"error":{"message":"synthetic-private-dislike-refusal"}}).to_string())
+                        } else if conflict_write.swap(false, Ordering::AcqRel) {
                             (409, json!({"error":{"message":"synthetic-private-provider-message"}}).to_string())
                         } else {
-                            liked.store(url.path().ends_with("add-multiple"), Ordering::Release);
+                            let enabled = url.path().ends_with("add-multiple");
+                            if url.path().contains("/dislikes/") {
+                                disliked.store(enabled, Ordering::Release);
+                                if enabled { liked.store(false, Ordering::Release); }
+                            } else {
+                                liked.store(enabled, Ordering::Release);
+                                if enabled { disliked.store(false, Ordering::Release); }
+                            }
                             revision += 1;
                             if lose_write_response.swap(false, Ordering::AcqRel) {
                                 (200, "synthetic-private-invalid-response".into())
@@ -423,6 +445,17 @@ fn native_library_interactions_confirmed_fixture() {
     .unwrap();
     assert!(!this.widgets.player_revealer.reveals_child());
     assert!(!footer_heart.is_mapped());
+    let footer_spinner = footer_heart
+        .child()
+        .unwrap()
+        .last_child()
+        .unwrap()
+        .downcast::<gtk::Spinner>()
+        .unwrap();
+    assert!(
+        !footer_spinner.property::<bool>("spinning"),
+        "a deferred, unadmitted membership read must not start continuous paint"
+    );
     assert_eq!(
         reads.load(Ordering::Acquire),
         5,
@@ -598,19 +631,178 @@ fn native_library_interactions_confirmed_fixture() {
     pump_until(|| read_held.load(Ordering::Acquire));
     assert_eq!(posts.load(Ordering::Acquire), 7);
     assert!(!footer_heart.is_sensitive());
+    assert!(
+        footer_spinner.property::<bool>("spinning"),
+        "an actually admitted pending request has a native busy indicator"
+    );
     footer_heart.emit_clicked();
     assert_eq!(posts.load(Ordering::Acquire), 7);
     release.send(()).unwrap();
     pump_until(|| !this.mutation_busy.get() && footer_heart.is_sensitive());
     assert_eq!(reads.load(Ordering::Acquire), 9);
     assert!(!liked.load(Ordering::Acquire));
+
+    this.detail_header("Synthetic reaction details", "Synthetic artist");
+    let reaction_detail = this.like_controls("42".into());
+    this.widgets.detail.append(&reaction_detail);
+    let detail_heart = button_named(reaction_detail.upcast_ref(), "music-like-toggle").unwrap();
+    pump_until(|| detail_heart.is_sensitive());
+
+    // Account Dislike is a separate explicit operation. Real pointer input
+    // cannot bubble to Track Info, and marking never navigates/advances audio.
+    feedback_popover.popdown();
+    let footer_dislike = button_named(
+        this.widgets.current_like_slot.upcast_ref(),
+        "music-current-dislike",
+    )
+    .unwrap();
+    assert!(footer_dislike.is_mapped() && footer_dislike.is_sensitive());
+    let before_snapshot = this.music_snapshot().unwrap();
+    let before_serial = this.music_serial();
+    assert_eq!(
+        before_snapshot.state,
+        crate::playback::PlaybackState::Paused
+    );
+    let before_index = this.model.borrow().queue.current_index();
+    let before_panel = this.panel_mode.get();
+    let (x, y) = super::super::test_input::pointer(
+        &window,
+        &footer_dislike,
+        super::super::test_input::Target::Center,
+    );
+    assert!(
+        std::process::Command::new("xdotool")
+            .args([
+                "mousemove",
+                "--window",
+                id,
+                &x.to_string(),
+                &y.to_string(),
+                "click",
+                "1"
+            ])
+            .status()
+            .unwrap()
+            .success()
+    );
+    pump_until(|| posts.load(Ordering::Acquire) == 8 && footer_dislike.is_sensitive());
+    assert!(disliked.load(Ordering::Acquire));
+    assert!(!liked.load(Ordering::Acquire));
+    assert!(footer_dislike.has_css_class("liked"));
+    assert!(!footer_heart.has_css_class("liked"));
+    assert_eq!(
+        this.panel_mode.get(),
+        before_panel,
+        "Dislike is not the Info target"
+    );
+    assert_eq!(this.model.borrow().queue.current_index(), before_index);
+    assert_eq!(this.music_snapshot().unwrap().state, before_snapshot.state);
+    capture_native("footer-dislike-confirmed");
+
+    assert!(footer_heart.grab_focus());
+    assert!(
+        std::process::Command::new("xdotool")
+            .args(["key", "Return"])
+            .status()
+            .unwrap()
+            .success()
+    );
+    pump_until(|| posts.load(Ordering::Acquire) == 9 && footer_heart.is_sensitive());
+    assert!(liked.load(Ordering::Acquire));
+    assert!(
+        !disliked.load(Ordering::Acquire),
+        "adding Like confirms removal of Dislike"
+    );
+    assert!(!footer_dislike.has_css_class("liked"));
+
+    assert!(contains_text(reaction_detail.upcast_ref(), "В любимом"));
+    footer_dislike.emit_clicked();
+    pump_until(|| posts.load(Ordering::Acquire) == 10 && footer_dislike.is_sensitive());
+    assert!(
+        !contains_text(reaction_detail.upcast_ref(), "В любимом"),
+        "confirmed footer Dislike retires stale detail Like"
+    );
+    assert!(detail_heart.is_sensitive());
+    assert!(disliked.load(Ordering::Acquire) && !liked.load(Ordering::Acquire));
+    footer_dislike.emit_clicked();
+    pump_until(|| posts.load(Ordering::Acquire) == 11 && footer_dislike.is_sensitive());
+    assert!(!disliked.load(Ordering::Acquire));
+
+    refuse_dislike_write.store(true, Ordering::Release);
+    footer_dislike.emit_clicked();
+    pump_until(|| !this.mutation_busy.get());
+    assert_eq!(posts.load(Ordering::Acquire), 12);
+    assert!(!footer_dislike.is_sensitive());
+    assert_eq!(
+        this.music_snapshot().unwrap().state,
+        before_snapshot.state,
+        "reaction403 does not stop audio"
+    );
+    assert!(!contains_text(
+        window.upcast_ref(),
+        "synthetic-private-dislike-refusal"
+    ));
+    footer_refresh.emit_clicked();
+    pump_until(|| footer_dislike.is_sensitive());
+    assert_eq!(posts.load(Ordering::Acquire), 12, "recovery is GET-only");
+
+    lose_write_response.store(true, Ordering::Release);
+    footer_dislike.emit_clicked();
+    pump_until(|| !this.mutation_busy.get());
+    assert_eq!(posts.load(Ordering::Acquire), 13);
+    assert!(disliked.load(Ordering::Acquire));
+    assert!(!footer_dislike.is_sensitive() && !footer_heart.is_sensitive());
+    footer_dislike.emit_clicked();
+    footer_heart.emit_clicked();
+    assert_eq!(
+        posts.load(Ordering::Acquire),
+        13,
+        "neither reaction replays an ambiguous write"
+    );
+    assert_eq!(this.music_snapshot().unwrap().state, before_snapshot.state);
+    footer_refresh.emit_clicked();
+    pump_until(|| footer_dislike.is_sensitive());
+    assert_eq!(posts.load(Ordering::Acquire), 13);
+    assert!(footer_dislike.has_css_class("liked") && !footer_heart.has_css_class("liked"));
+    assert!(footer_dislike.grab_focus());
+    assert!(
+        std::process::Command::new("xdotool")
+            .args(["key", "space"])
+            .status()
+            .unwrap()
+            .success()
+    );
+    pump_until(|| posts.load(Ordering::Acquire) == 14 && footer_dislike.is_sensitive());
+    assert!(!disliked.load(Ordering::Acquire) && !liked.load(Ordering::Acquire));
+
+    // A denied new endpoint must not regress the working old Like path.
+    refuse_dislike_read.store(true, Ordering::Release);
+    footer_refresh.emit_clicked();
+    pump_until(|| footer_heart.is_sensitive() && !footer_dislike.is_visible());
+    assert!(!this.model.borrow().token.as_ref().unwrap().is_expired());
+    footer_heart.emit_clicked();
+    pump_until(|| posts.load(Ordering::Acquire) == 15 && footer_heart.is_sensitive());
+    assert!(liked.load(Ordering::Acquire));
+    assert!(!footer_dislike.is_visible());
+    assert_eq!(this.music_snapshot().unwrap().state, before_snapshot.state);
+    capture_native("footer-dislike-unavailable-like-preserved");
+    refuse_dislike_read.store(false, Ordering::Release);
+    footer_refresh.emit_clicked();
+    pump_until(|| footer_dislike.is_mapped() && footer_dislike.is_sensitive());
+    assert_eq!(
+        this.music_serial(),
+        before_serial,
+        "reaction changes never resolve or replace the existing player"
+    );
+    let settled_posts = posts.load(Ordering::Acquire);
+    assert_eq!(settled_posts, 15);
     this.model.borrow_mut().queue.clear();
     this.render_queue();
     assert!(this.widgets.current_like_slot.first_child().is_none());
     footer_heart.emit_clicked();
     assert_eq!(
         posts.load(Ordering::Acquire),
-        7,
+        settled_posts,
         "retired direct controls cannot mutate"
     );
     read_held.store(false, Ordering::Release);
@@ -630,7 +822,7 @@ fn native_library_interactions_confirmed_fixture() {
         "Synthetic interaction track"
     ));
     assert!(!contains_text(window.upcast_ref(), "В любимом"));
-    assert_eq!(posts.load(Ordering::Acquire), 7);
+    assert_eq!(posts.load(Ordering::Acquire), settled_posts);
     stop.store(true, Ordering::Release);
     server.join().unwrap();
     window.close();

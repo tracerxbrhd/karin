@@ -48,10 +48,25 @@ before closing #16. This is not a public release/version/tag decision. See
 [VALIDATION](VALIDATION.md), [the acceptance procedure](BUILDING.md#my-wave-local-acceptance)
 and [ADR-0027](adr/0027-experimental-wave-lifecycle.md).
 
+## v0.6: reactions and separately gated audio storage
+
+The Dislike branch extends account-bound Like/Unlike with a distinct disliked-track
+collection and removal. Valid dual reads and revision acknowledgment determine
+paired confirmation; unavailable Dislike leaves the independently confirmed
+Like-only path usable. Unknown state and ambiguous writes stay explicit. The Player Bar
+adds an independent Dislike target without changing the accepted audio path or
+Wave protocol. Published-source evidence is not a live Karin result: keep
+[Issue #17](https://github.com/tracerxbrhd/karin/issues/17) open for the owner's
+[Native/Flatpak read/write/read acceptance](BUILDING.md#track-reaction-acceptance).
+See [ADR-0028](adr/0028-confirmed-track-reactions.md).
+
+Audio storage is an independent branch/PR tracked in #20. A playable MP3 and
+synthetic cache tests establish no storage grant or offline rights lifecycle;
+[the audio review](AUDIO_CACHE_REVIEW.md) retains that gate. No service audio
+is recorded by the Dislike change. Neither direction authorizes a release.
+
 ## Next functional directions
 
-- [Dislike](https://github.com/tracerxbrhd/karin/issues/17): verify semantics and
-  confirmation independently of removing a Like.
 - [Lyrics and related tracks](https://github.com/tracerxbrhd/karin/issues/18): confirm permitted endpoints/resources before
   exposing a user workflow; no extracted official-client signing material.
 - [Playlist editing](https://github.com/tracerxbrhd/karin/issues/19): extend beyond

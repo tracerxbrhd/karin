@@ -35,8 +35,10 @@ bounds do not justify skipping containment or guessing coordinates.
   matches, partial coverage, next-part errors/Retry and retired replies. Count
   HTTP work to exclude per-key page/N+1 reads. Retain the 2,000-position/100-page
   bounds and initial fill limit. See [ADR-0025](adr/0025-loaded-collection-search-and-playback-provenance.md).
-- Test the whole metadata Info target and independent Like focus. Membership
-  read/write/confirmation and playlist creation must not invent success or replay
+- Test the whole metadata Info target and independent Like/Dislike focus. A
+  reaction click must not open Info; unknown Dislike stays hidden and pending
+  state is not optimistic. An unavailable Dislike must not disable a separately
+  confirmed Like-only workflow. Membership read/write/confirmation and playlist creation must not invent success or replay
   ambiguous POSTs. Logout needs a clear label and default Cancel confirmation.
 - Selection alone cannot reveal an idle footer. Real resolver/generated-media
   playback must expose controls; Pause retains them, Stop/clear/logout hide them
