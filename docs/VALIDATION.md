@@ -527,9 +527,28 @@ passed with **208 packages / 207 notice directories**, unchanged license invento
 GNOME 50 runtime and scoped permissions. The documentation check covered **47
 Markdown files / 221 local and Git targets** without missing targets.
 
-Release builds, later repeated-cache runs and complete final-head hosted/native
-results are recorded separately in [PR #26 and its checks](https://github.com/tracerxbrhd/karin/pull/26/checks);
-the results above do not predeclare those later checks successful. No new
+Both ordinary locked/offline release builds, the MSRV all-feature release,
+hidden terminal regressions, silent GStreamer, generated-WAV transport, GTK smoke
+and ordinary/legacy-alias single-instance startup/cleanup passed. The final 31
+cache/bridge tests also passed three sequential repetitions per compiler:
+**186 PASS / 0 FAIL / 0 ignored**, separately from the earlier lock-only repetitions.
+
+The first hosted Ubuntu jobs at `09cfe2d` failed the Preferences fixture when its
+second remember-login switch was clipped above the viewport. The internal
+`GtkSwitch` rejected focus; the helper waited for a native hit without focusing
+its owning row to scroll back. A controlled local regression placed the viewport
+at its legitimate bottom position and reproduced the same eight-second timeout
+with the unchanged helper. The correction focuses the native `AdwSwitchRow` before
+clicking the actual switch. Hit testing, two stable frames, mouse input, callback
+counts and the original deadline remain required; production UI is unchanged.
+The corrected fixture passed on stable and exact 1.98.1 at both scales (four
+actual executions, zero ignored), with strict all-target/all-feature Clippy.
+The [original push failure](https://github.com/tracerxbrhd/karin/actions/runs/42072546505)
+and [PR failure](https://github.com/tracerxbrhd/karin/actions/runs/42072557868)
+remain separate from the correcting revision's checks.
+
+Complete final-head hosted/native results are recorded in
+[PR #26 and its checks](https://github.com/tracerxbrhd/karin/pull/26/checks). No new
 Fedora/installed-Flatpak acceptance or real Music cache reuse is established here.
 PR #26 remains Draft and Issue #20 stays open; #5 and #23 remain separate.
 Synthetic expiry/revocation tests cannot establish external rights.

@@ -172,6 +172,27 @@ fn coordinates(window: &adw::ApplicationWindow, widget: &gtk::Widget) -> Option<
 fn click(window: &adw::ApplicationWindow, id: &str, widget: &impl IsA<gtk::Widget>) {
     let widget = widget.as_ref();
     let focus_accepted = widget.grab_focus();
+    // AdwSwitchRow owns keyboard focus; its internal GtkSwitch can report
+    // focusable=true while rejecting grab_focus(). When it is clipped, waiting
+    // for a hit alone cannot scroll it into view. Focus the native row, then
+    // keep targeting the actual switch with the same strict pointer checks.
+    let row_focus = if !focus_accepted {
+        widget.ancestor(adw::SwitchRow::static_type()).map(|row| {
+            assert!(
+                row.grab_focus(),
+                "native switch row must accept keyboard focus"
+            );
+            row.type_().name().to_string()
+        })
+    } else {
+        None
+    };
+    eprintln!(
+        "Karin synthetic preferences pointer requested: widget={} target={} focus-accepted={focus_accepted} focus-owner={}",
+        widget.type_().name(),
+        widget.widget_name(),
+        row_focus.as_deref().unwrap_or("target")
+    );
     // Focus can start a 200 ms viewport scroll. Two matching frame-clock
     // observations plus a real hit-test acknowledge its settled input target;
     // a fixed delay does not establish either condition.
@@ -525,6 +546,24 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
         .remember
         .activatable_widget()
         .expect("native remember switch");
+    // Exercise the same clipped target regardless of Adwaita/font version:
+    // the user has reached the bottom cleanup action and now returns to the
+    // remember row above it. The switch alone does not accept GTK focus.
+    assert!(view.cache_clear.grab_focus());
+    let scroller = switch
+        .ancestor(gtk::ScrolledWindow::static_type())
+        .expect("preferences viewport")
+        .downcast::<gtk::ScrolledWindow>()
+        .unwrap();
+    let adjustment = scroller.vadjustment();
+    assert!(adjustment.upper() > adjustment.page_size());
+    adjustment.set_value(adjustment.upper() - adjustment.page_size());
+    pump_until(|| {
+        coordinates(&window, &switch).is_none()
+            && coordinates(&window, view.cache_clear.upcast_ref()).is_some()
+    });
+    assert!(coordinates(&window, &switch).is_none());
+    eprintln!("Karin synthetic preferences regression: clipped remember switch");
     click(&window, id, &switch);
     pump_until(|| changes.borrow().len() == count + 1);
     assert!(!changes.borrow().last().unwrap().remember_login);
