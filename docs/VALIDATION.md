@@ -368,6 +368,38 @@ The original failure is retained; an unchanged failed-job rerun has its own
 attempt in that run. No deadline, renderer policy, sandbox or production timing
 was relaxed, and this is not a resolution of Issue #23.
 
+## v0.6 audio-cache foundation
+
+The audio-cache branch starts at v0.5 squash baseline `860672b`. On 2026-11-05,
+the six requested Cassette v0.2.4 caching/player sources were fetched at pinned
+commit `9d34251`; the Music terms, official application license, offline help,
+subscription/Plus conditions and GStreamer buffering documentation were retrieved
+successfully again. [AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md) records the
+source-backed mechanisms and exact missing grant/rights-lifecycle prerequisites.
+
+The storage component is compiled only under `cfg(test)`, with sealed generated
+WAV input and a fake authority. No real Music audio, account, token, cache,
+descriptor/CDN address or official-client cache was used. Ordinary builds retain
+online-only service playback, the accepted resolver/worker and unchanged Flatpak
+permissions. No service offline/storage or new installed-Flatpak acceptance is
+claimed. Synthetic expiry/revocation tests cannot establish external rights.
+
+Local verification passed on stable **1.99.1** and exact **1.98.1**: formatting,
+strict Clippy/tests/builds in default/all/minimal configurations, **438 / 446 /
+424** library tests plus **4** CLI tests per configuration, locked offline
+ordinary/all-feature release builds, hidden terminal boundaries and ordinary GTK
+and generated-media GStreamer smoke tests. All **16** synthetic-cache tests ran
+in each configuration; the restart case also executed a meaningful child test
+in a separate process. Actual cached generated WAV playback exercised the
+existing worker with Pause/Resume, Volume, Clear, Seek, EOS and cleanup. Review
+found and corrected independent-owner generation and orphan-part quota gaps
+before this matrix. No service cache adapter is inferred from that test.
+
+Final-head hosted checks, including full native/MPRIS/protected-session/Wave and
+sandboxed navigating WebKit, belong to the audio-cache PR checks. Source/license
+preparation and desktop/installed-Flatpak acceptance remain separate evidence.
+Issue #20 stays open; #5 and #23 remain separate.
+
 ## Known unresolved checks
 
 ### Cold Player Bar rendering in Cloud

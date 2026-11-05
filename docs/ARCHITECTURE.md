@@ -153,6 +153,15 @@ session/audio/textures, while logout purges personal records.
 [ADR-0026](adr/0026-refusal-fences-and-queue-occurrence-identity.md) defines the
 refusal fence and stable queue identity extensions.
 
+The v0.6 audio-storage prototype is separate and compiled only into tests.
+It accepts internally generated WAVs and a fake rights authority, with private
+account partitions, integrity/atomic writes, quotas/LRU and cancellation/rights
+fences. Production has no audio-store constructor, service-resource input,
+download setting or alternate source-selection branch. This develops storage
+mechanics without treating synthetic rights as permission to retain Music.
+[ADR-0029](adr/0029-synthetic-audio-cache-foundation.md) and
+[AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md) define the admission gate.
+
 ## GTK workspace, MPRIS and Flatpak
 
 Home/Liked/Playlists lead to native collections and catalog search. Total duration

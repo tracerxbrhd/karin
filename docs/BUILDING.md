@@ -93,6 +93,25 @@ for visual checks, themes, HiDPI and the separate cold-start measurement.
 `--ui-fixture` is an offline capture mode, not ordinary sign-in; never use real
 accounts in Cloud/CI or point capture tools at a personal desktop.
 
+## Synthetic audio-cache checks
+
+The v0.6 store is compiled only into the test binary. Its input is internally
+generated WAV audio with a fake authority; it has no service download path or
+production setting. Run its filesystem/lifecycle checks without a Yandex account:
+
+```sh
+cargo +1.98.1 test --lib --locked audio_cache
+cargo +stable test --lib --locked audio_cache
+```
+
+Tests use private isolated directories, not your application cache or wallet.
+Any synthetic cached-audio playback uses the existing local-file controller and
+`fakesink`; no physical sound or offline Music claim follows. XDG/Flatpak-style
+directory isolation in tests is not an installed sandbox acceptance result.
+The accepted online player and existing metadata/artwork settings stay unchanged.
+See [the implementation boundary](adr/0029-synthetic-audio-cache-foundation.md)
+and [recorded verification](VALIDATION.md#v06-audio-cache-foundation).
+
 ## Flatpak source build
 
 Karin is not published on Flathub. The Flathub remote below supplies only the

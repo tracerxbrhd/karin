@@ -42,6 +42,11 @@ Other recommendation shelves/similar tracks, lyrics, Dislike and persistent/offl
 not implemented. Unlike is not Dislike. A working short-lived MP3 stream does not
 establish persistent download rights or an offline entitlement lifecycle; see
 [AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md).
+The v0.6 audio-cache foundation is a test-only filesystem prototype using generated
+WAVs and a fake authority. It adds no production download/offline action, hidden
+temporary recording or service-media source. Applicable storage/reuse permission
+and account/device/track expiry, renewal, revocation and offline rules remain
+unestablished; Issue #20 remains open. Synthetic cache hits are not offline Music.
 
 ## Catalog, workspace and playback
 

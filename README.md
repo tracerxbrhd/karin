@@ -61,6 +61,10 @@ lyrics and offline audio are not implemented. Cold first-player appearance in Cl
 still has unresolved frame gaps; desktop acceptance does not establish their
 cause or resolution. See [known limitations](docs/LIMITATIONS.md).
 
+The v0.6 audio-cache work is a test-only foundation with generated audio, not
+offline Music. Service-audio storage remains disabled pending an applicable grant
+and verifiable rights lifecycle; see the [source/rights review](docs/AUDIO_CACHE_REVIEW.md).
+
 ## Build and run
 
 Install the native dependencies using the [Fedora and Flatpak build guide](docs/BUILDING.md), then:

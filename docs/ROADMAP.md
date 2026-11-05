@@ -50,6 +50,14 @@ and [ADR-0027](adr/0027-experimental-wave-lifecycle.md).
 
 ## Next functional directions
 
+The independent v0.6 audio-cache branch develops a concrete synthetic-only store
+under [ADR-0029](adr/0029-synthetic-audio-cache-foundation.md): account isolation,
+atomic/integrity-checked records, quota/LRU and rights/cancellation lifecycle.
+It is absent from the production binary and does not change online playback.
+The fresh [source/rights review](AUDIO_CACHE_REVIEW.md) still establishes neither
+Karin's storage grant nor a real offline entitlement contract, so #20 stays open.
+Dislike remains a separate branch/PR and contract rather than a cache dependency.
+
 - [Dislike](https://github.com/tracerxbrhd/karin/issues/17): verify semantics and
   confirmation independently of removing a Like.
 - [Lyrics and related tracks](https://github.com/tracerxbrhd/karin/issues/18): confirm permitted endpoints/resources before
