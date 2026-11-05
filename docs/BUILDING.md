@@ -283,7 +283,7 @@ credentials or account data are needed in terminal arguments.
    A Dislike-read failure must preserve Like/Unlike if a fresh independent Like
    read succeeds, without claiming a Dislike state. Record the initial known
    marks locally, without sharing the track or account ID.
-2. Activate **Не рекомендовать** by mouse, then exercise its keyboard focus on
+2. Activate **«Не нравится»** by mouse, then exercise its keyboard focus on
    another deliberate change. Pending feedback must be visible; no optimistic
    result, duplicate write, Track Info opening, audio interruption or queue
    replacement may occur. Success requires independent server readback of
