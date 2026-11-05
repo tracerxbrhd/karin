@@ -49,6 +49,10 @@ sign-in needs no Client ID, client secret, pasted token or developer flag.
 Music account validation precedes library access. Keep the desktop keyring
 unlocked if you want protected session persistence; unavailable storage still
 allows memory-only sign-in. See [authentication](AUTHENTICATION_REVIEW.md).
+After validation, **Главная → Моя волна → Слушать** starts personal radio in the
+shared player. Startup, restored sign-in and opening Home do not start Wave.
+The old `--experimental-wave` argument is a deprecated no-op compatibility alias
+for earlier launch commands; neither native nor Flatpak use needs it.
 
 ## Development checks
 
@@ -119,6 +123,10 @@ do not use `--ignore-rust-version`. No host filesystem or broad session-bus
 permission is needed. MPRIS uses the exact application own-name grant. Protected
 session storage uses the available Secret Portal/backend. Distribution must
 preserve [Karin and third-party licensing obligations](LICENSING.md).
+PipeWire desktop audio uses the existing PulseAudio-compatible socket; Wave
+adds no filesystem, session-bus or other sandbox permission. Source preparation
+and offline Cargo checks are not a complete installed GNOME 50 Flatpak test.
+The installed v0.5 build still needs the separate owner acceptance below.
 
 ## Troubleshooting
 
@@ -199,73 +207,68 @@ relevant regression checks below. Keep HTTP/WebKit/GStreamer tracing disabled.
 Report only revision, native/Flatpak environment and PASS/FAIL/not-tested per
 step. Unreported individual/backend cases remain unconfirmed; storage failure,
 concurrency and rejected-record behavior also use synthetic automated tests.
-My Wave needs its separate opt-in acceptance below.
+Use the focused My Wave Native/Flatpak acceptance below for the v0.5 integration.
 
 
 ## My Wave local acceptance
 
-The owner confirmed real audio, all four feedback events and multiple batches at
-`a69dc79`. Its source-change fault was an additional `radioFinished` HTTP 400
-after an accepted `skip`. This correction removes that event; keep the accepted
-Home design and opt-in gate until the focused repeat below succeeds. Quit any
-running Karin instance so an older binary cannot handle the launch, build the
-updated PR revision, and use the normal desktop session:
+The owner retested corrected candidate `2e4b978` on Fedora without reporting new
+problems, following earlier real audio, four-event feedback and continuation.
+The final ordinary-startup and installed v0.5 Flatpak checks remain separate.
+Quit any running Karin instance so an older binary cannot handle activation.
+From the current PR checkout, build and run as the normal desktop user:
 
 ```sh
 cargo +1.98.1 build --release --locked
-./target/release/karin --experimental-wave
+./target/release/karin
 ```
 
-For a locally built/installed Flatpak from the same revision, use
-`flatpak run io.github.tracerxbrhd.Karin --experimental-wave`. This needs no new
-permissions; source preparation alone does not prove an installed Flatpak run.
-Use normal protected restoration or ordinary **Войти**. No token, cookie,
-Client ID/secret, alternative account identity or tracing option is required.
-The flag is not saved; quit and launch without it to return to ordinary Home.
+1. Start without arguments while signed out, then use ordinary **Войти** or
+   restore a permitted saved login. Home must offer **Слушать** after Music
+   validation, with no Wave requests or audio before that explicit action.
+2. Press **Слушать** and hear real Music through PipeWire. Check Pause/Resume,
+   Next, natural EOS and a further batch. Browse other tabs and return Home:
+   the shared Player Bar, Info/Queue and same radio session must continue.
+   Confirm accepted `radioStarted`, `trackStarted`, `skip` and `trackFinished`;
+   a title, HTTP 200 alone or Cloud generated media does not prove heard Music.
+3. Select an ordinary track and a playlist, including after Pause/EOS. The new
+   music must play and Shuffle/Repeat return. Also test KDE/MPRIS Stop during
+   Playing/Pause, then **Слушать** for a fresh Wave. Retirement sends no
+   `radioFinished` or duplicate skip for an already finished cycle. A subsequent
+   actually started track is a separate cycle. Cancel exists only during startup.
+4. Check deliberate logout, application close and restart. Personal state and
+   system metadata clear on logout; late work cannot revive it. Permitted saved
+   sign-in may restore after normal close, but radio must never auto-resume.
 
-1. Open **Главная → Моя волна → Слушать**, hear a real track through PipeWire,
-   and check **Пауза/Продолжить** against the shared Player Bar. Include Next,
-   a natural EOS and several further batches. Require accepted session,
-   normalization and tracks diagnostics plus HTTP 200 feedback for
-   `radioStarted`, `trackStarted`, `skip` and `trackFinished`; visible titles or
-   Cloud generated-media playback do not establish those results.
-2. While Wave is Playing, play an ordinary track from **Нравится** or
-   **Плейлисты**. Repeat after Pause, and after a natural track ending. Wave
-   must retire without hanging or interrupting the selected ordinary source;
-   previous Shuffle/Repeat return. An actually started, interrupted occurrence
-   may receive one final accepted `skip`. An occurrence already reported as
-   naturally finished must not receive another `skip`; a subsequent occurrence
-   that actually started is a separate cycle. No path may send `radioFinished`.
-3. In separate Wave sessions, test KDE/MPRIS Stop during Playing and Pause
-   (optionally `playerctl -p io.github.tracerxbrhd.Karin stop`). Audio stops,
-   local retirement completes, and any eligible final `skip` succeeds without
-   `radioFinished`. Return to Home and press **Слушать** to create a fresh
-   working session; old responses must not alter it. There is no Finish control;
-   **Отмена** appears only during startup.
-4. Cancel a pending start and retry. Check source replacement during pending
-   feedback/continuation, then logout and close during pending work: queued work
-   cannot start with retired authorization and late results cannot revive the
-   old account, queue or session. An already dispatched request cannot be
-   recalled. Restart without the flag: radio must not resume automatically.
+For the installed Flatpak, first follow the SDK prerequisites in
+[Flatpak source build](#flatpak-source-build), then prepare/install this same checkout:
+
+```sh
+RUSTUP_TOOLCHAIN=1.98.1 python3 packaging/flatpak/prepare-source.py
+flatpak-builder --user --install --force-clean build/flatpak \
+  packaging/flatpak/io.github.tracerxbrhd.Karin.json
+flatpak run io.github.tracerxbrhd.Karin
+```
+
+Repeat the four steps inside that installed build, including protected sign-in
+restoration through the available Secret Portal, actual sound, KDE controls and
+exit/restart. Report unavailable storage or memory-only login explicitly. No
+token input, extra permission or experimental flag is needed. Record native and
+Flatpak results separately; prior v0.4 acceptance does not accept this package.
 
 If feedback fails, share only its safe `Karin wave:` line containing fixed
 `stage/category/http/event/phase/origin/finish` classifications and the preceding
-action (for example Next, natural end, source change or system Stop).
-Only `radioStarted`, `trackStarted`, `trackFinished` and `skip` belong to the
-outgoing feedback contract. A refusal of any of them remains an error; it must
-not be hidden by the removal of `radioFinished`. For other failures report fixed
-stage/category/HTTP and PASS/FAIL/not-tested. No event is inferred from a
-neighboring success line. An unknown
-POST outcome is never automatically replayed; **Начать новую волну** is a new
-session, not confirmation or replay of that event. Do not share full terminal
-output, HTTP/WebKit/GStreamer traces, titles/IDs, session/batch markers, URLs,
-credentials, screenshots of a personal library or audio recordings.
+action. Only `radioStarted`, `trackStarted`, `trackFinished` and `skip` belong to
+the outgoing contract; a refusal of any of them remains an error. An unknown
+POST outcome is never automatically replayed; **Начать новую волну** creates a
+new session. Report other failures as fixed stage/category/HTTP and
+PASS/FAIL/not-tested. Do not share full terminal output, HTTP/WebKit/GStreamer
+traces, IDs, session/batch markers, URLs, credentials, personal screenshots or recordings.
 
-Record revision, native/Flatpak environment, heard sound, feedback acceptance,
-source changes, MPRIS Stop, fresh-session restart and cleanup separately.
-Until this repeat is accepted without the rejected event, My Wave remains opt-in and
-Issue #16 stays open. Public-distribution Issue #5 remains independent. See
-[ADR-0027](adr/0027-experimental-wave-lifecycle.md).
+Record revision and PASS/FAIL/not-tested per step, including environment,
+heard sound, feedback, transport, restoration and cleanup. Issue #16 stays open
+until final ordinary-native and installed-Flatpak acceptance. Public-distribution
+Issue #5 remains independent. See [ADR-0027](adr/0027-experimental-wave-lifecycle.md).
 
 ## Theme input check
 

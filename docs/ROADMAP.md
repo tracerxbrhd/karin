@@ -33,11 +33,23 @@ defines both contracts. The owner accepted `9d54834`; it was squash-merged at
 - Maintain Rust 1.98.1 compatibility, protected-session cleanup and the narrow
   native/Flatpak permission boundaries as dependencies evolve.
 
+## v0.5 final integration
+
+[My Wave](https://github.com/tracerxbrhd/karin/issues/16) is available from Home
+after ordinary Music-validated sign-in. The owner retested corrected candidate
+`2e4b978` on Fedora without reporting new problems; earlier real audio, four
+supported feedback events and continuation were confirmed. Radio starts only
+from **Слушать**, using the existing queue/player/MPRIS. Pause retains its
+context; ordinary music or MPRIS Stop retires it locally without `radioFinished`.
+Startup, restored sign-in and Home navigation do not start or restore radio.
+
+Final ordinary-native and installed v0.5 Flatpak acceptance remain required
+before closing #16. This is not a public release/version/tag decision. See
+[VALIDATION](VALIDATION.md), [the acceptance procedure](BUILDING.md#my-wave-local-acceptance)
+and [ADR-0027](adr/0027-experimental-wave-lifecycle.md).
+
 ## Next functional directions
 
-- [My Wave](https://github.com/tracerxbrhd/karin/issues/16): the owner confirmed
-  session/audio/four supported feedback events/continuation; repeat the local
-  retirement fix after the identified `radioFinished` HTTP 400 before default enablement.
 - [Dislike](https://github.com/tracerxbrhd/karin/issues/17): verify semantics and
   confirmation independently of removing a Like.
 - [Lyrics and related tracks](https://github.com/tracerxbrhd/karin/issues/18): confirm permitted endpoints/resources before
@@ -52,12 +64,6 @@ defines both contracts. The owner accepted `9d54834`; it was squash-merged at
   prefix honestly without silently changing the playing queue.
 
 Each direction needs its own confirmed contract and acceptance criteria.
-The v0.5 branch presents a musical Hero first on Home and uses the shared queue,
-player and MPRIS behind `--experimental-wave`. Pause keeps the session; ordinary
-music selection and MPRIS Stop retire radio without a separate Finish control.
-The owner-confirmed positive chain and identified retirement-event refusal are recorded in
-[VALIDATION](VALIDATION.md). Service access stays gated pending repeat acceptance;
-see [ADR-0027](adr/0027-experimental-wave-lifecycle.md).
 Unsupported actions remain absent.
 See [API_FEASIBILITY.md](API_FEASIBILITY.md) and
 [AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md).

@@ -20,26 +20,25 @@ rights. Public service/distribution conditions remain unresolved. See [LICENSING
 [AUTHENTICATION_REVIEW.md](AUTHENTICATION_REVIEW.md) and
 [STREAM_DELIVERY_REVIEW.md](STREAM_DELIVERY_REVIEW.md).
 
-Normal Home shows the prepared My Wave Hero, with service access gated.
-`--experimental-wave` enables the preview using the existing session/player.
-At `a69dc79` the owner confirmed a real session, heard Music, all four feedback
-events (`radioStarted`, `trackStarted`, `skip`, `trackFinished`) with HTTP 200,
-and several further batches on Fedora. The source-change failure is now
-identified: an accepted final `skip` was followed by `radioFinished` HTTP 400.
-The correction removes that additional event from the outgoing protocol;
-retirement remains local, with at most one eligible terminal track report.
-This does not yet establish post-fix Fedora or installed-Flatpak acceptance.
-Fixed event/origin/phase/finish diagnostics remain available; HTTP 400 on a
-remaining supported event still fails honestly without automatic replay. Repeat the
-[local acceptance procedure](BUILDING.md#my-wave-local-acceptance) before default
-enablement; no automatic start or session restoration is added.
+My Wave is an ordinary Home action after Music-validated sign-in, using the
+existing player. The owner retested corrected candidate `2e4b978` on Fedora
+without reporting new problems, after earlier confirmed real audio, all four
+feedback events and continued batches. This general report is not a per-scenario
+matrix or installed v0.5 Flatpak acceptance; the final ordinary-native/Flatpak
+[procedure](BUILDING.md#my-wave-local-acceptance) remains pending.
+
+Only **Слушать** starts a radio session. Startup, restored sign-in and Home
+navigation do not issue Wave requests, and session IDs/batch markers remain
+memory-only. The removed `radioFinished` is not sent. Fixed event/origin/phase/
+finish diagnostics remain available; HTTP 400 on any supported event still
+fails honestly without automatic replay.
 
 An already admitted HTTP request cannot be unsent; logout/cancellation fence
 queued work and late results. Ambiguous POST outcomes are never automatically
 replayed. There is no separate user-facing Finish action: Pause retains radio,
 while ordinary source selection or MPRIS Stop retires it internally.
 
-Recommendations/similar tracks, lyrics, Dislike and persistent/offline audio are
+Other recommendation shelves/similar tracks, lyrics, Dislike and persistent/offline audio are
 not implemented. Unlike is not Dislike. A working short-lived MP3 stream does not
 establish persistent download rights or an offline entitlement lifecycle; see
 [AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md).

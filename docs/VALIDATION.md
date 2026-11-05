@@ -121,11 +121,15 @@ with an identical Git tree and all eight accepted-head checks successful.
 This does not assert a new installed Flatpak test beyond the previously reported
 v0.4 acceptance.
 
-## v0.5 My Wave experiment
+<a id="v05-my-wave-experiment"></a>
 
-The branch from `920fd71` adds an explicit `--experimental-wave` local path.
-Normal startup remains gated. Cloud uses synthetic HTTP and generated media,
-without a real account; the owner's subsequent real results are separate below.
+## v0.5 My Wave
+
+The initial branch from `920fd71` introduced an explicit `--experimental-wave`
+local path with normal service access gated. The sections below retain that
+progression; the current [ordinary integration](#ordinary-startup-integration)
+is recorded separately. Cloud uses synthetic HTTP and generated media, without
+a real account; the owner's real results remain separate.
 The initial implementation at `b2bef76` used stable **1.99.1** and exact
 **1.98.1**: formatting, strict Clippy/default/all/minimal, **417 / 425 / 403
 library tests + 4 CLI tests** per compiler/configuration and locked debug builds.
@@ -306,12 +310,52 @@ This explains a reproduced fixture race class, not the unrecorded original route
 or a Wave regression. The original hosted failure remains separate from final
 checks of the correcting revision.
 
-No post-fix Fedora or installed-Flatpak acceptance has been reported. Repeat
-[the focused Fedora procedure](BUILDING.md#my-wave-local-acceptance), including
-source change after Playing/Pause/natural EOS, MPRIS Stop and starting a new
-Wave session. `--experimental-wave` and Issue #16 remain until the owner accepts
-those paths without the rejected event. The theme warning and public
-distribution question remain separate.
+At that handoff no post-fix Fedora or installed-Flatpak acceptance had been
+reported, so the runtime flag remained required. The owner's subsequent report
+and the ordinary integration decision are recorded below. The theme warning
+and public-distribution question remain separate.
+
+### Ordinary startup integration
+
+In the report received on **5 November 2026** (Europe/Samara), the owner states
+that corrected candidate
+[`2e4b978`](https://github.com/tracerxbrhd/karin/commit/2e4b9786bb475abd9fc7843503da5bf0d243e9ba)
+was retested on Fedora 44 / KDE Plasma / Wayland / PipeWire without new reported
+problems. That candidate's [push](https://github.com/tracerxbrhd/karin/actions/runs/41888186457)
+and [PR](https://github.com/tracerxbrhd/karin/actions/runs/41888193857) CI completed
+all eight jobs successfully. This supports ordinary integration after the
+earlier confirmed real session/audio/four-event feedback/continuation chain;
+it is not a supplied per-scenario matrix or a new installed v0.5 Flatpak result.
+
+The current implementation exposes Wave on Home after ordinary Music-validated
+sign-in. Only **Слушать** creates a session: application startup, restored
+sign-in, Home navigation and GApplication forwarding do not start radio.
+Session IDs, batch markers and signed resources remain memory-only. The accepted
+Hero keeps its controls and removes permanent experiment notices. The legacy
+`--experimental-wave` argument is a deprecated no-op for older launch commands,
+not a service gate or separate instance.
+
+Local verification of this integration passed on stable **1.99.1** and exact
+**1.98.1**: formatting, strict Clippy/builds for three feature configurations,
+**422 / 430 / 408** library tests plus **4** CLI tests per configuration,
+locked offline release builds, hidden-input regressions, silent GStreamer,
+generated-WAV transport and ordinary GTK smoke tests. Ten explicit native test
+executions at 1×/2× passed: normal account/navigation/logout, protected-login
+restoration without Wave requests, Home states in both themes, actual mouse
+Listen into the synthetic session/player and the eleven-case retirement matrix.
+Supported-event HTTP 400 tests remain intact. Ordinary and deprecated-alias
+startup/secondary forwarding retained the same primary D-Bus owner/window and
+clean shutdown, without starting radio. These are synthetic Cloud checks.
+
+Flatpak source preparation passed with **208** packages and **207** third-party
+notice directories; the license inventory and scoped GNOME 50 manifest are
+unchanged. The Cloud environment does not have GNOME SDK 50 installed, so source
+preparation and offline SDK-style builds do not establish an installed Flatpak
+result. Final-head hosted checks, including sandboxed navigating WebKit, are
+recorded in [PR #25 checks](https://github.com/tracerxbrhd/karin/pull/25/checks).
+The final [Native/Flatpak procedure](BUILDING.md#my-wave-local-acceptance) is still
+pending for ordinary startup and the installed v0.5 package. Issue #16 stays open
+until that report; Issues #5 and #23 are unchanged and independent.
 
 ### Separate post-squash startup failure
 

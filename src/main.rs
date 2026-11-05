@@ -13,26 +13,9 @@ mod oauth_cli;
 
 fn main() -> glib::ExitCode {
     let mut args: Vec<_> = std::env::args().skip(1).collect();
-    // Explicit local experiment; never enabled by saved preferences or normal
-    // startup. It uses the already validated ordinary Music session.
-    let wave_experiment = args.iter().any(|arg| arg == "--experimental-wave");
-    if args
-        .iter()
-        .filter(|arg| *arg == "--experimental-wave")
-        .count()
-        > 1
-    {
-        eprintln!("Duplicate Wave experiment option.");
-        return glib::ExitCode::from(2);
-    }
+    // Temporary no-op compatibility alias for previous Fedora launch commands.
+    // Wave is a normal Music-validated feature; activation never starts it.
     args.retain(|arg| arg != "--experimental-wave");
-    if wave_experiment
-        && !(args.is_empty()
-            || matches!(args.as_slice(), [arg] if arg == "--ui-fixture" || arg == "--smoke-test"))
-    {
-        eprintln!("Run --experimental-wave with the ordinary local sign-in window.");
-        return glib::ExitCode::from(2);
-    }
     let artwork_diagnostic = args.iter().any(|arg| arg == "--artwork-diagnostic");
     if args
         .iter()
@@ -84,7 +67,7 @@ fn main() -> glib::ExitCode {
     match args.as_slice() {
         [flag] if flag == "--help" || flag == "-h" => {
             println!(
-                "Karin\n\nUsage: karin [--smoke-test | --ui-fixture | --audio-self-test | --playback-self-test | --probe-service | --oauth-diagnostic | --delivery-diagnostic | --artwork-diagnostic | --experimental-wave | --version]\n\n--smoke-test          Verify GTK and local playback cleanup without network or sound\n--ui-fixture          Offline sign-in fixture for automated UI captures; never contacts OAuth\n--audio-self-test     Process a synthetic signal through GStreamer fakesink\n--playback-self-test  Decode a generated local WAV through playbin; test controls and cleanup\n--probe-service       Make an anonymous availability request (network required)\n--oauth-diagnostic    Opt-in local PKCE experiment; private terminal and system browser required\n--delivery-diagnostic Opt-in local delivery-info probe using this window's ordinary sign-in; no media request\n--artwork-diagnostic  Opt-in bounded image-stage categories in the ordinary app; no URLs or personal fields\n--experimental-wave   Opt-in unverified My Wave experiment using the ordinary local Music session"
+                "Karin\n\nUsage: karin [--smoke-test | --ui-fixture | --audio-self-test | --playback-self-test | --probe-service | --oauth-diagnostic | --delivery-diagnostic | --artwork-diagnostic | --experimental-wave | --version]\n\n--smoke-test          Verify GTK and local playback cleanup without network or sound\n--ui-fixture          Offline sign-in fixture for automated UI captures; never contacts OAuth\n--audio-self-test     Process a synthetic signal through GStreamer fakesink\n--playback-self-test  Decode a generated local WAV through playbin; test controls and cleanup\n--probe-service       Make an anonymous availability request (network required)\n--oauth-diagnostic    Opt-in local PKCE experiment; private terminal and system browser required\n--delivery-diagnostic Opt-in local delivery-info probe using this window's ordinary sign-in; no media request\n--artwork-diagnostic  Opt-in bounded image-stage categories in the ordinary app; no URLs or personal fields\n--experimental-wave   Deprecated no-op alias; My Wave is available in normal startup"
             );
             if cfg!(feature = "experimental-device-auth") {
                 println!(
@@ -200,7 +183,7 @@ fn main() -> glib::ExitCode {
                 .license_type(gtk::License::Gpl30)
                 .copyright("© 2026 Karin contributors")
                 .website("https://github.com/tracerxbrhd/karin")
-                .comments("Karin v0.3 в разработке: библиотека, поиск, очередь и воспроизведение. Проверенный вход можно сохранять в защищённом системном хранилище; настройки и кеш управляются отдельно. Экспериментальная версия для локальной проверки.")
+                .comments("Неофициальный музыкальный клиент для Linux: библиотека, поиск, персональное радио, очередь и воспроизведение. Проверенный вход можно сохранять в защищённом системном хранилище; настройки и кеш управляются отдельно.")
                 .build();
             dialog.present(app.active_window().as_ref());
         }
@@ -210,17 +193,6 @@ fn main() -> glib::ExitCode {
     // Music signal handlers keep weak controller references. Retain the normal
     // window/controller until close, just as the smoke future retains its UI.
     let normal_window = Rc::new(RefCell::new(None::<ui::MainWindow>));
-    // A second local invocation forwards this opt-in to the running primary
-    // instance instead of silently discarding it. No credential enters D-Bus.
-    let enable_wave = gio::SimpleAction::new("enable-wave-experiment", None);
-    let retained = normal_window.clone();
-    enable_wave.connect_activate(move |_, _| {
-        if let Some(ui) = retained.borrow().as_ref() {
-            ui.enable_wave_experiment();
-            ui.window.present();
-        }
-    });
-    app.add_action(&enable_wave);
     app.connect_activate(move |app| {
         if let Some(window) = app.active_window() {
             window.present();
@@ -231,9 +203,6 @@ fn main() -> glib::ExitCode {
         } else {
             ui::build_with_options(app, service.clone(), experimental)
         };
-        if wave_experiment {
-            ui.enable_wave_experiment();
-        }
         if delivery_diagnostic {
             ui.enable_delivery_diagnostic();
         }
@@ -317,18 +286,6 @@ fn main() -> glib::ExitCode {
             *normal_window.borrow_mut() = Some(ui);
         }
     });
-    if wave_experiment && !offline_auth {
-        if app.register(None::<&gio::Cancellable>).is_err() {
-            eprintln!("Cannot register the local application experiment.");
-            return glib::ExitCode::FAILURE;
-        }
-        if app.is_remote() {
-            app.activate_action("enable-wave-experiment", None);
-            // GApplication::run also completes registered remote-instance
-            // teardown; returning early would leave the D-Bus registration.
-            return app.run_with_args(&["karin"]);
-        }
-    }
     let code = app.run_with_args(&["karin"]);
     if smoke && !smoke_passed.get() {
         glib::ExitCode::FAILURE

@@ -45,7 +45,6 @@ pub(super) enum RadioFailure {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum RadioPhase {
-    Disabled,
     Ready,
     Starting,
     Active,
@@ -179,7 +178,6 @@ struct Retiring {
 }
 #[derive(Default)]
 pub(super) struct RadioLifecycle {
-    enabled: bool,
     epoch: u64,
     serial: u64,
     running: Option<u64>,
@@ -236,10 +234,6 @@ struct Task {
 }
 
 impl Controller {
-    pub(super) fn enable_wave_experiment(self: &Rc<Self>) {
-        self.radio.borrow_mut().enabled = true;
-        self.render_wave();
-    }
     pub(super) fn radio_status(&self) -> RadioStatus {
         let model = self.model.borrow();
         let authenticated = !model.closed
@@ -249,9 +243,7 @@ impl Controller {
                 .as_ref()
                 .is_some_and(|token| !token.is_expired());
         let radio = self.radio.borrow();
-        let phase = if !radio.enabled {
-            RadioPhase::Disabled
-        } else if let Some((stage, failure)) = radio.failure.or_else(|| {
+        let phase = if let Some((stage, failure)) = radio.failure.or_else(|| {
             radio
                 .active
                 .as_ref()
@@ -294,7 +286,7 @@ impl Controller {
         }
         {
             let mut radio = self.radio.borrow_mut();
-            if !radio.enabled || radio.begin.is_some() || radio.active.is_some() {
+            if radio.begin.is_some() || radio.active.is_some() {
                 return;
             }
             radio.epoch = radio.epoch.wrapping_add(1);
@@ -317,7 +309,7 @@ impl Controller {
                 Some(PlaybackState::Paused | PlaybackState::Ready) => self.play_music(),
                 _ => {}
             },
-            RadioPhase::Disabled | RadioPhase::Starting | RadioPhase::Finishing => {}
+            RadioPhase::Starting | RadioPhase::Finishing => {}
         }
     }
     /// Cancel only a pending request. Current ordinary/already admitted audio

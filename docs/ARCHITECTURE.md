@@ -30,7 +30,7 @@ flowchart LR
 
 GIO workers perform bounded blocking work; main-context futures admit results
 under current account/request/source generations. Twelve lanes each retain one
-running and one latest pending job. The opt-in Wave lifecycle uses a separate
+running and one latest pending job. The Wave lifecycle uses a separate
 bounded FIFO lane because feedback must not be coalesced or retried. Source
 changes, logout and close retire old work. GTK textures/updates stay on the main thread; deferred Like reads use weak
 ownership outside render-time borrows. Reqwest owns its HTTP runtime.
@@ -106,13 +106,15 @@ Modes survive normal clear/context replacement and reset on logout or close.
 [ADR-0023](adr/0023-local-playback-order-and-mpris-modes.md) defines the policy
 shared by native controls and MPRIS.
 
-## Experimental My Wave
+## My Wave
 
 The existing `music::wave` protocol/observation components feed the same queue,
-resolver and player through `ui::music::radio`. A first-position Home Hero is
-prepared for normal use, while `--experimental-wave` gates service requests
-until repeat feedback acceptance. It delegates Listen/Pause/Resume to the same
-lifecycle/player; opening Home never creates a session. Only pending startup
+resolver and player through `ui::music::radio`. The Home Hero is available after
+Music-validated sign-in in the ordinary application. Listen/Pause/Resume delegate
+to the same lifecycle/player. Only explicit Listen creates a radio session;
+application startup, protected-login restoration and opening Home create none.
+The deprecated `--experimental-wave` CLI alias has no effect on availability,
+activation or application identity. Only pending startup
 has a Cancel action. There is no separate user-facing Finish control.
 
 Original batch markers stay attached to opaque occurrence identities in memory.

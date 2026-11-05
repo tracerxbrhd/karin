@@ -618,6 +618,13 @@ pub(in crate::ui::music) fn resize_player_window(
 pub(in crate::ui::music) fn player_window(
     fixture: &Fixture,
 ) -> (adw::Application, crate::ui::MainWindow) {
+    player_window_with_account(fixture, true)
+}
+
+fn player_window_with_account(
+    fixture: &Fixture,
+    authenticated: bool,
+) -> (adw::Application, crate::ui::MainWindow) {
     static NEXT_WINDOW: AtomicU64 = AtomicU64::new(0);
     // Each registered application exports its own D-Bus object path, even
     // with NON_UNIQUE. Keep independent windows distinct on one test bus.
@@ -627,7 +634,9 @@ pub(in crate::ui::music) fn player_window(
     );
     let service = MusicService::for_test(&fixture.origin);
     let token = AccessToken::for_test("synthetic-native-music-token", Duration::from_secs(300));
-    service.account(&token).unwrap();
+    if authenticated {
+        service.account(&token).unwrap();
+    }
     let app = adw::Application::builder()
         .application_id(application_id)
         .flags(gio::ApplicationFlags::NON_UNIQUE)
@@ -651,7 +660,7 @@ pub(in crate::ui::music) fn player_window(
     ui.window.set_title(Some("Karin synthetic HTTP fixture"));
     ui.window.set_default_size(900, 650);
     ui.window.present();
-    {
+    if authenticated {
         let mut model = this.model.borrow_mut();
         model.token = Some(token);
         model.account_valid = true;
@@ -2770,12 +2779,50 @@ fn native_wave_shared_player_feedback_batches_and_cleanup() {
     use crate::queue::{ContextKind, RepeatMode};
     gtk::init().unwrap();
     adw::init().unwrap();
+    // Normal startup needs no hidden Wave enable call. Without a validated
+    // account, neither startup nor a late activation may admit radio requests.
+    let anonymous = Fixture::new();
+    let (_anonymous_app, anonymous_ui) = player_window_with_account(&anonymous, false);
+    let signed_out = &anonymous_ui.music.controller;
+    super::super::test_input::wait_for_layout(
+        &anonymous_ui.window,
+        &signed_out.widgets.home_signedout,
+    );
+    assert_eq!(signed_out.radio_status().phase, RadioPhase::Ready);
+    assert!(!signed_out.radio_status().authenticated);
+    assert!(!signed_out.widgets.home_wave.primary.is_sensitive());
+    signed_out.start_wave();
+    signed_out.activate_wave_hero();
+    assert!(signed_out.radio_idle_for_test());
+    assert!(signed_out.wave_session_for_test().is_none());
+    {
+        let counts = anonymous.counts.lock().unwrap();
+        assert_eq!((counts.wave_sessions, counts.wave_batches), (0, 0));
+        assert!(counts.wave_events.is_empty());
+    }
+    signed_out.close();
+    anonymous_ui.window.close();
+
     let fixture = Fixture::new();
     let (_app, ui) = player_window(&fixture);
     let this = &ui.music.controller;
+    pump_until(|| this.widgets.home_wave.primary.is_mapped());
+    assert_eq!(this.radio_status().phase, RadioPhase::Ready);
+    assert!(this.radio_status().authenticated);
+    assert!(this.widgets.home_wave.primary.is_sensitive());
+    assert!(this.wave_session_for_test().is_none());
+    assert!(this.model.borrow().queue.items().is_empty());
+    assert!(this.music_snapshot().is_none());
+    {
+        let counts = fixture.counts.lock().unwrap();
+        assert_eq!((counts.wave_sessions, counts.wave_batches), (0, 0));
+        assert!(
+            counts.wave_events.is_empty(),
+            "ordinary Home does not auto-start Wave"
+        );
+    }
     this.set_music_shuffle(true);
     this.set_music_repeat(RepeatMode::Queue);
-    this.enable_wave_experiment();
     native_click(&ui.window, &this.widgets.home_wave.primary);
     wait_playing(this, 0);
     pump_until(|| {
@@ -2970,7 +3017,6 @@ fn native_wave_shared_player_feedback_batches_and_cleanup() {
     }
     let (_other_app, other_ui) = player_window(&uncertain);
     let other = &other_ui.music.controller;
-    other.enable_wave_experiment();
     other.start_wave();
     wait_playing(other, 0);
     pump_until(|| uncertain.counts.lock().unwrap().slow_started);
@@ -3004,7 +3050,6 @@ fn native_wave_shared_player_feedback_batches_and_cleanup() {
     }
     let (_rolling_app, rolling_ui) = player_window(&rolling);
     let rolling_this = &rolling_ui.music.controller;
-    rolling_this.enable_wave_experiment();
     rolling_this.start_wave();
     wait_playing(rolling_this, 0);
     pump_until(|| rolling_this.model.borrow().queue.items().len() == 100);
@@ -3109,7 +3154,6 @@ fn native_wave_shared_player_feedback_batches_and_cleanup() {
     let modes_this = &modes_ui.music.controller;
     modes_this.set_music_shuffle(true);
     modes_this.set_music_repeat(RepeatMode::Queue);
-    modes_this.enable_wave_experiment();
     modes_this.start_wave();
     wait_playing(modes_this, 0);
     pump_until(|| {
@@ -3175,7 +3219,6 @@ fn native_wave_shared_player_feedback_batches_and_cleanup() {
     };
     pending_this.play_music_context(ordinary());
     wait_playing(pending_this, 0);
-    pending_this.enable_wave_experiment();
     pending_this.start_wave();
     pump_until(|| pending.counts.lock().unwrap().slow_started);
     let ordinary_serial = pending_this.music_serial();
@@ -3276,7 +3319,6 @@ fn native_wave_shared_player_feedback_batches_and_cleanup() {
     }
     let (_poison_app, poison_ui) = player_window(&poisoned);
     let poison_this = &poison_ui.music.controller;
-    poison_this.enable_wave_experiment();
     poison_this.start_wave();
     wait_playing(poison_this, 0);
     pump_until(|| poisoned.counts.lock().unwrap().slow_started);
@@ -3331,7 +3373,6 @@ fn native_wave_shared_player_feedback_batches_and_cleanup() {
         }
         let (_refusal_app, refusal_ui) = player_window(&refusal);
         let radio = &refusal_ui.music.controller;
-        radio.enable_wave_experiment();
         radio.start_wave();
         wait_playing(radio, 0);
         if !matches!(
@@ -3487,7 +3528,6 @@ fn native_wave_retirement_supported_feedback_and_cleanup() {
         let this = &ui.music.controller;
         this.set_music_shuffle(true);
         this.set_music_repeat(RepeatMode::Queue);
-        this.enable_wave_experiment();
         this.start_wave();
         if never_played {
             pump_until(|| fixture.counts.lock().unwrap().slow_started);

@@ -17,13 +17,13 @@ success establishes neither playback entitlement nor public-distribution rights.
 | Likes | Read membership/revision, perform one deliberate mutation, then independently confirm the desired state. |
 | Playlist creation | One explicit create request followed by independent identity/title/visibility confirmation; ambiguous writes remain unresolved. |
 | Online playback | Use the separate guarded [resolver](STREAM_DELIVERY_REVIEW.md) for an explicitly selected track. Availability metadata alone is insufficient. |
-| My Wave preview | Opt-in shared player; real session/audio/four feedback events/continuation confirmed. Removed the source-change `radioFinished` rejected with HTTP 400; repeat retirement acceptance pending. |
+| My Wave | Ordinary signed-in Home using the shared player; explicit Listen starts radio. Real sessions/audio/four feedback events/continuation confirmed; owner repeated the corrected candidate without reporting new issues. Final normal-startup and installed Flatpak v0.5 acceptance remain separate. |
 
 Ambiguous writes require read/confirmation, never fabricated success or POST
 retries. Broader playlist edits, recommendations and lyrics are not shipped
-workflows merely because backend methods exist. Ordinary Home keeps Wave
-unavailable pending repeat acceptance; the positive local results do not establish
-every feedback event or default readiness.
+workflows merely because backend methods exist. Ordinary Home offers My Wave
+after Music validation without starting it automatically. The owner's general
+candidate report does not establish an unreported per-scenario acceptance matrix.
 
 ## Transport and models
 
@@ -47,7 +47,7 @@ Local collection search issues no per-key metadata requests. UI views admit
 2,000 positions/100 pages and playback snapshots at most 500 occurrences; neither
 filtering nor continuation rewrites an active queue. See [ADR-0025](adr/0025-loaded-collection-search-and-playback-provenance.md).
 
-## Experimental My Wave
+## My Wave
 
 The existing `music::wave` adapter uses the published modern JSON session flow:
 `POST /rotor/session/new`, then session-bound `/tracks` and `/feedback` POSTs.
@@ -76,7 +76,9 @@ Karin now excludes it from its outgoing modern protocol. Retirement still drains
 one interrupted track's final skip when appropriate, then cancels locally; EOS
 does not gain another skip. This is local cleanup, not a remote deletion claim.
 Accepted `from`, original markers and actual heard-time fields stay unchanged.
-Real source-change and MPRIS Stop acceptance of the fix remain pending.
+The owner then repeated candidate `2e4b978` on Fedora without reporting new
+problems and authorized ordinary integration. Do not infer individual unreported
+Stop/keyring/hardware scenarios or installed Flatpak v0.5 acceptance from that.
 
 Cloud fixtures cannot establish real service behavior. HTTP 200 with an admitted
 feedback acknowledgment proves receipt under this envelope contract, not its
@@ -86,9 +88,8 @@ be recalled. Only fixed stage/category/event/lifecycle classifications, known HT
 be reported, never wire bodies, session/batch/track identifiers or resources.
 
 See [ADR-0027](adr/0027-experimental-wave-lifecycle.md) and the
-[Fedora opt-in procedure](BUILDING.md#my-wave-local-acceptance). Keep default Wave
-disabled and Issue #16 open until the owner repeats the full chain, including
-the identified/corrected refused sequence.
+[Fedora procedure](BUILDING.md#my-wave-local-acceptance). Keep Issue #16 open until
+the final ordinary-startup and installed Flatpak acceptance is reported.
 Successful local use still does not resolve public-distribution Issue #5.
 
 ## Authorization evidence and client choice

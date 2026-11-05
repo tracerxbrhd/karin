@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Native music Home: a gated Wave hero and the existing library destinations.
+//! Native music Home: My Wave and the existing library destinations.
 
 use super::radio::{RadioFailure, RadioPhase, RadioStage, RadioStatus};
 use super::*;
@@ -123,7 +123,6 @@ pub(super) struct WaveParts {
     pub primary: gtk::Button,
     pub cancel: gtk::Button,
     primary_content: adw::ButtonContent,
-    experiment: gtk::Label,
     message: gtk::Label,
     details: gtk::Label,
     disclosure: gtk::Expander,
@@ -175,9 +174,6 @@ impl WaveParts {
         actions.append(&cancel);
         widget.append(&actions);
 
-        let experiment = text("", "caption");
-        experiment.set_widget_name("music-wave-experimental-note");
-        widget.append(&experiment);
         let message = text("", "body");
         message.set_widget_name("music-wave-status");
         widget.append(&message);
@@ -192,14 +188,13 @@ impl WaveParts {
             primary,
             cancel,
             primary_content,
-            experiment,
             message,
             details,
             disclosure,
             spinner,
         };
         parts.render(RadioStatus {
-            phase: RadioPhase::Disabled,
+            phase: RadioPhase::Ready,
             playback: None,
             authenticated: false,
         });
@@ -207,20 +202,7 @@ impl WaveParts {
     }
 
     pub(super) fn render(&self, status: RadioStatus) {
-        let enabled = status.phase != RadioPhase::Disabled;
         let failed = matches!(status.phase, RadioPhase::Failed { .. });
-        // The service already supplied audible tracks and accepted feedback on
-        // Fedora; the pending gate concerns repeat acceptance after an HTTP400.
-        self.experiment.set_text(if enabled {
-            "Предварительная версия"
-        } else {
-            "Функция проходит проверку"
-        });
-        self.experiment.set_tooltip_text(Some(if enabled {
-            "Запуск и воспроизведение подтверждены. Обратная связь проходит повторную проверку."
-        } else {
-            "Моя волна пока доступна для локальной проверки"
-        }));
         let transport = matches!(status.phase, RadioPhase::Active | RadioPhase::LoadingNext);
         let playing = status.playback == Some(PlaybackState::Playing);
         let resumable = matches!(
@@ -253,23 +235,21 @@ impl WaveParts {
         self.primary
             .update_property(&[gtk::accessible::Property::Label(label)]);
         self.primary.set_sensitive(
-            enabled
-                && status.authenticated
+            status.authenticated
                 && !busy
                 && (matches!(status.phase, RadioPhase::Ready | RadioPhase::Failed { .. })
                     || (transport && (playing || resumable))),
         );
-        self.primary.set_tooltip_text(Some(if !enabled {
-            "Моя волна пока доступна для локальной проверки"
-        } else if !status.authenticated {
-            "Войдите в Яндекс, чтобы слушать музыку"
-        } else {
-            label
-        }));
+        self.primary
+            .set_tooltip_text(Some(if !status.authenticated {
+                "Войдите в Яндекс, чтобы слушать музыку"
+            } else {
+                label
+            }));
         // Cancel is a startup operation. Active radio has no separate Finish or
         // Stop affordance: the common player/source change owns that lifecycle.
-        self.cancel.set_visible(enabled && starting);
-        self.cancel.set_sensitive(enabled && starting);
+        self.cancel.set_visible(starting);
+        self.cancel.set_sensitive(starting);
 
         let message = match status.phase {
             RadioPhase::Ready if !status.authenticated => "Войдите в Яндекс, чтобы слушать музыку.",

@@ -2,9 +2,13 @@
 use super::*;
 
 #[test]
-fn lifecycle_is_explicitly_disabled_and_cancel_retires_pending_begin() {
+fn lifecycle_starts_idle_and_cancel_retires_pending_begin() {
     let mut radio = RadioLifecycle::default();
-    assert!(!radio.enabled);
+    assert!(radio.begin.is_none());
+    assert!(!radio.begin_pending);
+    assert!(radio.running.is_none());
+    assert!(radio.active.is_none());
+    assert!(radio.retiring.is_none());
     let cancel = WaveCancellation::default();
     radio.begin = Some(cancel.clone());
     radio.begin_pending = true;

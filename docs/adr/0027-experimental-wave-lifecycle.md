@@ -1,9 +1,10 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 
-# ADR-0027: Experimental My Wave on the shared player
+# ADR-0027: My Wave on the shared player
 
-Status: Opt-in preview; retirement feedback defect identified, post-fix acceptance pending
+Status: Ordinary Home integration; final native/installed-Flatpak acceptance pending
 Date: 2026-11-04
+Updated: 2026-11-05 (Europe/Samara)
 Extends: ADR-0017, ADR-0023 and ADR-0026
 
 ## Context and evidence
@@ -32,15 +33,27 @@ does not send it, and the reviewed modern MarshalX event contract omits it.
 The live result now justifies removing that event, while retaining the accepted
 `event.from` shape and the four confirmed events.
 
+The owner subsequently retested corrected candidate
+[`2e4b978`](https://github.com/tracerxbrhd/karin/commit/2e4b9786bb475abd9fc7843503da5bf0d243e9ba)
+on Fedora and reported no new problems. Together with the earlier live chain,
+this authorizes ordinary integration. The general report does not establish
+unreported individual scenarios or acceptance of a new installed v0.5 Flatpak.
+
 ## Decision
 
-Home starts with a musical Wave Hero and secondary existing library routes.
-Process-local `--experimental-wave` gates service access through the existing
-validated session, with no token input, alternative sign-in or persisted feature
-flag. One primary action reflects the actual shared player: Listen, Pause or
-Resume; a failure permits a deliberate fresh session. Opening Home does not
-start or recreate radio. Only pending startup has Cancel; there is no persistent
-Finish/Stop control in the Hero.
+Home starts with the accepted musical Wave Hero and secondary existing library
+routes. Wave is available after ordinary Music-validated sign-in, with no token
+input, alternative sign-in or feature flag. Only the user's Listen action starts
+a session; startup, restored sign-in and Home navigation issue no Wave requests.
+One primary action reflects the actual shared player: Listen, Pause or Resume;
+a failure permits a deliberate fresh session. Only pending startup has Cancel;
+there is no persistent Finish/Stop control or experimental notice in the Hero.
+
+`--experimental-wave` is temporarily accepted as a deprecated no-op alias so
+previous Fedora launch commands keep working. It enables nothing, creates no
+separate application instance and is not required for ordinary or Flatpak use.
+GApplication forwards activation to the existing instance without a Wave-enabling
+action. No radio feature preference, session ID or batch marker is persisted.
 MusicService owns session/batch/feedback POSTs and one canonical lookup per
 batch. Preserve validated IDs, exact composite precedence, provider order,
 duplicates and honest omissions. Unknown/terminated status stops admission
@@ -63,7 +76,7 @@ such evidence exists, finish/skip each cycle once and observe EOS before Next.
 Zero-heard terminal cycles invent no listening. This is state observation,
 not sample-accurate physical audibility.
 
-The experimental buffer holds at most 100 positions with up to 25 prior
+The Wave buffer holds at most 100 positions with up to 25 prior
 positions retained; feedback FIFO holds at most 16 events. One provider operation
 runs at a time, with one pending batch, one pending start and one retiring session.
 Prefetch at three or fewer upcoming positions once per current occurrence;
@@ -117,13 +130,14 @@ GTK snapshots, duplicates, bounded work, cancellation, source switching, mode
 restoration and uncertain feedback without replay. Native synthetic media must
 use the shared player. Executed results belong in [VALIDATION](../VALIDATION.md).
 
-Default enablement needs the owner's [Fedora procedure](../BUILDING.md#my-wave-local-acceptance):
-repeat source changes after Playing, Pause and natural EOS, MPRIS Stop and a new
-Wave session after local retirement. Require no `radioFinished` request and no
-new refusal in those paths. Retain tests for pending feedback/batch cancellation,
-logout/close, exact-once terminal reporting and honest HTTP 400 handling for each
-remaining event. Fixtures do not establish the post-fix live result. Until the
-owner accepts the repeat, Issue #16 stays open and normal service access remains
-gated. Public distribution remains separate Issue #5
+The owner's final [Native/Flatpak procedure](../BUILDING.md#my-wave-local-acceptance)
+checks ordinary no-argument startup, sign-in/restoration without automatic radio,
+explicit Listen, transport/EOS/continuation, source replacement, MPRIS and
+logout/restart. Require no `radioFinished` request or unhandled new refusal.
+Retain tests for pending feedback/batch cancellation, exact-once terminal
+reporting and honest HTTP 400 handling for every supported event. Fixtures do
+not establish installed Flatpak or individual desktop acceptance. Issue #16
+stays open until the final ordinary-native and installed-Flatpak report.
+Public distribution remains separate Issue #5
 in [API_FEASIBILITY](../API_FEASIBILITY.md). No DRM bypass, audio persistence or
 new Flatpak permissions follows from this decision.

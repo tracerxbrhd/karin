@@ -127,15 +127,6 @@ fn assert_structure(ui: &crate::ui::MainWindow, wave: &WaveParts, state: RadioSt
         wave.cancel.is_sensitive(),
         state.phase == RadioPhase::Starting
     );
-    let disabled = state.phase == RadioPhase::Disabled;
-    assert_eq!(
-        wave.experiment.text(),
-        if disabled {
-            "Функция проходит проверку"
-        } else {
-            "Предварительная версия"
-        }
-    );
     let transport = matches!(state.phase, RadioPhase::Active | RadioPhase::LoadingNext);
     let playing = state.playback == Some(PlaybackState::Playing);
     let resumable = matches!(
@@ -170,13 +161,35 @@ fn assert_structure(ui: &crate::ui::MainWindow, wave: &WaveParts, state: RadioSt
     }
     assert_eq!(
         wave.primary.is_sensitive(),
-        !disabled
-            && state.authenticated
+        state.authenticated
             && !busy
             && (matches!(state.phase, RadioPhase::Ready | RadioPhase::Failed { .. })
                 || (transport && (playing || resumable)))
     );
     for widget in descendants(wave.widget.upcast_ref()) {
+        assert_ne!(widget.widget_name(), "music-wave-experimental-note");
+        for value in [
+            widget.tooltip_text(),
+            widget
+                .downcast_ref::<gtk::Label>()
+                .map(|label| label.text()),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            let value = value.to_lowercase();
+            for obsolete in [
+                "предварительная версия",
+                "функция проходит проверку",
+                "эксперимент",
+                "локальной проверки",
+            ] {
+                assert!(
+                    !value.contains(obsolete),
+                    "ordinary My Wave has no permanent preview notice"
+                );
+            }
+        }
         if let Some(button) = widget.downcast_ref::<gtk::Button>() {
             assert!(
                 !button
@@ -346,6 +359,7 @@ fn native_input(ui: &crate::ui::MainWindow, id: &str, button: &gtk::Button) {
 
 #[test]
 #[ignore = "isolated GTK/X11 Home presentation; run under Xvfb at GDK_SCALE=1 and 2"]
+// Keep the existing selector registered in CI; its states now cover normal Home.
 fn native_wave_home_experiment_layout_and_controls() {
     gtk::init().unwrap();
     adw::init().unwrap();
@@ -376,12 +390,29 @@ fn native_wave_home_experiment_layout_and_controls() {
     ui.window.present();
     let this = &ui.music.controller;
     assert!(this.service.is_none() && this.model.borrow().token.is_none());
-    this.model.borrow_mut().account_valid = true;
+    assert_eq!(this.radio_status().phase, RadioPhase::Ready);
+    assert!(!this.radio_status().authenticated);
+    assert!(!this.widgets.home_wave.primary.is_sensitive());
+    {
+        let mut model = this.model.borrow_mut();
+        model.token = Some(AccessToken::for_test(
+            "synthetic-home-presentation-token",
+            Duration::from_secs(300),
+        ));
+        model.account_valid = true;
+    }
     this.widgets
         .account
         .set_text("Synthetic presentation account");
     this.render_controls();
     ui.show_page("music-home");
+    settle();
+    assert_eq!(this.radio_status().phase, RadioPhase::Ready);
+    assert!(this.radio_status().authenticated);
+    assert!(
+        this.widgets.home_wave.primary.is_sensitive(),
+        "normal validated Home offers Listen without an experimental enabler"
+    );
     let wave = WaveParts::new();
     let wave_refs: Vec<_> = descendants(wave.widget.upcast_ref())
         .into_iter()
@@ -465,7 +496,6 @@ fn native_wave_home_experiment_layout_and_controls() {
             }
             if shape == "compact" {
                 for (name, state) in [
-                    ("disabled", status(RadioPhase::Disabled, None)),
                     ("starting", status(RadioPhase::Starting, None)),
                     (
                         "paused",
@@ -487,7 +517,7 @@ fn native_wave_home_experiment_layout_and_controls() {
                     if name == "starting" && theme == "light" {
                         native_input(&ui, &id, &wave.cancel);
                     }
-                    if (name == "disabled" || name == "paused") && theme == "dark" {
+                    if name == "paused" && theme == "dark" {
                         capture(&ui, &id, shape, name, theme);
                     }
                 }
@@ -499,15 +529,22 @@ fn native_wave_home_experiment_layout_and_controls() {
                 reveal_wave(&ui, &wave);
                 assert_structure(&ui, &wave, unauthenticated);
                 assert!(contains_text(wave.widget.upcast_ref(), "Войдите в Яндекс"));
+                if theme == "dark" {
+                    capture(&ui, &id, shape, "unauthenticated", theme);
+                }
             }
         }
     }
-    this.model.borrow_mut().account_valid = false;
+    {
+        let mut model = this.model.borrow_mut();
+        model.account_valid = false;
+        model.token = None;
+    }
     this.render_controls();
     settle();
     assert!(
         !wave.widget.is_mapped(),
-        "signed-out Home must hide experimental personal controls"
+        "signed-out Home must hide personal controls"
     );
     this.widgets.home_signedin.remove(&wave.widget);
     this.widgets
