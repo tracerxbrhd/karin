@@ -226,6 +226,16 @@ struct Inner {
     // not retain independent generations for the same directory.
     _lock_file: File,
 }
+impl Drop for Inner {
+    fn drop(&mut self) {
+        // flock belongs to an open file description, not to this File value.
+        // A concurrently forked child can retain that description until exec,
+        // even with CLOEXEC. End ownership explicitly when the final cache Arc
+        // drops, rather than waiting for every inherited descriptor to close.
+        // Live clones/workers keep Inner alive; Weak Hit/Lease/Request do not.
+        let _ = rustix::fs::flock(&self._lock_file, rustix::fs::FlockOperation::Unlock);
+    }
+}
 #[derive(Clone)]
 struct AudioCache(Arc<Inner>);
 #[derive(Clone)]

@@ -418,6 +418,44 @@ fn one_namespace_owner_and_retired_tickets_survive_clear_and_reopen() {
 }
 
 #[test]
+fn namespace_owner_release_is_independent_of_inherited_file_description() {
+    let (sandbox, authority, cache, lease) = fixture(100_000);
+    put(&cache, &lease, FIRST.track, 400);
+    let old_hit = cache.get(&lease, FIRST.track).unwrap().unwrap();
+    let old_request = cache.begin(&lease, SECOND.track).unwrap();
+    // dup and fork both retain the same Linux open file description. A child
+    // between fork and exec can retain this reference even with CLOEXEC set.
+    // A duplicate makes that scheduling window deterministic without forking
+    // a multithreaded Rust test process or changing the production FD flags.
+    let inherited_description = cache.0._lock_file.try_clone().unwrap();
+    let peer = cache.clone();
+    drop(cache);
+    assert!(matches!(
+        AudioCache::open(sandbox.clone(), authority.clone(), 11, 100_000),
+        Err(CacheError::Busy)
+    ));
+    drop(peer);
+    assert!(
+        lease.owner.upgrade().is_none(),
+        "tickets retain only Weak owners"
+    );
+    assert_eq!(old_hit.admit().unwrap_err(), CacheError::Cancelled);
+    let reopened = AudioCache::open(sandbox.clone(), authority.clone(), 11, 100_000).unwrap();
+    assert_eq!(
+        reopened.put(old_request, &SyntheticAudio::tone(400).unwrap()),
+        Err(CacheError::Cancelled)
+    );
+    drop(inherited_description);
+    assert!(
+        matches!(
+            AudioCache::open(sandbox, authority, 11, 100_000),
+            Err(CacheError::Busy)
+        ),
+        "closing an old inherited descriptor cannot unlock the new owner"
+    );
+}
+
+#[test]
 fn active_owner_recovers_orphan_bytes_before_quota_or_stats() {
     let one = (HEADER + SyntheticAudio::tone(400).unwrap().0.len()) as u64;
     let (sandbox, _, cache, lease) = fixture(one);
