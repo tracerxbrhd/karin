@@ -2,7 +2,7 @@
 
 # ADR-0028: Distinct, server-confirmed track reactions
 
-Status: Implemented contract candidate; live service and desktop acceptance pending
+Status: Live server reactions confirmed at `1877a6c`; revised Next/Flatpak acceptance pending
 Date: 2026-11-05
 Extends: ADR-0014 and ADR-0027
 
@@ -29,10 +29,12 @@ Published source inspected for this change:
   notes describe clearing the opposite mark when adding one. Karin must confirm
   both collections; it cannot assert that effect from the POST alone.
 
-These sources establish a concrete interoperable contract candidate, not a
-reported result with Karin's current live account. They grant no API or public
-distribution permission. No upstream implementation, identity or dependency is
-imported; retain the existing GPL/source attribution boundaries.
+These sources established the concrete interoperable contract. The owner then
+confirmed real server reactions, opposite-mark interaction and existing functions
+at `1877a6c`, and requested automatic Next after confirmed current-track Dislike.
+This report does not establish a new revision's desktop/installed Flatpak acceptance
+or API/public-distribution permission. No upstream implementation, identity or
+dependency is imported; retain existing GPL/source attribution boundaries.
 
 ## Service and UI decision
 
@@ -69,10 +71,20 @@ Pending unrelated reads retired by the shared lane receive GET-only Retry,
 not an endless spinner. No additional membership requests are needed to update
 matching detail views, and logout/close clear these presentation subscriptions.
 
-Ordinary reaction failures do not stop, advance or rebuild the current player
-or queue; rejected/expired authorization still follows normal session teardown.
-Logout/close retire work and state; an already dispatched request cannot be
-unsent or used to update a replacement session.
+Only successful, dual-read-confirmed Dislike addition on the unchanged current
+playback occurrence invokes the existing Next once. Capture the queue-owned
+opaque occurrence identity and current playback intent when admitting the write;
+Track ID alone is insufficient because queues permit duplicates and replay.
+Recheck these guards together with account/request generations when admitting the
+result. Update confirmed reaction presentation before delegating transport.
+
+Removing Dislike, Like/Unlike, refusals and uncertain writes never advance.
+A new occurrence, replaced playback intent, logout, account change, cancellation
+or controller destruction retires the pending playback effect. GET-only recovery
+after an ambiguous POST may display current marks but cannot replay the earlier
+Next intent. Ordinary failures do not stop or rebuild the player/queue;
+rejected/expired authorization still follows normal session teardown. An already
+dispatched request cannot be unsent or update a replacement session.
 
 ## Wave boundary
 
@@ -80,14 +92,16 @@ unsent or used to update a replacement session.
 lists recommendation-only `like`/`unlike`/`dislike`/`undislike` events and requires
 actual played time for `dislike`. It explicitly distinguishes those events from
 the account collection. A generic enum does not establish the exact negative
-feedback lifecycle for Karin's live session, nor whether a reaction should
-advance playback.
+feedback lifecycle for Karin's live session. The owner's confirmed-Dislike Next
+requirement is a local transport policy, separate from those protocol events.
 
-This change does not add those events, another radio session or automatic skip.
-Account reactions during Wave use the same confirmed collection operation.
-The established four-event Wave protocol, original batch markers, observed
-Playing ledger, queue and player remain unchanged. Separate confirmation is
-needed before extending [ADR-0027](0027-experimental-wave-lifecycle.md).
+Account reactions during Wave use the same confirmed collection operation. After
+confirmed current-occurrence Dislike addition, delegate to existing Next: its
+observed Playing ledger, original batch marker and terminal-once rules determine
+whether the interrupted cycle sends the established Skip. Add no recommendation-
+only negative event, replay, radio session or second player. The four-event Wave
+protocol remains unchanged; extending it still needs separate evidence under
+[ADR-0027](0027-experimental-wave-lifecycle.md).
 
 ## Validation
 
@@ -95,11 +109,13 @@ Use synthetic HTTP fixtures for distinct add/remove routes, both memberships,
 revision conflicts, authorization refusals, malformed/oversized data, ambiguous
 writes, no replay and obsolete-account results. Native checks must exercise
 mouse/keyboard focus, pending state, compact layouts, Info isolation and playback
-survival, including Wave/logout. Executed results belong in
+survival. Cover exactly one confirmed Dislike Next in ordinary/Wave contexts,
+no Next for removal/Like/refused/uncertain outcomes, changed occurrences including
+duplicate IDs, cancellation and logout. Executed results belong in
 [VALIDATION](../VALIDATION.md); merely registering a test is not a pass.
 
-One consenting owner-local read/write/read and removal cycle must confirm the
-actual Music state in Native and installed Flatpak. Record only revision,
-environment and PASS/FAIL/not-tested; do not export account identifiers, tokens,
-wire data, signed URLs, personal screenshots or recordings. Keep Issue #17 open
-until that result. Public-distribution conditions remain separate Issue #5.
+The owner's `1877a6c` result confirms live server reactions. Repeat the revised
+Next workflow in Native and installed Flatpak, recording revision, environment
+and PASS/FAIL/not-tested without account identifiers, tokens, wire data, signed
+URLs, personal screenshots or recordings. Issue #17 retains any unreported
+acceptance; public-distribution conditions remain separate Issue #5.

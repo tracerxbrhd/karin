@@ -66,6 +66,7 @@ fn native_library_interactions_confirmed_fixture() {
     let refuse_dislike_read = Arc::new(AtomicBool::new(false));
     let refuse_dislike_write = Arc::new(AtomicBool::new(false));
     let posts = Arc::new(AtomicUsize::new(0));
+    let offers = Arc::new(AtomicUsize::new(0));
     let reads = Arc::new(AtomicUsize::new(0));
     let playlist_reads = Arc::new(AtomicUsize::new(0));
     let playlist_detail_reads = Arc::new(AtomicUsize::new(0));
@@ -83,6 +84,7 @@ fn native_library_interactions_confirmed_fixture() {
         let refuse_dislike_read = refuse_dislike_read.clone();
         let refuse_dislike_write = refuse_dislike_write.clone();
         let posts = posts.clone();
+        let offers = offers.clone();
         let reads = reads.clone();
         let playlist_reads = playlist_reads.clone();
         let playlist_detail_reads = playlist_detail_reads.clone();
@@ -142,7 +144,10 @@ fn native_library_interactions_confirmed_fixture() {
                     continue;
                 }
                 let (status, response) = match (method, url.path()) {
-                    ("GET", "/tracks/42/download-info") => (200,json!({"result":[{"codec":"mp3","bitrateInKbps":192,"preview":false,"direct":false,"downloadInfoUrl":format!("{origin}download-info/42")}]}).to_string()),
+                    ("GET", "/tracks/42/download-info") => {
+                        offers.fetch_add(1, Ordering::AcqRel);
+                        (200,json!({"result":[{"codec":"mp3","bitrateInKbps":192,"preview":false,"direct":false,"downloadInfoUrl":format!("{origin}download-info/42")}]}).to_string())
+                    },
                     ("GET", "/account/status") => (200, json!({"result":{"account":{"uid":1234,"displayName":"Synthetic interaction account"}}}).to_string()),
                     ("GET", "/users/1234/likes/tracks") => {
                         reads.fetch_add(1, Ordering::AcqRel);
@@ -429,7 +434,7 @@ fn native_library_interactions_confirmed_fixture() {
         crate::queue::PlaybackContext::new(
             crate::queue::ContextKind::LikedTracks,
             None,
-            vec![footer_track],
+            vec![footer_track.clone()],
             0,
             false,
         )
@@ -649,7 +654,8 @@ fn native_library_interactions_confirmed_fixture() {
     pump_until(|| detail_heart.is_sensitive());
 
     // Account Dislike is a separate explicit operation. Real pointer input
-    // cannot bubble to Track Info, and marking never navigates/advances audio.
+    // cannot bubble to Track Info. A terminal singleton has no next item, so
+    // confirmed Dislike keeps that paused worker rather than inventing a source.
     feedback_popover.popdown();
     let footer_dislike = button_named(
         this.widgets.current_like_slot.upcast_ref(),
@@ -792,10 +798,159 @@ fn native_library_interactions_confirmed_fixture() {
     assert_eq!(
         this.music_serial(),
         before_serial,
-        "reaction changes never resolve or replace the existing player"
+        "a terminal singleton and non-advancing reactions keep the existing player"
     );
+    assert_eq!(posts.load(Ordering::Acquire), 15);
+
+    // A real bounded context contains repeated provider IDs. The confirmed
+    // reaction advances exactly one opaque occurrence through the normal Next
+    // path and the existing resolver/worker lifecycle.
+    this.play_music_context(
+        crate::queue::PlaybackContext::new(
+            crate::queue::ContextKind::Playlist,
+            Some("synthetic-reaction-context".into()),
+            vec![footer_track.clone(); 4],
+            0,
+            false,
+        )
+        .unwrap(),
+    );
+    pump_until(|| {
+        this.music_snapshot()
+            .is_some_and(|snapshot| snapshot.state == crate::playback::PlaybackState::Playing)
+    });
+    pump_until(|| footer_dislike.is_sensitive());
+    let first_occurrence = this.model.borrow().queue.current_occurrence_id().cloned();
+    let first_serial = this.music_serial();
+    let first_offers = offers.load(Ordering::Acquire);
+    let before_posts = posts.load(Ordering::Acquire);
+    footer_dislike.emit_clicked();
+    footer_dislike.emit_clicked();
+    pump_until(|| {
+        !this.mutation_busy.get() && this.model.borrow().queue.current_index() == Some(1)
+    });
+    pump_until(|| {
+        this.music_snapshot()
+            .is_some_and(|snapshot| snapshot.state == crate::playback::PlaybackState::Playing)
+    });
+    this.pause_music();
+    pump_until(|| {
+        this.music_snapshot()
+            .is_some_and(|snapshot| snapshot.state == crate::playback::PlaybackState::Paused)
+    });
+    assert_eq!(posts.load(Ordering::Acquire), before_posts + 1);
+    assert!(this.music_serial() > first_serial);
+    assert_eq!(
+        offers.load(Ordering::Acquire),
+        first_offers + 1,
+        "one confirmation resolves one successor"
+    );
+    assert_ne!(
+        this.model.borrow().queue.current_occurrence_id().cloned(),
+        first_occurrence
+    );
+    assert_eq!(this.model.borrow().queue.current().unwrap().id, "42");
+    assert!(disliked.load(Ordering::Acquire));
+    capture_native("footer-dislike-confirmed-next-duplicate");
+    let successor = this.model.borrow().queue.current_occurrence_id().cloned();
+    let successor_serial = this.music_serial();
+    let unchanged = || {
+        assert_eq!(
+            this.model.borrow().queue.current_occurrence_id().cloned(),
+            successor
+        );
+        assert_eq!(this.music_serial(), successor_serial);
+    };
+    // Removing Dislike, adding Like and removing Like each have a real next
+    // item available. None may trigger transport, even after a confirmed POST.
+    for button in [&footer_dislike, &footer_heart, &footer_heart] {
+        let before_posts = posts.load(Ordering::Acquire);
+        button.emit_clicked();
+        pump_until(|| {
+            posts.load(Ordering::Acquire) == before_posts + 1 && !this.mutation_busy.get()
+        });
+        unchanged();
+    }
+    assert!(!disliked.load(Ordering::Acquire) && !liked.load(Ordering::Acquire));
+    refuse_dislike_write.store(true, Ordering::Release);
+    let before_posts = posts.load(Ordering::Acquire);
+    footer_dislike.emit_clicked();
+    pump_until(|| posts.load(Ordering::Acquire) == before_posts + 1 && !this.mutation_busy.get());
+    unchanged();
+    footer_refresh.emit_clicked();
+    pump_until(|| footer_dislike.is_sensitive());
+    unchanged();
+    lose_write_response.store(true, Ordering::Release);
+    let before_posts = posts.load(Ordering::Acquire);
+    footer_dislike.emit_clicked();
+    pump_until(|| posts.load(Ordering::Acquire) == before_posts + 1 && !this.mutation_busy.get());
+    unchanged();
+    footer_refresh.emit_clicked();
+    pump_until(|| footer_dislike.is_sensitive());
+    unchanged();
+    assert!(
+        disliked.load(Ordering::Acquire),
+        "GET recovery admits membership, never a delayed Next"
+    );
+    footer_dislike.emit_clicked();
+    pump_until(|| !this.mutation_busy.get() && footer_dislike.is_sensitive());
+    unchanged();
+
+    // Confirmation arrives after a user selected a different occurrence of
+    // exactly the same Track ID. A provider-ID comparison would skip it again.
+    read_held.store(false, Ordering::Release);
+    hold_read.store(true, Ordering::Release);
+    footer_dislike.emit_clicked();
+    pump_until(|| read_held.load(Ordering::Acquire));
+    this.select_music_queue(2);
+    let selected_occurrence = this.model.borrow().queue.current_occurrence_id().cloned();
+    let selected_serial = this.music_serial();
+    release.send(()).unwrap();
+    pump_until(|| !this.mutation_busy.get() && footer_dislike.is_sensitive());
+    pump_until(|| {
+        this.music_snapshot()
+            .is_some_and(|snapshot| snapshot.state == crate::playback::PlaybackState::Ready)
+    });
+    assert_eq!(this.model.borrow().queue.current_index(), Some(2));
+    assert_eq!(
+        this.model.borrow().queue.current_occurrence_id().cloned(),
+        selected_occurrence
+    );
+    assert_eq!(this.music_serial(), selected_serial);
+    footer_dislike.emit_clicked();
+    pump_until(|| !this.mutation_busy.get() && footer_dislike.is_sensitive());
+
+    // Returning to the original occurrence is a newer playback intent too.
+    read_held.store(false, Ordering::Release);
+    hold_read.store(true, Ordering::Release);
+    footer_dislike.emit_clicked();
+    pump_until(|| read_held.load(Ordering::Acquire));
+    this.select_music_queue(1);
+    this.select_music_queue(2);
+    let returned_serial = this.music_serial();
+    release.send(()).unwrap();
+    pump_until(|| !this.mutation_busy.get() && footer_dislike.is_sensitive());
+    pump_until(|| {
+        this.music_snapshot()
+            .is_some_and(|snapshot| snapshot.state == crate::playback::PlaybackState::Playing)
+    });
+    this.pause_music();
+    pump_until(|| {
+        this.music_snapshot()
+            .is_some_and(|snapshot| snapshot.state == crate::playback::PlaybackState::Paused)
+    });
+    assert_eq!(
+        this.model.borrow().queue.current_occurrence_id().cloned(),
+        selected_occurrence
+    );
+    assert_eq!(
+        this.music_serial(),
+        returned_serial,
+        "late confirmation cannot override away-and-back intent"
+    );
+    footer_dislike.emit_clicked();
+    pump_until(|| !this.mutation_busy.get() && footer_dislike.is_sensitive());
     let settled_posts = posts.load(Ordering::Acquire);
-    assert_eq!(settled_posts, 15);
     this.model.borrow_mut().queue.clear();
     this.render_queue();
     assert!(this.widgets.current_like_slot.first_child().is_none());
@@ -823,6 +978,70 @@ fn native_library_interactions_confirmed_fixture() {
     ));
     assert!(!contains_text(window.upcast_ref(), "В любимом"));
     assert_eq!(posts.load(Ordering::Acquire), settled_posts);
+
+    // A new validated session can use the same provider UID, but queued work
+    // from the session being retired must never resurrect audio on logout or
+    // controller close. Both cases hold an applied Dislike's confirmation GET.
+    for close in [false, true] {
+        let token = AccessToken::for_test("synthetic-ui-restored-token", Duration::from_secs(90));
+        this.service.as_ref().unwrap().account(&token).unwrap();
+        {
+            let mut model = this.model.borrow_mut();
+            model.token = Some(token);
+            model.account_valid = true;
+        }
+        this.render_controls();
+        this.play_music_context(
+            crate::queue::PlaybackContext::new(
+                crate::queue::ContextKind::LikedTracks,
+                None,
+                vec![footer_track.clone(); 3],
+                0,
+                false,
+            )
+            .unwrap(),
+        );
+        pump_until(|| {
+            this.music_snapshot()
+                .is_some_and(|snapshot| snapshot.state == crate::playback::PlaybackState::Playing)
+        });
+        this.pause_music();
+        pump_until(|| {
+            this.music_snapshot()
+                .is_some_and(|snapshot| snapshot.state == crate::playback::PlaybackState::Paused)
+        });
+        let reaction = button_named(
+            this.widgets.current_like_slot.upcast_ref(),
+            "music-current-dislike",
+        )
+        .unwrap();
+        pump_until(|| reaction.is_sensitive());
+        if disliked.load(Ordering::Acquire) {
+            reaction.emit_clicked();
+            pump_until(|| !this.mutation_busy.get() && reaction.is_sensitive());
+        }
+        read_held.store(false, Ordering::Release);
+        hold_read.store(true, Ordering::Release);
+        let before_posts = posts.load(Ordering::Acquire);
+        reaction.emit_clicked();
+        pump_until(|| read_held.load(Ordering::Acquire));
+        assert_eq!(posts.load(Ordering::Acquire), before_posts + 1);
+        if close {
+            this.close();
+        } else {
+            this.logout();
+        }
+        let retired_serial = this.music_serial();
+        release.send(()).unwrap();
+        assert!(this.music_snapshot().is_none());
+        let settle = Instant::now() + Duration::from_millis(100);
+        pump_until(|| Instant::now() >= settle);
+        assert!(this.model.borrow().token.is_none());
+        assert!(this.model.borrow().queue.items().is_empty());
+        assert_eq!(this.music_serial(), retired_serial);
+        assert!(!this.mutation_busy.get());
+        assert_eq!(posts.load(Ordering::Acquire), before_posts + 1);
+    }
     stop.store(true, Ordering::Release);
     server.join().unwrap();
     window.close();

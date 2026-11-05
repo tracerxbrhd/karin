@@ -14,7 +14,7 @@ success establishes neither playback entitlement nor public-distribution rights.
 | Account | Validate the actual Music account before admitting a session; Yandex ID success alone is insufficient. |
 | Library and playlists | Account-bound liked-track and own/liked playlist reads, strict owner/kind identities, bounded contents and explicit partial/end/error states. |
 | Search and details | Independent track/album/artist/playlist sections and paging. Validate minimal track-hit IDs, then normalize through one canonical batch lookup. |
-| Track reactions | Distinct Like/Unlike and account Dislike/removal. Valid dual reads enable paired mutations confirmed from both collections. Unavailable Dislike stays hidden; a fresh independent Like read preserves established Like-only confirmation. Owner acceptance of the new contract is pending. |
+| Track reactions | Distinct Like/Unlike and account Dislike/removal. Valid dual reads enable paired mutations confirmed from both collections. Unavailable Dislike stays hidden; a fresh independent Like read preserves established Like-only confirmation. Owner-confirmed at `1877a6c`; revised current-Dislike Next and installed Flatpak acceptance remain separate. |
 | Playlist creation | One explicit create request followed by independent identity/title/visibility confirmation; ambiguous writes remain unresolved. |
 | Online playback | Use the separate guarded [resolver](STREAM_DELIVERY_REVIEW.md) for an explicitly selected track. Availability metadata alone is insufficient. |
 | My Wave | Ordinary signed-in Home using the shared player; explicit Listen starts radio. Real sessions/audio/four feedback events/continuation confirmed; owner repeated the corrected candidate without reporting new issues. Final normal-startup and installed Flatpak v0.5 acceptance remain separate. |
@@ -64,12 +64,15 @@ hidden, without guessing a persisted state. Recovery reads are GET-only.
 
 The account mutation is separate from recommendation-only negative Wave events.
 The [modern event model](https://github.com/MarshalX/yandex-music-api/blob/9ca132e5c18a72aab779c1fc68c169380a9357d0/yandex_music/rotor/session_event.py#L10)
-does not by itself establish Karin's negative-feedback lifecycle. This change
-adds no Wave event or automatic skip and claims no measured recommendation
-effect. The accepted four-event protocol remains intact. See
-[ADR-0028](adr/0028-confirmed-track-reactions.md) and the
-[local read/write/read procedure](BUILDING.md#track-reaction-acceptance). No live
-Dislike result or public API/distribution permission is established by fixtures.
+does not by itself establish Karin's negative-feedback lifecycle. Confirmed
+Dislike addition on the unchanged current occurrence now delegates to existing
+Next, including its established Wave Skip semantics. This adds no new Wave event
+and claims no measured recommendation effect. The accepted four-event protocol
+remains intact. The owner confirmed real server reactions and opposite-mark
+interaction at `1877a6c`; revised Next and installed Flatpak checks remain separate.
+See [ADR-0028](adr/0028-confirmed-track-reactions.md) and the
+[local procedure](BUILDING.md#track-reaction-acceptance). Fixtures and owner
+functional results establish no public API/distribution permission.
 
 ## My Wave
 

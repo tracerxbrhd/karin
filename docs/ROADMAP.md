@@ -54,11 +54,12 @@ The Dislike branch extends account-bound Like/Unlike with a distinct disliked-tr
 collection and removal. Valid dual reads and revision acknowledgment determine
 paired confirmation; unavailable Dislike leaves the independently confirmed
 Like-only path usable. Unknown state and ambiguous writes stay explicit. The Player Bar
-adds an independent Dislike target without changing the accepted audio path or
-Wave protocol. Published-source evidence is not a live Karin result: keep
-[Issue #17](https://github.com/tracerxbrhd/karin/issues/17) open for the owner's
-[Native/Flatpak read/write/read acceptance](BUILDING.md#track-reaction-acceptance).
-See [ADR-0028](adr/0028-confirmed-track-reactions.md).
+adds an independent Dislike target and delegates confirmed current-occurrence
+Dislike addition to existing Next without changing the audio path or Wave protocol.
+The owner confirmed live server reactions and their interaction at `1877a6c`.
+[Issue #17](https://github.com/tracerxbrhd/karin/issues/17) retains the revised
+[Native/Flatpak acceptance](BUILDING.md#track-reaction-acceptance), including
+automatic Next. See [ADR-0028](adr/0028-confirmed-track-reactions.md).
 
 Audio storage is an independent branch/PR tracked in #20. A playable MP3 and
 synthetic cache tests establish no storage grant or offline rights lifecycle;

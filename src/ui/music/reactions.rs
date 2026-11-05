@@ -1,9 +1,40 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Account reactions in the existing footer. No optimistic toggle or radio event.
+//! Confirmed account reactions and occurrence-bound use of the existing Next.
 
 use super::*;
 use crate::music::interactions::{InteractionError, TrackReaction, TrackReactions};
 use interactions::{interaction_diagnostic, interaction_message, like_icon_name};
+
+/// A reaction belongs to the playback cycle selected when the user clicked.
+/// The opaque occurrence distinguishes repeated Track IDs and survives queue
+/// reindexing; the serial also fences Stop/restart or leaving and returning to
+/// the same occurrence. This token is never persisted or sent to the service.
+#[derive(PartialEq, Eq)]
+struct ReactionPlaybackTarget {
+    generation: u64,
+    occurrence: crate::queue::OccurrenceId,
+    serial: u64,
+}
+
+fn confirmed_dislike_advances(
+    kind: TrackReaction,
+    enabled: bool,
+    result: Result<ReactionRead, InteractionError>,
+    submitted: Option<&ReactionPlaybackTarget>,
+    current: Option<&ReactionPlaybackTarget>,
+) -> bool {
+    kind == TrackReaction::Dislike
+        && enabled
+        && matches!(
+            result,
+            Ok(ReactionRead::Both(TrackReactions {
+                liked: false,
+                disliked: true,
+            }))
+        )
+        && submitted.is_some()
+        && submitted == current
+}
 
 #[derive(Clone)]
 struct ReactionControls {
@@ -319,7 +350,7 @@ impl Controller {
             let id = id.clone();
             button.connect_clicked(move |_| {
                 if let Some(this) = weak.upgrade() {
-                    this.change_footer_reaction(id.clone(), kind, widgets.clone());
+                    this.change_footer_reaction(id.clone(), generation, kind, widgets.clone());
                 }
             });
         }
@@ -385,10 +416,18 @@ impl Controller {
     fn change_footer_reaction(
         self: &Rc<Self>,
         id: String,
+        generation: u64,
         kind: TrackReaction,
         widgets: ReactionControls,
     ) {
-        if !widgets.alive() || !self.model.borrow().account_valid || self.model.borrow().closed {
+        let admitted = {
+            let model = self.model.borrow();
+            !model.closed
+                && model.account_valid
+                && model.generation == generation
+                && model.queue.current().is_some_and(|track| track.id == id)
+        };
+        if !widgets.alive() || !admitted {
             return;
         }
         let state = widgets.state.get();
@@ -406,6 +445,7 @@ impl Controller {
             return;
         }
         let enabled = !marked;
+        let playback_target = self.reaction_playback_target();
         let detail_views = self.retire_detail_likes(&id);
         widgets.unknown("Сохраняем и проверяем отметки…", false);
         for operation in [
@@ -476,9 +516,197 @@ impl Controller {
                         Err(error) => widgets.unknown(interaction_message(error), true),
                     }
                 }
-                // No queue/transport command or recommendation-only radio
-                // feedback is implied by a collection reaction.
+                // `run` admits this FnOnce completion only for the original
+                // session and live Mutation ticket. Confirm presentation before
+                // using the shared Next path, which owns queue/MPRIS and Wave
+                // listening/Skip semantics. GET recovery never reaches here.
+                if confirmed_dislike_advances(
+                    kind,
+                    enabled,
+                    result,
+                    playback_target.as_ref(),
+                    this.reaction_playback_target().as_ref(),
+                ) {
+                    this.skip_music(true, false);
+                }
             },
         );
+    }
+
+    fn reaction_playback_target(&self) -> Option<ReactionPlaybackTarget> {
+        let model = self.model.borrow();
+        if model.closed
+            || !model.account_valid
+            || !(self.music_requested() || self.music_snapshot().is_some())
+        {
+            return None;
+        }
+        Some(ReactionPlaybackTarget {
+            generation: model.generation,
+            occurrence: model.queue.current_occurrence_id()?.clone(),
+            serial: self.music_serial(),
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::queue::{ContextKind, MusicQueue, PlaybackContext, RepeatMode};
+
+    fn queue(kind: ContextKind) -> MusicQueue {
+        let track = Track {
+            id: "42".into(),
+            title: "Synthetic repeated reaction track".into(),
+            artists: Vec::new(),
+            artist_links: Vec::new(),
+            album_id: None,
+            album_title: None,
+            duration_ms: Some(60_000),
+            cover: None,
+            explicit: false,
+            available: true,
+        };
+        let mut queue = MusicQueue::new();
+        queue.replace_context(PlaybackContext::new(kind, None, vec![track; 3], 1, false).unwrap());
+        queue
+    }
+
+    fn target(queue: &MusicQueue, generation: u64, serial: u64) -> ReactionPlaybackTarget {
+        ReactionPlaybackTarget {
+            generation,
+            occurrence: queue.current_occurrence_id().unwrap().clone(),
+            serial,
+        }
+    }
+
+    fn confirmed() -> Result<ReactionRead, InteractionError> {
+        Ok(ReactionRead::Both(TrackReactions {
+            liked: false,
+            disliked: true,
+        }))
+    }
+
+    #[test]
+    fn advance_requires_confirmed_add_dislike_not_other_intents_or_recovery() {
+        let queue = queue(ContextKind::LikedTracks);
+        let submitted = target(&queue, 1, 10);
+        let current = target(&queue, 1, 10);
+        let permit = |kind, enabled, result| {
+            confirmed_dislike_advances(kind, enabled, result, Some(&submitted), Some(&current))
+        };
+        assert!(permit(TrackReaction::Dislike, true, confirmed()));
+        for (kind, enabled) in [
+            (TrackReaction::Dislike, false),
+            (TrackReaction::Like, true),
+            (TrackReaction::Like, false),
+        ] {
+            assert!(!permit(kind, enabled, confirmed()));
+        }
+        for result in [
+            Err(InteractionError::Music(MusicError::Forbidden)),
+            Err(InteractionError::WriteOutcomeUnknown),
+            Err(InteractionError::ConfirmationUnavailable),
+            Err(InteractionError::ConfirmationMismatch),
+            Ok(ReactionRead::Both(TrackReactions {
+                liked: false,
+                disliked: false,
+            })),
+            Ok(ReactionRead::Both(TrackReactions {
+                liked: true,
+                disliked: true,
+            })),
+            Ok(ReactionRead::LikeOnly(false, InteractionError::Conflict)),
+        ] {
+            assert!(!permit(TrackReaction::Dislike, true, result));
+        }
+        assert!(!confirmed_dislike_advances(
+            TrackReaction::Dislike,
+            true,
+            confirmed(),
+            None,
+            None,
+        ));
+    }
+
+    #[test]
+    fn confirmed_dislike_does_not_advance_equal_id_successor_or_replaced_context() {
+        for kind in [ContextKind::LikedTracks, ContextKind::Wave] {
+            let mut queue = queue(kind);
+            let submitted = target(&queue, 1, 10);
+            let original_id = queue.current().unwrap().id.clone();
+            queue.next_track().unwrap();
+            assert_eq!(queue.current().unwrap().id, original_id);
+            // Equal serial is deliberate: exact occurrence identity is required
+            // even if a future selection path does not replace the engine.
+            let current = target(&queue, 1, 10);
+            assert!(!confirmed_dislike_advances(
+                TrackReaction::Dislike,
+                true,
+                confirmed(),
+                Some(&submitted),
+                Some(&current),
+            ));
+            let context = queue.context().unwrap().clone();
+            queue.replace_context(context);
+            assert!(!confirmed_dislike_advances(
+                TrackReaction::Dislike,
+                true,
+                confirmed(),
+                Some(&current),
+                Some(&target(&queue, 1, 10)),
+            ));
+        }
+    }
+
+    #[test]
+    fn confirmed_dislike_survives_unrelated_queue_reindexing() {
+        let mut queue = queue(ContextKind::Playlist);
+        let submitted = target(&queue, 1, 10);
+        queue.remove(0);
+        assert_eq!(queue.current_index(), Some(0));
+        assert!(confirmed_dislike_advances(
+            TrackReaction::Dislike,
+            true,
+            confirmed(),
+            Some(&submitted),
+            Some(&target(&queue, 1, 10)),
+        ));
+    }
+
+    #[test]
+    fn playback_cycle_and_account_fence_return_stop_restart_and_repeat_one() {
+        let mut queue = queue(ContextKind::Album);
+        let submitted = target(&queue, 1, 10);
+        queue.next_track().unwrap();
+        queue.previous_track().unwrap();
+        // A->B->A returns the same occurrence, but never the same intent cycle.
+        for (generation, serial) in [(1, 12), (2, 10), (2, 12)] {
+            assert!(!confirmed_dislike_advances(
+                TrackReaction::Dislike,
+                true,
+                confirmed(),
+                Some(&submitted),
+                Some(&target(&queue, generation, serial)),
+            ));
+        }
+        queue.set_repeat_mode(RepeatMode::One);
+        queue.advance_eos().unwrap();
+        assert_eq!(queue.current_occurrence_id(), Some(&submitted.occurrence));
+        assert!(!confirmed_dislike_advances(
+            TrackReaction::Dislike,
+            true,
+            confirmed(),
+            Some(&submitted),
+            Some(&target(&queue, 1, 11)),
+        ));
+        // Stop/logout/close have no admissible active target at completion.
+        assert!(!confirmed_dislike_advances(
+            TrackReaction::Dislike,
+            true,
+            confirmed(),
+            Some(&submitted),
+            None,
+        ));
     }
 }

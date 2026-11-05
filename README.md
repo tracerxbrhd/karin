@@ -57,10 +57,12 @@ following earlier confirmed real audio, feedback and batch continuation.
 Final acceptance of ordinary startup and the installed v0.5 Flatpak remains
 separate; follow the [Native/Flatpak procedure](docs/BUILDING.md#my-wave-local-acceptance).
 
-The v0.6 reaction change implements distinct account Dislike/removal through the
-existing MusicService. Its [local acceptance](docs/BUILDING.md#track-reaction-acceptance)
-is pending; published API helpers and synthetic tests are not a live account result.
-Unavailable Dislike stays hidden while an independently confirmed Like remains usable.
+The owner confirmed real account Dislike/removal and Like/Dislike interaction at
+`1877a6c`. A confirmed Dislike on the same current playback occurrence now invokes
+Next; removing Dislike or changing Like does not. Unavailable Dislike stays hidden
+while an independently confirmed Like remains usable. The revised
+[Native/Flatpak acceptance](docs/BUILDING.md#track-reaction-acceptance) is separate
+from that earlier live result.
 
 The Music API is unofficial and may change. Separate recommendation shelves,
 lyrics and offline audio are not implemented. Cold first-player appearance in Cloud

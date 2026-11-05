@@ -66,8 +66,12 @@ with account/track generations and a bounded write lane. A deliberate reaction
 sends one POST and confirms both memberships/revision when dual reads are
 available; opposite marks are not optimistically inferred. If Dislike cannot be
 verified, a fresh independent Like read preserves the existing Like-only control
-and its established confirmation path. Dislike remains hidden/unknown. A refusal
-or ambiguous result leaves playback alone and offers read-only recovery;
+and its established confirmation path. Dislike remains hidden/unknown. Only a
+confirmed Dislike addition on the same current occurrence invokes the existing
+Next path once. Account/request generation and the queue-owned occurrence identity
+fence late results, including repeated Track IDs; a replaced playback intent must
+not be advanced. Removing Dislike and changing Like never advance playback.
+A refusal or ambiguous result leaves playback alone and offers read-only recovery;
 authorization loss still follows normal session teardown.
 [ADR-0028](adr/0028-confirmed-track-reactions.md) separates account membership
 from the unchanged Wave feedback protocol.
@@ -181,7 +185,8 @@ The footer appears for real playback intent, stays through Pause/retryable failu
 and hides on Stop/clear/logout. Its child conceals at the closed native endpoint
 to release hidden width. Metadata, Like and Dislike are separate focus/click
 targets; resize retains the same controls/controller. Reaction pending/error
-state never changes the current source or opens Track Info.
+state never changes the current source or opens Track Info. Confirmed current
+Dislike addition alone delegates to Next after presenting the confirmed state.
 
 The in-process GIO MPRIS 2.2 adapter exposes actual state, opaque track paths and
 temporary cover PNGs, never credentials, account IDs or media URLs. Flatpak keeps

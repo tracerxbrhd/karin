@@ -38,6 +38,8 @@ struct Counts {
     wave_initial: Option<Vec<u64>>,
     wave_next: Option<Vec<u64>>,
     wave_unavailable: Vec<u64>,
+    disliked_tracks: Vec<u64>,
+    reaction_posts: usize,
 }
 
 pub(in crate::ui::music) struct Fixture {
@@ -171,7 +173,8 @@ fn serve(
             | "/tracks"
             | "/users/1234/likes/tracks"
             | "/users/1234/dislikes/tracks"
-    ) || url.path().starts_with("/tracks/")
+    ) || url.path().starts_with("/users/1234/dislikes/tracks/")
+        || url.path().starts_with("/tracks/")
         || url.path().starts_with("/rotor/");
     if api {
         assert_eq!(
@@ -288,9 +291,37 @@ fn serve(
         "/users/1234/likes/tracks" | "/users/1234/dislikes/tracks"
     ) {
         assert_eq!(first[0], "GET");
+        let state = counts.lock().unwrap();
+        let tracks = if url.path().contains("/dislikes/") {
+            state
+                .disliked_tracks
+                .iter()
+                .map(|id| json!({"id": id}))
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
         json_response(
             &mut stream,
-            json!({"result":{"library":{"uid":1234,"revision":1,"tracks":[]}}}),
+            json!({"result":{"library":{"uid":1234,"revision":state.reaction_posts + 1,"tracks":tracks}}}),
+        );
+    } else if matches!(
+        url.path(),
+        "/users/1234/dislikes/tracks/add-multiple" | "/users/1234/dislikes/tracks/remove"
+    ) {
+        assert_eq!(first[0], "POST");
+        assert_eq!(body, b"track-ids=42");
+        let mut state = counts.lock().unwrap();
+        state.reaction_posts += 1;
+        if url.path().ends_with("add-multiple") {
+            assert!(!state.disliked_tracks.contains(&42));
+            state.disliked_tracks.push(42);
+        } else {
+            state.disliked_tracks.retain(|id| *id != 42);
+        }
+        json_response(
+            &mut stream,
+            json!({"result":{"revision":state.reaction_posts + 1}}),
         );
     } else if url.path() == "/search" {
         counts.lock().unwrap().searches += 1;
@@ -2967,8 +2998,68 @@ fn native_wave_shared_player_feedback_batches_and_cleanup() {
         first_path,
         "same track ID in another occurrence has another opaque path"
     );
-    this.skip_music(true, false);
+    // A confirmed account Dislike uses this same explicit Next path. The
+    // duplicate provider ID still belongs to occurrence2 and its original
+    // batch; no recommendation-only dislike/radio event is introduced.
+    let dislike = {
+        let slot = this.widgets.current_like_slot.first_child().unwrap();
+        let button = slot.first_child().unwrap().next_sibling().unwrap();
+        assert_eq!(button.widget_name(), "music-current-dislike");
+        button.downcast::<gtk::Button>().unwrap()
+    };
+    pump_until(|| dislike.is_mapped() && dislike.is_sensitive());
+    pump_until(|| {
+        fixture
+            .counts
+            .lock()
+            .unwrap()
+            .wave_events
+            .iter()
+            .filter(|event| {
+                event["event"]["type"] == "trackStarted" && event["event"]["trackId"] == "42"
+            })
+            .count()
+            == 2
+            && this.radio_idle_for_test()
+    });
+    let skips_before = fixture
+        .counts
+        .lock()
+        .unwrap()
+        .wave_events
+        .iter()
+        .filter(|event| event["event"]["type"] == "skip")
+        .count();
+    native_click(&ui.window, &dislike);
     wait_playing(this, 3);
+    pump_until(|| {
+        fixture
+            .counts
+            .lock()
+            .unwrap()
+            .wave_events
+            .iter()
+            .any(|event| {
+                event["event"]["type"] == "trackStarted" && event["event"]["trackId"] == "44"
+            })
+            && this.radio_idle_for_test()
+    });
+    {
+        let counts = fixture.counts.lock().unwrap();
+        assert_eq!(counts.reaction_posts, 1, "one deliberate Dislike POST");
+        assert_eq!(counts.disliked_tracks, vec![42]);
+        assert_eq!(counts.wave_sessions, 1, "Dislike keeps the existing Wave");
+        let skips = counts
+            .wave_events
+            .iter()
+            .filter(|event| event["event"]["type"] == "skip")
+            .collect::<Vec<_>>();
+        assert_eq!(skips.len(), skips_before + 1, "one Next reports one skip");
+        let skip = skips.last().unwrap();
+        assert_eq!(skip["batchId"], "synthetic-wave-batch-1");
+        assert_eq!(skip["event"]["trackId"], "42");
+        assert!(skip["event"]["totalPlayedSeconds"].as_f64().unwrap() > 0.0);
+    }
     this.play_music_context(
         PlaybackContext::new(
             ContextKind::Playlist,

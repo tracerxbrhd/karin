@@ -38,8 +38,12 @@ bounds do not justify skipping containment or guessing coordinates.
 - Test the whole metadata Info target and independent Like/Dislike focus. A
   reaction click must not open Info; unknown Dislike stays hidden and pending
   state is not optimistic. An unavailable Dislike must not disable a separately
-  confirmed Like-only workflow. Membership read/write/confirmation and playlist creation must not invent success or replay
-  ambiguous POSTs. Logout needs a clear label and default Cancel confirmation.
+  confirmed Like-only workflow. Confirmed Dislike addition advances the unchanged
+  current occurrence once through normal Next/Wave Skip. Removal, Like/Unlike,
+  refusals and ambiguous writes must not advance; neither may a late reply after
+  selecting a duplicate Track ID occurrence, logout or cancellation. Membership
+  confirmation and playlist creation must not invent success or replay ambiguous
+  POSTs. Logout needs a clear label and default Cancel confirmation.
 - Selection alone cannot reveal an idle footer. Real resolver/generated-media
   playback must expose controls; Pause retains them, Stop/clear/logout hide them
   without a focus trap or hidden width constraint. Loading must not change footer

@@ -377,10 +377,33 @@ contract: account Dislike and removal are distinct from Like/Unlike and from
 recommendation-only Wave events. Paired reactions require both readbacks; when
 Dislike is unavailable, fresh independent Like readback preserves the established
 Like-only workflow and leaves Dislike unknown/hidden. No optimistic complement,
-automatic POST replay, skip or radio-protocol extension
-is justified by the new control.
+automatic POST replay or radio-protocol extension is permitted. The owner later
+confirmed real server mark changes, Like/Dislike interaction and existing functions
+at `1877a6c`. That live report identifies missing automatic Next as the remaining
+behavior correction; it does not report installed Flatpak or revised-code results.
 
-Local verification passed on stable **1.99.1** and exact **1.98.1**: fmt,
+The correction delegates only a confirmed Dislike addition on the unchanged
+current playback occurrence to existing Next. Opaque occurrence and playback-
+intent guards reject late effects after duplicate IDs, replay, cancellation or
+account replacement; removal/Like and errors do not advance. Wave uses its existing
+Skip lifecycle, with no new feedback type. Revised execution results must be
+recorded separately from the original candidate checks below.
+
+The automatic-Next correction passed four new guard regressions on Rust 1.98.1
+and four explicit native executions: confirmed reactions and the full shared-player
+Wave lifecycle at both 1× and 2× (each one actual test, zero ignored). Native
+fixtures cover exactly one POST/resolution/Next, removal/Like/refusal/ambiguous
+outcomes without advance, duplicate occurrences, leaving/returning, held
+confirmation during logout/close, and one original-batch Wave Skip. Fatal warnings
+were enabled and the sandbox was not disabled. Thirty-six synthetic captures were
+produced; the new 900×650 dark successor capture was inspected without overlap or
+clipping. Source/vendor preparation retained 208 packages, 207 notices and the
+existing GNOME 50 permissions; 46 Markdown files/207 links passed. Full compiler,
+release and final-HEAD hosted results are reported in [PR #27](https://github.com/tracerxbrhd/karin/pull/27).
+These checks do not establish revised Fedora or installed Flatpak acceptance.
+
+Verification of the original `1877a6c` candidate passed on stable **1.99.1** and
+exact **1.98.1**: fmt,
 strict default/all/minimal Clippy/tests/builds, **434 / 442 / 420** library tests
 plus **4** CLI tests per configuration, MSRV ordinary/all-feature locked offline
 release, hidden terminal boundaries and GTK/GStreamer smoke tests. The twelve
@@ -409,12 +432,12 @@ the corrected evidence; it is not a resolution of cold-rendering Issue #23.
 Final-head hosted native/MPRIS/WebKit checks belong to this PR's checks; source,
 license/Flatpak preparation and new installed-Flatpak acceptance remain separate.
 
-No live account read/write/read or installed Flatpak reaction acceptance has
-been reported. The [short Fedora procedure](BUILDING.md#track-reaction-acceptance)
-checks the actual state and preserves ordinary playback. Issue #17 remains open;
-Issue #20's audio-storage permission/lifecycle and Issue #5's public-distribution
-conditions are independent. No Cloud fixture establishes service recommendation
-effect or grants permission for audio storage.
+The owner-reported live `1877a6c` result is separate from Cloud fixtures. Revised
+automatic Next and installed Flatpak acceptance have not been reported. The
+[short Fedora procedure](BUILDING.md#track-reaction-acceptance) covers them;
+Issue #17 retains unreported acceptance. Issue #20's audio-storage permission/
+lifecycle and Issue #5's public-distribution conditions are independent. No Cloud
+fixture establishes service recommendation effect or grants audio-storage rights.
 
 ## Known unresolved checks
 
