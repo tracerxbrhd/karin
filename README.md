@@ -33,6 +33,7 @@ Actual GTK captures with synthetic library data and original test artwork.
 
 - Yandex sign-in, liked tracks, personal playlists and catalog search.
 - Collection-local search, track details and server-confirmed playlist creation.
+- Distinct Like/Dislike controls with account-bound read-after-write confirmation.
 - Contextual queues, Shuffle/Repeat, seek and volume through GStreamer.
 - My Wave personal radio from Home, using the same queue, player and MPRIS.
 - A pinned track information / queue panel, responsive layouts, light/dark themes and HiDPI.
@@ -56,7 +57,14 @@ following earlier confirmed real audio, feedback and batch continuation.
 Final acceptance of ordinary startup and the installed v0.5 Flatpak remains
 separate; follow the [Native/Flatpak procedure](docs/BUILDING.md#my-wave-local-acceptance).
 
-The Music API is unofficial and may change. Dislike, separate recommendation shelves,
+The owner confirmed real account Dislike/removal and Like/Dislike interaction at
+`1877a6c`. A confirmed Dislike on the same current playback occurrence now invokes
+Next; removing Dislike or changing Like does not. Unavailable Dislike stays hidden
+while an independently confirmed Like remains usable. The revised
+[Native/Flatpak acceptance](docs/BUILDING.md#track-reaction-acceptance) is separate
+from that earlier live result.
+
+The Music API is unofficial and may change. Separate recommendation shelves,
 lyrics and offline audio are not implemented. Cold first-player appearance in Cloud
 still has unresolved frame gaps; desktop acceptance does not establish their
 cause or resolution. See [known limitations](docs/LIMITATIONS.md).

@@ -242,7 +242,7 @@ fn serve(mut stream: TcpStream, origin: &str, media: &[u8]) {
     }
     let response = match url.path() {
         "/account/status" => json!({"result":{"account":{"uid":1234,"displayName":"Synthetic remembered account"}}}),
-        "/users/1234/likes/tracks" => json!({"result":{"library":{"uid":1234,"revision":1,"tracks":[]}}}),
+        "/users/1234/likes/tracks" | "/users/1234/dislikes/tracks" => json!({"result":{"library":{"uid":1234,"revision":1,"tracks":[]}}}),
         "/users/1234/playlists/list" | "/users/1234/likes/playlists" => json!({"result":[]}),
         "/tracks/42/download-info" => json!({"result":[{"codec":"mp3","bitrateInKbps":192,"preview":false,"direct":false,"downloadInfoUrl":format!("{origin}download-info/42")}]}),
         "/download-info/42" => {

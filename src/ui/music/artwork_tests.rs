@@ -494,6 +494,7 @@ impl Fixture {
                         path if path.starts_with("/tracks/") && path.ends_with("/download-info") => json!({"result":[{"codec":"mp3","bitrateInKbps":192,"preview":false,"direct":false,"downloadInfoUrl":format!("{media_origin}download-info/42")}]}),
                         "/account/status" => json!({"result":{"account":{"uid":1234,"displayName":"Synthetic artwork account"}}}),
                         "/users/1234/likes/tracks" => json!({"result":{"library":{"uid":1234,"revision":1,"tracks":[{"id":42,"track":track}]}}}),
+                        "/users/1234/dislikes/tracks" => json!({"result":{"library":{"uid":1234,"revision":1,"tracks":[]}}}),
                         "/users/1234/playlists/list" => json!({"result":[{"owner":{"uid":1234},"kind":3,"title":"Synthetic green playlist","trackCount":1,"cover":{"itemsUri":[PLAYLIST_COVER]}}]}),
                         "/users/1234/likes/playlists" => json!({"result":[]}),
                         "/albums/7/with-tracks" => json!({"result":{"id":7,"title":"Synthetic blue album","coverUri":ALBUM_COVER,"artists":[],"volumes":[[track]]}}),

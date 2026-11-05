@@ -33,6 +33,7 @@ mod playlist_creation;
 mod playlist_grid;
 mod queue_view;
 mod radio;
+mod reactions;
 mod requests;
 #[cfg(test)]
 mod row_activation_tests;
@@ -199,6 +200,7 @@ struct Controller {
     panel_mode: Cell<workspace::PanelMode>,
     catalog_rows: RefCell<Vec<catalog_layout::CatalogRow>>,
     current_like_key: RefCell<Option<(u64, String)>>,
+    detail_like_controls: RefCell<Vec<interactions::DetailLike>>,
     catalog: RefCell<Option<crate::catalog_cache::CachedCatalog>>,
     playlist_dialog: RefCell<Option<adw::Dialog>>,
     can_create_playlist: Cell<bool>,
@@ -701,6 +703,7 @@ impl MusicPane {
             panel_mode: Cell::new(workspace::PanelMode::Closed),
             catalog_rows: RefCell::new(Vec::new()),
             current_like_key: RefCell::new(None),
+            detail_like_controls: RefCell::new(Vec::new()),
             catalog: RefCell::new(None),
             playlist_dialog: RefCell::new(None),
             can_create_playlist: Cell::new(true),
@@ -1700,6 +1703,7 @@ impl Controller {
         self.stop_music();
         self.clear_system_media();
         self.mutation_busy.set(false);
+        self.detail_like_controls.borrow_mut().clear();
         self.playlist_refreshing.set([false, false]);
         self.clear_text_focus();
         self.requests.borrow_mut().invalidate_all();
@@ -1746,6 +1750,7 @@ impl Controller {
         self.stop_music();
         self.clear_system_media();
         self.mutation_busy.set(false);
+        self.detail_like_controls.borrow_mut().clear();
         self.playlist_refreshing.set([false, false]);
         self.clear_text_focus();
         self.requests.borrow_mut().invalidate_all();
@@ -2756,6 +2761,8 @@ mod tests {
         let search = json!({"result":{"text":"Synthetic","tracks":{"total":1,"perPage":20,"page":0,"results":[track.clone()]}}});
         let album = json!({"result":{"id":7,"title":"Synthetic album","artists":[{"id":11,"name":"Synthetic artist"}],"volumes":[vec![track;63]]}});
         let membership_body = liked.to_string();
+        let dislike_body =
+            json!({"result":{"library":{"uid":1234,"revision":1,"tracks":[]}}}).to_string();
         let responses = vec![
             ("GET /account/status", account, false),
             ("GET /users/1234/likes/tracks", liked.clone(), false),
@@ -2818,8 +2825,9 @@ mod tests {
                 if request.starts_with("POST /rotor/") {
                     server_wave_requested.store(true, Ordering::Release);
                 }
+                let independent_dislike = request.starts_with("GET /users/1234/dislikes/tracks");
                 let independent_membership = !request.starts_with(prefix)
-                    && request.starts_with("GET /users/1234/likes/tracks");
+                    && (request.starts_with("GET /users/1234/likes/tracks") || independent_dislike);
                 assert!(request.starts_with(prefix) || independent_membership);
                 assert!(
                     !request
@@ -2843,7 +2851,9 @@ mod tests {
                         .recv_timeout(Duration::from_secs(8))
                         .unwrap();
                 }
-                let body = if independent_membership {
+                let body = if independent_dislike {
+                    dislike_body.clone()
+                } else if independent_membership {
                     membership_body.clone()
                 } else {
                     response.to_string()

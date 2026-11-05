@@ -25,6 +25,8 @@ struct Counts {
     second: AtomicUsize,
     late: AtomicBool,
     offers: AtomicUsize,
+    likes: AtomicUsize,
+    dislikes: AtomicUsize,
 }
 struct Server {
     stop: Arc<AtomicBool>,
@@ -101,6 +103,7 @@ fn serve(mut stream: TcpStream, counts: &Counts, release: &(Mutex<bool>, Condvar
     let category = match path {
         "/account/status" => "account",
         "/users/1234/likes/tracks" => "membership",
+        "/users/1234/dislikes/tracks" => "negative-membership",
         "/tracks" => "track-batch",
         "/users/1234/playlists/7" | "/users/4321/playlists/8" | "/users/4321/playlists/9" => {
             "playlist"
@@ -117,10 +120,22 @@ fn serve(mut stream: TcpStream, counts: &Counts, release: &(Mutex<bool>, Condvar
             200,
             json!({"result":{"account":{"uid":1234,"displayName":"Synthetic filter account"}}}),
         ),
-        "/users/1234/likes/tracks" => (
-            200,
-            json!({"result":{"library":{"uid":1234,"revision":1,"tracks":(1000..1120).map(|id|json!({"id":id})).collect::<Vec<_>>()}}}),
-        ),
+        "/users/1234/likes/tracks" => {
+            assert!(request.starts_with("GET "));
+            counts.likes.fetch_add(1, Ordering::AcqRel);
+            (
+                200,
+                json!({"result":{"library":{"uid":1234,"revision":1,"tracks":(1000..1120).map(|id|json!({"id":id})).collect::<Vec<_>>()}}}),
+            )
+        }
+        "/users/1234/dislikes/tracks" => {
+            assert!(request.starts_with("GET "));
+            counts.dislikes.fetch_add(1, Ordering::AcqRel);
+            (
+                200,
+                json!({"result":{"library":{"uid":1234,"revision":1,"tracks":[]}}}),
+            )
+        }
         "/tracks" => {
             counts.batches.fetch_add(1, Ordering::AcqRel);
             let form = reqwest::Url::parse(&format!(
@@ -228,19 +243,20 @@ fn drain(this: &Rc<Controller>) {
         if this.music_requested() || this.model.borrow().busy {
             return false;
         }
-        let expects_like = {
+        let expects_reactions = {
             let model = this.model.borrow();
             !model.closed && model.account_valid && model.queue.current().is_some()
         } && this.widgets.player_revealer.reveals_child();
-        // The native footer maps its real membership control before an idle
-        // callback admits its read. Busy=false alone can precede that request.
-        // Wait for the visible control's confirmed state, not elapsed time.
-        !expects_like
-            || find_button(
-                this.widgets.current_like_slot.upcast_ref(),
-                "music-current-like",
-            )
-            .is_some_and(|button| button.is_mapped() && button.is_sensitive())
+        // The native footer maps its reaction controls before an idle callback
+        // admits both membership reads. Busy=false alone can precede them.
+        // Require the mapped, confirmed pair before recording the HTTP baseline.
+        !expects_reactions
+            || ["music-current-like", "music-current-dislike"]
+                .iter()
+                .all(|name| {
+                    find_button(this.widgets.current_like_slot.upcast_ref(), name)
+                        .is_some_and(|button| button.is_mapped() && button.is_sensitive())
+                })
     });
 }
 fn request_snapshot(this: &Rc<Controller>, counts: &Counts, phase: &'static str) {
@@ -248,14 +264,20 @@ fn request_snapshot(this: &Rc<Controller>, counts: &Counts, phase: &'static str)
         this.widgets.current_like_slot.upcast_ref(),
         "music-current-like",
     );
+    let dislike = find_button(
+        this.widgets.current_like_slot.upcast_ref(),
+        "music-current-dislike",
+    );
     eprintln!(
-        "Karin synthetic collection state: phase={phase} total={} busy={} requested={} footer-mapped={} like-mapped={} like-confirmed={}",
+        "Karin synthetic collection state: phase={phase} total={} busy={} requested={} footer-mapped={} like-mapped={} like-confirmed={} dislike-mapped={} dislike-confirmed={}",
         counts.all.load(Ordering::Acquire),
         this.model.borrow().busy,
         this.music_requested(),
         this.widgets.player_revealer.is_mapped(),
         like.as_ref().is_some_and(gtk::Button::is_mapped),
         like.as_ref().is_some_and(gtk::Button::is_sensitive),
+        dislike.as_ref().is_some_and(gtk::Button::is_mapped),
+        dislike.as_ref().is_some_and(gtk::Button::is_sensitive),
     );
 }
 fn find_button(widget: &gtk::Widget, name: &str) -> Option<gtk::Button> {
@@ -630,7 +652,11 @@ fn native_collection_filter_continuation_and_exact_occurrences() {
         // Deterministically exercise a pending map-deferred footer read. It is
         // independent of this collection query and must finish before its
         // network baseline. The old busy-only drain returned too early here.
-        let before_pending_like = counts.all.load(Ordering::Acquire);
+        let before_pending_reactions = counts.all.load(Ordering::Acquire);
+        let before_membership_pair = (
+            counts.likes.load(Ordering::Acquire),
+            counts.dislikes.load(Ordering::Acquire),
+        );
         this.current_like_key.replace(None);
         this.sync_current_like();
         assert!(
@@ -644,8 +670,16 @@ fn native_collection_filter_continuation_and_exact_occurrences() {
         drain(this);
         assert_eq!(
             counts.all.load(Ordering::Acquire),
-            before_pending_like + 1,
-            "the pending footer membership read completes before measuring local filtering"
+            before_pending_reactions + 2,
+            "both pending footer membership reads complete before measuring local filtering"
+        );
+        assert_eq!(
+            (
+                counts.likes.load(Ordering::Acquire),
+                counts.dislikes.load(Ordering::Acquire),
+            ),
+            (before_membership_pair.0 + 1, before_membership_pair.1 + 1),
+            "one independent read of each membership confirms the footer pair"
         );
         request_snapshot(this, &counts, "before-query");
         let before = counts.all.load(Ordering::Acquire);

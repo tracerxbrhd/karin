@@ -133,6 +133,10 @@ fn serve(
                 "tracks":if liked {vec![json!({"id":42})]}else{Vec::new()},
             }}})
         }
+        ("GET", "/users/1234/dislikes/tracks") => {
+            assert!(form.is_empty());
+            json!({"result":{"library":{"uid":1234,"revision":1,"tracks":[]}}})
+        }
         ("POST", "/users/1234/likes/tracks/add-multiple") => {
             assert_eq!(form, b"track-ids=42");
             counts.posts.fetch_add(1, Ordering::AcqRel);
