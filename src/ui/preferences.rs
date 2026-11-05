@@ -24,6 +24,7 @@ pub(super) struct PreferencesSnapshot {
     pub session_busy: bool,
     pub can_retry_session: bool,
     pub cache_stats: Option<CacheStats>,
+    pub audio_cache_stats: Option<CacheStats>,
     pub cache_busy: bool,
     /// Friendly, non-secret status supplied by the application coordinator.
     pub message: Option<String>,
@@ -80,6 +81,8 @@ pub(super) struct PreferencesView {
     cache_enabled: adw::SwitchRow,
     cache_limit: adw::SpinRow,
     cache_usage: adw::ActionRow,
+    audio_cache_limit: adw::SpinRow,
+    audio_cache_usage: adw::ActionRow,
     cache_refresh: gtk::Button,
     cache_clear: gtk::Button,
     cache_spinner: gtk::Spinner,
@@ -191,7 +194,7 @@ impl PreferencesView {
 
         let storage = adw::PreferencesGroup::builder()
             .title("Хранилище")
-            .description("Метаданные и обложки хранятся отдельно от защищённого входа. Аудио не сохраняется.")
+            .description("Кеш хранится отдельно от защищённого входа. Сохранение музыки пока недоступно; онлайн-воспроизведение работает как прежде.")
             .build();
         let cache_enabled = adw::SwitchRow::builder()
             .title("Кеширование данных")
@@ -210,7 +213,7 @@ impl PreferencesView {
         });
         storage.add(&cache_enabled);
         let cache_limit = adw::SpinRow::builder()
-            .title("Максимальный размер")
+            .title("Лимит метаданных и обложек")
             .subtitle("МиБ · от 16 до 4096")
             .adjustment(&gtk::Adjustment::new(256.0, 16.0, 4096.0, 16.0, 64.0, 0.0))
             .digits(0)
@@ -259,6 +262,35 @@ impl PreferencesView {
         });
         cache_usage.add_suffix(&cache_refresh);
         storage.add(&cache_usage);
+        let audio_cache_usage = adw::ActionRow::builder()
+            .title("Аудиокеш")
+            .title_lines(0)
+            .subtitle_lines(0)
+            .use_markup(false)
+            .build();
+        audio_cache_usage.set_widget_name("preferences-audio-cache-usage");
+        storage.add(&audio_cache_usage);
+        let audio_cache_limit = adw::SpinRow::builder()
+            .title("Лимит аудиокеша")
+            .subtitle("МиБ · от 16 до 4096. Не включает метаданные и обложки.")
+            .adjustment(&gtk::Adjustment::new(256.0, 16.0, 4096.0, 16.0, 64.0, 0.0))
+            .digits(0)
+            .numeric(true)
+            .title_lines(0)
+            .subtitle_lines(0)
+            .use_markup(false)
+            .build();
+        audio_cache_limit.set_widget_name("preferences-audio-cache-limit");
+        audio_cache_limit.connect_value_notify({
+            let state = Rc::clone(&state);
+            move |row| {
+                if !state.cache_busy.get() && row.value().is_finite() {
+                    let mib = row.value().round().clamp(16.0, 4096.0) as u64;
+                    state.change(|values| values.audio_cache_limit_bytes = mib * MIB);
+                }
+            }
+        });
+        storage.add(&audio_cache_limit);
         let operation_status = adw::ActionRow::builder()
             .title("Состояние операции")
             .title_lines(0)
@@ -272,7 +304,7 @@ impl PreferencesView {
         storage.add(&operation_status);
         let clear_row = adw::ActionRow::builder()
             .title("Очистка кеша")
-            .subtitle("Удаляет только сохранённые данные и обложки. Вход и текущее воспроизведение сохраняются.")
+            .subtitle("Удаляет метаданные, обложки и файлы аудиокеша. Вход и текущее воспроизведение сохраняются.")
             .title_lines(0)
             .subtitle_lines(0)
             .use_markup(false)
@@ -314,6 +346,8 @@ impl PreferencesView {
             cache_enabled,
             cache_limit,
             cache_usage,
+            audio_cache_limit,
+            audio_cache_usage,
             cache_refresh,
             cache_clear,
             cache_spinner,
@@ -374,6 +408,20 @@ impl PreferencesView {
             None if snapshot.cache_busy => "Обновляем сведения о кеше…".into(),
             None => "Размер пока не проверен.".into(),
         });
+        self.audio_cache_limit
+            .set_value(snapshot.values.audio_cache_limit_bytes as f64 / MIB as f64);
+        self.audio_cache_limit
+            .set_sensitive(ready && !snapshot.cache_busy);
+        self.audio_cache_usage
+            .set_subtitle(&match snapshot.audio_cache_stats {
+                Some(stats) => {
+                    format!("{} · Сохранение музыки пока недоступно.", usage_text(stats))
+                }
+                None if snapshot.cache_busy => "Проверяем аудиохранилище…".into(),
+                None => {
+                    "Размер аудиохранилища не проверен. Сохранение музыки пока недоступно.".into()
+                }
+            });
         self.cache_refresh
             .set_sensitive(ready && !snapshot.cache_busy);
         self.cache_clear

@@ -9,8 +9,7 @@ use std::{
 use super::*;
 use crate::{
     playback::{
-        PlaybackController, PlaybackError, PlaybackOutput, PlaybackSnapshot, PlaybackSource,
-        PlaybackState,
+        PlaybackController, PlaybackError, PlaybackOutput, PlaybackSnapshot, PlaybackState,
     },
     queue::PlaybackContext,
     stream::{DeliveryCancellation, DeliveryReport, StreamResolver},
@@ -47,6 +46,9 @@ pub(super) struct MusicPlayback {
     stopped: bool,
     volume: f64,
     output: PlaybackOutput,
+    cache_fill_running: bool,
+    cache_fill_cancel: Option<crate::audio_cache::Cancellation>,
+    cache_fill_pending: Option<(u64, crate::audio_cache::bridge::Fill)>,
     #[cfg(test)]
     fixture_resolver: Option<StreamResolver>,
 }
@@ -70,6 +72,9 @@ impl Default for MusicPlayback {
             stopped: false,
             volume: 0.7,
             output: PlaybackOutput::System,
+            cache_fill_running: false,
+            cache_fill_cancel: None,
+            cache_fill_pending: None,
             #[cfg(test)]
             fixture_resolver: None,
         }
@@ -499,6 +504,7 @@ impl Controller {
         let fixture_resolver = self.player.borrow().fixture_resolver.clone();
         #[cfg(not(test))]
         let fixture_resolver: Option<StreamResolver> = None;
+        let cache_binding = self.audio_cache_binding();
         let hold = app.hold();
         let weak = Rc::downgrade(self);
         let track = intent.track.clone();
@@ -514,10 +520,15 @@ impl Controller {
                     Some(resolver) => resolver,
                     None => StreamResolver::new().map_err(Failure::Delivery)?,
                 };
-                resolver
-                    .resolve(&service, &token, &track, &cancellation)
-                    .map(PlaybackSource::remote)
-                    .map_err(Failure::Delivery)
+                crate::audio_cache::bridge::resolve(
+                    resolver,
+                    &service,
+                    &token,
+                    &track,
+                    &cancellation,
+                    cache_binding,
+                )
+                .map_err(Failure::Delivery)
             })
             .await
             .unwrap_or(Err(Failure::Engine(PlaybackError::WorkerUnavailable)));
@@ -552,7 +563,8 @@ impl Controller {
             }
             if current {
                 match result {
-                    Ok(source) => {
+                    Ok(selection) => {
+                        let source = selection.source.admit_cache_or_online();
                         let output = this.player.borrow().output;
                         let volume = this.player.borrow().volume;
                         let prepared = PlaybackController::new(output).and_then(|controller| {
@@ -564,6 +576,8 @@ impl Controller {
                             Ok(controller) => {
                                 let mut player = this.player.borrow_mut();
                                 player.controller = Some(controller);
+                                player.cache_fill_pending =
+                                    selection.fill.map(|fill| (intent.serial, fill));
                                 player.preparing = Some((intent.autoplay, intent.position));
                                 player.failure = None;
                                 player.ended_handled = false;
@@ -596,6 +610,12 @@ impl Controller {
         let (old, owned_error) = {
             let mut player = self.player.borrow_mut();
             player.serial = player.serial.wrapping_add(1);
+            if let Some(cancellation) = player.cache_fill_cancel.take() {
+                cancellation.cancel();
+            }
+            player.cache_fill_pending = None;
+            // A cancelled admitted copy retains the one running slot until its
+            // bounded worker actually exits. The latest track may wait for it.
             if let Some(cancellation) = player.cancellation.take() {
                 cancellation.cancel();
             }
@@ -798,7 +818,55 @@ impl Controller {
         if ended {
             self.skip_music(true, true);
         }
+        self.begin_cache_fill();
         self.render_music_player();
+    }
+
+    fn begin_cache_fill(self: &Rc<Self>) {
+        if self.model.borrow().closed || !self.model.borrow().account_valid {
+            return;
+        }
+        let Some(snapshot) = self.music_snapshot() else {
+            return;
+        };
+        if snapshot.state != PlaybackState::Playing || snapshot.playing_time.is_zero() {
+            return;
+        }
+        let fill = {
+            let mut player = self.player.borrow_mut();
+            if player.cache_fill_running {
+                return;
+            }
+            let Some((serial, fill)) = player.cache_fill_pending.take() else {
+                return;
+            };
+            if serial != player.serial {
+                return;
+            }
+            player.cache_fill_cancel = Some(fill.cancellation());
+            player.cache_fill_running = true;
+            fill
+        };
+        let Some(app) = self.app.upgrade() else {
+            let mut player = self.player.borrow_mut();
+            player.cache_fill_running = false;
+            player.cache_fill_cancel = None;
+            return;
+        };
+        let hold = app.hold();
+        let weak = Rc::downgrade(self);
+        glib::spawn_future_local(async move {
+            let _hold = hold;
+            // Cache failures never mutate the online player, queue or Wave.
+            let _result = gio::spawn_blocking(move || fill.run()).await;
+            if let Some(this) = weak.upgrade() {
+                let mut player = this.player.borrow_mut();
+                player.cache_fill_running = false;
+                player.cache_fill_cancel = None;
+                drop(player);
+                this.begin_cache_fill();
+            }
+        });
     }
 
     fn continuation(&self) -> (bool, bool) {

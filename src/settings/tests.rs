@@ -51,6 +51,7 @@ fn persistent_preferences_roundtrip_preserves_private_modes_and_all_choices() {
         forget_pending: true,
         cache_enabled: false,
         cache_limit_bytes: 512 * 1024 * 1024,
+        audio_cache_limit_bytes: 1024 * 1024 * 1024,
         track_info_open: false,
     };
     store.save(&preferences).unwrap();
@@ -84,6 +85,8 @@ fn malformed_oversized_unknown_and_out_of_range_settings_recover_with_defaults()
         br#"{"version":2,"preferences":{}}"#.to_vec(),
         br#"{"version":1,"preferences":{"appearance":"unsupported"}}"#.to_vec(),
         br#"{"version":1,"preferences":{"cache_limit_bytes":0}}"#.to_vec(),
+        br#"{"version":1,"preferences":{"audio_cache_limit_bytes":0}}"#.to_vec(),
+        br#"{"version":1,"preferences":{"audio_cache_limit_bytes":18446744073709551615}}"#.to_vec(),
         br#"{"version":1,"preferences":{"cache_limit_bytes":18446744073709551615}}"#.to_vec(),
         br#"{"version":1,"preferences":{"access_token":"synthetic-never-accepted"}}"#.to_vec(),
         vec![b' '; MAX_FILE_BYTES as usize + 1],
@@ -119,6 +122,10 @@ fn omitted_new_preferences_use_safe_defaults_without_accepting_unknown_fields() 
     assert!(loaded.preferences.remember_login && loaded.preferences.cache_enabled);
     assert!(!loaded.preferences.forget_pending);
     assert_eq!(loaded.preferences.cache_limit_bytes, DEFAULT_CACHE_BYTES);
+    assert_eq!(
+        loaded.preferences.audio_cache_limit_bytes,
+        DEFAULT_CACHE_BYTES
+    );
 }
 
 #[test]

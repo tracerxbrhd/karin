@@ -23,8 +23,8 @@ flowchart LR
 | Catalog | `music`, `api`, `application` | Typed service access and separate anonymous diagnostics |
 | Authentication | `auth`, `auth::cassette`, `ui::auth`, `oauth` | Ordinary sign-in and independent PKCE diagnostic |
 | Session | `session`, `credentials`, `session_lifecycle`, `settings` | Live tokens, protected persistence and non-secret preferences |
-| Data | `cache`, `catalog_cache`, `artwork` | Account-scoped metadata, provenance and bounded art loading |
-| Playback | `queue`, `stream`, `playback` | Context/order policy, resource admission and one media worker |
+| Data | `cache`, `catalog_cache`, `artwork`, `audio_cache` | Account-scoped metadata/artwork and separately authority-gated audio storage |
+| Playback | `queue`, `stream`, `audio_cache::bridge`, `playback` | Context/order policy, resource/cache admission and one media worker |
 | Desktop | `mpris`, `ui::music::system_media` | Session D-Bus commands and actual snapshots |
 | Presentation | `ui::music` and its view modules | Native views, user intents and guarded result admission |
 
@@ -169,12 +169,33 @@ session/audio/textures, while logout purges personal records.
 [ADR-0026](adr/0026-refusal-fences-and-queue-occurrence-identity.md) defines the
 refusal fence and stable queue identity extensions.
 
-The v0.6 audio-storage prototype is separate and compiled only into tests.
-It accepts internally generated WAVs and a fake rights authority, with private
-account partitions, integrity/atomic writes, quotas/LRU and cancellation/rights
-fences. Production has no audio-store constructor, service-resource input,
-download setting or alternate source-selection branch. This develops storage
-mechanics without treating synthetic rights as permission to retain Music.
+### Audio storage and playback selection
+
+`audio_cache` is separate production code, opened on a worker under the app's
+XDG cache `audio` directory. Account-scoped opaque keys, generation fences,
+integrity/atomic publication, bounded LRU and an exclusive namespace owner guard
+reads/writes and restart. Defaults are 256 MiB; Preferences expose a separate
+16–4096 MiB audio quota, measured usage and combined cache Clear. The store bounds
+each resource to 64 MiB, records to 1024 and pending writes to four; one staging
+file can temporarily add at most 64 MiB beyond the completed-record budget.
+
+Fresh StreamResolver admission precedes cache selection. `StorageAuthority`
+separately authorizes storage/reuse and checks a current in-memory permission
+lease before a hit or publication. The real `MissingStorageContract` authority
+refuses admission: neither a streaming URL nor account/subscription metadata is
+converted into a storage permission. Real Music consequently keeps the accepted
+online path without saving audio. The immediate target is online-revalidated
+reuse, not an offline mode with invented retention times.
+
+The shared bridge hands an admitted hit's verified read-only file descriptor to
+the same PlaybackController. A decoder failure before any actual Playing can
+fall back once to its admitted online source in that same worker. A failure after
+Playing remains a normal player error, preserving Wave's actual-playing ledger.
+It starts an admitted cache write only after actual Playing; cancellation, Clear,
+logout and account changes fence old work before cleanup. Clear can unlink a
+record without invalidating an already admitted active descriptor. Normal close
+may retain admitted records for fresh online revalidation on restart. Generated
+media and the fake authority remain test-only inputs to these production paths.
 [ADR-0029](adr/0029-synthetic-audio-cache-foundation.md) and
 [AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md) define the admission gate.
 

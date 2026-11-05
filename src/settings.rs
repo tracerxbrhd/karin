@@ -47,6 +47,8 @@ pub struct Preferences {
     pub forget_pending: bool,
     pub cache_enabled: bool,
     pub cache_limit_bytes: u64,
+    /// Independent audio-store budget; this preference never grants storage rights.
+    pub audio_cache_limit_bytes: u64,
     pub track_info_open: bool,
 }
 
@@ -58,6 +60,7 @@ impl Default for Preferences {
             forget_pending: false,
             cache_enabled: true,
             cache_limit_bytes: DEFAULT_CACHE_BYTES,
+            audio_cache_limit_bytes: DEFAULT_CACHE_BYTES,
             track_info_open: true,
         }
     }
@@ -65,7 +68,9 @@ impl Default for Preferences {
 
 impl Preferences {
     pub fn validate(&self) -> Result<(), SettingsError> {
-        if !(MIN_CACHE_BYTES..=MAX_CACHE_BYTES).contains(&self.cache_limit_bytes) {
+        if !(MIN_CACHE_BYTES..=MAX_CACHE_BYTES).contains(&self.cache_limit_bytes)
+            || !(MIN_CACHE_BYTES..=MAX_CACHE_BYTES).contains(&self.audio_cache_limit_bytes)
+        {
             return Err(SettingsError::InvalidPreferences);
         }
         Ok(())

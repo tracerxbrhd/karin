@@ -81,6 +81,11 @@ pub enum CacheError {
 #[derive(Clone, PartialEq, Eq)]
 pub struct AccountScope([u8; 32]);
 impl AccountScope {
+    pub(crate) fn audio_cache_key(&self) -> [u8; 32] {
+        let mut context = b"Karin audio account namespace v2\0".to_vec();
+        context.extend_from_slice(&self.0);
+        hash(&context)
+    }
     pub fn from_account_id(value: &str) -> Result<Self, CacheError> {
         if value.is_empty()
             || value.len() > 128

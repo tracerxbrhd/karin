@@ -62,26 +62,32 @@ The owner confirmed live server reactions and their interaction at `1877a6c`.
 automatic Next. See [ADR-0028](adr/0028-confirmed-track-reactions.md).
 
 Audio storage is an independent branch/PR tracked in #20. A playable MP3 and
-synthetic cache tests establish no storage grant or offline rights lifecycle;
+synthetic cache tests establish no storage grant or online reuse contract;
 [the audio review](AUDIO_CACHE_REVIEW.md) retains that gate. No service audio
 is recorded by the Dislike change. Neither direction authorizes a release.
 
 ## Next functional directions
 
-The independent v0.6 audio-cache branch develops a concrete synthetic-only store
-under [ADR-0029](adr/0029-synthetic-audio-cache-foundation.md): account isolation,
-atomic/integrity-checked records, quota/LRU and rights/cancellation lifecycle.
-It is absent from the production binary and does not change online playback.
-The fresh [source/rights review](AUDIO_CACHE_REVIEW.md) still establishes neither
-Karin's storage grant nor a real offline entitlement contract, so #20 stays open.
+The independent v0.6 audio-cache branch includes a production store and player
+bridge under [ADR-0029](adr/0029-synthetic-audio-cache-foundation.md): account
+isolation, atomic/integrity-checked records, quota/LRU, current-authority checks,
+cleanup and restart recovery. The service authority still refuses cache admission;
+ordinary Music keeps its working online playback. The immediate goal is transparent
+reuse after fresh online revalidation, not Downloads or offline mode. The fresh
+[source/rights review](AUDIO_CACHE_REVIEW.md) identifies the missing applicable
+storage/reuse permission and concrete provider check, so PR #26 stays Draft and
+#20 stays open. Production compilation and fixture success are not completion
+of that service feature.
 Confirmed Dislike and automatic Next have merged through PR #27.
 
 - [Lyrics and related tracks](https://github.com/tracerxbrhd/karin/issues/18): confirm permitted endpoints/resources before
   exposing a user workflow; no extracted official-client signing material.
 - [Playlist editing](https://github.com/tracerxbrhd/karin/issues/19): extend beyond
   confirmed creation only with ownership/revision and ambiguous-write recovery.
-- [Offline audio](https://github.com/tracerxbrhd/karin/issues/20): establish storage permission and verifiable account/device/track
-  entitlement, expiry and renewal. A working MP3 source is not that contract.
+- [Audio storage and later offline audio](https://github.com/tracerxbrhd/karin/issues/20):
+  first establish the storage/reuse grant and online hit-admission contract; any
+  later offline mode needs its separately confirmed lifetime and renewal rules.
+  A working MP3 source is not either contract.
 - [Restart playback state](https://github.com/tracerxbrhd/karin/issues/21): define
   bounded same-account context/position restoration without storing media URLs.
 - Whole-collection search/sorting: provide complete coverage or label a loaded

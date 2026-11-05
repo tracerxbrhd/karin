@@ -601,7 +601,8 @@ jobs:
           Native and current Flatpak acceptance require separate local checks; no broad bus grants.
           Preserve GPL and third-party notices. Shared OAuth public-distribution/service permission remains unresolved separately.
           Do not enable network/GStreamer logs or share tokens, URLs, account data, private screenshots or audio.
-          The audio-cache prototype is cfg(test)-only: this ordinary ELF does not store service audio or expose offline controls.
+          The production audio-cache service includes private storage maintenance; service audio reuse remains disabled pending a reviewed storage/reuse grant and resource-admission contract.
+          Settings has a separate audio budget and Clear covers both caches; no download/offline controls or permission-override switch are provided.
           Active-footer Like and Dislike require independent live membership confirmation; Dislike stays hidden if unavailable, while fresh Like-only remains supported.
           Test separate marks, their removal/opposite clearing, pending/error GET recovery and exactly one Next after confirmed current Dislike; removal/Like/errors never advance or add new Wave events.
           My Wave is available in ordinary ./karin; no experimental flag is required and radio never starts automatically.

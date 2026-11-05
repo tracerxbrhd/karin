@@ -5,9 +5,8 @@ pub mod api;
 pub mod application;
 pub mod artwork;
 pub mod audio;
-// Service-audio persistence is not granted: executable research is test-only.
-#[cfg(test)]
-mod audio_cache;
+// Production storage service; Music persistence requires a reviewed grant.
+pub mod audio_cache;
 pub mod auth;
 pub mod cache;
 pub mod capabilities;

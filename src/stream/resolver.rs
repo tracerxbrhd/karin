@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Fresh, account-bound legacy MP3 resolution. This module never fetches media.
+//! Fresh, account-bound legacy MP3 resolution and independently granted cache copies.
 
 use std::{fmt, time::Instant};
 
@@ -53,6 +53,76 @@ impl StreamResolver {
         // lifetime documented by legacy clients as about one minute per offer.
         let expires_at = Instant::now() + SOURCE_FRESHNESS;
         self.resolve_until(service, token, track_id, cancellation, expires_at)
+    }
+
+    /// A separately authorized cache fill reuses the descriptor transport's
+    /// strict, credential-free client. It is never called by metadata probing
+    /// or ordinary playback without an independent storage grant.
+    pub(crate) fn cache_body(
+        &self,
+        source: &RemotePlaybackSource,
+        token: &AccessToken,
+        cancellation: &DeliveryCancellation,
+        cache_cancel: crate::audio_cache::Cancellation,
+    ) -> Result<CacheBody, crate::audio_cache::CacheError> {
+        use crate::audio_cache::CacheError;
+        if cancellation.cancelled(token) || cache_cancel.is_cancelled() {
+            return Err(CacheError::Cancelled);
+        }
+        let response = source
+            .with_admitted_uri(|uri| {
+                self.transport
+                    .client
+                    .get(uri)
+                    .header(ACCEPT, "audio/mpeg")
+                    .send()
+            })
+            .map_err(|_| CacheError::Cancelled)?
+            .map_err(|_| CacheError::Unavailable)?;
+        if cancellation.cancelled(token) || cache_cancel.is_cancelled() {
+            return Err(CacheError::Cancelled);
+        }
+        // Whole-resource copies only. No redirect/range/encoding fallback and
+        // no server no-store response can become a reusable record.
+        let headers = response.headers();
+        let content_type = headers
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.split(';').next())
+            .map(str::trim);
+        let no_store = headers
+            .get_all(reqwest::header::CACHE_CONTROL)
+            .iter()
+            .any(|value| {
+                value.to_str().map_or(true, |value| {
+                    value.split(',').any(|directive| {
+                        directive
+                            .trim()
+                            .split('=')
+                            .next()
+                            .is_some_and(|name| name.eq_ignore_ascii_case("no-store"))
+                    })
+                })
+            });
+        if response.status() != reqwest::StatusCode::OK
+            || headers
+                .get_all(reqwest::header::CONTENT_TYPE)
+                .iter()
+                .count()
+                != 1
+            || content_type != Some("audio/mpeg")
+            || headers.contains_key(reqwest::header::CONTENT_ENCODING)
+            || headers.contains_key(reqwest::header::CONTENT_RANGE)
+            || no_store
+        {
+            return Err(CacheError::Unavailable);
+        }
+        Ok(CacheBody {
+            response,
+            token: token.clone(),
+            cancellation: cancellation.clone(),
+            cache_cancel,
+        })
     }
 
     fn resolve_until(
@@ -247,6 +317,26 @@ impl StreamResolver {
             },
             media_fixture_origin: Some(fixture(media_origin)),
         }
+    }
+}
+
+/// A reader checks cancellation between every bounded storage chunk. Reqwest's
+/// existing total deadline bounds an in-flight send/read that cannot be unsent.
+pub(crate) struct CacheBody {
+    response: Response,
+    token: AccessToken,
+    cancellation: DeliveryCancellation,
+    cache_cancel: crate::audio_cache::Cancellation,
+}
+impl Read for CacheBody {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        if self.cancellation.cancelled(&self.token) || self.cache_cancel.is_cancelled() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "audio cache copy cancelled",
+            ));
+        }
+        self.response.read(buffer)
     }
 }
 

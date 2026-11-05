@@ -441,21 +441,15 @@ fixture establishes service recommendation effect or grants audio-storage rights
 
 ## v0.6 audio-cache foundation
 
-The audio-cache branch starts at v0.5 squash baseline `860672b`. On 2026-11-05,
-the six requested Cassette v0.2.4 caching/player sources were fetched at pinned
-commit `9d34251`; the Music terms, official application license, offline help,
-subscription/Plus conditions and GStreamer buffering documentation were retrieved
-successfully again. [AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md) records the
-source-backed mechanisms and exact missing grant/rights-lifecycle prerequisites.
+### Original candidate and Fedora failure
 
-The storage component is compiled only under `cfg(test)`, with sealed generated
+The audio-cache branch started at v0.5 squash baseline `860672b`. Its original
+candidate `0ce9ea0` compiled the store only under `cfg(test)`, with sealed generated
 WAV input and a fake authority. No real Music audio, account, token, cache,
-descriptor/CDN address or official-client cache was used. Ordinary builds retain
-online-only service playback, the accepted resolver/worker and unchanged Flatpak
-permissions. No service offline/storage or new installed-Flatpak acceptance is
-claimed. Synthetic expiry/revocation tests cannot establish external rights.
+descriptor/CDN address or official-client cache was used. Ordinary builds kept
+online-only service playback and unchanged Flatpak permissions.
 
-Local verification passed on stable **1.99.1** and exact **1.98.1**: formatting,
+That candidate's Cloud verification passed on stable **1.99.1** and exact **1.98.1**: formatting,
 strict Clippy/tests/builds in default/all/minimal configurations, **438 / 446 /
 424** library tests plus **4** CLI tests per configuration, locked offline
 ordinary/all-feature release builds, hidden terminal boundaries and ordinary GTK
@@ -466,10 +460,79 @@ existing worker with Pause/Resume, Volume, Clear, Seek, EOS and cleanup. Review
 found and corrected independent-owner generation and orphan-part quota gaps
 before this matrix. No service cache adapter is inferred from that test.
 
-Final-head hosted checks, including full native/MPRIS/protected-session/Wave and
-sandboxed navigating WebKit, belong to the audio-cache PR checks. Source/license
-preparation and desktop/installed-Flatpak acceptance remain separate evidence.
-Issue #20 stays open; #5 and #23 remain separate.
+The owner subsequently reported **15 PASS / 1 FAIL** on Fedora for both
+`cargo +1.98.1 test --lib --all-features --locked audio_cache` and
+`cargo +stable test --lib --locked audio_cache`. Reopening in
+`one_namespace_owner_and_retired_tickets_survive_clear_and_reopen` returned `Busy`.
+The original Cloud pass does not supersede that failure.
+
+### Namespace lifetime correction
+
+On 2026-11-05 the unchanged sixteen-test Cloud run passed again. A deterministic
+regression then retained a duplicate of the lock's open file description, dropped
+both strong cache owners and verified that the weak owner had expired. Reopen
+failed with `Busy` before the fix. Linux `flock` belongs to that open file
+description, so a dup/fork-retained descriptor can outlive the Rust owner even with
+close-on-exec. This establishes a code defect; the exact retaining process/event
+on the owner's Fedora machine was not traced.
+
+Final-owner destruction now explicitly unlocks the namespace, guarded by owner
+process identity. Acquisition remains exclusive. Live strong clones still exclude
+another owner, old Hit/Lease/Request remain retired, and closing an old retained
+descriptor cannot unlock the new owner. Before the production conversion, all
+**17** focused tests passed on exact 1.98.1/all-features and stable/default. Five
+sequential repetitions per compiler, each with eight test threads, yielded
+**170 PASS / 0 FAIL / 0 ignored**. These results concern that focused correction,
+not a claim that the later complete production revision was already validated.
+
+### Production conversion and service gate
+
+After PR #27 merged at `ddf93ea`, the audio branch incorporated master through
+normal merge `142a364`. The store now compiles into ordinary builds, with a
+worker-owned XDG namespace, account/generation authority, shared playback bridge,
+separate audio quota/usage and combined Clear/logout cleanup. Generated fixtures
+exercise these paths; only their fake authority/audio inputs remain test-only.
+The real service authority declines storage/reuse admission. Consequently real
+Music still uses the accepted online path without saved service audio.
+
+The six pinned Cassette sources (`9d34251`) and primary service pages were
+reviewed again on 2026-11-05. Music terms, application license and offline help
+were fetched successfully; Plus uses the complete earlier same-day copy plus a
+fresh bounded response, with a later HTTP429. Published account schemas expose
+`permissions.until/values/default` and `cacheLimit` but do not define Karin's
+storage/reuse permission or the online cache-hit authorization contract.
+[AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md) separates that concrete evidence gap
+from a supposed general third-party ban and from later offline requirements.
+
+The production revision passed formatting, strict Clippy, default/all/minimal
+tests and debug builds on stable **1.99.1** and exact **1.98.1**. Each compiler ran
+**469 / 477 / 455** library tests and **4** CLI tests per configuration, with no
+failures. The ordinary test commands leave **36 / 36 / 33** native tests ignored;
+those are not counted as executed by the library matrix.
+
+All **31** shared audio-cache tests execute in that matrix: the original sixteen,
+the lock-lifetime regression, six production-store cases and eight bridge cases.
+They cover fresh online resolution before a granted cached MP3 hit, bounded
+background publication, restart/current-authority checks, corruption and online
+fallback, cancellation, account isolation, quota/LRU and cleanup. Generated media
+and a fake authority drive the real PlaybackController/GStreamer worker; this
+does not establish live service storage permission or heard Music.
+
+Separately, three native selectors ran at scales 1 and 2: the existing player
+scenario with granted cache fill/reuse/retirement, Preferences and persistent
+session/settings/forget/close. All **6 actual executions passed** on the final
+runtime sources, without disabling the WebKit sandbox. **36 synthetic Preferences
+captures** supplement their structural checks. Flatpak source/license preparation
+passed with **208 packages / 207 notice directories**, unchanged license inventory,
+GNOME 50 runtime and scoped permissions. The documentation check covered **47
+Markdown files / 221 local and Git targets** without missing targets.
+
+Release builds, later repeated-cache runs and complete final-head hosted/native
+results are recorded separately in [PR #26 and its checks](https://github.com/tracerxbrhd/karin/pull/26/checks);
+the results above do not predeclare those later checks successful. No new
+Fedora/installed-Flatpak acceptance or real Music cache reuse is established here.
+PR #26 remains Draft and Issue #20 stays open; #5 and #23 remain separate.
+Synthetic expiry/revocation tests cannot establish external rights.
 
 ## Known unresolved checks
 

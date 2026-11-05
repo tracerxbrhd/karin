@@ -69,9 +69,12 @@ lyrics and offline audio are not implemented. Cold first-player appearance in Cl
 still has unresolved frame gaps; desktop acceptance does not establish their
 cause or resolution. See [known limitations](docs/LIMITATIONS.md).
 
-The v0.6 audio-cache work is a test-only foundation with generated audio, not
-offline Music. Service-audio storage remains disabled pending an applicable grant
-and verifiable rights lifecycle; see the [source/rights review](docs/AUDIO_CACHE_REVIEW.md).
+The v0.6 audio-cache store and player integration compile into ordinary builds,
+with a separate size limit and measured usage in Preferences. Real Music remains
+online-only: storage/reuse is disabled until an applicable permission and the
+provider's online revalidation contract are established. PR #26 remains unfinished;
+generated-audio tests do not establish service caching or offline Music. See the
+[source/rights review](docs/AUDIO_CACHE_REVIEW.md).
 
 ## Build and run
 

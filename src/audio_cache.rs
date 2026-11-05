@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Synthetic-only executable cache research, compiled exclusively by `cargo test`.
+//! Account-isolated, authority-gated audio storage used by the ordinary app.
 //!
-//! This is NOT a service storage grant, production AudioCache, offline feature or
-//! source fallback. Inputs can only be generated original PCM WAV. No URL, token,
-//! network client, service Track or RemotePlaybackSource enters this component.
-//! A future adapter needs independently established storage/entitlement rules.
+//! All filesystem operations run on workers. Binding/fencing are memory-only.
+//! A real service storage grant remains unavailable; MissingStorageContract
+//! therefore refuses reads/writes before file or media I/O. Tests inject an
+//! explicit fake authority and original generated audio into these same paths.
 
 use ring::{
     digest::{SHA256, digest},
@@ -14,8 +14,8 @@ use std::{
     collections::BTreeMap,
     fmt,
     fs::{self, File, OpenOptions},
-    io::{Read, Write},
-    os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt},
+    io::{Read, Seek, SeekFrom, Write},
+    os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt},
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex, MutexGuard, Weak,
@@ -24,158 +24,165 @@ use std::{
     time::{Duration, UNIX_EPOCH},
 };
 
-const MAX_AUDIO: usize = 2 * 1024 * 1024;
-const MAX_ENTRIES: usize = 64;
-const MAX_BUDGET: u64 = 32 * 1024 * 1024;
+#[cfg(test)]
+use std::os::unix::fs::PermissionsExt;
+
+const MAX_AUDIO: usize = 64 * 1024 * 1024;
+const MAX_ENTRIES: usize = 1024;
+const MAX_BUDGET: u64 = 4 * 1024 * 1024 * 1024;
 const MAX_REQUESTS: usize = 4;
 const HEADER: usize = 112;
-const MAGIC: &[u8; 8] = b"KARNSYN1";
+const MAGIC: &[u8; 8] = b"KARNADC2";
 type Key = [u8; 32];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
-enum CacheError {
-    #[error("Synthetic cache input is invalid")]
+pub enum CacheError {
+    #[error("Audio cache input is invalid")]
     InvalidInput,
-    #[error("Synthetic cache storage is unavailable")]
+    #[error("Audio cache storage is unavailable")]
     Unavailable,
-    #[error("Synthetic cache storage is busy")]
+    #[error("Audio cache storage is busy")]
     Busy,
-    #[error("Synthetic cache operation was cancelled")]
+    #[error("Audio cache operation was cancelled")]
     Cancelled,
-    #[error("Synthetic cache request is already in flight")]
+    #[error("Audio cache request is already in flight")]
     Duplicate,
-    #[error("Synthetic cache limit was reached")]
+    #[error("Audio cache limit was reached")]
     Limit,
-    #[error("No synthetic storage permission was supplied")]
+    #[error("No reviewed service storage/reuse contract is available")]
     NoGrant,
-    #[error("Synthetic permission has expired")]
+    #[error("Storage permission has expired")]
     Expired,
-    #[error("Synthetic permission was revoked")]
+    #[error("Storage permission was revoked")]
     Revoked,
-    #[error("Synthetic permission requires an online check")]
+    #[error("Storage permission requires an online check")]
     NeedsOnline,
 }
-type Result<T> = std::result::Result<T, CacheError>;
+pub type Result<T> = std::result::Result<T, CacheError>;
 
-/// The only input constructor synthesizes original audio; it cannot fetch or
-/// import a service file. This small PCM WAV is independently decodable by Gst.
-struct SyntheticAudio(Vec<u8>);
-impl SyntheticAudio {
-    fn tone(samples: u32) -> Result<Self> {
-        let data_len = samples.checked_mul(2).ok_or(CacheError::Limit)?;
-        if data_len == 0 || data_len as usize + 44 > MAX_AUDIO {
-            return Err(CacheError::Limit);
-        }
-        let mut data = Vec::with_capacity(data_len as usize + 44);
-        data.extend_from_slice(b"RIFF");
-        data.extend_from_slice(&(data_len + 36).to_le_bytes());
-        data.extend_from_slice(b"WAVEfmt \x10\0\0\0\x01\0\x01\0");
-        data.extend_from_slice(&8_000u32.to_le_bytes());
-        data.extend_from_slice(&16_000u32.to_le_bytes());
-        data.extend_from_slice(b"\x02\0\x10\0data");
-        data.extend_from_slice(&data_len.to_le_bytes());
-        for sample in 0..samples {
-            let amplitude: i16 = if sample % 20 < 10 { 512 } else { -512 };
-            data.extend_from_slice(&amplitude.to_le_bytes());
-        }
-        Ok(Self(data))
+/// Local storage identity. Only hashes are retained, never a token or URL.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct ResourceKey(Key);
+impl ResourceKey {
+    pub fn track(value: &str) -> Result<Self> {
+        crate::music::validate_id(value).map_err(|_| CacheError::InvalidInput)?;
+        let mut bytes = b"Karin reusable full MP3 resource v2\0".to_vec();
+        bytes.extend_from_slice(value.as_bytes());
+        Ok(Self(hash(&bytes)))
     }
 }
-
-/// These deliberately synthetic identities never come from a Music account.
-#[derive(Clone, Copy, PartialEq, Eq)]
-struct Identity {
-    account: u64,
-    device: u64,
-    track: u64,
+impl From<&ResourceKey> for ResourceKey {
+    fn from(value: &ResourceKey) -> Self {
+        *value
+    }
 }
-impl Identity {
+impl fmt::Debug for ResourceKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("AudioResource([opaque])")
+    }
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct ResourceIdentity {
+    account: Key,
+    // Local disk namespace discriminator; not a provider device identity.
+    namespace: u64,
+    track: ResourceKey,
+}
+impl ResourceIdentity {
     fn key(self) -> Key {
-        let mut bytes = b"Karin synthetic audio research v1\0".to_vec();
-        for value in [self.account, self.device, self.track] {
-            bytes.extend_from_slice(&value.to_be_bytes());
-        }
+        let mut bytes = b"Karin audio cache resource v2\0".to_vec();
+        bytes.extend_from_slice(&self.account);
+        bytes.extend_from_slice(&self.namespace.to_be_bytes());
+        bytes.extend_from_slice(&self.track.0);
         hash(&bytes)
     }
     fn scope(self) -> Key {
-        hash(&self.account.to_be_bytes())
+        self.account
     }
 }
-#[derive(Clone, Copy)]
-struct SyntheticRights {
-    revision: u64,
-    expires_at: u64,
-    offline_allowed: bool,
-    online_check_required: bool,
-    revoked: bool,
+impl fmt::Debug for ResourceIdentity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("AudioIdentity([opaque])")
+    }
 }
-#[derive(Default)]
-struct SyntheticAuthority {
-    rights: Mutex<BTreeMap<Key, SyntheticRights>>,
-    now: AtomicU64,
-    online: AtomicBool,
-}
+/// The authority owns the meaning and freshness of this revision. It is not a
+/// locally invented retention time or offline entitlement.
 #[derive(Clone, Copy)]
-struct Permit {
-    identity: Identity,
+pub struct StorageGrant {
+    identity: ResourceIdentity,
     revision: u64,
 }
-impl SyntheticAuthority {
-    fn grant(&self, identity: Identity, expires_at: u64, offline_allowed: bool) {
-        let mut rights = self.rights.lock().unwrap();
-        let revision = rights.get(&identity.key()).map_or(1, |r| r.revision + 1);
-        rights.insert(
-            identity.key(),
-            SyntheticRights {
-                revision,
-                expires_at,
-                offline_allowed,
-                online_check_required: false,
-                revoked: false,
-            },
-        );
+impl StorageGrant {
+    /// Authority-owned opaque generation, not a retention deadline or license.
+    pub fn revision(&self) -> u64 {
+        self.revision
     }
-    fn revoke(&self, identity: Identity) {
-        if let Some(rights) = self.rights.lock().unwrap().get_mut(&identity.key()) {
-            rights.revoked = true;
-            rights.revision += 1;
+}
+impl fmt::Debug for StorageGrant {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("AudioStorageGrant([opaque])")
+    }
+}
+/// Network revalidation belongs in authorize on a worker. check must only
+/// examine an already established live grant/revocation lease, never do I/O on
+/// GTK admission. Stored bytes cannot supply either decision.
+pub trait StorageAuthority: Send + Sync {
+    fn authorize(&self, identity: &ResourceIdentity) -> Result<StorageGrant>;
+    fn check(&self, grant: &StorageGrant) -> Result<()>;
+}
+/// The current service does not establish a Karin-applicable storage contract.
+/// There is no user flag or metadata/subscription shortcut around this gate.
+pub struct MissingStorageContract;
+impl StorageAuthority for MissingStorageContract {
+    fn authorize(&self, _: &ResourceIdentity) -> Result<StorageGrant> {
+        Err(CacheError::NoGrant)
+    }
+    fn check(&self, _: &StorageGrant) -> Result<()> {
+        Err(CacheError::NoGrant)
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CachePolicy {
+    pub max_bytes: u64,
+}
+impl Default for CachePolicy {
+    fn default() -> Self {
+        Self {
+            max_bytes: 256 * 1024 * 1024,
         }
     }
-    fn authorize(&self, identity: Identity) -> Result<Permit> {
-        let all = self.rights.lock().map_err(|_| CacheError::Unavailable)?;
-        let rights = all.get(&identity.key()).ok_or(CacheError::NoGrant)?;
-        if rights.revoked {
-            return Err(CacheError::Revoked);
+}
+impl CachePolicy {
+    fn validate(self) -> Result<()> {
+        if self.max_bytes == 0 || self.max_bytes > MAX_BUDGET {
+            Err(CacheError::InvalidInput)
+        } else {
+            Ok(())
         }
-        if self.now.load(Ordering::Acquire) >= rights.expires_at {
-            return Err(CacheError::Expired);
-        }
-        if (rights.online_check_required || !rights.offline_allowed)
-            && !self.online.load(Ordering::Acquire)
-        {
-            return Err(CacheError::NeedsOnline);
-        }
-        Ok(Permit {
-            identity,
-            revision: rights.revision,
-        })
-    }
-    fn check(&self, permit: Permit) -> Result<()> {
-        let current = self.authorize(permit.identity)?;
-        if current.revision != permit.revision {
-            return Err(CacheError::Cancelled);
-        }
-        Ok(())
     }
 }
 
-/// A disposable, private namespace. No production XDG directory is constructed
-/// by this research module. Tests can put it under a synthetic Flatpak XDG root.
+/// Private namespace. The app supplies its scoped XDG audio-cache directory.
 struct Sandbox {
     path: PathBuf,
     remove_on_drop: bool,
 }
 impl Sandbox {
+    fn persistent(path: PathBuf) -> Result<Arc<Self>> {
+        if !path.is_absolute()
+            || path
+                .components()
+                .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            return Err(CacheError::InvalidInput);
+        }
+        create_private_tree(&path)?;
+        Ok(Arc::new(Self {
+            path,
+            remove_on_drop: false,
+        }))
+    }
+    #[cfg(test)]
     fn create(parent: &Path) -> Result<Arc<Self>> {
         let path = parent.join(format!("karin-synthetic-audio-{}", random_name()?));
         fs::DirBuilder::new()
@@ -187,6 +194,7 @@ impl Sandbox {
             remove_on_drop: true,
         }))
     }
+    #[cfg(test)]
     fn reopen(path: PathBuf) -> Result<Arc<Self>> {
         private_dir(&path)?;
         if !path.file_name().is_some_and(|name| {
@@ -209,7 +217,7 @@ impl Drop for Sandbox {
     }
 }
 struct State {
-    account: Option<u64>,
+    account: Option<Key>,
     generation: u64,
     clearing: bool,
     pending: BTreeMap<Key, Arc<()>>,
@@ -217,14 +225,15 @@ struct State {
 }
 struct Inner {
     sandbox: Arc<Sandbox>,
-    authority: Arc<SyntheticAuthority>,
-    device: u64,
-    budget: u64,
+    authority: Arc<dyn StorageAuthority>,
+    namespace: u64,
+    budget: AtomicU64,
     state: Mutex<State>,
     io: Mutex<()>,
     // Held for the complete namespace-owner lifetime. Separate instances must
     // not retain independent generations for the same directory.
     _lock_file: File,
+    owner_pid: u32,
 }
 impl Drop for Inner {
     fn drop(&mut self) {
@@ -233,25 +242,45 @@ impl Drop for Inner {
         // even with CLOEXEC. End ownership explicitly when the final cache Arc
         // drops, rather than waiting for every inherited descriptor to close.
         // Live clones/workers keep Inner alive; Weak Hit/Lease/Request do not.
-        let _ = rustix::fs::flock(&self._lock_file, rustix::fs::FlockOperation::Unlock);
+        if self.owner_pid == std::process::id() {
+            let _ = rustix::fs::flock(&self._lock_file, rustix::fs::FlockOperation::Unlock);
+        }
     }
 }
 #[derive(Clone)]
-struct AudioCache(Arc<Inner>);
+pub struct AudioCache(Arc<Inner>);
 #[derive(Clone)]
-struct Lease {
+pub struct Lease {
     owner: Weak<Inner>,
-    account: u64,
+    account: Key,
     generation: u64,
 }
-struct Request {
+impl Lease {
+    pub fn matches_scope(&self, scope: &crate::cache::AccountScope) -> bool {
+        self.account == scope.audio_cache_key()
+    }
+}
+pub struct Request {
     lease: Lease,
-    permit: Permit,
+    permit: StorageGrant,
     nonce: Arc<()>,
     cancel: Arc<AtomicBool>,
 }
+#[derive(Clone)]
+pub struct Cancellation(Arc<AtomicBool>);
+impl Cancellation {
+    pub fn cancel(&self) {
+        self.0.store(true, Ordering::Release);
+    }
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(Ordering::Acquire)
+    }
+}
 impl Request {
-    fn cancel(&self) {
+    pub fn cancellation(&self) -> Cancellation {
+        Cancellation(self.cancel.clone())
+    }
+    pub fn cancel(&self) {
         self.cancel.store(true, Ordering::Release);
     }
 }
@@ -268,24 +297,35 @@ impl Drop for Request {
         }
     }
 }
-struct Hit {
+#[derive(Clone)]
+pub struct Hit {
     owner: Weak<Inner>,
     lease: Lease,
-    permit: Permit,
-    bytes: Arc<[u8]>,
+    permit: StorageGrant,
+    file: Arc<File>,
 }
 impl Hit {
-    /// Recheck immediately at admission; an old returned value cannot establish
-    /// rights after Clear, logout, account replacement, renewal or revocation.
-    fn admit(&self) -> Result<Arc<[u8]>> {
+    /// Return the same read-only, integrity-checked inode, not a reopened path.
+    /// An already admitted FD survives Clear; old unadmitted handles are fenced.
+    pub fn admit_file(&self) -> Result<Arc<File>> {
         let cache = AudioCache(self.owner.upgrade().ok_or(CacheError::Cancelled)?);
         cache.check(&self.lease, self.permit)?;
-        Ok(self.bytes.clone())
+        Ok(self.file.clone())
+    }
+    #[cfg(test)]
+    fn admit(&self) -> Result<Arc<[u8]>> {
+        use std::os::unix::fs::FileExt;
+        let file = self.admit_file()?;
+        let length = file.metadata().map_err(|_| CacheError::Unavailable)?.len();
+        let mut bytes = vec![0; length as usize];
+        file.read_exact_at(&mut bytes, 0)
+            .map_err(|_| CacheError::Unavailable)?;
+        Ok(bytes.into())
     }
 }
 impl fmt::Debug for Hit {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("SyntheticAudioHit([opaque])")
+        f.write_str("AudioCacheHit([opaque])")
     }
 }
 struct DiskEntry {
@@ -295,9 +335,9 @@ struct DiskEntry {
     access: u64,
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct Stats {
-    bytes: u64,
-    entries: usize,
+pub struct Stats {
+    pub bytes: u64,
+    pub entries: usize,
 }
 struct IoGuard<'a> {
     _local: MutexGuard<'a, ()>,
@@ -310,13 +350,21 @@ impl Drop for PartialRecord {
 }
 
 impl AudioCache {
-    fn open(
+    pub fn open(
+        path: PathBuf,
+        authority: Arc<dyn StorageAuthority>,
+        policy: CachePolicy,
+    ) -> Result<Self> {
+        policy.validate()?;
+        Self::open_namespace(Sandbox::persistent(path)?, authority, 1, policy.max_bytes)
+    }
+    fn open_namespace(
         sandbox: Arc<Sandbox>,
-        authority: Arc<SyntheticAuthority>,
-        device: u64,
+        authority: Arc<dyn StorageAuthority>,
+        namespace: u64,
         budget: u64,
     ) -> Result<Self> {
-        if device == 0 || budget == 0 || budget > MAX_BUDGET {
+        if namespace == 0 || budget == 0 || budget > MAX_BUDGET {
             return Err(CacheError::InvalidInput);
         }
         private_dir(&sandbox.path)?;
@@ -338,8 +386,8 @@ impl AudioCache {
         let cache = Self(Arc::new(Inner {
             sandbox,
             authority,
-            device,
-            budget,
+            namespace,
+            budget: AtomicU64::new(budget),
             state: Mutex::new(State {
                 account: None,
                 generation: 1,
@@ -349,6 +397,7 @@ impl AudioCache {
             }),
             io: Mutex::new(()),
             _lock_file: lock_file,
+            owner_pid: std::process::id(),
         }));
         {
             let _io = cache.io()?;
@@ -359,10 +408,8 @@ impl AudioCache {
         }
         Ok(cache)
     }
-    fn bind(&self, account: Option<u64>) -> Result<Option<Lease>> {
-        if account == Some(0) {
-            return Err(CacheError::InvalidInput);
-        }
+    pub fn bind(&self, account: Option<crate::cache::AccountScope>) -> Result<Option<Lease>> {
+        let account = account.map(|scope| scope.audio_cache_key());
         let mut state = self.0.state.lock().map_err(|_| CacheError::Unavailable)?;
         state.generation = state.generation.checked_add(1).ok_or(CacheError::Limit)?;
         state.account = account;
@@ -373,7 +420,49 @@ impl AudioCache {
             generation: state.generation,
         }))
     }
+    pub fn lease(&self) -> Option<Lease> {
+        let state = self.0.state.lock().ok()?;
+        if state.clearing {
+            return None;
+        }
+        Some(Lease {
+            owner: Arc::downgrade(&self.0),
+            account: state.account?,
+            generation: state.generation,
+        })
+    }
+    pub fn fence(&self) -> Result<()> {
+        let mut state = self.0.state.lock().map_err(|_| CacheError::Unavailable)?;
+        state.generation = state.generation.checked_add(1).ok_or(CacheError::Limit)?;
+        state.clearing = true;
+        state.pending.clear();
+        Ok(())
+    }
+    pub fn configure(&self, policy: CachePolicy) -> Result<()> {
+        policy.validate()?;
+        let mut state = self.0.state.lock().map_err(|_| CacheError::Unavailable)?;
+        if self.0.budget.load(Ordering::Acquire) == policy.max_bytes {
+            return Ok(());
+        }
+        state.generation = state.generation.checked_add(1).ok_or(CacheError::Limit)?;
+        state.pending.clear();
+        self.0.budget.store(policy.max_bytes, Ordering::Release);
+        // A budget change cannot clear a failed/in-flight cleanup fence.
+        Ok(())
+    }
+    pub fn trim(&self) -> Result<Stats> {
+        let _io = self.io()?;
+        self.evict(self.scan()?, 0, None)?;
+        let entries = self.scan()?;
+        Ok(Stats {
+            bytes: entries.iter().map(|e| e.bytes).sum(),
+            entries: entries.len(),
+        })
+    }
     fn lease_current(&self, lease: &Lease) -> Result<()> {
+        if self.0.owner_pid != std::process::id() {
+            return Err(CacheError::Cancelled);
+        }
         let state = self.0.state.lock().map_err(|_| CacheError::Unavailable)?;
         if !lease.owner.ptr_eq(&Arc::downgrade(&self.0))
             || state.clearing
@@ -384,26 +473,28 @@ impl AudioCache {
         }
         Ok(())
     }
-    fn check(&self, lease: &Lease, permit: Permit) -> Result<()> {
+    fn check(&self, lease: &Lease, permit: StorageGrant) -> Result<()> {
         self.lease_current(lease)?;
-        if permit.identity.account != lease.account || permit.identity.device != self.0.device {
+        if permit.identity.account != lease.account || permit.identity.namespace != self.0.namespace
+        {
             return Err(CacheError::Cancelled);
         }
-        self.0.authority.check(permit)
+        self.0.authority.check(&permit)
     }
-    fn identity(&self, lease: &Lease, track: u64) -> Result<Identity> {
-        if track == 0 {
-            return Err(CacheError::InvalidInput);
-        }
-        Ok(Identity {
+    fn identity(&self, lease: &Lease, track: ResourceKey) -> Result<ResourceIdentity> {
+        Ok(ResourceIdentity {
             account: lease.account,
-            device: self.0.device,
+            namespace: self.0.namespace,
             track,
         })
     }
-    fn begin(&self, lease: &Lease, track: u64) -> Result<Request> {
+    pub fn begin(&self, lease: &Lease, track: impl Into<ResourceKey>) -> Result<Request> {
         self.lease_current(lease)?;
-        let permit = self.0.authority.authorize(self.identity(lease, track)?)?;
+        let identity = self.identity(lease, track.into())?;
+        let permit = self.0.authority.authorize(&identity)?;
+        if permit.identity != identity {
+            return Err(CacheError::Cancelled);
+        }
         self.check(lease, permit)?;
         let mut state = self.0.state.lock().map_err(|_| CacheError::Unavailable)?;
         if state.clearing
@@ -427,30 +518,28 @@ impl AudioCache {
             cancel: Arc::new(AtomicBool::new(false)),
         })
     }
+    pub(crate) fn check_request(&self, request: &Request) -> Result<()> {
+        self.request_current(request)
+    }
     fn request_current(&self, request: &Request) -> Result<()> {
         if request.cancel.load(Ordering::Acquire) {
             return Err(CacheError::Cancelled);
         }
         self.check(&request.lease, request.permit)
     }
-    fn put(&self, request: Request, audio: &SyntheticAudio) -> Result<()> {
-        self.put_before_commit(request, audio, || Ok(()))
+    pub fn put_reader(&self, request: Request, reader: impl Read) -> Result<()> {
+        self.put_reader_before_commit(request, reader, || Ok(()))
     }
-    fn put_before_commit(
+    fn put_reader_before_commit(
         &self,
         request: Request,
-        audio: &SyntheticAudio,
+        mut reader: impl Read,
         before_commit: impl FnOnce() -> Result<()>,
     ) -> Result<()> {
         self.request_current(&request)?;
-        let size = (HEADER + audio.0.len()) as u64;
-        if size > self.0.budget {
-            return Err(CacheError::Limit);
-        }
         let _io = self.io()?;
         self.request_current(&request)?;
         let key = request.permit.identity.key();
-        self.evict(self.scan()?, size, Some(key))?;
         let temporary = self
             .0
             .sandbox
@@ -461,29 +550,53 @@ impl AudioCache {
             .create(&temporary)
             .map_err(|_| CacheError::Unavailable)?;
         let guard = PartialRecord(temporary.clone());
-        let header = encode(request.permit.identity, &audio.0);
-        write_private(&temporary.join("header"), &header)?;
+        let mut length = 0usize;
+        let mut content = ring::digest::Context::new(&SHA256);
         {
-            let mut output = new_file(&temporary.join("audio.wav"))?;
-            for chunk in audio.0.chunks(4096) {
+            let mut output = new_file(&temporary.join("media.bin"))?;
+            let mut chunk = [0; 16 * 1024];
+            loop {
                 self.request_current(&request)?;
-                output
-                    .write_all(chunk)
+                let read = reader
+                    .read(&mut chunk)
                     .map_err(|_| CacheError::Unavailable)?;
+                if read == 0 {
+                    break;
+                }
+                length = length.checked_add(read).ok_or(CacheError::Limit)?;
+                if length > MAX_AUDIO
+                    || (HEADER + length) as u64 > self.0.budget.load(Ordering::Acquire)
+                {
+                    return Err(CacheError::Limit);
+                }
+                output
+                    .write_all(&chunk[..read])
+                    .map_err(|_| CacheError::Unavailable)?;
+                content.update(&chunk[..read]);
+            }
+            if length == 0 {
+                return Err(CacheError::InvalidInput);
             }
             output.sync_all().map_err(|_| CacheError::Unavailable)?;
         }
+        let header = encode_digest(
+            request.permit.identity,
+            length as u64,
+            content.finish().as_ref(),
+        );
+        write_private(&temporary.join("header"), &header)?;
         sync_dir(&temporary)?;
         before_commit()?;
         self.request_current(&request)?;
+        // Preserve useful old data on malformed/oversized/failed readers. At
+        // most one bounded staging file exists under the I/O lock. Completed
+        // records obey the budget; peak temporary overhead is MAX_AUDIO.
+        let entries = self.scan_except(Some(&temporary))?;
+        self.evict(entries, (HEADER + length) as u64, Some(key))?;
         let path = self.path(key);
-        if path.exists() {
-            remove_record(&path)?;
-        }
         fs::rename(&temporary, &path).map_err(|_| CacheError::Unavailable)?;
         sync_dir(&self.0.sandbox.path)?;
         if let Err(error) = self.request_current(&request) {
-            // Serialized I/O prevents deleting a newer writer's replacement.
             if remove_record(&path).is_err() {
                 self.0
                     .state
@@ -498,15 +611,27 @@ impl AudioCache {
         drop(guard);
         Ok(())
     }
-    fn get(&self, lease: &Lease, track: u64) -> Result<Option<Hit>> {
+    #[cfg(test)]
+    fn put(&self, request: Request, audio: &SyntheticAudio) -> Result<()> {
+        self.put_reader(request, audio.0.as_slice())
+    }
+    #[cfg(test)]
+    fn put_before_commit(
+        &self,
+        request: Request,
+        audio: &SyntheticAudio,
+        before_commit: impl FnOnce() -> Result<()>,
+    ) -> Result<()> {
+        self.put_reader_before_commit(request, audio.0.as_slice(), before_commit)
+    }
+    pub fn get(&self, lease: &Lease, track: impl Into<ResourceKey>) -> Result<Option<Hit>> {
         self.lease_current(lease)?;
-        let identity = self.identity(lease, track)?;
-        let _io = self.io()?;
-        self.lease_current(lease)?;
-        let permit = match self.0.authority.authorize(identity) {
+        let identity = self.identity(lease, track.into())?;
+        let permit = match self.0.authority.authorize(&identity) {
             Ok(permit) => permit,
             Err(error) => {
                 if matches!(error, CacheError::Expired | CacheError::Revoked) {
+                    let _io = self.io()?;
                     let path = self.path(identity.key());
                     if path.exists() {
                         remove_record(&path)?;
@@ -515,9 +640,14 @@ impl AudioCache {
                 return Err(error);
             }
         };
+        if permit.identity != identity {
+            return Err(CacheError::Cancelled);
+        }
         self.check(lease, permit)?;
+        let _io = self.io()?;
+        self.lease_current(lease)?;
         let path = self.path(identity.key());
-        let Some(bytes) = read_record(&path, identity.key(), Some(identity.scope()))? else {
+        let Some(file) = read_record(&path, identity.key(), Some(identity.scope()))? else {
             return Ok(None);
         };
         self.check(lease, permit)?;
@@ -526,35 +656,39 @@ impl AudioCache {
             owner: Arc::downgrade(&self.0),
             lease: lease.clone(),
             permit,
-            bytes: bytes.into(),
+            file: Arc::new(file),
         }))
     }
     /// Invalidates immediately; Busy/failure leaves reads fenced until an
     /// explicit worker retry completes cleanup. Never reports an unmeasured zero.
-    fn clear(&self) -> Result<Stats> {
-        {
+    pub fn clear(&self) -> Result<Stats> {
+        self.clear_before_complete(|| {})
+    }
+    fn clear_before_complete(&self, before_complete: impl FnOnce()) -> Result<Stats> {
+        let generation = {
             let mut state = self.0.state.lock().map_err(|_| CacheError::Unavailable)?;
             state.generation = state.generation.checked_add(1).ok_or(CacheError::Limit)?;
             state.clearing = true;
             state.pending.clear();
-        }
+            state.generation
+        };
         let _io = self.io()?;
         for entry in self.scan()? {
             remove_record(&entry.path)?;
         }
         sync_dir(&self.0.sandbox.path)?;
-        self.0
-            .state
-            .lock()
-            .map_err(|_| CacheError::Unavailable)?
-            .clearing = false;
+        before_complete();
+        let mut state = self.0.state.lock().map_err(|_| CacheError::Unavailable)?;
+        if state.generation == generation {
+            state.clearing = false;
+        }
         Ok(Stats::default())
     }
-    fn logout(&self) -> Result<Stats> {
+    pub fn logout(&self) -> Result<Stats> {
         self.bind(None)?;
         self.clear()
     }
-    fn stats(&self) -> Result<Stats> {
+    pub fn stats(&self) -> Result<Stats> {
         let _io = self.io()?;
         let entries = self.scan()?;
         Ok(Stats {
@@ -566,6 +700,9 @@ impl AudioCache {
         self.0.sandbox.path.join(hex(&key))
     }
     fn io(&self) -> Result<IoGuard<'_>> {
+        if self.0.owner_pid != std::process::id() {
+            return Err(CacheError::Cancelled);
+        }
         let local = self.0.io.try_lock().map_err(|_| CacheError::Busy)?;
         let guard = IoGuard { _local: local };
         private_dir(&self.0.sandbox.path)?;
@@ -586,6 +723,9 @@ impl AudioCache {
             .map_err(|_| CacheError::Unavailable)
     }
     fn scan(&self) -> Result<Vec<DiskEntry>> {
+        self.scan_except(None)
+    }
+    fn scan_except(&self, active: Option<&Path>) -> Result<Vec<DiskEntry>> {
         let mut entries = Vec::new();
         for (number, item) in fs::read_dir(&self.0.sandbox.path)
             .map_err(|_| CacheError::Unavailable)?
@@ -598,6 +738,9 @@ impl AudioCache {
             let name = item.file_name();
             let name = name.to_str().ok_or(CacheError::Unavailable)?;
             if name == ".lock" {
+                continue;
+            }
+            if active.is_some_and(|active| active == item.path()) {
                 continue;
             }
             if name.strip_prefix(".part-").is_some_and(valid_hex) {
@@ -652,7 +795,9 @@ impl AudioCache {
         let keep = MAX_ENTRIES - usize::from(incoming > 0);
         let mut count = entries.len();
         for entry in &entries {
-            if bytes.saturating_add(incoming) <= self.0.budget && count <= keep {
+            if bytes.saturating_add(incoming) <= self.0.budget.load(Ordering::Acquire)
+                && count <= keep
+            {
                 break;
             }
             remove_record(&entry.path)?;
@@ -663,14 +808,14 @@ impl AudioCache {
     }
 }
 
-fn encode(identity: Identity, audio: &[u8]) -> [u8; HEADER] {
+fn encode_digest(identity: ResourceIdentity, length: u64, content_hash: &[u8]) -> [u8; HEADER] {
     let mut header = [0u8; HEADER];
     header[..8].copy_from_slice(MAGIC);
     header[8..40].copy_from_slice(&identity.key());
     header[40..72].copy_from_slice(&identity.scope());
-    header[72..80].copy_from_slice(&(audio.len() as u64).to_be_bytes());
+    header[72..80].copy_from_slice(&length.to_be_bytes());
     let mut data = header[..80].to_vec();
-    data.extend_from_slice(audio);
+    data.extend_from_slice(content_hash);
     header[80..112].copy_from_slice(&hash(&data));
     header
 }
@@ -690,7 +835,7 @@ fn record_size(path: &Path, key: Key) -> Result<Option<u64>> {
             return Ok(None);
         }
         let length = u64::from_be_bytes(header[72..80].try_into().unwrap());
-        let audio = open_private(&path.join("audio.wav"))?;
+        let audio = open_private(&path.join("media.bin"))?;
         if length == 0
             || length > MAX_AUDIO as u64
             || audio.metadata().map_err(|_| CacheError::Unavailable)?.len() != length
@@ -708,7 +853,7 @@ fn record_size(path: &Path, key: Key) -> Result<Option<u64>> {
     }
 }
 
-fn read_record(path: &Path, key: Key, scope: Option<Key>) -> Result<Option<Vec<u8>>> {
+fn read_record(path: &Path, key: Key, scope: Option<Key>) -> Result<Option<File>> {
     if !path.exists() {
         return Ok(None);
     }
@@ -732,21 +877,35 @@ fn read_record(path: &Path, key: Key, scope: Option<Key>) -> Result<Option<Vec<u
         if length == 0 || length > MAX_AUDIO as u64 {
             return Ok(None);
         }
-        let input = open_private(&path.join("audio.wav"))?;
+        let mut input = open_private(&path.join("media.bin"))?;
         if input.metadata().map_err(|_| CacheError::Unavailable)?.len() != length {
             return Ok(None);
         }
-        let mut audio = Vec::with_capacity(length as usize);
-        input
-            .take(length + 1)
-            .read_to_end(&mut audio)
-            .map_err(|_| CacheError::Unavailable)?;
+        let mut context = ring::digest::Context::new(&SHA256);
+        let mut chunk = [0; 16 * 1024];
+        let mut measured = 0u64;
+        loop {
+            let read = input
+                .read(&mut chunk)
+                .map_err(|_| CacheError::Unavailable)?;
+            if read == 0 {
+                break;
+            }
+            measured = measured.checked_add(read as u64).ok_or(CacheError::Limit)?;
+            if measured > length {
+                return Ok(None);
+            }
+            context.update(&chunk[..read]);
+        }
         let mut data = header[..80].to_vec();
-        data.extend_from_slice(&audio);
-        if audio.len() != length as usize || hash(&data) != header[80..112] {
+        data.extend_from_slice(context.finish().as_ref());
+        if measured != length || hash(&data) != header[80..112] {
             return Ok(None);
         }
-        Ok(Some(audio))
+        input
+            .seek(SeekFrom::Start(0))
+            .map_err(|_| CacheError::Unavailable)?;
+        Ok(Some(input))
     })();
     match record {
         Ok(None) => {
@@ -755,6 +914,34 @@ fn read_record(path: &Path, key: Key, scope: Option<Key>) -> Result<Option<Vec<u
         }
         other => other,
     }
+}
+fn create_private_tree(path: &Path) -> Result<()> {
+    let mut ancestor = PathBuf::new();
+    for component in path.components() {
+        ancestor.push(component);
+        match fs::symlink_metadata(&ancestor) {
+            Ok(meta) if !meta.is_dir() => return Err(CacheError::Unavailable),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+            Err(_) => return Err(CacheError::Unavailable),
+            _ => {}
+        }
+    }
+    if path.exists() {
+        return private_dir(path);
+    }
+    let parent = path.parent().ok_or(CacheError::InvalidInput)?;
+    if !parent.exists() {
+        create_private_tree(parent)?;
+    }
+    let meta = fs::symlink_metadata(parent).map_err(|_| CacheError::Unavailable)?;
+    if !meta.is_dir() || meta.uid() != rustix::process::geteuid().as_raw() {
+        return Err(CacheError::Unavailable);
+    }
+    fs::DirBuilder::new()
+        .mode(0o700)
+        .create(path)
+        .map_err(|_| CacheError::Unavailable)?;
+    private_dir(path)
 }
 fn private_dir(path: &Path) -> Result<()> {
     let meta = fs::symlink_metadata(path).map_err(|_| CacheError::Unavailable)?;
@@ -814,7 +1001,7 @@ fn remove_record(path: &Path) -> Result<()> {
     if children.len() > 2
         || children
             .iter()
-            .any(|entry| entry.file_name() != "header" && entry.file_name() != "audio.wav")
+            .any(|entry| entry.file_name() != "header" && entry.file_name() != "media.bin")
     {
         return Err(CacheError::Unavailable);
     }
@@ -869,4 +1056,11 @@ fn random_name() -> Result<String> {
     Ok(hex(&bytes))
 }
 
+pub(crate) mod bridge;
+
+#[cfg(test)]
+pub(crate) mod test_support;
+#[cfg(test)]
+use test_support::*;
+#[cfg(test)]
 mod tests;

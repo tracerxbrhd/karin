@@ -20,8 +20,8 @@ fn fixture(budget: u64) -> (Arc<Sandbox>, Arc<SyntheticAuthority>, AudioCache, L
     authority.online.store(true, Ordering::Release);
     authority.grant(FIRST, 100, true);
     authority.grant(SECOND, 100, true);
-    let cache = AudioCache::open(sandbox.clone(), authority.clone(), FIRST.device, budget).unwrap();
-    let lease = cache.bind(Some(FIRST.account)).unwrap().unwrap();
+    let cache = test_open(sandbox.clone(), authority.clone(), FIRST.device, budget).unwrap();
+    let lease = cache.bind(Some(account(FIRST.account))).unwrap().unwrap();
     (sandbox, authority, cache, lease)
 }
 fn put(cache: &AudioCache, lease: &Lease, track: u64, samples: u32) {
@@ -58,7 +58,7 @@ fn miss_hit_integrity_and_opaque_private_storage() {
         );
     }
     let hit = cache.get(&lease, FIRST.track).unwrap().unwrap();
-    assert_eq!(format!("{hit:?}"), "SyntheticAudioHit([opaque])");
+    assert_eq!(format!("{hit:?}"), "AudioCacheHit([opaque])");
 }
 
 #[test]
@@ -68,12 +68,12 @@ fn corrupted_truncated_and_swapped_records_become_misses() {
         put(&cache, &lease, FIRST.track, 400);
         let path = cache.path(FIRST.key());
         match failure {
-            0 => fs::write(path.join("audio.wav"), b"partial").unwrap(),
+            0 => fs::write(path.join("media.bin"), b"partial").unwrap(),
             1 => fs::write(path.join("header"), b"partial").unwrap(),
             2 => {
-                let mut bytes = fs::read(path.join("audio.wav")).unwrap();
+                let mut bytes = fs::read(path.join("media.bin")).unwrap();
                 bytes[50] ^= 1;
-                fs::write(path.join("audio.wav"), bytes).unwrap();
+                fs::write(path.join("media.bin"), bytes).unwrap();
             }
             _ => {
                 let mut header = fs::read(path.join("header")).unwrap();
@@ -91,10 +91,10 @@ fn partial_crash_directories_are_never_hits_and_recovery_removes_them() {
     let (sandbox, authority, cache, _) = fixture(100_000);
     let partial = sandbox.path.join(format!(".part-{}", "a".repeat(32)));
     fs::DirBuilder::new().mode(0o700).create(&partial).unwrap();
-    write_private(&partial.join("audio.wav"), b"incomplete synthetic record").unwrap();
+    write_private(&partial.join("media.bin"), b"incomplete synthetic record").unwrap();
     drop(cache);
-    let cache = AudioCache::open(sandbox.clone(), authority, 11, 100_000).unwrap();
-    let lease = cache.bind(Some(1)).unwrap().unwrap();
+    let cache = test_open(sandbox.clone(), authority, 11, 100_000).unwrap();
+    let lease = cache.bind(Some(account(1))).unwrap().unwrap();
     assert!(!partial.exists());
     assert!(cache.get(&lease, FIRST.track).unwrap().is_none());
     assert_eq!(cache.stats().unwrap(), Stats::default());
@@ -154,7 +154,7 @@ fn precommit_cancel_write_failure_and_account_change_publish_no_partial_entry() 
     let request = cache.begin(&lease, FIRST.track).unwrap();
     assert_eq!(
         cache.put_before_commit(request, &SyntheticAudio::tone(2_000).unwrap(), || {
-            cache.bind(Some(2))?;
+            cache.bind(Some(account(2)))?;
             Ok(())
         }),
         Err(CacheError::Cancelled)
@@ -170,8 +170,8 @@ fn byte_budget_and_actual_lru_survive_reopen() {
     put(&cache, &lease, SECOND.track, 400);
     sample(&cache, &lease, FIRST.track); // FIRST is newer than SECOND now.
     drop(cache);
-    let cache = AudioCache::open(sandbox, authority.clone(), 11, one * 2).unwrap();
-    let lease = cache.bind(Some(1)).unwrap().unwrap();
+    let cache = test_open(sandbox, authority.clone(), 11, one * 2).unwrap();
+    let lease = cache.bind(Some(account(1))).unwrap().unwrap();
     let third = Identity {
         track: 103,
         ..FIRST
@@ -267,7 +267,7 @@ fn wrong_account_and_device_cannot_reuse_data_and_logout_fences_old_handles() {
         ..FIRST
     };
     authority.grant(second_id, 100, true);
-    let second = cache.bind(Some(2)).unwrap().unwrap();
+    let second = cache.bind(Some(account(2))).unwrap().unwrap();
     assert!(cache.get(&second, FIRST.track).unwrap().is_none());
     assert!(matches!(
         cache.get(&first, FIRST.track),
@@ -275,8 +275,8 @@ fn wrong_account_and_device_cannot_reuse_data_and_logout_fences_old_handles() {
     ));
     assert_eq!(hit.admit().unwrap_err(), CacheError::Cancelled);
     drop(cache);
-    let other = AudioCache::open(sandbox, authority.clone(), 12, 100_000).unwrap();
-    let other_lease = other.bind(Some(1)).unwrap().unwrap();
+    let other = test_open(sandbox, authority.clone(), 12, 100_000).unwrap();
+    let other_lease = other.bind(Some(account(1))).unwrap().unwrap();
     assert!(matches!(
         other.get(&other_lease, FIRST.track),
         Err(CacheError::NoGrant)
@@ -320,7 +320,7 @@ fn clear_during_write_fences_requests_and_requires_successful_cleanup_retry() {
     resume.send(()).unwrap();
     assert_eq!(writer.join().unwrap(), Err(CacheError::Cancelled));
     assert_eq!(cache.clear().unwrap(), Stats::default());
-    let fresh = cache.bind(Some(1)).unwrap().unwrap();
+    let fresh = cache.bind(Some(account(1))).unwrap().unwrap();
     assert!(cache.get(&fresh, SECOND.track).unwrap().is_none());
     assert_eq!(fs::read_dir(&sandbox.path).unwrap().count(), 1);
 }
@@ -379,7 +379,7 @@ fn directory_ownership_symlinks_unavailable_storage_and_injected_write_failure_f
     assert_eq!(cache.stats().unwrap(), Stats::default());
     fs::set_permissions(&sandbox.path, fs::Permissions::from_mode(0o755)).unwrap();
     assert!(matches!(
-        AudioCache::open(sandbox.clone(), authority, 11, 100_000),
+        test_open(sandbox.clone(), authority, 11, 100_000),
         Err(CacheError::Unavailable)
     ));
     fs::set_permissions(&sandbox.path, fs::Permissions::from_mode(0o700)).unwrap();
@@ -401,14 +401,14 @@ fn one_namespace_owner_and_retired_tickets_survive_clear_and_reopen() {
     let old_hit = cache.get(&lease, FIRST.track).unwrap().unwrap();
     let old_request = cache.begin(&lease, SECOND.track).unwrap();
     assert!(matches!(
-        AudioCache::open(sandbox.clone(), authority.clone(), 11, 100_000),
+        test_open(sandbox.clone(), authority.clone(), 11, 100_000),
         Err(CacheError::Busy)
     ));
     cache.clear().unwrap();
     assert_eq!(old_hit.admit().unwrap_err(), CacheError::Cancelled);
     drop(cache);
-    let reopened = AudioCache::open(sandbox, authority, 11, 100_000).unwrap();
-    let current = reopened.bind(Some(1)).unwrap().unwrap();
+    let reopened = test_open(sandbox, authority, 11, 100_000).unwrap();
+    let current = reopened.bind(Some(account(1))).unwrap().unwrap();
     assert_eq!(
         reopened.put(old_request, &SyntheticAudio::tone(400).unwrap()),
         Err(CacheError::Cancelled)
@@ -431,7 +431,7 @@ fn namespace_owner_release_is_independent_of_inherited_file_description() {
     let peer = cache.clone();
     drop(cache);
     assert!(matches!(
-        AudioCache::open(sandbox.clone(), authority.clone(), 11, 100_000),
+        test_open(sandbox.clone(), authority.clone(), 11, 100_000),
         Err(CacheError::Busy)
     ));
     drop(peer);
@@ -440,7 +440,7 @@ fn namespace_owner_release_is_independent_of_inherited_file_description() {
         "tickets retain only Weak owners"
     );
     assert_eq!(old_hit.admit().unwrap_err(), CacheError::Cancelled);
-    let reopened = AudioCache::open(sandbox.clone(), authority.clone(), 11, 100_000).unwrap();
+    let reopened = test_open(sandbox.clone(), authority.clone(), 11, 100_000).unwrap();
     assert_eq!(
         reopened.put(old_request, &SyntheticAudio::tone(400).unwrap()),
         Err(CacheError::Cancelled)
@@ -448,7 +448,7 @@ fn namespace_owner_release_is_independent_of_inherited_file_description() {
     drop(inherited_description);
     assert!(
         matches!(
-            AudioCache::open(sandbox, authority, 11, 100_000),
+            test_open(sandbox, authority, 11, 100_000),
             Err(CacheError::Busy)
         ),
         "closing an old inherited descriptor cannot unlock the new owner"
@@ -462,7 +462,7 @@ fn active_owner_recovers_orphan_bytes_before_quota_or_stats() {
     let orphan = sandbox.path.join(format!(".part-{}", "b".repeat(32)));
     fs::DirBuilder::new().mode(0o700).create(&orphan).unwrap();
     write_private(
-        &orphan.join("audio.wav"),
+        &orphan.join("media.bin"),
         &SyntheticAudio::tone(400).unwrap().0,
     )
     .unwrap();
@@ -488,8 +488,8 @@ fn synthetic_flatpak_xdg_namespace_never_touches_host_profile() {
     let sandbox = Sandbox::create(&fake_flatpak_cache).unwrap();
     let authority = Arc::new(SyntheticAuthority::default());
     authority.grant(FIRST, 100, true);
-    let cache = AudioCache::open(sandbox.clone(), authority, 11, 100_000).unwrap();
-    let lease = cache.bind(Some(1)).unwrap().unwrap();
+    let cache = test_open(sandbox.clone(), authority, 11, 100_000).unwrap();
+    let lease = cache.bind(Some(account(1))).unwrap().unwrap();
     put(&cache, &lease, FIRST.track, 400);
     assert!(sandbox.path.starts_with(&fake_flatpak_cache));
     assert_eq!(cache.stats().unwrap().entries, 1);
@@ -526,8 +526,8 @@ fn actual_process_restart_requires_new_authority_and_recovers_generated_audio() 
 fn restart_child(path: PathBuf) {
     let sandbox = Sandbox::reopen(path).unwrap();
     let authority = Arc::new(SyntheticAuthority::default());
-    let cache = AudioCache::open(sandbox, authority.clone(), 11, 100_000).unwrap();
-    let lease = cache.bind(Some(1)).unwrap().unwrap();
+    let cache = test_open(sandbox, authority.clone(), 11, 100_000).unwrap();
+    let lease = cache.bind(Some(account(1))).unwrap().unwrap();
     assert!(matches!(
         cache.get(&lease, FIRST.track),
         Err(CacheError::NoGrant)
@@ -551,7 +551,7 @@ fn cached_generated_wav_plays_through_existing_controller_and_clear_preserves_op
     assert_eq!(&*admitted, &SyntheticAudio::tone(16_000).unwrap().0);
     let player = PlaybackController::new(PlaybackOutput::Fakesink).unwrap();
     player
-        .prepare(PlaybackSource::local_file(cache.path(FIRST.key()).join("audio.wav")).unwrap())
+        .prepare(PlaybackSource::local_file(cache.path(FIRST.key()).join("media.bin")).unwrap())
         .unwrap();
     wait_player(&player, PlaybackState::Ready);
     player.play().unwrap();
@@ -609,4 +609,229 @@ fn wait_player(player: &PlaybackController, expected: PlaybackState) {
         );
         thread::sleep(Duration::from_millis(5));
     }
+}
+
+#[test]
+fn production_missing_contract_refuses_before_touching_unavailable_storage() {
+    let parent = Sandbox::create(&std::env::temp_dir()).unwrap();
+    let path = parent.path.join("persistent-audio");
+    let cache = AudioCache::open(
+        path.clone(),
+        Arc::new(MissingStorageContract),
+        CachePolicy::default(),
+    )
+    .unwrap();
+    let lease = cache.bind(Some(account(1))).unwrap().unwrap();
+    let resource = ResourceKey::track("42:7").unwrap();
+    let moved = parent.path.join("temporarily-moved-audio");
+    fs::rename(&path, &moved).unwrap();
+    assert!(matches!(
+        cache.get(&lease, resource),
+        Err(CacheError::NoGrant)
+    ));
+    assert!(matches!(
+        cache.begin(&lease, resource),
+        Err(CacheError::NoGrant)
+    ));
+    assert!(matches!(cache.stats(), Err(CacheError::Unavailable)));
+    fs::rename(moved, path).unwrap();
+    assert_eq!(cache.stats().unwrap(), Stats::default());
+}
+
+#[test]
+fn production_stream_reader_failures_and_external_cancel_preserve_completed_records() {
+    struct BrokenReader {
+        first: bool,
+    }
+    impl Read for BrokenReader {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            if self.first {
+                self.first = false;
+                buffer[..4].copy_from_slice(b"data");
+                Ok(4)
+            } else {
+                Err(std::io::ErrorKind::UnexpectedEof.into())
+            }
+        }
+    }
+    let parent = Sandbox::create(&std::env::temp_dir()).unwrap();
+    let scope = account(1);
+    let key = ResourceKey::track("42:7").unwrap();
+    let authority = Arc::new(SyntheticAuthority::default());
+    authority.allow(&scope, &key);
+    let cache = AudioCache::open(
+        parent.path.join("audio"),
+        authority.clone(),
+        CachePolicy { max_bytes: 100_000 },
+    )
+    .unwrap();
+    let lease = cache.bind(Some(scope.clone())).unwrap().unwrap();
+    let media = SyntheticAudio::tone(400).unwrap();
+    cache
+        .put_reader(cache.begin(&lease, key).unwrap(), media.0.as_slice())
+        .unwrap();
+    let before = cache.stats().unwrap();
+    let request = cache.begin(&lease, key).unwrap();
+    assert_eq!(
+        cache.put_reader(request, BrokenReader { first: true }),
+        Err(CacheError::Unavailable)
+    );
+    assert_eq!(cache.stats().unwrap(), before);
+    assert_eq!(
+        &*cache.get(&lease, key).unwrap().unwrap().admit().unwrap(),
+        &media.0
+    );
+    let request = cache.begin(&lease, key).unwrap();
+    let cancellation = request.cancellation();
+    cancellation.cancel();
+    assert_eq!(cache.check_request(&request), Err(CacheError::Cancelled));
+    assert_eq!(
+        cache.put_reader(request, media.0.as_slice()),
+        Err(CacheError::Cancelled)
+    );
+    assert_eq!(cache.stats().unwrap(), before);
+    authority.deny(&scope, &key);
+    assert!(matches!(cache.get(&lease, key), Err(CacheError::Revoked)));
+    assert_eq!(cache.stats().unwrap(), Stats::default());
+}
+
+#[test]
+fn admitted_file_is_read_only_and_keeps_the_verified_inode_across_replace_and_clear() {
+    use std::os::unix::fs::FileExt;
+    let (_, _, cache, lease) = fixture(100_000);
+    put(&cache, &lease, FIRST.track, 400);
+    let hit = cache.get(&lease, FIRST.track).unwrap().unwrap();
+    let admitted = hit.admit_file().unwrap();
+    let inode = admitted.metadata().unwrap().ino();
+    assert!(admitted.write_at(b"not permitted", 0).is_err());
+    put(&cache, &lease, FIRST.track, 800);
+    let replacement = cache
+        .get(&lease, FIRST.track)
+        .unwrap()
+        .unwrap()
+        .admit_file()
+        .unwrap();
+    assert_ne!(replacement.metadata().unwrap().ino(), inode);
+    assert_eq!(admitted.metadata().unwrap().ino(), inode);
+    cache.clear().unwrap();
+    assert!(matches!(hit.admit_file(), Err(CacheError::Cancelled)));
+    let mut original = vec![0; SyntheticAudio::tone(400).unwrap().0.len()];
+    admitted.read_exact_at(&mut original, 0).unwrap();
+    assert_eq!(original, SyntheticAudio::tone(400).unwrap().0);
+}
+
+#[test]
+fn authorization_for_a_different_resource_is_never_accepted() {
+    struct WrongResource;
+    impl StorageAuthority for WrongResource {
+        fn authorize(&self, identity: &ResourceIdentity) -> Result<StorageGrant> {
+            Ok(StorageGrant {
+                identity: ResourceIdentity {
+                    track: 999u64.into(),
+                    ..*identity
+                },
+                revision: 1,
+            })
+        }
+        fn check(&self, _: &StorageGrant) -> Result<()> {
+            Ok(())
+        }
+    }
+    let parent = Sandbox::create(&std::env::temp_dir()).unwrap();
+    let cache = AudioCache::open(
+        parent.path.join("audio"),
+        Arc::new(WrongResource),
+        CachePolicy::default(),
+    )
+    .unwrap();
+    let lease = cache.bind(Some(account(1))).unwrap().unwrap();
+    assert!(matches!(
+        cache.get(&lease, FIRST.track),
+        Err(CacheError::Cancelled)
+    ));
+    assert!(matches!(
+        cache.begin(&lease, FIRST.track),
+        Err(CacheError::Cancelled)
+    ));
+    assert_eq!(cache.stats().unwrap(), Stats::default());
+}
+
+#[test]
+fn policy_updates_and_old_cleanup_completion_cannot_remove_newer_fences() {
+    let (_, _, cache, lease) = fixture(100_000);
+    put(&cache, &lease, FIRST.track, 400);
+    let worker = cache.clone();
+    let (arrived, ready) = mpsc::sync_channel(0);
+    let (resume, wait) = mpsc::sync_channel(0);
+    let clear = thread::spawn(move || {
+        worker.clear_before_complete(|| {
+            arrived.send(()).unwrap();
+            wait.recv_timeout(Duration::from_secs(3)).unwrap();
+        })
+    });
+    ready.recv_timeout(Duration::from_secs(3)).unwrap();
+    cache.fence().unwrap();
+    cache.configure(CachePolicy { max_bytes: 50_000 }).unwrap();
+    assert!(cache.lease().is_none());
+    resume.send(()).unwrap();
+    assert_eq!(clear.join().unwrap().unwrap(), Stats::default());
+    assert!(
+        cache.lease().is_none(),
+        "old cleanup cannot undo newer cancellation"
+    );
+    let blocked = cache.bind(Some(account(1))).unwrap().unwrap();
+    assert!(matches!(
+        cache.get(&blocked, FIRST.track),
+        Err(CacheError::Cancelled)
+    ));
+    cache.clear().unwrap();
+    let fresh = cache.bind(Some(account(1))).unwrap().unwrap();
+    assert!(cache.get(&fresh, FIRST.track).unwrap().is_none());
+    let same = cache.lease().unwrap();
+    cache.configure(CachePolicy { max_bytes: 50_000 }).unwrap();
+    assert!(
+        cache.get(&same, FIRST.track).unwrap().is_none(),
+        "unchanged policy preserves lease"
+    );
+}
+
+#[test]
+fn persistent_open_rejects_symlink_ancestors_and_reuses_only_newly_authorized_bytes() {
+    let parent = Sandbox::create(&std::env::temp_dir()).unwrap();
+    let scope = account(1);
+    let key = ResourceKey::track("42:7").unwrap();
+    let authority = Arc::new(SyntheticAuthority::default());
+    authority.allow(&scope, &key);
+    let root = parent.path.join("real");
+    let cache = AudioCache::open(root.clone(), authority, CachePolicy::default()).unwrap();
+    let lease = cache.bind(Some(scope.clone())).unwrap().unwrap();
+    let media = SyntheticAudio::tone(400).unwrap();
+    cache
+        .put_reader(cache.begin(&lease, key).unwrap(), media.0.as_slice())
+        .unwrap();
+    drop(cache);
+    let new_authority = Arc::new(SyntheticAuthority::default());
+    let reopened =
+        AudioCache::open(root.clone(), new_authority.clone(), CachePolicy::default()).unwrap();
+    let lease = reopened.bind(Some(scope.clone())).unwrap().unwrap();
+    assert!(matches!(
+        reopened.get(&lease, key),
+        Err(CacheError::NoGrant)
+    ));
+    new_authority.allow(&scope, &key);
+    assert_eq!(
+        &*reopened.get(&lease, key).unwrap().unwrap().admit().unwrap(),
+        &media.0
+    );
+    drop(reopened);
+    let link = parent.path.join("alias");
+    std::os::unix::fs::symlink(&root, &link).unwrap();
+    assert!(matches!(
+        AudioCache::open(
+            link.join("nested"),
+            Arc::new(MissingStorageContract),
+            CachePolicy::default()
+        ),
+        Err(CacheError::Unavailable)
+    ));
 }

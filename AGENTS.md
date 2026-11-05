@@ -39,7 +39,10 @@ reviewable and consistent with the accepted application.
 - Treat the API as unofficial and unstable. Metadata is not playback entitlement.
   Follow [STREAM_DELIVERY_REVIEW](docs/STREAM_DELIVERY_REVIEW.md); never bypass
   DRM/access controls, import extracted keys, redistribute music, forward OAuth/
-  cookies to a CDN, or persist signed media URLs/audio.
+  cookies to a CDN, or persist signed media URLs. Service-audio persistence needs
+  an applicable storage/reuse grant and current account/resource admission under
+  [AUDIO_CACHE_REVIEW](docs/AUDIO_CACHE_REVIEW.md). Streaming access and stored
+  bytes are not that grant; keep service writes off while its contract is absent.
 - Preserve attribution and explicit OAuth-identity uncertainties. Code licensing
   does not grant service/distribution permission or prove a provider ban.
   Follow [LICENSING](docs/LICENSING.md); keep standard GPL and third-party notices.

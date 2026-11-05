@@ -26,6 +26,9 @@ struct Counts {
     descriptors: [usize; 4],
     media: [usize; 4],
     range_requests: usize,
+    cache_reads: [usize; 4],
+    hold_cache_track: Option<usize>,
+    cache_hold_started: bool,
     slow_started: bool,
     wave_sessions: usize,
     wave_batches: usize,
@@ -407,12 +410,25 @@ fn serve(
             assert!(start <= end && end < data.len());
             (start, end)
         });
-        {
+        let cache_copy = header("accept") == Some("audio/mpeg");
+        let hold_cache = {
             let mut state = counts.lock().unwrap();
             state.media[track - 42] += 1;
             if range.is_some() {
                 state.range_requests += 1;
             }
+            if cache_copy {
+                assert_eq!(first[0], "GET");
+                assert!(range.is_none(), "cache fill requests one complete resource");
+                state.cache_reads[track - 42] += 1;
+                if state.hold_cache_track == Some(track) {
+                    state.cache_hold_started = true;
+                }
+            }
+            cache_copy && state.hold_cache_track == Some(track)
+        };
+        if hold_cache {
+            wait_wave_fixture(release);
         }
         if reject_media.load(Ordering::Acquire) {
             let body = "synthetic-http-private-body synthetic-response-secret";
@@ -944,6 +960,172 @@ fn native_music_playback_resolver_queue_controls_and_logout() {
         assert!(!contains_text(ui.window.upcast_ref(), value));
     }
     pane.close();
+    ui.window.close();
+    assert_eq!(
+        fixture.counts.lock().unwrap().cache_reads,
+        [0; 4],
+        "ordinary ungranted playback creates no storage-copy HTTP"
+    );
+    native_granted_audio_cache_fill_reuse_and_retirement();
+}
+
+// Executes inside the existing native player selector. The positive authority
+// exists only in cfg(test); its original MP3 cannot establish service rights.
+fn native_granted_audio_cache_fill_reuse_and_retirement() {
+    use crate::audio_cache::{
+        AudioCache, CachePolicy, ResourceKey, test_support::SyntheticAuthority,
+    };
+    let fixture = Fixture::new();
+    let (_app, ui) = player_window(&fixture);
+    let this = &ui.music.controller;
+    let directory = std::env::temp_dir().join(format!(
+        "karin-native-cache-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&directory)
+        .unwrap();
+    let directory = GeneratedDirectory(directory);
+    let authority = Arc::new(SyntheticAuthority::default());
+    let token = this.model.borrow().token.as_ref().unwrap().clone();
+    let scope = this.service.as_ref().unwrap().cache_scope(&token).unwrap();
+    let key = |id| ResourceKey::track(id).unwrap();
+    authority.allow(&scope, &key("42"));
+    authority.allow(&scope, &key("43"));
+    let cache =
+        AudioCache::open(directory.0.join("audio"), authority, CachePolicy::default()).unwrap();
+    this.install_audio_cache_for_test(cache.clone(), scope);
+    let lease = cache.lease().unwrap();
+    this.play_music_context(
+        PlaybackContext::new(
+            crate::queue::ContextKind::Playlist,
+            Some("synthetic-cache-playlist".into()),
+            vec![track("42"), track("43"), track("44")],
+            0,
+            false,
+        )
+        .unwrap(),
+    );
+    wait_playing(this, 0);
+    pump_until(|| {
+        fixture.counts.lock().unwrap().cache_reads[0] == 1
+            && !this.player.borrow().cache_fill_running
+    });
+    assert_eq!(cache.stats().unwrap().entries, 1);
+    assert!(cache.get(&lease, key("42")).unwrap().is_some());
+    this.pause_music();
+    pump_until(|| {
+        this.music_snapshot()
+            .is_some_and(|s| s.state == PlaybackState::Paused)
+    });
+    let first_media = fixture.counts.lock().unwrap().media[0];
+    let first_offers = fixture.offers(0);
+    let retired = this.player.borrow().controller.clone().unwrap();
+    this.widgets.stop.emit_clicked();
+    pump_until(|| !retired.snapshot().worker_running);
+    this.widgets.play.emit_clicked();
+    wait_playing(this, 0);
+    pump_until(|| {
+        this.music_snapshot()
+            .is_some_and(|s| !s.playing_time.is_zero())
+    });
+    assert_eq!(
+        fixture.offers(0),
+        first_offers + 1,
+        "a hit still revalidates the current online resource"
+    );
+    assert_eq!(
+        fixture.counts.lock().unwrap().media[0],
+        first_media,
+        "a valid hit plays locally without a second media or cache GET"
+    );
+    assert_eq!(fixture.counts.lock().unwrap().cache_reads[0], 1);
+    assert!(
+        !this.player.borrow().cache_fill_running
+            && this.player.borrow().cache_fill_pending.is_none()
+    );
+    this.pause_music();
+    pump_until(|| {
+        this.music_snapshot()
+            .is_some_and(|s| s.state == PlaybackState::Paused)
+    });
+
+    // An independently absent grant leaves a perfectly valid stream playable,
+    // without touching the cache or fabricating an offline permission.
+    this.play_music_queue(2);
+    wait_playing(this, 2);
+    pump_until(|| {
+        this.music_snapshot()
+            .is_some_and(|s| !s.playing_time.is_zero())
+    });
+    assert_eq!(fixture.counts.lock().unwrap().cache_reads[2], 0);
+    assert_eq!(cache.stats().unwrap().entries, 1);
+    assert!(
+        !this.player.borrow().cache_fill_running
+            && this.player.borrow().cache_fill_pending.is_none()
+    );
+
+    // Hold only the separately admitted background-copy response. GTK timers,
+    // volume and source navigation remain live while that one worker is stuck.
+    fixture.hold_descriptor();
+    fixture.counts.lock().unwrap().hold_cache_track = Some(43);
+    this.play_music_queue(1);
+    wait_playing(this, 1);
+    pump_until(|| fixture.counts.lock().unwrap().cache_hold_started);
+    assert!(this.player.borrow().cache_fill_running);
+    let heartbeat = Rc::new(Cell::new(false));
+    let observed = heartbeat.clone();
+    glib::timeout_add_local_once(Duration::from_millis(30), move || observed.set(true));
+    this.set_music_volume(0.31);
+    pump_until(|| {
+        heartbeat.get()
+            && this
+                .music_snapshot()
+                .is_some_and(|s| (s.volume - 0.31).abs() < 0.001)
+    });
+    let cancellation = this.player.borrow().cache_fill_cancel.clone().unwrap();
+    this.play_music_queue(0);
+    wait_playing(this, 0);
+    assert!(cancellation.is_cancelled());
+    assert_eq!(
+        fixture.counts.lock().unwrap().cache_reads[1],
+        1,
+        "a source change cannot start a second fill beside the held one"
+    );
+    fixture.release_descriptor();
+    pump_until(|| !this.player.borrow().cache_fill_running);
+    assert!(
+        cache.get(&lease, key("43")).unwrap().is_none(),
+        "a cancelled response cannot publish late bytes"
+    );
+    assert_eq!(cache.stats().unwrap().entries, 1);
+    assert_eq!(fixture.counts.lock().unwrap().media[0], first_media);
+
+    fixture.hold_descriptor();
+    fixture.counts.lock().unwrap().cache_hold_started = false;
+    this.play_music_queue(1);
+    wait_playing(this, 1);
+    pump_until(|| fixture.counts.lock().unwrap().cache_hold_started);
+    let cancellation = this.player.borrow().cache_fill_cancel.clone().unwrap();
+    let retired = this.player.borrow().controller.clone().unwrap();
+    this.logout();
+    assert!(cancellation.is_cancelled());
+    fixture.release_descriptor();
+    pump_until(|| !this.player.borrow().cache_fill_running && !retired.snapshot().worker_running);
+    assert!(this.model.borrow().token.is_none());
+    assert!(this.model.borrow().queue.items().is_empty());
+    assert!(
+        cache.get(&lease, key("42")).is_err(),
+        "logout fences old local hits"
+    );
+    pump_until(|| cache.stats().is_ok_and(|stats| stats.entries == 0));
+    assert_eq!(fixture.counts.lock().unwrap().cache_reads, [1, 2, 0, 0]);
+    this.close();
     ui.window.close();
 }
 

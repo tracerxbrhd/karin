@@ -280,6 +280,7 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
             bytes: 2 * MIB,
             entries: 3,
         }),
+        audio_cache_stats: Some(CacheStats::default()),
         cache_busy: false,
         message: None,
     }));
@@ -322,6 +323,13 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
     );
     assert!(view.remember.is_active());
     assert_eq!(view.cache_limit.value(), 256.0);
+    assert_eq!(view.audio_cache_limit.value(), 256.0);
+    assert!(
+        view.audio_cache_usage
+            .subtitle()
+            .unwrap()
+            .contains("Сохранение музыки пока недоступно")
+    );
     assert_eq!(
         view.cache_usage.subtitle().as_deref(),
         Some("2,0 МиБ · 3 записи")
@@ -358,6 +366,15 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
         Appearance::Dark
     );
     view.cache_limit.set_value(512.0);
+    assert_eq!(
+        changes.borrow().last().unwrap().cache_limit_bytes,
+        512 * MIB
+    );
+    view.audio_cache_limit.set_value(1024.0);
+    assert_eq!(
+        changes.borrow().last().unwrap().audio_cache_limit_bytes,
+        1024 * MIB
+    );
     assert_eq!(
         changes.borrow().last().unwrap().cache_limit_bytes,
         512 * MIB
@@ -437,6 +454,7 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
     view.update(&snapshot.borrow());
     assert!(!view.cache_enabled.is_sensitive());
     assert!(!view.cache_limit.is_sensitive());
+    assert!(!view.audio_cache_limit.is_sensitive());
     assert!(!view.cache_clear.is_sensitive());
     assert!(view.scheme.is_sensitive());
     capture(id, "preferences-seamless-cache-busy");

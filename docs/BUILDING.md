@@ -93,24 +93,41 @@ for visual checks, themes, HiDPI and the separate cold-start measurement.
 `--ui-fixture` is an offline capture mode, not ordinary sign-in; never use real
 accounts in Cloud/CI or point capture tools at a personal desktop.
 
-## Synthetic audio-cache checks
+<a id="synthetic-audio-cache-checks"></a>
 
-The v0.6 store is compiled only into the test binary. Its input is internally
-generated WAV audio with a fake authority; it has no service download path or
-production setting. Run its filesystem/lifecycle checks without a Yandex account:
+## Audio-cache checks and current service boundary
+
+The v0.6 store and playback bridge compile into ordinary Native/Flatpak builds.
+The service authority currently refuses storage/reuse admission: real Music plays
+online and is not saved. Generated audio and a fake authority exercise the shared
+production store/bridge without an account. Run both originally reported cases:
 
 ```sh
-cargo +1.98.1 test --lib --locked audio_cache
+cargo +1.98.1 test --lib --all-features --locked audio_cache
 cargo +stable test --lib --locked audio_cache
 ```
 
 Tests use private isolated directories, not your application cache or wallet.
-Any synthetic cached-audio playback uses the existing local-file controller and
-`fakesink`; no physical sound or offline Music claim follows. XDG/Flatpak-style
-directory isolation in tests is not an installed sandbox acceptance result.
-The accepted online player and existing metadata/artwork settings stay unchanged.
-See [the implementation boundary](adr/0029-synthetic-audio-cache-foundation.md)
-and [recorded verification](VALIDATION.md#v06-audio-cache-foundation).
+Generated-media playback uses the existing controller and `fakesink`; it does not
+establish heard Music, service caching or offline playback. The reopened-owner
+regression retains a duplicate lock descriptor to reproduce the old `Busy` defect;
+separate checks keep live-owner exclusion and stale-ticket rejection intact.
+
+In Preferences, audio usage is separate from metadata/artwork usage. The audio
+quota defaults to 256 MiB and accepts 16–4096 MiB. **Очистка кеша** clears both
+stores while preserving sign-in, queue and active playback. Audio storage uses
+the application's XDG cache directory (Flatpak's app-private cache when sandboxed),
+with no additional filesystem/session-bus permission. No switch bypasses the
+unestablished [service storage/reuse contract](AUDIO_CACHE_REVIEW.md).
+
+For the next Fedora Native and installed-Flatpak check, verify online playback,
+Pause/Resume/Seek/Next, Wave and MPRIS before and after Clear; verify quota/usage
+display, restart, logout and failed-cleanup Retry. **Service-audio usage must stay
+empty while admission is unavailable.** Do not report repeat-play caching as PASS
+on that basis. First-network-save → restart → online-revalidated local reuse is
+an outstanding acceptance scenario until the documented service gate is resolved.
+See [ADR-0029](adr/0029-synthetic-audio-cache-foundation.md) and
+[recorded verification](VALIDATION.md#v06-audio-cache-foundation).
 
 ## Flatpak source build
 

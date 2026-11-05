@@ -52,15 +52,19 @@ For Wave this reuses its existing listening/Skip lifecycle, with no new negative
 Wave event or recommendation-effect guarantee. See
 [ADR-0028](adr/0028-confirmed-track-reactions.md).
 
-Other recommendation shelves/similar tracks, lyrics and persistent/offline audio
-are not implemented. A working short-lived MP3 stream does not
-establish persistent download rights or an offline entitlement lifecycle; see
+Other recommendation shelves/similar tracks and lyrics are not implemented.
+The v0.6 audio store, player bridge, quota/usage settings and cleanup are ordinary
+production code, but the service authority refuses storage/reuse admission.
+Music still plays over the established online path and is not saved. The exact
+missing inputs are an applicable Karin storage/reuse permission and the provider's
+fresh account/resource check authorizing a cached hit; a playable MP3, subscription,
+`permissions.until` or `cacheLimit` alone does not define that contract. See
 [AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md).
-The v0.6 audio-cache foundation is a test-only filesystem prototype using generated
-WAVs and a fake authority. It adds no production download/offline action, hidden
-temporary recording or service-media source. Applicable storage/reuse permission
-and account/device/track expiry, renewal, revocation and offline rules remain
-unestablished; Issue #20 remains open. Synthetic cache hits are not offline Music.
+PR #26 and Issue #20 remain unfinished. Generated-media tests exercise the shared
+store/bridge; they are not service cache or installed-Flatpak acceptance. Downloads,
+mass prefetch and offline playback are outside this iteration. A later offline
+mode needs its own actual lifetime/revalidation rules; it is not a prerequisite
+invented for transparent online-revalidated caching.
 
 ## Catalog, workspace and playback
 

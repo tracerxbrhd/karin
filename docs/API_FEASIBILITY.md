@@ -149,7 +149,7 @@ content or trademarks. Preserve [licensing/provenance](LICENSING.md), evaluate
 current [Music terms](https://yandex.ru/legal/music_termsofuse/) and
 [Plus conditions](https://yandex.ru/legal/yandex_plus_conditions/) before changing
 integration/distribution scope, and retain the separate
-[offline-audio gate](AUDIO_CACHE_REVIEW.md). No DRM bypass, extracted official-client
+[audio storage/reuse gate](AUDIO_CACHE_REVIEW.md). No DRM bypass, extracted official-client
 signer/key or imported official-client cache is an acceptable fallback.
 
 The [historical review](https://github.com/tracerxbrhd/karin/blob/97093ee71f8df7b47b5809ca8c1d4774a2c5b22d/docs/API_FEASIBILITY.md)

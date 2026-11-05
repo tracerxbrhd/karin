@@ -146,6 +146,7 @@ impl CredentialBackend for Arc<Backend> {
 
 struct Api {
     origin: String,
+    audio_root: PathBuf,
     stop: Arc<AtomicBool>,
     thread: Option<thread::JoinHandle<()>>,
 }
@@ -182,6 +183,7 @@ impl Api {
         };
         Self {
             origin,
+            audio_root: directory.join("audio"),
             stop,
             thread: Some(thread),
         }
@@ -344,11 +346,12 @@ fn window(
         .flags(gio::ApplicationFlags::NON_UNIQUE)
         .build();
     app.register(gio::Cancellable::NONE).unwrap();
-    let state = State::for_testing(
+    let mut state = State::for_testing(
         settings.clone(),
         CredentialStore::with_backend(backend.clone()),
         Some(cache.clone()),
     );
+    state.audio_root = Some(api.audio_root.clone());
     let ui = crate::ui::build_with_music_pane(
         &app,
         crate::application::ConnectionService::new(crate::api::YandexApi::new().unwrap()),
@@ -426,6 +429,35 @@ fn native_persistent_session_restore_settings_forget_and_close() {
     pump_until(|| this.model.borrow().account_valid && settled(this));
     pump_until(|| this.widgets.home_wave.primary.is_mapped());
     assert_idle_wave_after_startup(this, true);
+    // The ordinary production store opens on the persistence worker and binds
+    // only after Music account validation. This authority has no storage grant.
+    let (audio, lease) = this
+        .audio_cache_binding()
+        .expect("validated audio namespace");
+    assert!(lease.matches_scope(&AccountScope::from_account_id("1234").unwrap()));
+    assert!(matches!(
+        audio.begin(
+            &lease,
+            crate::audio_cache::ResourceKey::track("42").unwrap()
+        ),
+        Err(AudioError::NoGrant)
+    ));
+    assert!(matches!(
+        audio.get(
+            &lease,
+            crate::audio_cache::ResourceKey::track("42").unwrap()
+        ),
+        Err(AudioError::NoGrant)
+    ));
+    drop((audio, lease));
+    assert_eq!(
+        std::fs::metadata(&api.audio_root)
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700
+    );
     // Protected restore makes the ordinary Home action available, without
     // restoring a radio identity or admitting a Wave POST. The API whitelist
     // above deliberately remains ordinary GET/HEAD routes only.
@@ -494,6 +526,48 @@ fn native_persistent_session_restore_settings_forget_and_close() {
         this.music_snapshot().unwrap().generation,
         original.generation
     );
+    assert!(
+        this.audio_cache_binding().is_some(),
+        "remember-off must rebind the live account after deleting the saved credential"
+    );
+    let mut changed = this.persistence.borrow().values.clone();
+    let metadata_limit = changed.cache_limit_bytes;
+    changed.audio_cache_limit_bytes = crate::settings::MIN_CACHE_BYTES;
+    this.preferences_changed(changed);
+    pump_until(|| settled(this));
+    let saved = settings.load().unwrap().preferences;
+    assert_eq!(
+        saved.audio_cache_limit_bytes,
+        crate::settings::MIN_CACHE_BYTES
+    );
+    assert_eq!(saved.cache_limit_bytes, metadata_limit);
+    assert!(this.audio_cache_binding().is_some());
+    assert_eq!(
+        this.music_snapshot().unwrap().generation,
+        original.generation
+    );
+    // Model a clear worker whose successful result has not yet reached GTK.
+    // Unrelated preference/appearance application in that interval must not
+    // create a second core fence under the same UI cleanup generation.
+    let (audio, _) = this.audio_cache_binding().unwrap();
+    this.persistence.borrow_mut().request_audio_purge();
+    let worker = audio.clone();
+    std::thread::spawn(move || worker.clear())
+        .join()
+        .unwrap()
+        .unwrap();
+    let mut appearance = this.persistence.borrow().values.clone();
+    appearance.appearance = Appearance::Light;
+    this.preferences_changed(appearance);
+    assert!(
+        audio.lease().is_some(),
+        "appearance application must not replace a completed worker fence"
+    );
+    this.persistence.borrow_mut().audio_purge_pending = false;
+    this.apply_persistence_policy();
+    assert!(this.audio_cache_binding().is_some());
+    pump_until(|| settled(this));
+    drop(audio);
     let key = CacheKey::new(EntryKind::Track, "99", 0).unwrap();
     let lease = cache.lease().unwrap();
     let mut cached_track = track();
@@ -504,8 +578,41 @@ fn native_persistent_session_restore_settings_forget_and_close() {
     )
     .unwrap();
     cache.put(&lease, &key, &encoded).unwrap();
+    let (audio, old_audio_lease) = this.audio_cache_binding().unwrap();
+    let partial = api.audio_root.join(format!(".part-{}", "a".repeat(32)));
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&partial)
+        .unwrap();
+    let incomplete = partial.join("media.bin");
+    std::fs::write(&incomplete, b"original incomplete synthetic audio").unwrap();
+    std::fs::set_permissions(&incomplete, std::fs::Permissions::from_mode(0o600)).unwrap();
+    this.clear_persistent_cache();
+    assert!(
+        this.audio_cache_binding().is_none(),
+        "clear must fence synchronously"
+    );
+    let mut appearance = this.persistence.borrow().values.clone();
+    appearance.appearance = Appearance::Dark;
+    this.preferences_changed(appearance);
+    assert!(this.persistence.borrow().audio_purge_pending);
+    assert!(this.audio_cache_binding().is_none());
+    // A second cleanup intent while the first worker is running must survive
+    // its old completion, including account replacement using the same path.
     this.clear_persistent_cache();
     pump_until(|| !this.persistence.borrow().cache_busy);
+    assert!(!partial.exists());
+    assert!(!this.persistence.borrow().audio_purge_pending);
+    assert_eq!(audio.stats().unwrap().entries, 0);
+    assert!(matches!(
+        audio.begin(
+            &old_audio_lease,
+            crate::audio_cache::ResourceKey::track("42").unwrap()
+        ),
+        Err(AudioError::Cancelled)
+    ));
+    assert!(this.audio_cache_binding().is_some());
+    drop((audio, old_audio_lease));
     assert_eq!(cache.usage().unwrap().entries, 0);
     assert!(this.model.borrow().account_valid);
     assert_eq!(this.model.borrow().queue.current().unwrap().id, "42");
@@ -529,6 +636,11 @@ fn native_persistent_session_restore_settings_forget_and_close() {
     capture_native("v03-secure-session-preferences-dark");
     this.close();
     ui.window.close();
+    assert!(
+        api.audio_root.exists(),
+        "normal close retains the audio namespace"
+    );
+    assert!(this.audio_cache_binding().is_none());
 
     // The next window must reapply its saved Dark choice rather than pass
     // merely because the process-global manager retained the preceding window.
@@ -538,6 +650,18 @@ fn native_persistent_session_restore_settings_forget_and_close() {
     let (_app2, ui2) = window(&api, &settings, &backend, &cache);
     let second = &ui2.music.controller;
     pump_until(|| settled(second));
+    assert!(
+        second.persistence.borrow().audio_cache.is_some(),
+        "normal restart reopens the existing namespace"
+    );
+    assert!(
+        second.audio_cache_binding().is_none(),
+        "a signed-out restart has no account lease"
+    );
+    assert_eq!(
+        second.persistence.borrow().values.audio_cache_limit_bytes,
+        crate::settings::MIN_CACHE_BYTES
+    );
     assert_idle_wave_after_startup(second, false);
     assert!(!second.model.borrow().account_valid);
     assert!(!second.persistence.borrow().values.remember_login);
@@ -588,6 +712,7 @@ fn native_persistent_session_restore_settings_forget_and_close() {
     third.logout();
     pump_until(|| settled(third) && third.persistence.borrow().retry == Retry::Forget);
     assert!(!third.model.borrow().account_valid);
+    assert!(third.audio_cache_binding().is_none());
     assert!(settings.load().unwrap().preferences.forget_pending);
     assert!(backend.value.lock().unwrap().is_some());
     third.close();
@@ -645,8 +770,17 @@ fn native_persistent_session_restore_settings_forget_and_close() {
     pump_until(|| settled(fourth) && !fourth.persistence.borrow().values.forget_pending);
     assert!(!fourth.persistence.borrow().purge_after_forget);
     assert!(fourth.model.borrow().account_valid);
+    // Audio cleanup has its own real filesystem failure. Restoring directory
+    // privacy and retrying must recover without enabling reads in between.
+    std::fs::set_permissions(&api.audio_root, std::fs::Permissions::from_mode(0o755)).unwrap();
     fourth.logout();
+    pump_until(|| settled(fourth) && fourth.persistence.borrow().retry == Retry::Forget);
+    assert!(settings.load().unwrap().preferences.forget_pending);
+    assert!(fourth.audio_cache_binding().is_none());
+    std::fs::set_permissions(&api.audio_root, std::fs::Permissions::from_mode(0o700)).unwrap();
+    fourth.retry_persistence();
     pump_until(|| settled(fourth) && !fourth.persistence.borrow().values.forget_pending);
+    assert!(!fourth.persistence.borrow().audio_purge_pending);
     // Logout supersedes a save already dispatched to a backend. Its late
     // commit must be removed before logout can report confirmed completion.
     backend.block_save();
@@ -678,6 +812,10 @@ fn native_persistent_session_restore_settings_forget_and_close() {
     assert!(!settings.load().unwrap().preferences.forget_pending);
     assert!(cache.lease().is_some());
     assert!(cache.policy().unwrap().enabled);
+    assert!(
+        fifth.audio_cache_binding().is_some(),
+        "protected credential availability is independent of the current validated account"
+    );
     fifth.close();
     ui5.window.close();
     adw::StyleManager::default().set_color_scheme(adw::ColorScheme::Default);
