@@ -30,8 +30,9 @@ flowchart LR
 
 GIO workers perform bounded blocking work; main-context futures admit results
 under current account/request/source generations. Twelve lanes each retain one
-running and one latest pending job. Source changes, logout and close retire old
-work. GTK textures/updates stay on the main thread; deferred Like reads use weak
+running and one latest pending job. The Wave lifecycle uses a separate
+bounded FIFO lane because feedback must not be coalesced or retried. Source
+changes, logout and close retire old work. GTK textures/updates stay on the main thread; deferred Like reads use weak
 ownership outside render-time borrows. Reqwest owns its HTTP runtime.
 
 ## Authentication and protected sessions
@@ -92,7 +93,8 @@ Play. See [stream delivery](STREAM_DELIVERY_REVIEW.md) and
 
 PlaybackController sends commands through a 32-entry channel to one worker-owned
 `playbin`. Snapshots supply actual state, position/duration, seekability, volume
-and safe errors. Commands alone do not imply Playing; Seeked requires worker
+and safe errors. A worker-owned cumulative Playing clock excludes pause and seek
+distance independently of GTK scheduling. Commands alone do not imply Playing; Seeked requires worker
 acknowledgement. Local-file diagnostics remain; service audio is not persisted.
 Shutdown bypasses channel capacity and releases the pipeline in `Null` before
 completion, without GTK joining the worker.
@@ -103,6 +105,29 @@ repeat covers admitted items only, without library autofetch or error retry loop
 Modes survive normal clear/context replacement and reset on logout or close.
 [ADR-0023](adr/0023-local-playback-order-and-mpris-modes.md) defines the policy
 shared by native controls and MPRIS.
+
+## My Wave
+
+The existing `music::wave` protocol/observation components feed the same queue,
+resolver and player through `ui::music::radio`. The Home Hero is available after
+Music-validated sign-in in the ordinary application. Listen/Pause/Resume delegate
+to the same lifecycle/player. Only explicit Listen creates a radio session;
+application startup, protected-login restoration and opening Home create none.
+The deprecated `--experimental-wave` CLI alias has no effect on availability,
+activation or application identity. Only pending startup
+has a Cancel action. There is no separate user-facing Finish control.
+
+Original batch markers stay attached to opaque occurrence identities in memory.
+Feedback and continuation use one serialized bounded lane; an uncertain POST
+terminates continuation without replay. Pause preserves context and excludes
+paused time. Ordinary source selection or MPRIS Stop retires radio and restores
+modes; account/logout/close cancel queued work. Local retirement uses no separate
+network session-finished event: only an interrupted heard track can add one final
+skip; completed EOS and unheard tracks add none. Exact admitted event and local
+origin/phase/finish classifications accompany safe HTTP diagnostics. JSON/body,
+identities and listening payloads never enter those logs. See
+[ADR-0027](adr/0027-experimental-wave-lifecycle.md) and the
+[Fedora acceptance procedure](BUILDING.md#my-wave-local-acceptance).
 
 ## Metadata and artwork cache
 

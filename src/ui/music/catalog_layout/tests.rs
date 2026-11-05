@@ -134,7 +134,7 @@ fn native_catalog_native_music_layout() {
     assert!(
         children(&this.widgets.home_signedin)
             .iter()
-            .any(|child| child.widget_name() == "music-wave-placeholder")
+            .any(|child| child.widget_name() == "music-wave-hero")
     );
     assert!(
         children(&this.widgets.home_preview).is_empty(),

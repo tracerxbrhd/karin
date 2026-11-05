@@ -23,8 +23,8 @@ fences before cache I/O and stable queue occurrence IDs shared by Info/MPRIS.
 Rejected metadata cannot return as fresh after failed removal; cold metadata
 needs a new positive write. Source provenance, modes and the audio path remain
 unchanged. [ADR-0026](adr/0026-refusal-fences-and-queue-occurrence-identity.md)
-defines both contracts; [VALIDATION.md](VALIDATION.md) separates tests from the
-pending scoped Fedora regression check.
+defines both contracts. The owner accepted `9d54834`; it was squash-merged at
+`920fd71`. [VALIDATION.md](VALIDATION.md) separates the acceptance and tests.
 
 - Continue the bounded [cold Player Bar investigation](https://github.com/tracerxbrhd/karin/issues/23).
   Software-render LLVM compilation contributes to the measured Cloud stall;
@@ -33,10 +33,23 @@ pending scoped Fedora regression check.
 - Maintain Rust 1.98.1 compatibility, protected-session cleanup and the narrow
   native/Flatpak permission boundaries as dependencies evolve.
 
+## v0.5 final integration
+
+[My Wave](https://github.com/tracerxbrhd/karin/issues/16) is available from Home
+after ordinary Music-validated sign-in. The owner retested corrected candidate
+`2e4b978` on Fedora without reporting new problems; earlier real audio, four
+supported feedback events and continuation were confirmed. Radio starts only
+from **Слушать**, using the existing queue/player/MPRIS. Pause retains its
+context; ordinary music or MPRIS Stop retires it locally without `radioFinished`.
+Startup, restored sign-in and Home navigation do not start or restore radio.
+
+Final ordinary-native and installed v0.5 Flatpak acceptance remain required
+before closing #16. This is not a public release/version/tag decision. See
+[VALIDATION](VALIDATION.md), [the acceptance procedure](BUILDING.md#my-wave-local-acceptance)
+and [ADR-0027](adr/0027-experimental-wave-lifecycle.md).
+
 ## Next functional directions
 
-- [My Wave](https://github.com/tracerxbrhd/karin/issues/16): establish the actual
-  session, batch, listening and feedback lifecycle using the existing backend.
 - [Dislike](https://github.com/tracerxbrhd/karin/issues/17): verify semantics and
   confirmation independently of removing a Like.
 - [Lyrics and related tracks](https://github.com/tracerxbrhd/karin/issues/18): confirm permitted endpoints/resources before
@@ -51,7 +64,7 @@ pending scoped Fedora regression check.
   prefix honestly without silently changing the playing queue.
 
 Each direction needs its own confirmed contract and acceptance criteria.
-Unsupported actions remain absent; Home's Wave section is explicitly unavailable.
+Unsupported actions remain absent.
 See [API_FEASIBILITY.md](API_FEASIBILITY.md) and
 [AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md).
 

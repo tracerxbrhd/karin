@@ -37,8 +37,7 @@ pub struct MainWindow {
 }
 
 impl MainWindow {
-    /// Enable the owner's explicitly requested metadata-only local experiment.
-    /// Credentials stay in this window's ordinary ephemeral Music session.
+    /// Enable the explicitly requested metadata-only delivery experiment.
     pub fn enable_delivery_diagnostic(&self) {
         self.music.enable_delivery_diagnostic();
     }

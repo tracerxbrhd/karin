@@ -34,6 +34,7 @@ Actual GTK captures with synthetic library data and original test artwork.
 - Yandex sign-in, liked tracks, personal playlists and catalog search.
 - Collection-local search, track details and server-confirmed playlist creation.
 - Contextual queues, Shuffle/Repeat, seek and volume through GStreamer.
+- My Wave personal radio from Home, using the same queue, player and MPRIS.
 - A pinned track information / queue panel, responsive layouts, light/dark themes and HiDPI.
 - MPRIS media controls and metadata for KDE Plasma and other Linux desktops.
 - Protected remembered sign-in and an account-scoped metadata/artwork cache.
@@ -46,7 +47,16 @@ functionality, UI and Flatpak build on Fedora 44 with KDE Plasma, Wayland and Pi
 This is a development milestone, not a published release; the Cargo package
 version remains `0.0.0`. See [validation](docs/VALIDATION.md) for the accepted scope.
 
-The Music API is unofficial and may change. My Wave, Dislike, recommendations,
+The accepted stability update [PR #24](https://github.com/tracerxbrhd/karin/pull/24)
+is merged at `920fd71`. **My Wave** is now an ordinary Home function after
+Music-validated sign-in. Press **Слушать** to start it; launching Karin,
+restoring sign-in or opening Home creates no radio session. The owner retested
+the corrected `2e4b978` candidate on Fedora without reporting new problems,
+following earlier confirmed real audio, feedback and batch continuation.
+Final acceptance of ordinary startup and the installed v0.5 Flatpak remains
+separate; follow the [Native/Flatpak procedure](docs/BUILDING.md#my-wave-local-acceptance).
+
+The Music API is unofficial and may change. Dislike, separate recommendation shelves,
 lyrics and offline audio are not implemented. Cold first-player appearance in Cloud
 still has unresolved frame gaps; desktop acceptance does not establish their
 cause or resolution. See [known limitations](docs/LIMITATIONS.md).

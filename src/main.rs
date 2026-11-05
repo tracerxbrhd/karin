@@ -13,6 +13,9 @@ mod oauth_cli;
 
 fn main() -> glib::ExitCode {
     let mut args: Vec<_> = std::env::args().skip(1).collect();
+    // Temporary no-op compatibility alias for previous Fedora launch commands.
+    // Wave is a normal Music-validated feature; activation never starts it.
+    args.retain(|arg| arg != "--experimental-wave");
     let artwork_diagnostic = args.iter().any(|arg| arg == "--artwork-diagnostic");
     if args
         .iter()
@@ -64,7 +67,7 @@ fn main() -> glib::ExitCode {
     match args.as_slice() {
         [flag] if flag == "--help" || flag == "-h" => {
             println!(
-                "Karin\n\nUsage: karin [--smoke-test | --ui-fixture | --audio-self-test | --playback-self-test | --probe-service | --oauth-diagnostic | --delivery-diagnostic | --artwork-diagnostic | --version]\n\n--smoke-test          Verify GTK and local playback cleanup without network or sound\n--ui-fixture          Offline sign-in fixture for automated UI captures; never contacts OAuth\n--audio-self-test     Process a synthetic signal through GStreamer fakesink\n--playback-self-test  Decode a generated local WAV through playbin; test controls and cleanup\n--probe-service       Make an anonymous availability request (network required)\n--oauth-diagnostic    Opt-in local PKCE experiment; private terminal and system browser required\n--delivery-diagnostic Opt-in local delivery-info probe using this window's ordinary sign-in; no media request\n--artwork-diagnostic  Opt-in bounded image-stage categories in the ordinary app; no URLs or personal fields"
+                "Karin\n\nUsage: karin [--smoke-test | --ui-fixture | --audio-self-test | --playback-self-test | --probe-service | --oauth-diagnostic | --delivery-diagnostic | --artwork-diagnostic | --experimental-wave | --version]\n\n--smoke-test          Verify GTK and local playback cleanup without network or sound\n--ui-fixture          Offline sign-in fixture for automated UI captures; never contacts OAuth\n--audio-self-test     Process a synthetic signal through GStreamer fakesink\n--playback-self-test  Decode a generated local WAV through playbin; test controls and cleanup\n--probe-service       Make an anonymous availability request (network required)\n--oauth-diagnostic    Opt-in local PKCE experiment; private terminal and system browser required\n--delivery-diagnostic Opt-in local delivery-info probe using this window's ordinary sign-in; no media request\n--artwork-diagnostic  Opt-in bounded image-stage categories in the ordinary app; no URLs or personal fields\n--experimental-wave   Deprecated no-op alias; My Wave is available in normal startup"
             );
             if cfg!(feature = "experimental-device-auth") {
                 println!(
@@ -180,7 +183,7 @@ fn main() -> glib::ExitCode {
                 .license_type(gtk::License::Gpl30)
                 .copyright("© 2026 Karin contributors")
                 .website("https://github.com/tracerxbrhd/karin")
-                .comments("Karin v0.3 в разработке: библиотека, поиск, очередь и воспроизведение. Проверенный вход можно сохранять в защищённом системном хранилище; настройки и кеш управляются отдельно. Экспериментальная версия для локальной проверки.")
+                .comments("Неофициальный музыкальный клиент для Linux: библиотека, поиск, персональное радио, очередь и воспроизведение. Проверенный вход можно сохранять в защищённом системном хранилище; настройки и кеш управляются отдельно.")
                 .build();
             dialog.present(app.active_window().as_ref());
         }

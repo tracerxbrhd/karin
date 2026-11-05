@@ -17,10 +17,13 @@ success establishes neither playback entitlement nor public-distribution rights.
 | Likes | Read membership/revision, perform one deliberate mutation, then independently confirm the desired state. |
 | Playlist creation | One explicit create request followed by independent identity/title/visibility confirmation; ambiguous writes remain unresolved. |
 | Online playback | Use the separate guarded [resolver](STREAM_DELIVERY_REVIEW.md) for an explicitly selected track. Availability metadata alone is insufficient. |
+| My Wave | Ordinary signed-in Home using the shared player; explicit Listen starts radio. Real sessions/audio/four feedback events/continuation confirmed; owner repeated the corrected candidate without reporting new issues. Final normal-startup and installed Flatpak v0.5 acceptance remain separate. |
 
 Ambiguous writes require read/confirmation, never fabricated success or POST
-retries. Broader playlist edits, recommendations, Wave and lyrics are not shipped
-workflows merely because backend methods exist. Home labels Wave unavailable.
+retries. Broader playlist edits, recommendations and lyrics are not shipped
+workflows merely because backend methods exist. Ordinary Home offers My Wave
+after Music validation without starting it automatically. The owner's general
+candidate report does not establish an unreported per-scenario acceptance matrix.
 
 ## Transport and models
 
@@ -43,6 +46,51 @@ result. Missing/unavailable data remains explicit. See
 Local collection search issues no per-key metadata requests. UI views admit
 2,000 positions/100 pages and playback snapshots at most 500 occurrences; neither
 filtering nor continuation rewrites an active queue. See [ADR-0025](adr/0025-loaded-collection-search-and-playback-provenance.md).
+
+## My Wave
+
+The existing `music::wave` adapter uses the published modern JSON session flow:
+`POST /rotor/session/new`, then session-bound `/tracks` and `/feedback` POSTs.
+First/next batches undergo one bounded canonical lookup, with the same strict
+identity/order/composite normalization as search. Session/batch identity is
+opaque and memory-only; status-only unknown/terminated replies stop admission.
+The controller binds original markers to exact queue occurrences and uses the
+existing resolver/player/MPRIS. Listening comes from the worker's actual Playing
+ledger, not media position, selection or GTK callback elapsed time.
+
+The core request shapes are corroborated by
+[Cassette v0.2.4](https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/api/yam-client.vala#L948)
+and [modern MarshalX](https://github.com/MarshalX/yandex-music-api/blob/9ca132e5c18a72aab779c1fc68c169380a9357d0/yandex_music/_client/rotor_sessions.py).
+Their optional feedback `from` placement differs; Karin retains its existing
+Cassette `event.from` contract. The reviewed yamu/yamuse station routes do not
+confirm this modern flow and are not automatic fallbacks. No new identity,
+OAuth mechanism, signing secret or API dependency is introduced.
+
+The owner confirmed real sessions, normalized tracks, heard Music, accepted
+`radioStarted`/`trackStarted`/`trackFinished`/`skip` and several further batches.
+The first eventless HTTP 400 report was inconclusive. The repeat at `a69dc79`
+identified an accepted retirement `skip` followed by rejected `radioFinished`
+on source change. That extra event is absent from the reviewed modern MarshalX
+event list; Cassette's reviewed Flow does not send its defined constant either.
+Karin now excludes it from its outgoing modern protocol. Retirement still drains
+one interrupted track's final skip when appropriate, then cancels locally; EOS
+does not gain another skip. This is local cleanup, not a remote deletion claim.
+Accepted `from`, original markers and actual heard-time fields stay unchanged.
+The owner then repeated candidate `2e4b978` on Fedora without reporting new
+problems and authorized ordinary integration. Do not infer individual unreported
+Stop/keyring/hardware scenarios or installed Flatpak v0.5 acceptance from that.
+
+Cloud fixtures cannot establish real service behavior. HTTP 200 with an admitted
+feedback acknowledgment proves receipt under this envelope contract, not its
+recommendation effect. Uncertain writes are not repeated; queued work and late
+results are retired on account/logout/close, while an in-flight request cannot
+be recalled. Only fixed stage/category/event/lifecycle classifications, known HTTP status and bounded counts may
+be reported, never wire bodies, session/batch/track identifiers or resources.
+
+See [ADR-0027](adr/0027-experimental-wave-lifecycle.md) and the
+[Fedora procedure](BUILDING.md#my-wave-local-acceptance). Keep Issue #16 open until
+the final ordinary-startup and installed Flatpak acceptance is reported.
+Successful local use still does not resolve public-distribution Issue #5.
 
 ## Authorization evidence and client choice
 

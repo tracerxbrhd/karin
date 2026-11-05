@@ -60,6 +60,12 @@ pub enum PlaybackState {
 #[derive(Clone, Debug, PartialEq)]
 pub struct PlaybackSnapshot {
     pub state: PlaybackState,
+    /// Cumulative worker-observed Playing time for this prepared generation.
+    /// Monotonic and independent of media position, seeks and GTK polling. It
+    /// freezes outside confirmed Playing and resets only on source replacement.
+    /// Precision follows native worker polling; blocked plugins can delay native
+    /// state/EOS observation. This is not a sample-accurate audibility measure.
+    pub playing_time: Duration,
     pub position: Option<Duration>,
     pub duration: Option<Duration>,
     pub seekable: bool,
@@ -80,6 +86,7 @@ impl Default for PlaybackSnapshot {
     fn default() -> Self {
         Self {
             state: PlaybackState::Idle,
+            playing_time: Duration::ZERO,
             position: None,
             duration: None,
             seekable: false,
@@ -430,12 +437,33 @@ struct Pending {
     started: Instant,
 }
 
+/// Numeric telemetry owned by the existing worker, never a playback clock or
+/// scheduler. Only worker-confirmed Playing intervals are admitted; seeking and
+/// media duration are deliberately absent from the accounting inputs.
+#[derive(Default)]
+struct PlayingClock {
+    total: Duration,
+    since: Option<Instant>,
+}
+
+impl PlayingClock {
+    fn observe(&mut self, playing: bool, now: Instant) {
+        if let Some(since) = self.since {
+            self.total = self
+                .total
+                .saturating_add(now.saturating_duration_since(since));
+        }
+        self.since = playing.then_some(now);
+    }
+}
+
 struct Worker {
     output: PlaybackOutput,
     shared: Arc<Shared>,
     source: Option<PlaybackSource>,
     pipeline: Option<ActivePipeline>,
     pending: Option<Pending>,
+    playing: PlayingClock,
 }
 
 struct WorkerLifecycle(Arc<Shared>);
@@ -470,6 +498,7 @@ impl Worker {
             source: None,
             pipeline: None,
             pending: None,
+            playing: PlayingClock::default(),
         };
         while !worker.shared.shutdown.load(Ordering::Acquire) {
             // Bound each batch so rapid actions cannot starve bus/timeout work.
@@ -489,6 +518,7 @@ impl Worker {
             worker.poll();
             thread::sleep(POLL_INTERVAL);
         }
+        worker.account_playing(false);
         worker.pending = None;
         worker.pipeline = None;
         worker.source = None;
@@ -501,12 +531,15 @@ impl Worker {
     fn command(&mut self, command: Command) {
         let result = match command {
             Command::Prepare(source) => {
+                self.account_playing(false);
                 self.pipeline = None;
                 self.pending = None;
                 self.source = Some(source);
+                self.playing = PlayingClock::default();
                 {
                     let mut snapshot = self.shared.snapshot();
                     snapshot.generation += 1;
+                    snapshot.playing_time = Duration::ZERO;
                     snapshot.state = PlaybackState::Loading;
                     snapshot.position = None;
                     snapshot.duration = None;
@@ -552,6 +585,7 @@ impl Worker {
                 }
             }
             Command::Stop => {
+                self.account_playing(false);
                 self.pending = None;
                 self.pipeline = None;
                 if self
@@ -670,6 +704,9 @@ impl Worker {
         target: gst::State,
         result: PlaybackState,
     ) -> Result<(), PlaybackError> {
+        // Stop counting before potentially blocking native transition work;
+        // resume only after a poll confirms the requested Playing state.
+        self.account_playing(false);
         let pipeline = self.pipeline.as_ref().ok_or(PlaybackError::InvalidState)?;
         if pipeline.element.set_state(target).is_err() {
             if let Some(refused) = &pipeline.transport_refused {
@@ -728,6 +765,7 @@ impl Worker {
         {
             return Err(PlaybackError::InvalidSeek);
         }
+        self.account_playing(false);
         let pipeline = self.pipeline.as_ref().ok_or(PlaybackError::InvalidState)?;
         pipeline
             .element
@@ -808,6 +846,7 @@ impl Worker {
             return;
         }
         if eos {
+            self.account_playing(false);
             self.pending = None;
             self.pipeline = None;
             if self
@@ -827,8 +866,11 @@ impl Worker {
             return;
         };
         let mut completed_state = None;
+        // Query the existing pipeline, including after seek/buffering where the
+        // public transport state can still be Playing. No media-position delta
+        // or main-context elapsed interval establishes listening time.
+        let (result, current, _) = pipeline.element.state(gst::ClockTime::ZERO);
         if let Some(pending) = &self.pending {
-            let (result, current, _) = pipeline.element.state(gst::ClockTime::ZERO);
             if result.is_err() {
                 self.fail(PlaybackError::StateChange);
                 return;
@@ -858,9 +900,20 @@ impl Worker {
         snapshot.seekable = seekable;
         snapshot.position = position;
         snapshot.duration = duration;
+        let playing = snapshot.state == PlaybackState::Playing
+            && result.is_ok()
+            && current == gst::State::Playing;
+        drop(snapshot);
+        self.account_playing(playing);
+    }
+
+    fn account_playing(&mut self, playing: bool) {
+        self.playing.observe(playing, Instant::now());
+        self.shared.snapshot().playing_time = self.playing.total;
     }
 
     fn fail(&mut self, error: PlaybackError) {
+        self.account_playing(false);
         self.pending = None;
         self.pipeline = None;
         if self
@@ -1093,6 +1146,105 @@ mod tests {
             snapshot.state == PlaybackState::Ready && snapshot.seekable
         })
         .expect("real WAV prerolls and supports seek")
+    }
+
+    #[test]
+    fn playing_clock_admits_only_confirmed_intervals_and_saturates() {
+        let start = Instant::now();
+        let mut clock = PlayingClock::default();
+        clock.observe(false, start);
+        clock.observe(true, start + Duration::from_secs(10));
+        assert_eq!(clock.total, Duration::ZERO, "loading is not listening");
+        clock.observe(true, start + Duration::from_secs(12));
+        clock.observe(false, start + Duration::from_secs(13));
+        assert_eq!(clock.total, Duration::from_secs(3));
+        clock.observe(false, start + Duration::from_secs(100));
+        assert_eq!(clock.total, Duration::from_secs(3));
+        clock.observe(true, start + Duration::from_secs(110));
+        clock.observe(false, start + Duration::from_secs(112));
+        assert_eq!(clock.total, Duration::from_secs(5));
+        // Terminal states, paused preroll and native seek waits all suspend the
+        // same clock. No position or declared duration enters this contract.
+        clock.observe(false, start + Duration::from_secs(500));
+        assert_eq!(clock.total, Duration::from_secs(5));
+        clock.total = Duration::MAX;
+        clock.observe(true, start + Duration::from_secs(501));
+        clock.observe(false, start + Duration::from_secs(502));
+        assert_eq!(clock.total, Duration::MAX);
+    }
+
+    #[test]
+    fn native_playing_time_excludes_pause_seek_and_terminal_waits_and_resets_on_prepare() {
+        let media = DiagnosticMedia::create(Duration::from_secs(3)).unwrap();
+        let controller = controller();
+        let ready = prepare(&controller, &media);
+        assert_eq!(ready.playing_time, Duration::ZERO);
+        thread::sleep(Duration::from_millis(60));
+        assert_eq!(controller.snapshot().playing_time, Duration::ZERO);
+        controller.play().unwrap();
+        wait_for(&controller, |snapshot| {
+            snapshot.state == PlaybackState::Playing
+                && snapshot.playing_time >= Duration::from_millis(120)
+        })
+        .unwrap();
+        controller.pause().unwrap();
+        let paused = wait_for(&controller, |snapshot| {
+            snapshot.state == PlaybackState::Paused
+        })
+        .unwrap();
+        assert!(paused.playing_time > Duration::ZERO);
+        thread::sleep(Duration::from_millis(160));
+        assert_eq!(controller.snapshot().playing_time, paused.playing_time);
+        controller.seek(Duration::from_millis(2650)).unwrap();
+        let sought = wait_for(&controller, |snapshot| {
+            snapshot.seek_serial > paused.seek_serial
+                && snapshot
+                    .position
+                    .is_some_and(|position| position >= Duration::from_millis(2600))
+        })
+        .unwrap();
+        assert_eq!(sought.playing_time, paused.playing_time);
+        controller.resume().unwrap();
+        let ended = wait_for(&controller, |snapshot| {
+            snapshot.state == PlaybackState::Ended
+        })
+        .unwrap();
+        assert!(ended.playing_time > paused.playing_time);
+        assert!(
+            ended.playing_time < Duration::from_secs(2),
+            "a 2.65s seek must not be counted as listening: {:?}",
+            ended.playing_time
+        );
+        thread::sleep(Duration::from_millis(100));
+        assert_eq!(controller.snapshot().playing_time, ended.playing_time);
+        let replaced = prepare(&controller, &media);
+        assert_eq!(replaced.generation, ready.generation + 1);
+        assert_eq!(replaced.playing_time, Duration::ZERO);
+        controller.play().unwrap();
+        wait_for(&controller, |snapshot| {
+            snapshot.state == PlaybackState::Playing
+                && snapshot.playing_time >= Duration::from_millis(80)
+        })
+        .unwrap();
+        controller.stop().unwrap();
+        let stopped = wait_for(&controller, |snapshot| {
+            snapshot.state == PlaybackState::Stopped
+        })
+        .unwrap();
+        assert!(stopped.playing_time > Duration::ZERO);
+        thread::sleep(Duration::from_millis(80));
+        assert_eq!(controller.snapshot().playing_time, stopped.playing_time);
+        controller.play().unwrap();
+        wait_for(&controller, |snapshot| {
+            snapshot.state == PlaybackState::Playing && snapshot.playing_time > stopped.playing_time
+        })
+        .unwrap();
+        shutdown(&controller);
+        let closed = controller.snapshot();
+        assert_eq!(closed.generation, replaced.generation);
+        assert!(closed.playing_time >= stopped.playing_time);
+        thread::sleep(Duration::from_millis(60));
+        assert_eq!(controller.snapshot().playing_time, closed.playing_time);
     }
 
     #[test]
@@ -1404,6 +1556,7 @@ mod tests {
         let mut worker = Worker {
             output: PlaybackOutput::Fakesink,
             shared: shared.clone(),
+            playing: PlayingClock::default(),
             source: Some(media.source()),
             pipeline: Some(ActivePipeline {
                 element,

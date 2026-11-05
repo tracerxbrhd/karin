@@ -27,9 +27,20 @@ struct Counts {
     media: [usize; 4],
     range_requests: usize,
     slow_started: bool,
+    wave_sessions: usize,
+    wave_batches: usize,
+    wave_events: Vec<serde_json::Value>,
+    wave_hold_feedback: bool,
+    wave_hold_begin: bool,
+    wave_hold_batch: bool,
+    wave_feedback_status: Option<u16>,
+    wave_reject_event: Option<&'static str>,
+    wave_initial: Option<Vec<u64>>,
+    wave_next: Option<Vec<u64>>,
+    wave_unavailable: Vec<u64>,
 }
 
-struct Fixture {
+pub(in crate::ui::music) struct Fixture {
     origin: String,
     counts: Arc<Mutex<Counts>>,
     reject_media: Arc<AtomicBool>,
@@ -39,7 +50,7 @@ struct Fixture {
 }
 
 impl Fixture {
-    fn new() -> Self {
+    pub(in crate::ui::music) fn new() -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let origin = format!("http://{}/", listener.local_addr().unwrap());
         listener.set_nonblocking(true).unwrap();
@@ -156,7 +167,8 @@ fn serve(
     let api = matches!(
         url.path(),
         "/account/status" | "/search" | "/tracks" | "/users/1234/likes/tracks"
-    ) || url.path().starts_with("/tracks/");
+    ) || url.path().starts_with("/tracks/")
+        || url.path().starts_with("/rotor/");
     if api {
         assert_eq!(
             header("authorization"),
@@ -171,7 +183,98 @@ fn serve(
         }
     }
     assert!(header("x-yandex-music-client").is_none());
-    if url.path() == "/account/status" {
+    let body = if first[0] == "POST" {
+        let length: usize = header("content-length").unwrap().parse().unwrap();
+        assert!(length < 16 * 1024);
+        let mut body = vec![0; length];
+        stream.read_exact(&mut body).unwrap();
+        body
+    } else {
+        Vec::new()
+    };
+    if url.path() == "/rotor/session/new" {
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["seeds"], json!(["user:onyourwave"]));
+        let ids = {
+            let mut counts = counts.lock().unwrap();
+            counts.wave_sessions += 1;
+            if counts.wave_hold_begin {
+                counts.slow_started = true;
+            }
+            counts
+                .wave_initial
+                .clone()
+                .unwrap_or_else(|| vec![42, 43, 42])
+        };
+        if counts.lock().unwrap().wave_hold_begin {
+            wait_wave_fixture(release);
+        }
+        json_response(
+            &mut stream,
+            wave_response("synthetic-wave-batch-1", &ids, true),
+        );
+    } else if url.path() == "/rotor/session/synthetic-wave-session/tracks" {
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(body["queue"].as_array().unwrap().len() <= 100);
+        let (index, hold) = {
+            let mut state = counts.lock().unwrap();
+            state.wave_batches += 1;
+            if state.wave_hold_batch {
+                state.slow_started = true;
+            }
+            (state.wave_batches, state.wave_hold_batch)
+        };
+        if hold {
+            wait_wave_fixture(release);
+        }
+        let ids = counts
+            .lock()
+            .unwrap()
+            .wave_next
+            .clone()
+            .unwrap_or_else(|| vec![44, 43]);
+        json_response(
+            &mut stream,
+            wave_response(&format!("synthetic-wave-batch-{}", index + 1), &ids, false),
+        );
+    } else if url.path() == "/rotor/session/synthetic-wave-session/feedback" {
+        let event: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(
+            matches!(
+                event["event"]["type"].as_str(),
+                Some("radioStarted" | "trackStarted" | "trackFinished" | "skip")
+            ),
+            "the modern Wave fixture rejects unsupported outgoing events"
+        );
+        let (hold, status) = {
+            let mut state = counts.lock().unwrap();
+            let selected = state
+                .wave_reject_event
+                .is_none_or(|kind| event["event"]["type"] == kind);
+            state.wave_events.push(event);
+            if state.wave_hold_feedback {
+                state.slow_started = true;
+            }
+            (
+                state.wave_hold_feedback,
+                selected.then_some(state.wave_feedback_status).flatten(),
+            )
+        };
+        if hold {
+            wait_wave_fixture(release);
+        }
+        if status == Some(0) {
+            return;
+        }
+        if let Some(status) = status {
+            let _ = write!(
+                stream,
+                "HTTP/1.1 {status} Rejected\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{{}}"
+            );
+        } else {
+            json_response(&mut stream, json!({"result":"accepted"}));
+        }
+    } else if url.path() == "/account/status" {
         json_response(
             &mut stream,
             json!({"result":{"account":{"uid":1234,"displayName":"Synthetic player account"}}}),
@@ -191,16 +294,27 @@ fn serve(
         );
     } else if url.path() == "/tracks" {
         assert_eq!(first[0], "POST");
-        let length: usize = header("content-length").unwrap().parse().unwrap();
-        assert!(length < 4096);
-        let mut form = vec![0; length];
-        stream.read_exact(&mut form).unwrap();
-        assert!(String::from_utf8(form).unwrap().contains("42"));
-        counts.lock().unwrap().lookups += 1;
+        let form = reqwest::Url::parse(&format!(
+            "http://fixture/?{}",
+            String::from_utf8(body).unwrap()
+        ))
+        .unwrap();
+        let ids = form
+            .query_pairs()
+            .filter(|(key, _)| key == "track-ids")
+            .map(|(_, value)| value.parse::<u64>().unwrap())
+            .collect::<Vec<_>>();
+        assert!(!ids.is_empty());
+        assert!(ids.iter().all(|id| (42..=45).contains(id)));
+        let unavailable = {
+            let mut counts = counts.lock().unwrap();
+            counts.lookups += 1;
+            counts.wave_unavailable.clone()
+        };
         json_response(
             &mut stream,
-            json!({"result":[{"id":42,"title":"Synthetic remote player track","durationMs":4000,
-            "available":true,"artists":[{"name":"Synthetic artist"}]}]}),
+            json!({"result":ids.into_iter().rev().map(|id| json!({"id":id,"title":"Synthetic remote player track","durationMs":4000,
+            "available":!unavailable.contains(&id),"artists":[{"name":"Synthetic artist"}]})).collect::<Vec<_>>()}),
         );
     } else if url.path().starts_with("/tracks/") {
         let track: usize = url.path().split('/').nth(2).unwrap().parse().unwrap();
@@ -298,6 +412,22 @@ fn serve(
     } else {
         panic!("unexpected synthetic player request");
     }
+}
+
+fn wave_response(batch: &str, ids: &[u64], initial: bool) -> serde_json::Value {
+    let mut value = json!({"result":{"batchId":batch,"sequence":ids.iter().map(|id| json!({"type":"track","track":{"id":id}})).collect::<Vec<_>>()}});
+    if initial {
+        value["result"]["radioSessionId"] = "synthetic-wave-session".into();
+    }
+    value
+}
+fn wait_wave_fixture(release: &(Mutex<bool>, Condvar)) {
+    let released = release.0.lock().unwrap();
+    let (released, _) = release
+        .1
+        .wait_timeout_while(released, Duration::from_secs(8), |ready| !*ready)
+        .unwrap();
+    assert!(*released, "bounded synthetic Wave response gate released");
 }
 
 fn json_response(stream: &mut TcpStream, body: serde_json::Value) {
@@ -485,7 +615,16 @@ pub(in crate::ui::music) fn resize_player_window(
     }
 }
 
-fn player_window(fixture: &Fixture) -> (adw::Application, crate::ui::MainWindow) {
+pub(in crate::ui::music) fn player_window(
+    fixture: &Fixture,
+) -> (adw::Application, crate::ui::MainWindow) {
+    player_window_with_account(fixture, true)
+}
+
+fn player_window_with_account(
+    fixture: &Fixture,
+    authenticated: bool,
+) -> (adw::Application, crate::ui::MainWindow) {
     static NEXT_WINDOW: AtomicU64 = AtomicU64::new(0);
     // Each registered application exports its own D-Bus object path, even
     // with NON_UNIQUE. Keep independent windows distinct on one test bus.
@@ -495,7 +634,9 @@ fn player_window(fixture: &Fixture) -> (adw::Application, crate::ui::MainWindow)
     );
     let service = MusicService::for_test(&fixture.origin);
     let token = AccessToken::for_test("synthetic-native-music-token", Duration::from_secs(300));
-    service.account(&token).unwrap();
+    if authenticated {
+        service.account(&token).unwrap();
+    }
     let app = adw::Application::builder()
         .application_id(application_id)
         .flags(gio::ApplicationFlags::NON_UNIQUE)
@@ -519,7 +660,7 @@ fn player_window(fixture: &Fixture) -> (adw::Application, crate::ui::MainWindow)
     ui.window.set_title(Some("Karin synthetic HTTP fixture"));
     ui.window.set_default_size(900, 650);
     ui.window.present();
-    {
+    if authenticated {
         let mut model = this.model.borrow_mut();
         model.token = Some(token);
         model.account_valid = true;
@@ -2629,4 +2770,965 @@ fn native_music_shuffle_repeat_mpris_shared_policy_and_eos() {
     let cleanup = ui.close_for_smoke();
     pump_until(|| cleanup(false));
     assert!(cleanup(true));
+}
+
+#[test]
+#[ignore = "requires isolated session D-Bus, Xvfb, playerctl and actual generated MP3 playback"]
+fn native_wave_shared_player_feedback_batches_and_cleanup() {
+    use super::super::radio::{RadioFailure, RadioPhase, RadioStage};
+    use crate::queue::{ContextKind, RepeatMode};
+    gtk::init().unwrap();
+    adw::init().unwrap();
+    // Normal startup needs no hidden Wave enable call. Without a validated
+    // account, neither startup nor a late activation may admit radio requests.
+    let anonymous = Fixture::new();
+    let (_anonymous_app, anonymous_ui) = player_window_with_account(&anonymous, false);
+    let signed_out = &anonymous_ui.music.controller;
+    super::super::test_input::wait_for_layout(
+        &anonymous_ui.window,
+        &signed_out.widgets.home_signedout,
+    );
+    assert_eq!(signed_out.radio_status().phase, RadioPhase::Ready);
+    assert!(!signed_out.radio_status().authenticated);
+    assert!(!signed_out.widgets.home_wave.primary.is_sensitive());
+    signed_out.start_wave();
+    signed_out.activate_wave_hero();
+    assert!(signed_out.radio_idle_for_test());
+    assert!(signed_out.wave_session_for_test().is_none());
+    {
+        let counts = anonymous.counts.lock().unwrap();
+        assert_eq!((counts.wave_sessions, counts.wave_batches), (0, 0));
+        assert!(counts.wave_events.is_empty());
+    }
+    signed_out.close();
+    anonymous_ui.window.close();
+
+    let fixture = Fixture::new();
+    let (_app, ui) = player_window(&fixture);
+    let this = &ui.music.controller;
+    pump_until(|| this.widgets.home_wave.primary.is_mapped());
+    assert_eq!(this.radio_status().phase, RadioPhase::Ready);
+    assert!(this.radio_status().authenticated);
+    assert!(this.widgets.home_wave.primary.is_sensitive());
+    assert!(this.wave_session_for_test().is_none());
+    assert!(this.model.borrow().queue.items().is_empty());
+    assert!(this.music_snapshot().is_none());
+    {
+        let counts = fixture.counts.lock().unwrap();
+        assert_eq!((counts.wave_sessions, counts.wave_batches), (0, 0));
+        assert!(
+            counts.wave_events.is_empty(),
+            "ordinary Home does not auto-start Wave"
+        );
+    }
+    this.set_music_shuffle(true);
+    this.set_music_repeat(RepeatMode::Queue);
+    native_click(&ui.window, &this.widgets.home_wave.primary);
+    wait_playing(this, 0);
+    pump_until(|| {
+        let counts = fixture.counts.lock().unwrap();
+        counts.wave_events.len() >= 2
+            && counts.wave_batches == 1
+            && this.model.borrow().queue.items().len() == 5
+    });
+    assert_eq!(
+        this.model.borrow().queue.context().unwrap().source_kind(),
+        ContextKind::Wave
+    );
+    assert!(!this.model.borrow().queue.shuffle());
+    assert_eq!(this.model.borrow().queue.repeat_mode(), RepeatMode::Off);
+    assert!(!this.widgets.shuffle.is_sensitive());
+    assert!(!this.widgets.repeat.is_sensitive());
+    this.set_music_shuffle(true);
+    this.set_music_repeat(RepeatMode::One);
+    assert!(!this.model.borrow().queue.shuffle());
+    assert_eq!(this.model.borrow().queue.repeat_mode(), RepeatMode::Off);
+    let first_occurrence = this
+        .model
+        .borrow()
+        .queue
+        .current_occurrence_id()
+        .unwrap()
+        .clone();
+    let first_context = this.model.borrow().queue.context().unwrap().clone();
+    let first_serial = this.music_serial();
+    let engine = this.player.borrow().controller.clone().unwrap();
+    let metadata_path = || {
+        let metadata = desktop_property("Metadata")
+            .get::<std::collections::BTreeMap<String, glib::Variant>>()
+            .unwrap();
+        assert!(!metadata.contains_key("xesam:url"));
+        metadata["mpris:trackid"]
+            .get::<glib::variant::ObjectPath>()
+            .unwrap()
+    };
+    pump_until(|| this.system_media_available());
+    let first_path = metadata_path();
+    assert!(!desktop_property("Shuffle").get::<bool>().unwrap());
+    assert_eq!(
+        desktop_property("LoopStatus").get::<String>().unwrap(),
+        "None"
+    );
+    let home_serial = this.music_serial();
+    let home_sessions = fixture.counts.lock().unwrap().wave_sessions;
+    native_click(&ui.window, &this.widgets.nav_liked);
+    pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("library"));
+    native_click(&ui.window, &this.widgets.nav_wave);
+    pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("home"));
+    assert_eq!(this.music_serial(), home_serial);
+    assert_eq!(fixture.counts.lock().unwrap().wave_sessions, home_sessions);
+    let hero_clicks = Rc::new(Cell::new(0));
+    let observed_clicks = hero_clicks.clone();
+    this.widgets.home_wave.primary.connect_clicked(move |_| {
+        observed_clicks.set(observed_clicks.get() + 1);
+    });
+    assert_inline_transport_target(&ui, this.widgets.home_wave.primary.upcast_ref());
+    native_click(&ui.window, &this.widgets.home_wave.primary);
+    pump_until(|| hero_clicks.get() == 1);
+    pump_until(|| engine.snapshot().state == PlaybackState::Paused);
+    let paused = engine.snapshot().playing_time;
+    let until = Instant::now() + Duration::from_millis(300);
+    pump_until(|| Instant::now() >= until);
+    assert_eq!(
+        engine.snapshot().playing_time,
+        paused,
+        "pause cannot add heard time"
+    );
+    let seek = engine.snapshot().seek_serial;
+    this.seek_music(Duration::from_secs(2));
+    pump_until(|| engine.snapshot().seek_serial > seek);
+    assert_eq!(
+        engine.snapshot().playing_time,
+        paused,
+        "seek distance is not listening"
+    );
+    this.set_info_open(true);
+    let selected = this.model.borrow().queue.current().unwrap().clone();
+    this.handle_track_pane_action(super::super::track_pane::PaneAction::Play(selected));
+    pump_until(|| engine.snapshot().state == PlaybackState::Playing);
+    assert_eq!(
+        this.music_serial(),
+        first_serial,
+        "Track Info resumes the existing worker"
+    );
+    assert_eq!(
+        this.model.borrow().queue.current_occurrence_id(),
+        Some(&first_occurrence)
+    );
+    assert_eq!(metadata_path(), first_path);
+    this.set_music_volume(0.4);
+    pump_until(|| (engine.snapshot().volume - 0.4).abs() < f64::EPSILON);
+    this.seek_music(Duration::from_millis(3_800));
+    wait_playing(this, 1);
+    pump_until(|| {
+        fixture
+            .counts
+            .lock()
+            .unwrap()
+            .wave_events
+            .iter()
+            .any(|event| event["event"]["type"] == "trackFinished")
+    });
+    {
+        let counts = fixture.counts.lock().unwrap();
+        assert_eq!(counts.wave_sessions, 1);
+        let finished = counts
+            .wave_events
+            .iter()
+            .filter(|event| event["event"]["type"] == "trackFinished")
+            .collect::<Vec<_>>();
+        assert_eq!(
+            finished.len(),
+            1,
+            "EOS is consumed once before selecting another occurrence"
+        );
+        assert_eq!(finished[0]["batchId"], "synthetic-wave-batch-1");
+        assert!(
+            finished[0]["event"]["totalPlayedSeconds"].as_f64().unwrap() < 3.5,
+            "seeked-over audio and pause are not reported as heard"
+        );
+    }
+    this.play_music_queue(2);
+    wait_playing(this, 2);
+    assert_ne!(
+        this.model.borrow().queue.current_occurrence_id(),
+        Some(&first_occurrence)
+    );
+    assert_ne!(
+        metadata_path(),
+        first_path,
+        "same track ID in another occurrence has another opaque path"
+    );
+    this.skip_music(true, false);
+    wait_playing(this, 3);
+    this.play_music_context(
+        PlaybackContext::new(
+            ContextKind::Playlist,
+            Some("synthetic-normal".into()),
+            vec![track("43")],
+            0,
+            false,
+        )
+        .unwrap(),
+    );
+    wait_playing(this, 0);
+    pump_until(|| this.radio_idle_for_test() && this.radio_status().phase == RadioPhase::Ready);
+    assert!(this.model.borrow().queue.shuffle());
+    assert_eq!(this.model.borrow().queue.repeat_mode(), RepeatMode::Queue);
+    let ordinary_serial = this.music_serial();
+    this.play_music_context(first_context);
+    assert_eq!(
+        this.music_serial(),
+        ordinary_serial,
+        "a saved Wave snapshot cannot recreate its retired session"
+    );
+    assert_eq!(fixture.counts.lock().unwrap().wave_sessions, 1);
+    // Hold the first feedback of another session. Logout may cancel it locally,
+    // but cannot unsend the HTTP already admitted by the worker.
+    fixture.hold_descriptor();
+    fixture.counts.lock().unwrap().wave_hold_feedback = true;
+    this.start_wave();
+    wait_playing(this, 0);
+    pump_until(|| fixture.counts.lock().unwrap().slow_started);
+    let sent = fixture.counts.lock().unwrap().wave_events.len();
+    let closing = this.player.borrow().controller.clone().unwrap();
+    this.logout();
+    fixture.release_descriptor();
+    pump_until(|| !closing.snapshot().worker_running && this.model.borrow().token.is_none());
+    let until = Instant::now() + Duration::from_millis(250);
+    pump_until(|| Instant::now() >= until);
+    assert_eq!(
+        fixture.counts.lock().unwrap().wave_events.len(),
+        sent,
+        "no queued feedback after logout"
+    );
+    assert!(this.model.borrow().queue.items().is_empty());
+    this.close();
+    ui.window.close();
+
+    // A source switch during an admitted uncertain POST must keep its primary
+    // category and must not dispatch final feedback with the cancelled session.
+    let uncertain = Fixture::new();
+    uncertain.hold_descriptor();
+    {
+        let mut counts = uncertain.counts.lock().unwrap();
+        counts.wave_hold_feedback = true;
+        counts.wave_feedback_status = Some(0);
+    }
+    let (_other_app, other_ui) = player_window(&uncertain);
+    let other = &other_ui.music.controller;
+    other.start_wave();
+    wait_playing(other, 0);
+    pump_until(|| uncertain.counts.lock().unwrap().slow_started);
+    other.play_music_context(
+        PlaybackContext::new(ContextKind::Playlist, None, vec![track("43")], 0, false).unwrap(),
+    );
+    uncertain.release_descriptor();
+    pump_until(|| {
+        matches!(
+            other.radio_status().phase,
+            RadioPhase::Failed {
+                stage: RadioStage::Feedback,
+                failure: RadioFailure::OutcomeUnknown
+            }
+        )
+    });
+    wait_playing(other, 0);
+    assert_eq!(uncertain.counts.lock().unwrap().wave_events.len(), 1);
+    other.close();
+    other_ui.window.close();
+
+    // Bounded history must be pruned before the next request's capacity gate.
+    let rolling = Fixture::new();
+    {
+        let mut counts = rolling.counts.lock().unwrap();
+        let mut initial = vec![42];
+        initial.extend(std::iter::repeat_n(43, 49));
+        counts.wave_initial = Some(initial);
+        counts.wave_next = Some(vec![44; 50]);
+        counts.wave_unavailable = vec![43];
+    }
+    let (_rolling_app, rolling_ui) = player_window(&rolling);
+    let rolling_this = &rolling_ui.music.controller;
+    rolling_this.start_wave();
+    wait_playing(rolling_this, 0);
+    pump_until(|| rolling_this.model.borrow().queue.items().len() == 100);
+    rolling.hold_descriptor();
+    rolling.counts.lock().unwrap().wave_hold_batch = true;
+    rolling_this.play_music_queue(99);
+    pump_until(|| rolling.counts.lock().unwrap().slow_started);
+    assert_eq!(rolling_this.model.borrow().queue.items().len(), 26);
+    assert!(
+        rolling_this
+            .widgets
+            .queue_count
+            .text()
+            .contains(&track_count_text(26)),
+        "held-batch UI count follows the trimmed queue"
+    );
+    assert_eq!(
+        rolling_this.widgets.queue_rows.observe_children().n_items(),
+        26,
+        "held-batch native rows follow the trimmed queue"
+    );
+    rolling_this.skip_music(true, false);
+    rolling_this.skip_music(true, false);
+    assert_eq!(
+        rolling.counts.lock().unwrap().wave_batches,
+        2,
+        "two Next intents share the admitted batch"
+    );
+    rolling_this.play_music_queue(24);
+    let retained = rolling_this
+        .model
+        .borrow()
+        .queue
+        .current_occurrence_id()
+        .unwrap()
+        .clone();
+    pump_until(|| {
+        rolling_this
+            .music_snapshot()
+            .is_some_and(|snapshot| snapshot.state == PlaybackState::Playing)
+    });
+    let resolved = rolling.counts.lock().unwrap().offers[2];
+    rolling.release_descriptor();
+    pump_until(|| {
+        rolling_this.model.borrow().queue.items().len() == 76 && rolling_this.radio_idle_for_test()
+    });
+    assert_eq!(
+        rolling_this.model.borrow().queue.current_occurrence_id(),
+        Some(&retained),
+        "batch arrival cannot override a later row selection"
+    );
+    assert_eq!(
+        rolling.counts.lock().unwrap().offers[2],
+        resolved,
+        "stale waiting Next cannot re-resolve another occurrence"
+    );
+    rolling_this.skip_music(true, false);
+    rolling_this.skip_music(true, false);
+    pump_until(|| {
+        let model = rolling_this.model.borrow();
+        model
+            .queue
+            .current_index()
+            .is_some_and(|index| model.queue.context().unwrap().source_position(index) == Some(100))
+            && rolling_this
+                .music_snapshot()
+                .is_some_and(|snapshot| snapshot.state == PlaybackState::Playing)
+    });
+    assert_eq!(
+        rolling.counts.lock().unwrap().wave_batches,
+        2,
+        "no redundant queued batch after success"
+    );
+    assert!(!matches!(
+        rolling_this.radio_status().phase,
+        RadioPhase::Failed { .. }
+    ));
+    let current = rolling_this
+        .model
+        .borrow()
+        .queue
+        .current_occurrence_id()
+        .unwrap()
+        .clone();
+    rolling_this.seek_music(Duration::from_millis(3_800));
+    pump_until(|| {
+        rolling_this.model.borrow().queue.current_occurrence_id() != Some(&current)
+            && rolling_this
+                .music_snapshot()
+                .is_some_and(|s| s.state == PlaybackState::Playing)
+    });
+    rolling_this.cancel_wave();
+    assert!(rolling_this.model.borrow().queue.items().is_empty());
+    rolling_this.close();
+    rolling_ui.window.close();
+
+    // An explicit fresh session after a feedback refusal must preserve the
+    // user's modes from before the first Wave, not save its forced Off values.
+    let modes = Fixture::new();
+    modes.counts.lock().unwrap().wave_feedback_status = Some(403);
+    let (_modes_app, modes_ui) = player_window(&modes);
+    let modes_this = &modes_ui.music.controller;
+    modes_this.set_music_shuffle(true);
+    modes_this.set_music_repeat(RepeatMode::Queue);
+    modes_this.start_wave();
+    wait_playing(modes_this, 0);
+    pump_until(|| {
+        matches!(
+            modes_this.radio_status().phase,
+            RadioPhase::Failed {
+                stage: RadioStage::Feedback,
+                ..
+            }
+        )
+    });
+    assert!(!modes_this.widgets.next.is_sensitive());
+    for index in 0..modes_this.model.borrow().queue.items().len() {
+        let row = modes_this.queue_row_at_physical(index).unwrap();
+        assert!(
+            !row.is_activatable(),
+            "retired Wave rows cannot offer playback"
+        );
+        let mut child = row.child().unwrap().first_child();
+        let mut play_checked = false;
+        while let Some(widget) = child {
+            child = widget.next_sibling();
+            if widget.widget_name() == "music-queue-play" {
+                assert!(!widget.is_sensitive());
+                play_checked = true;
+            } else if widget.widget_name() == "music-queue-more" {
+                assert!(widget.is_sensitive(), "Details/remove remain available");
+            }
+        }
+        assert!(play_checked);
+    }
+
+    assert!(!modes_this.widgets.previous.is_sensitive());
+    modes.counts.lock().unwrap().wave_feedback_status = None;
+    modes_this.start_wave();
+    pump_until(|| modes.counts.lock().unwrap().wave_sessions == 2);
+    wait_playing(modes_this, 0);
+    desktop_method("Stop", ().to_variant());
+    pump_until(|| modes_this.model.borrow().queue.items().is_empty());
+    pump_until(|| matches!(modes_this.radio_status().phase, RadioPhase::Ready));
+    assert!(modes_this.model.borrow().queue.shuffle());
+    assert_eq!(
+        modes_this.model.borrow().queue.repeat_mode(),
+        RepeatMode::Queue
+    );
+    modes_this.close();
+    modes_ui.window.close();
+
+    let pending = Fixture::new();
+    pending.hold_descriptor();
+    pending.counts.lock().unwrap().wave_hold_begin = true;
+    let (_pending_app, pending_ui) = player_window(&pending);
+    let pending_this = &pending_ui.music.controller;
+    let ordinary = || {
+        PlaybackContext::new(
+            ContextKind::Playlist,
+            Some("ordinary-pending-wave".into()),
+            vec![track("42"), track("43")],
+            0,
+            false,
+        )
+        .unwrap()
+    };
+    pending_this.play_music_context(ordinary());
+    wait_playing(pending_this, 0);
+    pending_this.start_wave();
+    pump_until(|| pending.counts.lock().unwrap().slow_started);
+    let ordinary_serial = pending_this.music_serial();
+    let ordinary_worker = pending_this.player.borrow().controller.clone().unwrap();
+    let ordinary_occurrence = pending_this
+        .model
+        .borrow()
+        .queue
+        .current_occurrence_id()
+        .cloned();
+    pending_this.cancel_wave_start();
+    pending.release_descriptor();
+    pump_until(|| pending_this.radio_idle_for_test());
+    assert_eq!(pending_this.music_serial(), ordinary_serial);
+    assert_eq!(
+        pending_this
+            .model
+            .borrow()
+            .queue
+            .current_occurrence_id()
+            .cloned(),
+        ordinary_occurrence
+    );
+    assert_eq!(ordinary_worker.snapshot().state, PlaybackState::Playing);
+    assert!(pending.counts.lock().unwrap().wave_events.is_empty());
+    pending.hold_descriptor();
+    pending_this.start_wave();
+    pump_until(|| pending.counts.lock().unwrap().slow_started);
+    pending_this.play_music_queue(1);
+    wait_playing(pending_this, 1);
+    let selected = pending_this
+        .model
+        .borrow()
+        .queue
+        .current_occurrence_id()
+        .unwrap()
+        .clone();
+    pending.release_descriptor();
+    pump_until(|| pending_this.radio_idle_for_test());
+    assert_eq!(
+        pending_this.model.borrow().queue.current_occurrence_id(),
+        Some(&selected)
+    );
+    assert_eq!(
+        pending_this
+            .model
+            .borrow()
+            .queue
+            .context()
+            .unwrap()
+            .source_kind(),
+        ContextKind::Playlist
+    );
+    assert!(
+        pending.counts.lock().unwrap().wave_events.is_empty(),
+        "cancelled begin cannot create listening feedback"
+    );
+
+    // Natural completion belongs to the old ordinary intent; it must not
+    // cancel a newer deliberately requested radio start.
+    pending_this.play_music_context(ordinary());
+    wait_playing(pending_this, 0);
+    pending.hold_descriptor();
+    pending_this.start_wave();
+    pump_until(|| pending.counts.lock().unwrap().slow_started);
+    pump_until(|| {
+        pending_this
+            .music_snapshot()
+            .is_some_and(|snapshot| snapshot.seekable)
+    });
+    pending_this.seek_music(Duration::from_millis(3_800));
+    wait_playing(pending_this, 1);
+    assert_eq!(pending_this.radio_status().phase, RadioPhase::Starting);
+    pending.release_descriptor();
+    pump_until(|| {
+        pending_this
+            .model
+            .borrow()
+            .queue
+            .context()
+            .is_some_and(|context| context.source_kind() == ContextKind::Wave)
+    });
+    wait_playing(pending_this, 0);
+    pending_this.cancel_wave();
+    pending_this.close();
+    pending_ui.window.close();
+
+    // Force the exact worker-error/UI-callback gap: an admitted feedback will
+    // return403, while its local session has already been marked cancelled.
+    // A timer observation and an ordinary source switch must retain that job's
+    // typed primary result instead of inventing a local outbox-capacity error.
+    let poisoned = Fixture::new();
+    poisoned.hold_descriptor();
+    {
+        let mut counts = poisoned.counts.lock().unwrap();
+        counts.wave_hold_feedback = true;
+        counts.wave_feedback_status = Some(403);
+    }
+    let (_poison_app, poison_ui) = player_window(&poisoned);
+    let poison_this = &poison_ui.music.controller;
+    poison_this.start_wave();
+    wait_playing(poison_this, 0);
+    pump_until(|| poisoned.counts.lock().unwrap().slow_started);
+    poison_this.poison_wave_session_for_test();
+    poison_this.tick_radio(poison_this.music_snapshot().as_ref());
+    assert!(
+        !matches!(poison_this.radio_status().phase, RadioPhase::Failed { .. }),
+        "pending typed provider failure owns the diagnosis"
+    );
+    poison_this.play_music_context(
+        PlaybackContext::new(ContextKind::Playlist, None, vec![track("43")], 0, false).unwrap(),
+    );
+    assert_eq!(
+        poison_this.radio_status().phase,
+        RadioPhase::Finishing,
+        "retain the pending epoch even though coordinator finish is cancelled"
+    );
+    poisoned.release_descriptor();
+    pump_until(|| {
+        matches!(
+            poison_this.radio_status().phase,
+            RadioPhase::Failed {
+                stage: RadioStage::Feedback,
+                failure: RadioFailure::Forbidden
+            }
+        )
+    });
+    wait_playing(poison_this, 0);
+    assert_eq!(
+        poisoned.counts.lock().unwrap().wave_events.len(),
+        1,
+        "no queued final feedback after the primary refusal"
+    );
+    assert_eq!(poisoned.counts.lock().unwrap().wave_batches, 0);
+    poison_this.close();
+    poison_ui.window.close();
+
+    use crate::music::wave::WaveEventKind;
+    for (kind, finish) in [
+        (WaveEventKind::RadioStarted, None),
+        (WaveEventKind::TrackStarted, None),
+        (WaveEventKind::Skip, None),
+        (WaveEventKind::TrackFinished, None),
+        (WaveEventKind::Skip, Some("source-change")),
+        (WaveEventKind::Skip, Some("stop")),
+    ] {
+        let refusal = Fixture::new();
+        {
+            let mut counts = refusal.counts.lock().unwrap();
+            counts.wave_feedback_status = Some(400);
+            counts.wave_reject_event = Some(kind.as_str());
+        }
+        let (_refusal_app, refusal_ui) = player_window(&refusal);
+        let radio = &refusal_ui.music.controller;
+        radio.start_wave();
+        wait_playing(radio, 0);
+        if !matches!(
+            kind,
+            WaveEventKind::RadioStarted | WaveEventKind::TrackStarted
+        ) {
+            pump_until(|| {
+                refusal
+                    .counts
+                    .lock()
+                    .unwrap()
+                    .wave_events
+                    .iter()
+                    .any(|event| event["event"]["type"] == "trackStarted")
+            });
+            match (kind, finish) {
+                (WaveEventKind::Skip, None) => radio.skip_music(true, false),
+                (WaveEventKind::TrackFinished, None) => {
+                    pump_until(|| {
+                        radio
+                            .music_snapshot()
+                            .is_some_and(|snapshot| snapshot.seekable)
+                    });
+                    radio.seek_music(Duration::from_millis(3_800));
+                }
+                (WaveEventKind::Skip, Some("stop")) => {
+                    pump_until(|| radio.system_media_available());
+                    desktop_method("Stop", ().to_variant());
+                }
+                (WaveEventKind::Skip, Some("source-change")) => radio.play_music_context(
+                    PlaybackContext::new(
+                        ContextKind::LikedTracks,
+                        None,
+                        vec![track("43")],
+                        0,
+                        false,
+                    )
+                    .unwrap(),
+                ),
+                _ => unreachable!(),
+            }
+        }
+        pump_until(|| {
+            matches!(
+                radio.radio_status().phase,
+                RadioPhase::Failed {
+                    stage: RadioStage::Feedback,
+                    failure: RadioFailure::Http
+                }
+            )
+        });
+        pump_until(|| radio.radio_idle_for_test());
+        let line = radio.wave_diagnostic_for_test().unwrap();
+        assert!(
+            line.starts_with("Karin wave: stage=feedback category=http-rejected http=400 event=")
+        );
+        assert!(line.contains(&format!(" event={} ", kind.as_str())));
+        let origin = match (kind, finish) {
+            (_, Some(_)) => "retirement",
+            (WaveEventKind::Skip, None) => "selection",
+            _ => "playback",
+        };
+        assert!(line.contains(&format!(" origin={origin} ")));
+        assert!(line.ends_with(&format!("finish={}", finish.unwrap_or("none"))));
+        assert!(line.contains(if finish.is_some() {
+            " phase=retiring "
+        } else {
+            " phase=active "
+        }));
+        let sent = refusal.counts.lock().unwrap().wave_events.len();
+        assert_eq!(
+            refusal.counts.lock().unwrap().wave_events.last().unwrap()["event"]["type"],
+            kind.as_str()
+        );
+        for _ in 0..3 {
+            radio.tick_radio(radio.music_snapshot().as_ref());
+        }
+        assert_eq!(
+            refusal.counts.lock().unwrap().wave_events.len(),
+            sent,
+            "confirmed400 is not success, repeated or followed by another event"
+        );
+        if finish == Some("source-change") {
+            wait_playing(radio, 0);
+            assert_eq!(
+                radio.model.borrow().queue.context().unwrap().source_kind(),
+                ContextKind::LikedTracks
+            );
+        }
+        radio.close();
+        refusal_ui.window.close();
+    }
+}
+
+#[test]
+#[ignore = "requires isolated session D-Bus, Xvfb, playerctl and actual generated MP3 playback"]
+fn native_wave_retirement_supported_feedback_and_cleanup() {
+    use super::super::radio::RadioPhase;
+    use crate::queue::{ContextKind, RepeatMode};
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum Exit {
+        SourcePlaying,
+        SourcePaused,
+        SourceEos,
+        StopPlaying,
+        StopPaused,
+        BeforePlaying,
+        Logout,
+        Close,
+        PendingFeedback,
+        PendingBatch,
+        Restart,
+    }
+
+    gtk::init().unwrap();
+    adw::init().unwrap();
+    for exit in [
+        Exit::SourcePlaying,
+        Exit::SourcePaused,
+        Exit::SourceEos,
+        Exit::StopPlaying,
+        Exit::StopPaused,
+        Exit::BeforePlaying,
+        Exit::Logout,
+        Exit::Close,
+        Exit::PendingFeedback,
+        Exit::PendingBatch,
+        Exit::Restart,
+    ] {
+        eprintln!("Karin synthetic Wave retirement: case={exit:?}");
+        let fixture = Fixture::new();
+        let held_feedback = matches!(exit, Exit::PendingFeedback | Exit::Logout | Exit::Close);
+        let held_batch = exit == Exit::PendingBatch;
+        let never_played = exit == Exit::BeforePlaying;
+        {
+            let mut counts = fixture.counts.lock().unwrap();
+            // Five initial positions avoid an unrelated prefetch. The pending
+            // batch case deliberately starts at the actual three-item gate.
+            counts.wave_initial = Some(if held_batch {
+                vec![42, 43, 44]
+            } else if never_played {
+                vec![45, 43, 44, 42, 43]
+            } else if exit == Exit::SourceEos {
+                vec![42, 45, 44, 42, 43]
+            } else {
+                vec![42, 43, 44, 42, 43]
+            });
+            counts.wave_hold_feedback = held_feedback;
+            counts.wave_hold_batch = held_batch;
+        }
+        let (_app, ui) = player_window(&fixture);
+        let this = &ui.music.controller;
+        this.set_music_shuffle(true);
+        this.set_music_repeat(RepeatMode::Queue);
+        this.start_wave();
+        if never_played {
+            pump_until(|| fixture.counts.lock().unwrap().slow_started);
+            assert!(this.music_snapshot().is_none());
+            assert!(fixture.counts.lock().unwrap().wave_events.is_empty());
+        } else {
+            wait_playing(this, 0);
+            pump_until(|| {
+                this.music_snapshot()
+                    .is_some_and(|snapshot| !snapshot.playing_time.is_zero())
+            });
+            if held_feedback || held_batch {
+                pump_until(|| fixture.counts.lock().unwrap().slow_started);
+            } else {
+                pump_until(|| {
+                    fixture.counts.lock().unwrap().wave_events.len() == 2
+                        && this.radio_idle_for_test()
+                });
+            }
+        }
+        let session = this.wave_session_for_test().unwrap();
+        assert!(!session.is_cancelled());
+        let worker = this.player.borrow().controller.clone();
+        let mut paused_heard = None;
+        if matches!(exit, Exit::SourcePaused | Exit::StopPaused) {
+            this.pause_music();
+            pump_until(|| {
+                this.music_snapshot()
+                    .is_some_and(|snapshot| snapshot.state == PlaybackState::Paused)
+            });
+            paused_heard = this.music_snapshot().map(|snapshot| snapshot.playing_time);
+        }
+        if exit == Exit::SourceEos {
+            pump_until(|| {
+                this.music_snapshot()
+                    .is_some_and(|snapshot| snapshot.seekable)
+            });
+            this.seek_music(Duration::from_millis(3_800));
+            pump_until(|| {
+                let counts = fixture.counts.lock().unwrap();
+                counts.slow_started
+                    && counts
+                        .wave_events
+                        .iter()
+                        .any(|event| event["event"]["type"] == "trackFinished")
+            });
+            pump_until(|| !worker.as_ref().unwrap().snapshot().worker_running);
+            assert_eq!(
+                worker.as_ref().unwrap().snapshot().state,
+                PlaybackState::Stopped
+            );
+            assert!(this.music_snapshot().is_none());
+        }
+        let before_exit = fixture.counts.lock().unwrap().wave_events.len();
+        match exit {
+            Exit::StopPlaying | Exit::StopPaused => {
+                pump_until(|| this.system_media_available());
+                desktop_method("Stop", ().to_variant());
+            }
+            Exit::Logout => this.logout(),
+            Exit::Close => this.close(),
+            _ => this.play_music_context(
+                PlaybackContext::new(
+                    ContextKind::Playlist,
+                    Some("synthetic-retirement-ordinary".into()),
+                    vec![track("43")],
+                    0,
+                    false,
+                )
+                .unwrap(),
+            ),
+        }
+        if never_played {
+            // Retirement with an empty outbox is independent of the still
+            // blocked old audio resolver and must cancel its identity locally.
+            pump_until(|| {
+                this.radio_idle_for_test() && this.radio_status().phase == RadioPhase::Ready
+            });
+            assert!(session.is_cancelled());
+        }
+        fixture.release_descriptor();
+        pump_until(|| this.radio_idle_for_test());
+        assert!(session.is_cancelled(), "retired local identity: {exit:?}");
+        if let Some(worker) = &worker {
+            pump_until(|| !worker.snapshot().worker_running);
+        }
+        if !matches!(exit, Exit::Logout | Exit::Close) {
+            assert_eq!(this.radio_status().phase, RadioPhase::Ready, "{exit:?}");
+            assert!(this.model.borrow().queue.shuffle(), "{exit:?}");
+            assert_eq!(this.model.borrow().queue.repeat_mode(), RepeatMode::Queue);
+        }
+        if matches!(
+            exit,
+            Exit::StopPlaying | Exit::StopPaused | Exit::Logout | Exit::Close
+        ) {
+            assert!(this.model.borrow().queue.items().is_empty());
+        } else {
+            wait_playing(this, 0);
+            let model = this.model.borrow();
+            assert_eq!(
+                model.queue.context().unwrap().source_kind(),
+                ContextKind::Playlist
+            );
+            assert_eq!(
+                model.queue.items().len(),
+                1,
+                "late batch cannot append: {exit:?}"
+            );
+            assert_eq!(model.queue.current().unwrap().id, "43");
+        }
+        let events = fixture.counts.lock().unwrap().wave_events.clone();
+        assert!(
+            events
+                .iter()
+                .all(|event| event["event"]["type"] != "radioFinished")
+        );
+        let terminals = events
+            .iter()
+            .filter(|event| {
+                matches!(
+                    event["event"]["type"].as_str(),
+                    Some("skip" | "trackFinished")
+                )
+            })
+            .collect::<Vec<_>>();
+        if never_played || matches!(exit, Exit::Logout | Exit::Close) {
+            assert!(terminals.is_empty(), "no invented terminal: {exit:?}");
+            assert_eq!(
+                events.len(),
+                before_exit,
+                "hard retirement cannot drain: {exit:?}"
+            );
+        } else {
+            assert_eq!(terminals.len(), 1, "exactly one terminal: {exit:?}");
+            assert_eq!(
+                terminals[0]["event"]["type"],
+                if exit == Exit::SourceEos {
+                    "trackFinished"
+                } else {
+                    "skip"
+                }
+            );
+            assert_eq!(terminals[0]["batchId"], "synthetic-wave-batch-1");
+            assert_eq!(terminals[0]["event"]["trackId"], "42");
+            let heard = terminals[0]["event"]["totalPlayedSeconds"]
+                .as_f64()
+                .unwrap();
+            assert!(heard > 0.0, "terminal requires actual Playing: {exit:?}");
+            let actual = worker
+                .as_ref()
+                .unwrap()
+                .snapshot()
+                .playing_time
+                .as_secs_f64();
+            assert!(
+                heard <= actual,
+                "reported time cannot exceed worker ledger: {exit:?}"
+            );
+            if let Some(paused) = paused_heard {
+                assert!(
+                    (heard - paused.as_secs_f64()).abs() <= 1e-9,
+                    "paused time is excluded: {exit:?}"
+                );
+            }
+            assert_eq!(events.len(), 3, "no extra session-end report: {exit:?}");
+            assert_eq!(events[0]["event"]["type"], "radioStarted");
+            assert_eq!(events[1]["event"]["type"], "trackStarted");
+        }
+        let sent = events.len();
+        if !matches!(exit, Exit::Logout | Exit::Close) {
+            for _ in 0..3 {
+                this.tick_radio(this.music_snapshot().as_ref());
+            }
+            assert_eq!(
+                fixture.counts.lock().unwrap().wave_events.len(),
+                sent,
+                "retired work cannot replay: {exit:?}"
+            );
+        }
+        if held_batch {
+            assert_eq!(fixture.counts.lock().unwrap().wave_batches, 1);
+        }
+        if exit == Exit::Restart {
+            this.start_wave();
+            pump_until(|| fixture.counts.lock().unwrap().wave_sessions == 2);
+            wait_playing(this, 0);
+            pump_until(|| {
+                fixture.counts.lock().unwrap().wave_events.len() == sent + 2
+                    && this.radio_idle_for_test()
+            });
+            let fresh = this.wave_session_for_test().unwrap();
+            assert!(!fresh.is_cancelled());
+            assert!(session.is_cancelled());
+            assert_eq!(
+                this.model.borrow().queue.context().unwrap().source_kind(),
+                ContextKind::Wave
+            );
+            assert!(!this.model.borrow().queue.shuffle());
+            assert_eq!(this.model.borrow().queue.repeat_mode(), RepeatMode::Off);
+        }
+        this.close();
+        ui.window.close();
+    }
 }

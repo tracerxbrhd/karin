@@ -336,7 +336,7 @@ impl Controller {
         self.track_pane.set_playback(
             status,
             ready && track.is_some_and(|track| track.available),
-            ready && track.is_some() && !queue_full,
+            ready && track.is_some() && !queue_full && !self.is_wave_queue(),
         );
         let context_label = selected
             .as_ref()
@@ -350,6 +350,7 @@ impl Controller {
                     ContextKind::Artist => "Исполнитель",
                     ContextKind::Queue => "Очередь",
                     ContextKind::SingleTrack => "Выбранный трек",
+                    ContextKind::Wave => "Моя волна · эксперимент",
                 };
                 format!(
                     "{source} · {} из {}{}",
@@ -728,6 +729,22 @@ impl Controller {
         match action {
             PaneAction::Close => {}
             PaneAction::Play(track) if track.available => {
+                // Current radio playback keeps its occurrence/marker; a saved
+                // context snapshot must never recreate a retired radio queue.
+                let following_radio = context
+                    .as_ref()
+                    .is_some_and(|context| context.source_kind() == ContextKind::Wave)
+                    && self
+                        .info_selection
+                        .borrow()
+                        .as_ref()
+                        .is_some_and(|selection| selection.target == InfoTarget::FollowingCurrent)
+                    && *self.info_observed.borrow()
+                        == CurrentOccurrence::from_queue(&self.model.borrow().queue);
+                if following_radio {
+                    self.play_music();
+                    return;
+                }
                 if let Some(selection) = self.info_selection.borrow_mut().as_mut() {
                     selection.target = InfoTarget::FollowingCurrent;
                 }

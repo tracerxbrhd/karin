@@ -49,6 +49,10 @@ sign-in needs no Client ID, client secret, pasted token or developer flag.
 Music account validation precedes library access. Keep the desktop keyring
 unlocked if you want protected session persistence; unavailable storage still
 allows memory-only sign-in. See [authentication](AUTHENTICATION_REVIEW.md).
+After validation, **Главная → Моя волна → Слушать** starts personal radio in the
+shared player. Startup, restored sign-in and opening Home do not start Wave.
+The old `--experimental-wave` argument is a deprecated no-op compatibility alias
+for earlier launch commands; neither native nor Flatpak use needs it.
 
 ## Development checks
 
@@ -119,6 +123,10 @@ do not use `--ignore-rust-version`. No host filesystem or broad session-bus
 permission is needed. MPRIS uses the exact application own-name grant. Protected
 session storage uses the available Secret Portal/backend. Distribution must
 preserve [Karin and third-party licensing obligations](LICENSING.md).
+PipeWire desktop audio uses the existing PulseAudio-compatible socket; Wave
+adds no filesystem, session-bus or other sandbox permission. Source preparation
+and offline Cargo checks are not a complete installed GNOME 50 Flatpak test.
+The installed v0.5 build still needs the separate owner acceptance below.
 
 ## Troubleshooting
 
@@ -168,9 +176,10 @@ Flatpak desktop run are different checks.
 
 ### Stability acceptance
 
-For the `fix/stability-backlog-cleanup` branch, build the exact PR HEAD using the
-native or Flatpak commands above. This is a regression check after accepted v0.4,
-not a public release. Keep HTTP/WebKit/GStreamer tracing disabled.
+The owner accepted the scoped native Fedora stability fixes at `9d54834`;
+PR #24 was squash-merged as `920fd71`. This does not add an installed-Flatpak
+acceptance claim. For later changes, build the exact revision and repeat the
+relevant regression checks below. Keep HTTP/WebKit/GStreamer tracing disabled.
 
 1. Launch ordinary Karin. Check protected session restoration, or complete normal
    sign-in if storage is unavailable. Open library, search and a playlist.
@@ -196,5 +205,90 @@ not a public release. Keep HTTP/WebKit/GStreamer tracing disabled.
    current installed Flatpak without adding filesystem or session-bus grants.
 
 Report only revision, native/Flatpak environment and PASS/FAIL/not-tested per
-step. New desktop results remain pending until performed by the owner; storage
-failure/concurrency and rejected-record behavior use synthetic automated tests.
+step. Unreported individual/backend cases remain unconfirmed; storage failure,
+concurrency and rejected-record behavior also use synthetic automated tests.
+Use the focused My Wave Native/Flatpak acceptance below for the v0.5 integration.
+
+
+## My Wave local acceptance
+
+The owner retested corrected candidate `2e4b978` on Fedora without reporting new
+problems, following earlier real audio, four-event feedback and continuation.
+The final ordinary-startup and installed v0.5 Flatpak checks remain separate.
+Quit any running Karin instance so an older binary cannot handle activation.
+From the current PR checkout, build and run as the normal desktop user:
+
+```sh
+cargo +1.98.1 build --release --locked
+./target/release/karin
+```
+
+1. Start without arguments while signed out, then use ordinary **Войти** or
+   restore a permitted saved login. Home must offer **Слушать** after Music
+   validation, with no Wave requests or audio before that explicit action.
+2. Press **Слушать** and hear real Music through PipeWire. Check Pause/Resume,
+   Next, natural EOS and a further batch. Browse other tabs and return Home:
+   the shared Player Bar, Info/Queue and same radio session must continue.
+   Confirm accepted `radioStarted`, `trackStarted`, `skip` and `trackFinished`;
+   a title, HTTP 200 alone or Cloud generated media does not prove heard Music.
+3. Select an ordinary track and a playlist, including after Pause/EOS. The new
+   music must play and Shuffle/Repeat return. Also test KDE/MPRIS Stop during
+   Playing/Pause, then **Слушать** for a fresh Wave. Retirement sends no
+   `radioFinished` or duplicate skip for an already finished cycle. A subsequent
+   actually started track is a separate cycle. Cancel exists only during startup.
+4. Check deliberate logout, application close and restart. Personal state and
+   system metadata clear on logout; late work cannot revive it. Permitted saved
+   sign-in may restore after normal close, but radio must never auto-resume.
+
+For the installed Flatpak, first follow the SDK prerequisites in
+[Flatpak source build](#flatpak-source-build), then prepare/install this same checkout:
+
+```sh
+RUSTUP_TOOLCHAIN=1.98.1 python3 packaging/flatpak/prepare-source.py
+flatpak-builder --user --install --force-clean build/flatpak \
+  packaging/flatpak/io.github.tracerxbrhd.Karin.json
+flatpak run io.github.tracerxbrhd.Karin
+```
+
+Repeat the four steps inside that installed build, including protected sign-in
+restoration through the available Secret Portal, actual sound, KDE controls and
+exit/restart. Report unavailable storage or memory-only login explicitly. No
+token input, extra permission or experimental flag is needed. Record native and
+Flatpak results separately; prior v0.4 acceptance does not accept this package.
+
+If feedback fails, share only its safe `Karin wave:` line containing fixed
+`stage/category/http/event/phase/origin/finish` classifications and the preceding
+action. Only `radioStarted`, `trackStarted`, `trackFinished` and `skip` belong to
+the outgoing contract; a refusal of any of them remains an error. An unknown
+POST outcome is never automatically replayed; **Начать новую волну** creates a
+new session. Report other failures as fixed stage/category/HTTP and
+PASS/FAIL/not-tested. Do not share full terminal output, HTTP/WebKit/GStreamer
+traces, IDs, session/batch markers, URLs, credentials, personal screenshots or recordings.
+
+Record revision and PASS/FAIL/not-tested per step, including environment,
+heard sound, feedback, transport, restoration and cleanup. Issue #16 stays open
+until final ordinary-native and installed-Flatpak acceptance. Public-distribution
+Issue #5 remains independent. See [ADR-0027](adr/0027-experimental-wave-lifecycle.md).
+
+## Theme input check
+
+Karin applies Light/Dark/System through `AdwStyleManager`; it does not set
+`gtk-application-prefer-dark-theme`. In a controlled comparison the unchanged
+baseline binary emitted zero startup warnings with a clean profile, and one
+reported warning with an externally seeded GTK4 legacy flag. Libadwaita checks it during initialization, before Karin applies
+its saved appearance. KDE's published
+[`kde-gtk-config`](https://github.com/KDE/kde-gtk-config/blob/c400d9b44fb2616ac8fe48c5e4cd91d83c103afe/kded/gtkconfig.cpp#L291)
+can write this key, but the
+writer/effective input on the owner's Fedora installation is not established.
+
+If the warning persists, this optional read-only check prints only bounded fixed
+origin labels and that one boolean, without paths or other configuration:
+
+```sh
+python3 scripts/check-gtk4-theme-key.py
+```
+
+The output reports file declarations, not effective precedence or which process
+wrote them. It changes no preferences/files; do not delete GTK/KDE settings or
+force a theme to hide the warning. Continue to verify all three appearance modes
+and uninterrupted playback in the normal desktop session.

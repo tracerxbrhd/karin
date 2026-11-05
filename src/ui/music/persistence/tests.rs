@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Isolated synthetic credentials/API/media. No host wallet or provider account.
+use super::super::radio::RadioPhase;
 use super::super::tests::{capture_native, pump_until};
 use super::*;
 use crate::{
@@ -216,7 +217,10 @@ fn serve(mut stream: TcpStream, origin: &str, media: &[u8]) {
         .unwrap()
         .split_whitespace()
         .collect::<Vec<_>>();
-    assert!(matches!(first[0], "GET" | "HEAD"));
+    assert!(
+        matches!(first[0], "GET" | "HEAD"),
+        "startup/restore/preferences must not automatically POST a Wave session"
+    );
     let url = reqwest::Url::parse(&format!("http://127.0.0.1{}", first[1])).unwrap();
     let header = |name: &str| {
         request.lines().skip(1).find_map(|line| {
@@ -373,6 +377,17 @@ fn settled(this: &Controller) -> bool {
         && !p.cache_busy
         && !this.model.borrow().busy
 }
+
+fn assert_idle_wave_after_startup(this: &Controller, authenticated: bool) {
+    let status = this.radio_status();
+    assert_eq!(status.phase, RadioPhase::Ready);
+    assert_eq!(status.authenticated, authenticated);
+    assert_eq!(this.widgets.home_wave.primary.is_sensitive(), authenticated);
+    assert!(this.radio_idle_for_test());
+    assert!(this.wave_session_for_test().is_none());
+    assert!(this.model.borrow().queue.items().is_empty());
+    assert!(this.music_snapshot().is_none());
+}
 fn token() -> AccessToken {
     AccessToken::for_test(TOKEN, Duration::from_secs(300))
 }
@@ -409,11 +424,24 @@ fn native_persistent_session_restore_settings_forget_and_close() {
     let (_app, ui) = window(&api, &settings, &backend, &cache);
     let this = &ui.music.controller;
     pump_until(|| this.model.borrow().account_valid && settled(this));
+    pump_until(|| this.widgets.home_wave.primary.is_mapped());
+    assert_idle_wave_after_startup(this, true);
+    // Protected restore makes the ordinary Home action available, without
+    // restoring a radio identity or admitting a Wave POST. The API whitelist
+    // above deliberately remains ordinary GET/HEAD routes only.
+    gtk::prelude::WidgetExt::activate_action(&ui.window, "win.music-home", None).unwrap();
+    assert_idle_wave_after_startup(this, true);
     assert_eq!(backend.loads.load(Ordering::Acquire), 1);
     assert!(this.login_dialog.borrow().is_none());
     assert_eq!(
         this.persistence.borrow().values.appearance,
         Appearance::Dark
+    );
+    let style = adw::StyleManager::default();
+    assert_eq!(style.color_scheme(), adw::ColorScheme::ForceDark);
+    assert!(
+        style.is_dark(),
+        "the restored choice reaches native Adwaita"
     );
     assert_eq!(
         this.persistence.borrow().manager.as_ref().unwrap().state(),
@@ -432,6 +460,30 @@ fn native_persistent_session_restore_settings_forget_and_close() {
             .is_some_and(|s| s.state == PlaybackState::Playing)
     });
     let original = this.music_snapshot().unwrap();
+    let original_serial = this.music_serial();
+    // Appearance is applied through AdwStyleManager at runtime. In System mode
+    // the desktop decides the actual light/dark result; never force a presumed
+    // portal preference or write GtkSettings' legacy prefer-dark property.
+    for (appearance, scheme, expected_dark) in [
+        (Appearance::Light, adw::ColorScheme::ForceLight, Some(false)),
+        (Appearance::System, adw::ColorScheme::Default, None),
+        (Appearance::Dark, adw::ColorScheme::ForceDark, Some(true)),
+    ] {
+        let mut changed = this.persistence.borrow().values.clone();
+        changed.appearance = appearance;
+        this.preferences_changed(changed);
+        pump_until(|| settled(this));
+        assert_eq!(style.color_scheme(), scheme);
+        if let Some(dark) = expected_dark {
+            assert_eq!(style.is_dark(), dark);
+        }
+        assert_eq!(settings.load().unwrap().preferences.appearance, appearance);
+        assert_eq!(this.music_serial(), original_serial);
+        let playing = this.music_snapshot().unwrap();
+        assert_eq!(playing.state, PlaybackState::Playing);
+        assert_eq!(playing.generation, original.generation);
+        assert_eq!(this.model.borrow().queue.current().unwrap().id, "42");
+    }
     let mut changed = this.persistence.borrow().values.clone();
     changed.remember_login = false;
     this.preferences_changed(changed);
@@ -478,16 +530,23 @@ fn native_persistent_session_restore_settings_forget_and_close() {
     this.close();
     ui.window.close();
 
+    // The next window must reapply its saved Dark choice rather than pass
+    // merely because the process-global manager retained the preceding window.
+    style.set_color_scheme(adw::ColorScheme::ForceLight);
+    assert!(!style.is_dark());
     // Remember-off persisted independently of current-account/audio state.
     let (_app2, ui2) = window(&api, &settings, &backend, &cache);
     let second = &ui2.music.controller;
     pump_until(|| settled(second));
+    assert_idle_wave_after_startup(second, false);
     assert!(!second.model.borrow().account_valid);
     assert!(!second.persistence.borrow().values.remember_login);
     assert_eq!(
         second.persistence.borrow().values.appearance,
         Appearance::Dark
     );
+    assert_eq!(style.color_scheme(), adw::ColorScheme::ForceDark);
+    assert!(style.is_dark());
     let mut changed = second.persistence.borrow().values.clone();
     changed.remember_login = true;
     second.preferences_changed(changed);
@@ -518,6 +577,7 @@ fn native_persistent_session_restore_settings_forget_and_close() {
     assert!(settings.load().unwrap().preferences.forget_pending);
     backend.release_save();
     pump_until(|| third.model.borrow().account_valid && settled(third));
+    assert_idle_wave_after_startup(third, true);
     assert!(!settings.load().unwrap().preferences.forget_pending);
     assert!(
         !third.track_info_preference(),
@@ -536,6 +596,7 @@ fn native_persistent_session_restore_settings_forget_and_close() {
     let (_app4, ui4) = window(&api, &settings, &backend, &cache);
     let fourth = &ui4.music.controller;
     pump_until(|| settled(fourth) && fourth.persistence.borrow().retry == Retry::Forget);
+    assert_idle_wave_after_startup(fourth, false);
     assert_eq!(
         backend.loads.load(Ordering::Acquire),
         loads,
@@ -607,9 +668,11 @@ fn native_persistent_session_restore_settings_forget_and_close() {
     let (_app5, ui5) = window(&api, &settings, &backend, &cache);
     let fifth = &ui5.music.controller;
     pump_until(|| settled(fifth));
+    assert_idle_wave_after_startup(fifth, false);
     assert!(!fifth.persistence.borrow().supported);
     fifth.authenticate(token());
     pump_until(|| fifth.model.borrow().account_valid && settled(fifth));
+    assert_idle_wave_after_startup(fifth, true);
     assert_eq!(backend.saves.load(Ordering::Acquire), saves);
     assert!(!fifth.persistence.borrow().values.forget_pending);
     assert!(!settings.load().unwrap().preferences.forget_pending);

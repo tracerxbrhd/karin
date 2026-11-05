@@ -20,8 +20,25 @@ rights. Public service/distribution conditions remain unresolved. See [LICENSING
 [AUTHENTICATION_REVIEW.md](AUTHENTICATION_REVIEW.md) and
 [STREAM_DELIVERY_REVIEW.md](STREAM_DELIVERY_REVIEW.md).
 
-My Wave is an explicitly unavailable Home section. Functional radio,
-recommendations/similar tracks, lyrics, Dislike and persistent/offline audio are
+My Wave is an ordinary Home action after Music-validated sign-in, using the
+existing player. The owner retested corrected candidate `2e4b978` on Fedora
+without reporting new problems, after earlier confirmed real audio, all four
+feedback events and continued batches. This general report is not a per-scenario
+matrix or installed v0.5 Flatpak acceptance; the final ordinary-native/Flatpak
+[procedure](BUILDING.md#my-wave-local-acceptance) remains pending.
+
+Only **Слушать** starts a radio session. Startup, restored sign-in and Home
+navigation do not issue Wave requests, and session IDs/batch markers remain
+memory-only. The removed `radioFinished` is not sent. Fixed event/origin/phase/
+finish diagnostics remain available; HTTP 400 on any supported event still
+fails honestly without automatic replay.
+
+An already admitted HTTP request cannot be unsent; logout/cancellation fence
+queued work and late results. Ambiguous POST outcomes are never automatically
+replayed. There is no separate user-facing Finish action: Pause retains radio,
+while ordinary source selection or MPRIS Stop retires it internally.
+
+Other recommendation shelves/similar tracks, lyrics, Dislike and persistent/offline audio are
 not implemented. Unlike is not Dislike. A working short-lived MP3 stream does not
 establish persistent download rights or an offline entitlement lifecycle; see
 [AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md).
@@ -80,3 +97,12 @@ Xvfb/generated-media/HTTP fixtures do not independently prove physical GPU,
 Wayland, heard service music or every hardware key/backend. Do not infer those
 individual results from general owner acceptance. Missing cloud SDK/user
 namespaces must be reported, never worked around by weakening the sandbox.
+
+## Theme input
+
+Karin uses AdwStyleManager for Light/Dark/System. The Libadwaita warning about
+`gtk-application-prefer-dark-theme` was reproduced with an external legacy GTK4
+setting loaded before Adwaita initialization, using the unchanged earlier
+binary. The specific writer/source on the owner's Fedora remains unestablished.
+Karin does not suppress this warning or overwrite desktop settings. See the
+[read-only theme check](BUILDING.md#theme-input-check).

@@ -32,6 +32,7 @@ mod player_bar;
 mod playlist_creation;
 mod playlist_grid;
 mod queue_view;
+mod radio;
 mod requests;
 #[cfg(test)]
 mod row_activation_tests;
@@ -117,6 +118,7 @@ struct Widgets {
     home_liked: gtk::Button,
     home_playlists: gtk::Button,
     home_search: gtk::Button,
+    home_wave: home::WaveParts,
     home_queue: gtk::Label,
     home_preview: gtk::ListBox,
     home_collections: gtk::FlowBox,
@@ -185,6 +187,7 @@ struct Controller {
     mutation_busy: Cell<bool>,
     artwork: Option<ArtworkLoader>,
     player: RefCell<player::MusicPlayback>,
+    radio: RefCell<radio::RadioLifecycle>,
     system_media: RefCell<system_media::SystemMedia>,
     persistence: RefCell<persistence::State>,
     playlist_grid: playlist_grid::PlaylistGrid,
@@ -399,6 +402,7 @@ impl MusicPane {
             home_liked,
             home_playlists,
             home_search,
+            home_wave,
             home_queue,
             home_preview,
             home_collections,
@@ -597,6 +601,7 @@ impl MusicPane {
             home_liked,
             home_playlists,
             home_search,
+            home_wave,
             home_queue,
             home_preview,
             home_collections,
@@ -684,6 +689,7 @@ impl MusicPane {
             mutation_busy: Cell::new(false),
             artwork,
             player: RefCell::new(player::MusicPlayback::default()),
+            radio: RefCell::new(radio::RadioLifecycle::default()),
             system_media: RefCell::new(system_media::SystemMedia::default()),
             persistence: RefCell::new(persistence_state),
             playlist_grid,
@@ -727,8 +733,7 @@ impl MusicPane {
         }
     }
 
-    /// Explicit owner-local metadata-only delivery experiment; never enabled
-    /// by ordinary startup or automated smoke/capture modes.
+    /// Explicit metadata-only delivery experiment using this Music session.
     pub fn enable_delivery_diagnostic(&self) {
         self.controller.model.borrow_mut().delivery_diagnostic = true;
     }
@@ -1039,6 +1044,7 @@ impl Controller {
         if self.login_dialog.borrow().is_none() {
             return;
         }
+        self.cancel_radio();
         self.stop_music();
         self.requests.borrow_mut().invalidate_all();
         self.cancel_delivery();
@@ -1360,6 +1366,7 @@ impl Controller {
     }
 
     fn auth_failed(&self, error: AuthError) {
+        self.cancel_radio();
         {
             let mut model = self.model.borrow_mut();
             model.generation += 1;
@@ -1538,6 +1545,18 @@ impl Controller {
                 }
             });
         let weak = Rc::downgrade(self);
+        self.widgets.home_wave.primary.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.activate_wave_hero();
+            }
+        });
+        let weak = Rc::downgrade(self);
+        self.widgets.home_wave.cancel.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.cancel_wave_start();
+            }
+        });
+        let weak = Rc::downgrade(self);
         self.widgets.clear_queue.connect_clicked(move |_| {
             if let Some(this) = weak.upgrade() {
                 this.stop_music();
@@ -1665,6 +1684,8 @@ impl Controller {
         let show_status = model.account_valid && (visible_work || has_error);
         self.widgets.status_revealer.set_visible(show_status);
         self.widgets.status_revealer.set_reveal_child(show_status);
+        drop(model);
+        self.render_wave();
     }
 
     fn close(&self) {
@@ -1673,6 +1694,7 @@ impl Controller {
         if self.model.borrow().closed {
             return;
         }
+        self.cancel_radio();
         self.close_persistence();
         self.dismiss_logout_confirmation();
         self.stop_music();
@@ -1717,6 +1739,7 @@ impl Controller {
     }
 
     fn logout(self: &Rc<Self>) {
+        self.cancel_radio();
         self.begin_forget_session();
         self.set_info_open(false);
         self.dismiss_logout_confirmation();
@@ -1993,6 +2016,10 @@ impl Controller {
     }
 
     fn enqueue(self: &Rc<Self>, track: Track) {
+        if !self.wave_manual_append_allowed() {
+            return;
+        }
+        self.cancel_pending_wave_for_ordinary_action();
         let result = self.model.borrow_mut().queue.append(track);
         match result {
             Ok(_) => self.widgets.status.set_title("Трек добавлен в очередь."),
@@ -2108,6 +2135,7 @@ fn item(title: &str, subtitle: &str) -> (gtk::ListBoxRow, gtk::Box) {
 
 impl Controller {
     fn authenticate(self: &Rc<Self>, token: AccessToken) {
+        self.cancel_radio();
         {
             let mut model = self.model.borrow_mut();
             if model.closed {
@@ -2755,6 +2783,8 @@ mod tests {
         listener.set_nonblocking(true).unwrap();
         let served = Arc::new(AtomicBool::new(false));
         let server_done = served.clone();
+        let wave_requested = Arc::new(AtomicBool::new(false));
+        let server_wave_requested = wave_requested.clone();
         let late_started = Arc::new(AtomicBool::new(false));
         let server_late_started = late_started.clone();
         let (release_search, wait_for_release) = std::sync::mpsc::channel();
@@ -2785,6 +2815,9 @@ mod tests {
                     assert!(bytes.len() < 32 * 1024);
                 }
                 let request = String::from_utf8(bytes).unwrap();
+                if request.starts_with("POST /rotor/") {
+                    server_wave_requested.store(true, Ordering::Release);
+                }
                 let independent_membership = !request.starts_with(prefix)
                     && request.starts_with("GET /users/1234/likes/tracks");
                 assert!(request.starts_with(prefix) || independent_membership);
@@ -2849,6 +2882,11 @@ mod tests {
         window.set_default_size(900, 650);
         window.present();
         let this = &pane.controller;
+        assert_eq!(this.radio_status().phase, radio::RadioPhase::Ready);
+        assert!(!this.radio_status().authenticated);
+        assert!(!this.widgets.home_wave.primary.is_sensitive());
+        assert!(this.radio_idle_for_test());
+        assert!(this.wave_session_for_test().is_none());
         // Cancel before native readiness and immediately replace the logical
         // attempt. The old implementation presents two sheets synchronously,
         // exposing Libadwaita 1.5's shadowed-dialog weak-focus lifetime bug.
@@ -2936,10 +2974,27 @@ mod tests {
         assert!(this.widgets.home_signedin.is_visible());
         assert!(!this.widgets.home_signedout.is_visible());
         assert_eq!(rows(&this.widgets.home_preview), 0);
+        for retired_notice in ["Функция проходит проверку", "Предварительная версия"]
+        {
+            assert!(!contains_text(
+                this.widgets.home_signedin.upcast_ref(),
+                retired_notice
+            ));
+        }
         assert!(contains_text(
             this.widgets.home_signedin.upcast_ref(),
-            "Персональная волна пока не подключена"
+            "Персональная музыка, которая подстраивается под ваш вкус."
         ));
+        assert_eq!(this.radio_status().phase, radio::RadioPhase::Ready);
+        assert!(this.radio_status().authenticated);
+        assert!(
+            this.widgets.home_wave.primary.is_sensitive(),
+            "validated normal startup offers Wave without an enable action"
+        );
+        assert!(!this.widgets.home_wave.cancel.is_visible());
+        assert!(this.radio_idle_for_test());
+        assert!(this.wave_session_for_test().is_none());
+        assert!(!wave_requested.load(Ordering::Acquire));
         capture_native("home");
         gtk::prelude::WidgetExt::activate_action(&window, "win.diagnostics", None).unwrap();
         gtk::prelude::WidgetExt::activate_action(&window, "win.music-search", None).unwrap();
@@ -3192,6 +3247,10 @@ mod tests {
         release_search.send(()).unwrap();
         pump_until(|| served.load(Ordering::Acquire));
         server.join().unwrap();
+        assert!(
+            !wave_requested.load(Ordering::Acquire),
+            "startup, sign-in and navigation cannot start radio without Listen"
+        );
         let settle = Instant::now() + Duration::from_millis(100);
         pump_until(|| Instant::now() >= settle);
         assert!(this.model.borrow().token.is_none());

@@ -63,7 +63,13 @@ reviewable and consistent with the accepted application.
   No visible Stop. Keep local Shuffle/Repeat and existing system controls.
 - Mutations need server confirmation; never replay an ambiguous write. Use clear
   loading/empty/error/Retry states. No fake radio, recommendations, lyrics,
-  offline mode or inert controls; a labelled unavailable Wave section is allowed.
+  offline mode or inert controls. My Wave is available in the ordinary signed-in
+  app after Music validation. Only explicit Listen creates a radio session;
+  startup, protected-login restore and opening Home must not start Wave.
+  Do not send a session-finished event on local retirement or persist radio IDs
+  and batch markers. The legacy Wave CLI flag is a no-op compatibility alias.
+  Preserve its original occurrence/batch markers, actual worker Playing ledger,
+  bounded serialized feedback and no replay after an ambiguous POST.
 - Catalog refusals fence key epochs before cache I/O; cached UI replies recheck
   those leases. Cold metadata stays Stale until a current positive write. Never
   hold the cache state mutex used by GTK over filesystem operations.
