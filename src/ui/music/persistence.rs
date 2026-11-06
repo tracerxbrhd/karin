@@ -6,7 +6,7 @@ use super::*;
 use crate::{
     audio_cache::{
         AudioCache, CacheError as AudioError, CachePolicy as AudioPolicy, Lease as AudioLease,
-        MissingStorageContract, Stats as AudioStats,
+        OnlineStreamAuthority, Stats as AudioStats,
     },
     cache::{AccountScope, Cache, CachePolicy, CacheStats},
     cache_budget::CacheBudget,
@@ -306,9 +306,9 @@ fn open_audio_store(
     }
     root.map(|root| match budget {
         Some(budget) => {
-            AudioCache::open_with_budget(root, Arc::new(MissingStorageContract), policy, budget)
+            AudioCache::open_with_budget(root, Arc::new(OnlineStreamAuthority::default()), policy, budget)
         }
-        None => AudioCache::open(root, Arc::new(MissingStorageContract), policy),
+        None => AudioCache::open(root, Arc::new(OnlineStreamAuthority::default()), policy),
     })
     .transpose()
 }
