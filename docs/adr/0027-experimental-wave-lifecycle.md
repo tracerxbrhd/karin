@@ -2,7 +2,7 @@
 
 # ADR-0027: My Wave on the shared player
 
-Status: Ordinary Home integration; final native/installed-Flatpak acceptance pending
+Status: Ordinary Home integration; owner-accepted Native/installed Flatpak baseline
 Date: 2026-11-04
 Updated: 2026-11-05 (Europe/Samara)
 Extends: ADR-0017, ADR-0023 and ADR-0026
@@ -136,8 +136,9 @@ explicit Listen, transport/EOS/continuation, source replacement, MPRIS and
 logout/restart. Require no `radioFinished` request or unhandled new refusal.
 Retain tests for pending feedback/batch cancellation, exact-once terminal
 reporting and honest HTTP 400 handling for every supported event. Fixtures do
-not establish installed Flatpak or individual desktop acceptance. Issue #16
-stays open until the final ordinary-native and installed-Flatpak report.
+not establish individual desktop acceptance. The owner subsequently confirmed
+ordinary Native and installed Flatpak operation; Issue #16 is closed. That report
+does not invent special failure/race results beyond the automated evidence.
 Public distribution remains separate Issue #5
 in [API_FEASIBILITY](../API_FEASIBILITY.md). No DRM bypass, audio persistence or
 new Flatpak permissions follows from this decision.

@@ -179,7 +179,8 @@ preserve [Karin and third-party licensing obligations](LICENSING.md).
 PipeWire desktop audio uses the existing PulseAudio-compatible socket; Wave
 adds no filesystem, session-bus or other sandbox permission. Source preparation
 and offline Cargo checks are not a complete installed GNOME 50 Flatpak test.
-The installed v0.5 build still needs the separate owner acceptance below.
+The owner has accepted the ordinary Native and installed Flatpak baseline;
+use the procedure below for regression checks of a changed revision.
 
 ## Troubleshooting
 
@@ -267,7 +268,8 @@ Use the focused My Wave Native/Flatpak acceptance below for the v0.5 integration
 
 The owner retested corrected candidate `2e4b978` on Fedora without reporting new
 problems, following earlier real audio, four-event feedback and continuation.
-The final ordinary-startup and installed v0.5 Flatpak checks remain separate.
+The owner later accepted ordinary Native and installed Flatpak use; Issue #16
+is closed. The sequence below remains a revision-specific regression procedure.
 Quit any running Karin instance so an older binary cannot handle activation.
 From the current PR checkout, build and run as the normal desktop user:
 
