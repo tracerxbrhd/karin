@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Worker-side online playback selection and a separately admitted cache fill.
 //!
-//! A fresh stream resolution is necessary but is never a storage grant. The
-//! cache authority independently admits reusable bytes. The ordinary service
-//! authority refuses that admission until a reviewed storage contract exists.
+//! A fresh stream resolution is required before every online-only cache hit or
+//! fill. Cached bytes never bypass the current Music account/source validation.
+//! The online authority is an experimental transport gate, not a license grant.
 
 use super::{AudioCache, CacheError, Cancellation, Lease, Request, ResourceKey};
 use crate::{
@@ -66,6 +66,14 @@ fn select(
             fill: None,
         };
     };
+    // The caller has just resolved the actual track against the current
+    // account. Only this worker-bound event can admit a cached media record.
+    if remote.is_expired() || cache.observe_verified_online(&lease, key).is_err() {
+        return Selection {
+            source: online(),
+            fill: None,
+        };
+    }
     match cache.get(&lease, key) {
         Ok(Some(hit)) => {
             let source =
@@ -73,8 +81,8 @@ fn select(
             Selection { source, fill: None }
         }
         Ok(None) => {
-            // This rechecks the storage authority independently of streaming.
-            // An absent grant creates neither an HTTP request nor a write job.
+            // The cache authority still validates the observed account/source
+            // session; failures never create a second HTTP request or a write.
             let fill = cache.begin(&lease, key).ok().map(|request| Fill {
                 cache,
                 request,
