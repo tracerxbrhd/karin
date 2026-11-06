@@ -23,7 +23,7 @@ flowchart LR
 | Catalog | `music`, `api`, `application` | Typed service access and separate anonymous diagnostics |
 | Authentication | `auth`, `auth::cassette`, `ui::auth`, `oauth` | Ordinary sign-in and independent PKCE diagnostic |
 | Session | `session`, `credentials`, `session_lifecycle`, `settings` | Live tokens, protected persistence and non-secret preferences |
-| Data | `cache`, `catalog_cache`, `artwork`, `audio_cache` | Account-scoped metadata/artwork and separately authority-gated audio storage |
+| Data | `cache_budget`, `cache`, `catalog_cache`, `artwork`, `audio_cache` | One shared resource policy; typed metadata/artwork and separately authority-gated audio stores |
 | Playback | `queue`, `stream`, `audio_cache::bridge`, `playback` | Context/order policy, resource/cache admission and one media worker |
 | Desktop | `mpris`, `ui::music::system_media` | Session D-Bus commands and actual snapshots |
 | Presentation | `ui::music` and its view modules | Native views, user intents and guarded result admission |
@@ -149,9 +149,10 @@ identities and listening payloads never enter those logs. See
 
 The private account cache stores reduced metadata/permitted normalized art, never
 credentials, raw responses, signed resources or audio. Hashed paths are not
-encryption. Defaults: 256 MiB, metadata fifteen minutes, art seven days; size
-16 MiB–4 GiB. Records have bounds/integrity checks, atomic writes and eviction.
-HTTP restrictions can shorten or forbid art persistence.
+encryption. Metadata retains its fifteen-minute freshness and art its seven-day
+maximum; HTTP restrictions can shorten or forbid art persistence. Records keep
+bounds/integrity checks, atomic writes and eviction. Their resource budget is
+shared with the separately admitted audio store as described below.
 
 Stable reads can use fresh data; mutable pages are network-first. Only eligible
 network/timeout errors allow labelled saved-data fallback. Cached values never
@@ -171,13 +172,25 @@ refusal fence and stable queue identity extensions.
 
 ### Audio storage and playback selection
 
-`audio_cache` is separate production code, opened on a worker under the app's
+`cache_budget` coordinates the ordinary application's metadata/artwork and audio
+stores through the same shared instance. One enabled policy defaults to **2 GiB**
+and offers 500 MiB, 1/2/3/4 GiB or Unlimited. Reservations account for concurrent
+writes and bounded staging; shared LRU/fairness protects small metadata within
+the one total. Disk-space headroom is checked in every mode. Unlimited removes
+the user byte cap, while retaining record/count bounds and the free-space guard.
+Worker-only scans, trims and publication never hold the GTK admission-state
+mutex over disk I/O. Preferences expose one integer Scale, total measured usage,
+Clear and operation Retry; limit maintenance is coalesced for 200 ms while
+Disable/Clear admission fences are immediate. Version-1 quotas migrate to the
+version-2 enum without replacing credentials or cache files.
+[ADR-0030](adr/0030-unified-cache-budget-and-preferences.md) defines migration,
+staging accounting, metadata fairness and local disk safeguards.
+
+`audio_cache` remains typed production code, opened on a worker under the app's
 XDG cache `audio` directory. Account-scoped opaque keys, generation fences,
-integrity/atomic publication, bounded LRU and an exclusive namespace owner guard
-reads/writes and restart. Defaults are 256 MiB; Preferences expose a separate
-16–4096 MiB audio quota, measured usage and combined cache Clear. The store bounds
-each resource to 64 MiB, records to 1024 and pending writes to four; one staging
-file can temporarily add at most 64 MiB beyond the completed-record budget.
+integrity/atomic publication and an exclusive namespace owner guard reads/writes
+and restart. Per-resource 64 MiB, 1024-record and four-pending bounds remain;
+these safety bounds are independent of the shared user quota.
 
 Fresh StreamResolver admission precedes cache selection. `StorageAuthority`
 separately authorizes storage/reuse and checks a current in-memory permission

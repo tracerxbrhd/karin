@@ -234,6 +234,7 @@ struct Inner {
     // not retain independent generations for the same directory.
     _lock_file: File,
     owner_pid: u32,
+    shared: Option<Arc<crate::cache_budget::CacheBudget>>,
 }
 impl Drop for Inner {
     fn drop(&mut self) {
@@ -254,6 +255,7 @@ pub struct Lease {
     owner: Weak<Inner>,
     account: Key,
     generation: u64,
+    budget_generation: u64,
 }
 impl Lease {
     pub fn matches_scope(&self, scope: &crate::cache::AccountScope) -> bool {
@@ -358,11 +360,36 @@ impl AudioCache {
         policy.validate()?;
         Self::open_namespace(Sandbox::persistent(path)?, authority, 1, policy.max_bytes)
     }
+    /// Use the one application-wide quota rather than an independent audio cap.
+    pub fn open_with_budget(
+        path: PathBuf,
+        authority: Arc<dyn StorageAuthority>,
+        policy: CachePolicy,
+        budget: Arc<crate::cache_budget::CacheBudget>,
+    ) -> Result<Self> {
+        policy.validate()?;
+        Self::open_namespace_with_budget(
+            Sandbox::persistent(path)?,
+            authority,
+            1,
+            policy.max_bytes,
+            Some(budget),
+        )
+    }
     fn open_namespace(
         sandbox: Arc<Sandbox>,
         authority: Arc<dyn StorageAuthority>,
         namespace: u64,
         budget: u64,
+    ) -> Result<Self> {
+        Self::open_namespace_with_budget(sandbox, authority, namespace, budget, None)
+    }
+    fn open_namespace_with_budget(
+        sandbox: Arc<Sandbox>,
+        authority: Arc<dyn StorageAuthority>,
+        namespace: u64,
+        budget: u64,
+        shared: Option<Arc<crate::cache_budget::CacheBudget>>,
     ) -> Result<Self> {
         if namespace == 0 || budget == 0 || budget > MAX_BUDGET {
             return Err(CacheError::InvalidInput);
@@ -398,6 +425,7 @@ impl AudioCache {
             io: Mutex::new(()),
             _lock_file: lock_file,
             owner_pid: std::process::id(),
+            shared,
         }));
         {
             let _io = cache.io()?;
@@ -405,6 +433,9 @@ impl AudioCache {
             cache.0.state.lock().unwrap().sequence =
                 entries.iter().map(|e| e.access).max().unwrap_or(0);
             cache.evict(entries, 0, None)?;
+        }
+        if let Some(budget) = &cache.0.shared {
+            budget.trim().map_err(budget_error)?;
         }
         Ok(cache)
     }
@@ -418,6 +449,11 @@ impl AudioCache {
             owner: Arc::downgrade(&self.0),
             account,
             generation: state.generation,
+            budget_generation: self
+                .0
+                .shared
+                .as_ref()
+                .map_or(0, |budget| budget.generation()),
         }))
     }
     pub fn lease(&self) -> Option<Lease> {
@@ -429,6 +465,11 @@ impl AudioCache {
             owner: Arc::downgrade(&self.0),
             account: state.account?,
             generation: state.generation,
+            budget_generation: self
+                .0
+                .shared
+                .as_ref()
+                .map_or(0, |budget| budget.generation()),
         })
     }
     pub fn fence(&self) -> Result<()> {
@@ -452,6 +493,9 @@ impl AudioCache {
     }
     pub fn trim(&self) -> Result<Stats> {
         let _io = self.io()?;
+        if let Some(budget) = &self.0.shared {
+            budget.trim().map_err(budget_error)?;
+        }
         self.evict(self.scan()?, 0, None)?;
         let entries = self.scan()?;
         Ok(Stats {
@@ -460,7 +504,11 @@ impl AudioCache {
         })
     }
     fn lease_current(&self, lease: &Lease) -> Result<()> {
-        if self.0.owner_pid != std::process::id() {
+        if self.0.owner_pid != std::process::id()
+            || self.0.shared.as_ref().is_some_and(|budget| {
+                !budget.enabled() || budget.generation() != lease.budget_generation
+            })
+        {
             return Err(CacheError::Cancelled);
         }
         let state = self.0.state.lock().map_err(|_| CacheError::Unavailable)?;
@@ -540,6 +588,20 @@ impl AudioCache {
         let _io = self.io()?;
         self.request_current(&request)?;
         let key = request.permit.identity.key();
+        let reservation = self
+            .0
+            .shared
+            .as_ref()
+            .map(|budget| {
+                budget
+                    .reserve(
+                        crate::cache_budget::Category::Audio,
+                        &self.path(key),
+                        (HEADER + MAX_AUDIO) as u64,
+                    )
+                    .map_err(budget_error)
+            })
+            .transpose()?;
         let temporary = self
             .0
             .sandbox
@@ -565,7 +627,8 @@ impl AudioCache {
                 }
                 length = length.checked_add(read).ok_or(CacheError::Limit)?;
                 if length > MAX_AUDIO
-                    || (HEADER + length) as u64 > self.0.budget.load(Ordering::Acquire)
+                    || (self.0.shared.is_none()
+                        && (HEADER + length) as u64 > self.0.budget.load(Ordering::Acquire))
                 {
                     return Err(CacheError::Limit);
                 }
@@ -606,6 +669,12 @@ impl AudioCache {
                 return Err(CacheError::Unavailable);
             }
             return Err(error);
+        }
+        if let Some(reservation) = reservation
+            && let Err(error) = reservation.finish((HEADER + length) as u64)
+        {
+            remove_record(&path)?;
+            return Err(budget_error(error));
         }
         self.touch(&path)?;
         drop(guard);
@@ -709,6 +778,9 @@ impl AudioCache {
         Ok(guard)
     }
     fn touch(&self, path: &Path) -> Result<()> {
+        if let Some(budget) = &self.0.shared {
+            return budget.touch(path).map_err(budget_error);
+        }
         let sequence = {
             let mut state = self.0.state.lock().map_err(|_| CacheError::Unavailable)?;
             state.sequence = state.sequence.checked_add(1).ok_or(CacheError::Limit)?;
@@ -795,7 +867,8 @@ impl AudioCache {
         let keep = MAX_ENTRIES - usize::from(incoming > 0);
         let mut count = entries.len();
         for entry in &entries {
-            if bytes.saturating_add(incoming) <= self.0.budget.load(Ordering::Acquire)
+            if (self.0.shared.is_some()
+                || bytes.saturating_add(incoming) <= self.0.budget.load(Ordering::Acquire))
                 && count <= keep
             {
                 break;
@@ -821,6 +894,16 @@ fn encode_digest(identity: ResourceIdentity, length: u64, content_hash: &[u8]) -
 }
 // Quota/recovery inspection uses metadata only, never unauthorised audio
 // payload. Full content integrity is checked by get() after current admission.
+fn budget_error(error: crate::cache_budget::BudgetError) -> CacheError {
+    use crate::cache_budget::BudgetError;
+    match error {
+        BudgetError::Disabled | BudgetError::Cancelled => CacheError::Cancelled,
+        BudgetError::Limit => CacheError::Limit,
+        BudgetError::InvalidInput => CacheError::InvalidInput,
+        BudgetError::Unavailable => CacheError::Unavailable,
+    }
+}
+
 fn record_size(path: &Path, key: Key) -> Result<Option<u64>> {
     private_dir(path)?;
     let record = (|| {

@@ -31,7 +31,7 @@ to be established.
 
 ## Cassette source audit
 
-Reviewed **2026-11-05** at Cassette v0.2.4, commit
+Rechecked **2026-11-06** at Cassette v0.2.4, commit
 [`9d34251`](https://github.com/Rirusha/Cassette/tree/9d34251d01bcd414ffbec2bef7931090d33c9124).
 All six files below carry Vladimir Vaskov's copyright and GPL-3.0-or-later.
 They are technical references; no cache implementation, obfuscation or
@@ -47,10 +47,54 @@ official-client material is copied into Karin's store.
 | [player.vala](https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/player/player.vala#L492) | Passes the local/network URI to playbin and may prefetch the next track. Karin retains its existing player without adopting automatic service-audio saving. |
 
 The reviewed path returns a local file before resolving a fresh network resource.
-It establishes working caching, but not the current permission for Karin to reuse
-that file. Nor does it establish an offline lease or renewal/revocation protocol. This is an
-evidence gap, not a claim that Cassette cannot technically cache audio or that
-every third-party desktop client is categorically forbidden.
+It establishes the legacy cache-selection/save chain, but not the current
+permission for Karin to reuse that file. Nor does it establish an offline lease or
+renewal/revocation protocol. This is an evidence gap, not a claim that Cassette
+cannot technically cache audio or that every independent client is forbidden.
+
+The reviewed v0.2.4 `save_audio` uses `FileUtils.set_data`, bound to
+[`g_file_set_contents`](https://docs.gtk.org/glib/func.file_set_contents.html).
+GLib supplies temporary-file/rename atomic replacement; it is incorrect to call
+this an unprotected direct write. Its documented default does not guarantee
+power-loss durability for a newly created/empty file. Cassette adds no digest or
+complete-record validation around that operation. `load_audio` retries failed
+reads indefinitely, writes a decoded temporary file and returns its URI; the
+player unlinks that pathname after starting playback. Jobs cancel further
+scheduling and wait for active work; the save path loads a whole resource and
+exposes no per-chunk cancellation. No integrity index, orphan recovery or global
+quota/LRU algorithm is established by these six files. Karin retains its bounded
+writers, validated records and pinned playback FD.
+
+### Newer revisions
+
+The published [v0.2.5 release](https://github.com/Rirusha/Cassette/tree/b1c55e5fb71e60c9ff5421db42695f4dd5526a26)
+(2026-10-12) changes the project version and the default visibility of stations;
+[its comparison with v0.2.4](https://github.com/Rirusha/Cassette/compare/9d34251d01bcd414ffbec2bef7931090d33c9124...b1c55e5fb71e60c9ff5421db42695f4dd5526a26)
+contains no cache/audio implementation change.
+
+Current main was pinned at
+[`bce825a`](https://github.com/Rirusha/Cassette/tree/bce825a13c1d1f6d0337dbea914c2d66b1ac07ba)
+(2026-11-03). Its history diverges from the release line and uses `libtape`:
+
+| Current source | Verified difference |
+| --- | --- |
+| [CacheManager](https://github.com/Rirusha/Cassette/blob/bce825a13c1d1f6d0337dbea914c2d66b1ac07ba/libtape/src/cache-manager/cache-manager.vala#L27) | Loads local artwork first, then the network, and saves when caching is enabled. Its exposed implementation has image loading and wipe, without the legacy audio scheduling chain. |
+| [Storager](https://github.com/Rirusha/Cassette/blob/bce825a13c1d1f6d0337dbea914c2d66b1ac07ba/libtape/src/cache-manager/storager.vala#L620) | Retains permanent-before-temporary audio lookup, reversible encoding and whole-file save/load. Read retries are bounded to five attempts. Writes use GIO `replace_contents_async`; the reviewed code adds no explicit integrity/index transaction, repair or quota/LRU. |
+| [InfoDB](https://github.com/Rirusha/Cassette/blob/bce825a13c1d1f6d0337dbea914c2d66b1ac07ba/libtape/src/cache-manager/info-db.vala#L50) | Retains SQLite content references; references do not authorize playback or retention. |
+| [Player](https://github.com/Rirusha/Cassette/blob/bce825a13c1d1f6d0337dbea914c2d66b1ac07ba/libtape/src/player/player.vala#L26) and [GstPlayer](https://github.com/Rirusha/Cassette/blob/bce825a13c1d1f6d0337dbea914c2d66b1ac07ba/libtape/src/player/gst-player.vala#L164) | The public wrapper plays a file; its GStreamer adapter can consume file, HTTP and data sources. That capability alone does not connect catalog delivery to persistent audio. |
+
+A caller search across all **45 Vala files** in that pinned main found audio
+save/load use in storage tests and their definitions, without an application
+caller connecting them to Music delivery. `controller.vala` and `job.vala` from
+the legacy path are absent from this tree. Consequently the newer main is useful
+for async storage/retry ideas, but is not evidence that its complete legacy audio
+cache chain still runs or that a new provider permission exists. No Cassette
+binary or live account was run in this source review.
+
+The newer core cache/player files credit Vladimir Romanov and generally carry
+GPL-3.0-or-later. Auxiliary `humanity-size.vala`, `location.vala` and `settings.vala`
+carry GPL-3.0-only. Future reuse must retain each file's actual license/copyright;
+Karin does not copy their implementation or relabel them under its own license.
 
 ## Current Karin audit
 
@@ -77,11 +121,10 @@ no buffer-size change is presented as reusable audio caching.
 
 ## Provider-controlled evidence
 
-The following primary pages were reviewed on **2026-11-05**. Music terms,
-application license and offline help were fetched again successfully; Plus clauses
-were checked against the complete earlier same-day copy and a fresh bounded
-response. A later Plus fetch returned HTTP429. These are mutable service
-statements, not a newly issued permission for Karin.
+Music terms, application license and offline help were fetched successfully
+again on **2026-11-06**. The fresh Plus request returned **HTTP429**; its clauses
+below retain the complete **2026-11-05** review, not a claimed new full fetch.
+These are mutable service statements, not a newly issued permission for Karin.
 
 - [Music terms](https://yandex.ru/legal/music_termsofuse/ru/), §§2.1, 2.7–2.8:
   materials retain rightsholder protection; personal use is tied to the service's
@@ -105,7 +148,9 @@ statements, not a newly issued permission for Karin.
 
 The current published MarshalX model at commit
 [`9ca132e`](https://github.com/MarshalX/yandex-music-api/tree/9ca132e5c18a72aab779c1fc68c169380a9357d0)
-was rechecked alongside Cassette. These are concrete schema candidates, not a
+was rechecked alongside Cassette on **2026-11-06**. The current yamu and yamuse
+heads cited below also remain unchanged; twelve re-fetched model/client/fixture
+files match the earlier reviewed hashes. These are concrete schema candidates, not a
 live Karin account response or an official permission for Karin:
 
 - [`Status`](https://github.com/MarshalX/yandex-music-api/blob/9ca132e5c18a72aab779c1fc68c169380a9357d0/yandex_music/account/status.py)
@@ -159,6 +204,8 @@ Enabling transparent service caching requires these two concrete inputs:
    themselves state that contract. No local TTL or invented entitlement substitutes
    for it.
 
+A [prepared provider request](AUDIO_CACHE_PROVIDER_REQUEST.md) asks for these
+specific inputs and their machine-checkable semantics. It has **not been sent**.
 The owner can obtain that applicable permission and contract from the provider
 or rightsholder; account tokens, signed URLs and successful synthetic tests are
 not the missing evidence. There is no proven categorical ban on every independent

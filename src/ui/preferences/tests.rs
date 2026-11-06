@@ -42,6 +42,25 @@ fn usage_text_reports_actual_file_bytes_and_record_count() {
 }
 
 #[test]
+fn cache_limit_scale_has_exact_discrete_choices_and_rejects_nonfinite_values() {
+    for (raw, expected) in [
+        (-100.0, CacheLimit::MiB500),
+        (0.49, CacheLimit::MiB500),
+        (0.5, CacheLimit::GiB1),
+        (1.49, CacheLimit::GiB1),
+        (2.2, CacheLimit::GiB2),
+        (3.5, CacheLimit::GiB4),
+        (4.7, CacheLimit::Unlimited),
+        (100.0, CacheLimit::Unlimited),
+    ] {
+        assert_eq!(limit_from_scale(raw), Some(expected));
+    }
+    for raw in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        assert_eq!(limit_from_scale(raw), None);
+    }
+}
+
+#[test]
 fn unavailable_storage_allows_forget_intent_but_not_enabling() {
     assert!(remember_change_allowed(true, false, false));
     assert!(!remember_change_allowed(false, true, false));
@@ -67,6 +86,7 @@ fn preference_edits_preserve_nonvisible_lifecycle_and_pane_fields() {
         session_busy: Cell::new(false),
         cache_busy: Cell::new(false),
         can_retry_session: Cell::new(false),
+        can_retry_cache: Cell::new(false),
         callbacks: PreferencesCallbacks {
             changed: Rc::new({
                 let changes = Rc::clone(&changes);
@@ -75,6 +95,7 @@ fn preference_edits_preserve_nonvisible_lifecycle_and_pane_fields() {
             clear_cache: Rc::new(|| {}),
             retry_session: Rc::new(|| {}),
             reload_stats: Rc::new(|| {}),
+            retry_cache: Rc::new(|| {}),
         },
     };
     state.change(|value| value.appearance = Appearance::Dark);
@@ -308,6 +329,7 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
     let clear = Rc::new(Cell::new(0));
     let retry = Rc::new(Cell::new(0));
     let stats = Rc::new(Cell::new(0));
+    let cache_retry = Rc::new(Cell::new(0));
     let snapshot = Rc::new(RefCell::new(PreferencesSnapshot {
         values: Preferences {
             track_info_open: false,
@@ -322,8 +344,8 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
             bytes: 2 * MIB,
             entries: 3,
         }),
-        audio_cache_stats: Some(CacheStats::default()),
         cache_busy: false,
+        can_retry_cache: false,
         message: None,
     }));
     let view_pointer = Rc::new(RefCell::new(std::rc::Weak::<PreferencesView>::new()));
@@ -352,6 +374,10 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
             let retry = Rc::clone(&retry);
             move || retry.set(retry.get() + 1)
         }),
+        retry_cache: Rc::new({
+            let retry = Rc::clone(&cache_retry);
+            move || retry.set(retry.get() + 1)
+        }),
         reload_stats: Rc::new({
             let stats = Rc::clone(&stats);
             move || stats.set(stats.get() + 1)
@@ -364,13 +390,14 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
         "initial render must not save settings"
     );
     assert!(view.remember.is_active());
-    assert_eq!(view.cache_limit.value(), 256.0);
-    assert_eq!(view.audio_cache_limit.value(), 256.0);
-    assert!(
-        view.audio_cache_usage
-            .subtitle()
-            .unwrap()
-            .contains("Сохранение музыки пока недоступно")
+    assert_eq!(view.cache_limit.value(), 2.0);
+    assert_eq!(view.cache_limit_label.label(), "2 ГБ");
+    assert_eq!(view.cache_limit.adjustment().lower(), 0.0);
+    assert_eq!(view.cache_limit.adjustment().upper(), 5.0);
+    assert_eq!(view.cache_limit.adjustment().step_increment(), 1.0);
+    assert_eq!(
+        view.cache_limit.accessible_role(),
+        gtk::AccessibleRole::Slider
     );
     assert_eq!(
         view.cache_usage.subtitle().as_deref(),
@@ -407,20 +434,51 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
         changes.borrow().last().unwrap().appearance,
         Appearance::Dark
     );
-    view.cache_limit.set_value(512.0);
+    // Exercise the real native Scale with keyboard input, not only set_value.
+    assert!(view.cache_limit.grab_focus());
+    input(&["key", "End"]);
+    pump_until(|| changes.borrow().last().unwrap().cache_limit == CacheLimit::Unlimited);
+    assert_eq!(view.cache_limit.value(), 5.0);
+    assert_eq!(view.cache_limit_label.label(), "Без ограничений");
+    input(&["key", "Home"]);
+    pump_until(|| changes.borrow().last().unwrap().cache_limit == CacheLimit::MiB500);
+    input(&["key", "Right"]);
+    pump_until(|| changes.borrow().last().unwrap().cache_limit == CacheLimit::GiB1);
+    // A real pointer activation hits the Scale's native slider surface. This
+    // exact target uses the same clipping and two-frame checks as other controls.
+    click(&window, id, &view.cache_limit);
+    assert_eq!(view.cache_limit.value().fract(), 0.0);
+    // Show the full cache group in the proof captures, including ticks, usage
+    // and Clear, instead of accepting only the Scale's visible center.
+    let cache_scroller = view
+        .cache_limit
+        .ancestor(gtk::ScrolledWindow::static_type())
+        .unwrap()
+        .downcast::<gtk::ScrolledWindow>()
+        .unwrap();
+    let cache_adjustment = cache_scroller.vadjustment();
+    cache_adjustment.set_value(cache_adjustment.upper() - cache_adjustment.page_size());
+    pump_until(|| {
+        view.cache_limit
+            .compute_bounds(&cache_scroller)
+            .is_some_and(|bounds| {
+                bounds.y() >= 0.0 && bounds.y() + bounds.height() <= cache_scroller.height() as f32
+            })
+    });
+    for limit in CacheLimit::ALL {
+        view.cache_limit.set_value(f64::from(limit.index()));
+        assert_eq!(view.cache_limit_label.label(), limit.label());
+        assert_eq!(changes.borrow().last().unwrap().cache_limit, limit);
+        capture(id, &format!("preferences-unified-limit-{}", limit.index()));
+    }
+    let count_before_fraction = changes.borrow().len();
+    view.cache_limit.set_value(3.4);
+    assert_eq!(view.cache_limit.value(), 3.0);
     assert_eq!(
-        changes.borrow().last().unwrap().cache_limit_bytes,
-        512 * MIB
+        changes.borrow().last().unwrap().cache_limit,
+        CacheLimit::GiB3
     );
-    view.audio_cache_limit.set_value(1024.0);
-    assert_eq!(
-        changes.borrow().last().unwrap().audio_cache_limit_bytes,
-        1024 * MIB
-    );
-    assert_eq!(
-        changes.borrow().last().unwrap().cache_limit_bytes,
-        512 * MIB
-    );
+    assert!(changes.borrow().len() <= count_before_fraction + 1);
     click(&window, id, &view.cache_clear);
     pump_until(|| clear.get() > 0);
     assert_eq!(clear.get(), 1);
@@ -436,7 +494,7 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
         let mut next = snapshot.borrow_mut();
         next.values.cache_enabled = false;
         next.values.appearance = Appearance::Light;
-        next.values.cache_limit_bytes = 128 * MIB;
+        next.values.cache_limit = CacheLimit::MiB500;
         next.cache_stats = Some(CacheStats::default());
     }
     view.update(&snapshot.borrow());
@@ -456,9 +514,16 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
     // compact-width gate instead of sampling after a fixed 150 ms sleep.
     pump_until(|| window.width() <= 444);
     assert!(window.width() <= 444);
+    assert!(view.cache_limit.grab_focus());
+    pump_until(|| coordinates(&window, view.cache_limit.upcast_ref()).is_some());
+    let bounds = view.cache_limit.compute_bounds(&window).unwrap();
+    assert!(bounds.x() >= 0.0 && bounds.x() + bounds.width() <= window.width() as f32);
+    assert_eq!(view.cache_limit.value(), 0.0);
     capture(id, "preferences-seamless-compact");
     window.set_default_size(1440, 900);
-    settle();
+    pump_until(|| window.width() >= 1400);
+    assert!(view.cache_limit.grab_focus());
+    pump_until(|| coordinates(&window, view.cache_limit.upcast_ref()).is_some());
     capture(id, "preferences-seamless-wide");
     snapshot.borrow_mut().session_busy = true;
     view.update(&snapshot.borrow());
@@ -494,9 +559,14 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
         next.message = Some("Обновляем данные кеша…".into());
     }
     view.update(&snapshot.borrow());
-    assert!(!view.cache_enabled.is_sensitive());
-    assert!(!view.cache_limit.is_sensitive());
-    assert!(!view.audio_cache_limit.is_sensitive());
+    assert!(
+        view.cache_enabled.is_sensitive(),
+        "cache off remains available during work"
+    );
+    assert!(
+        view.cache_limit.is_sensitive(),
+        "quota gestures coalesce while work is running"
+    );
     assert!(!view.cache_clear.is_sensitive());
     assert!(view.scheme.is_sensitive());
     capture(id, "preferences-seamless-cache-busy");
@@ -512,6 +582,7 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
     settle();
     snapshot.borrow_mut().message =
         Some("Не удалось полностью очистить кеш. Повторите попытку.".into());
+    snapshot.borrow_mut().can_retry_cache = true;
     view.update(&snapshot.borrow());
     pump_until(|| {
         view.operation_status.has_focus()
@@ -533,6 +604,9 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
             .unwrap()
             .contains("Не удалось")
     );
+    assert!(view.cache_retry.is_visible());
+    click(&window, id, &view.cache_retry);
+    pump_until(|| cache_retry.get() == 1);
     capture(id, "preferences-seamless-compact-operation-error");
     assert!(view.cache_clear.grab_focus());
     settle();
@@ -573,8 +647,13 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
         .remember
         .activatable_widget()
         .expect("native remember switch");
-    // Exercise the same clipped target regardless of Adwaita/font version:
-    // scroll to the bottom while its row already owns focus. Reasserting focus
+    // The unified cache group is shorter than the former two-quota layout.
+    // The standard 420×720 case above now legitimately shows this switch even
+    // at the bottom. Use a separate smaller native viewport to establish the
+    // original clipped-target precondition, keeping its actual hit/focus gates.
+    window.set_default_size(420, 520);
+    pump_until(|| window.height() <= 544);
+    // Scroll to the bottom while the row already owns focus. Reasserting focus
     // alone must not substitute for bringing this real pointer target back.
     assert!(view.remember.grab_focus());
     let scroller = switch

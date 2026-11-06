@@ -835,3 +835,211 @@ fn persistent_open_rejects_symlink_ancestors_and_reuses_only_newly_authorized_by
         Err(CacheError::Unavailable)
     ));
 }
+
+fn shared_fixture(
+    limit: Option<u64>,
+) -> (
+    Arc<Sandbox>,
+    Arc<SyntheticAuthority>,
+    Arc<crate::cache_budget::CacheBudget>,
+    crate::cache::Cache,
+    AudioCache,
+) {
+    let root = Sandbox::create(&std::env::temp_dir()).unwrap();
+    let metadata_root = root.path.join("persistent");
+    let audio_root = root.path.join("audio");
+    let budget = crate::cache_budget::CacheBudget::new(
+        metadata_root.clone(),
+        audio_root.clone(),
+        true,
+        limit,
+    )
+    .unwrap();
+    let metadata = crate::cache::Cache::new_with_budget(
+        metadata_root,
+        crate::cache::CachePolicy::default(),
+        budget.clone(),
+    )
+    .unwrap();
+    metadata.bind(Some(account(1)));
+    let authority = Arc::new(SyntheticAuthority::default());
+    for track in [101, 102, 103] {
+        authority.allow(&account(1), &ResourceKey::from(track));
+    }
+    let audio = AudioCache::open_with_budget(
+        audio_root,
+        authority.clone(),
+        CachePolicy::default(),
+        budget.clone(),
+    )
+    .unwrap();
+    audio.bind(Some(account(1))).unwrap();
+    (root, authority, budget, metadata, audio)
+}
+
+fn shared_artwork(marker: u8) -> Vec<u8> {
+    let mut bytes = b"KARINRGB".to_vec();
+    for value in [512u32, 512, 2048] {
+        bytes.extend_from_slice(&value.to_be_bytes());
+    }
+    bytes.push(1);
+    bytes.resize(21 + 512 * 2048, marker);
+    bytes
+}
+
+#[test]
+fn shared_budget_counts_both_stores_restarts_and_fences_disabled_hits() {
+    let (root, authority, budget, metadata, audio) = shared_fixture(None);
+    let audio_lease = audio.lease().unwrap();
+    put(&audio, &audio_lease, 101, 100_000);
+    let key =
+        crate::cache::CacheKey::new(crate::cache::EntryKind::Artwork, "shared-cover", 0).unwrap();
+    metadata
+        .put(&metadata.lease().unwrap(), &key, &shared_artwork(12))
+        .unwrap();
+    let total = audio.stats().unwrap().bytes + metadata.usage().unwrap().bytes;
+    assert_eq!(budget.usage().unwrap().bytes, total);
+    assert_eq!(budget.usage().unwrap().entries, 2);
+    let hit = audio.get(&audio_lease, 101).unwrap().unwrap();
+    let metadata_lease = metadata.lease().unwrap();
+    budget.configure(false, None).unwrap();
+    assert!(matches!(hit.admit_file(), Err(CacheError::Cancelled)));
+    assert!(metadata.get(&metadata_lease, &key).is_err());
+    assert!(matches!(
+        audio.begin(&audio_lease, 102),
+        Err(CacheError::Cancelled)
+    ));
+    assert_eq!(budget.usage().unwrap().bytes, total);
+    budget.configure(true, None).unwrap();
+    assert!(matches!(hit.admit_file(), Err(CacheError::Cancelled)));
+    assert!(!metadata_lease.is_current());
+    drop(hit);
+    drop(audio);
+    drop(metadata);
+    drop(budget);
+    let budget = crate::cache_budget::CacheBudget::new(
+        root.path.join("persistent"),
+        root.path.join("audio"),
+        true,
+        None,
+    )
+    .unwrap();
+    let metadata = crate::cache::Cache::new_with_budget(
+        root.path.join("persistent"),
+        crate::cache::CachePolicy::default(),
+        budget.clone(),
+    )
+    .unwrap();
+    metadata.bind(Some(account(1)));
+    let audio = AudioCache::open_with_budget(
+        root.path.join("audio"),
+        authority,
+        CachePolicy::default(),
+        budget.clone(),
+    )
+    .unwrap();
+    let lease = audio.bind(Some(account(1))).unwrap().unwrap();
+    assert!(audio.get(&lease, 101).unwrap().is_some());
+    assert!(
+        metadata
+            .get(&metadata.lease().unwrap(), &key)
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(budget.usage().unwrap().bytes, total);
+    budget.configure(true, Some(1024 * 1024)).unwrap();
+    budget.trim().unwrap();
+    assert!(budget.usage().unwrap().bytes <= 1024 * 1024);
+    assert_eq!(
+        budget.usage().unwrap().bytes,
+        audio.stats().unwrap().bytes + metadata.usage().unwrap().bytes
+    );
+}
+
+#[test]
+fn shared_budget_reserves_inflight_audio_while_small_artwork_remains_writable() {
+    struct HeldReader {
+        entered: Option<mpsc::SyncSender<()>>,
+        release: mpsc::Receiver<()>,
+        input: std::io::Cursor<Vec<u8>>,
+    }
+    impl Read for HeldReader {
+        fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+            if let Some(entered) = self.entered.take() {
+                entered.send(()).unwrap();
+                self.release.recv_timeout(Duration::from_secs(5)).unwrap();
+            }
+            self.input.read(out)
+        }
+    }
+    let (_root, _authority, budget, metadata, audio) = shared_fixture(Some(80 * 1024 * 1024));
+    let lease = audio.lease().unwrap();
+    let request = audio.begin(&lease, 101).unwrap();
+    let (entered, started) = mpsc::sync_channel(0);
+    let (release, released) = mpsc::sync_channel(0);
+    let worker = audio.clone();
+    let writer = thread::spawn(move || {
+        worker.put_reader(
+            request,
+            HeldReader {
+                entered: Some(entered),
+                release: released,
+                input: std::io::Cursor::new(SyntheticAudio::tone(100_000).unwrap().0),
+            },
+        )
+    });
+    started.recv_timeout(Duration::from_secs(5)).unwrap();
+    for marker in 0..12u8 {
+        use crate::music::{
+            Track,
+            cache_codec::{self, MetadataRecord},
+        };
+        let id = (1000 + u16::from(marker)).to_string();
+        let key = crate::cache::CacheKey::new(crate::cache::EntryKind::Track, &id, 0).unwrap();
+        let record = cache_codec::encode(
+            crate::cache::EntryKind::Track,
+            &MetadataRecord::Track(Track {
+                id,
+                title: "Generated metadata".into(),
+                artists: vec!["Original fixture".into()],
+                artist_links: Vec::new(),
+                album_id: None,
+                album_title: None,
+                duration_ms: Some(1000),
+                cover: None,
+                explicit: false,
+                available: true,
+            }),
+        )
+        .unwrap();
+        metadata
+            .put(&metadata.lease().unwrap(), &key, &record)
+            .unwrap();
+    }
+    let key =
+        crate::cache::CacheKey::new(crate::cache::EntryKind::Artwork, "shared-cover", 0).unwrap();
+    metadata
+        .put(&metadata.lease().unwrap(), &key, &shared_artwork(33))
+        .unwrap();
+    assert_eq!(metadata.usage().unwrap().entries, 13);
+    assert!(budget.usage().unwrap().bytes <= 80 * 1024 * 1024);
+    budget.configure(false, Some(80 * 1024 * 1024)).unwrap();
+    release.send(()).unwrap();
+    assert_eq!(writer.join().unwrap(), Err(CacheError::Cancelled));
+    assert_eq!(audio.stats().unwrap().entries, 0);
+    assert_eq!(
+        budget.usage().unwrap().bytes,
+        metadata.usage().unwrap().bytes
+    );
+    budget.configure(true, Some(80 * 1024 * 1024)).unwrap();
+    assert!(matches!(
+        audio.begin(&lease, 102),
+        Err(CacheError::Cancelled)
+    ));
+    let lease = audio.lease().unwrap();
+    put(&audio, &lease, 102, 100_000);
+    assert_eq!(
+        budget.usage().unwrap().bytes,
+        metadata.usage().unwrap().bytes + audio.stats().unwrap().bytes
+    );
+}

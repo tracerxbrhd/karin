@@ -21,11 +21,11 @@ rights. Public service/distribution conditions remain unresolved. See [LICENSING
 [STREAM_DELIVERY_REVIEW.md](STREAM_DELIVERY_REVIEW.md).
 
 My Wave is an ordinary Home action after Music-validated sign-in, using the
-existing player. The owner retested corrected candidate `2e4b978` on Fedora
-without reporting new problems, after earlier confirmed real audio, all four
-feedback events and continued batches. This general report is not a per-scenario
-matrix or installed v0.5 Flatpak acceptance; the final ordinary-native/Flatpak
-[procedure](BUILDING.md#my-wave-local-acceptance) remains pending.
+existing player. Corrected feedback, real audio and continued batches were
+confirmed on Fedora; PR #25 then merged at `860672b` with ordinary Native and
+installed Flatpak owner acceptance. Issue #16 is closed. This overall report does
+not certify each optional failure scenario, portal backend or physical media key.
+The [procedure](BUILDING.md#my-wave-local-acceptance) remains available for regressions.
 
 Only **Слушать** starts a radio session. Startup, restored sign-in and Home
 navigation do not issue Wave requests, and session IDs/batch markers remain
@@ -45,16 +45,23 @@ mutation retry. A fresh independent Like membership read can still enable the
 existing Like/Unlike path and its confirmation; a Dislike refusal must not
 disable working Like. The fallback never establishes Dislike state.
 The owner confirmed live server reactions and opposite-mark interaction at
-`1877a6c`; the revised automatic Next and installed Flatpak acceptance remain
-separate. Unlike is not Dislike; opposite marks are confirmed independently.
+`1877a6c`, then explicitly accepted the corrected Dislike→Next, ordinary queue and
+Wave behavior on Fedora Native and installed Flatpak after #27 merged at `ddf93ea`.
+Issue #17 is closed. Individual race/failure cases are covered by automated guards,
+not inferred as special owner tests. Unlike is not Dislike; opposite marks are confirmed independently.
 Only confirmed Dislike addition on the unchanged current occurrence invokes Next.
 For Wave this reuses its existing listening/Skip lifecycle, with no new negative
 Wave event or recommendation-effect guarantee. See
 [ADR-0028](adr/0028-confirmed-track-reactions.md).
 
 Other recommendation shelves/similar tracks and lyrics are not implemented.
-The v0.6 audio store, player bridge, quota/usage settings and cleanup are ordinary
-production code, but the service authority refuses storage/reuse admission.
+The v0.6 audio store, player bridge and cleanup are ordinary production code.
+The owner accepted the available functions/tests at `707539b` on Native and
+installed Flatpak. The subsequent unified-cache revision needs new acceptance:
+one shared policy/budget/usage and Clear covers all permitted categories, with
+2 GiB by default and an explicit Unlimited choice guarded by available disk space.
+This interface does not enable audio storage: the service authority still refuses
+storage/reuse admission.
 Music still plays over the established online path and is not saved. The exact
 missing inputs are an applicable Karin storage/reuse permission and the provider's
 fresh account/resource check authorizing a cached hit; a playable MP3, subscription,

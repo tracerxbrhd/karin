@@ -33,7 +33,7 @@ defines both contracts. The owner accepted `9d54834`; it was squash-merged at
 - Maintain Rust 1.98.1 compatibility, protected-session cleanup and the narrow
   native/Flatpak permission boundaries as dependencies evolve.
 
-## v0.5 final integration
+## Completed v0.5 integration
 
 [My Wave](https://github.com/tracerxbrhd/karin/issues/16) is available from Home
 after ordinary Music-validated sign-in. The owner retested corrected candidate
@@ -43,8 +43,10 @@ from **Слушать**, using the existing queue/player/MPRIS. Pause retains it
 context; ordinary music or MPRIS Stop retires it locally without `radioFinished`.
 Startup, restored sign-in and Home navigation do not start or restore radio.
 
-Final ordinary-native and installed v0.5 Flatpak acceptance remain required
-before closing #16. This is not a public release/version/tag decision. See
+PR #25 was squash-merged at `860672b`; the owner accepted ordinary Native and
+installed Flatpak behavior, and #16 is closed. This is an overall owner report,
+not a claim that every optional failure/backend/hardware case was individually
+tested. This is not a public release/version/tag decision. See
 [VALIDATION](VALIDATION.md), [the acceptance procedure](BUILDING.md#my-wave-local-acceptance)
 and [ADR-0027](adr/0027-experimental-wave-lifecycle.md).
 
@@ -57,9 +59,13 @@ Like-only path usable. Unknown state and ambiguous writes stay explicit. The Pla
 adds an independent Dislike target and delegates confirmed current-occurrence
 Dislike addition to existing Next without changing the audio path or Wave protocol.
 The owner confirmed live server reactions and their interaction at `1877a6c`.
-[Issue #17](https://github.com/tracerxbrhd/karin/issues/17) retains the revised
-[Native/Flatpak acceptance](BUILDING.md#track-reaction-acceptance), including
-automatic Next. See [ADR-0028](adr/0028-confirmed-track-reactions.md).
+PR #27 merged at `ddf93ea`; on 2026-11-06 the owner confirmed corrected
+Dislike→Next, ordinary queue and Wave behavior on Fedora Native and installed
+Flatpak without remarks. [Issue #17](https://github.com/tracerxbrhd/karin/issues/17)
+is closed. Special race/failure cases remain separately automated evidence,
+not newly inferred owner tests. See the
+[procedure](BUILDING.md#track-reaction-acceptance) and
+[ADR-0028](adr/0028-confirmed-track-reactions.md).
 
 Audio storage is an independent branch/PR tracked in #20. A playable MP3 and
 synthetic cache tests establish no storage grant or online reuse contract;
@@ -68,17 +74,28 @@ is recorded by the Dislike change. Neither direction authorizes a release.
 
 ## Next functional directions
 
-The independent v0.6 audio-cache branch includes a production store and player
-bridge under [ADR-0029](adr/0029-synthetic-audio-cache-foundation.md): account
-isolation, atomic/integrity-checked records, quota/LRU, current-authority checks,
-cleanup and restart recovery. The service authority still refuses cache admission;
-ordinary Music keeps its working online playback. The immediate goal is transparent
-reuse after fresh online revalidation, not Downloads or offline mode. The fresh
+The existing v0.6 [Draft PR #26](https://github.com/tracerxbrhd/karin/pull/26)
+contains the production store/player bridge under
+[ADR-0029](adr/0029-synthetic-audio-cache-foundation.md): account isolation,
+atomic integrity-checked records, quota/LRU, current-authority checks, cleanup
+and restart recovery. The owner accepted the available functions and tests of
+`707539b` on Fedora Native and installed Flatpak. That does not establish real
+service-audio storage or acceptance of the subsequent unified-cache revision.
+
+The current revision combines metadata, artwork and authority-gated audio under
+one enabled policy, a shared disk budget/usage and Clear. Preferences use six
+choices: 500 MiB, 1/2/3/4 GiB and Unlimited, with 2 GiB by default. Internal formats
+and permission rules stay distinct. Concurrent reservations and bounded background
+eviction enforce the common budget; Unlimited still needs free-space protection.
+New revision-specific tests and desktop acceptance remain separately recorded.
+
+The service authority still refuses cache admission, so ordinary Music keeps its
+working online playback. The immediate goal is transparent reuse after fresh
+online revalidation, not Downloads or offline mode. The
 [source/rights review](AUDIO_CACHE_REVIEW.md) identifies the missing applicable
-storage/reuse permission and concrete provider check, so PR #26 stays Draft and
-#20 stays open. Production compilation and fixture success are not completion
-of that service feature.
-Confirmed Dislike and automatic Next have merged through PR #27.
+storage/reuse permission and concrete provider check; a prepared technical request
+does not supply that answer. PR #26 stays Draft and #20 stays open. Compilation,
+fixture success and previous owner acceptance are not completion of service caching.
 
 - [Lyrics and related tracks](https://github.com/tracerxbrhd/karin/issues/18): confirm permitted endpoints/resources before
   exposing a user workflow; no extracted official-client signing material.
@@ -97,6 +114,9 @@ Each direction needs its own confirmed contract and acceptance criteria.
 Unsupported actions remain absent.
 See [API_FEASIBILITY.md](API_FEASIBILITY.md) and
 [AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md).
+
+[The backlog audit](ISSUES_AUDIT.md) records closed milestones, remaining
+criteria and separate external, technical-debt and future-feature priorities.
 
 ## Public distribution
 

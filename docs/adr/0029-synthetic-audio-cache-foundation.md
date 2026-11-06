@@ -7,6 +7,10 @@ Date: 2026-11-05
 Extends: ADR-0015, ADR-0019 and ADR-0026
 Supersedes the test-only implementation boundary of the original PR #26 candidate
 
+Resource-policy extension, 2026-11-06: [ADR-0030](0030-unified-cache-budget-and-preferences.md)
+replaces the user-facing quota/defaults below with one shared budget and migrates
+settings. Typed formats, admission, integrity and lifecycle boundaries remain.
+
 ## Scope and evidence
 
 The first candidate at `0ce9ea0` compiled its store only under `cfg(test)`. That

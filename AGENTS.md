@@ -73,6 +73,10 @@ reviewable and consistent with the accepted application.
   and batch markers. The legacy Wave CLI flag is a no-op compatibility alias.
   Preserve its original occurrence/batch markers, actual worker Playing ledger,
   bounded serialized feedback and no replay after an ambiguous POST.
+- Cache metadata, artwork and authority-admitted audio under one shared budget
+  (default on/2 GiB, six discrete choices including Unlimited). Preserve worker
+  reservations, disk headroom, generation fences and the v1 settings migration;
+  do not reintroduce separate user quotas or run disk scans while dragging.
 - Catalog refusals fence key epochs before cache I/O; cached UI replies recheck
   those leases. Cold metadata stays Stale until a current positive write. Never
   hold the cache state mutex used by GTK over filesystem operations.
@@ -90,7 +94,9 @@ reviewable and consistent with the accepted application.
   immutable commits/PRs, not expiring artifacts alone. Retain SPDX/provenance.
 - Distinguish authored code, executed tests and owner acceptance. See
   [VALIDATION](docs/VALIDATION.md): native/UI and Flatpak at `97093ee` are accepted;
-  unreported individual scenarios and unresolved Cloud cold gaps are not PASS.
+  Dislike→Next and available `707539b` Native/installed-Flatpak functions are
+  owner-accepted; the subsequent unified-cache revision needs separate acceptance.
+  Unreported individual scenarios and unresolved Cloud cold gaps are not PASS.
   This is not a published release. Read [LIMITATIONS](docs/LIMITATIONS.md).
 
 ## Verification

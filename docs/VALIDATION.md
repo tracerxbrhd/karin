@@ -439,6 +439,78 @@ Issue #17 retains unreported acceptance. Issue #20's audio-storage permission/
 lifecycle and Issue #5's public-distribution conditions are independent. No Cloud
 fixture establishes service recommendation effect or grants audio-storage rights.
 
+<a id="v06-unified-cache"></a>
+
+## v0.6 unified cache and backlog audit
+
+The owner subsequently confirmed Dislike→Next, ordinary queue and My Wave on
+Fedora Native and installed Flatpak after PR #27 merged at `ddf93ea`. The owner
+also accepted builds, tests and available functions of cache revision `707539b`
+in both environments. Issue #17 is closed using that reported scope; special
+race/failure behavior remains supported by CI, not an invented desktop test.
+This does not establish service-audio saving, the new unified revision's desktop
+acceptance, or cold-first-frame smoothness in Issue #23.
+
+The new revision uses one enabled-by-default 2 GiB policy, six discrete native
+Scale choices and a shared coordinator across actual metadata/artwork/audio
+stores. It replaces two user quotas rather than hiding one. Tests cover shared
+reservations, cross-store eviction, the protected small-metadata floor, restart,
+corruption accounting, staged files, disk headroom/Unlimited, cancellation,
+disable→enable fencing and v1/v2 settings repair without resetting valid
+remember-login/forget fields. The new ordinary Music authority still returns
+NoGrant, so no service audio is saved or replayed from disk.
+
+The first local cross-store run was refused by the new disk guard: the Cloud
+root filesystem had about 330 MiB free, below its headroom plus a bounded audio
+reservation. After two obsolete generated Flatpak source snapshots were removed,
+the unchanged tests passed. This is a resource safeguard, not a disabled test.
+The first native Preferences runs exposed a Generic accessible role on GtkScale
+with this GTK configuration. Assigning the required Slider role explicitly
+preserves the assertion; the original failures are retained with the test logs.
+
+Both stable **1.99.1** and exact **1.98.1** passed strict Clippy in default/all/
+minimal configurations, **485 / 493 / 471** library tests and **4 CLI tests** per
+configuration, debug builds, ordinary locked/offline release builds, silent
+GStreamer/generated-WAV transport, GTK smoke and isolated startup/cleanup. The
+MSRV all-feature release and hidden-input regressions passed too. An initial
+local launcher invocation omitted Xvfb and failed; the corrected isolated Xvfb
+invocation passed. The original failure remains in its log.
+
+Fresh all-feature test executables (`fresh=false` Cargo receipts) passed **12
+actual native executions**: Preferences at 1×/2× with capture on/off and protected
+session/settings persistence at both scales, on each compiler. There were no
+ignored tests in those selected executions; ordinary library commands still
+leave **36 / 36 / 33** native registrations ignored. The unchanged registration
+set and complete hosted native/motion/WebKit coverage remain required.
+
+The shorter unified section no longer clips the remember-login switch at
+420×720. That separate clipping regression now establishes its original
+precondition at 420×520; standard 420×720/900×650/1440×900 checks remain. Original
+native failures are retained, with no deadline/hit/focus assertion relaxed.
+**112 captures** supplement structural/input checks; [safe current images](design/cache-v06/README.md)
+cover light/dark, Unlimited/default, compact/wide and HiDPI. No personal screenshot
+or real account was used. Source/vendor/license preparation passed with unchanged
+GNOME 50/scoped permissions and **208 packages / 207 notice directories**; it
+is not an installed SDK/runtime build.
+
+Separately, the ordinary MSRV release ran with fresh XDG directories, a private
+session bus and Openbox under Xvfb. Both EWMH maximize atoms and actual 1920×1080
+geometry were confirmed before/after real Ctrl+comma opened Preferences. Native
+wheel input exposed the cache group, a framebuffer capture was inspected, and
+Escape/window close exited cleanly. No account, authorization attempt or service
+audio was used. This is actual maximization, separate from the twelve Rust fixture
+executions and from Fedora/KDE acceptance.
+
+Current-source results and final-head Actions/artifact links are recorded in
+[PR #26](https://github.com/tracerxbrhd/karin/pull/26). Neither Cloud/generated
+media nor source preparation establishes a new installed-Flatpak/Fedora PASS.
+[The procedure](BUILDING.md#synthetic-audio-cache-checks) specifies the next owner
+check. [ADR-0030](adr/0030-unified-cache-budget-and-preferences.md) records the
+migration and resource policy; [the audit](ISSUES_AUDIT.md) records all twelve
+Issues and the distinct remaining gates. [Provider questions](AUDIO_CACHE_PROVIDER_REQUEST.md)
+were prepared, not sent. The primary-source research and its HTTP429 limit are
+recorded in [AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md).
+
 ## v0.6 audio-cache foundation
 
 ### Original candidate and Fedora failure

@@ -7,6 +7,7 @@ use crate::{
     cache::{CacheKey, EntryKind},
     credentials::{Cancellation, CredentialBackend},
     playback::PlaybackState,
+    settings::CacheLimit,
     stream::StreamResolver,
 };
 use gst::prelude::*;
@@ -378,6 +379,7 @@ fn settled(this: &Controller) -> bool {
         && !p.critical
         && !p.settings_busy
         && !p.cache_busy
+        && !p.cache_policy_pending
         && !this.model.borrow().busy
 }
 
@@ -423,7 +425,15 @@ fn native_persistent_session_restore_settings_forget_and_close() {
     };
     settings.save(&prefs).unwrap();
     let backend = Backend::new(Some(TOKEN));
-    let cache = Cache::new(directory.0.join("cache"), CachePolicy::default()).unwrap();
+    let budget = CacheBudget::new(
+        directory.0.join("cache"),
+        api.audio_root.clone(),
+        true,
+        Preferences::default().cache_limit.bytes(),
+    )
+    .unwrap();
+    let cache =
+        Cache::new_with_budget(directory.0.join("cache"), CachePolicy::default(), budget).unwrap();
     let (_app, ui) = window(&api, &settings, &backend, &cache);
     let this = &ui.music.controller;
     pump_until(|| this.model.borrow().account_valid && settled(this));
@@ -530,17 +540,63 @@ fn native_persistent_session_restore_settings_forget_and_close() {
         this.audio_cache_binding().is_some(),
         "remember-off must rebind the live account after deleting the saved credential"
     );
+    // Dragging across all six positions changes admission immediately but
+    // neither persists every intermediate value nor launches trim work per tick.
+    let old_saved_limit = settings.load().unwrap().preferences.cache_limit;
+    let old_cache_operation = this.persistence.borrow().cache_operation;
+    for limit in CacheLimit::ALL {
+        let mut changed = this.persistence.borrow().values.clone();
+        changed.cache_limit = limit;
+        this.preferences_changed(changed);
+    }
+    assert!(this.persistence.borrow().cache_policy_pending);
+    assert_eq!(
+        this.persistence.borrow().cache_operation,
+        old_cache_operation
+    );
+    assert_eq!(
+        settings.load().unwrap().preferences.cache_limit,
+        old_saved_limit
+    );
+    pump_until(|| settled(this));
+    assert_eq!(
+        settings.load().unwrap().preferences.cache_limit,
+        CacheLimit::Unlimited
+    );
+    let previous_lease = cache.lease().unwrap();
     let mut changed = this.persistence.borrow().values.clone();
-    let metadata_limit = changed.cache_limit_bytes;
-    changed.audio_cache_limit_bytes = crate::settings::MIN_CACHE_BYTES;
+    changed.cache_enabled = false;
+    this.preferences_changed(changed);
+    assert!(
+        cache.lease().is_none(),
+        "Disable fences metadata admission synchronously"
+    );
+    assert!(!previous_lease.is_current());
+    assert!(
+        this.audio_cache_binding().is_none(),
+        "Disable fences audio admission synchronously"
+    );
+    assert_eq!(this.music_snapshot().unwrap().state, PlaybackState::Playing);
+    let mut changed = this.persistence.borrow().values.clone();
+    changed.cache_enabled = true;
+    changed.cache_limit = CacheLimit::MiB500;
     this.preferences_changed(changed);
     pump_until(|| settled(this));
     let saved = settings.load().unwrap().preferences;
+    assert_eq!(saved.cache_limit, CacheLimit::MiB500);
+    let total = this.persistence.borrow().cache_stats.unwrap();
+    let measured = this
+        .persistence
+        .borrow()
+        .cache_budget
+        .as_ref()
+        .unwrap()
+        .usage()
+        .unwrap();
     assert_eq!(
-        saved.audio_cache_limit_bytes,
-        crate::settings::MIN_CACHE_BYTES
+        total, measured,
+        "Preferences exposes the shared coordinator total"
     );
-    assert_eq!(saved.cache_limit_bytes, metadata_limit);
     assert!(this.audio_cache_binding().is_some());
     assert_eq!(
         this.music_snapshot().unwrap().generation,
@@ -659,8 +715,8 @@ fn native_persistent_session_restore_settings_forget_and_close() {
         "a signed-out restart has no account lease"
     );
     assert_eq!(
-        second.persistence.borrow().values.audio_cache_limit_bytes,
-        crate::settings::MIN_CACHE_BYTES
+        second.persistence.borrow().values.cache_limit,
+        CacheLimit::MiB500
     );
     assert_idle_wave_after_startup(second, false);
     assert!(!second.model.borrow().account_valid);
@@ -689,7 +745,15 @@ fn native_persistent_session_restore_settings_forget_and_close() {
     // Reopen BEFORE the old held save completes, with independently-created
     // stores for the same paths. No restore/delete may race the retired write.
     let settings = SettingsStore::at_directory(directory.0.join("settings")).unwrap();
-    let cache = Cache::new(directory.0.join("cache"), CachePolicy::default()).unwrap();
+    let budget = CacheBudget::new(
+        directory.0.join("cache"),
+        api.audio_root.clone(),
+        true,
+        Preferences::default().cache_limit.bytes(),
+    )
+    .unwrap();
+    let cache =
+        Cache::new_with_budget(directory.0.join("cache"), CachePolicy::default(), budget).unwrap();
     let loads_before_reopen = backend.loads.load(Ordering::Acquire);
     let (_app3, ui3) = window(&api, &settings, &backend, &cache);
     let third = &ui3.music.controller;

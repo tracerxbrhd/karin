@@ -21,11 +21,85 @@ use rustix::fs::{AtFlags, Mode, OFlags};
 use serde::{Deserialize, Serialize};
 
 const FILE_NAME: &str = "preferences.json";
-const FORMAT_VERSION: u32 = 1;
+const FORMAT_VERSION: u32 = 2;
 const MAX_FILE_BYTES: u64 = 16 * 1024;
-pub const MIN_CACHE_BYTES: u64 = 16 * 1024 * 1024;
-pub const DEFAULT_CACHE_BYTES: u64 = 256 * 1024 * 1024;
-pub const MAX_CACHE_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+const LEGACY_DEFAULT_BYTES: u64 = 256 * 1024 * 1024;
+const LEGACY_MIN_BYTES: u64 = 16 * 1024 * 1024;
+const LEGACY_MAX_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+
+/// A user-visible aggregate disk budget, independent of each store's safety bounds.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CacheLimit {
+    MiB500,
+    GiB1,
+    #[default]
+    GiB2,
+    GiB3,
+    GiB4,
+    Unlimited,
+}
+
+impl CacheLimit {
+    pub const ALL: [Self; 6] = [
+        Self::MiB500,
+        Self::GiB1,
+        Self::GiB2,
+        Self::GiB3,
+        Self::GiB4,
+        Self::Unlimited,
+    ];
+
+    pub const fn bytes(self) -> Option<u64> {
+        match self {
+            Self::MiB500 => Some(500 * 1024 * 1024),
+            Self::GiB1 => Some(1024 * 1024 * 1024),
+            Self::GiB2 => Some(2 * 1024 * 1024 * 1024),
+            Self::GiB3 => Some(3 * 1024 * 1024 * 1024),
+            Self::GiB4 => Some(4 * 1024 * 1024 * 1024),
+            Self::Unlimited => None,
+        }
+    }
+
+    pub const fn index(self) -> u32 {
+        match self {
+            Self::MiB500 => 0,
+            Self::GiB1 => 1,
+            Self::GiB2 => 2,
+            Self::GiB3 => 3,
+            Self::GiB4 => 4,
+            Self::Unlimited => 5,
+        }
+    }
+
+    pub fn from_index(index: u32) -> Option<Self> {
+        Self::ALL.get(index as usize).copied()
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::MiB500 => "500 МБ",
+            Self::GiB1 => "1 ГБ",
+            Self::GiB2 => "2 ГБ",
+            Self::GiB3 => "3 ГБ",
+            Self::GiB4 => "4 ГБ",
+            Self::Unlimited => "Без ограничений",
+        }
+    }
+
+    fn migrated(metadata: u64, audio: u64) -> Self {
+        if metadata == LEGACY_DEFAULT_BYTES && audio == LEGACY_DEFAULT_BYTES {
+            return Self::default();
+        }
+        // Preserve the old combined allowance: rounding up never silently
+        // shrinks a custom budget. An aggregate above 4 GiB becomes Unlimited.
+        let combined = metadata.saturating_add(audio);
+        Self::ALL
+            .into_iter()
+            .find(|limit| limit.bytes().is_none_or(|bytes| bytes >= combined))
+            .unwrap_or_default()
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -46,9 +120,7 @@ pub struct Preferences {
     /// toggle. Never restore a credential while this barrier remains set.
     pub forget_pending: bool,
     pub cache_enabled: bool,
-    pub cache_limit_bytes: u64,
-    /// Independent audio-store budget; this preference never grants storage rights.
-    pub audio_cache_limit_bytes: u64,
+    pub cache_limit: CacheLimit,
     pub track_info_open: bool,
 }
 
@@ -59,20 +131,16 @@ impl Default for Preferences {
             remember_login: true,
             forget_pending: false,
             cache_enabled: true,
-            cache_limit_bytes: DEFAULT_CACHE_BYTES,
-            audio_cache_limit_bytes: DEFAULT_CACHE_BYTES,
+            cache_limit: CacheLimit::default(),
             track_info_open: true,
         }
     }
 }
 
 impl Preferences {
+    /// Choices are valid by construction; retain the owner's validation boundary
+    /// so preference admission stays explicit before applying or saving a change.
     pub fn validate(&self) -> Result<(), SettingsError> {
-        if !(MIN_CACHE_BYTES..=MAX_CACHE_BYTES).contains(&self.cache_limit_bytes)
-            || !(MIN_CACHE_BYTES..=MAX_CACHE_BYTES).contains(&self.audio_cache_limit_bytes)
-        {
-            return Err(SettingsError::InvalidPreferences);
-        }
         Ok(())
     }
 }
@@ -104,11 +172,88 @@ pub enum SettingsError {
     Superseded,
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Serialize)]
 struct Envelope {
     version: u32,
     preferences: Preferences,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredEnvelope {
+    version: u32,
+    preferences: serde_json::Value,
+}
+
+#[derive(Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct LegacyPreferences {
+    appearance: Appearance,
+    remember_login: bool,
+    forget_pending: bool,
+    cache_enabled: serde_json::Value,
+    cache_limit_bytes: serde_json::Value,
+    audio_cache_limit_bytes: serde_json::Value,
+    track_info_open: bool,
+}
+impl Default for LegacyPreferences {
+    fn default() -> Self {
+        let defaults = Preferences::default();
+        Self {
+            appearance: defaults.appearance,
+            remember_login: defaults.remember_login,
+            forget_pending: defaults.forget_pending,
+            cache_enabled: serde_json::json!(defaults.cache_enabled),
+            cache_limit_bytes: serde_json::json!(LEGACY_DEFAULT_BYTES),
+            audio_cache_limit_bytes: serde_json::json!(LEGACY_DEFAULT_BYTES),
+            track_info_open: defaults.track_info_open,
+        }
+    }
+}
+
+fn decode_preferences(bytes: &[u8]) -> Option<Preferences> {
+    let envelope: StoredEnvelope = serde_json::from_slice(bytes).ok()?;
+    match envelope.version {
+        1 => {
+            let legacy: LegacyPreferences = serde_json::from_value(envelope.preferences).ok()?;
+            let legacy_bytes = |raw: &serde_json::Value| {
+                raw.as_u64()
+                    .filter(|value| (LEGACY_MIN_BYTES..=LEGACY_MAX_BYTES).contains(value))
+            };
+            let cache_limit = match (
+                legacy_bytes(&legacy.cache_limit_bytes),
+                legacy_bytes(&legacy.audio_cache_limit_bytes),
+            ) {
+                (Some(metadata), Some(audio)) => CacheLimit::migrated(metadata, audio),
+                _ => CacheLimit::default(),
+            };
+            Some(Preferences {
+                appearance: legacy.appearance,
+                remember_login: legacy.remember_login,
+                forget_pending: legacy.forget_pending,
+                cache_enabled: legacy.cache_enabled.as_bool().unwrap_or(true),
+                cache_limit,
+                track_info_open: legacy.track_info_open,
+            })
+        }
+        FORMAT_VERSION => {
+            let mut object = envelope.preferences.as_object()?.clone();
+            // A malformed quota alone must not reset valid session/barrier or
+            // appearance preferences. Credentials remain in their separate store.
+            let limit = object
+                .remove("cache_limit")
+                .and_then(|value| serde_json::from_value::<CacheLimit>(value).ok())
+                .unwrap_or_default();
+            object.insert("cache_limit".into(), serde_json::to_value(limit).ok()?);
+            let enabled = object
+                .remove("cache_enabled")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(true);
+            object.insert("cache_enabled".into(), serde_json::Value::Bool(enabled));
+            serde_json::from_value(serde_json::Value::Object(object)).ok()
+        }
+        _ => None,
+    }
 }
 
 struct Shared {
@@ -217,7 +362,6 @@ impl SettingsStore {
         ticket: &SaveTicket,
         preferences: &Preferences,
     ) -> Result<bool, SettingsError> {
-        preferences.validate()?;
         let _operation = self
             .0
             .operations
@@ -241,7 +385,6 @@ impl SettingsStore {
         let ticket = self.reserve_save()?;
         let mut preferences = self.load_inner()?.preferences;
         change(&mut preferences);
-        preferences.validate()?;
         if self.save_inner(&preferences, &ticket)? {
             Ok(preferences)
         } else {
@@ -271,17 +414,12 @@ impl SettingsStore {
         if bytes.len() as u64 > MAX_FILE_BYTES {
             return Ok(defaults(LoadStatus::RecoveredCorrupt));
         }
-        match serde_json::from_slice::<Envelope>(&bytes) {
-            Ok(envelope)
-                if envelope.version == FORMAT_VERSION
-                    && envelope.preferences.validate().is_ok() =>
-            {
-                Ok(SettingsLoad {
-                    preferences: envelope.preferences,
-                    status: LoadStatus::Loaded,
-                })
-            }
-            _ => Ok(defaults(LoadStatus::RecoveredCorrupt)),
+        match decode_preferences(&bytes) {
+            Some(preferences) => Ok(SettingsLoad {
+                preferences,
+                status: LoadStatus::Loaded,
+            }),
+            None => Ok(defaults(LoadStatus::RecoveredCorrupt)),
         }
     }
 

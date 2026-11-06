@@ -81,7 +81,7 @@ animation and test environment. Static uses full redraw; motion/cold use ordinar
 GTK damage. Render-node snapshots are not framebuffer-damage or physical-GPU proof.
 Record Mesa worker limits explicitly.
 
-Retain all native registrations: currently 30 functional and three modern visual/
+Retain all native registrations: currently 33 functional and three modern visual/
 raw selectors in both Rust lanes, with sandboxed WebKit, actual input, fatal
 warnings and strict motion. Report namespace/SDK limits; do not disable sandbox
 or remove tests. Commands/platform placement live in

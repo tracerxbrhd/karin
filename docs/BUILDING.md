@@ -95,39 +95,56 @@ accounts in Cloud/CI or point capture tools at a personal desktop.
 
 <a id="synthetic-audio-cache-checks"></a>
 
-## Audio-cache checks and current service boundary
+## Unified cache checks and current service boundary
 
-The v0.6 store and playback bridge compile into ordinary Native/Flatpak builds.
-The service authority currently refuses storage/reuse admission: real Music plays
-online and is not saved. Generated audio and a fake authority exercise the shared
-production store/bridge without an account. Run both originally reported cases:
+The production stores share one coordinator, enabled by default with a 2 GiB
+allowance. Preferences → **Кеширование** offers exactly 500 МБ (500 MiB),
+1/2/3/4 ГБ (GiB), and **Без ограничений**, one measured total and **Очистить кеш**.
+Mouse and keyboard changes snap to those six choices. Settings/trim coalesce
+for 200 ms; Disable and Clear fence old work immediately. Clear preserves the
+live account, queue and already admitted playback.
 
 ```sh
 cargo +1.98.1 test --lib --all-features --locked audio_cache
 cargo +stable test --lib --locked audio_cache
+cargo +1.98.1 test --lib --all-features --locked cache_budget
+cargo +stable test --lib --locked settings
+cargo +1.98.1 build --release --locked
+./target/release/karin
 ```
 
-Tests use private isolated directories, not your application cache or wallet.
-Generated-media playback uses the existing controller and `fakesink`; it does not
-establish heard Music, service caching or offline playback. The reopened-owner
-regression retains a duplicate lock descriptor to reproduce the old `Busy` defect;
-separate checks keep live-owner exclusion and stale-ticket rejection intact.
+Tests use private isolated directories, generated audio and fake grants, not your
+application cache or wallet. They retain the original reopen/Busy regression and
+exercise the actual shared stores/player without establishing Music storage rights.
+The disk guard requires free space for the reserved write plus 1% of filesystem
+capacity, clamped to 64–512 MiB; tests must have that headroom too. Unlimited
+removes the user byte quota, not this guard or format/work bounds.
 
-In Preferences, audio usage is separate from metadata/artwork usage. The audio
-quota defaults to 256 MiB and accepts 16–4096 MiB. **Очистка кеша** clears both
-stores while preserving sign-in, queue and active playback. Audio storage uses
-the application's XDG cache directory (Flatpak's app-private cache when sandboxed),
-with no additional filesystem/session-bus permission. No switch bypasses the
-unestablished [service storage/reuse contract](AUDIO_CACHE_REVIEW.md).
+Existing v1 settings migrate without resetting sign-in: the two old default
+256 MiB limits become 2 GiB; custom valid limits are summed and rounded up to
+the next offered choice, with sums above 4 GiB becoming Unlimited. Corrupt cache
+values recover independently of valid session/forget/appearance fields. The
+on-disk metadata/artwork/audio formats and locations are retained.
 
-For the next Fedora Native and installed-Flatpak check, verify online playback,
-Pause/Resume/Seek/Next, Wave and MPRIS before and after Clear; verify quota/usage
-display, restart, logout and failed-cleanup Retry. **Service-audio usage must stay
-empty while admission is unavailable.** Do not report repeat-play caching as PASS
-on that basis. First-network-save → restart → online-revalidated local reuse is
-an outstanding acceptance scenario until the documented service gate is resolved.
-See [ADR-0029](adr/0029-synthetic-audio-cache-foundation.md) and
-[recorded verification](VALIDATION.md#v06-audio-cache-foundation).
+The owner accepted the preceding `707539b` infrastructure and Dislike→Next on
+Fedora Native and installed Flatpak. For this new revision, build using the
+commands above and the Flatpak section below, then check in **each** environment:
+
+1. Light/dark, compact/wide and HiDPI: six positions; Home/End/arrows and pointer;
+   readable value and no horizontal clipping. Restart preserves the choice.
+2. Compare the single usage total before/after ordinary browsing. Rapid slider
+   motion must leave the UI responsive; reducing the quota trims in the background.
+3. Play real Music, use Pause/Resume/Seek/Next, Wave and MPRIS. Disable and Clear
+   must preserve current playback/sign-in while preventing late cache publication.
+4. Retry a reported storage failure, restart/logout, and confirm account isolation.
+
+No switch bypasses the missing [service storage/reuse contract](AUDIO_CACHE_REVIEW.md).
+Music remains online-only, so the audio category must stay empty; metadata/artwork
+can make the displayed combined usage nonzero. Network-save → restart → fresh
+online validation → local reuse remains unaccepted until both provider conditions
+are established. See [ADR-0030](adr/0030-unified-cache-budget-and-preferences.md),
+[provider questions](AUDIO_CACHE_PROVIDER_REQUEST.md) and
+[validation](VALIDATION.md#v06-unified-cache).
 
 ## Flatpak source build
 

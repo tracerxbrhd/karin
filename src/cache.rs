@@ -257,6 +257,7 @@ struct Inner {
     state: Mutex<State>,
     io: Mutex<()>,
     clock: Arc<dyn Clock>,
+    shared: Option<Arc<crate::cache_budget::CacheBudget>>,
     #[cfg(test)]
     fail_removal: std::sync::atomic::AtomicBool,
     #[cfg(test)]
@@ -280,6 +281,7 @@ pub struct CacheLease {
     cache: Arc<Inner>,
     scope: AccountScope,
     generation: u64,
+    budget_generation: u64,
     entry: Option<([u8; 32], u64)>,
 }
 impl CacheLease {
@@ -298,6 +300,7 @@ impl PartialEq for CacheLease {
         Arc::ptr_eq(&self.cache, &other.cache)
             && self.scope == other.scope
             && self.generation == other.generation
+            && self.budget_generation == other.budget_generation
             && self.entry == other.entry
     }
 }
@@ -308,7 +311,13 @@ impl fmt::Debug for CacheLease {
     }
 }
 fn current(state: &State, lease: &CacheLease) -> bool {
-    state.policy.enabled && admitted(state, lease)
+    state.policy.enabled
+        && lease
+            .cache
+            .shared
+            .as_ref()
+            .is_none_or(|budget| budget.enabled() && budget.generation() == lease.budget_generation)
+        && admitted(state, lease)
 }
 fn admitted(state: &State, lease: &CacheLease) -> bool {
     !state.clearing
@@ -329,10 +338,27 @@ impl Cache {
     pub fn new(root: PathBuf, policy: CachePolicy) -> Result<Self, CacheError> {
         Self::with_clock(root, policy, Arc::new(WallClock))
     }
+    /// Attach the application-wide budget. Child stores retain their own format,
+    /// account and TTL checks, but no longer impose an independent byte quota.
+    pub fn new_with_budget(
+        root: PathBuf,
+        policy: CachePolicy,
+        budget: Arc<crate::cache_budget::CacheBudget>,
+    ) -> Result<Self, CacheError> {
+        Self::with_clock_and_budget(root, policy, Arc::new(WallClock), Some(budget))
+    }
     fn with_clock(
         root: PathBuf,
         policy: CachePolicy,
         clock: Arc<dyn Clock>,
+    ) -> Result<Self, CacheError> {
+        Self::with_clock_and_budget(root, policy, clock, None)
+    }
+    fn with_clock_and_budget(
+        root: PathBuf,
+        policy: CachePolicy,
+        clock: Arc<dyn Clock>,
+        shared: Option<Arc<crate::cache_budget::CacheBudget>>,
     ) -> Result<Self, CacheError> {
         if !root.is_absolute()
             || root
@@ -354,6 +380,7 @@ impl Cache {
             }),
             io: Mutex::new(()),
             clock,
+            shared,
             #[cfg(test)]
             fail_removal: std::sync::atomic::AtomicBool::new(false),
             #[cfg(test)]
@@ -371,6 +398,9 @@ impl Cache {
             state.advance();
         }
     }
+    pub fn shared_budget(&self) -> Option<Arc<crate::cache_budget::CacheBudget>> {
+        self.0.shared.clone()
+    }
     pub fn generation(&self) -> u64 {
         self.0
             .state
@@ -379,13 +409,26 @@ impl Cache {
     }
     pub fn lease(&self) -> Option<CacheLease> {
         let state = self.0.state.lock().ok()?;
-        if !state.policy.enabled || state.clearing || state.saturated {
+        if !state.policy.enabled
+            || self
+                .0
+                .shared
+                .as_ref()
+                .is_some_and(|budget| !budget.enabled())
+            || state.clearing
+            || state.saturated
+        {
             return None;
         }
         Some(CacheLease {
             cache: Arc::clone(&self.0),
             scope: state.scope.clone()?,
             generation: state.generation,
+            budget_generation: self
+                .0
+                .shared
+                .as_ref()
+                .map_or(0, |budget| budget.generation()),
             entry: None,
         })
     }
@@ -414,6 +457,11 @@ impl Cache {
             cache: Arc::clone(&self.0),
             scope: scope.clone(),
             generation: state.generation,
+            budget_generation: self
+                .0
+                .shared
+                .as_ref()
+                .map_or(0, |budget| budget.generation()),
             entry: None,
         };
         drop(state);
@@ -497,7 +545,13 @@ impl Cache {
             return Err(CacheError::Cancelled);
         }
         let state = self.state()?;
-        if !state.policy.enabled {
+        if !state.policy.enabled
+            || self
+                .0
+                .shared
+                .as_ref()
+                .is_some_and(|budget| !budget.enabled())
+        {
             return Err(CacheError::Disabled);
         }
         if !current(&state, lease) {
@@ -623,7 +677,9 @@ impl Cache {
             entry.freshness = Freshness::Stale;
         }
         drop(state);
-        if let Ok(file) = private_file(&path, true) {
+        if let Some(budget) = &self.0.shared {
+            budget.touch(&path).map_err(budget_error)?;
+        } else if let Ok(file) = private_file(&path, true) {
             let _ = file.set_times(
                 fs::FileTimes::new().set_modified(UNIX_EPOCH + Duration::from_secs(now)),
             );
@@ -655,7 +711,7 @@ impl Cache {
             return Err(CacheError::InvalidData);
         }
         let record_size = (HEADER_BYTES + bytes.len()) as u64;
-        if record_size > policy.max_bytes {
+        if self.0.shared.is_none() && record_size > policy.max_bytes {
             return Err(CacheError::TooLarge);
         }
         let _io = self.admit()?;
@@ -668,9 +724,31 @@ impl Cache {
         entries.retain(|entry| entry.path != path);
         evict(
             &mut entries,
-            policy.max_bytes.saturating_sub(record_size),
+            if self.0.shared.is_some() {
+                u64::MAX
+            } else {
+                policy.max_bytes.saturating_sub(record_size)
+            },
             MAX_ENTRIES - 1,
         )?;
+        let reservation = self
+            .0
+            .shared
+            .as_ref()
+            .map(|budget| {
+                budget
+                    .reserve(
+                        if key.kind == EntryKind::Artwork {
+                            crate::cache_budget::Category::Artwork
+                        } else {
+                            crate::cache_budget::Category::Metadata
+                        },
+                        &path,
+                        record_size,
+                    )
+                    .map_err(budget_error)
+            })
+            .transpose()?;
         let mut random = [0u8; 16];
         SystemRandom::new()
             .fill(&mut random)
@@ -714,6 +792,12 @@ impl Cache {
         self.pause_commit();
         fs::rename(&temp, &path).map_err(|_| CacheError::Unavailable)?;
         sync_directory(parent)?;
+        if let Some(reservation) = reservation
+            && let Err(error) = reservation.finish(record_size)
+        {
+            let _ = fs::remove_file(&path);
+            return Err(budget_error(error));
+        }
         let mut state = self.state()?;
         if !current(&state, lease) {
             return Err(CacheError::Cancelled);
@@ -887,7 +971,19 @@ impl Cache {
         let _io = self.admit()?;
         let policy = self.state()?.policy;
         let mut files = self.scan(true)?;
-        evict(&mut files, policy.max_bytes, MAX_ENTRIES)?;
+        if let Some(budget) = &self.0.shared {
+            budget.trim().map_err(budget_error)?;
+            files = self.scan(true)?;
+        }
+        evict(
+            &mut files,
+            if self.0.shared.is_some() {
+                u64::MAX
+            } else {
+                policy.max_bytes
+            },
+            MAX_ENTRIES,
+        )?;
         stats(&files)
     }
     /// A clear blocks new leases and invalidates operations both before and
@@ -997,6 +1093,17 @@ impl Cache {
             }
         }
         Ok(entries)
+    }
+}
+
+fn budget_error(error: crate::cache_budget::BudgetError) -> CacheError {
+    use crate::cache_budget::BudgetError;
+    match error {
+        BudgetError::Disabled => CacheError::Disabled,
+        BudgetError::Limit => CacheError::TooLarge,
+        BudgetError::InvalidInput => CacheError::InvalidInput,
+        BudgetError::Cancelled => CacheError::Cancelled,
+        BudgetError::Unavailable => CacheError::Unavailable,
     }
 }
 
