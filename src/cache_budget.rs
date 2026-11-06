@@ -240,6 +240,26 @@ impl CacheBudget {
             return Err(BudgetError::InvalidInput);
         }
         let _io = self.io.lock().map_err(|_| BudgetError::Unavailable)?;
+        self.touch_locked(path)
+    }
+    /// Opportunistic worker-side LRU bookkeeping for playback selection. Do not
+    /// queue behind a metadata/artwork scan or trim just to refresh a timestamp.
+    /// A later uncontended access can refresh the same shared LRU entry.
+    /// This only avoids waiting for the coordinator; filesystem work still
+    /// belongs on a worker, never on GTK or a GStreamer streaming callback.
+    pub fn try_touch(&self, path: &Path) -> Result<bool> {
+        if !self.record_path(Category::Audio, path) && !self.record_path(Category::Metadata, path) {
+            return Err(BudgetError::InvalidInput);
+        }
+        let _io = match self.io.try_lock() {
+            Ok(guard) => guard,
+            Err(std::sync::TryLockError::WouldBlock) => return Ok(false),
+            Err(std::sync::TryLockError::Poisoned(_)) => return Err(BudgetError::Unavailable),
+        };
+        self.touch_locked(path)?;
+        Ok(true)
+    }
+    fn touch_locked(&self, path: &Path) -> Result<()> {
         if !self.safe_record(path)? {
             return Ok(());
         }

@@ -2,7 +2,7 @@
 
 # ADR-0029: Production audio-cache boundary and service admission
 
-Status: Production infrastructure; real service storage/reuse remains blocked
+Status: Production caching for independently permitted audio; Yandex admission unconfirmed
 Date: 2026-11-05
 Extends: ADR-0015, ADR-0019 and ADR-0026
 Supersedes the test-only implementation boundary of the original PR #26 candidate
@@ -33,8 +33,13 @@ invented prerequisite for the online-only cache.
 Compile `audio_cache` into ordinary Native/Flatpak builds.
 Keep account isolation, integrity validation, atomic publication, cancellation,
 quota/LRU and restart recovery in this shared implementation. Generated-media
-fixtures exercise the same store; the fake permission authority and original WAV
-constructor belong only to tests. Do not keep a second unused synthetic store.
+fixtures exercise the same store. The production `LicensedResourceAuthority`
+accepts trusted rightsholder declarations for exact CC0 resources, bound to
+account/track, SHA-256, byte length and an admission revision. Untrusted API
+license labels, cache directives and streaming success cannot create those
+entries. Original generated fixture audio is expressly dedicated to CC0-1.0;
+its Rust generator and application source remain GPL-3.0-or-later. Fake authorities
+used by narrower unit tests remain test-only; there is no second synthetic store.
 `StorageAuthority::authorize` runs on a worker; `check` examines its existing live
 grant/revocation state without I/O. `StorageGrant` carries an opaque resource
 identity and authority revision. The local namespace discriminator is a storage
@@ -66,11 +71,11 @@ must not turn an otherwise valid online playback attempt into a playback error.
 
 Use `$XDG_CACHE_HOME/<app-id>/audio`, separate from metadata/artwork, with private
 0700 directories/0600 files, SHA-256 integrity and atomic publication of complete
-records. Hashes are integrity/opaque-name mechanisms, not encryption. The default
-completed-record budget is 256 MiB; Preferences allow 16–4096 MiB. Hard bounds are
-1024 records, 64 MiB per resource and four pending requests. One serialized writer
-can temporarily add one bounded staging file, at most 64 MiB, before publication
-and eviction. I/O belongs on workers. Clear, logout/account changes and cancellation fence pending writes
+records. Hashes are integrity/opaque-name mechanisms, not encryption. The one
+shared user budget and six choices follow ADR-0030, with 2 GiB by default. Hard
+bounds are 1024 records, 64 MiB per resource and four pending requests. Bounded
+staging counts against that shared budget; only complete records are published.
+I/O belongs on workers. Clear, logout/account changes and cancellation fence pending writes
 before cleanup. Incomplete/corrupt entries are not hits. Independent namespace
 owners cannot create conflicting generations; stale requests/hits must not regain
 admission after reopen. Normal close may retain admitted entries for revalidation
@@ -79,8 +84,11 @@ a fork/dup-retained open file description must not keep a dead owner's namespace
 busy. Live strong owners still exclude a second owner; weak tickets cannot revive
 the namespace. The destructor is owner-process guarded.
 
-The existing StreamResolver performs fresh online admission before cache selection.
-Start the selection's opaque check before network resolution. Failure,
+Independent permission lookup and disk hashing overlap the existing
+StreamResolver's fresh online admission on a bounded worker. Selection consumes
+only an already-ready result; a slow or busy cache leaves that play online.
+File-descriptor wrapping and final admission are memory-only, while LRU work is
+deferred. Start the selection's opaque check before network resolution. Failure,
 cancellation or replacement retires that admission; an older completion cannot
 replace a newer account/request/policy generation, including a return to the same
 account. This local freshness fence does not grant storage permission, delete a
@@ -95,16 +103,21 @@ actual Playing, a failure remains the normal player error; there is no seamless
 mid-track retry or reset of Wave's measured-playing ledger. There is no parallel
 audio engine or repeated resolution loop.
 
-An independently granted fill makes one bounded whole-resource GET with the
-existing credential-free resolver client. It requires HTTP 200 and one
-`audio/mpeg` content type, rejecting redirects, `no-store`, Content-Encoding and
-Content-Range. The existing request deadline and 64 MiB streaming limit apply.
-No OAuth token or cookie is forwarded to the media host; no service grant means
-no fill request or media write.
+An independently granted fill captures the existing guarded `souphttpsrc`
+compressed bytes without changing buffers/events, starting another request or
+creating another GStreamer pipeline. Its nonblocking 2 MiB memory queue abandons
+the cache copy on overflow instead of delaying audio. The existing writer starts
+only after actual Playing. HTTP headers must establish `audio/mpeg`, a bounded
+complete length and either HTTP200 or HTTP206 covering exactly `0..total-1`.
+`no-store`, encoding, partial ranges, seek/discontinuity, incomplete transfer,
+network failure and cancellation prevent publication while leaving the online
+player path available. Read/write content must match the independently licensed
+SHA-256 and length. No OAuth token or cookie is forwarded to the media host;
+without a storage grant no audio capture or media write is admitted.
 
 No second GStreamer engine, daemon, DRM mechanism,
 new OAuth identity or broad Flatpak permission follows. Cache maintenance and
-settings report measured storage state and a separate audio quota. Combined Clear
+settings report measured total storage under the shared quota. Combined Clear
 removes metadata, artwork and audio records while preserving the active validated
 session and an already admitted playback file descriptor. Logout purges its audio
 scope; account switches fence the old scope. No saved/offline Music badge follows.
@@ -116,11 +129,17 @@ Preserve all original storage scenarios and add regressions for namespace lifeti
 reopen/restart, production hit/miss/write/reuse, current permission checks,
 integrity/fallback, cancellation/concurrency, quota/LRU, cleanup and account changes.
 Exercise native settings/lifecycle and shared-player behavior without real account
-data in Cloud. Recorded results belong in
+data in Cloud. The ordinary-application process fixture uses MainWindow,
+persistence, the shared budget, queue and GStreamer with original CC0 audio and
+the production licensed-resource policy. Record completed cache files, actual
+media GET/byte counts, local replay/restart identity, refusal, corruption repair,
+active Clear and `no-store` behavior. These are permitted-resource scenarios,
+not live-service evidence. Recorded results belong in
 [VALIDATION](../VALIDATION.md#v06-audio-cache-foundation).
 
-The owner-visible criterion remains incomplete until an applicable storage/reuse
-grant and concrete online validation contract can be wired into the service:
+The real Yandex Music criterion remains incomplete until applicable storage/reuse
+permission and a confirmed fresh-access/representation-identity check can be
+wired into the service:
 first network playback publishes a complete entry; a later online-authorized hit
 uses it; restart preserves it; refusal/account change/Clear prevents stale reuse;
 storage failures leave valid network playback working. Then verify this on Fedora

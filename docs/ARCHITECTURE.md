@@ -111,7 +111,8 @@ PlaybackController sends commands through a 32-entry channel to one worker-owned
 `playbin`. Snapshots supply actual state, position/duration, seekability, volume
 and safe errors. A worker-owned cumulative Playing clock excludes pause and seek
 distance independently of GTK scheduling. Commands alone do not imply Playing; Seeked requires worker
-acknowledgement. Local-file diagnostics remain; service audio is not persisted.
+acknowledgement. Local-file diagnostics remain; independently permitted media can
+use the shared audio cache. Ordinary Yandex catalog audio remains online-only.
 Shutdown bypasses channel capacity and releases the pipeline in `Null` before
 completion, without GTK joining the worker.
 
@@ -189,26 +190,41 @@ staging accounting, metadata fairness and local disk safeguards.
 `audio_cache` remains typed production code, opened on a worker under the app's
 XDG cache `audio` directory. Account-scoped opaque keys, generation fences,
 integrity/atomic publication and an exclusive namespace owner guard reads/writes
-and restart. Per-resource 64 MiB, 1024-record and four-pending bounds remain;
+and restart. A separate one-writer gate spans the streamed body; the read/Clear
+I/O gate covers initialization and atomic commit, with a live staging marker.
+Scans preserve that marker; Clear fences and unlinks it without waiting for more
+network bytes. Commit retries contention only on the worker, for at most 250 ms,
+with cancellation checks. Retired staging is recovered before quota eviction.
+Per-resource 64 MiB, 1024-record and four-pending bounds remain;
 these safety bounds are independent of the shared user quota.
 
-Fresh StreamResolver admission precedes cache selection. `StorageAuthority`
-separately authorizes storage/reuse and checks a current in-memory permission
-lease before a hit or publication. The real `MissingStorageContract` authority
-refuses admission: neither a streaming URL nor account/subscription metadata is
-converted into a storage permission. Real Music consequently keeps the accepted
-online path without saving audio. The immediate target is online-revalidated
-reuse, not an offline mode with invented retention times.
+Independent permission lookup and disk integrity preparation overlap fresh
+StreamResolver resolution on bounded workers. Only an already-ready result can
+be admitted after current access succeeds; a slow or busy cache leaves that play
+online. Final file-descriptor admission is memory-only and LRU bookkeeping is
+deferred. `StorageAuthority` separately checks storage/reuse permission and its
+current revision. `LicensedResourceAuthority` accepts trusted rightsholder CC0
+input bound to account/track and exact SHA-256/length; neither untrusted API
+license labels nor streaming success supply that declaration. Read/publication
+must match the permitted bytes. Ordinary Yandex assembly still uses
+`MissingStorageContract`, so real catalog audio keeps the accepted online path
+without saving. This is online-revalidated reuse, not an invented offline lease.
 
 The shared bridge hands an admitted hit's verified read-only file descriptor to
 the same PlaybackController. A decoder failure before any actual Playing can
 fall back once to its admitted online source in that same worker. A failure after
 Playing remains a normal player error, preserving Wave's actual-playing ledger.
-It starts an admitted cache write only after actual Playing; cancellation, Clear,
-logout and account changes fence old work before cleanup. Clear can unlink a
-record without invalidating an already admitted active descriptor. Normal close
-may retain admitted records for fresh online revalidation on restart. Generated
-media and the fake authority remain test-only inputs to these production paths.
+A bounded source-pad capture reuses that player's compressed HTTP bytes,
+without an extra media GET or second pipeline. Its 2 MiB queue never waits for
+storage: incomplete/partial or encoded responses, `no-store`, discontinuity,
+seek, cancellation and queue overflow abandon only the cache copy. Complete
+HTTP200 or whole-representation HTTP206 can feed the existing writer after
+actual Playing. Only complete, integrity-checked permitted bytes are published.
+Clear/logout/account changes fence old work before cleanup. Clear can unlink a
+record without invalidating an already admitted active descriptor; normal close
+may retain records for fresh online admission after restart. The process-level
+application fixture supplies original audio expressly dedicated to CC0 and uses
+this production rights/store/player path without a real Yandex account.
 [ADR-0029](adr/0029-synthetic-audio-cache-foundation.md) and
 [AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md) define the admission gate.
 

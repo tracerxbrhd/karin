@@ -6,15 +6,16 @@ use super::*;
 pub(super) fn guard_pipeline(
     pipeline: &gst::Element,
     admission: RemotePlaybackSource,
+    capture: Option<crate::audio_cache::capture::Capture>,
 ) -> Result<Arc<AtomicBool>, PlaybackError> {
-    guard_source_pipeline(pipeline, Admission::Remote(admission))
+    guard_source_pipeline(pipeline, Admission::Remote(admission), capture)
 }
 
 pub(super) fn guard_cached_pipeline(
     pipeline: &gst::Element,
     uri: &str,
 ) -> Result<Arc<AtomicBool>, PlaybackError> {
-    guard_source_pipeline(pipeline, Admission::Cached(uri.to_owned()))
+    guard_source_pipeline(pipeline, Admission::Cached(uri.to_owned()), None)
 }
 
 enum Admission {
@@ -33,6 +34,7 @@ impl Admission {
 fn guard_source_pipeline(
     pipeline: &gst::Element,
     admission: Admission,
+    capture: Option<crate::audio_cache::capture::Capture>,
 ) -> Result<Arc<AtomicBool>, PlaybackError> {
     let refused = Arc::new(AtomicBool::new(false));
     let admission = Arc::new(admission);
@@ -48,6 +50,8 @@ fn guard_source_pipeline(
         {
             if !configure_source(&source, &source_admission) {
                 reject(&source, &source_refused);
+            } else if let Some(capture) = &capture {
+                capture.attach(&source);
             }
         } else {
             source_refused.store(true, Ordering::Release);

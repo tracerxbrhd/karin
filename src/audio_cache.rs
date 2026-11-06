@@ -21,7 +21,7 @@ use std::{
         Arc, Mutex, MutexGuard, Weak,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
-    time::{Duration, UNIX_EPOCH},
+    time::{Duration, Instant, UNIX_EPOCH},
 };
 
 #[cfg(test)]
@@ -114,6 +114,21 @@ impl fmt::Debug for ResourceIdentity {
 pub struct StorageGrant {
     identity: ResourceIdentity,
     revision: u64,
+    // An independent exact-content license can admit only these media bytes.
+    content: Option<ContentClaim>,
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ContentClaim {
+    sha256: Key,
+    bytes: u64,
+}
+impl ContentClaim {
+    pub(crate) fn length(self) -> u64 {
+        self.bytes
+    }
+    fn matches(self, bytes: u64, sha256: &[u8]) -> bool {
+        self.bytes == bytes && self.sha256.as_slice() == sha256
+    }
 }
 impl StorageGrant {
     /// Authority-owned opaque generation, not a retention deadline or license.
@@ -155,6 +170,12 @@ pub trait StorageAuthority: Send + Sync {
     fn commit_online(&self, prepared: VerifiedOnline) -> Result<()> {
         self.check(&prepared.permission)
     }
+    /// Memory-only validation of the independently prepared storage permit;
+    /// this is not yet permission to play a cached file without online admission.
+    #[doc(hidden)]
+    fn check_storage_prepared(&self, prepared: &VerifiedOnline) -> Result<()> {
+        self.check(&prepared.permission)
+    }
 }
 /// Opaque one-use online attempt; not persisted or a storage permission.
 #[doc(hidden)]
@@ -182,6 +203,7 @@ impl StorageAuthority for MissingStorageContract {
     }
 }
 
+pub mod licensed;
 mod online;
 pub use online::OnlineStreamAuthority;
 
@@ -266,6 +288,7 @@ struct State {
     clearing: bool,
     pending: BTreeMap<Key, Arc<()>>,
     sequence: u64,
+    active_stage: Option<PathBuf>,
 }
 struct Inner {
     sandbox: Arc<Sandbox>,
@@ -274,11 +297,13 @@ struct Inner {
     budget: AtomicU64,
     state: Mutex<State>,
     io: Mutex<()>,
+    writer: Mutex<()>,
     // Held for the complete namespace-owner lifetime. Separate instances must
     // not retain independent generations for the same directory.
     _lock_file: File,
     owner_pid: u32,
     admission_nonce: Key,
+    lookup_running: Arc<AtomicBool>,
     shared: Option<Arc<crate::cache_budget::CacheBudget>>,
 }
 impl Drop for Inner {
@@ -389,10 +414,29 @@ pub struct Stats {
 struct IoGuard<'a> {
     _local: MutexGuard<'a, ()>,
 }
-struct PartialRecord(PathBuf);
+struct PartialRecord {
+    path: PathBuf,
+    owner: Weak<Inner>,
+}
 impl Drop for PartialRecord {
     fn drop(&mut self) {
-        let _ = remove_record(&self.0);
+        let Some(owner) = self.owner.upgrade() else {
+            return;
+        };
+        if owner.owner_pid != std::process::id() {
+            return;
+        }
+        // Serialize path removal with Clear/scans, but never make teardown wait
+        // for another disk operation. A contended leftover becomes an orphan
+        // for the next scan; the shared budget still counts its actual bytes.
+        if let Ok(_io) = owner.io.try_lock() {
+            let _ = remove_record(&self.path);
+        }
+        if let Ok(mut state) = owner.state.lock()
+            && state.active_stage.as_ref() == Some(&self.path)
+        {
+            state.active_stage = None;
+        }
     }
 }
 
@@ -470,11 +514,14 @@ impl AudioCache {
                 clearing: false,
                 pending: BTreeMap::new(),
                 sequence: 0,
+                active_stage: None,
             }),
             io: Mutex::new(()),
+            writer: Mutex::new(()),
             _lock_file: lock_file,
             owner_pid: std::process::id(),
             admission_nonce,
+            lookup_running: Arc::new(AtomicBool::new(false)),
             shared,
         }));
         {
@@ -540,6 +587,7 @@ impl AudioCache {
     pub(crate) fn observe_verified_online(&self, lease: &Lease, check: OnlineCheck) -> Result<()> {
         self.observe_verified_online_if(lease, check, || true)
     }
+    #[cfg(test)]
     pub(crate) fn observe_verified_online_if(
         &self,
         lease: &Lease,
@@ -582,10 +630,14 @@ impl AudioCache {
     }
     pub fn trim(&self) -> Result<Stats> {
         let _io = self.io()?;
+        // Recover retired staging before the shared budget chooses victims;
+        // counted orphans must not evict otherwise useful completed media.
+        let entries = self.scan()?;
         if let Some(budget) = &self.0.shared {
             budget.trim().map_err(budget_error)?;
+        } else {
+            self.evict(entries, 0, None)?;
         }
-        self.evict(self.scan()?, 0, None)?;
         let entries = self.scan()?;
         Ok(Stats {
             bytes: entries.iter().map(|e| e.bytes).sum(),
@@ -677,47 +729,91 @@ impl AudioCache {
         before_commit: impl FnOnce() -> Result<()>,
     ) -> Result<()> {
         self.request_current(&request)?;
-        let _io = self.io()?;
-        self.request_current(&request)?;
+        // One bounded staging writer, without occupying the read/Clear gate
+        // while the captured source is paused or waiting for network bytes.
+        let _writer = match self.0.writer.try_lock() {
+            Ok(writer) => writer,
+            Err(std::sync::TryLockError::WouldBlock) => return Err(CacheError::Busy),
+            Err(std::sync::TryLockError::Poisoned(_)) => return Err(CacheError::Unavailable),
+        };
         let key = request.permit.identity.key();
-        let reservation = self
-            .0
-            .shared
-            .as_ref()
-            .map(|budget| {
-                budget
-                    .reserve(
-                        crate::cache_budget::Category::Audio,
-                        &self.path(key),
-                        (HEADER + MAX_AUDIO) as u64,
-                    )
-                    .map_err(budget_error)
-            })
-            .transpose()?;
-        let temporary = self
-            .0
-            .sandbox
-            .path
-            .join(format!(".part-{}", random_name()?));
-        fs::DirBuilder::new()
-            .mode(0o700)
-            .create(&temporary)
-            .map_err(|_| CacheError::Unavailable)?;
-        let guard = PartialRecord(temporary.clone());
+        let (temporary, reservation, output) = {
+            let _io = self.io()?;
+            self.request_current(&request)?;
+            let reservation = self
+                .0
+                .shared
+                .as_ref()
+                .map(|budget| {
+                    budget
+                        .reserve(
+                            crate::cache_budget::Category::Audio,
+                            &self.path(key),
+                            HEADER as u64
+                                + request
+                                    .permit
+                                    .content
+                                    .map_or(MAX_AUDIO as u64, ContentClaim::length),
+                        )
+                        .map_err(budget_error)
+                })
+                .transpose()?;
+            let temporary = self
+                .0
+                .sandbox
+                .path
+                .join(format!(".part-{}", random_name()?));
+            fs::DirBuilder::new()
+                .mode(0o700)
+                .create(&temporary)
+                .map_err(|_| CacheError::Unavailable)?;
+            let output = match new_file(&temporary.join("media.bin")) {
+                Ok(output) => output,
+                Err(error) => {
+                    let _ = remove_record(&temporary);
+                    return Err(error);
+                }
+            };
+            let registered = self
+                .0
+                .state
+                .lock()
+                .map(|mut state| state.active_stage = Some(temporary.clone()))
+                .is_ok();
+            if !registered {
+                let _ = remove_record(&temporary);
+                return Err(CacheError::Unavailable);
+            }
+            (temporary, reservation, output)
+        };
+        let guard = PartialRecord {
+            path: temporary.clone(),
+            owner: Arc::downgrade(&self.0),
+        };
+        self.request_current(&request)?;
         let mut length = 0usize;
         let mut content = ring::digest::Context::new(&SHA256);
         {
-            let mut output = new_file(&temporary.join("media.bin"))?;
+            let mut output = output;
             let mut chunk = [0; 16 * 1024];
             loop {
                 self.request_current(&request)?;
-                let read = reader
-                    .read(&mut chunk)
-                    .map_err(|_| CacheError::Unavailable)?;
+                let read = reader.read(&mut chunk);
+                // A retiring capture reader may return an I/O error before
+                // any new bytes. Preserve the actual lease/cancellation reason.
+                self.request_current(&request)?;
+                let read = read.map_err(|_| CacheError::Unavailable)?;
                 if read == 0 {
                     break;
                 }
                 length = length.checked_add(read).ok_or(CacheError::Limit)?;
+                if request
+                    .permit
+                    .content
+                    .is_some_and(|expected| length as u64 > expected.length())
+                {
+                    return Err(CacheError::NoGrant);
+                }
                 if length > MAX_AUDIO
                     || (self.0.shared.is_none()
                         && (HEADER + length) as u64 > self.0.budget.load(Ordering::Acquire))
@@ -734,17 +830,26 @@ impl AudioCache {
             }
             output.sync_all().map_err(|_| CacheError::Unavailable)?;
         }
+        let _io = self.commit_io(&request)?;
+        let measured_digest = content.finish();
+        if request
+            .permit
+            .content
+            .is_some_and(|claim| !claim.matches(length as u64, measured_digest.as_ref()))
+        {
+            return Err(CacheError::NoGrant);
+        }
         let header = encode_digest(
             request.permit.identity,
             length as u64,
-            content.finish().as_ref(),
+            measured_digest.as_ref(),
         );
         write_private(&temporary.join("header"), &header)?;
         sync_dir(&temporary)?;
         before_commit()?;
         self.request_current(&request)?;
         // Preserve useful old data on malformed/oversized/failed readers. At
-        // most one bounded staging file exists under the I/O lock. Completed
+        // most one bounded staging file exists under the writer gate. Completed
         // records obey the budget; peak temporary overhead is MAX_AUDIO.
         let entries = self.scan_except(Some(&temporary))?;
         self.evict(entries, (HEADER + length) as u64, Some(key))?;
@@ -808,11 +913,24 @@ impl AudioCache {
         let _io = self.io()?;
         self.lease_current(lease)?;
         let path = self.path(identity.key());
-        let Some(file) = read_record(&path, identity.key(), Some(identity.scope()))? else {
+        let Some(file) = read_record(
+            &path,
+            identity.key(),
+            Some(identity.scope()),
+            permit.content,
+        )?
+        else {
             return Ok(None);
         };
         self.check(lease, permit)?;
-        self.touch(&path)?;
+        // A verified, still-admitted inode must not become an online refetch
+        // merely because LRU bookkeeping is busy or unavailable. In particular,
+        // do not wait behind a global metadata/artwork scan on this hot path.
+        if let Some(budget) = &self.0.shared {
+            let _ = budget.try_touch(&path);
+        } else {
+            let _ = self.touch(&path);
+        }
         Ok(Some(Hit {
             owner: Arc::downgrade(&self.0),
             lease: lease.clone(),
@@ -826,14 +944,20 @@ impl AudioCache {
         self.clear_before_complete(|| {})
     }
     fn clear_before_complete(&self, before_complete: impl FnOnce()) -> Result<Stats> {
-        let generation = {
+        let (generation, active) = {
             let mut state = self.0.state.lock().map_err(|_| CacheError::Unavailable)?;
             state.generation = state.generation.checked_add(1).ok_or(CacheError::Limit)?;
             state.clearing = true;
             state.pending.clear();
-            state.generation
+            (state.generation, state.active_stage.clone())
         };
         let _io = self.io()?;
+        // Ordinary scans preserve a live writer. Clear is different: its
+        // generation fence already retired that writer, so unlink the staging
+        // path even if the source is paused and no further bytes arrive.
+        if let Some(path) = active {
+            remove_record(&path)?;
+        }
         for entry in self.scan()? {
             remove_record(&entry.path)?;
         }
@@ -869,6 +993,21 @@ impl AudioCache {
         private_dir(&self.0.sandbox.path)?;
         Ok(guard)
     }
+    fn commit_io(&self, request: &Request) -> Result<IoGuard<'_>> {
+        let deadline = Instant::now() + Duration::from_millis(250);
+        loop {
+            self.request_current(request)?;
+            match self.io() {
+                Ok(guard) => return Ok(guard),
+                Err(CacheError::Busy) if Instant::now() < deadline => {
+                    // Only the cache worker waits; no player, GTK or streaming
+                    // callback is joined, and teardown is checked every turn.
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
     fn touch(&self, path: &Path) -> Result<()> {
         if let Some(budget) = &self.0.shared {
             return budget.touch(path).map_err(budget_error);
@@ -890,6 +1029,13 @@ impl AudioCache {
         self.scan_except(None)
     }
     fn scan_except(&self, active: Option<&Path>) -> Result<Vec<DiskEntry>> {
+        let live = self
+            .0
+            .state
+            .lock()
+            .map_err(|_| CacheError::Unavailable)?
+            .active_stage
+            .clone();
         let mut entries = Vec::new();
         for (number, item) in fs::read_dir(&self.0.sandbox.path)
             .map_err(|_| CacheError::Unavailable)?
@@ -904,13 +1050,15 @@ impl AudioCache {
             if name == ".lock" {
                 continue;
             }
-            if active.is_some_and(|active| active == item.path()) {
+            if active.is_some_and(|active| active == item.path())
+                || live.as_ref().is_some_and(|active| *active == item.path())
+            {
                 continue;
             }
             if name.strip_prefix(".part-").is_some_and(valid_hex) {
-                // With the owner/I/O locks held there is no concurrent writer:
-                // any visible staging record is orphaned. It must be removed
-                // or fail the operation, never disappear from quota accounting.
+                // The sole live stage is registered separately above. Every
+                // other stage is an orphan, including a crash/reopen leftover.
+                // Remove it or fail; do not hide it from quota accounting.
                 remove_record(&item.path())?;
                 continue;
             }
@@ -1028,7 +1176,12 @@ fn record_size(path: &Path, key: Key) -> Result<Option<u64>> {
     }
 }
 
-fn read_record(path: &Path, key: Key, scope: Option<Key>) -> Result<Option<File>> {
+fn read_record(
+    path: &Path,
+    key: Key,
+    scope: Option<Key>,
+    claim: Option<ContentClaim>,
+) -> Result<Option<File>> {
     if !path.exists() {
         return Ok(None);
     }
@@ -1049,7 +1202,10 @@ fn read_record(path: &Path, key: Key, scope: Option<Key>) -> Result<Option<File>
             return Ok(None);
         }
         let length = u64::from_be_bytes(header[72..80].try_into().unwrap());
-        if length == 0 || length > MAX_AUDIO as u64 {
+        if length == 0
+            || length > MAX_AUDIO as u64
+            || claim.is_some_and(|expected| expected.length() != length)
+        {
             return Ok(None);
         }
         let mut input = open_private(&path.join("media.bin"))?;
@@ -1072,9 +1228,13 @@ fn read_record(path: &Path, key: Key, scope: Option<Key>) -> Result<Option<File>
             }
             context.update(&chunk[..read]);
         }
+        let measured_digest = context.finish();
         let mut data = header[..80].to_vec();
-        data.extend_from_slice(context.finish().as_ref());
-        if measured != length || hash(&data) != header[80..112] {
+        data.extend_from_slice(measured_digest.as_ref());
+        if measured != length
+            || hash(&data) != header[80..112]
+            || claim.is_some_and(|expected| !expected.matches(measured, measured_digest.as_ref()))
+        {
             return Ok(None);
         }
         input
@@ -1232,6 +1392,8 @@ fn random_name() -> Result<String> {
 }
 
 pub(crate) mod bridge;
+pub(crate) mod capture;
+mod selection;
 
 #[cfg(test)]
 pub(crate) mod test_support;

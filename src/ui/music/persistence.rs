@@ -6,7 +6,7 @@ use super::*;
 use crate::{
     audio_cache::{
         AudioCache, CacheError as AudioError, CachePolicy as AudioPolicy, Lease as AudioLease,
-        OnlineStreamAuthority, Stats as AudioStats,
+        MissingStorageContract, OnlineStreamAuthority, Stats as AudioStats, StorageAuthority,
     },
     cache::{AccountScope, Cache, CachePolicy, CacheStats},
     cache_budget::CacheBudget,
@@ -112,6 +112,8 @@ pub(super) struct State {
     cache_message: Option<String>,
     audio_root: Option<PathBuf>,
     audio_cache: Option<AudioCache>,
+    // Trusted assembly policy; service metadata/streaming never populates it.
+    audio_permission: Arc<dyn StorageAuthority>,
     audio_cache_stats: Option<AudioStats>,
     audio_purge_pending: bool,
     audio_purge_generation: u64,
@@ -204,6 +206,7 @@ impl State {
             cache_message: None,
             audio_root: enabled.then_some(audio_root),
             audio_cache: None,
+            audio_permission: Arc::new(MissingStorageContract),
             audio_cache_stats: None,
             audio_purge_pending: false,
             audio_purge_generation: 0,
@@ -299,6 +302,7 @@ fn open_audio_store(
     root: Option<PathBuf>,
     policy: AudioPolicy,
     budget: Option<Arc<CacheBudget>>,
+    permission: Arc<dyn StorageAuthority>,
 ) -> Result<Option<AudioCache>, AudioError> {
     if let Some(cache) = current {
         cache.configure(policy)?;
@@ -307,12 +311,15 @@ fn open_audio_store(
     root.map(|root| match budget {
         Some(budget) => AudioCache::open_with_budget(
             root,
-            // Default delegates to MissingStorageContract; stream success grants no storage rights.
-            Arc::new(OnlineStreamAuthority::default()),
+            Arc::new(OnlineStreamAuthority::with_storage_permission(permission)),
             policy,
             budget,
         ),
-        None => AudioCache::open(root, Arc::new(OnlineStreamAuthority::default()), policy),
+        None => AudioCache::open(
+            root,
+            Arc::new(OnlineStreamAuthority::with_storage_permission(permission)),
+            policy,
+        ),
     })
     .transpose()
 }
@@ -391,6 +398,7 @@ impl Controller {
                 p.injected.take(),
                 p.audio_root.clone(),
                 p.cache_budget.clone(),
+                p.audio_permission.clone(),
             )
         };
         if !self.persistence.borrow().retry_connected {
@@ -421,7 +429,7 @@ impl Controller {
                     let _ = budget.configure(values.cache_enabled, values.cache_limit.bytes());
                 }
                 let audio_policy = AudioPolicy::default();
-                let audio_cache = open_audio_store(None, inputs.2, audio_policy, inputs.3);
+                let audio_cache = open_audio_store(None, inputs.2, audio_policy, inputs.3, inputs.4);
                 Initial {
                     audio_cache,
                     settings: settings.ok(),
@@ -957,6 +965,7 @@ impl Controller {
                 p.audio_policy(),
                 p.audio_purge_pending,
                 p.cache_budget.clone(),
+                p.audio_permission.clone(),
             )
         };
         self.render_persistence();
@@ -984,7 +993,7 @@ impl Controller {
                 // Complete that audio intent rather than leaving its fence
                 // stranded or reporting an unfinished deletion as successful.
                 let audio = if task.6 || task.11 {
-                    open_audio_store(task.8, task.9, task.10, task.12)
+                    open_audio_store(task.8, task.9, task.10, task.12, task.13)
                         .and_then(|cache| cache.map_or(Ok(()), |cache| cache.logout().map(|_| ())))
                         .map_err(|_| ())
                 } else {
@@ -1465,6 +1474,7 @@ impl Controller {
                 p.audio_purge_pending,
                 p.audio_purge_generation,
                 p.cache_budget.clone(),
+                p.audio_permission.clone(),
             )
         };
         let operation = task.1;
@@ -1478,7 +1488,7 @@ impl Controller {
                     CacheTask::Trim => cache.trim().map_err(|_| ()),
                     CacheTask::Clear => cache.clear().map_err(|_| ()),
                 });
-                let audio = open_audio_store(task.2, task.3, task.4, task.7.clone()).and_then(|cache| {
+                let audio = open_audio_store(task.2, task.3, task.4, task.7.clone(), task.8).and_then(|cache| {
                     cache.map(|cache| {
                         let stats = if audio_clear {
                             cache.clear()?

@@ -180,6 +180,7 @@ jobs:
               'native_preferences_persistent_controls_snapshot_updates_and_cleanup',
               'native_playlist_creation_confirmation_refresh_refusal_and_late_widgets',
               'native_persistent_session_restore_settings_forget_and_close',
+              'native_audio_cache_application_process_restart',
               'native_catalog_cache_provenance_interleaving_and_retired_replies',
           ]
           compiled = {line.rsplit('::', 1)[-1].removesuffix(': test')
@@ -264,6 +265,13 @@ jobs:
           fi
           dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_persistent_session_restore_settings_forget_and_close -- --ignored --test-threads=1
           dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_catalog_cache_provenance_interleaving_and_retired_replies -- --ignored --test-threads=1
+      - name: Audio cache through the normal app and real process restart
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+          G_DEBUG: fatal-warnings
+          KARIN_TEST_CAPTURE_DIR: ${{ github.workspace }}/build/ui-captures/fixtures/audio-cache-application
+        run: dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_audio_cache_application_process_restart -- --ignored --test-threads=1 --nocapture
       - name: Persistent session and catalog cache integration at HiDPI
         env:
           GTK_A11Y: none
@@ -620,6 +628,7 @@ jobs:
           Preserve GPL and third-party notices. Shared OAuth public-distribution/service permission remains unresolved separately.
           Do not enable network/GStreamer logs or share tokens, URLs, account data, private screenshots or audio.
           The production audio-cache service includes private storage maintenance; service audio reuse remains disabled pending a reviewed storage/reuse grant and resource-admission contract.
+          Follow docs/BUILDING.md#pr-26-corrected-cache-acceptance for the single final Native/installed-Flatpak check and the permitted-original-audio evidence; real Yandex cache remains gated.
           Settings has one enabled-by-default 2GiB shared cache allowance, six-position slider (500MiB/1/2/3/4GiB/Unlimited), measured total and Clear; no download/offline or permission-override controls.
           Active-footer Like and Dislike require independent live membership confirmation; Dislike stays hidden if unavailable, while fresh Like-only remains supported.
           Test separate marks, their removal/opposite clearing, pending/error GET recovery and exactly one Next after confirmed current Dislike; removal/Like/errors never advance or add new Wave events.
@@ -640,6 +649,16 @@ jobs:
           path: |
             build/karin-fedora-prototype-1.98.1.tar.gz
             build/SHA256SUMS
+          retention-days: 14
+          if-no-files-found: error
+      - name: Retain normal-app audio cache contract evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6, Node.js 24
+        with:
+          name: karin-audio-cache-application-${{ matrix.lane }}-${{ github.sha }}
+          path: |
+            build/ui-captures/fixtures/audio-cache-application/audio-cache-application-receipt.json
+            build/ui-captures/fixtures/audio-cache-application/audio-cache-application-*.log
           retention-days: 14
           if-no-files-found: error
       - name: Retain Ubuntu functional UI evidence

@@ -72,7 +72,10 @@ combined usage and Clear, with a native slider for 500 MiB, 1/2/3/4 GiB or
 Unlimited. Metadata, artwork and authority-gated audio share one disk coordinator,
 including in-flight writes. The owner identifies `0709729` as the last accepted
 PR #26 revision; later online-authority changes require separate acceptance.
-Real Music remains online-only: storage/reuse is disabled until an applicable
+Independently licensed resources use the existing GStreamer transfer for saving,
+with local replay/restart after fresh access checks; caching creates no second
+media GET. The normal-application process test records actual source kinds and
+network bytes. Real Music remains online-only: storage/reuse is disabled until an applicable
 permission and the provider's online revalidation rule are established. PR #26
 remains Draft; generated-audio tests do not establish service caching or offline
 Music. See the [source/rights review](docs/AUDIO_CACHE_REVIEW.md) and the

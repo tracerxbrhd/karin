@@ -58,6 +58,9 @@ impl StorageAuthority for OnlineStreamAuthority {
         self.permission.check(&permission)?;
         Ok(VerifiedOnline { check, permission })
     }
+    fn check_storage_prepared(&self, prepared: &VerifiedOnline) -> Result<()> {
+        self.permission.check(&prepared.permission)
+    }
     fn commit_online(&self, prepared: VerifiedOnline) -> Result<()> {
         let VerifiedOnline { check, permission } = prepared;
         self.permission.check(&permission)?; // memory-only revocation lease
@@ -70,6 +73,7 @@ impl StorageAuthority for OnlineStreamAuthority {
             StorageGrant {
                 identity: check.identity,
                 revision: check.sequence,
+                content: permission.content,
             },
             permission,
         ));
@@ -93,7 +97,9 @@ impl StorageAuthority for OnlineStreamAuthority {
             state
                 .current
                 .filter(|(current, _)| {
-                    current.identity == grant.identity && current.revision == grant.revision
+                    current.identity == grant.identity
+                        && current.revision == grant.revision
+                        && current.content == grant.content
                 })
                 .map(|(_, permission)| permission)
                 .ok_or(CacheError::Revoked)?
@@ -101,7 +107,9 @@ impl StorageAuthority for OnlineStreamAuthority {
         self.permission.check(&permission)?;
         let state = self.state.lock().map_err(|_| CacheError::Unavailable)?;
         if state.current.is_some_and(|(current, _)| {
-            current.identity == grant.identity && current.revision == grant.revision
+            current.identity == grant.identity
+                && current.revision == grant.revision
+                && current.content == grant.content
         }) {
             Ok(())
         } else {

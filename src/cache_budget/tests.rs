@@ -216,3 +216,123 @@ fn corrupt_recognized_records_still_count_towards_the_budget() {
     b.trim().unwrap();
     assert_eq!(b.usage().unwrap().bytes, 0);
 }
+
+struct AdmittedAudio {
+    cache: crate::audio_cache::AudioCache,
+    budget: Arc<CacheBudget>,
+    lease: crate::audio_cache::Lease,
+    key: crate::audio_cache::ResourceKey,
+    original: Vec<u8>,
+    record: PathBuf,
+    _files: Fixture,
+}
+
+impl AdmittedAudio {
+    fn new() -> Self {
+        use crate::audio_cache::{
+            AudioCache, CachePolicy, ResourceKey, test_support::SyntheticAuthority,
+        };
+        let files = Fixture::new();
+        let budget = files.budget(None);
+        let authority = Arc::new(SyntheticAuthority::default());
+        let account = crate::cache::AccountScope::from_account_id("1234").unwrap();
+        let key = ResourceKey::track("42").unwrap();
+        authority.allow(&account, &key);
+        let cache = AudioCache::open_with_budget(
+            files.0.join("audio"),
+            authority,
+            CachePolicy::default(),
+            budget.clone(),
+        )
+        .unwrap();
+        let lease = cache.bind(Some(account)).unwrap().unwrap();
+        // Original eight-sample PCM WAV: no network content or service rights.
+        let mut original = b"RIFF\x34\0\0\0WAVEfmt \x10\0\0\0\x01\0\x01\0".to_vec();
+        original.extend_from_slice(&8_000u32.to_le_bytes());
+        original.extend_from_slice(&16_000u32.to_le_bytes());
+        original.extend_from_slice(b"\x02\0\x10\0data\x10\0\0\0");
+        for _ in 0..4 {
+            original.extend_from_slice(&512i16.to_le_bytes());
+            original.extend_from_slice(&(-512i16).to_le_bytes());
+        }
+        cache
+            .put_reader(cache.begin(&lease, key).unwrap(), original.as_slice())
+            .unwrap();
+        let record = fs::read_dir(files.0.join("audio"))
+            .unwrap()
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .find(|path| path.is_dir())
+            .unwrap();
+        Self {
+            cache,
+            budget,
+            lease,
+            key,
+            original,
+            record,
+            _files: files,
+        }
+    }
+}
+
+#[test]
+fn admitted_audio_hit_does_not_wait_behind_shared_budget_bookkeeping() {
+    use std::{sync::mpsc, thread, time::Duration};
+    let f = AdmittedAudio::new();
+    let old = SystemTime::UNIX_EPOCH + Duration::from_secs(1);
+    File::open(&f.record)
+        .unwrap()
+        .set_times(fs::FileTimes::new().set_modified(old))
+        .unwrap();
+    let coordinator = f.budget.io.lock().unwrap();
+    let (sent, received) = mpsc::channel();
+    let cache = f.cache.clone();
+    let lease = f.lease.clone();
+    let key = f.key;
+    let worker = thread::spawn(move || {
+        sent.send(cache.get(&lease, key)).unwrap();
+    });
+    let early = received.recv_timeout(Duration::from_secs(2));
+    let did_not_wait = early.is_ok();
+    drop(coordinator);
+    let hit = early
+        .unwrap_or_else(|_| received.recv_timeout(Duration::from_secs(2)).unwrap())
+        .unwrap()
+        .unwrap();
+    worker.join().unwrap();
+    assert!(
+        did_not_wait,
+        "playback lookup queued behind global LRU work"
+    );
+    let mut file = hit.admit_file().unwrap().as_ref().try_clone().unwrap();
+    let mut actual = Vec::new();
+    file.read_to_end(&mut actual).unwrap();
+    assert_eq!(actual, f.original);
+    assert_eq!(fs::metadata(&f.record).unwrap().modified().unwrap(), old);
+    // Bookkeeping is still shared and a later uncontended access updates it.
+    assert!(f.budget.try_touch(&f.record).unwrap());
+    assert!(fs::metadata(&f.record).unwrap().modified().unwrap() > old);
+}
+
+#[test]
+fn bookkeeping_failure_does_not_discard_an_admitted_integrity_checked_audio_hit() {
+    let f = AdmittedAudio::new();
+    let budget = f.budget.clone();
+    assert!(
+        std::thread::spawn(move || {
+            let _coordinator = budget.io.lock().unwrap();
+            panic!("synthetic LRU bookkeeping failure");
+        })
+        .join()
+        .is_err()
+    );
+    assert!(matches!(
+        f.budget.try_touch(&f.record),
+        Err(BudgetError::Unavailable)
+    ));
+    let hit = f.cache.get(&f.lease, f.key).unwrap().unwrap();
+    let mut file = hit.admit_file().unwrap().as_ref().try_clone().unwrap();
+    let mut actual = Vec::new();
+    file.read_to_end(&mut actual).unwrap();
+    assert_eq!(actual, f.original);
+}

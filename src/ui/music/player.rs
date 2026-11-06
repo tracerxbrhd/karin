@@ -663,6 +663,25 @@ impl Controller {
         self.render_music_player();
     }
 
+    #[cfg(test)]
+    pub(super) fn music_cleanup_observer_for_test(&self) -> impl Fn() -> bool {
+        let player = self.player.borrow();
+        let controllers = player
+            .controller
+            .iter()
+            .chain(player.retired.iter())
+            .cloned()
+            .collect::<Vec<_>>();
+        move || {
+            let player = self.player.borrow();
+            !player.resolving
+                && !player.cache_fill_running
+                && controllers
+                    .iter()
+                    .all(|controller| !controller.snapshot().worker_running)
+        }
+    }
+
     pub(super) fn music_serial(&self) -> u64 {
         self.player.borrow().serial
     }

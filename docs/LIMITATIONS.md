@@ -63,6 +63,12 @@ and Clear covers all permitted categories, with
 2 GiB by default and an explicit Unlimited choice guarded by available disk space.
 This interface does not enable audio storage: the service authority still refuses
 storage/reuse admission.
+For independently licensed resources, the completed production path captures
+one existing GStreamer transfer and checks exact content before publication.
+Separate application processes verify local replay/restart, refusal, corruption
+repair and Clear. These results concern the expressly CC0 original resource,
+not the real catalog. Cache lookup and bookkeeping do not delay source admission;
+a busy/failed cache keeps that selection online.
 Music still plays over the established online path and is not saved. The exact
 missing inputs are an applicable Karin storage/reuse permission and the provider's
 fresh account/resource check authorizing a cached hit; a playable MP3, subscription,

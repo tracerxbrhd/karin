@@ -654,6 +654,8 @@ Synthetic expiry/revocation tests cannot establish external rights.
 
 ## PR26 post-acceptance correction
 
+The following results describe `53eb05d`, before the single-transfer completion below.
+
 The owner's new task identifies `0709729` as the accepted baseline and
 `0f9257f` as the unverified direct-edit head. The
 [commit-by-commit audit](PR26_REVISION_AUDIT.md) covers all eight intervening
@@ -716,6 +718,81 @@ original-media production-path verification from owner Native/installed-Flatpak
 and real-service acceptance. The Cloud has Flatpak/Builder but no installed
 GNOME50 SDK/runtime; source/vendor validation is not a full installed Flatpak
 result. PR #26 remains Draft and Issue #20 remains open. No merge is authorized.
+
+## PR26 single-transfer application cache
+
+The follow-up replaces the duplicate cache download with capture of the existing
+guarded GStreamer source. Exact independently licensed SHA-256/length claims are
+checked before publication/reuse; ordinary Yandex assembly still declines storage.
+Permission/file verification overlaps source resolution and never delays it for a
+slow cache. One writer streams without holding the read/Clear gate; staging,
+cancellation, atomic commit, shared quota and deferred LRU remain bounded.
+
+The normal-application fixture executes six separate OS processes through the
+existing MainWindow, protected-session lifecycle, ordinary audio-store factory,
+shared budget, queue and player. Its HTTP account/credentials are isolated, and
+the original generated audio is expressly CC0. It does not install a test cache or
+use `SyntheticAuthority`. Actual worker `source_kind`, inode, payload SHA/length,
+HTTP counts and child cleanup are recorded in a machine-readable receipt:
+
+| Completed scenario | Actual source | Cumulative media GETs | Cumulative media bytes |
+| --- | --- | ---: | ---: |
+| First play, then keyboard replay | Remote, then cached file | 1 | 24,546 |
+| New application process and fresh account/resource check | Same cached inode | 1 | 24,546 |
+| HTTP403 on fresh resource validation | Refused, without cached bypass | 1 | 24,546 |
+| Deliberately corrupted cache | Online repair and complete publication | 2 | 49,092 |
+| Native Clear while cached track is Playing | Existing FD continues Playing | 2 | 49,092 |
+| Actual HTTP `no-store` response after Clear | Online, without a saved record | 3 | 73,638 |
+
+These bytes describe the original fixture on this encoder; receipt expectations
+use its measured length/hash, not a hardcoded media size. Each run requires
+**6 account validations, 7 resource checks and 6 descriptors**. First/replay/restart
+share one audio body; only corruption repair and the explicitly uncached play
+request further bodies. Clear preserves the active generation and advancing
+Playing clock. No Yandex account, service audio or live rights result is involved.
+
+The final runtime passed stable **1.99.1** and exact **1.98.1** formatting, strict
+Clippy and tests in default/all/minimal configurations: **522 / 530 / 508 library
+PASS plus 4 CLI PASS** per configuration, with no failures. All **68** focused
+audio-cache tests execute; ordinary commands leave **37 / 37 / 34** native tests
+ignored, which are not counted as executed by that matrix. Debug and locked/offline
+release builds, GTK smoke, GStreamer transport, hidden-input boundaries and
+ordinary/legacy-alias startup cleanup passed on both compilers.
+
+Fresh, hashed test ELFs passed **22 actual native selections** across both
+compilers: player/cache, Preferences and persistent-session cases at 1×/2×,
+MPRIS/playerctl, Wave, WebKit construction/shutdown and the six-process application
+case at both scales. The latter accounts for **24 child application processes**;
+all four receipts agree on the request/byte/source invariants above. **112 generated
+Preferences captures** supplement structural/input checks. This is Cloud/Xvfb,
+not Fedora/KDE acceptance. Local navigating WebKit retains the previously recorded
+container namespace limitation; complete sandboxed navigation remains required in
+hosted CI, without disabling that sandbox or weakening existing native gates.
+
+Flatpak-source preparation retained **208 packages / 207 notice directories**,
+the unchanged license inventory and scoped permissions. With an empty Cargo home,
+the vendored snapshot passed locked/offline metadata resolution and the exact
+MSRV release feature set (`--no-default-features --features cassette-auth`). Its
+actual ELF passed GStreamer diagnostics, playback transport and GTK smoke. These
+use host libraries: GNOME50 SDK/runtime is not installed in this Cloud and no new
+installed-Flatpak or Fedora result is claimed.
+
+The existing CI now registers and executes the new process-level selector in
+both Rust lanes and retains its safe receipt and child logs. Current-head hosted
+status and downloadable Native build are published in
+[PR #26](https://github.com/tracerxbrhd/karin/pull/26/checks). Earlier-head checks do
+not validate this runtime. The single final owner procedure is in
+[BUILDING](BUILDING.md#pr-26-corrected-cache-acceptance).
+
+Real Yandex Music saving/reuse is **not completed or accepted**: the exact local
+stop is `MissingStorageContract::authorize → NoGrant`. The affirmative service
+terms and reviewed wire contracts establish neither Karin's applicable storage
+permission nor a confirmed mapping from a fresh signed resource to the retained
+representation. This is not a measured CDN failure or proof of a categorical
+third-party ban. [AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md) separates those facts
+from HTTP cacheability and the genuine CC0 rightsholder declaration used here.
+PR #26 stays Draft and #20 stays open. No repeated owner test is requested to
+rediscover a gate that remains closed.
 
 ## Known unresolved checks
 

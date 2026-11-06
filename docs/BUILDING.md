@@ -148,45 +148,44 @@ are established. See [ADR-0030](adr/0030-unified-cache-budget-and-preferences.md
 
 ## PR #26 corrected-cache acceptance
 
-The [revision audit](PR26_REVISION_AUDIT.md) covers every change after `0709729`.
-The production online coordinator now requires an independent storage authority;
-its default refuses storage. A fresh stream cannot replace that permission.
-No developer flag, account subscription or test authority enables service saving.
+Cloud/CI exercise the complete normal application factory across six actual
+processes: owned CC0 audio → one GStreamer transfer/save → local replay → new
+process/fresh account and resource check → the same cached inode. They also
+exercise HTTP403, corrupt-file online repair, native Clear during Playing and
+`no-store`. The production policy checks the rightsholder's exact SHA-256/length;
+no mock authority, cache-install shortcut or release fake-login/origin flag is
+used for this scenario. The credential backend and HTTP account are isolated
+fixtures. This establishes no access to the real Yandex service.
 
-First verify the implemented save/reuse/reopen path on Fedora Native with the
-existing application/player fixture (no login, original generated MP3 only):
+For optional reproduction as an ordinary desktop user with MP3 plugins:
 
 ```sh
-for toolchain in stable 1.98.1; do
-  cargo +"$toolchain" test --lib --all-features --locked audio_cache
-  cargo +"$toolchain" test --lib --all-features --locked \
-    native_music_playback_resolver_queue_controls_and_logout -- --ignored --test-threads=1
-done
+cargo +1.98.1 test --lib --all-features --locked \
+  native_audio_cache_application_process_restart -- --ignored --test-threads=1 --nocapture
 ```
 
-Run as your ordinary desktop user with working GStreamer MP3 plugins. The native
-selector uses the actual application, PlaybackController, shared budget and local
-HTTP fixture. It checks Ready without a copy, actual Playing triggering a bounded
-save, local repeat playback, controller/store/account-validation recreation,
-403 refusal before a cached hit, retry, source cancellation and logout. The
-pure tests cover integrity, quota/free space, rights and race fences. This is
-implemented production-path verification, not proof about a real service grant.
+Use one final owner check for the exact PR HEAD after Cloud verification:
 
-For owner acceptance build this branch's commit Native and install its Flatpak
-using the next section. In **both installed applications** use ordinary sign-in,
-play a real track, repeat/restart and exercise Pause/Seek/Next, Wave, MPRIS,
-Disable, Clear and logout. Check the common usage/slider and that sign-in/current
-playback survive Clear. Real Music must still play online; saved audio remains
-empty while the permission gate is absent. Do not send tokens, media files,
-signed URLs or account models to Cloud/GitHub. Report commit, Native/Flatpak,
-operation and PASS/FAIL; safe fixed-category errors are sufficient.
+1. Build Native with `cargo +1.98.1 build --release --locked`; install the same
+   source as Flatpak using the next section. Record the commit and installation.
+2. In each application, use ordinary sign-in and play Music. Exercise
+   Pause/Resume/Seek/Next, queue, Wave, media keys/MPRIS and normal close/reopen.
+3. Check Preferences: enabled by default, 2 GiB, all six choices, one measured
+   total, retained choice after restart, Clear and any reported operation Retry.
+   Clear must retain sign-in and already playing audio. If an unverified older
+   revision was used, Clear once before measuring the new baseline.
+4. Report PASS/FAIL for this final build. Do not upload account data, tokens,
+   signed URLs or music files. Cloud/Xvfb is not KDE/Wayland/PipeWire acceptance.
 
-A successful generated-media test does not meet the real Music save/reuse
-criterion. An installed-Flatpak test and actual service-cache acceptance remain
-pending. Once the applicable contract and fresh-reuse rule are confirmed, an
-adapter must supply their independently validated permit to the same coordinator;
-then repeat first play/save/local hit/restart/refusal acceptance with a real track.
-There is no offline mode, Downloads or content export in this PR.
+**Real Yandex audio saving is still unavailable**, rather than an expected PASS
+in this owner check. The exact stop is the ordinary assembly's
+`MissingStorageContract::authorize → NoGrant`; no independent permission or
+confirmed retained-representation mapping has been established for that service.
+Yandex playback remains online and the audio category stays empty after Clear;
+metadata/artwork can contribute to total usage. Do not repeat a local service
+cache test while that gate is closed or interpret the CC0 receipt as Music
+acceptance. See [AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md). No user flag bypasses
+this boundary; there is no offline mode, Downloads or content export.
 
 ## Flatpak source build
 

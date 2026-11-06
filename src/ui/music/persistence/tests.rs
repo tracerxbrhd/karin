@@ -884,3 +884,5 @@ fn native_persistent_session_restore_settings_forget_and_close() {
     ui5.window.close();
     adw::StyleManager::default().set_color_scheme(adw::ColorScheme::Default);
 }
+
+mod app_cache_acceptance;

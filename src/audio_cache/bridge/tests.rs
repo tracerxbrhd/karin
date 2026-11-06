@@ -69,10 +69,11 @@ struct Http {
     server: Option<thread::JoinHandle<()>>,
 }
 impl Http {
-    fn new(body: Vec<u8>, status: u16, extra_headers: &'static str) -> Self {
+    fn new(body: Vec<u8>, status: u16, extra_headers: &str) -> Self {
         Self::with_account(body, status, extra_headers, 1234)
     }
-    fn with_account(body: Vec<u8>, status: u16, extra_headers: &'static str, account: u64) -> Self {
+    fn with_account(body: Vec<u8>, status: u16, extra_headers: &str, account: u64) -> Self {
+        let extra_headers = extra_headers.to_owned();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let origin = format!("http://{}/", listener.local_addr().unwrap());
@@ -111,6 +112,10 @@ impl Http {
                         (200, "application/json", "", format!(r#"{{"result":{{"account":{{"uid":{account},"displayName":"Synthetic account"}}}}}}"#).into_bytes())
                     } else if path == "/tracks/123/download-info" {
                         delivery_requests.fetch_add(1, Ordering::AcqRel);
+                        // Cache lookup runs alongside source validation. A
+                        // small loopback metadata delay models a real request
+                        // instead of requiring synchronous cache selection.
+                        thread::sleep(Duration::from_millis(15));
                         (200, "application/json", "", format!(r#"{{"result":[{{"codec":"mp3","preview":false,"downloadInfoUrl":"{origin}download-info/original"}}]}}"#).into_bytes())
                     } else if path == "/download-info/original" {
                         assert!(!lower.contains("authorization:") && !lower.contains("cookie:"));
@@ -118,7 +123,7 @@ impl Http {
                     } else if path.starts_with("/get-mp3/") {
                         media_requests.fetch_add(1, Ordering::AcqRel);
                         assert!(!lower.contains("authorization:") && !lower.contains("cookie:"));
-                        (status, "audio/mpeg", extra_headers, body.clone())
+                        (status, "audio/mpeg", extra_headers.as_str(), body.clone())
                     } else {
                         (404, "text/plain", "", Vec::new())
                     };
@@ -215,6 +220,54 @@ fn wait(
     }
 }
 
+fn wait_or_error(
+    player: &PlaybackController,
+    predicate: impl Fn(&PlaybackSnapshot) -> bool,
+) -> PlaybackSnapshot {
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        let snapshot = player.snapshot();
+        if predicate(&snapshot) || snapshot.state == PlaybackState::Error {
+            return snapshot;
+        }
+        assert!(Instant::now() < deadline, "native preparation timed out");
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn shutdown(player: &PlaybackController) {
+    player.shutdown();
+    let deadline = Instant::now() + Duration::from_secs(8);
+    while player.snapshot().worker_running {
+        assert!(
+            Instant::now() < deadline,
+            "native worker shutdown timed out"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// Save only the bytes delivered to the real playback source. There is no
+/// independent HTTP copy or test-only reader supplying the cache contents.
+fn cache_from_playback(selection: Selection) -> Result<(), CacheError> {
+    let Selection { source, fill } = selection;
+    let fill = fill.expect("independently admitted capture");
+    let player = PlaybackController::new(PlaybackOutput::Fakesink).unwrap();
+    player.prepare(source).unwrap();
+    let prepared = wait_or_error(&player, |s| s.state == PlaybackState::Ready);
+    if prepared.state == PlaybackState::Ready {
+        player.play().unwrap();
+        wait_or_error(&player, |s| {
+            s.state == PlaybackState::Playing && !s.playing_time.is_zero()
+        });
+    }
+    // Refused HTTP responses abort the capture even when native preparation
+    // failed before Playing. Valid responses use the identical capture reader.
+    let result = fill.run();
+    shutdown(&player);
+    result
+}
+
 #[test]
 fn production_resolution_fill_hit_restart_and_current_session_admission() {
     let directory = Directory::new();
@@ -234,7 +287,7 @@ fn production_resolution_fill_hit_restart_and_current_session_admission() {
     .unwrap();
     assert!(!first.source.is_cached());
     assert_eq!(http.requested(), 0);
-    first.fill.unwrap().run().unwrap();
+    cache_from_playback(first).unwrap();
     assert_eq!(http.requested(), 1);
     assert_eq!(cache.stats().unwrap().entries, 1);
     let second = resolve(
@@ -368,7 +421,7 @@ fn independently_permitted_media_requires_fresh_online_resolution_after_reopen()
     )
     .unwrap();
     assert!(!first.source.is_cached());
-    first.fill.unwrap().run().unwrap();
+    cache_from_playback(first).unwrap();
     assert_eq!(cache.stats().unwrap().entries, 1);
     assert_eq!(http.requested(), 1);
 
@@ -384,6 +437,13 @@ fn independently_permitted_media_requires_fresh_online_resolution_after_reopen()
     assert!(hit.source.is_cached() && hit.fill.is_none());
     assert_eq!(http.requested(), 1, "local hit must not fetch media twice");
     drop(hit);
+    // Successful selection schedules optional LRU I/O. Reopen only after that
+    // live owner has actually completed, without retrying namespace acquisition.
+    let cleanup = Instant::now() + Duration::from_secs(2);
+    while cache.0.lookup_running.load(Ordering::Acquire) {
+        assert!(Instant::now() < cleanup, "cache lookup cleanup timed out");
+        thread::yield_now();
+    }
     drop(cache);
 
     // Recreate all admission inputs, not just the filesystem handle. This is a
@@ -468,7 +528,7 @@ fn cleared_and_invalidated_sessions_retire_previous_online_admission_before_tran
         )
         .unwrap();
         let lease = cache.bind(Some(scope())).unwrap().unwrap();
-        resolve(
+        let first = resolve(
             http.resolver(),
             &service,
             &token,
@@ -476,11 +536,8 @@ fn cleared_and_invalidated_sessions_retire_previous_online_admission_before_tran
             &DeliveryCancellation::new(),
             Some((cache.clone(), lease.clone())),
         )
-        .unwrap()
-        .fill
-        .unwrap()
-        .run()
         .unwrap();
+        cache_from_playback(first).unwrap();
         let selection = resolve(
             http.resolver(),
             &service,
@@ -532,7 +589,7 @@ fn validated_foreign_account_cannot_retire_the_current_cache_admission() {
     )
     .unwrap();
     let lease = cache.bind(Some(scope())).unwrap().unwrap();
-    resolve(
+    let first = resolve(
         http.resolver(),
         &service,
         &token,
@@ -540,11 +597,8 @@ fn validated_foreign_account_cannot_retire_the_current_cache_admission() {
         &DeliveryCancellation::new(),
         Some((cache.clone(), lease.clone())),
     )
-    .unwrap()
-    .fill
-    .unwrap()
-    .run()
     .unwrap();
+    cache_from_playback(first).unwrap();
     let hit = cache.get(&lease, key()).unwrap().unwrap();
 
     let foreign = Http::with_account(media(), 200, "", 9999);
@@ -574,7 +628,7 @@ fn pending_hit_is_fenced_at_final_admission_by_clear_and_revocation() {
         let directory = Directory::new();
         let http = Http::new(media(), 200, "");
         let (cache, lease, authority) = store(&directory);
-        http.select(&cache, &lease).fill.unwrap().run().unwrap();
+        cache_from_playback(http.select(&cache, &lease)).unwrap();
         let selected = http.select(&cache, &lease);
         assert!(selected.source.is_cached());
         if revoked {
@@ -610,6 +664,7 @@ fn rejected_http_copies_leave_online_source_and_no_record() {
     for (status, headers) in [
         (403, ""),
         (302, "Location: /get-mp3/other\r\n"),
+        (206, ""),
         (200, "Cache-Control: private, no-store\r\n"),
         (200, "Content-Range: bytes 0-5/20\r\n"),
         (200, "Content-Encoding: identity\r\n"),
@@ -620,10 +675,64 @@ fn rejected_http_copies_leave_online_source_and_no_record() {
         let (cache, lease, _) = store(&directory);
         let selection = http.select(&cache, &lease);
         assert!(!selection.source.is_cached());
-        assert_eq!(selection.fill.unwrap().run(), Err(CacheError::Unavailable));
+        assert_eq!(cache_from_playback(selection), Err(CacheError::Unavailable));
         assert_eq!(http.requested(), 1, "no redirects or retry");
         assert_eq!(cache.stats().unwrap().entries, 0);
     }
+}
+
+#[test]
+fn complete_206_representation_is_captured_once_and_reused_as_a_local_file() {
+    use crate::audio_cache::licensed::{LicensedResource, LicensedResourceAuthority};
+    let directory = Directory::new();
+    let original = media();
+    let expected_sha: [u8; 32] = ring::digest::digest(&ring::digest::SHA256, &original)
+        .as_ref()
+        .try_into()
+        .unwrap();
+    let length = original.len();
+    let headers = format!("Content-Range: bytes 0-{}/{length}\r\n", length - 1);
+    let http = Http::new(original.clone(), 206, &headers);
+    // The test authors created these exact bytes and dedicate this test audio
+    // to CC0-1.0. HTTP 206 itself supplies no storage permission.
+    let resource = LicensedResource::cc0(&scope(), key(), expected_sha, length as u64).unwrap();
+    let permission = Arc::new(LicensedResourceAuthority::new(vec![resource]).unwrap());
+    let cache = AudioCache::open(
+        directory.0.join("audio"),
+        Arc::new(OnlineStreamAuthority::with_storage_permission(permission)),
+        CachePolicy::default(),
+    )
+    .unwrap();
+    let lease = cache.bind(Some(scope())).unwrap().unwrap();
+    cache_from_playback(http.select(&cache, &lease)).unwrap();
+    assert_eq!(http.requested(), 1, "capture must not issue a second GET");
+    assert_eq!(cache.stats().unwrap().entries, 1);
+    let hit = cache.get(&lease, key()).unwrap().unwrap();
+    let mut file = hit.admit_file().unwrap().as_ref().try_clone().unwrap();
+    let mut cached = Vec::new();
+    file.read_to_end(&mut cached).unwrap();
+    assert_eq!(cached, original);
+    assert_eq!(
+        ring::digest::digest(&ring::digest::SHA256, &cached).as_ref(),
+        expected_sha.as_slice()
+    );
+    let selected = http.select(&cache, &lease);
+    assert!(selected.source.is_cached() && selected.fill.is_none());
+    let player = PlaybackController::new(PlaybackOutput::Fakesink).unwrap();
+    player
+        .prepare(selected.source.admit_cache_or_online())
+        .unwrap();
+    wait(&player, |s| s.state == PlaybackState::Ready);
+    player.play().unwrap();
+    wait(&player, |s| {
+        s.state == PlaybackState::Playing && !s.playing_time.is_zero()
+    });
+    shutdown(&player);
+    assert_eq!(
+        http.requested(),
+        1,
+        "repeat playback must stay on the verified inode"
+    );
 }
 
 #[test]
@@ -631,7 +740,7 @@ fn cached_mp3_uses_existing_player_and_survives_active_clear() {
     let directory = Directory::new();
     let http = Http::new(media(), 200, "");
     let (cache, lease, _) = store(&directory);
-    http.select(&cache, &lease).fill.unwrap().run().unwrap();
+    cache_from_playback(http.select(&cache, &lease)).unwrap();
     let selected = http.select(&cache, &lease);
     assert!(selected.source.is_cached());
     assert!(!format!("{:?}", selected.source).contains("original"));
@@ -703,7 +812,7 @@ fn expired_online_fallback_fences_cached_construction_and_final_admission() {
     let directory = Directory::new();
     let http = Http::new(media(), 200, "");
     let (cache, lease, _) = store(&directory);
-    http.select(&cache, &lease).fill.unwrap().run().unwrap();
+    cache_from_playback(http.select(&cache, &lease)).unwrap();
     let selected_hit = cache.get(&lease, key()).unwrap().unwrap();
     let later_hit = cache.get(&lease, key()).unwrap().unwrap();
     let remote = RemotePlaybackSource::from_test_resolver(
@@ -734,7 +843,7 @@ fn changed_disk_bytes_and_expired_remote_cannot_be_used_as_a_hit_or_fill() {
     let directory = Directory::new();
     let http = Http::new(media(), 200, "");
     let (cache, lease, _) = store(&directory);
-    http.select(&cache, &lease).fill.unwrap().run().unwrap();
+    cache_from_playback(http.select(&cache, &lease)).unwrap();
     fn corrupt(path: &std::path::Path) -> bool {
         for entry in fs::read_dir(path).unwrap() {
             let path = entry.unwrap().path();

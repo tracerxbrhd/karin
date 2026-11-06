@@ -56,10 +56,22 @@ pub enum PlaybackState {
     Error,
 }
 
+/// Actual worker-owned source of the current native pipeline. No resource URI,
+/// account identifier or transport credential crosses the snapshot boundary.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PlaybackSourceKind {
+    #[default]
+    None,
+    LocalFile,
+    RemoteHttps,
+    CachedFile,
+}
+
 /// Deliberately excludes source names, URLs, native debug strings and metadata.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PlaybackSnapshot {
     pub state: PlaybackState,
+    pub source_kind: PlaybackSourceKind,
     /// Cumulative worker-observed Playing time for this prepared generation.
     /// Monotonic and independent of media position, seeks and GTK polling. It
     /// freezes outside confirmed Playing and resets only on source replacement.
@@ -86,6 +98,7 @@ impl Default for PlaybackSnapshot {
     fn default() -> Self {
         Self {
             state: PlaybackState::Idle,
+            source_kind: PlaybackSourceKind::None,
             playing_time: Duration::ZERO,
             position: None,
             duration: None,
@@ -149,6 +162,7 @@ pub struct PlaybackSource {
     cached_file: Option<Arc<File>>,
     cache_admission: Option<Arc<crate::audio_cache::Hit>>,
     cache_fallback: Option<RemotePlaybackSource>,
+    cache_capture: Option<crate::audio_cache::capture::Capture>,
 }
 
 impl fmt::Debug for PlaybackSource {
@@ -176,6 +190,7 @@ impl PlaybackSource {
             cached_file: None,
             cache_admission: None,
             cache_fallback: None,
+            cache_capture: None,
         })
     }
 
@@ -188,10 +203,25 @@ impl PlaybackSource {
             cached_file: None,
             cache_admission: None,
             cache_fallback: None,
+            cache_capture: None,
         }
     }
 
-    /// Worker-only admission of the exact read-only inode checked by AudioCache.
+    /// A separately permitted copy observes this same remote transfer. There
+    /// is no additional resource request or independent audio engine.
+    pub(crate) fn with_cache_capture(
+        mut self,
+        capture: crate::audio_cache::capture::Capture,
+    ) -> Self {
+        if self.remote.is_some() {
+            self.cache_capture = Some(capture);
+        }
+        self
+    }
+
+    /// Memory-only admission/pinning of the exact read-only inode already
+    /// checked for type, privacy and integrity by AudioCache's worker. No fstat,
+    /// path reopen or cache scan belongs on this selection boundary.
     /// `/proc/self/fd` stays inside the application, including Flatpak; keeping
     /// the descriptor prevents Clear/eviction from breaking active playback.
     pub(crate) fn cached_file(
@@ -204,15 +234,13 @@ impl PlaybackSource {
         let file = hit
             .admit_file()
             .map_err(|_| PlaybackError::SourceUnavailable)?;
-        if !file.metadata().is_ok_and(|metadata| metadata.is_file()) {
-            return Err(PlaybackError::SourceUnavailable);
-        }
         Ok(Self {
             path: PathBuf::from(format!("/proc/self/fd/{}", file.as_raw_fd())),
             remote: None,
             cached_file: Some(file),
             cache_admission: Some(Arc::new(hit)),
             cache_fallback: Some(fallback),
+            cache_capture: None,
         })
     }
 
@@ -306,18 +334,6 @@ impl RemotePlaybackSource {
 
     pub fn is_expired(&self) -> bool {
         Instant::now() >= self.expires_at
-    }
-
-    /// Crate-local, worker-only use by the resolver's existing HTTP transport.
-    /// This does not grant storage rights or expose an address to the UI.
-    pub(crate) fn with_admitted_uri<T>(
-        &self,
-        operation: impl FnOnce(&str) -> T,
-    ) -> Result<T, PlaybackError> {
-        if self.is_expired() {
-            return Err(PlaybackError::SourceExpired);
-        }
-        Ok(operation(&self.uri))
     }
 
     #[cfg(test)]
@@ -495,12 +511,16 @@ struct ActivePipeline {
     element: gst::Element,
     bus: gst::Bus,
     transport_refused: Option<Arc<AtomicBool>>,
+    cache_capture: Option<crate::audio_cache::capture::Capture>,
 }
 
 impl Drop for ActivePipeline {
     fn drop(&mut self) {
         // Native calls stay on the playback worker, including stop/replacement,
         // decoder error, EOS and application shutdown.
+        if let Some(capture) = &self.cache_capture {
+            capture.interrupt();
+        }
         let _ = self.element.set_state(gst::State::Null);
     }
 }
@@ -549,6 +569,7 @@ impl Drop for WorkerLifecycle {
             // This also covers an unexpected worker unwind. Declared before
             // Worker, this guard runs after its pipeline has been dropped.
             snapshot.state = PlaybackState::Error;
+            snapshot.source_kind = PlaybackSourceKind::None;
             snapshot.last_error = Some(PlaybackError::WorkerUnavailable);
             snapshot.seekable = false;
             snapshot.worker_running = false;
@@ -598,6 +619,7 @@ impl Worker {
         worker.source = None;
         let mut snapshot = worker.shared.snapshot();
         snapshot.state = PlaybackState::Stopped;
+        snapshot.source_kind = PlaybackSourceKind::None;
         snapshot.seekable = false;
         snapshot.worker_running = false;
     }
@@ -616,6 +638,7 @@ impl Worker {
                         snapshot.generation += 1;
                         snapshot.playing_time = Duration::ZERO;
                         snapshot.state = PlaybackState::Loading;
+                        snapshot.source_kind = PlaybackSourceKind::None;
                         snapshot.position = None;
                         snapshot.duration = None;
                         snapshot.seekable = false;
@@ -670,6 +693,7 @@ impl Worker {
                     }
                     let mut snapshot = self.shared.snapshot();
                     snapshot.state = PlaybackState::Stopped;
+                    snapshot.source_kind = PlaybackSourceKind::None;
                     snapshot.position = Some(Duration::ZERO);
                     snapshot.seekable = false;
                     snapshot.last_error = None;
@@ -741,7 +765,11 @@ impl Worker {
         // Audio-only: local media must never create an unrequested video window.
         element.set_property_from_str("flags", "audio+soft-volume");
         let transport_refused = if let Some(remote) = &source.remote {
-            Some(remote::guard_pipeline(&element, remote.clone())?)
+            Some(remote::guard_pipeline(
+                &element,
+                remote.clone(),
+                source.cache_capture.clone(),
+            )?)
         } else if source.cached_file.is_some() {
             Some(remote::guard_cached_pipeline(&element, uri.as_str())?)
         } else {
@@ -763,11 +791,20 @@ impl Worker {
             .lock()
             .unwrap()
             .push(element.downgrade());
+        let source_kind = if source.remote.is_some() {
+            PlaybackSourceKind::RemoteHttps
+        } else if source.cached_file.is_some() {
+            PlaybackSourceKind::CachedFile
+        } else {
+            PlaybackSourceKind::LocalFile
+        };
         self.pipeline = Some(ActivePipeline {
             element,
             bus,
             transport_refused,
+            cache_capture: source.cache_capture.clone(),
         });
+        self.shared.snapshot().source_kind = source_kind;
         let target = if result == PlaybackState::Playing {
             gst::State::Playing
         } else {
@@ -844,6 +881,9 @@ impl Worker {
         }
         self.account_playing(false);
         let pipeline = self.pipeline.as_ref().ok_or(PlaybackError::InvalidState)?;
+        if let Some(capture) = &pipeline.cache_capture {
+            capture.interrupt();
+        }
         pipeline
             .element
             .seek_simple(
@@ -935,6 +975,7 @@ impl Worker {
             }
             let mut snapshot = self.shared.snapshot();
             snapshot.state = PlaybackState::Ended;
+            snapshot.source_kind = PlaybackSourceKind::None;
             snapshot.position = snapshot.duration;
             snapshot.seekable = false;
             return;
@@ -1022,6 +1063,7 @@ impl Worker {
         }
         let mut snapshot = self.shared.snapshot();
         snapshot.state = PlaybackState::Error;
+        snapshot.source_kind = PlaybackSourceKind::None;
         snapshot.last_error = Some(error);
         snapshot.seekable = false;
     }
@@ -1079,6 +1121,7 @@ impl DiagnosticMedia {
             cached_file: None,
             cache_admission: None,
             cache_fallback: None,
+            cache_capture: None,
         };
         let guard = Self { source };
         let sample_rate = 22_050_u32;
@@ -1665,6 +1708,7 @@ mod tests {
                 element,
                 bus,
                 transport_refused: None,
+                cache_capture: None,
             }),
             // Paused was deliberately never requested: this real playbin stays
             // Ready, allowing the worker's own deadline path to be tested

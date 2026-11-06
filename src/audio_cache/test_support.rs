@@ -136,6 +136,7 @@ impl StorageAuthority for SyntheticAuthority {
         Ok(StorageGrant {
             identity: *identity,
             revision: rights.revision,
+            content: None,
         })
     }
     fn check(&self, permit: &StorageGrant) -> Result<()> {

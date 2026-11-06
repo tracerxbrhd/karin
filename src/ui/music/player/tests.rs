@@ -433,17 +433,14 @@ fn serve(
             }
             if cache_copy {
                 assert_eq!(first[0], "GET");
-                assert!(range.is_none(), "cache fill requests one complete resource");
+                assert!(
+                    range.is_none(),
+                    "a legacy duplicate copy requests a complete resource"
+                );
                 state.cache_reads[track - 42] += 1;
-                if state.hold_cache_track == Some(track) {
-                    state.cache_hold_started = true;
-                }
             }
-            cache_copy && state.hold_cache_track == Some(track)
+            first[0] == "GET" && state.hold_cache_track == Some(track)
         };
-        if hold_cache {
-            wait_wave_fixture(release);
-        }
         if reject_media.load(Ordering::Acquire) {
             let body = "synthetic-http-private-body synthetic-response-secret";
             let _ = write!(
@@ -476,7 +473,23 @@ fn serve(
         }
         let _ = stream.write_all(b"\r\n");
         if first[0] != "HEAD" {
-            let _ = stream.write_all(&data[start..=end]);
+            if hold_cache {
+                // Hold the one actual playback response after enough original
+                // MP3 bytes for native preroll/Playing. The cache tap must
+                // remain incomplete without starting a second origin GET.
+                let prefix_end = (start + 8 * 1024).min(end + 1);
+                assert!(
+                    prefix_end < end + 1,
+                    "the held response must remain incomplete"
+                );
+                let _ = stream.write_all(&data[start..prefix_end]);
+                let _ = stream.flush();
+                counts.lock().unwrap().cache_hold_started = true;
+                wait_wave_fixture(release);
+                let _ = stream.write_all(&data[prefix_end..=end]);
+            } else {
+                let _ = stream.write_all(&data[start..=end]);
+            }
         }
     } else {
         panic!("unexpected synthetic player request");
@@ -1052,7 +1065,7 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
     this.widgets.play.emit_clicked();
     wait_playing(this, 0);
     pump_until(|| {
-        fixture.counts.lock().unwrap().cache_reads[0] == 1
+        cache.stats().is_ok_and(|stats| stats.entries == 1)
             && !this.player.borrow().cache_fill_running
     });
     assert_eq!(cache.stats().unwrap().entries, 1);
@@ -1084,7 +1097,7 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
         first_media,
         "a valid hit plays locally without a second media or cache GET"
     );
-    assert_eq!(fixture.counts.lock().unwrap().cache_reads[0], 1);
+    assert_eq!(fixture.counts.lock().unwrap().cache_reads[0], 0);
     assert!(
         !this.player.borrow().cache_fill_running
             && this.player.borrow().cache_fill_pending.is_none()
@@ -1163,7 +1176,7 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
     });
     assert_eq!(fixture.offers(0), offers_before_denial + 2);
     assert_eq!(fixture.counts.lock().unwrap().media[0], first_media);
-    assert_eq!(fixture.counts.lock().unwrap().cache_reads[0], 1);
+    assert_eq!(fixture.counts.lock().unwrap().cache_reads[0], 0);
     assert_eq!(budget.usage().unwrap().bytes, cache.stats().unwrap().bytes);
     this.pause_music();
     pump_until(|| {
@@ -1196,7 +1209,7 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
             .is_some_and(|s| !s.playing_time.is_zero())
     });
     assert_eq!(fixture.counts.lock().unwrap().media[0], first_media);
-    assert_eq!(fixture.counts.lock().unwrap().cache_reads[0], 1);
+    assert_eq!(fixture.counts.lock().unwrap().cache_reads[0], 0);
     this.pause_music();
     pump_until(|| {
         this.music_snapshot()
@@ -1218,13 +1231,16 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
             && this.player.borrow().cache_fill_pending.is_none()
     );
 
-    // Hold only the separately admitted background-copy response. GTK timers,
-    // volume and source navigation remain live while that one worker is stuck.
+    // Hold the actual playback transfer after its preroll prefix. GTK timers,
+    // volume and a cached source change remain live while capture awaits the
+    // rest of this same HTTP response; no separate cache GET is allowed.
     fixture.hold_descriptor();
     fixture.counts.lock().unwrap().hold_cache_track = Some(43);
     this.play_music_queue(1);
     wait_playing(this, 1);
-    pump_until(|| fixture.counts.lock().unwrap().cache_hold_started);
+    pump_until(|| {
+        fixture.counts.lock().unwrap().cache_hold_started && this.player.borrow().cache_fill_running
+    });
     assert!(this.player.borrow().cache_fill_running);
     let heartbeat = Rc::new(Cell::new(false));
     let observed = heartbeat.clone();
@@ -1242,8 +1258,8 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
     assert!(cancellation.is_cancelled());
     assert_eq!(
         fixture.counts.lock().unwrap().cache_reads[1],
-        1,
-        "a source change cannot start a second fill beside the held one"
+        0,
+        "capture must not start a duplicate origin GET beside the held playback transfer"
     );
     fixture.release_descriptor();
     pump_until(|| !this.player.borrow().cache_fill_running);
@@ -1261,7 +1277,9 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
     fixture.counts.lock().unwrap().cache_hold_started = false;
     this.play_music_queue(1);
     wait_playing(this, 1);
-    pump_until(|| fixture.counts.lock().unwrap().cache_hold_started);
+    pump_until(|| {
+        fixture.counts.lock().unwrap().cache_hold_started && this.player.borrow().cache_fill_running
+    });
     let cancellation = this.player.borrow().cache_fill_cancel.clone().unwrap();
     let retired = this.player.borrow().controller.clone().unwrap();
     this.logout();
@@ -1275,7 +1293,12 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
         "logout fences old local hits"
     );
     pump_until(|| cache.stats().is_ok_and(|stats| stats.entries == 0));
-    assert_eq!(fixture.counts.lock().unwrap().cache_reads, [1, 2, 0, 0]);
+    assert_eq!(fixture.counts.lock().unwrap().cache_reads, [0; 4]);
+    assert_eq!(
+        fixture.counts.lock().unwrap().media[1],
+        2,
+        "each interrupted playback uses just its one origin transfer"
+    );
     this.close();
     ui.window.close();
 }

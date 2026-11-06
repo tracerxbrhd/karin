@@ -39,20 +39,39 @@ pub(crate) fn resolve(
         ),
         Err(_) => (binding, false),
     };
-    // Retire prior admission before network I/O, including pre-auth failures.
-    // Stale workers cannot retire a newer session: start_check checks the lease.
-    let check = start_check(&binding, track);
+    // Permission lookup and integrity verification overlap network resolution.
+    // A slow cache never holds the already admitted online playback hostage.
+    let lookup = start_check(&binding, track).and_then(|check| {
+        let (cache, lease) = binding.as_ref()?;
+        cache.lookup(lease.clone(), check)
+    });
     let remote = resolver.resolve(service, token, track, cancellation)?;
-    let binding = binding.filter(|_| authenticated);
-    Ok(select_admitted(
-        resolver,
-        token,
-        cancellation,
-        remote,
-        track,
-        binding,
-        check,
-    ))
+    let online = || Selection {
+        source: PlaybackSource::remote(remote.clone()),
+        fill: None,
+    };
+    let Some((cache, lease)) = binding.filter(|_| authenticated) else {
+        return Ok(online());
+    };
+    let Some(prepared) = lookup.and_then(|lookup| lookup.ready()) else {
+        return Ok(online());
+    };
+    match prepared.admit(|| !cancellation.cancelled(token) && !remote.is_expired()) {
+        Ok(Some(hit)) => Ok(Selection {
+            source: PlaybackSource::cached_file(hit, remote.clone())
+                .unwrap_or_else(|_| PlaybackSource::remote(remote)),
+            fill: None,
+        }),
+        Ok(None) => Ok(fill_selection(
+            cache,
+            lease,
+            token,
+            cancellation,
+            remote,
+            track,
+        )),
+        Err(_) => Ok(online()),
+    }
 }
 
 fn start_check(binding: &Option<(AudioCache, Lease)>, track: &str) -> Option<OnlineCheck> {
@@ -75,8 +94,9 @@ fn select(
     select_admitted(resolver, token, cancellation, remote, track, binding, check)
 }
 
+#[cfg(test)]
 fn select_admitted(
-    resolver: StreamResolver,
+    _resolver: StreamResolver,
     token: &AccessToken,
     cancellation: &DeliveryCancellation,
     remote: RemotePlaybackSource,
@@ -117,22 +137,7 @@ fn select_admitted(
                 PlaybackSource::cached_file(hit, remote.clone()).unwrap_or_else(|_| online());
             Selection { source, fill: None }
         }
-        Ok(None) => {
-            // Both the independent storage permit and current online selection
-            // remain live; failures never create a copy request or a write.
-            let fill = cache.begin(&lease, key).ok().map(|request| Fill {
-                cache,
-                request,
-                resolver,
-                remote: remote.clone(),
-                token: token.clone(),
-                cancellation: cancellation.clone(),
-            });
-            Selection {
-                source: online(),
-                fill,
-            }
-        }
+        Ok(None) => fill_selection(cache, lease, token, cancellation, remote, track),
         Err(_) => Selection {
             source: online(),
             fill: None,
@@ -140,13 +145,44 @@ fn select_admitted(
     }
 }
 
-/// One bounded background copy, admitted only after actual Playing. It never
-/// changes the player and contains no second audio or HTTP engine.
+/// Capture only the existing guarded player's bytes. Cache failure is optional
+/// bookkeeping and cannot trigger another media request or another engine.
+fn fill_selection(
+    cache: AudioCache,
+    lease: Lease,
+    token: &AccessToken,
+    cancellation: &DeliveryCancellation,
+    remote: RemotePlaybackSource,
+    track: &str,
+) -> Selection {
+    let request = ResourceKey::track(track)
+        .ok()
+        .and_then(|key| cache.begin(&lease, key).ok());
+    let Some(request) = request else {
+        return Selection {
+            source: PlaybackSource::remote(remote),
+            fill: None,
+        };
+    };
+    let (capture, reader) = super::capture::channel(request.cancellation());
+    Selection {
+        source: PlaybackSource::remote(remote).with_cache_capture(capture),
+        fill: Some(Fill {
+            cache,
+            request,
+            reader,
+            token: token.clone(),
+            cancellation: cancellation.clone(),
+        }),
+    }
+}
+
+/// One bounded background cache writer, admitted only after actual Playing.
+/// Its reader is fed by the existing GStreamer HTTP source, never a second GET.
 pub(crate) struct Fill {
     cache: AudioCache,
     request: Request,
-    resolver: StreamResolver,
-    remote: RemotePlaybackSource,
+    reader: super::capture::CaptureReader,
     token: AccessToken,
     cancellation: DeliveryCancellation,
 }
@@ -157,13 +193,31 @@ impl Fill {
 
     pub(crate) fn run(self) -> Result<(), CacheError> {
         self.cache.check_request(&self.request)?;
-        let body = self.resolver.cache_body(
-            &self.remote,
-            &self.token,
-            &self.cancellation,
-            self.request.cancellation(),
-        )?;
-        self.cache.put_reader(self.request, body)
+        let reader = GuardedCapture {
+            cache: self.cache.clone(),
+            lease: self.request.lease.clone(),
+            permit: self.request.permit,
+            reader: self.reader,
+            token: self.token,
+            cancellation: self.cancellation,
+        };
+        self.cache.put_reader(self.request, reader)
+    }
+}
+struct GuardedCapture {
+    cache: AudioCache,
+    lease: Lease,
+    permit: super::StorageGrant,
+    reader: super::capture::CaptureReader,
+    token: AccessToken,
+    cancellation: DeliveryCancellation,
+}
+impl std::io::Read for GuardedCapture {
+    fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+        self.reader.read_checked(out, || {
+            !self.cancellation.cancelled(&self.token)
+                && self.cache.check(&self.lease, self.permit).is_ok()
+        })
     }
 }
 

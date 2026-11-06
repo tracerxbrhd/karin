@@ -731,6 +731,7 @@ fn authorization_for_a_different_resource_is_never_accepted() {
                     ..*identity
                 },
                 revision: 1,
+                content: None,
             })
         }
         fn check(&self, _: &StorageGrant) -> Result<()> {
@@ -1042,4 +1043,152 @@ fn shared_budget_reserves_inflight_audio_while_small_artwork_remains_writable() 
         budget.usage().unwrap().bytes,
         metadata.usage().unwrap().bytes + audio.stats().unwrap().bytes
     );
+}
+
+#[test]
+fn paused_writer_preserves_completed_reads_and_live_stage_during_maintenance() {
+    struct Paused {
+        entered: Option<mpsc::SyncSender<()>>,
+        resume: mpsc::Receiver<()>,
+        original: std::io::Cursor<Vec<u8>>,
+    }
+    impl Read for Paused {
+        fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+            if let Some(entered) = self.entered.take() {
+                entered.send(()).unwrap();
+                self.resume
+                    .recv_timeout(Duration::from_secs(5))
+                    .map_err(|_| std::io::Error::from(std::io::ErrorKind::TimedOut))?;
+            }
+            self.original.read(out)
+        }
+    }
+    let (sandbox, _, cache, lease) = fixture(100_000);
+    put(&cache, &lease, SECOND.track, 400);
+    let original = SyntheticAudio::tone(800).unwrap().0;
+    let expected = original.clone();
+    let request = cache.begin(&lease, FIRST.track).unwrap();
+    let (entered, waiting) = mpsc::sync_channel(0);
+    let (resume, resumed) = mpsc::channel();
+    let worker = cache.clone();
+    let writer = thread::spawn(move || {
+        worker.put_reader(
+            request,
+            Paused {
+                entered: Some(entered),
+                resume: resumed,
+                original: std::io::Cursor::new(original),
+            },
+        )
+    });
+    waiting.recv_timeout(Duration::from_secs(2)).unwrap();
+    let stage = fs::read_dir(&sandbox.path)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| {
+            path.file_name()
+                .unwrap()
+                .as_encoded_bytes()
+                .starts_with(b".part-")
+        })
+        .unwrap();
+    let read = cache.get(&lease, SECOND.track);
+    let stats = cache.stats();
+    let trimmed = cache.trim();
+    let live_stage_preserved = stage.join("media.bin").is_file();
+    let second_writer = cache.put_reader(
+        cache.begin(&lease, SECOND.track).unwrap(),
+        SyntheticAudio::tone(400).unwrap().0.as_slice(),
+    );
+    // Always release and join before asserting, including against the old
+    // implementation that returned Busy for every read/maintenance operation.
+    resume.send(()).unwrap();
+    let result = writer.join().unwrap();
+    assert_eq!(
+        &*read.unwrap().unwrap().admit().unwrap(),
+        &SyntheticAudio::tone(400).unwrap().0
+    );
+    assert_eq!(stats.unwrap().entries, 1);
+    assert_eq!(trimmed.unwrap().entries, 1);
+    assert!(live_stage_preserved, "a live source is not a crash orphan");
+    assert_eq!(second_writer, Err(CacheError::Busy));
+    result.unwrap();
+    assert_eq!(&*sample(&cache, &lease, FIRST.track), &expected);
+    assert_eq!(cache.stats().unwrap().entries, 2);
+    assert!(!stage.exists());
+}
+
+#[test]
+fn clear_unlinks_a_paused_capture_and_lease_checks_finish_it_without_new_bytes() {
+    struct PausedCapture {
+        reader: capture::CaptureReader,
+        cache: AudioCache,
+        lease: Lease,
+        permit: StorageGrant,
+        entered: mpsc::SyncSender<()>,
+        observed: AtomicBool,
+    }
+    impl Read for PausedCapture {
+        fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+            let cache = &self.cache;
+            let lease = &self.lease;
+            let permit = self.permit;
+            let observed = &self.observed;
+            let entered = &self.entered;
+            self.reader.read_checked(out, || {
+                let current = cache.check(lease, permit).is_ok();
+                if !observed.swap(true, Ordering::AcqRel) {
+                    entered.send(()).unwrap();
+                }
+                current
+            })
+        }
+    }
+    let (_root, _authority, budget, _metadata, cache) =
+        shared_fixture(Some(2 * 1024 * 1024 * 1024));
+    let lease = cache.lease().unwrap();
+    put(&cache, &lease, 102, 400);
+    let active_file = cache
+        .get(&lease, 102u64)
+        .unwrap()
+        .unwrap()
+        .admit_file()
+        .unwrap();
+    let request = cache.begin(&lease, 101u64).unwrap();
+    let (capture, reader) = capture::channel(request.cancellation());
+    let (entered, waiting) = mpsc::sync_channel(0);
+    let reader = PausedCapture {
+        reader,
+        cache: cache.clone(),
+        lease: request.lease.clone(),
+        permit: request.permit,
+        entered,
+        observed: AtomicBool::new(false),
+    };
+    let (completed, completion) = mpsc::channel();
+    let worker = cache.clone();
+    let writer = thread::spawn(move || {
+        completed.send(worker.put_reader(request, reader)).unwrap();
+    });
+    waiting.recv_timeout(Duration::from_secs(2)).unwrap();
+    let cleared = cache.clear();
+    let empty_before_capture_exit = fs::read_dir(&cache.0.sandbox.path)
+        .unwrap()
+        .all(|entry| entry.unwrap().file_name() == ".lock");
+    // The producer remains alive and sends no bytes. The production reader's
+    // 50ms polling lease predicate, not a new buffer/EOS, must finish the writer.
+    let result = completion.recv_timeout(Duration::from_secs(2)).unwrap();
+    writer.join().unwrap();
+    drop(capture);
+    assert_eq!(cleared.unwrap(), Stats::default());
+    assert!(empty_before_capture_exit);
+    assert_eq!(result, Err(CacheError::Cancelled));
+    assert_eq!(budget.usage().unwrap().bytes, 0);
+    let mut admitted = active_file.as_ref().try_clone().unwrap();
+    let mut bytes = Vec::new();
+    admitted.read_to_end(&mut bytes).unwrap();
+    assert_eq!(bytes, SyntheticAudio::tone(400).unwrap().0);
+    let fresh = cache.lease().unwrap();
+    put(&cache, &fresh, 103, 400);
+    assert_eq!(cache.stats().unwrap().entries, 1);
 }
