@@ -193,19 +193,40 @@ fn click(window: &adw::ApplicationWindow, id: &str, widget: &impl IsA<gtk::Widge
         widget.widget_name(),
         row_focus.as_deref().unwrap_or("target")
     );
-    // Focus can start a 200 ms viewport scroll. Two matching frame-clock
-    // observations plus a real hit-test acknowledge its settled input target;
-    // a fixed delay does not establish either condition.
+    // Accepted focus is not a viewport-position acknowledgment on every
+    // supported GTK/Adwaita version. Scroll the real native adjustment when
+    // necessary, without substituting activation for an actual pointer hit.
+    let reveal = |widget: &gtk::Widget| {
+        let Some(scroller) = widget
+            .ancestor(gtk::ScrolledWindow::static_type())
+            .and_then(|widget| widget.downcast::<gtk::ScrolledWindow>().ok())
+        else {
+            return;
+        };
+        if let Some(bounds) = widget.compute_bounds(&scroller) {
+            let adjustment = scroller.vadjustment();
+            let start = adjustment.value() + f64::from(bounds.y());
+            adjustment.clamp_page(start, start + f64::from(bounds.height()));
+        }
+    };
+    if coordinates(window, widget).is_none() {
+        reveal(widget);
+    }
+    // Observe the mapped window's frames, including while the target is
+    // clipped. Require two settled native hits before one real mouse click.
     let ready = Rc::new(Cell::new(None));
     let previous = Rc::new(Cell::new(None));
     let stable = Rc::new(Cell::new(0));
     let admitted = ready.clone();
-    let host = window.downgrade();
-    widget.add_tick_callback(move |widget, _| {
-        let Some(window) = host.upgrade() else {
+    let target = widget.downgrade();
+    window.add_tick_callback(move |window, _| {
+        let Some(widget) = target.upgrade() else {
             return glib::ControlFlow::Break;
         };
-        let current = coordinates(&window, widget);
+        let current = coordinates(window, &widget);
+        if current.is_none() {
+            reveal(&widget);
+        }
         if current.is_some() && previous.get() == current {
             stable.set(stable.get() + 1);
         } else {
@@ -547,9 +568,9 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
         .activatable_widget()
         .expect("native remember switch");
     // Exercise the same clipped target regardless of Adwaita/font version:
-    // the user has reached the bottom cleanup action and now returns to the
-    // remember row above it. The switch alone does not accept GTK focus.
-    assert!(view.cache_clear.grab_focus());
+    // scroll to the bottom while its row already owns focus. Reasserting focus
+    // alone must not substitute for bringing this real pointer target back.
+    assert!(view.remember.grab_focus());
     let scroller = switch
         .ancestor(gtk::ScrolledWindow::static_type())
         .expect("preferences viewport")
@@ -563,6 +584,7 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
             && coordinates(&window, view.cache_clear.upcast_ref()).is_some()
     });
     assert!(coordinates(&window, &switch).is_none());
+    assert!(view.remember.has_focus());
     eprintln!("Karin synthetic preferences regression: clipped remember switch");
     click(&window, id, &switch);
     pump_until(|| changes.borrow().len() == count + 1);

@@ -535,17 +535,32 @@ cache/bridge tests also passed three sequential repetitions per compiler:
 
 The first hosted Ubuntu jobs at `09cfe2d` failed the Preferences fixture when its
 second remember-login switch was clipped above the viewport. The internal
-`GtkSwitch` rejected focus; the helper waited for a native hit without focusing
-its owning row to scroll back. A controlled local regression placed the viewport
-at its legitimate bottom position and reproduced the same eight-second timeout
-with the unchanged helper. The correction focuses the native `AdwSwitchRow` before
-clicking the actual switch. Hit testing, two stable frames, mouse input, callback
-counts and the original deadline remain required; production UI is unchanged.
-The corrected fixture passed on stable and exact 1.98.1 at both scales (four
-actual executions, zero ignored), with strict all-target/all-feature Clippy.
-The [original push failure](https://github.com/tracerxbrhd/karin/actions/runs/42072546505)
-and [PR failure](https://github.com/tracerxbrhd/karin/actions/runs/42072557868)
-remain separate from the correcting revision's checks.
+`GtkSwitch` rejected focus. A controlled clipped-target regression reproduced
+the eight-second timeout. Focusing its owning `AdwSwitchRow` passed four local
+stable/MSRV executions, but at `ec20d88` the PR stable job still timed out after
+the row accepted focus: accepted focus did not establish a visible pointer target.
+
+The final helper explicitly scrolls the native viewport adjustment to the target
+and observes frames on the mapped window rather than the clipped child. A
+permanent regression keeps the row focused while scrolling its switch out of view.
+The actual native hit test, two stable frames, real mouse click, callback counts
+and original deadline remain required. Production UI is unchanged. Full-feature
+fixtures passed on stable and exact 1.98.1 at both scales, with strict Clippy.
+A separate widget-only minimal build used verified Ubuntu GTK **4.14.5** and
+Libadwaita **1.5.0** libraries in the existing container: the unchanged `ec20d88`
+helper reproduced the timeout, and the correction passed at 1× and 2×. This
+controlled widget test does not replace the full hosted WebKit/sandbox checks.
+
+The original [push](https://github.com/tracerxbrhd/karin/actions/runs/42072546505)
+and [PR](https://github.com/tracerxbrhd/karin/actions/runs/42072557868) failures,
+and the later [PR Preferences failure](https://github.com/tracerxbrhd/karin/actions/runs/42074992147),
+remain separate evidence. The `ec20d88`
+[push stable job](https://github.com/tracerxbrhd/karin/actions/runs/42074981666)
+failed earlier in the unchanged workspace fixture with an initial **0×0**
+allocation. That matches the already recorded startup-failure class, not the
+Preferences failure. The unchanged workspace selector passed locally on both
+compilers; the original hosted event's cause remains unestablished. No rendering,
+geometry, timing, sandbox or production gate was relaxed to obtain these results.
 
 Complete final-head hosted/native results are recorded in
 [PR #26 and its checks](https://github.com/tracerxbrhd/karin/pull/26/checks). No new
