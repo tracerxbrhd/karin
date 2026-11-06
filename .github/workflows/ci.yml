@@ -46,7 +46,9 @@ jobs:
           # Retain Ubuntu suites, package signatures and Signed-By configuration.
           sudo python3 - <<'PYTHON'
           from pathlib import Path
-          sources = [Path('/etc/apt/sources.list')]
+          # Hosted Ubuntu also uses mirror+file:/etc/apt/apt-mirrors.txt.
+          sources = [Path('/etc/apt/sources.list'), Path('/etc/apt/apt-mirrors.txt')]
+          changed = 0
           sources += list(Path('/etc/apt/sources.list.d').glob('*.sources'))
           sources += list(Path('/etc/apt/sources.list.d').glob('*.list'))
           for source in sources:
@@ -55,6 +57,8 @@ jobs:
                   updated = original.replace('://azure.archive.ubuntu.com/', '://archive.ubuntu.com/')
                   if updated != original:
                       source.write_text(updated)
+                      changed += 1
+          print(f'Ubuntu archive selection: {changed} source files updated')
           PYTHON
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
