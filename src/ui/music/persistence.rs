@@ -307,6 +307,7 @@ fn open_audio_store(
     root.map(|root| match budget {
         Some(budget) => AudioCache::open_with_budget(
             root,
+            // Default delegates to MissingStorageContract; stream success grants no storage rights.
             Arc::new(OnlineStreamAuthority::default()),
             policy,
             budget,

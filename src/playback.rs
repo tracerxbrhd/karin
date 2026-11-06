@@ -198,6 +198,9 @@ impl PlaybackSource {
         hit: crate::audio_cache::Hit,
         fallback: RemotePlaybackSource,
     ) -> Result<Self, PlaybackError> {
+        if fallback.is_expired() {
+            return Err(PlaybackError::SourceExpired);
+        }
         let file = hit
             .admit_file()
             .map_err(|_| PlaybackError::SourceUnavailable)?;
@@ -216,11 +219,13 @@ impl PlaybackSource {
     /// Memory-only final GTK admission, repeated by the playback worker before
     /// opening the cached source. Clear/revocation retires unadmitted hits.
     pub(crate) fn admit_cache_or_online(self) -> Self {
-        if self
-            .cache_admission
-            .as_ref()
-            .is_some_and(|hit| hit.admit_file().is_err())
-            && let Some(fallback) = self.cache_fallback.clone()
+        if self.cache_admission.as_ref().is_some_and(|hit| {
+            hit.admit_file().is_err()
+                || self
+                    .cache_fallback
+                    .as_ref()
+                    .is_some_and(RemotePlaybackSource::is_expired)
+        }) && let Some(fallback) = self.cache_fallback.clone()
         {
             return Self::remote(fallback);
         }

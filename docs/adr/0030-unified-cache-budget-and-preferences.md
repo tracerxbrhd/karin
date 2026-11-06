@@ -96,6 +96,9 @@ shared quota, Unlimited, a subscription or a successful streaming check cannot
 issue a storage grant. [AUDIO_CACHE_REVIEW](../AUDIO_CACHE_REVIEW.md) and the
 [prepared provider request](../AUDIO_CACHE_PROVIDER_REQUEST.md) state the two
 external inputs. This infrastructure does not complete Issue #20.
+An online-admission wrapper must retain that independent permission gate and
+retire failed/stale resolution tickets under ADR-0029. These corrections change
+neither the shared quota nor its six Preferences choices.
 
 ## Verification and consequences
 

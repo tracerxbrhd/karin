@@ -70,8 +70,8 @@ cause or resolution. See [known limitations](docs/LIMITATIONS.md).
 PR #26 provides one cache policy: enabled by default, one 2 GiB allowance,
 combined usage and Clear, with a native slider for 500 MiB, 1/2/3/4 GiB or
 Unlimited. Metadata, artwork and authority-gated audio share one disk coordinator,
-including in-flight writes. The owner accepted the preceding `707539b` Native
-and Flatpak infrastructure; the new unified interface needs its own acceptance.
+including in-flight writes. The owner identifies `0709729` as the last accepted
+PR #26 revision; later online-authority changes require separate acceptance.
 Real Music remains online-only: storage/reuse is disabled until an applicable
 permission and the provider's online revalidation rule are established. PR #26
 remains Draft; generated-audio tests do not establish service caching or offline

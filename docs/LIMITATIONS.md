@@ -57,8 +57,9 @@ Wave event or recommendation-effect guarantee. See
 Other recommendation shelves/similar tracks and lyrics are not implemented.
 The v0.6 audio store, player bridge and cleanup are ordinary production code.
 The owner accepted the available functions/tests at `707539b` on Native and
-installed Flatpak. The subsequent unified-cache revision needs new acceptance:
-one shared policy/budget/usage and Clear covers all permitted categories, with
+installed Flatpak. The owner identifies `0709729` as the last accepted PR #26 revision; the later
+online-authority correction requires new acceptance. One shared policy/budget/usage
+and Clear covers all permitted categories, with
 2 GiB by default and an explicit Unlimited choice guarded by available disk space.
 This interface does not enable audio storage: the service authority still refuses
 storage/reuse admission.
@@ -68,7 +69,10 @@ fresh account/resource check authorizing a cached hit; a playable MP3, subscript
 `permissions.until` or `cacheLimit` alone does not define that contract. See
 [AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md).
 PR #26 and Issue #20 remain unfinished. Generated-media tests exercise the shared
-store/bridge; they are not service cache or installed-Flatpak acceptance. Downloads,
+store/bridge and actual GStreamer reuse/reopen with independent fixture permission;
+they are not service cache or installed-Flatpak acceptance. The production
+online coordinator defaults to the missing-contract authority and cannot grant
+storage from a playable URL. See the [post-acceptance audit](PR26_REVISION_AUDIT.md). Downloads,
 mass prefetch and offline playback are outside this iteration. A later offline
 mode needs its own actual lifetime/revalidation rules; it is not a prerequisite
 invented for transparent online-revalidated caching.

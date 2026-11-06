@@ -46,6 +46,17 @@ official-client material is copied into Karin's store.
 | [info-db.vala](https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/cachier/info-db.vala#L23) | SQLite references retain tracks used by several saved collections. Those references are not account/device/track licenses. |
 | [player.vala](https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/player/player.vala#L492) | Passes the local/network URI to playbin and may prefetch the next track. Karin retains its existing player without adopting automatic service-audio saving. |
 
+The network side is concrete:
+[`YaMTalker.get_download_uri/load_track`](https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/talkers/yam-talker.vala#L300)
+delegates to
+[`Client.track_download_uri`](https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/api/yam-client.vala#L1221)
+and `get_content_of`. The client requests the track's `download-info`, chooses
+an available bitrate, fetches the descriptor, forms the MP3 resource URI and
+loads its complete response into bytes for the separate save operation. This
+is a second resource transfer beside playbin's first network playback; it is
+not a tee of bytes already consumed by the player. Those functions expose no
+separate storage/reuse admission decision.
+
 The reviewed path returns a local file before resolving a fresh network resource.
 It establishes the legacy cache-selection/save chain, but not the current
 permission for Karin to reuse that file. Nor does it establish an offline lease or
@@ -91,6 +102,12 @@ for async storage/retry ideas, but is not evidence that its complete legacy audi
 cache chain still runs or that a new provider permission exists. No Cassette
 binary or live account was run in this source review.
 
+The PR #26 completion review on **2026-11-06** resolved the release tags again
+and checked the current main head. They still identify the revisions above;
+all thirteen re-fetched legacy/current cache and player source files match the
+earlier reviewed bytes. No newer cache chain or provider storage/reuse contract
+was established by that check.
+
 The newer core cache/player files credit Vladimir Romanov and generally carry
 GPL-3.0-or-later. Auxiliary `humanity-size.vala`, `location.vala` and `settings.vala`
 carry GPL-3.0-only. Future reuse must retain each file's actual license/copyright;
@@ -121,9 +138,10 @@ no buffer-size change is presented as reusable audio caching.
 
 ## Provider-controlled evidence
 
-Music terms, application license and offline help were fetched successfully
-again on **2026-11-06**. The fresh Plus request returned **HTTP429**; its clauses
-below retain the complete **2026-11-05** review, not a claimed new full fetch.
+Music terms, application license, offline help and Plus conditions were fetched
+successfully again on **2026-11-06** during the PR #26 completion review. The
+later Plus request returned **HTTP200**, replacing the earlier rate-limited
+request; its relevant territory/device/concurrency clauses were rechecked.
 These are mutable service statements, not a newly issued permission for Karin.
 
 - [Music terms](https://yandex.ru/legal/music_termsofuse/ru/), §§2.1, 2.7–2.8:

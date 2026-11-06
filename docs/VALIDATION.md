@@ -448,8 +448,9 @@ Fedora Native and installed Flatpak after PR #27 merged at `ddf93ea`. The owner
 also accepted builds, tests and available functions of cache revision `707539b`
 in both environments. Issue #17 is closed using that reported scope; special
 race/failure behavior remains supported by CI, not an invented desktop test.
-This does not establish service-audio saving, the new unified revision's desktop
-acceptance, or cold-first-frame smoothness in Issue #23.
+The owner now identifies `0709729` as the last accepted PR #26 revision. This
+does not establish service-audio saving, acceptance of later direct changes or
+cold-first-frame smoothness in Issue #23.
 
 The new revision uses one enabled-by-default 2 GiB policy, six discrete native
 Scale choices and a shared coordinator across actual metadata/artwork/audio
@@ -508,8 +509,8 @@ media nor source preparation establishes a new installed-Flatpak/Fedora PASS.
 check. [ADR-0030](adr/0030-unified-cache-budget-and-preferences.md) records the
 migration and resource policy; [the audit](ISSUES_AUDIT.md) records all twelve
 Issues and the distinct remaining gates. [Provider questions](AUDIO_CACHE_PROVIDER_REQUEST.md)
-were prepared, not sent. The primary-source research and its HTTP429 limit are
-recorded in [AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md).
+were prepared, not sent. The primary-source research is recorded in [AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md);
+the fresh completion review obtained HTTP200 for the previously rate-limited Plus page.
 
 ## v0.6 audio-cache foundation
 
@@ -650,6 +651,71 @@ Complete final-head hosted/native results are recorded in
 Fedora/installed-Flatpak acceptance or real Music cache reuse is established here.
 PR #26 remains Draft and Issue #20 stays open; #5 and #23 remain separate.
 Synthetic expiry/revocation tests cannot establish external rights.
+
+## PR26 post-acceptance correction
+
+The owner's new task identifies `0709729` as the accepted baseline and
+`0f9257f` as the unverified direct-edit head. The
+[commit-by-commit audit](PR26_REVISION_AUDIT.md) covers all eight intervening
+commits. At `0f9257f` exact-head formatting and Clippy passed, but both compilers
+failed the expired-source test's obsolete `fill.unwrap()`. The correction keeps
+the early rejection and asserts that no copy is scheduled.
+
+The production coordinator now requires independent storage permission and
+fresh online admission. Its safe default delegates to `MissingStorageContract`.
+A per-owner/session/budget context and one-use attempt prevent old or replayed
+permission results from replacing current state. Failure before HTTP, current
+resource refusal, cancellation/token expiry during permission lookup and aged
+source admission cannot reuse an earlier grant. Permission lookup does not hold
+the state mutex used by GTK. The shared quota, six choices, disk format,
+authentication, single player/queue and ordinary network playback are preserved.
+
+The new original-media fixtures exercise the actual production coordinator and
+existing application/PlaybackController, not a second player. Service-source
+availability still supplies no storage permission. The fresh Cassette audit and
+primary pages did not establish an applicable Karin storage/reuse contract or
+the provider's fresh cached-hit rule. Real-account caching remains incomplete;
+no service tokens/content were used in Cloud.
+
+The corrective runtime passed on stable **1.99.1** and exact **1.98.1**:
+
+- Formatting and strict Clippy in default/all/minimal configurations.
+- **499 / 507 / 485** library tests plus **4 CLI tests** per configuration,
+  with no failures. All **47** audio-cache/coordinator/bridge tests executed;
+  ordinary commands still leave **36 / 36 / 33** native tests ignored.
+- Debug builds in all three configurations, locked/offline ordinary release
+  builds with the Flatpak Cargo options, and the MSRV all-feature release.
+  Silent GStreamer, generated-WAV transport, GTK smoke, hidden terminal tests
+  and ordinary/legacy-alias startup/cleanup passed.
+- **16 actual native executions** using newly compiled (`fresh=false`), hashed
+  test binaries: player/cache, Preferences and persistent-session fixtures at
+  1×/2×, plus MPRIS/playerctl and WebKit construction/shutdown on each compiler.
+  All passed with fatal warnings and without disabling the WebKit sandbox.
+  **112 generated Preferences captures** supplement structure/input checks;
+  compact light and wide dark images were inspected. These are Xvfb checks.
+
+The first navigating WebKit attempt in the local Docker container terminated
+before page load: bubblewrap reported that it could not create a namespace and
+its D-Bus proxy failed (exit133). `unshare -Ur` is also denied there. This is
+recorded as a local environment limitation, not a successful navigation test or
+a claimed product regression. The sandbox was not disabled. Complete navigating
+WebKit/callback/cookie/cancellation and modern visual coverage remain mandatory
+in the unchanged hosted workflow, using its exact-test-binary namespace policy.
+
+Flatpak-source preparation passed with **208 packages / 207 notice directories**,
+unchanged dependency-license inventory, GNOME50 runtime and scoped permissions.
+The matching corrective Rust sources also built **offline/locked on 1.98.1**
+from that vendored snapshot using a new empty `CARGO_HOME` and the manifest Cargo
+flags. That build uses the container native libraries, not an installed GNOME SDK.
+
+Local corrective-source checks are recorded here. Consult
+[PR #26 and its checks](https://github.com/tracerxbrhd/karin/pull/26/checks) for
+the final-head hosted CI status; earlier-head results do not validate this correction.
+The [Fedora procedure](BUILDING.md#pr-26-corrected-cache-acceptance) separates
+original-media production-path verification from owner Native/installed-Flatpak
+and real-service acceptance. The Cloud has Flatpak/Builder but no installed
+GNOME50 SDK/runtime; source/vendor validation is not a full installed Flatpak
+result. PR #26 remains Draft and Issue #20 remains open. No merge is authorized.
 
 ## Known unresolved checks
 

@@ -70,6 +70,9 @@ struct Http {
 }
 impl Http {
     fn new(body: Vec<u8>, status: u16, extra_headers: &'static str) -> Self {
+        Self::with_account(body, status, extra_headers, 1234)
+    }
+    fn with_account(body: Vec<u8>, status: u16, extra_headers: &'static str, account: u64) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let origin = format!("http://{}/", listener.local_addr().unwrap());
@@ -105,7 +108,7 @@ impl Http {
                     let path = request.split_whitespace().nth(1).unwrap();
                     let lower = request.to_ascii_lowercase();
                     let (code, mime, headers, response) = if path == "/account/status" {
-                        (200, "application/json", "", br#"{"result":{"account":{"uid":1234,"displayName":"Synthetic account"}}}"#.to_vec())
+                        (200, "application/json", "", format!(r#"{{"result":{{"account":{{"uid":{account},"displayName":"Synthetic account"}}}}}}"#).into_bytes())
                     } else if path == "/tracks/123/download-info" {
                         delivery_requests.fetch_add(1, Ordering::AcqRel);
                         (200, "application/json", "", format!(r#"{{"result":[{{"codec":"mp3","preview":false,"downloadInfoUrl":"{origin}download-info/original"}}]}}"#).into_bytes())
@@ -306,7 +309,7 @@ fn missing_contract_has_no_media_request_or_storage_write() {
 }
 
 #[test]
-fn online_stream_authority_requires_fresh_resolution_on_each_process() {
+fn online_resolution_does_not_create_an_independent_storage_permission() {
     let directory = Directory::new();
     let http = Http::new(media(), 200, "");
     let service = MusicService::for_test(&http.origin);
@@ -316,6 +319,39 @@ fn online_stream_authority_requires_fresh_resolution_on_each_process() {
     let cache = AudioCache::open(
         directory.0.join("audio"),
         Arc::new(OnlineStreamAuthority::default()),
+        CachePolicy::default(),
+    )
+    .unwrap();
+    let lease = cache.bind(Some(scope())).unwrap().unwrap();
+    assert!(matches!(cache.get(&lease, key()), Err(CacheError::NoGrant)));
+
+    let selection = resolve(
+        http.resolver(),
+        &service,
+        &token,
+        "123",
+        &DeliveryCancellation::new(),
+        Some((cache.clone(), lease.clone())),
+    )
+    .unwrap();
+    assert!(!selection.source.is_cached() && selection.fill.is_none());
+    assert_eq!(cache.stats().unwrap().entries, 0);
+    assert_eq!(http.requested(), 0);
+    assert!(matches!(cache.get(&lease, key()), Err(CacheError::NoGrant)));
+}
+
+#[test]
+fn independently_permitted_media_requires_fresh_online_resolution_after_reopen() {
+    let directory = Directory::new();
+    let http = Http::new(media(), 200, "");
+    let service = MusicService::for_test(&http.origin);
+    let token = token();
+    service.account(&token).unwrap();
+    let permission = Arc::new(SyntheticAuthority::default());
+    permission.allow(&scope(), &key());
+    let cache = AudioCache::open(
+        directory.0.join("audio"),
+        Arc::new(OnlineStreamAuthority::with_storage_permission(permission)),
         CachePolicy::default(),
     )
     .unwrap();
@@ -350,10 +386,14 @@ fn online_stream_authority_requires_fresh_resolution_on_each_process() {
     drop(hit);
     drop(cache);
 
-    // No process-local admission survives restart, but the verified file does.
+    // Recreate all admission inputs, not just the filesystem handle. This is a
+    // namespace reopen test; the native fixture also recreates the application.
+    // The explicit permission applies only to our original generated media.
+    let permission = Arc::new(SyntheticAuthority::default());
+    permission.allow(&scope(), &key());
     let reopened = AudioCache::open(
         directory.0.join("audio"),
-        Arc::new(OnlineStreamAuthority::default()),
+        Arc::new(OnlineStreamAuthority::with_storage_permission(permission)),
         CachePolicy::default(),
     )
     .unwrap();
@@ -362,9 +402,24 @@ fn online_stream_authority_requires_fresh_resolution_on_each_process() {
         reopened.get(&lease, key()),
         Err(CacheError::NoGrant)
     ));
+    let fresh_service = MusicService::for_test(&http.origin);
+    assert!(
+        resolve(
+            http.resolver(),
+            &fresh_service,
+            &token,
+            "123",
+            &DeliveryCancellation::new(),
+            Some((reopened.clone(), lease.clone())),
+        )
+        .is_err(),
+        "retained bytes do not authenticate a new MusicService session"
+    );
+    assert_eq!(http.requested(), 1);
+    fresh_service.account(&token).unwrap();
     let hit_after_restart = resolve(
         http.resolver(),
-        &service,
+        &fresh_service,
         &token,
         "123",
         &DeliveryCancellation::new(),
@@ -386,7 +441,7 @@ fn online_stream_authority_requires_fresh_resolution_on_each_process() {
         .unwrap();
     let mismatch = resolve(
         http.resolver(),
-        &service,
+        &fresh_service,
         &token,
         "123",
         &DeliveryCancellation::new(),
@@ -394,6 +449,123 @@ fn online_stream_authority_requires_fresh_resolution_on_each_process() {
     )
     .unwrap();
     assert!(!mismatch.source.is_cached() && mismatch.fill.is_none());
+}
+
+#[test]
+fn cleared_and_invalidated_sessions_retire_previous_online_admission_before_transport() {
+    for invalidate_token in [false, true] {
+        let directory = Directory::new();
+        let http = Http::new(media(), 200, "");
+        let service = MusicService::for_test(&http.origin);
+        let token = token();
+        service.account(&token).unwrap();
+        let permission = Arc::new(SyntheticAuthority::default());
+        permission.allow(&scope(), &key());
+        let cache = AudioCache::open(
+            directory.0.join("audio"),
+            Arc::new(OnlineStreamAuthority::with_storage_permission(permission)),
+            CachePolicy::default(),
+        )
+        .unwrap();
+        let lease = cache.bind(Some(scope())).unwrap().unwrap();
+        resolve(
+            http.resolver(),
+            &service,
+            &token,
+            "123",
+            &DeliveryCancellation::new(),
+            Some((cache.clone(), lease.clone())),
+        )
+        .unwrap()
+        .fill
+        .unwrap()
+        .run()
+        .unwrap();
+        let selection = resolve(
+            http.resolver(),
+            &service,
+            &token,
+            "123",
+            &DeliveryCancellation::new(),
+            Some((cache.clone(), lease.clone())),
+        )
+        .unwrap();
+        assert!(selection.source.is_cached() && selection.fill.is_none());
+        let pending_hit = cache.get(&lease, key()).unwrap().unwrap();
+        if invalidate_token {
+            token.invalidate();
+        } else {
+            service.clear_session();
+        }
+        assert!(
+            resolve(
+                http.resolver(),
+                &service,
+                &token,
+                "123",
+                &DeliveryCancellation::new(),
+                Some((cache.clone(), lease.clone())),
+            )
+            .is_err()
+        );
+        assert!(matches!(cache.get(&lease, key()), Err(CacheError::NoGrant)));
+        assert!(matches!(pending_hit.admit(), Err(CacheError::Revoked)));
+        assert_eq!(http.delivery_requests.load(Ordering::Acquire), 2);
+        assert_eq!(http.requested(), 1);
+        assert_eq!(cache.stats().unwrap().entries, 1);
+    }
+}
+
+#[test]
+fn validated_foreign_account_cannot_retire_the_current_cache_admission() {
+    let directory = Directory::new();
+    let http = Http::new(media(), 200, "");
+    let service = MusicService::for_test(&http.origin);
+    let token = token();
+    service.account(&token).unwrap();
+    let permission = Arc::new(SyntheticAuthority::default());
+    permission.allow(&scope(), &key());
+    let cache = AudioCache::open(
+        directory.0.join("audio"),
+        Arc::new(OnlineStreamAuthority::with_storage_permission(permission)),
+        CachePolicy::default(),
+    )
+    .unwrap();
+    let lease = cache.bind(Some(scope())).unwrap().unwrap();
+    resolve(
+        http.resolver(),
+        &service,
+        &token,
+        "123",
+        &DeliveryCancellation::new(),
+        Some((cache.clone(), lease.clone())),
+    )
+    .unwrap()
+    .fill
+    .unwrap()
+    .run()
+    .unwrap();
+    let hit = cache.get(&lease, key()).unwrap().unwrap();
+
+    let foreign = Http::with_account(media(), 200, "", 9999);
+    let foreign_service = MusicService::for_test(&foreign.origin);
+    let foreign_token =
+        AccessToken::for_test("synthetic-foreign-account-token", Duration::from_secs(300));
+    foreign_service.account(&foreign_token).unwrap();
+    let selection = resolve(
+        foreign.resolver(),
+        &foreign_service,
+        &foreign_token,
+        "123",
+        &DeliveryCancellation::new(),
+        Some((cache.clone(), lease.clone())),
+    )
+    .unwrap();
+    assert!(!selection.source.is_cached() && selection.fill.is_none());
+    assert!(cache.get(&lease, key()).unwrap().is_some());
+    hit.admit().unwrap();
+    assert_eq!(http.requested(), 1);
+    assert_eq!(foreign.requested(), 0);
 }
 
 #[test]
@@ -527,6 +699,37 @@ fn pending_native_admission_and_bad_decoder_fall_back_once() {
 }
 
 #[test]
+fn expired_online_fallback_fences_cached_construction_and_final_admission() {
+    let directory = Directory::new();
+    let http = Http::new(media(), 200, "");
+    let (cache, lease, _) = store(&directory);
+    http.select(&cache, &lease).fill.unwrap().run().unwrap();
+    let selected_hit = cache.get(&lease, key()).unwrap().unwrap();
+    let later_hit = cache.get(&lease, key()).unwrap().unwrap();
+    let remote = RemotePlaybackSource::from_test_resolver(
+        &format!("{}get-mp3/original", http.origin),
+        Instant::now() + Duration::from_millis(100),
+    )
+    .unwrap();
+    let selected = PlaybackSource::cached_file(selected_hit, remote.clone()).unwrap();
+    assert!(selected.is_cached());
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !remote.is_expired() {
+        assert!(
+            Instant::now() < deadline,
+            "short online admission must expire"
+        );
+        thread::sleep(Duration::from_millis(2));
+    }
+    assert!(!selected.admit_cache_or_online().is_cached());
+    assert!(matches!(
+        PlaybackSource::cached_file(later_hit, remote),
+        Err(crate::playback::PlaybackError::SourceExpired)
+    ));
+    assert_eq!(http.requested(), 1, "expired admission cannot fetch media");
+}
+
+#[test]
 fn changed_disk_bytes_and_expired_remote_cannot_be_used_as_a_hit_or_fill() {
     let directory = Directory::new();
     let http = Http::new(media(), 200, "");
@@ -569,7 +772,11 @@ fn changed_disk_bytes_and_expired_remote_cannot_be_used_as_a_hit_or_fill() {
         "123",
         Some((cache.clone(), lease)),
     );
-    assert_eq!(selected.fill.unwrap().run(), Err(CacheError::Cancelled));
+    assert!(!selected.source.is_cached());
+    assert!(
+        selected.fill.is_none(),
+        "expired source must not schedule a copy"
+    );
     assert_eq!(http.requested(), 1);
     assert_eq!(cache.stats().unwrap().entries, 0);
 }

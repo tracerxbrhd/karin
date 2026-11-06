@@ -48,6 +48,15 @@ the established online StreamResolver path. This decision does not claim that
 all third-party storage is categorically forbidden or that the cache feature is
 finished.
 
+A derived online admission cannot create its own storage permission. When an
+`OnlineStreamAuthority` wraps this boundary, its default storage delegate is
+`MissingStorageContract`; an explicitly supplied independent authority must grant
+the same account/resource and remain current. Keep the delegate's opaque
+permission revision separate from the local online-attempt fence. Neither the
+wrapper nor a synthetic fixture authority enables real service storage without
+an applicable contract. The correction of the unaccepted `0709729..0f9257f`
+implementation is recorded in [PR26_REVISION_AUDIT](../PR26_REVISION_AUDIT.md).
+
 A cache hit or publication must pass current account/resource permission and
 account/request generation checks. The source adapter carries opaque identity and
 permission state in memory; it never serializes OAuth, cookies, personal models,
@@ -71,6 +80,11 @@ busy. Live strong owners still exclude a second owner; weak tickets cannot reviv
 the namespace. The destructor is owner-process guarded.
 
 The existing StreamResolver performs fresh online admission before cache selection.
+Start the selection's opaque check before network resolution. Failure,
+cancellation or replacement retires that admission; an older completion cannot
+replace a newer account/request/policy generation, including a return to the same
+account. This local freshness fence does not grant storage permission, delete a
+valid payload or invalidate the file descriptor of already admitted playback.
 Only an authority-admitted hit supplies the verified read-only file descriptor to
 the single PlaybackController. Playback uses that pinned file, not a path reopened
 after validation. A cache miss retains the existing remote source; an admitted

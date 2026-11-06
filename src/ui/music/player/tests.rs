@@ -20,6 +20,7 @@ use std::{
 
 #[derive(Default)]
 struct Counts {
+    account_checks: usize,
     searches: usize,
     lookups: usize,
     offers: [usize; 4],
@@ -29,6 +30,7 @@ struct Counts {
     cache_reads: [usize; 4],
     hold_cache_track: Option<usize>,
     cache_hold_started: bool,
+    reject_delivery_track: Option<usize>,
     slow_started: bool,
     wave_sessions: usize,
     wave_batches: usize,
@@ -285,6 +287,7 @@ fn serve(
             json_response(&mut stream, json!({"result":"accepted"}));
         }
     } else if url.path() == "/account/status" {
+        counts.lock().unwrap().account_checks += 1;
         json_response(
             &mut stream,
             json!({"result":{"account":{"uid":1234,"displayName":"Synthetic player account"}}}),
@@ -361,7 +364,18 @@ fn serve(
     } else if url.path().starts_with("/tracks/") {
         let track: usize = url.path().split('/').nth(2).unwrap().parse().unwrap();
         assert!((42..=45).contains(&track));
-        counts.lock().unwrap().offers[track - 42] += 1;
+        let rejected = {
+            let mut counts = counts.lock().unwrap();
+            counts.offers[track - 42] += 1;
+            counts.reject_delivery_track == Some(track)
+        };
+        if rejected {
+            let _ = write!(
+                stream,
+                "HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{{}}"
+            );
+            return;
+        }
         json_response(
             &mut stream,
             json!({"result":[{"codec":"mp3","bitrateInKbps":192,"preview":false,"direct":false,
@@ -973,7 +987,8 @@ fn native_music_playback_resolver_queue_controls_and_logout() {
 // exists only in cfg(test); its original MP3 cannot establish service rights.
 fn native_granted_audio_cache_fill_reuse_and_retirement() {
     use crate::audio_cache::{
-        AudioCache, CachePolicy, ResourceKey, test_support::SyntheticAuthority,
+        AudioCache, CacheError, CachePolicy, OnlineStreamAuthority, ResourceKey,
+        test_support::SyntheticAuthority,
     };
     let fixture = Fixture::new();
     let (_app, ui) = player_window(&fixture);
@@ -997,11 +1012,24 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
     let key = |id| ResourceKey::track(id).unwrap();
     authority.allow(&scope, &key("42"));
     authority.allow(&scope, &key("43"));
-    let cache =
-        AudioCache::open(directory.0.join("audio"), authority, CachePolicy::default()).unwrap();
+    let budget = crate::cache_budget::CacheBudget::new(
+        directory.0.join("metadata"),
+        directory.0.join("audio"),
+        true,
+        Some(2 * 1024 * 1024 * 1024),
+    )
+    .unwrap();
+    let cache = AudioCache::open_with_budget(
+        directory.0.join("audio"),
+        Arc::new(OnlineStreamAuthority::with_storage_permission(authority)),
+        // A shared budget supersedes the former separate audio quota.
+        CachePolicy { max_bytes: 1 },
+        budget.clone(),
+    )
+    .unwrap();
     this.install_audio_cache_for_test(cache.clone(), scope);
     let lease = cache.lease().unwrap();
-    this.play_music_context(
+    this.model.borrow_mut().queue.replace_context(
         PlaybackContext::new(
             crate::queue::ContextKind::Playlist,
             Some("synthetic-cache-playlist".into()),
@@ -1011,12 +1039,24 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
         )
         .unwrap(),
     );
+    this.render_queue();
+    this.request_music(false, None);
+    pump_until(|| {
+        this.music_snapshot()
+            .is_some_and(|snapshot| snapshot.state == PlaybackState::Ready)
+            && this.player.borrow().preparing.is_none()
+    });
+    assert!(this.player.borrow().cache_fill_pending.is_some());
+    assert_eq!(fixture.counts.lock().unwrap().cache_reads[0], 0);
+    assert_eq!(cache.stats().unwrap().entries, 0);
+    this.widgets.play.emit_clicked();
     wait_playing(this, 0);
     pump_until(|| {
         fixture.counts.lock().unwrap().cache_reads[0] == 1
             && !this.player.borrow().cache_fill_running
     });
     assert_eq!(cache.stats().unwrap().entries, 1);
+    assert_eq!(budget.usage().unwrap().bytes, cache.stats().unwrap().bytes);
     assert!(cache.get(&lease, key("42")).unwrap().is_some());
     this.pause_music();
     pump_until(|| {
@@ -1049,6 +1089,114 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
         !this.player.borrow().cache_fill_running
             && this.player.borrow().cache_fill_pending.is_none()
     );
+    this.pause_music();
+    pump_until(|| {
+        this.music_snapshot()
+            .is_some_and(|s| s.state == PlaybackState::Paused)
+    });
+
+    // Recreate the real controller, MusicService account validation, namespace
+    // owner and independent storage authority. Persistent bytes alone cannot
+    // authorize local playback, and every hit must resolve the online source.
+    let checks_before_restart = fixture.counts.lock().unwrap().account_checks;
+    this.close();
+    ui.window.close();
+    drop(cache);
+    drop(ui);
+    drop(_app);
+    let (_app, ui) = player_window(&fixture);
+    let this = &ui.music.controller;
+    assert_eq!(
+        fixture.counts.lock().unwrap().account_checks,
+        checks_before_restart + 1
+    );
+    let token = this.model.borrow().token.as_ref().unwrap().clone();
+    let scope = this.service.as_ref().unwrap().cache_scope(&token).unwrap();
+    let permission = Arc::new(SyntheticAuthority::default());
+    permission.allow(&scope, &key("42"));
+    permission.allow(&scope, &key("43"));
+    let cache = AudioCache::open_with_budget(
+        directory.0.join("audio"),
+        Arc::new(OnlineStreamAuthority::with_storage_permission(permission)),
+        CachePolicy { max_bytes: 1 },
+        budget.clone(),
+    )
+    .unwrap();
+    this.install_audio_cache_for_test(cache.clone(), scope);
+    let lease = cache.lease().unwrap();
+    assert_eq!(cache.stats().unwrap().entries, 1);
+    assert!(matches!(
+        cache.get(&lease, key("42")),
+        Err(CacheError::NoGrant)
+    ));
+
+    fixture.counts.lock().unwrap().reject_delivery_track = Some(42);
+    let offers_before_denial = fixture.offers(0);
+    this.play_music_context(
+        PlaybackContext::new(
+            crate::queue::ContextKind::Playlist,
+            Some("synthetic-cache-playlist".into()),
+            vec![track("42"), track("43"), track("44")],
+            0,
+            false,
+        )
+        .unwrap(),
+    );
+    pump_until(|| {
+        !this.player.borrow().resolving
+            && matches!(this.player.borrow().failure, Some(Failure::Delivery(_)))
+    });
+    assert_eq!(fixture.offers(0), offers_before_denial + 1);
+    assert_eq!(fixture.counts.lock().unwrap().media[0], first_media);
+    assert!(matches!(
+        cache.get(&lease, key("42")),
+        Err(CacheError::NoGrant)
+    ));
+    assert!(this.player.borrow().controller.is_none());
+
+    fixture.counts.lock().unwrap().reject_delivery_track = None;
+    this.widgets.play.emit_clicked();
+    wait_playing(this, 0);
+    pump_until(|| {
+        this.music_snapshot()
+            .is_some_and(|s| !s.playing_time.is_zero())
+    });
+    assert_eq!(fixture.offers(0), offers_before_denial + 2);
+    assert_eq!(fixture.counts.lock().unwrap().media[0], first_media);
+    assert_eq!(fixture.counts.lock().unwrap().cache_reads[0], 1);
+    assert_eq!(budget.usage().unwrap().bytes, cache.stats().unwrap().bytes);
+    this.pause_music();
+    pump_until(|| {
+        this.music_snapshot()
+            .is_some_and(|s| s.state == PlaybackState::Paused)
+    });
+
+    // A previous successful online check must not survive a later denial.
+    // The old record stays on disk, but cannot override the current service.
+    fixture.counts.lock().unwrap().reject_delivery_track = Some(42);
+    let retired = this.player.borrow().controller.clone().unwrap();
+    this.widgets.stop.emit_clicked();
+    pump_until(|| !retired.snapshot().worker_running);
+    this.widgets.play.emit_clicked();
+    pump_until(|| {
+        !this.player.borrow().resolving
+            && matches!(this.player.borrow().failure, Some(Failure::Delivery(_)))
+    });
+    assert_eq!(fixture.counts.lock().unwrap().media[0], first_media);
+    assert!(matches!(
+        cache.get(&lease, key("42")),
+        Err(CacheError::NoGrant)
+    ));
+    assert_eq!(cache.stats().unwrap().entries, 1);
+    fixture.counts.lock().unwrap().reject_delivery_track = None;
+    this.widgets.play.emit_clicked();
+    wait_playing(this, 0);
+    pump_until(|| {
+        this.music_snapshot()
+            .is_some_and(|s| !s.playing_time.is_zero())
+    });
+    assert_eq!(fixture.counts.lock().unwrap().media[0], first_media);
+    assert_eq!(fixture.counts.lock().unwrap().cache_reads[0], 1);
     this.pause_music();
     pump_until(|| {
         this.music_snapshot()
@@ -1100,7 +1248,10 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
     fixture.release_descriptor();
     pump_until(|| !this.player.borrow().cache_fill_running);
     assert!(
-        cache.get(&lease, key("43")).unwrap().is_none(),
+        matches!(
+            cache.get(&lease, key("43")),
+            Ok(None) | Err(CacheError::NoGrant)
+        ),
         "a cancelled response cannot publish late bytes"
     );
     assert_eq!(cache.stats().unwrap().entries, 1);

@@ -126,8 +126,8 @@ the next offered choice, with sums above 4 GiB becoming Unlimited. Corrupt cache
 values recover independently of valid session/forget/appearance fields. The
 on-disk metadata/artwork/audio formats and locations are retained.
 
-The owner accepted the preceding `707539b` infrastructure and Dislike→Next on
-Fedora Native and installed Flatpak. For this new revision, build using the
+The owner identifies `0709729` as the last accepted PR #26 revision. This does
+not accept the later online-authority changes or their correction. Build using the
 commands above and the Flatpak section below, then check in **each** environment:
 
 1. Light/dark, compact/wide and HiDPI: six positions; Home/End/arrows and pointer;
@@ -145,6 +145,48 @@ online validation → local reuse remains unaccepted until both provider conditi
 are established. See [ADR-0030](adr/0030-unified-cache-budget-and-preferences.md),
 [provider questions](AUDIO_CACHE_PROVIDER_REQUEST.md) and
 [validation](VALIDATION.md#v06-unified-cache).
+
+## PR #26 corrected-cache acceptance
+
+The [revision audit](PR26_REVISION_AUDIT.md) covers every change after `0709729`.
+The production online coordinator now requires an independent storage authority;
+its default refuses storage. A fresh stream cannot replace that permission.
+No developer flag, account subscription or test authority enables service saving.
+
+First verify the implemented save/reuse/reopen path on Fedora Native with the
+existing application/player fixture (no login, original generated MP3 only):
+
+```sh
+for toolchain in stable 1.98.1; do
+  cargo +"$toolchain" test --lib --all-features --locked audio_cache
+  cargo +"$toolchain" test --lib --all-features --locked \
+    native_music_playback_resolver_queue_controls_and_logout -- --ignored --test-threads=1
+done
+```
+
+Run as your ordinary desktop user with working GStreamer MP3 plugins. The native
+selector uses the actual application, PlaybackController, shared budget and local
+HTTP fixture. It checks Ready without a copy, actual Playing triggering a bounded
+save, local repeat playback, controller/store/account-validation recreation,
+403 refusal before a cached hit, retry, source cancellation and logout. The
+pure tests cover integrity, quota/free space, rights and race fences. This is
+implemented production-path verification, not proof about a real service grant.
+
+For owner acceptance build this branch's commit Native and install its Flatpak
+using the next section. In **both installed applications** use ordinary sign-in,
+play a real track, repeat/restart and exercise Pause/Seek/Next, Wave, MPRIS,
+Disable, Clear and logout. Check the common usage/slider and that sign-in/current
+playback survive Clear. Real Music must still play online; saved audio remains
+empty while the permission gate is absent. Do not send tokens, media files,
+signed URLs or account models to Cloud/GitHub. Report commit, Native/Flatpak,
+operation and PASS/FAIL; safe fixed-category errors are sufficient.
+
+A successful generated-media test does not meet the real Music save/reuse
+criterion. An installed-Flatpak test and actual service-cache acceptance remain
+pending. Once the applicable contract and fresh-reuse rule are confirmed, an
+adapter must supply their independently validated permit to the same coordinator;
+then repeat first play/save/local hit/restart/refusal acceptance with a real track.
+There is no offline mode, Downloads or content export in this PR.
 
 ## Flatpak source build
 

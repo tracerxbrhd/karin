@@ -39,6 +39,7 @@ impl Identity {
             account: account(self.account).audio_cache_key(),
             namespace: self.device,
             track: self.track.into(),
+            admission: [0; 32],
         }
     }
     pub(super) fn key(self) -> Key {
@@ -98,6 +99,7 @@ impl SyntheticAuthority {
                 account: scope.audio_cache_key(),
                 namespace: 1,
                 track: *track,
+                admission: [0; 32],
             },
             100,
             false,
@@ -108,6 +110,7 @@ impl SyntheticAuthority {
             account: scope.audio_cache_key(),
             namespace: 1,
             track: *track,
+            admission: [0; 32],
         };
         if let Some(rights) = self.rights.lock().unwrap().get_mut(&identity.key()) {
             rights.revoked = true;

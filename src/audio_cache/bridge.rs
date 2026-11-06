@@ -3,9 +3,9 @@
 //!
 //! A fresh stream resolution is required before every online-only cache hit or
 //! fill. Cached bytes never bypass the current Music account/source validation.
-//! The online authority is an experimental transport gate, not a license grant.
+//! Storage permission is independent: a resolved stream alone cannot admit writes.
 
-use super::{AudioCache, CacheError, Cancellation, Lease, Request, ResourceKey};
+use super::{AudioCache, CacheError, Cancellation, Lease, OnlineCheck, Request, ResourceKey};
 use crate::{
     music::MusicService,
     playback::{PlaybackSource, RemotePlaybackSource},
@@ -29,22 +29,40 @@ pub(crate) fn resolve(
     cancellation: &DeliveryCancellation,
     binding: Option<(AudioCache, Lease)>,
 ) -> Result<Selection, DeliveryReport> {
+    // A positively different account must not retire that account's admission.
+    // An expired/cleared session must retire the caller's still-current lease,
+    // however, rather than leaving its previous successful admission usable.
+    let (binding, authenticated) = match service.cache_scope(token) {
+        Ok(scope) => (
+            binding.filter(|(_, lease)| lease.matches_scope(&scope)),
+            true,
+        ),
+        Err(_) => (binding, false),
+    };
+    // Retire prior admission before network I/O, including pre-auth failures.
+    // Stale workers cannot retire a newer session: start_check checks the lease.
+    let check = start_check(&binding, track);
     let remote = resolver.resolve(service, token, track, cancellation)?;
-    let binding = binding.filter(|(_, lease)| {
-        service
-            .cache_scope(token)
-            .is_ok_and(|scope| lease.matches_scope(&scope))
-    });
-    Ok(select(
+    let binding = binding.filter(|_| authenticated);
+    Ok(select_admitted(
         resolver,
         token,
         cancellation,
         remote,
         track,
         binding,
+        check,
     ))
 }
 
+fn start_check(binding: &Option<(AudioCache, Lease)>, track: &str) -> Option<OnlineCheck> {
+    let (cache, lease) = binding.as_ref()?;
+    cache
+        .begin_online_check(lease, ResourceKey::track(track).ok()?)
+        .ok()
+}
+
+#[cfg(test)]
 fn select(
     resolver: StreamResolver,
     token: &AccessToken,
@@ -53,8 +71,21 @@ fn select(
     track: &str,
     binding: Option<(AudioCache, Lease)>,
 ) -> Selection {
+    let check = start_check(&binding, track);
+    select_admitted(resolver, token, cancellation, remote, track, binding, check)
+}
+
+fn select_admitted(
+    resolver: StreamResolver,
+    token: &AccessToken,
+    cancellation: &DeliveryCancellation,
+    remote: RemotePlaybackSource,
+    track: &str,
+    binding: Option<(AudioCache, Lease)>,
+    check: Option<OnlineCheck>,
+) -> Selection {
     let online = || PlaybackSource::remote(remote.clone());
-    let Some((cache, lease)) = binding else {
+    let (Some((cache, lease)), Some(check)) = (binding, check) else {
         return Selection {
             source: online(),
             fill: None,
@@ -66,9 +97,15 @@ fn select(
             fill: None,
         };
     };
-    // The caller has just resolved the actual track against the current
-    // account. Only this worker-bound event can admit a cached media record.
-    if remote.is_expired() || cache.observe_verified_online(&lease, key).is_err() {
+    // Online admission is necessary, never sufficient for storage/reuse.
+    if remote.is_expired()
+        || cancellation.cancelled(token)
+        || cache
+            .observe_verified_online_if(&lease, check, || {
+                !cancellation.cancelled(token) && !remote.is_expired()
+            })
+            .is_err()
+    {
         return Selection {
             source: online(),
             fill: None,
@@ -81,8 +118,8 @@ fn select(
             Selection { source, fill: None }
         }
         Ok(None) => {
-            // The cache authority still validates the observed account/source
-            // session; failures never create a second HTTP request or a write.
+            // Both the independent storage permit and current online selection
+            // remain live; failures never create a copy request or a write.
             let fill = cache.begin(&lease, key).ok().map(|request| Fill {
                 cache,
                 request,

@@ -2,9 +2,8 @@
 //! Account-isolated, authority-gated audio storage used by the ordinary app.
 //!
 //! All filesystem operations run on workers. Binding/fencing are memory-only.
-//! An online-session authority may admit cache operations only after a fresh,
-//! account-bound stream resolution. This is a technical online admission, not
-//! a provider-issued storage license or an offline entitlement. No protected
+//! Cache operations require independent storage permission and fresh account-
+//! bound stream admission. Streaming alone never grants permission. No protected
 //! formats are handled. Tests use original generated audio and fake authorities.
 
 use ring::{
@@ -88,6 +87,8 @@ pub struct ResourceIdentity {
     // Local disk namespace discriminator; not a provider device identity.
     namespace: u64,
     track: ResourceKey,
+    // Process/lease/budget fence; deliberately excluded from the disk key.
+    admission: Key,
 }
 impl ResourceIdentity {
     fn key(self) -> Key {
@@ -106,8 +107,9 @@ impl fmt::Debug for ResourceIdentity {
         f.write_str("AudioIdentity([opaque])")
     }
 }
-/// The authority owns the meaning and freshness of this revision. It is not a
-/// locally invented retention time or offline entitlement.
+/// The authority owns this freshness revision. A coordinating authority can
+/// scope an independently checked permission to a local online attempt; that
+/// attempt is neither a retention deadline nor an offline entitlement.
 #[derive(Clone, Copy)]
 pub struct StorageGrant {
     identity: ResourceIdentity,
@@ -130,11 +132,40 @@ impl fmt::Debug for StorageGrant {
 pub trait StorageAuthority: Send + Sync {
     fn authorize(&self, identity: &ResourceIdentity) -> Result<StorageGrant>;
     fn check(&self, grant: &StorageGrant) -> Result<()>;
-    /// Called by the resolver bridge only after an authenticated fresh stream
-    /// resolution. Synthetic authorities already manage their own explicit grants.
-    fn observe_verified_online(&self, _identity: &ResourceIdentity) -> Result<()> {
-        Ok(())
+    /// Memory-only start: retire earlier online admission before network I/O.
+    #[doc(hidden)]
+    fn begin_online(&self, identity: ResourceIdentity) -> Result<OnlineCheck> {
+        Ok(OnlineCheck {
+            identity,
+            sequence: 0,
+        })
     }
+    /// Permission lookup/revalidation may do I/O; called only on a worker.
+    #[doc(hidden)]
+    fn prepare_online(&self, check: OnlineCheck) -> Result<VerifiedOnline> {
+        let permission = self.authorize(&check.identity)?;
+        if permission.identity != check.identity {
+            return Err(CacheError::Cancelled);
+        }
+        self.check(&permission)?;
+        Ok(VerifiedOnline { check, permission })
+    }
+    /// Memory-only commit, serialized with account/clear fences.
+    #[doc(hidden)]
+    fn commit_online(&self, prepared: VerifiedOnline) -> Result<()> {
+        self.check(&prepared.permission)
+    }
+}
+/// Opaque one-use online attempt; not persisted or a storage permission.
+#[doc(hidden)]
+pub struct OnlineCheck {
+    identity: ResourceIdentity,
+    sequence: u64,
+}
+#[doc(hidden)]
+pub struct VerifiedOnline {
+    check: OnlineCheck,
+    permission: StorageGrant,
 }
 /// The current service does not establish a Karin-applicable storage contract.
 /// There is no user flag or metadata/subscription shortcut around this gate.
@@ -146,55 +177,14 @@ impl StorageAuthority for MissingStorageContract {
     fn check(&self, _: &StorageGrant) -> Result<()> {
         Err(CacheError::NoGrant)
     }
-    fn observe_verified_online(&self, _: &ResourceIdentity) -> Result<()> {
+    fn begin_online(&self, _: ResourceIdentity) -> Result<OnlineCheck> {
         Err(CacheError::NoGrant)
     }
 }
 
-/// Experimental online-only admission for an ordinary resolved, unprotected MP3.
-/// Nothing is persisted about the admission itself: each process and every new
-/// playback selection must revalidate the user account and media source online.
-/// This is not an offline license or evidence of permission to copy content.
-#[derive(Default)]
-pub struct OnlineStreamAuthority {
-    state: Mutex<OnlineStreamState>,
-}
-#[derive(Default)]
-struct OnlineStreamState {
-    revision: u64,
-    current: Option<StorageGrant>,
-}
-impl StorageAuthority for OnlineStreamAuthority {
-    fn observe_verified_online(&self, identity: &ResourceIdentity) -> Result<()> {
-        let mut state = self.state.lock().map_err(|_| CacheError::Unavailable)?;
-        state.revision = state.revision.checked_add(1).ok_or(CacheError::Limit)?;
-        state.current = Some(StorageGrant {
-            identity: *identity,
-            revision: state.revision,
-        });
-        Ok(())
-    }
+mod online;
+pub use online::OnlineStreamAuthority;
 
-    fn authorize(&self, identity: &ResourceIdentity) -> Result<StorageGrant> {
-        let state = self.state.lock().map_err(|_| CacheError::Unavailable)?;
-        match state.current {
-            Some(grant) if grant.identity == *identity => Ok(grant),
-            _ => Err(CacheError::NoGrant),
-        }
-    }
-
-    fn check(&self, grant: &StorageGrant) -> Result<()> {
-        let state = self.state.lock().map_err(|_| CacheError::Unavailable)?;
-        match state.current {
-            Some(current)
-                if current.identity == grant.identity && current.revision == grant.revision =>
-            {
-                Ok(())
-            }
-            _ => Err(CacheError::Revoked),
-        }
-    }
-}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CachePolicy {
     pub max_bytes: u64,
@@ -288,6 +278,7 @@ struct Inner {
     // not retain independent generations for the same directory.
     _lock_file: File,
     owner_pid: u32,
+    admission_nonce: Key,
     shared: Option<Arc<crate::cache_budget::CacheBudget>>,
 }
 impl Drop for Inner {
@@ -464,6 +455,10 @@ impl AudioCache {
             rustix::fs::FlockOperation::NonBlockingLockExclusive,
         )
         .map_err(|_| CacheError::Busy)?;
+        let mut admission_nonce = [0; 32];
+        SystemRandom::new()
+            .fill(&mut admission_nonce)
+            .map_err(|_| CacheError::Unavailable)?;
         let cache = Self(Arc::new(Inner {
             sandbox,
             authority,
@@ -479,6 +474,7 @@ impl AudioCache {
             io: Mutex::new(()),
             _lock_file: lock_file,
             owner_pid: std::process::id(),
+            admission_nonce,
             shared,
         }));
         {
@@ -526,13 +522,43 @@ impl AudioCache {
                 .map_or(0, |budget| budget.generation()),
         })
     }
-    /// A fresh Music account-bound stream was resolved for this exact track.
-    /// This method must be used only by the resolver worker, never as a UI grant.
-    pub(crate) fn observe_verified_online(&self, lease: &Lease, track: ResourceKey) -> Result<()> {
+    /// Start before resolving: failed, denied and cancelled resolutions cannot
+    /// leave a previous online admission usable. No network or disk I/O here.
+    pub(crate) fn begin_online_check(
+        &self,
+        lease: &Lease,
+        track: ResourceKey,
+    ) -> Result<OnlineCheck> {
+        let state = self.0.state.lock().map_err(|_| CacheError::Unavailable)?;
+        self.lease_current_locked(lease, &state)?;
+        self.0.authority.begin_online(self.identity(lease, track)?)
+    }
+    /// Independently revalidate storage rights on a worker, then commit only if
+    /// the exact lease and attempt remain current. Never hold GTK's state lock
+    /// across permission lookup/network I/O.
+    #[cfg(test)]
+    pub(crate) fn observe_verified_online(&self, lease: &Lease, check: OnlineCheck) -> Result<()> {
+        self.observe_verified_online_if(lease, check, || true)
+    }
+    pub(crate) fn observe_verified_online_if(
+        &self,
+        lease: &Lease,
+        check: OnlineCheck,
+        current: impl Fn() -> bool,
+    ) -> Result<()> {
         self.lease_current(lease)?;
-        let identity = self.identity(lease, track)?;
-        self.0.authority.observe_verified_online(&identity)?;
-        self.lease_current(lease)
+        if !current() {
+            return Err(CacheError::Cancelled);
+        }
+        let prepared = self.0.authority.prepare_online(check)?;
+        let state = self.0.state.lock().map_err(|_| CacheError::Unavailable)?;
+        self.lease_current_locked(lease, &state)?;
+        // Cancellation/token expiry during permission I/O must not commit even
+        // an unused cache admission. The predicate reads atomics/time only.
+        if !current() {
+            return Err(CacheError::Cancelled);
+        }
+        self.0.authority.commit_online(prepared)
     }
 
     pub fn fence(&self) -> Result<()> {
@@ -567,15 +593,15 @@ impl AudioCache {
         })
     }
     fn lease_current(&self, lease: &Lease) -> Result<()> {
+        let state = self.0.state.lock().map_err(|_| CacheError::Unavailable)?;
+        self.lease_current_locked(lease, &state)
+    }
+    fn lease_current_locked(&self, lease: &Lease, state: &State) -> Result<()> {
         if self.0.owner_pid != std::process::id()
             || self.0.shared.as_ref().is_some_and(|budget| {
                 !budget.enabled() || budget.generation() != lease.budget_generation
             })
-        {
-            return Err(CacheError::Cancelled);
-        }
-        let state = self.0.state.lock().map_err(|_| CacheError::Unavailable)?;
-        if !lease.owner.ptr_eq(&Arc::downgrade(&self.0))
+            || !lease.owner.ptr_eq(&Arc::downgrade(&self.0))
             || state.clearing
             || state.generation != lease.generation
             || state.account != Some(lease.account)
@@ -586,17 +612,20 @@ impl AudioCache {
     }
     fn check(&self, lease: &Lease, permit: StorageGrant) -> Result<()> {
         self.lease_current(lease)?;
-        if permit.identity.account != lease.account || permit.identity.namespace != self.0.namespace
-        {
+        if permit.identity != self.identity(lease, permit.identity.track)? {
             return Err(CacheError::Cancelled);
         }
         self.0.authority.check(&permit)
     }
     fn identity(&self, lease: &Lease, track: ResourceKey) -> Result<ResourceIdentity> {
+        let mut context = self.0.admission_nonce.to_vec();
+        context.extend_from_slice(&lease.generation.to_be_bytes());
+        context.extend_from_slice(&lease.budget_generation.to_be_bytes());
         Ok(ResourceIdentity {
             account: lease.account,
             namespace: self.0.namespace,
             track,
+            admission: hash(&context),
         })
     }
     pub fn begin(&self, lease: &Lease, track: impl Into<ResourceKey>) -> Result<Request> {
