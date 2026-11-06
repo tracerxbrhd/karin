@@ -42,6 +42,20 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6, Node.js 24
       - name: Install native development dependencies
         run: |
+          # Avoid prolonged downloads from the runner's regional Azure mirror.
+          # Retain Ubuntu suites, package signatures and Signed-By configuration.
+          sudo python3 - <<'PYTHON'
+          from pathlib import Path
+          sources = [Path('/etc/apt/sources.list')]
+          sources += list(Path('/etc/apt/sources.list.d').glob('*.sources'))
+          sources += list(Path('/etc/apt/sources.list.d').glob('*.list'))
+          for source in sources:
+              if source.is_file():
+                  original = source.read_text()
+                  updated = original.replace('://azure.archive.ubuntu.com/', '://archive.ubuntu.com/')
+                  if updated != original:
+                      source.write_text(updated)
+          PYTHON
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential pkg-config libgtk-4-dev libadwaita-1-dev \
