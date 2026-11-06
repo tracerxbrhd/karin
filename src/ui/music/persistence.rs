@@ -305,9 +305,12 @@ fn open_audio_store(
         return Ok(Some(cache));
     }
     root.map(|root| match budget {
-        Some(budget) => {
-            AudioCache::open_with_budget(root, Arc::new(OnlineStreamAuthority::default()), policy, budget)
-        }
+        Some(budget) => AudioCache::open_with_budget(
+            root,
+            Arc::new(OnlineStreamAuthority::default()),
+            policy,
+            budget,
+        ),
         None => AudioCache::open(root, Arc::new(OnlineStreamAuthority::default()), policy),
     })
     .transpose()
