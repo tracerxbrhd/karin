@@ -528,11 +528,7 @@ impl AudioCache {
     }
     /// A fresh Music account-bound stream was resolved for this exact track.
     /// This method must be used only by the resolver worker, never as a UI grant.
-    pub(crate) fn observe_verified_online(
-        &self,
-        lease: &Lease,
-        track: ResourceKey,
-    ) -> Result<()> {
+    pub(crate) fn observe_verified_online(&self, lease: &Lease, track: ResourceKey) -> Result<()> {
         self.lease_current(lease)?;
         let identity = self.identity(lease, track)?;
         self.0.authority.observe_verified_online(&identity)?;
