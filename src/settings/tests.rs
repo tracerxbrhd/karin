@@ -50,7 +50,7 @@ fn persistent_preferences_roundtrip_preserves_private_modes_and_all_choices() {
         remember_login: false,
         forget_pending: true,
         cache_enabled: false,
-        cache_limit_bytes: 512 * 1024 * 1024,
+        cache_limit: CacheLimit::Unlimited,
         track_info_open: false,
     };
     store.save(&preferences).unwrap();
@@ -81,10 +81,8 @@ fn malformed_oversized_unknown_and_out_of_range_settings_recover_with_defaults()
     let invalid = [
         b"{".to_vec(),
         b"null".to_vec(),
-        br#"{"version":2,"preferences":{}}"#.to_vec(),
+        br#"{"version":3,"preferences":{}}"#.to_vec(),
         br#"{"version":1,"preferences":{"appearance":"unsupported"}}"#.to_vec(),
-        br#"{"version":1,"preferences":{"cache_limit_bytes":0}}"#.to_vec(),
-        br#"{"version":1,"preferences":{"cache_limit_bytes":18446744073709551615}}"#.to_vec(),
         br#"{"version":1,"preferences":{"access_token":"synthetic-never-accepted"}}"#.to_vec(),
         vec![b' '; MAX_FILE_BYTES as usize + 1],
     ];
@@ -118,7 +116,7 @@ fn omitted_new_preferences_use_safe_defaults_without_accepting_unknown_fields() 
     assert_eq!(loaded.preferences.appearance, Appearance::Light);
     assert!(loaded.preferences.remember_login && loaded.preferences.cache_enabled);
     assert!(!loaded.preferences.forget_pending);
-    assert_eq!(loaded.preferences.cache_limit_bytes, DEFAULT_CACHE_BYTES);
+    assert_eq!(loaded.preferences.cache_limit, CacheLimit::GiB2);
 }
 
 #[test]
@@ -210,17 +208,101 @@ fn damaged_fifo_is_rejected_before_it_can_block_read_or_save() {
 }
 
 #[test]
-fn failed_validation_preserves_the_complete_previous_settings_file() {
+fn unified_limit_choices_roundtrip_and_legacy_allowances_migrate_without_session_reset() {
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    for limit in CacheLimit::ALL {
+        let preferences = Preferences {
+            cache_limit: limit,
+            ..Preferences::default()
+        };
+        store.save(&preferences).unwrap();
+        assert_eq!(store.load().unwrap().preferences, preferences);
+        let envelope: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(fixture.file()).unwrap()).unwrap();
+        assert_eq!(envelope["version"], 2);
+        assert!(envelope["preferences"].get("cache_limit_bytes").is_none());
+        assert!(
+            envelope["preferences"]
+                .get("audio_cache_limit_bytes")
+                .is_none()
+        );
+    }
+    assert_eq!(CacheLimit::default(), CacheLimit::GiB2);
+    assert_eq!(CacheLimit::MiB500.bytes(), Some(500 * 1024 * 1024));
+    assert_eq!(CacheLimit::GiB2.bytes(), Some(2 * 1024 * 1024 * 1024));
+    assert_eq!(CacheLimit::Unlimited.bytes(), None);
+    assert_eq!(CacheLimit::Unlimited.label(), "Без ограничений");
+    assert_eq!(CacheLimit::from_index(6), None);
+    for (index, limit) in CacheLimit::ALL.into_iter().enumerate() {
+        assert_eq!(limit.index(), index as u32);
+        assert_eq!(CacheLimit::from_index(index as u32), Some(limit));
+    }
+    for (metadata, audio, expected) in [
+        (256, 256, CacheLimit::GiB2),
+        (16, 16, CacheLimit::MiB500),
+        (256, 512, CacheLimit::GiB1),
+        (1024, 1024, CacheLimit::GiB2),
+        (1024, 1025, CacheLimit::GiB3),
+        (2048, 2048, CacheLimit::GiB4),
+        (4096, 4096, CacheLimit::Unlimited),
+    ] {
+        let wire = serde_json::json!({"version":1,"preferences":{
+            "appearance":"dark", "remember_login":false, "forget_pending":true,
+            "cache_enabled":false,"track_info_open":false,
+            "cache_limit_bytes":metadata as u64 * 1024 * 1024,
+            "audio_cache_limit_bytes":audio as u64 * 1024 * 1024,
+        }});
+        fixture.replace(&serde_json::to_vec(&wire).unwrap());
+        let loaded = store.load().unwrap();
+        assert_eq!(loaded.status, LoadStatus::Loaded);
+        assert_eq!(loaded.preferences.cache_limit, expected);
+        assert_eq!(loaded.preferences.appearance, Appearance::Dark);
+        assert!(!loaded.preferences.remember_login);
+        assert!(loaded.preferences.forget_pending);
+        assert!(!loaded.preferences.cache_enabled);
+        assert!(!loaded.preferences.track_info_open);
+        store.save(&loaded.preferences).unwrap();
+        assert_eq!(
+            fixture.store().load().unwrap().preferences,
+            loaded.preferences
+        );
+    }
+}
+
+#[test]
+fn cache_only_corruption_recovers_quota_without_resetting_valid_session_preferences() {
     let fixture = Fixture::new();
     let store = fixture.store();
     store.save(&Preferences::default()).unwrap();
-    let original = std::fs::read(fixture.file()).unwrap();
-    let invalid = Preferences {
-        cache_limit_bytes: MAX_CACHE_BYTES + 1,
-        ..Preferences::default()
-    };
-    assert_eq!(store.save(&invalid), Err(SettingsError::InvalidPreferences));
-    assert_eq!(std::fs::read(fixture.file()).unwrap(), original);
+    for (version, key, raw) in [
+        (1, "cache_enabled", serde_json::json!("damaged")),
+        (1, "cache_enabled", serde_json::Value::Null),
+        (2, "cache_enabled", serde_json::json!(1)),
+        (2, "cache_enabled", serde_json::Value::Null),
+        (1, "cache_limit_bytes", serde_json::json!(0)),
+        (1, "audio_cache_limit_bytes", serde_json::json!(u64::MAX)),
+        (1, "cache_limit_bytes", serde_json::json!("damaged")),
+        (1, "audio_cache_limit_bytes", serde_json::json!(-1)),
+        (1, "cache_limit_bytes", serde_json::Value::Null),
+        (2, "cache_limit", serde_json::json!("unknown-choice")),
+        (2, "cache_limit", serde_json::json!(u64::MAX)),
+        (2, "cache_limit", serde_json::Value::Null),
+    ] {
+        let mut preferences = serde_json::json!({"appearance":"light","remember_login":false,
+            "forget_pending":true,"cache_enabled":false,"track_info_open":false});
+        preferences[key] = raw;
+        let wire = serde_json::json!({"version":version,"preferences":preferences});
+        fixture.replace(&serde_json::to_vec(&wire).unwrap());
+        let loaded = store.load().unwrap();
+        assert_eq!(loaded.status, LoadStatus::Loaded);
+        assert_eq!(loaded.preferences.cache_limit, CacheLimit::GiB2);
+        assert_eq!(loaded.preferences.appearance, Appearance::Light);
+        assert!(!loaded.preferences.remember_login);
+        assert!(loaded.preferences.forget_pending);
+        assert_eq!(loaded.preferences.cache_enabled, key == "cache_enabled");
+        assert!(!loaded.preferences.track_info_open);
+    }
 }
 
 #[test]

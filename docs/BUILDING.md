@@ -93,6 +93,100 @@ for visual checks, themes, HiDPI and the separate cold-start measurement.
 `--ui-fixture` is an offline capture mode, not ordinary sign-in; never use real
 accounts in Cloud/CI or point capture tools at a personal desktop.
 
+<a id="synthetic-audio-cache-checks"></a>
+
+## Unified cache checks and current service boundary
+
+The production stores share one coordinator, enabled by default with a 2 GiB
+allowance. Preferences → **Кеширование** offers exactly 500 МБ (500 MiB),
+1/2/3/4 ГБ (GiB), and **Без ограничений**, one measured total and **Очистить кеш**.
+Mouse and keyboard changes snap to those six choices. Settings/trim coalesce
+for 200 ms; Disable and Clear fence old work immediately. Clear preserves the
+live account, queue and already admitted playback.
+
+```sh
+cargo +1.98.1 test --lib --all-features --locked audio_cache
+cargo +stable test --lib --locked audio_cache
+cargo +1.98.1 test --lib --all-features --locked cache_budget
+cargo +stable test --lib --locked settings
+cargo +1.98.1 build --release --locked
+./target/release/karin
+```
+
+Tests use private isolated directories, generated audio and fake grants, not your
+application cache or wallet. They retain the original reopen/Busy regression and
+exercise the actual shared stores/player without establishing Music storage rights.
+The disk guard requires free space for the reserved write plus 1% of filesystem
+capacity, clamped to 64–512 MiB; tests must have that headroom too. Unlimited
+removes the user byte quota, not this guard or format/work bounds.
+
+Existing v1 settings migrate without resetting sign-in: the two old default
+256 MiB limits become 2 GiB; custom valid limits are summed and rounded up to
+the next offered choice, with sums above 4 GiB becoming Unlimited. Corrupt cache
+values recover independently of valid session/forget/appearance fields. The
+on-disk metadata/artwork/audio formats and locations are retained.
+
+The owner identifies `0709729` as the last accepted PR #26 revision. This does
+not accept the later online-authority changes or their correction. Build using the
+commands above and the Flatpak section below, then check in **each** environment:
+
+1. Light/dark, compact/wide and HiDPI: six positions; Home/End/arrows and pointer;
+   readable value and no horizontal clipping. Restart preserves the choice.
+2. Compare the single usage total before/after ordinary browsing. Rapid slider
+   motion must leave the UI responsive; reducing the quota trims in the background.
+3. Play real Music, use Pause/Resume/Seek/Next, Wave and MPRIS. Disable and Clear
+   must preserve current playback/sign-in while preventing late cache publication.
+4. Retry a reported storage failure, restart/logout, and confirm account isolation.
+
+No switch bypasses the missing [service storage/reuse contract](AUDIO_CACHE_REVIEW.md).
+Music remains online-only, so the audio category must stay empty; metadata/artwork
+can make the displayed combined usage nonzero. Network-save → restart → fresh
+online validation → local reuse remains unaccepted until both provider conditions
+are established. See [ADR-0030](adr/0030-unified-cache-budget-and-preferences.md),
+[provider questions](AUDIO_CACHE_PROVIDER_REQUEST.md) and
+[validation](VALIDATION.md#v06-unified-cache).
+
+## PR #26 corrected-cache acceptance
+
+Cloud/CI exercise the complete normal application factory across six actual
+processes: owned CC0 audio → one GStreamer transfer/save → local replay → new
+process/fresh account and resource check → the same cached inode. They also
+exercise HTTP403, corrupt-file online repair, native Clear during Playing and
+`no-store`. The production policy checks the rightsholder's exact SHA-256/length;
+no mock authority, cache-install shortcut or release fake-login/origin flag is
+used for this scenario. The credential backend and HTTP account are isolated
+fixtures. This establishes no access to the real Yandex service.
+
+For optional reproduction as an ordinary desktop user with MP3 plugins:
+
+```sh
+cargo +1.98.1 test --lib --all-features --locked \
+  native_audio_cache_application_process_restart -- --ignored --test-threads=1 --nocapture
+```
+
+Use one final owner check for the exact PR HEAD after Cloud verification:
+
+1. Build Native with `cargo +1.98.1 build --release --locked`; install the same
+   source as Flatpak using the next section. Record the commit and installation.
+2. In each application, use ordinary sign-in and play Music. Exercise
+   Pause/Resume/Seek/Next, queue, Wave, media keys/MPRIS and normal close/reopen.
+3. Check Preferences: enabled by default, 2 GiB, all six choices, one measured
+   total, retained choice after restart, Clear and any reported operation Retry.
+   Clear must retain sign-in and already playing audio. If an unverified older
+   revision was used, Clear once before measuring the new baseline.
+4. Report PASS/FAIL for this final build. Do not upload account data, tokens,
+   signed URLs or music files. Cloud/Xvfb is not KDE/Wayland/PipeWire acceptance.
+
+**Real Yandex audio saving is still unavailable**, rather than an expected PASS
+in this owner check. The exact stop is the ordinary assembly's
+`MissingStorageContract::authorize → NoGrant`; no independent permission or
+confirmed retained-representation mapping has been established for that service.
+Yandex playback remains online and the audio category stays empty after Clear;
+metadata/artwork can contribute to total usage. Do not repeat a local service
+cache test while that gate is closed or interpret the CC0 receipt as Music
+acceptance. See [AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md). No user flag bypasses
+this boundary; there is no offline mode, Downloads or content export.
+
 ## Flatpak source build
 
 Karin is not published on Flathub. The Flathub remote below supplies only the
@@ -126,7 +220,8 @@ preserve [Karin and third-party licensing obligations](LICENSING.md).
 PipeWire desktop audio uses the existing PulseAudio-compatible socket; Wave
 adds no filesystem, session-bus or other sandbox permission. Source preparation
 and offline Cargo checks are not a complete installed GNOME 50 Flatpak test.
-The installed v0.5 build still needs the separate owner acceptance below.
+The owner has accepted the ordinary Native and installed Flatpak baseline;
+use the procedure below for regression checks of a changed revision.
 
 ## Troubleshooting
 
@@ -214,7 +309,8 @@ Use the focused My Wave Native/Flatpak acceptance below for the v0.5 integration
 
 The owner retested corrected candidate `2e4b978` on Fedora without reporting new
 problems, following earlier real audio, four-event feedback and continuation.
-The final ordinary-startup and installed v0.5 Flatpak checks remain separate.
+The owner later accepted ordinary Native and installed Flatpak use; Issue #16
+is closed. The sequence below remains a revision-specific regression procedure.
 Quit any running Karin instance so an older binary cannot handle activation.
 From the current PR checkout, build and run as the normal desktop user:
 

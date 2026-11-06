@@ -23,8 +23,8 @@ flowchart LR
 | Catalog | `music`, `api`, `application` | Typed service access and separate anonymous diagnostics |
 | Authentication | `auth`, `auth::cassette`, `ui::auth`, `oauth` | Ordinary sign-in and independent PKCE diagnostic |
 | Session | `session`, `credentials`, `session_lifecycle`, `settings` | Live tokens, protected persistence and non-secret preferences |
-| Data | `cache`, `catalog_cache`, `artwork` | Account-scoped metadata, provenance and bounded art loading |
-| Playback | `queue`, `stream`, `playback` | Context/order policy, resource admission and one media worker |
+| Data | `cache_budget`, `cache`, `catalog_cache`, `artwork`, `audio_cache` | One shared resource policy; typed metadata/artwork and separately authority-gated audio stores |
+| Playback | `queue`, `stream`, `audio_cache::bridge`, `playback` | Context/order policy, resource/cache admission and one media worker |
 | Desktop | `mpris`, `ui::music::system_media` | Session D-Bus commands and actual snapshots |
 | Presentation | `ui::music` and its view modules | Native views, user intents and guarded result admission |
 
@@ -111,7 +111,8 @@ PlaybackController sends commands through a 32-entry channel to one worker-owned
 `playbin`. Snapshots supply actual state, position/duration, seekability, volume
 and safe errors. A worker-owned cumulative Playing clock excludes pause and seek
 distance independently of GTK scheduling. Commands alone do not imply Playing; Seeked requires worker
-acknowledgement. Local-file diagnostics remain; service audio is not persisted.
+acknowledgement. Local-file diagnostics remain; independently permitted media can
+use the shared audio cache. Ordinary Yandex catalog audio remains online-only.
 Shutdown bypasses channel capacity and releases the pipeline in `Null` before
 completion, without GTK joining the worker.
 
@@ -149,9 +150,10 @@ identities and listening payloads never enter those logs. See
 
 The private account cache stores reduced metadata/permitted normalized art, never
 credentials, raw responses, signed resources or audio. Hashed paths are not
-encryption. Defaults: 256 MiB, metadata fifteen minutes, art seven days; size
-16 MiB–4 GiB. Records have bounds/integrity checks, atomic writes and eviction.
-HTTP restrictions can shorten or forbid art persistence.
+encryption. Metadata retains its fifteen-minute freshness and art its seven-day
+maximum; HTTP restrictions can shorten or forbid art persistence. Records keep
+bounds/integrity checks, atomic writes and eviction. Their resource budget is
+shared with the separately admitted audio store as described below.
 
 Stable reads can use fresh data; mutable pages are network-first. Only eligible
 network/timeout errors allow labelled saved-data fallback. Cached values never
@@ -168,6 +170,63 @@ session/audio/textures, while logout purges personal records.
 [ADR-0019](adr/0019-bounded-account-cache.md) defines the cache contract;
 [ADR-0026](adr/0026-refusal-fences-and-queue-occurrence-identity.md) defines the
 refusal fence and stable queue identity extensions.
+
+### Audio storage and playback selection
+
+`cache_budget` coordinates the ordinary application's metadata/artwork and audio
+stores through the same shared instance. One enabled policy defaults to **2 GiB**
+and offers 500 MiB, 1/2/3/4 GiB or Unlimited. Reservations account for concurrent
+writes and bounded staging; shared LRU/fairness protects small metadata within
+the one total. Disk-space headroom is checked in every mode. Unlimited removes
+the user byte cap, while retaining record/count bounds and the free-space guard.
+Worker-only scans, trims and publication never hold the GTK admission-state
+mutex over disk I/O. Preferences expose one integer Scale, total measured usage,
+Clear and operation Retry; limit maintenance is coalesced for 200 ms while
+Disable/Clear admission fences are immediate. Version-1 quotas migrate to the
+version-2 enum without replacing credentials or cache files.
+[ADR-0030](adr/0030-unified-cache-budget-and-preferences.md) defines migration,
+staging accounting, metadata fairness and local disk safeguards.
+
+`audio_cache` remains typed production code, opened on a worker under the app's
+XDG cache `audio` directory. Account-scoped opaque keys, generation fences,
+integrity/atomic publication and an exclusive namespace owner guard reads/writes
+and restart. A separate one-writer gate spans the streamed body; the read/Clear
+I/O gate covers initialization and atomic commit, with a live staging marker.
+Scans preserve that marker; Clear fences and unlinks it without waiting for more
+network bytes. Commit retries contention only on the worker, for at most 250 ms,
+with cancellation checks. Retired staging is recovered before quota eviction.
+Per-resource 64 MiB, 1024-record and four-pending bounds remain;
+these safety bounds are independent of the shared user quota.
+
+Independent permission lookup and disk integrity preparation overlap fresh
+StreamResolver resolution on bounded workers. Only an already-ready result can
+be admitted after current access succeeds; a slow or busy cache leaves that play
+online. Final file-descriptor admission is memory-only and LRU bookkeeping is
+deferred. `StorageAuthority` separately checks storage/reuse permission and its
+current revision. `LicensedResourceAuthority` accepts trusted rightsholder CC0
+input bound to account/track and exact SHA-256/length; neither untrusted API
+license labels nor streaming success supply that declaration. Read/publication
+must match the permitted bytes. Ordinary Yandex assembly still uses
+`MissingStorageContract`, so real catalog audio keeps the accepted online path
+without saving. This is online-revalidated reuse, not an invented offline lease.
+
+The shared bridge hands an admitted hit's verified read-only file descriptor to
+the same PlaybackController. A decoder failure before any actual Playing can
+fall back once to its admitted online source in that same worker. A failure after
+Playing remains a normal player error, preserving Wave's actual-playing ledger.
+A bounded source-pad capture reuses that player's compressed HTTP bytes,
+without an extra media GET or second pipeline. Its 2 MiB queue never waits for
+storage: incomplete/partial or encoded responses, `no-store`, discontinuity,
+seek, cancellation and queue overflow abandon only the cache copy. Complete
+HTTP200 or whole-representation HTTP206 can feed the existing writer after
+actual Playing. Only complete, integrity-checked permitted bytes are published.
+Clear/logout/account changes fence old work before cleanup. Clear can unlink a
+record without invalidating an already admitted active descriptor; normal close
+may retain records for fresh online admission after restart. The process-level
+application fixture supplies original audio expressly dedicated to CC0 and uses
+this production rights/store/player path without a real Yandex account.
+[ADR-0029](adr/0029-synthetic-audio-cache-foundation.md) and
+[AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md) define the admission gate.
 
 ## GTK workspace, MPRIS and Flatpak
 

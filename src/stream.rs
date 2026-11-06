@@ -51,7 +51,7 @@ impl DeliveryCancellation {
         self.0.store(true, Ordering::Release);
     }
 
-    fn cancelled(&self, token: &AccessToken) -> bool {
+    pub(crate) fn cancelled(&self, token: &AccessToken) -> bool {
         self.0.load(Ordering::Acquire) || token.is_expired()
     }
 }

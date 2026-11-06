@@ -10,7 +10,7 @@ use adw::prelude::*;
 
 use crate::{
     cache::CacheStats,
-    settings::{Appearance, Preferences},
+    settings::{Appearance, CacheLimit, Preferences},
 };
 
 const MIB: u64 = 1024 * 1024;
@@ -25,6 +25,7 @@ pub(super) struct PreferencesSnapshot {
     pub can_retry_session: bool,
     pub cache_stats: Option<CacheStats>,
     pub cache_busy: bool,
+    pub can_retry_cache: bool,
     /// Friendly, non-secret status supplied by the application coordinator.
     pub message: Option<String>,
 }
@@ -35,6 +36,7 @@ pub(super) struct PreferencesCallbacks {
     pub clear_cache: Rc<dyn Fn()>,
     pub retry_session: Rc<dyn Fn()>,
     pub reload_stats: Rc<dyn Fn()>,
+    pub retry_cache: Rc<dyn Fn()>,
 }
 
 struct State {
@@ -45,6 +47,7 @@ struct State {
     session_busy: Cell<bool>,
     cache_busy: Cell<bool>,
     can_retry_session: Cell<bool>,
+    can_retry_cache: Cell<bool>,
     callbacks: PreferencesCallbacks,
 }
 
@@ -61,8 +64,12 @@ impl State {
         }
         // Release the borrow before dispatch: a synchronous owner update is
         // allowed to render a newer snapshot or report a rejected operation.
-        let mut next = self.values.borrow().clone();
+        let previous = self.values.borrow().clone();
+        let mut next = previous.clone();
         update(&mut next);
+        if next == previous {
+            return;
+        }
         self.values.replace(next.clone());
         (self.callbacks.changed)(next);
     }
@@ -78,12 +85,14 @@ pub(super) struct PreferencesView {
     session_retry: gtk::Button,
     session_spinner: gtk::Spinner,
     cache_enabled: adw::SwitchRow,
-    cache_limit: adw::SpinRow,
+    cache_limit: gtk::Scale,
+    cache_limit_label: gtk::Label,
     cache_usage: adw::ActionRow,
     cache_refresh: gtk::Button,
     cache_clear: gtk::Button,
     cache_spinner: gtk::Spinner,
     operation_status: adw::ActionRow,
+    cache_retry: gtk::Button,
     last_message: RefCell<Option<String>>,
     message_reveal: Rc<MessageReveal>,
 }
@@ -98,6 +107,7 @@ impl PreferencesView {
             session_busy: Cell::new(false),
             cache_busy: Cell::new(false),
             can_retry_session: Cell::new(false),
+            can_retry_cache: Cell::new(false),
             callbacks: callbacks.clone(),
         });
         let dialog = adw::PreferencesDialog::builder()
@@ -190,11 +200,11 @@ impl PreferencesView {
         page.add(&authorization);
 
         let storage = adw::PreferencesGroup::builder()
-            .title("Хранилище")
-            .description("Метаданные и обложки хранятся отдельно от защищённого входа. Аудио не сохраняется.")
+            .title("Кеширование")
+            .description("Загруженные данные и обложки. Сохранение музыки пока недоступно.")
             .build();
         let cache_enabled = adw::SwitchRow::builder()
-            .title("Кеширование данных")
+            .title("Использовать кеш")
             .title_lines(0)
             .subtitle_lines(0)
             .use_markup(false)
@@ -203,37 +213,68 @@ impl PreferencesView {
         cache_enabled.connect_active_notify({
             let state = Rc::clone(&state);
             move |row| {
-                if !state.cache_busy.get() {
-                    state.change(|values| values.cache_enabled = row.is_active());
-                }
+                state.change(|values| values.cache_enabled = row.is_active());
             }
         });
         storage.add(&cache_enabled);
-        let cache_limit = adw::SpinRow::builder()
-            .title("Максимальный размер")
-            .subtitle("МиБ · от 16 до 4096")
-            .adjustment(&gtk::Adjustment::new(256.0, 16.0, 4096.0, 16.0, 64.0, 0.0))
-            .digits(0)
-            .numeric(true)
-            .title_lines(0)
-            .subtitle_lines(0)
-            .use_markup(false)
-            .build();
+        let limit_row = adw::PreferencesRow::new();
+        limit_row.set_title("Лимит кеша");
+        let limit_box = gtk::Box::new(gtk::Orientation::Vertical, 8);
+        limit_box.set_margin_start(12);
+        limit_box.set_margin_end(12);
+        limit_box.set_margin_top(12);
+        limit_box.set_margin_bottom(8);
+        let limit_heading = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+        let limit_title = gtk::Label::new(Some("Лимит кеша"));
+        limit_title.set_xalign(0.0);
+        limit_title.set_hexpand(true);
+        let cache_limit_label = gtk::Label::new(Some(CacheLimit::default().label()));
+        cache_limit_label.set_widget_name("preferences-cache-limit-value");
+        cache_limit_label.add_css_class("dim-label");
+        limit_heading.append(&limit_title);
+        limit_heading.append(&cache_limit_label);
+        limit_box.append(&limit_heading);
+        let cache_limit = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 5.0, 1.0);
         cache_limit.set_widget_name("preferences-cache-limit");
-        cache_limit.connect_value_notify({
+        cache_limit.set_accessible_role(gtk::AccessibleRole::Slider);
+        cache_limit.set_hexpand(true);
+        cache_limit.set_draw_value(false);
+        cache_limit.set_digits(0);
+        cache_limit.set_round_digits(0);
+        cache_limit.set_format_value_func(|_, value| {
+            limit_from_scale(value).unwrap_or_default().label().into()
+        });
+        cache_limit.update_property(&[
+            gtk::accessible::Property::Label("Лимит кеша"),
+            gtk::accessible::Property::Description(
+                "Общий размер кеша Karin. Шесть вариантов от 500 МБ до без ограничений.",
+            ),
+        ]);
+        for limit in CacheLimit::ALL {
+            cache_limit.add_mark(f64::from(limit.index()), gtk::PositionType::Bottom, None);
+        }
+        cache_limit.connect_value_changed({
             let state = Rc::clone(&state);
-            move |row| {
-                if state.cache_busy.get() {
+            let label = cache_limit_label.clone();
+            move |scale| {
+                if state.updating.get() {
                     return;
                 }
-                let value = row.value();
-                if value.is_finite() {
-                    let mib = value.round().clamp(16.0, 4096.0) as u64;
-                    state.change(|values| values.cache_limit_bytes = mib * MIB);
+                let limit =
+                    limit_from_scale(scale.value()).unwrap_or(state.values.borrow().cache_limit);
+                let value = f64::from(limit.index());
+                if scale.value() != value {
+                    scale.set_value(value);
+                    return;
                 }
+                label.set_label(limit.label());
+                scale.update_property(&[gtk::accessible::Property::ValueText(limit.label())]);
+                state.change(|values| values.cache_limit = limit);
             }
         });
-        storage.add(&cache_limit);
+        limit_box.append(&cache_limit);
+        limit_row.set_child(Some(&limit_box));
+        storage.add(&limit_row);
         let cache_usage = adw::ActionRow::builder()
             .title("Размер файлов кеша")
             .title_lines(0)
@@ -269,10 +310,22 @@ impl PreferencesView {
         operation_status.set_widget_name("preferences-operation-status");
         operation_status.set_focusable(true);
         operation_status.set_activatable(false);
+        let cache_retry = gtk::Button::with_label("Повторить");
+        cache_retry.set_widget_name("preferences-cache-retry");
+        cache_retry.set_valign(gtk::Align::Center);
+        cache_retry.connect_clicked({
+            let state = Rc::clone(&state);
+            move |_| {
+                if state.can_retry_cache.get() && !state.cache_busy.get() {
+                    (state.callbacks.retry_cache)();
+                }
+            }
+        });
+        operation_status.add_suffix(&cache_retry);
         storage.add(&operation_status);
         let clear_row = adw::ActionRow::builder()
             .title("Очистка кеша")
-            .subtitle("Удаляет только сохранённые данные и обложки. Вход и текущее воспроизведение сохраняются.")
+            .subtitle("Освобождает занятое место. Вход и текущее воспроизведение сохраняются.")
             .title_lines(0)
             .subtitle_lines(0)
             .use_markup(false)
@@ -313,11 +366,13 @@ impl PreferencesView {
             session_spinner,
             cache_enabled,
             cache_limit,
+            cache_limit_label,
             cache_usage,
             cache_refresh,
             cache_clear,
             cache_spinner,
             operation_status,
+            cache_retry,
             last_message: RefCell::new(None),
             message_reveal,
         };
@@ -334,6 +389,7 @@ impl PreferencesView {
         self.state.session_busy.set(snapshot.session_busy);
         self.state.cache_busy.set(snapshot.cache_busy);
         self.state.can_retry_session.set(snapshot.can_retry_session);
+        self.state.can_retry_cache.set(snapshot.can_retry_cache);
         let ready = snapshot.settings_ready;
         self.scheme
             .set_selected(appearance_index(snapshot.values.appearance));
@@ -358,17 +414,21 @@ impl PreferencesView {
         self.session_retry
             .set_sensitive(!snapshot.session_busy && snapshot.can_retry_session);
         self.cache_enabled.set_active(snapshot.values.cache_enabled);
-        self.cache_enabled
-            .set_sensitive(ready && !snapshot.cache_busy);
+        self.cache_enabled.set_sensitive(ready);
         self.cache_enabled.set_subtitle(if snapshot.values.cache_enabled {
-            "Повторно использует загруженные метаданные и обложки в пределах указанного объёма."
+            "Повторно использует загруженные данные в пределах общего лимита."
         } else {
             "Чтение и новые записи выключены. Сохранённые данные остаются до явной очистки кеша."
         });
         self.cache_limit
-            .set_value(snapshot.values.cache_limit_bytes as f64 / MIB as f64);
+            .set_value(f64::from(snapshot.values.cache_limit.index()));
+        self.cache_limit_label
+            .set_label(snapshot.values.cache_limit.label());
         self.cache_limit
-            .set_sensitive(ready && !snapshot.cache_busy);
+            .update_property(&[gtk::accessible::Property::ValueText(
+                snapshot.values.cache_limit.label(),
+            )]);
+        self.cache_limit.set_sensitive(ready);
         self.cache_usage.set_subtitle(&match snapshot.cache_stats {
             Some(stats) => usage_text(stats),
             None if snapshot.cache_busy => "Обновляем сведения о кеше…".into(),
@@ -383,6 +443,9 @@ impl PreferencesView {
         } else {
             "Очистить кеш"
         });
+        self.cache_retry.set_visible(snapshot.can_retry_cache);
+        self.cache_retry
+            .set_sensitive(snapshot.can_retry_cache && !snapshot.cache_busy);
         self.cache_spinner.set_spinning(snapshot.cache_busy);
         self.cache_spinner.set_visible(snapshot.cache_busy);
         let description = if snapshot.settings_ready {
@@ -441,6 +504,13 @@ fn reveal_message(row: gtk::glib::WeakRef<adw::ActionRow>, reveal: Rc<MessageRev
     });
 }
 
+fn limit_from_scale(value: f64) -> Option<CacheLimit> {
+    if !value.is_finite() {
+        return None;
+    }
+    CacheLimit::from_index(value.round().clamp(0.0, 5.0) as u32)
+}
+
 fn appearance_index(appearance: Appearance) -> u32 {
     match appearance {
         Appearance::System => 0,
@@ -486,3 +556,14 @@ fn usage_text(stats: CacheStats) -> String {
 
 #[cfg(test)]
 mod tests;
+
+/// Reuse the Preferences input fixture's viewport reveal and actual native hit
+/// checks when an application-level test activates a control in this dialog.
+#[cfg(test)]
+pub(crate) fn click_native_for_test(
+    window: &adw::ApplicationWindow,
+    id: &str,
+    widget: &impl IsA<gtk::Widget>,
+) {
+    tests::click(window, id, widget);
+}

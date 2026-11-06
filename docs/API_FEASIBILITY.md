@@ -14,10 +14,10 @@ success establishes neither playback entitlement nor public-distribution rights.
 | Account | Validate the actual Music account before admitting a session; Yandex ID success alone is insufficient. |
 | Library and playlists | Account-bound liked-track and own/liked playlist reads, strict owner/kind identities, bounded contents and explicit partial/end/error states. |
 | Search and details | Independent track/album/artist/playlist sections and paging. Validate minimal track-hit IDs, then normalize through one canonical batch lookup. |
-| Track reactions | Distinct Like/Unlike and account Dislike/removal. Valid dual reads enable paired mutations confirmed from both collections. Unavailable Dislike stays hidden; a fresh independent Like read preserves established Like-only confirmation. Owner-confirmed at `1877a6c`; revised current-Dislike Next and installed Flatpak acceptance remain separate. |
+| Track reactions | Distinct Like/Unlike and account Dislike/removal. Valid dual reads enable paired mutations confirmed from both collections. Unavailable Dislike stays hidden; a fresh independent Like read preserves established Like-only confirmation. Server reactions confirmed at `1877a6c`; revised Dislike→Next, queue and Wave subsequently owner-accepted on Native and installed Flatpak. Issue #17 is closed. |
 | Playlist creation | One explicit create request followed by independent identity/title/visibility confirmation; ambiguous writes remain unresolved. |
 | Online playback | Use the separate guarded [resolver](STREAM_DELIVERY_REVIEW.md) for an explicitly selected track. Availability metadata alone is insufficient. |
-| My Wave | Ordinary signed-in Home using the shared player; explicit Listen starts radio. Real sessions/audio/four feedback events/continuation confirmed; owner repeated the corrected candidate without reporting new issues. Final normal-startup and installed Flatpak v0.5 acceptance remain separate. |
+| My Wave | Ordinary signed-in Home using the shared player; explicit Listen starts radio. Real sessions/audio/four feedback events/continuation confirmed; owner repeated the corrected candidate without reporting new issues. Ordinary Native and installed Flatpak owner acceptance is confirmed; Issue #16 is closed. |
 
 Ambiguous writes require read/confirmation, never fabricated success or POST
 retries. Broader playlist edits, recommendations and lyrics are not shipped
@@ -69,7 +69,9 @@ Dislike addition on the unchanged current occurrence now delegates to existing
 Next, including its established Wave Skip semantics. This adds no new Wave event
 and claims no measured recommendation effect. The accepted four-event protocol
 remains intact. The owner confirmed real server reactions and opposite-mark
-interaction at `1877a6c`; revised Next and installed Flatpak checks remain separate.
+interaction at `1877a6c`, then accepted revised Dislike→Next, ordinary queue and
+Wave on Native and installed Flatpak. Issue #17 is closed; special races/failures
+are supported by CI rather than attributed to that general desktop report.
 See [ADR-0028](adr/0028-confirmed-track-reactions.md) and the
 [local procedure](BUILDING.md#track-reaction-acceptance). Fixtures and owner
 functional results establish no public API/distribution permission.
@@ -149,7 +151,7 @@ content or trademarks. Preserve [licensing/provenance](LICENSING.md), evaluate
 current [Music terms](https://yandex.ru/legal/music_termsofuse/) and
 [Plus conditions](https://yandex.ru/legal/yandex_plus_conditions/) before changing
 integration/distribution scope, and retain the separate
-[offline-audio gate](AUDIO_CACHE_REVIEW.md). No DRM bypass, extracted official-client
+[audio storage/reuse gate](AUDIO_CACHE_REVIEW.md). No DRM bypass, extracted official-client
 signer/key or imported official-client cache is an acceptable fallback.
 
 The [historical review](https://github.com/tracerxbrhd/karin/blob/97093ee71f8df7b47b5809ca8c1d4774a2c5b22d/docs/API_FEASIBILITY.md)

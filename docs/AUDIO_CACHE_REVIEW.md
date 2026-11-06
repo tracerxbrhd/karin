@@ -1,70 +1,278 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 
-# Persistent audio and offline access
+# Audio caching and offline access
 
-Persistent service-audio caching and offline playback remain disabled. The
-missing prerequisites are an established permission for Karin's storage/reuse
-of catalog audio and a verifiable offline-rights lifecycle. Working online
-playback and the owner's native/Flatpak acceptance do not establish those grants.
-No offline switch, downloaded-track badge or hidden recording job substitutes
-for them.
+Karin's production path saves and reuses independently permitted audio with
+**fresh online admission before reuse**. Ordinary Yandex Music audio remains
+online-only: an applicable storage/reuse permission and a confirmed check that
+authorizes reuse of the same retained representation are not established.
+These are concrete unresolved service inputs, not a conclusion drawn merely
+from missing official documentation. Heard Music, a subscription, GPL source
+reuse and a working MP3 URL do not establish them. Downloads and offline mode
+remain outside this scope.
+Issue [#20](https://github.com/tracerxbrhd/karin/issues/20) remains open;
+public authorization/API distribution rights remain separately tracked in
+[#5](https://github.com/tracerxbrhd/karin/issues/5).
 
-## Current decision
+## Three distinct modes
 
-The accepted [online resolver](STREAM_DELIVERY_REVIEW.md) obtains a short-lived
-resource for explicit playback. Its public legacy checksum is not automatically
-DRM, but decoding an MP3 does not establish permission to retain it for later
-sessions or after account, subscription, territory or catalog rights change.
+| Mode | Current result | Additional condition |
+| --- | --- | --- |
+| Active streaming buffer | Transient pipeline memory; no saved media or cross-play reuse | Preserve online-resource admission |
+| Reusable audio while online | Exact independently licensed resources use the production store/player path; Yandex catalog persistence remains disabled | Applicable permission, checked representation identity and fresh account/resource admission before each hit |
+| Offline audio | Outside this initial cache scope; no offline switch or badge | A separate contract for permitted resources, applicable account/device scope, expiry, renewal, revocation and offline checks |
 
-The resolver's 60-second monotonic deadline limits admission of a transport
-resource. Its opaque `ts` component, a cached token, metadata `available` flag,
-prior successful playback or a locally chosen TTL is not an offline lease.
-Refresh, revocation and offline-entitlement renewal contracts are not established.
+Automatic cleanup does not turn a disk recording into an in-memory stream.
+An old local file cannot override an API refusal, lost rights or another account.
+The resolver's sixty-second admission deadline and opaque descriptor `ts` are
+transport properties, not offline leases or permitted retention periods. An
+online-only cache need not invent an offline entitlement or demand an offline
+feature before shipping; its own storage and online reuse conditions still need
+to be established.
 
-Online buffering stays bounded in memory, with playbin download caching and
-queue2 temporary-file storage disabled. Writing a complete stream into a temp
-folder, hidden XDG entry or native download buffer still persists audio and is
-outside this policy. Do not import or decrypt official applications' private
-caches, copy protected keys or bypass DRM/device binding.
+## Cassette source audit
 
-The account-isolated cache described in
-[ADR-0019](adr/0019-bounded-account-cache.md) stores reduced metadata and explicitly
-cacheable normalized covers only. It respects HTTP freshness/restrictions and
-contains no audio, signed media URLs, cookies or OAuth values. Clearing it leaves
-protected credentials and current online playback intact. Saved metadata must
-not assert authentication, current mutable membership or offline entitlement.
+Rechecked **2026-11-06** at Cassette v0.2.4, commit
+[`9d34251`](https://github.com/Rirusha/Cassette/tree/9d34251d01bcd414ffbec2bef7931090d33c9124).
+All six files below carry Vladimir Vaskov's copyright and GPL-3.0-or-later.
+They are technical references; no cache implementation, obfuscation or
+official-client material is copied into Karin's store.
 
-## Service evidence
+| Pinned source | Observed mechanism and limit of the evidence |
+| --- | --- |
+| [cachier.vala](https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/cachier/cachier.vala#L140) | Reads complete audio bytes, selects temporary/permanent storage, tries local audio before resolving the network resource and starts a background save. This is persistence, not merely a streaming buffer. |
+| [controller.vala](https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/cachier/controller.vala#L117) | Tracks loading and TEMP/PERM states; file location determines cached state. Presence alone does not establish current entitlement. |
+| [job.vala](https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/cachier/job.vala#L145) | Album/playlist jobs reconcile constituent tracks. Cancellation stops further scheduling and waits for active saves before cleanup; the reviewed whole-file download has no per-chunk cancellation contract. |
+| [storager.vala](https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/cachier/storager.vala#L614) | Separate XDG cache/data locations, local-first lookup, whole-file writes and decoded temporary playback files. Size reporting uses `du`; these six reviewed files do not establish an automatic quota/LRU policy. Reversible XOR is neither authenticated encryption nor a storage grant. |
+| [info-db.vala](https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/cachier/info-db.vala#L23) | SQLite references retain tracks used by several saved collections. Those references are not account/device/track licenses. |
+| [player.vala](https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/player/player.vala#L492) | Passes the local/network URI to playbin and may prefetch the next track. Karin retains its existing player without adopting automatic service-audio saving. |
 
-The reviewed service documents were retrieved on 2026-10-31; they are mutable
-provider-controlled sources, not a new permission or current legal revalidation:
+The network side is concrete:
+[`YaMTalker.get_download_uri/load_track`](https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/talkers/yam-talker.vala#L300)
+delegates to
+[`Client.track_download_uri`](https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/api/yam-client.vala#L1221)
+and `get_content_of`. The client requests the track's `download-info`, chooses
+an available bitrate, fetches the descriptor, forms the MP3 resource URI and
+loads its complete response into bytes for the separate save operation. This
+is a second resource transfer beside playbin's first network playback; it is
+not a tee of bytes already consumed by the player. Those functions expose no
+separate storage/reuse admission decision.
 
-- [Music terms](https://yandex.ru/legal/music_termsofuse/) reserve material rights
-  and restrict use to the service's stated technical/personal-use conditions.
-- [Music application license](https://yandex.ru/legal/music_mobile_agreement/)
-  governs the described official applications and their stored materials. It
-  does not license Karin as that application.
-- [Offline help](https://yandex.ru/support/music/ru/listening-and-settings/app-settings)
-  describes encrypted, device-bound downloads playable in the official client.
-  Its mobile-only introduction and desktop instructions must not be generalized
-  into a blanket ban on every desktop implementation.
+The reviewed path returns a local file before resolving a fresh network resource.
+It establishes the legacy cache-selection/save chain, but not the current
+permission for Karin to reuse that file. Nor does it establish an offline lease or
+renewal/revocation protocol. This is an evidence gap, not a claim that Cassette
+cannot technically cache audio or that every independent client is forbidden.
+
+The reviewed v0.2.4 `save_audio` uses `FileUtils.set_data`, bound to
+[`g_file_set_contents`](https://docs.gtk.org/glib/func.file_set_contents.html).
+GLib supplies temporary-file/rename atomic replacement; it is incorrect to call
+this an unprotected direct write. Its documented default does not guarantee
+power-loss durability for a newly created/empty file. Cassette adds no digest or
+complete-record validation around that operation. `load_audio` retries failed
+reads indefinitely, writes a decoded temporary file and returns its URI; the
+player unlinks that pathname after starting playback. Jobs cancel further
+scheduling and wait for active work; the save path loads a whole resource and
+exposes no per-chunk cancellation. No integrity index, orphan recovery or global
+quota/LRU algorithm is established by these six files. Karin retains its bounded
+writers, validated records and pinned playback FD.
+
+### Newer revisions
+
+The published [v0.2.5 release](https://github.com/Rirusha/Cassette/tree/b1c55e5fb71e60c9ff5421db42695f4dd5526a26)
+(2026-10-12) changes the project version and the default visibility of stations;
+[its comparison with v0.2.4](https://github.com/Rirusha/Cassette/compare/9d34251d01bcd414ffbec2bef7931090d33c9124...b1c55e5fb71e60c9ff5421db42695f4dd5526a26)
+contains no cache/audio implementation change.
+
+Current main was pinned at
+[`bce825a`](https://github.com/Rirusha/Cassette/tree/bce825a13c1d1f6d0337dbea914c2d66b1ac07ba)
+(2026-11-03). Its history diverges from the release line and uses `libtape`:
+
+| Current source | Verified difference |
+| --- | --- |
+| [CacheManager](https://github.com/Rirusha/Cassette/blob/bce825a13c1d1f6d0337dbea914c2d66b1ac07ba/libtape/src/cache-manager/cache-manager.vala#L27) | Loads local artwork first, then the network, and saves when caching is enabled. Its exposed implementation has image loading and wipe, without the legacy audio scheduling chain. |
+| [Storager](https://github.com/Rirusha/Cassette/blob/bce825a13c1d1f6d0337dbea914c2d66b1ac07ba/libtape/src/cache-manager/storager.vala#L620) | Retains permanent-before-temporary audio lookup, reversible encoding and whole-file save/load. Read retries are bounded to five attempts. Writes use GIO `replace_contents_async`; the reviewed code adds no explicit integrity/index transaction, repair or quota/LRU. |
+| [InfoDB](https://github.com/Rirusha/Cassette/blob/bce825a13c1d1f6d0337dbea914c2d66b1ac07ba/libtape/src/cache-manager/info-db.vala#L50) | Retains SQLite content references; references do not authorize playback or retention. |
+| [Player](https://github.com/Rirusha/Cassette/blob/bce825a13c1d1f6d0337dbea914c2d66b1ac07ba/libtape/src/player/player.vala#L26) and [GstPlayer](https://github.com/Rirusha/Cassette/blob/bce825a13c1d1f6d0337dbea914c2d66b1ac07ba/libtape/src/player/gst-player.vala#L164) | The public wrapper plays a file; its GStreamer adapter can consume file, HTTP and data sources. That capability alone does not connect catalog delivery to persistent audio. |
+
+A caller search across all **45 Vala files** in that pinned main found audio
+save/load use in storage tests and their definitions, without an application
+caller connecting them to Music delivery. `controller.vala` and `job.vala` from
+the legacy path are absent from this tree. Consequently the newer main is useful
+for async storage/retry ideas, but is not evidence that its complete legacy audio
+cache chain still runs or that a new provider permission exists. No Cassette
+binary or live account was run in this source review.
+
+The PR #26 completion review on **2026-11-06** resolved the release tags again
+and checked the current main head. They still identify the revisions above;
+all thirteen re-fetched legacy/current cache and player source files match the
+earlier reviewed bytes. No newer cache chain or provider storage/reuse contract
+was established by that check.
+
+The newer core cache/player files credit Vladimir Romanov and generally carry
+GPL-3.0-or-later. Auxiliary `humanity-size.vala`, `location.vala` and `settings.vala`
+carry GPL-3.0-only. Future reuse must retain each file's actual license/copyright;
+Karin does not copy their implementation or relabel them under its own license.
+
+## Current Karin audit
+
+`cache`/`catalog_cache` persist reduced metadata and explicitly cacheable normalized
+covers under [ADR-0019](adr/0019-bounded-account-cache.md) and
+[ADR-0026](adr/0026-refusal-fences-and-queue-occurrence-identity.md). They store no
+audio, signed resources or credentials, and cannot establish playback rights.
+`stream`/`stream::resolver` admit a short-lived online source; `queue` and MPRIS
+do not depend on media persistence.
+
+`playback` uses one worker-owned playbin with `audio+soft-volume` flags. Both
+DOWNLOAD and managed BUFFERING flags are absent. Its remote guard sets any
+created queue2 to **2 MiB / 64 buffers / 2 seconds**, whichever limit is reached,
+and clears `temp-template`; it rejects downloadbuffer and manifest paths.
+[GStreamer queue2 documentation](https://gstreamer.freedesktop.org/documentation/coreelements/queue2.html)
+confirms that a temporary-file template would instead spool the stream
+independently of these memory limits.
+
+For an independently admitted resource, a source-pad probe copies the existing
+player's compressed bytes into a bounded **2 MiB** memory channel. This is
+separate from queue2's limit and creates no disk spool or additional media GET.
+Callbacks pass buffers/events unchanged and abandon caching on overflow rather
+than block playback. The existing writer starts only after actual Playing and
+publishes only a complete permitted representation. A complete HTTP200 response,
+or HTTP206 covering exactly bytes `0..total-1`, is eligible; partial ranges,
+encoding, `no-store`, seek/discontinuity, cancellation and network failure leave
+online playback available without publishing an incomplete cache file.
+
+Independent permission lookup and disk integrity work overlap StreamResolver's
+fresh access check. Selection consumes only an already-ready result; a slow or
+busy cache leaves that play online. Final file-descriptor admission is memory-only,
+and LRU bookkeeping is deferred rather than delaying audio.
+
+`LicensedResourceAuthority` is a production policy for trusted rightsholder
+input, currently an exact **CC0-1.0** dedication bound to account/track, SHA-256,
+length and an application admission revision. It checks those exact bytes before
+publication and reuse. An HTTP `license` label, cache directive or API display
+field cannot populate that registry. The original audio generated by the
+ordinary-application process fixture is expressly dedicated to CC0; its Rust
+source remains GPL-3.0-or-later. This gives the permitted-resource path a real
+rights basis without manufacturing a grant for Yandex catalog audio.
+
+Managed [playbin buffering](https://gstreamer.freedesktop.org/documentation/playback/playbin.html#buffering)
+would require explicit BUFFERING-message handling, preserving user pause intent
+and the actual Playing ledger. No measured starvation defect establishes a need
+to change the accepted worker here. Its memory-only transport stays unchanged;
+no buffer-size change is presented as reusable audio caching.
+
+## Provider-controlled evidence
+
+Music terms, application license, offline help and Plus conditions were fetched
+successfully again on **2026-11-06** during the PR #26 completion review. The
+later Plus request returned **HTTP200**, replacing the earlier rate-limited
+request; its relevant territory/device/concurrency clauses were rechecked.
+These are mutable service statements, not a newly issued permission for Karin.
+
+- [Music terms](https://yandex.ru/legal/music_termsofuse/ru/), §§2.1, 2.7–2.8:
+  materials retain rightsholder protection; personal use is tied to the service's
+  technical facilities and limits, with copying/reuse restricted without agreement.
+  That affirmative boundary does not identify Karin's retained-file mechanism as
+  an admitted facility. It also does not prove a categorical independent-client ban.
+- [Music application license](https://yandex.ru/legal/music_mobile_agreement/ru/),
+  §§1.1, 1.4, 4.1, 4.5 (published 2026-04-03): governs the described official
+  mobile, Windows and macOS applications and their stored materials. It refers to
+  a separate agreement for uses outside that license; it does not identify Karin
+  as the licensed program or supply Karin's cache/reuse contract.
+- [Offline help](https://yandex.ru/support/music/ru/listening-and-settings/app-settings):
+  describes encrypted, device-bound files played by Yandex Music. Its mobile-only
+  introduction coexists with desktop download/offline instructions; neither
+  should be generalized into a blanket desktop ban or permission for Karin.
 - [Subscription help](https://yandex.ru/support/music/ru/registration-and-login)
-  and [Plus conditions](https://yandex.ru/legal/yandex_plus_conditions/) tie access
-  to subscription, time, content, territory and device/concurrency restrictions.
-  A subscription does not supply Karin a per-track persistent-storage grant.
+  and [Plus conditions](https://yandex.ru/legal/yandex_plus_conditions/ru/),
+  §§1.5, 1.7: access varies by territory/content and device/concurrency limits.
+  They do not provide Karin a per-track offline expiry/renewal/revocation protocol.
 
-## Conditions before implementation
+## Published API signals and their limits
 
-1. Establish an applicable provider/rightsholder agreement or documented API
-   grant for this client's persistent personal audio storage and reuse.
-2. Verify account/device/track rights, expiry, removal, renewal and required online
-   checks. Implement the actual service rules, without invented grace periods.
-3. Confirm permitted resources and formats with a consenting local owner, keeping
-   credentials, addresses and recordings out of Cloud/CI/GitHub.
-4. Add only an account-bound, bounded, integrity-checked cache using the existing
-   PlaybackController, cancellation and MPRIS lifecycle. Exercise native and
-   Flatpak paths; show offline availability only for a valid admitted resource.
+The current published MarshalX model at commit
+[`9ca132e`](https://github.com/MarshalX/yandex-music-api/tree/9ca132e5c18a72aab779c1fc68c169380a9357d0)
+was rechecked alongside Cassette on **2026-11-06**. The current yamu and yamuse
+heads cited below also remain unchanged; twelve re-fetched model/client/fixture
+files match the earlier reviewed hashes. These are concrete schema candidates, not a
+live Karin account response or an official permission for Karin:
 
-These gates concern persistent audio. Secure session storage, metadata/cover
-caching and the accepted online player remain supported independently.
-[LICENSING.md](LICENSING.md) keeps source and service/content rights separate.
+- [`Status`](https://github.com/MarshalX/yandex-music-api/blob/9ca132e5c18a72aab779c1fc68c169380a9357d0/yandex_music/account/status.py)
+  includes optional `cacheLimit`, described as the maximum downloaded-track count,
+  and account `permissions`.
+- [`Permissions`](https://github.com/MarshalX/yandex-music-api/blob/9ca132e5c18a72aab779c1fc68c169380a9357d0/yandex_music/account/permissions.py)
+  has `until`, `values` and `default`. The reviewed schema does not define which
+  value authorizes Karin to persist/reuse a specific saved resource. A count limit
+  or account timestamp alone is not that admission rule.
+- Legacy [`DownloadInfo`](https://github.com/MarshalX/yandex-music-api/blob/9ca132e5c18a72aab779c1fc68c169380a9357d0/yandex_music/download_info.py)
+  describes codec, bitrate, gain, preview/direct hints and a descriptor URL. It
+  establishes a transport mechanism, not a stored-resource reuse grant. Karin
+  does not adopt a protected transport or decryption-key path to fill this gap.
+
+These fields should be evaluated if the provider supplies an applicable contract;
+they must not be renamed into invented entitlement or silently ignored as proof
+that no account permission data exists.
+
+The concrete route is authenticated `GET /account/status`:
+[yamu's client](https://github.com/okhsunrog/yamu/blob/9803f319b9ea6f81befbc3117e4592132ed07d0e/src/client/account.rs)
+requests it and preserves permissions as a free-form map.
+[yamuse's model](https://github.com/flxxxxddd/yamuse/blob/368c74646520e8bcd30c44a9887e1bf99cb58172/src/models/account.rs)
+independently names `permissions.until/values/default` and describes `cacheLimit`
+as an offline track-count limit. The published MarshalX permission fixture contains
+`landing-play`, `feed-play` and `mix-play`; it supplies no defined storage/reuse
+value. None of these reviewed schemas makes `until` a saved track's retention
+deadline or maps an arbitrary unknown string to permission to cache.
+
+No real account response was collected for this review. Even a local confirmation
+that these fields exist would supply wire evidence only; it would not create the
+missing permission or define the provider's cache-hit authorization semantics.
+
+HTTP cacheability is a separate technical signal. [RFC9111](https://www.rfc-editor.org/rfc/rfc9111.html),
+§§3 and 5.2.2.7, permits private response caching subject to its requirements;
+explicit directives matter for already permitted content. The protocol does not
+identify a rightsholder's permission for Karin's retained catalog audio. HTTP
+response caches use URI/Vary identity, while a track ID can outlive a particular
+recording or signed URL. A real-service adapter therefore also needs a confirmed
+mapping to the retained representation. Absence of `no-store`, the name
+`download-info`, `cacheLimit` or a successful stream must not substitute for that
+mapping or permission. No additional provider agreement is invented as a
+prerequisite for demonstrably owned or openly licensed original test audio.
+
+## Production boundary and concrete external gate
+
+[ADR-0029](adr/0029-synthetic-audio-cache-foundation.md) specifies the storage,
+resolver and application boundary. The ordinary-application fixture uses the
+production licensed-resource policy, MainWindow, persistence, shared budget,
+queue and GStreamer in separate application processes. Its first play, local
+replay/restart, refusal, corruption repair, active Clear and `no-store` scenarios
+record media-request/byte counts and representation identity. This is a
+credential-free demonstration on expressly permitted original audio, not a mock
+grant for Yandex or a live-service test. Executed results and the one final
+acceptance procedure belong in [BUILDING](BUILDING.md#synthetic-audio-cache-checks)
+and [VALIDATION](VALIDATION.md#v06-audio-cache-foundation).
+
+Enabling transparent service caching requires these two concrete inputs:
+
+1. An applicable provider/rightsholder permission covering Karin's local storage
+   and later online reuse of the admitted resource/format, including any retention
+   conditions. The reviewed service facilities and official-app license do not
+   supply that permission for Karin.
+2. A documented or specifically confirmed provider contract defining the fresh
+   account/resource check that authorizes reuse, including refusal and rights-loss
+   behavior. Current streaming account validation and an issued MP3 address do not
+   themselves state that contract. No local TTL or invented entitlement substitutes
+   for it.
+
+A [prepared provider request](AUDIO_CACHE_PROVIDER_REQUEST.md) asks for these
+specific inputs and their machine-checkable semantics. It has **not been sent**.
+The owner can obtain that applicable permission and contract from the provider
+or rightsholder; account tokens, signed URLs and successful synthetic tests are
+not the missing evidence. There is no proven categorical ban on every independent
+client, and a storage implementation defect is not evidence of such a ban.
+Until the inputs are available, the real service must decline cache admission,
+fall back to the established online path and leave PR #26/Issue #20 unfinished.
+
+A later offline mode additionally needs its actual offline validation/lifetime
+rules; it is not a prerequisite we invent for the initial online-only cache.
+Do not import/decrypt official-app caches, persist signed URLs, infer permissions
+from reversible encoding or bypass DRM/device binding.

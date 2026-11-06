@@ -6,6 +6,35 @@ use super::*;
 pub(super) fn guard_pipeline(
     pipeline: &gst::Element,
     admission: RemotePlaybackSource,
+    capture: Option<crate::audio_cache::capture::Capture>,
+) -> Result<Arc<AtomicBool>, PlaybackError> {
+    guard_source_pipeline(pipeline, Admission::Remote(admission), capture)
+}
+
+pub(super) fn guard_cached_pipeline(
+    pipeline: &gst::Element,
+    uri: &str,
+) -> Result<Arc<AtomicBool>, PlaybackError> {
+    guard_source_pipeline(pipeline, Admission::Cached(uri.to_owned()), None)
+}
+
+enum Admission {
+    Remote(RemotePlaybackSource),
+    Cached(String),
+}
+impl Admission {
+    fn factory(&self) -> &'static str {
+        match self {
+            Self::Remote(_) => "souphttpsrc",
+            Self::Cached(_) => "filesrc",
+        }
+    }
+}
+
+fn guard_source_pipeline(
+    pipeline: &gst::Element,
+    admission: Admission,
+    capture: Option<crate::audio_cache::capture::Capture>,
 ) -> Result<Arc<AtomicBool>, PlaybackError> {
     let refused = Arc::new(AtomicBool::new(false));
     let admission = Arc::new(admission);
@@ -21,6 +50,8 @@ pub(super) fn guard_pipeline(
         {
             if !configure_source(&source, &source_admission) {
                 reject(&source, &source_refused);
+            } else if let Some(capture) = &capture {
+                capture.attach(&source);
             }
         } else {
             source_refused.store(true, Ordering::Release);
@@ -76,7 +107,7 @@ pub(super) fn guard_pipeline(
             || child
                 .dynamic_cast_ref::<gst::URIHandler>()
                 .is_some_and(|handler| {
-                    handler.uri_type() == gst::URIType::Src && name != "souphttpsrc"
+                    handler.uri_type() == gst::URIType::Src && name != admission.factory()
                 })
         {
             reject(child, &child_refused);
@@ -102,7 +133,7 @@ pub(super) fn guard_pipeline(
                 Some(allowed.to_value())
             });
         }
-        if name == "souphttpsrc" {
+        if name == admission.factory() {
             // Notify also covers a later attempt to replace this source's
             // location. The source-setup hook below still checks its initial
             // final URI before the element can leave NULL.
@@ -171,7 +202,19 @@ fn permitted_caps(caps: &gst::CapsRef) -> bool {
         })
 }
 
-fn configure_source(source: &gst::Element, admission: &RemotePlaybackSource) -> bool {
+fn configure_source(source: &gst::Element, admission: &Admission) -> bool {
+    let Admission::Remote(admission) = admission else {
+        let Admission::Cached(uri) = admission else {
+            unreachable!()
+        };
+        return source
+            .factory()
+            .is_some_and(|factory| factory.name() == "filesrc")
+            && source
+                .dynamic_cast_ref::<gst::URIHandler>()
+                .and_then(|handler| handler.uri())
+                .is_some_and(|actual| actual.as_str() == uri);
+    };
     if admission.is_expired()
         || !source
             .factory()

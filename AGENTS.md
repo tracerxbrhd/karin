@@ -39,7 +39,10 @@ reviewable and consistent with the accepted application.
 - Treat the API as unofficial and unstable. Metadata is not playback entitlement.
   Follow [STREAM_DELIVERY_REVIEW](docs/STREAM_DELIVERY_REVIEW.md); never bypass
   DRM/access controls, import extracted keys, redistribute music, forward OAuth/
-  cookies to a CDN, or persist signed media URLs/audio.
+  cookies to a CDN, or persist signed media URLs. Service-audio persistence needs
+  an applicable storage/reuse grant and current account/resource admission under
+  [AUDIO_CACHE_REVIEW](docs/AUDIO_CACHE_REVIEW.md). Streaming access and stored
+  bytes are not that grant; keep service writes off while its contract is absent.
 - Preserve attribution and explicit OAuth-identity uncertainties. Code licensing
   does not grant service/distribution permission or prove a provider ban.
   Follow [LICENSING](docs/LICENSING.md); keep standard GPL and third-party notices.
@@ -70,6 +73,10 @@ reviewable and consistent with the accepted application.
   and batch markers. The legacy Wave CLI flag is a no-op compatibility alias.
   Preserve its original occurrence/batch markers, actual worker Playing ledger,
   bounded serialized feedback and no replay after an ambiguous POST.
+- Cache metadata, artwork and authority-admitted audio under one shared budget
+  (default on/2 GiB, six discrete choices including Unlimited). Preserve worker
+  reservations, disk headroom, generation fences and the v1 settings migration;
+  do not reintroduce separate user quotas or run disk scans while dragging.
 - Catalog refusals fence key epochs before cache I/O; cached UI replies recheck
   those leases. Cold metadata stays Stale until a current positive write. Never
   hold the cache state mutex used by GTK over filesystem operations.
@@ -87,7 +94,10 @@ reviewable and consistent with the accepted application.
   immutable commits/PRs, not expiring artifacts alone. Retain SPDX/provenance.
 - Distinguish authored code, executed tests and owner acceptance. See
   [VALIDATION](docs/VALIDATION.md): native/UI and Flatpak at `97093ee` are accepted;
-  unreported individual scenarios and unresolved Cloud cold gaps are not PASS.
+  Dislike→Next and available `707539b` Native/installed-Flatpak functions are
+  owner-accepted; `0709729` is the last owner-accepted PR #26 revision. Later
+  online-authority changes and their correction need separate acceptance.
+  Unreported individual scenarios and unresolved Cloud cold gaps are not PASS.
   This is not a published release. Read [LIMITATIONS](docs/LIMITATIONS.md).
 
 ## Verification

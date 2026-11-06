@@ -54,20 +54,32 @@ Music-validated sign-in. Press **Слушать** to start it; launching Karin,
 restoring sign-in or opening Home creates no radio session. The owner retested
 the corrected `2e4b978` candidate on Fedora without reporting new problems,
 following earlier confirmed real audio, feedback and batch continuation.
-Final acceptance of ordinary startup and the installed v0.5 Flatpak remains
-separate; follow the [Native/Flatpak procedure](docs/BUILDING.md#my-wave-local-acceptance).
+Later owner acceptance includes the installed Flatpak; follow the [Native/Flatpak procedure](docs/BUILDING.md#my-wave-local-acceptance).
 
-The owner confirmed real account Dislike/removal and Like/Dislike interaction at
-`1877a6c`. A confirmed Dislike on the same current playback occurrence now invokes
-Next; removing Dislike or changing Like does not. Unavailable Dislike stays hidden
-while an independently confirmed Like remains usable. The revised
-[Native/Flatpak acceptance](docs/BUILDING.md#track-reaction-acceptance) is separate
-from that earlier live result.
+The owner accepted confirmed Dislike→Next, the ordinary queue and My Wave on
+Fedora Native and installed Flatpak after [PR #27](https://github.com/tracerxbrhd/karin/pull/27)
+merged at `ddf93ea`. Removal and Like do not advance playback; late confirmations
+are guarded by queue occurrence and session generations. See the
+[backlog audit](docs/ISSUES_AUDIT.md) for remaining independent work.
 
 The Music API is unofficial and may change. Separate recommendation shelves,
 lyrics and offline audio are not implemented. Cold first-player appearance in Cloud
 still has unresolved frame gaps; desktop acceptance does not establish their
 cause or resolution. See [known limitations](docs/LIMITATIONS.md).
+
+PR #26 provides one cache policy: enabled by default, one 2 GiB allowance,
+combined usage and Clear, with a native slider for 500 MiB, 1/2/3/4 GiB or
+Unlimited. Metadata, artwork and authority-gated audio share one disk coordinator,
+including in-flight writes. The owner identifies `0709729` as the last accepted
+PR #26 revision; later online-authority changes require separate acceptance.
+Independently licensed resources use the existing GStreamer transfer for saving,
+with local replay/restart after fresh access checks; caching creates no second
+media GET. The normal-application process test records actual source kinds and
+network bytes. Real Music remains online-only: storage/reuse is disabled until an applicable
+permission and the provider's online revalidation rule are established. PR #26
+remains Draft; generated-audio tests do not establish service caching or offline
+Music. See the [source/rights review](docs/AUDIO_CACHE_REVIEW.md) and the
+[prepared provider questions](docs/AUDIO_CACHE_PROVIDER_REQUEST.md).
 
 ## Build and run
 

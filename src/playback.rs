@@ -8,9 +8,9 @@
 
 use std::{
     fmt,
-    fs::{self, OpenOptions},
+    fs::{self, File, OpenOptions},
     io::Write,
-    os::unix::fs::OpenOptionsExt,
+    os::{fd::AsRawFd, unix::fs::OpenOptionsExt},
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex, MutexGuard,
@@ -56,10 +56,22 @@ pub enum PlaybackState {
     Error,
 }
 
+/// Actual worker-owned source of the current native pipeline. No resource URI,
+/// account identifier or transport credential crosses the snapshot boundary.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PlaybackSourceKind {
+    #[default]
+    None,
+    LocalFile,
+    RemoteHttps,
+    CachedFile,
+}
+
 /// Deliberately excludes source names, URLs, native debug strings and metadata.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PlaybackSnapshot {
     pub state: PlaybackState,
+    pub source_kind: PlaybackSourceKind,
     /// Cumulative worker-observed Playing time for this prepared generation.
     /// Monotonic and independent of media position, seeks and GTK polling. It
     /// freezes outside confirmed Playing and resets only on source replacement.
@@ -86,6 +98,7 @@ impl Default for PlaybackSnapshot {
     fn default() -> Self {
         Self {
             state: PlaybackState::Idle,
+            source_kind: PlaybackSourceKind::None,
             playing_time: Duration::ZERO,
             position: None,
             duration: None,
@@ -144,12 +157,20 @@ pub enum PlaybackError {
 pub struct PlaybackSource {
     path: PathBuf,
     remote: Option<RemotePlaybackSource>,
+    // Keeps the verified inode alive across cache Clear/eviction. GStreamer
+    // opens this descriptor through /proc, never the replaceable cache path.
+    cached_file: Option<Arc<File>>,
+    cache_admission: Option<Arc<crate::audio_cache::Hit>>,
+    cache_fallback: Option<RemotePlaybackSource>,
+    cache_capture: Option<crate::audio_cache::capture::Capture>,
 }
 
 impl fmt::Debug for PlaybackSource {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(if self.remote.is_some() {
             "PlaybackSource::RemoteHttps([redacted])"
+        } else if self.cached_file.is_some() {
+            "PlaybackSource::CachedFile([redacted])"
         } else {
             "PlaybackSource::LocalFile([redacted])"
         })
@@ -163,7 +184,14 @@ impl PlaybackSource {
         if !path.is_file() {
             return Err(PlaybackError::SourceUnavailable);
         }
-        Ok(Self { path, remote: None })
+        Ok(Self {
+            path,
+            remote: None,
+            cached_file: None,
+            cache_admission: None,
+            cache_fallback: None,
+            cache_capture: None,
+        })
     }
 
     /// Only an opaque, short-lived source issued by the service resolver can
@@ -172,7 +200,69 @@ impl PlaybackSource {
         Self {
             path: PathBuf::new(),
             remote: Some(source),
+            cached_file: None,
+            cache_admission: None,
+            cache_fallback: None,
+            cache_capture: None,
         }
+    }
+
+    /// A separately permitted copy observes this same remote transfer. There
+    /// is no additional resource request or independent audio engine.
+    pub(crate) fn with_cache_capture(
+        mut self,
+        capture: crate::audio_cache::capture::Capture,
+    ) -> Self {
+        if self.remote.is_some() {
+            self.cache_capture = Some(capture);
+        }
+        self
+    }
+
+    /// Memory-only admission/pinning of the exact read-only inode already
+    /// checked for type, privacy and integrity by AudioCache's worker. No fstat,
+    /// path reopen or cache scan belongs on this selection boundary.
+    /// `/proc/self/fd` stays inside the application, including Flatpak; keeping
+    /// the descriptor prevents Clear/eviction from breaking active playback.
+    pub(crate) fn cached_file(
+        hit: crate::audio_cache::Hit,
+        fallback: RemotePlaybackSource,
+    ) -> Result<Self, PlaybackError> {
+        if fallback.is_expired() {
+            return Err(PlaybackError::SourceExpired);
+        }
+        let file = hit
+            .admit_file()
+            .map_err(|_| PlaybackError::SourceUnavailable)?;
+        Ok(Self {
+            path: PathBuf::from(format!("/proc/self/fd/{}", file.as_raw_fd())),
+            remote: None,
+            cached_file: Some(file),
+            cache_admission: Some(Arc::new(hit)),
+            cache_fallback: Some(fallback),
+            cache_capture: None,
+        })
+    }
+
+    /// Memory-only final GTK admission, repeated by the playback worker before
+    /// opening the cached source. Clear/revocation retires unadmitted hits.
+    pub(crate) fn admit_cache_or_online(self) -> Self {
+        if self.cache_admission.as_ref().is_some_and(|hit| {
+            hit.admit_file().is_err()
+                || self
+                    .cache_fallback
+                    .as_ref()
+                    .is_some_and(RemotePlaybackSource::is_expired)
+        }) && let Some(fallback) = self.cache_fallback.clone()
+        {
+            return Self::remote(fallback);
+        }
+        self
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_cached(&self) -> bool {
+        self.cached_file.is_some()
     }
 }
 
@@ -421,12 +511,16 @@ struct ActivePipeline {
     element: gst::Element,
     bus: gst::Bus,
     transport_refused: Option<Arc<AtomicBool>>,
+    cache_capture: Option<crate::audio_cache::capture::Capture>,
 }
 
 impl Drop for ActivePipeline {
     fn drop(&mut self) {
         // Native calls stay on the playback worker, including stop/replacement,
         // decoder error, EOS and application shutdown.
+        if let Some(capture) = &self.cache_capture {
+            capture.interrupt();
+        }
         let _ = self.element.set_state(gst::State::Null);
     }
 }
@@ -475,6 +569,7 @@ impl Drop for WorkerLifecycle {
             // This also covers an unexpected worker unwind. Declared before
             // Worker, this guard runs after its pipeline has been dropped.
             snapshot.state = PlaybackState::Error;
+            snapshot.source_kind = PlaybackSourceKind::None;
             snapshot.last_error = Some(PlaybackError::WorkerUnavailable);
             snapshot.seekable = false;
             snapshot.worker_running = false;
@@ -524,97 +619,99 @@ impl Worker {
         worker.source = None;
         let mut snapshot = worker.shared.snapshot();
         snapshot.state = PlaybackState::Stopped;
+        snapshot.source_kind = PlaybackSourceKind::None;
         snapshot.seekable = false;
         snapshot.worker_running = false;
     }
 
     fn command(&mut self, command: Command) {
-        let result = match command {
-            Command::Prepare(source) => {
-                self.account_playing(false);
-                self.pipeline = None;
-                self.pending = None;
-                self.source = Some(source);
-                self.playing = PlayingClock::default();
-                {
+        let result =
+            match command {
+                Command::Prepare(source) => {
+                    self.account_playing(false);
+                    self.pipeline = None;
+                    self.pending = None;
+                    self.source = Some(source);
+                    self.playing = PlayingClock::default();
+                    {
+                        let mut snapshot = self.shared.snapshot();
+                        snapshot.generation += 1;
+                        snapshot.playing_time = Duration::ZERO;
+                        snapshot.state = PlaybackState::Loading;
+                        snapshot.source_kind = PlaybackSourceKind::None;
+                        snapshot.position = None;
+                        snapshot.duration = None;
+                        snapshot.seekable = false;
+                        snapshot.last_error = None;
+                    }
+                    self.start_pipeline(PlaybackState::Ready)
+                }
+                Command::Play | Command::Resume => {
+                    if self
+                        .source
+                        .as_ref()
+                        .and_then(|source| source.remote.as_ref())
+                        .is_some_and(RemotePlaybackSource::is_expired)
+                    {
+                        self.fail(PlaybackError::SourceExpired);
+                        return;
+                    }
+                    let state = self.shared.snapshot().state;
+                    if matches!(state, PlaybackState::Stopped | PlaybackState::Ended) {
+                        self.start_pipeline(PlaybackState::Playing)
+                    } else if matches!(
+                        state,
+                        PlaybackState::Ready
+                            | PlaybackState::Paused
+                            | PlaybackState::Loading
+                            | PlaybackState::Playing
+                    ) {
+                        self.transition(gst::State::Playing, PlaybackState::Playing)
+                    } else {
+                        Err(PlaybackError::InvalidState)
+                    }
+                }
+                Command::Pause => {
+                    let state = self.shared.snapshot().state;
+                    if matches!(
+                        state,
+                        PlaybackState::Playing | PlaybackState::Loading | PlaybackState::Paused
+                    ) {
+                        self.transition(gst::State::Paused, PlaybackState::Paused)
+                    } else {
+                        Err(PlaybackError::InvalidState)
+                    }
+                }
+                Command::Stop => {
+                    self.account_playing(false);
+                    self.pending = None;
+                    self.pipeline = None;
+                    if self.source.as_ref().is_some_and(|source| {
+                        source.remote.is_some() || source.cached_file.is_some()
+                    }) {
+                        self.source = None;
+                    }
                     let mut snapshot = self.shared.snapshot();
-                    snapshot.generation += 1;
-                    snapshot.playing_time = Duration::ZERO;
-                    snapshot.state = PlaybackState::Loading;
-                    snapshot.position = None;
-                    snapshot.duration = None;
+                    snapshot.state = PlaybackState::Stopped;
+                    snapshot.source_kind = PlaybackSourceKind::None;
+                    snapshot.position = Some(Duration::ZERO);
                     snapshot.seekable = false;
                     snapshot.last_error = None;
+                    Ok(())
                 }
-                self.start_pipeline(PlaybackState::Ready)
-            }
-            Command::Play | Command::Resume => {
-                if self
-                    .source
-                    .as_ref()
-                    .and_then(|source| source.remote.as_ref())
-                    .is_some_and(RemotePlaybackSource::is_expired)
-                {
-                    self.fail(PlaybackError::SourceExpired);
-                    return;
+                Command::Volume(volume) => {
+                    if let Some(pipeline) = &self.pipeline {
+                        pipeline.element.set_property("volume", volume);
+                    }
+                    let mut snapshot = self.shared.snapshot();
+                    snapshot.volume = volume;
+                    if snapshot.state != PlaybackState::Error {
+                        snapshot.last_error = None;
+                    }
+                    Ok(())
                 }
-                let state = self.shared.snapshot().state;
-                if matches!(state, PlaybackState::Stopped | PlaybackState::Ended) {
-                    self.start_pipeline(PlaybackState::Playing)
-                } else if matches!(
-                    state,
-                    PlaybackState::Ready
-                        | PlaybackState::Paused
-                        | PlaybackState::Loading
-                        | PlaybackState::Playing
-                ) {
-                    self.transition(gst::State::Playing, PlaybackState::Playing)
-                } else {
-                    Err(PlaybackError::InvalidState)
-                }
-            }
-            Command::Pause => {
-                let state = self.shared.snapshot().state;
-                if matches!(
-                    state,
-                    PlaybackState::Playing | PlaybackState::Loading | PlaybackState::Paused
-                ) {
-                    self.transition(gst::State::Paused, PlaybackState::Paused)
-                } else {
-                    Err(PlaybackError::InvalidState)
-                }
-            }
-            Command::Stop => {
-                self.account_playing(false);
-                self.pending = None;
-                self.pipeline = None;
-                if self
-                    .source
-                    .as_ref()
-                    .is_some_and(|source| source.remote.is_some())
-                {
-                    self.source = None;
-                }
-                let mut snapshot = self.shared.snapshot();
-                snapshot.state = PlaybackState::Stopped;
-                snapshot.position = Some(Duration::ZERO);
-                snapshot.seekable = false;
-                snapshot.last_error = None;
-                Ok(())
-            }
-            Command::Volume(volume) => {
-                if let Some(pipeline) = &self.pipeline {
-                    pipeline.element.set_property("volume", volume);
-                }
-                let mut snapshot = self.shared.snapshot();
-                snapshot.volume = volume;
-                if snapshot.state != PlaybackState::Error {
-                    snapshot.last_error = None;
-                }
-                Ok(())
-            }
-            Command::Seek(position) => self.seek(position),
-        };
+                Command::Seek(position) => self.seek(position),
+            };
         if let Err(error) = result {
             if matches!(
                 error,
@@ -636,21 +733,23 @@ impl Worker {
     fn start_pipeline(&mut self, result: PlaybackState) -> Result<(), PlaybackError> {
         self.pipeline = None;
         self.pending = None;
+        // A queued cached result can be retired between GTK admission and
+        // this worker. Fall back to the separately resolved online source.
+        self.source = self
+            .source
+            .take()
+            .map(PlaybackSource::admit_cache_or_online);
         let source = self.source.as_ref().ok_or(PlaybackError::InvalidState)?;
+        // Native decoder/debug messages can contain private resource or tag
+        // data. Keep the existing service-source redaction for cached media too.
+        if source.remote.is_some() || source.cached_file.is_some() {
+            gst::log::set_threshold_from_string("0", true);
+            gst::log::remove_default_log_function();
+        }
         let uri = if let Some(remote) = &source.remote {
             if remote.is_expired() {
                 return Err(PlaybackError::SourceExpired);
             }
-            // Native GStreamer debug messages can contain complete resource
-            // properties and response locations. Disable them before the URI
-            // enters GStreamer, including when GST_DEBUG was set by a caller.
-            // Public snapshots/bus handling below retain fixed diagnostics.
-            // Merely toggling debug active is insufficient: a later-loaded
-            // plugin category can restore its GST_DEBUG threshold. Reset the
-            // category rules and remove native output before source creation.
-            // The category/log-handler APIs serialize their own updates.
-            gst::log::set_threshold_from_string("0", true);
-            gst::log::remove_default_log_function();
             remote.uri.clone()
         } else {
             Zeroizing::new(
@@ -665,11 +764,17 @@ impl Worker {
         let bus = element.bus().ok_or(PlaybackError::Pipeline)?;
         // Audio-only: local media must never create an unrequested video window.
         element.set_property_from_str("flags", "audio+soft-volume");
-        let transport_refused = source
-            .remote
-            .as_ref()
-            .map(|source| remote::guard_pipeline(&element, source.clone()))
-            .transpose()?;
+        let transport_refused = if let Some(remote) = &source.remote {
+            Some(remote::guard_pipeline(
+                &element,
+                remote.clone(),
+                source.cache_capture.clone(),
+            )?)
+        } else if source.cached_file.is_some() {
+            Some(remote::guard_cached_pipeline(&element, uri.as_str())?)
+        } else {
+            None
+        };
         element.set_property("uri", uri.as_str());
         let volume = self.shared.snapshot().volume;
         element.set_property("volume", volume);
@@ -686,11 +791,20 @@ impl Worker {
             .lock()
             .unwrap()
             .push(element.downgrade());
+        let source_kind = if source.remote.is_some() {
+            PlaybackSourceKind::RemoteHttps
+        } else if source.cached_file.is_some() {
+            PlaybackSourceKind::CachedFile
+        } else {
+            PlaybackSourceKind::LocalFile
+        };
         self.pipeline = Some(ActivePipeline {
             element,
             bus,
             transport_refused,
+            cache_capture: source.cache_capture.clone(),
         });
+        self.shared.snapshot().source_kind = source_kind;
         let target = if result == PlaybackState::Playing {
             gst::State::Playing
         } else {
@@ -708,6 +822,11 @@ impl Worker {
         // resume only after a poll confirms the requested Playing state.
         self.account_playing(false);
         let pipeline = self.pipeline.as_ref().ok_or(PlaybackError::InvalidState)?;
+        self.pending = Some(Pending {
+            target,
+            result,
+            started: Instant::now(),
+        });
         if pipeline.element.set_state(target).is_err() {
             if let Some(refused) = &pipeline.transport_refused {
                 if refused.load(Ordering::Acquire) {
@@ -729,11 +848,6 @@ impl Worker {
             }
             return Err(PlaybackError::StateChange);
         }
-        self.pending = Some(Pending {
-            target,
-            result,
-            started: Instant::now(),
-        });
         let mut snapshot = self.shared.snapshot();
         snapshot.state = PlaybackState::Loading;
         snapshot.last_error = None;
@@ -767,6 +881,9 @@ impl Worker {
         }
         self.account_playing(false);
         let pipeline = self.pipeline.as_ref().ok_or(PlaybackError::InvalidState)?;
+        if let Some(capture) = &pipeline.cache_capture {
+            capture.interrupt();
+        }
         pipeline
             .element
             .seek_simple(
@@ -852,12 +969,13 @@ impl Worker {
             if self
                 .source
                 .as_ref()
-                .is_some_and(|source| source.remote.is_some())
+                .is_some_and(|source| source.remote.is_some() || source.cached_file.is_some())
             {
                 self.source = None;
             }
             let mut snapshot = self.shared.snapshot();
             snapshot.state = PlaybackState::Ended;
+            snapshot.source_kind = PlaybackSourceKind::None;
             snapshot.position = snapshot.duration;
             snapshot.seekable = false;
             return;
@@ -912,19 +1030,40 @@ impl Worker {
         self.shared.snapshot().playing_time = self.playing.total;
     }
 
-    fn fail(&mut self, error: PlaybackError) {
+    fn fail(&mut self, mut error: PlaybackError) {
         self.account_playing(false);
+        // A corrupt/unsupported cache body may fail only when the native
+        // decoder inspects it. Retry once with the independently admitted
+        // online source before any actual Playing, within this same worker.
+        // Never reset Wave's measured Playing ledger after audible progress.
+        if self.playing.total.is_zero()
+            && let Some(fallback) = self
+                .source
+                .as_mut()
+                .and_then(|source| source.cache_fallback.take())
+        {
+            let desired = self
+                .pending
+                .as_ref()
+                .map_or(PlaybackState::Ready, |pending| pending.result);
+            self.source = Some(PlaybackSource::remote(fallback));
+            match self.start_pipeline(desired) {
+                Ok(()) => return,
+                Err(failure) => error = failure,
+            }
+        }
         self.pending = None;
         self.pipeline = None;
         if self
             .source
             .as_ref()
-            .is_some_and(|source| source.remote.is_some())
+            .is_some_and(|source| source.remote.is_some() || source.cached_file.is_some())
         {
             self.source = None;
         }
         let mut snapshot = self.shared.snapshot();
         snapshot.state = PlaybackState::Error;
+        snapshot.source_kind = PlaybackSourceKind::None;
         snapshot.last_error = Some(error);
         snapshot.seekable = false;
     }
@@ -976,7 +1115,14 @@ impl DiagnosticMedia {
         }
         let (path, file) = opened.ok_or(PlaybackError::DiagnosticMedia)?;
         let mut file = std::io::BufWriter::new(file);
-        let source = PlaybackSource { path, remote: None };
+        let source = PlaybackSource {
+            path,
+            remote: None,
+            cached_file: None,
+            cache_admission: None,
+            cache_fallback: None,
+            cache_capture: None,
+        };
         let guard = Self { source };
         let sample_rate = 22_050_u32;
         let samples = (duration.as_nanos() * sample_rate as u128 / 1_000_000_000) as u32;
@@ -1562,6 +1708,7 @@ mod tests {
                 element,
                 bus,
                 transport_refused: None,
+                cache_capture: None,
             }),
             // Paused was deliberately never requested: this real playbin stays
             // Ready, allowing the worker's own deadline path to be tested

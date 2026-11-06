@@ -21,11 +21,11 @@ rights. Public service/distribution conditions remain unresolved. See [LICENSING
 [STREAM_DELIVERY_REVIEW.md](STREAM_DELIVERY_REVIEW.md).
 
 My Wave is an ordinary Home action after Music-validated sign-in, using the
-existing player. The owner retested corrected candidate `2e4b978` on Fedora
-without reporting new problems, after earlier confirmed real audio, all four
-feedback events and continued batches. This general report is not a per-scenario
-matrix or installed v0.5 Flatpak acceptance; the final ordinary-native/Flatpak
-[procedure](BUILDING.md#my-wave-local-acceptance) remains pending.
+existing player. Corrected feedback, real audio and continued batches were
+confirmed on Fedora; PR #25 then merged at `860672b` with ordinary Native and
+installed Flatpak owner acceptance. Issue #16 is closed. This overall report does
+not certify each optional failure scenario, portal backend or physical media key.
+The [procedure](BUILDING.md#my-wave-local-acceptance) remains available for regressions.
 
 Only **Слушать** starts a radio session. Startup, restored sign-in and Home
 navigation do not issue Wave requests, and session IDs/batch markers remain
@@ -45,17 +45,43 @@ mutation retry. A fresh independent Like membership read can still enable the
 existing Like/Unlike path and its confirmation; a Dislike refusal must not
 disable working Like. The fallback never establishes Dislike state.
 The owner confirmed live server reactions and opposite-mark interaction at
-`1877a6c`; the revised automatic Next and installed Flatpak acceptance remain
-separate. Unlike is not Dislike; opposite marks are confirmed independently.
+`1877a6c`, then explicitly accepted the corrected Dislike→Next, ordinary queue and
+Wave behavior on Fedora Native and installed Flatpak after #27 merged at `ddf93ea`.
+Issue #17 is closed. Individual race/failure cases are covered by automated guards,
+not inferred as special owner tests. Unlike is not Dislike; opposite marks are confirmed independently.
 Only confirmed Dislike addition on the unchanged current occurrence invokes Next.
 For Wave this reuses its existing listening/Skip lifecycle, with no new negative
 Wave event or recommendation-effect guarantee. See
 [ADR-0028](adr/0028-confirmed-track-reactions.md).
 
-Other recommendation shelves/similar tracks, lyrics and persistent/offline audio
-are not implemented. A working short-lived MP3 stream does not
-establish persistent download rights or an offline entitlement lifecycle; see
+Other recommendation shelves/similar tracks and lyrics are not implemented.
+The v0.6 audio store, player bridge and cleanup are ordinary production code.
+The owner accepted the available functions/tests at `707539b` on Native and
+installed Flatpak. The owner identifies `0709729` as the last accepted PR #26 revision; the later
+online-authority correction requires new acceptance. One shared policy/budget/usage
+and Clear covers all permitted categories, with
+2 GiB by default and an explicit Unlimited choice guarded by available disk space.
+This interface does not enable audio storage: the service authority still refuses
+storage/reuse admission.
+For independently licensed resources, the completed production path captures
+one existing GStreamer transfer and checks exact content before publication.
+Separate application processes verify local replay/restart, refusal, corruption
+repair and Clear. These results concern the expressly CC0 original resource,
+not the real catalog. Cache lookup and bookkeeping do not delay source admission;
+a busy/failed cache keeps that selection online.
+Music still plays over the established online path and is not saved. The exact
+missing inputs are an applicable Karin storage/reuse permission and the provider's
+fresh account/resource check authorizing a cached hit; a playable MP3, subscription,
+`permissions.until` or `cacheLimit` alone does not define that contract. See
 [AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md).
+PR #26 and Issue #20 remain unfinished. Generated-media tests exercise the shared
+store/bridge and actual GStreamer reuse/reopen with independent fixture permission;
+they are not service cache or installed-Flatpak acceptance. The production
+online coordinator defaults to the missing-contract authority and cannot grant
+storage from a playable URL. See the [post-acceptance audit](PR26_REVISION_AUDIT.md). Downloads,
+mass prefetch and offline playback are outside this iteration. A later offline
+mode needs its own actual lifetime/revalidation rules; it is not a prerequisite
+invented for transparent online-revalidated caching.
 
 ## Catalog, workspace and playback
 

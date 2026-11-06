@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Fresh, account-bound legacy MP3 resolution. This module never fetches media.
+//! Fresh, account-bound legacy MP3 resolution for the shared player.
 
 use std::{fmt, time::Instant};
 

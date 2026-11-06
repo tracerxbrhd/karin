@@ -10,6 +10,10 @@ Stability extension, 2026-11-04: [ADR-0026](0026-refusal-fences-and-queue-occurr
 adds per-key refusal fences/tombstones and conservative cold-metadata freshness.
 Physical removal failure no longer permits a later fresh cache hit.
 
+Resource-policy extension, 2026-11-06: [ADR-0030](0030-unified-cache-budget-and-preferences.md)
+replaces the user-facing quota/defaults below with one shared budget and migrates
+settings. Typed formats, admission, integrity and lifecycle boundaries remain.
+
 ## Context
 
 The accepted music client repeatedly loads the same metadata and cover images.

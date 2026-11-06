@@ -1020,7 +1020,7 @@ fn read_body(mut response: Response) -> Result<Zeroizing<Vec<u8>>, MusicError> {
         body.extend_from_slice(&bytes[..count]);
     }
 }
-fn validate_id(value: &str) -> Result<(), MusicError> {
+pub(crate) fn validate_id(value: &str) -> Result<(), MusicError> {
     if value.is_empty()
         || value.len() > 128
         || !value
