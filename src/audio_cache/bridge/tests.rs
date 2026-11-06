@@ -4,7 +4,7 @@
 
 use super::*;
 use crate::{
-    audio_cache::{CachePolicy, MissingStorageContract, test_support::SyntheticAuthority},
+    audio_cache::{CachePolicy, MissingStorageContract, OnlineStreamAuthority, test_support::SyntheticAuthority},
     cache::AccountScope,
     playback::{PlaybackController, PlaybackOutput, PlaybackSnapshot, PlaybackState},
 };
@@ -300,6 +300,94 @@ fn missing_contract_has_no_media_request_or_storage_write() {
     assert!(!selection.source.is_cached() && selection.fill.is_none());
     assert_eq!(http.requested(), 0);
     assert_eq!(cache.stats().unwrap().entries, 0);
+}
+
+#[test]
+fn online_stream_authority_requires_fresh_resolution_on_each_process() {
+    let directory = Directory::new();
+    let http = Http::new(media(), 200, "");
+    let service = MusicService::for_test(&http.origin);
+    let token = token();
+    service.account(&token).unwrap();
+
+    let cache = AudioCache::open(
+        directory.0.join("audio"),
+        Arc::new(OnlineStreamAuthority::default()),
+        CachePolicy::default(),
+    )
+    .unwrap();
+    let lease = cache.bind(Some(scope())).unwrap().unwrap();
+    assert!(matches!(cache.get(&lease, key()), Err(CacheError::NoGrant)));
+
+    let first = resolve(
+        http.resolver(),
+        &service,
+        &token,
+        "123",
+        &DeliveryCancellation::new(),
+        Some((cache.clone(), lease.clone())),
+    )
+    .unwrap();
+    assert!(!first.source.is_cached());
+    first.fill.unwrap().run().unwrap();
+    assert_eq!(cache.stats().unwrap().entries, 1);
+    assert_eq!(http.requested(), 1);
+
+    let hit = resolve(
+        http.resolver(),
+        &service,
+        &token,
+        "123",
+        &DeliveryCancellation::new(),
+        Some((cache.clone(), lease)),
+    )
+    .unwrap();
+    assert!(hit.source.is_cached() && hit.fill.is_none());
+    assert_eq!(http.requested(), 1, "local hit must not fetch media twice");
+    drop(hit);
+    drop(cache);
+
+    // No process-local admission survives restart, but the verified file does.
+    let reopened = AudioCache::open(
+        directory.0.join("audio"),
+        Arc::new(OnlineStreamAuthority::default()),
+        CachePolicy::default(),
+    )
+    .unwrap();
+    let lease = reopened.bind(Some(scope())).unwrap().unwrap();
+    assert!(matches!(reopened.get(&lease, key()), Err(CacheError::NoGrant)));
+    let hit_after_restart = resolve(
+        http.resolver(),
+        &service,
+        &token,
+        "123",
+        &DeliveryCancellation::new(),
+        Some((reopened.clone(), lease)),
+    )
+    .unwrap();
+    assert!(hit_after_restart.source.is_cached());
+    assert_eq!(http.requested(), 1);
+    assert_eq!(
+        http.delivery_requests.load(Ordering::Acquire),
+        3,
+        "every attempted local reuse must refresh the streaming source"
+    );
+
+    // A cache entry never authorizes another account.
+    let other = reopened
+        .bind(Some(AccountScope::from_account_id("9999").unwrap()))
+        .unwrap()
+        .unwrap();
+    let mismatch = resolve(
+        http.resolver(),
+        &service,
+        &token,
+        "123",
+        &DeliveryCancellation::new(),
+        Some((reopened, other)),
+    )
+    .unwrap();
+    assert!(!mismatch.source.is_cached() && mismatch.fill.is_none());
 }
 
 #[test]
