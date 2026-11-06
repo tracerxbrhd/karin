@@ -5,7 +5,8 @@
 use super::*;
 use crate::{
     audio_cache::{
-        CachePolicy, MissingStorageContract, OnlineStreamAuthority, test_support::SyntheticAuthority,
+        CachePolicy, MissingStorageContract, OnlineStreamAuthority,
+        test_support::SyntheticAuthority,
     },
     cache::AccountScope,
     playback::{PlaybackController, PlaybackOutput, PlaybackSnapshot, PlaybackState},
@@ -357,7 +358,10 @@ fn online_stream_authority_requires_fresh_resolution_on_each_process() {
     )
     .unwrap();
     let lease = reopened.bind(Some(scope())).unwrap().unwrap();
-    assert!(matches!(reopened.get(&lease, key()), Err(CacheError::NoGrant)));
+    assert!(matches!(
+        reopened.get(&lease, key()),
+        Err(CacheError::NoGrant)
+    ));
     let hit_after_restart = resolve(
         http.resolver(),
         &service,
