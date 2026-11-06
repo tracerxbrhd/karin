@@ -4,7 +4,9 @@
 
 use super::*;
 use crate::{
-    audio_cache::{CachePolicy, MissingStorageContract, OnlineStreamAuthority, test_support::SyntheticAuthority},
+    audio_cache::{
+        CachePolicy, MissingStorageContract, OnlineStreamAuthority, test_support::SyntheticAuthority,
+    },
     cache::AccountScope,
     playback::{PlaybackController, PlaybackOutput, PlaybackSnapshot, PlaybackState},
 };
