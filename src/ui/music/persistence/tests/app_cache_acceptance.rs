@@ -698,9 +698,19 @@ fn application_child(input: &Input, phase: &str) {
             .dialog
             .clone();
         let clear = find_named(dialog.upcast_ref(), "preferences-cache-clear")
+            .and_then(|widget| widget.downcast::<gtk::Button>().ok())
             .expect("native Clear control");
         let operation = this.persistence.borrow().cache_operation;
-        pointer(&ui.window, &clear);
+        let clicked = Rc::new(Cell::new(0));
+        clear.connect_clicked({
+            let clicked = clicked.clone();
+            move |_| clicked.set(clicked.get() + 1)
+        });
+        // On GTK4.14 a mapped control can still be outside its scrolled
+        // viewport. Use the same real-hit/scroll fixture as Preferences; a
+        // toplevel-bounds coordinate is not evidence of a delivered click.
+        crate::ui::preferences::click_native_for_test(&ui.window, &window_id(), &clear);
+        assert_eq!(clicked.get(), 1, "one real native Clear click is required");
         pump_until(|| {
             this.persistence.borrow().cache_operation > operation
                 && !this.persistence.borrow().cache_busy

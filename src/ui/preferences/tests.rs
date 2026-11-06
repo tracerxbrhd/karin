@@ -190,7 +190,7 @@ fn coordinates(window: &adw::ApplicationWindow, widget: &gtk::Widget) -> Option<
     None
 }
 
-fn click(window: &adw::ApplicationWindow, id: &str, widget: &impl IsA<gtk::Widget>) {
+pub(super) fn click(window: &adw::ApplicationWindow, id: &str, widget: &impl IsA<gtk::Widget>) {
     let widget = widget.as_ref();
     let focus_accepted = widget.grab_focus();
     // AdwSwitchRow owns keyboard focus; its internal GtkSwitch can report

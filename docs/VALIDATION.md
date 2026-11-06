@@ -784,6 +784,13 @@ status and downloadable Native build are published in
 not validate this runtime. The single final owner procedure is in
 [BUILDING](BUILDING.md#pr-26-corrected-cache-acceptance).
 
+The first hosted attempt at `1dcb2b7` failed waiting for the new fixture's Clear
+operation on GTK4.14; allocation-only pointer coordinates did not establish a
+native button hit. The fixture now reuses Preferences' viewport reveal and
+two-frame native hit checks, and asserts exactly one delivered mouse click.
+No wait limit or product behavior was relaxed; the full matrix is repeated for
+the corrected test sources. The earlier failed run remains failure evidence.
+
 Real Yandex Music saving/reuse is **not completed or accepted**: the exact local
 stop is `MissingStorageContract::authorize → NoGrant`. The affirmative service
 terms and reviewed wire contracts establish neither Karin's applicable storage

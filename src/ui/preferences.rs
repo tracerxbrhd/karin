@@ -556,3 +556,14 @@ fn usage_text(stats: CacheStats) -> String {
 
 #[cfg(test)]
 mod tests;
+
+/// Reuse the Preferences input fixture's viewport reveal and actual native hit
+/// checks when an application-level test activates a control in this dialog.
+#[cfg(test)]
+pub(crate) fn click_native_for_test(
+    window: &adw::ApplicationWindow,
+    id: &str,
+    widget: &impl IsA<gtk::Widget>,
+) {
+    tests::click(window, id, widget);
+}
