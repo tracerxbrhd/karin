@@ -2,9 +2,10 @@
 //! Account-isolated, authority-gated audio storage used by the ordinary app.
 //!
 //! All filesystem operations run on workers. Binding/fencing are memory-only.
-//! A real service storage grant remains unavailable; MissingStorageContract
-//! therefore refuses reads/writes before file or media I/O. Tests inject an
-//! explicit fake authority and original generated audio into these same paths.
+//! An online-session authority may admit cache operations only after a fresh,
+//! account-bound stream resolution. This is a technical online admission, not
+//! a provider-issued storage license or an offline entitlement. No protected
+//! formats are handled. Tests use original generated audio and fake authorities.
 
 use ring::{
     digest::{SHA256, digest},
@@ -129,6 +130,11 @@ impl fmt::Debug for StorageGrant {
 pub trait StorageAuthority: Send + Sync {
     fn authorize(&self, identity: &ResourceIdentity) -> Result<StorageGrant>;
     fn check(&self, grant: &StorageGrant) -> Result<()>;
+    /// Called by the resolver bridge only after an authenticated fresh stream
+    /// resolution. Synthetic authorities already manage their own explicit grants.
+    fn observe_verified_online(&self, _identity: &ResourceIdentity) -> Result<()> {
+        Ok(())
+    }
 }
 /// The current service does not establish a Karin-applicable storage contract.
 /// There is no user flag or metadata/subscription shortcut around this gate.
@@ -139,6 +145,54 @@ impl StorageAuthority for MissingStorageContract {
     }
     fn check(&self, _: &StorageGrant) -> Result<()> {
         Err(CacheError::NoGrant)
+    }
+    fn observe_verified_online(&self, _: &ResourceIdentity) -> Result<()> {
+        Err(CacheError::NoGrant)
+    }
+}
+
+/// Experimental online-only admission for an ordinary resolved, unprotected MP3.
+/// Nothing is persisted about the admission itself: each process and every new
+/// playback selection must revalidate the user account and media source online.
+/// This is not an offline license or evidence of permission to copy content.
+#[derive(Default)]
+pub struct OnlineStreamAuthority {
+    state: Mutex<OnlineStreamState>,
+}
+#[derive(Default)]
+struct OnlineStreamState {
+    revision: u64,
+    current: Option<StorageGrant>,
+}
+impl StorageAuthority for OnlineStreamAuthority {
+    fn observe_verified_online(&self, identity: &ResourceIdentity) -> Result<()> {
+        let mut state = self.state.lock().map_err(|_| CacheError::Unavailable)?;
+        state.revision = state.revision.checked_add(1).ok_or(CacheError::Limit)?;
+        state.current = Some(StorageGrant {
+            identity: *identity,
+            revision: state.revision,
+        });
+        Ok(())
+    }
+
+    fn authorize(&self, identity: &ResourceIdentity) -> Result<StorageGrant> {
+        let state = self.state.lock().map_err(|_| CacheError::Unavailable)?;
+        match state.current {
+            Some(grant) if grant.identity == *identity => Ok(grant),
+            _ => Err(CacheError::NoGrant),
+        }
+    }
+
+    fn check(&self, grant: &StorageGrant) -> Result<()> {
+        let state = self.state.lock().map_err(|_| CacheError::Unavailable)?;
+        match state.current {
+            Some(current)
+                if current.identity == grant.identity && current.revision == grant.revision =>
+            {
+                Ok(())
+            }
+            _ => Err(CacheError::Revoked),
+        }
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -472,6 +526,19 @@ impl AudioCache {
                 .map_or(0, |budget| budget.generation()),
         })
     }
+    /// A fresh Music account-bound stream was resolved for this exact track.
+    /// This method must be used only by the resolver worker, never as a UI grant.
+    pub(crate) fn observe_verified_online(
+        &self,
+        lease: &Lease,
+        track: ResourceKey,
+    ) -> Result<()> {
+        self.lease_current(lease)?;
+        let identity = self.identity(lease, track)?;
+        self.0.authority.observe_verified_online(&identity)?;
+        self.lease_current(lease)
+    }
+
     pub fn fence(&self) -> Result<()> {
         let mut state = self.0.state.lock().map_err(|_| CacheError::Unavailable)?;
         state.generation = state.generation.checked_add(1).ok_or(CacheError::Limit)?;
