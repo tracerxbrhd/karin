@@ -557,7 +557,13 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
         next.session_status = "Защищённое хранилище сейчас недоступно.".into();
         next.message = Some("Не удалось выполнить очистку. Повторите попытку.".into());
     }
+    // A new inline error reveals itself from an idle callback. A screenshot
+    // happens to drain that callback, but a no-capture run must acknowledge it
+    // explicitly before beginning the next independent focus/scroll scenario.
+    assert!(view.cache_clear.grab_focus());
+    assert!(!view.operation_status.has_focus());
     view.update(&snapshot.borrow());
+    pump_until(|| view.operation_status.has_focus());
     assert!(view.remember.is_active());
     assert!(view.remember.is_sensitive());
     assert!(view.session_retry.is_visible());

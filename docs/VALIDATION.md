@@ -551,6 +551,17 @@ Libadwaita **1.5.0** libraries in the existing container: the unchanged `ec20d88
 helper reproduced the timeout, and the correction passed at 1× and 2×. This
 controlled widget test does not replace the full hosted WebKit/sandbox checks.
 
+The no-capture MSRV jobs at `c76bef4` then exposed an unacknowledged error-focus
+callback before the next focus assertion. Capturing a screenshot happened to drain
+that idle callback; the test now explicitly observes the new inline error gaining
+focus before setting up the clipped-switch scenario. The focus assertion remains.
+Both compilers passed all eight full-feature combinations of scale 1×/2× and
+capture on/off. Four additional minimal-profile runs with the older Ubuntu
+libraries passed the same combinations. A one-off unchanged local no-capture run
+did not reproduce that intermittent ordering failure; the original
+[push](https://github.com/tracerxbrhd/karin/actions/runs/42180027292) and
+[PR](https://github.com/tracerxbrhd/karin/actions/runs/42180033054) failures are retained.
+
 The original [push](https://github.com/tracerxbrhd/karin/actions/runs/42072546505)
 and [PR](https://github.com/tracerxbrhd/karin/actions/runs/42072557868) failures,
 and the later [PR Preferences failure](https://github.com/tracerxbrhd/karin/actions/runs/42074992147),
