@@ -1232,6 +1232,13 @@ impl AudioCache {
         self.clear_before_complete(|| {})
     }
     fn clear_before_complete(&self, before_complete: impl FnOnce()) -> Result<Stats> {
+        self.clear_observing_contention(before_complete, || {})
+    }
+    fn clear_observing_contention(
+        &self,
+        before_complete: impl FnOnce(),
+        mut busy: impl FnMut(),
+    ) -> Result<Stats> {
         let (generation, active) = {
             let mut state = self.0.state.lock().map_err(|_| CacheError::Unavailable)?;
             state.generation = state.generation.checked_add(1).ok_or(CacheError::Limit)?;
@@ -1240,7 +1247,32 @@ impl AudioCache {
             state.pending.clear();
             (state.generation, state.active_stage.clone())
         };
-        let _io = self.io()?;
+        // The fence above is immediate. Only this filesystem worker retries a
+        // short stats/LRU/retiring-writer collision; persistent contention still
+        // returns Busy and leaves the existing explicit Retry fence intact.
+        let deadline = Instant::now() + Duration::from_millis(250);
+        let _io = loop {
+            {
+                let state = self.0.state.lock().map_err(|_| CacheError::Unavailable)?;
+                if state.generation != generation || !state.clearing {
+                    return Err(CacheError::Cancelled);
+                }
+            }
+            match self.io() {
+                Ok(guard) => break guard,
+                Err(CacheError::Busy) if Instant::now() < deadline => {
+                    busy();
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Err(error) => return Err(error),
+            }
+        };
+        {
+            let state = self.0.state.lock().map_err(|_| CacheError::Unavailable)?;
+            if state.generation != generation || !state.clearing {
+                return Err(CacheError::Cancelled);
+            }
+        }
         // Ordinary scans preserve a live writer. Clear is different: its
         // generation fence already retired that writer, so unlink the staging
         // path even if the source is paused and no further bytes arrive.

@@ -326,6 +326,42 @@ fn clear_during_write_fences_requests_and_requires_successful_cleanup_retry() {
 }
 
 #[test]
+fn clear_retries_observed_io_contention_without_holding_the_admission_mutex() {
+    let (_, _, cache, lease) = fixture(100_000);
+    put(&cache, &lease, FIRST.track, 400);
+    let hit = cache.get(&lease, FIRST.track).unwrap().unwrap();
+    let io = cache.io().unwrap();
+    let worker = cache.clone();
+    let (observed, waiting) = mpsc::sync_channel(0);
+    let clearing = thread::spawn(move || {
+        let mut observed = Some(observed);
+        worker.clear_observing_contention(
+            || {},
+            || {
+                if let Some(observed) = observed.take() {
+                    observed.send(()).unwrap();
+                }
+            },
+        )
+    });
+    // The observer fires only after a real WouldBlock, not merely thread start.
+    waiting.recv_timeout(Duration::from_secs(2)).unwrap();
+    let state = cache
+        .0
+        .state
+        .try_lock()
+        .expect("clear must not hold GTK admission state while waiting");
+    assert!(state.clearing);
+    drop(state);
+    assert_eq!(hit.admit().unwrap_err(), CacheError::Cancelled);
+    drop(io);
+    assert_eq!(clearing.join().unwrap(), Ok(Stats::default()));
+    assert_eq!(cache.stats().unwrap(), Stats::default());
+    let fresh = cache.bind(Some(account(FIRST.account))).unwrap().unwrap();
+    assert!(cache.get(&fresh, FIRST.track).unwrap().is_none());
+}
+
+#[test]
 fn concurrent_reads_and_writes_remain_atomic_and_duplicate_work_is_bounded() {
     let (_, _, cache, lease) = fixture(100_000);
     put(&cache, &lease, SECOND.track, 4_000);

@@ -194,8 +194,10 @@ integrity/atomic publication and an exclusive namespace owner guard reads/writes
 and restart. A separate one-writer gate spans the streamed body; the read/Clear
 I/O gate covers initialization and atomic commit, with a live staging marker.
 Scans preserve that marker; Clear fences and unlinks it without waiting for more
-network bytes. Commit retries contention only on the worker, for at most 250 ms,
-with cancellation checks. Retired staging is recovered before quota eviction.
+network bytes. Initialization, commit and Clear retry short I/O contention only
+on workers, for at most 250 ms. Cancellation or a superseded Clear generation
+ends the wait; persistent failure keeps the existing visible Retry fence.
+Retired staging is recovered before quota eviction.
 Per-resource 64 MiB, 1024-record and four-pending-capture bounds remain, with one
 staging writer; these safety bounds are independent of the shared user quota.
 
