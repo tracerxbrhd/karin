@@ -666,9 +666,13 @@ pub(super) fn run_child(input: &Input, phase: &str) {
                 pump_until(|| server.hold.entered.load(Ordering::Acquire));
                 let serial = this.music_snapshot().unwrap().seek_serial;
                 this.seek_music(Duration::from_secs(3));
+                // The worker acknowledges the seek before soup's asynchronous
+                // range request necessarily reaches the server. Observe both
+                // independent events before releasing the incomplete response.
                 pump_until(|| {
                     this.music_snapshot()
                         .is_some_and(|s| s.seek_serial > serial)
+                        && server.counts().range_gets > 0
                 });
                 assert!(
                     server.counts().range_gets > 0,
