@@ -376,3 +376,188 @@ fn cancelled_during_permission_lookup_cannot_commit() {
     ));
     assert_eq!(cache.stats().unwrap(), Stats::default());
 }
+
+fn current_grant(fixture: &Fixture, track: u64) -> StorageGrant {
+    let identity = fixture
+        .cache
+        .identity(&fixture.lease, track.into())
+        .unwrap();
+    fixture.authority.authorize(&identity).unwrap()
+}
+
+#[test]
+fn completed_write_survives_next_admission_but_old_hit_does_not() {
+    for next_track in [101, 102] {
+        let f = Fixture::new();
+        f.observe(101);
+        f.put_original();
+        let old_hit = f.cache.get(&f.lease, 101u64).unwrap().unwrap();
+        let grant = current_grant(&f, 101);
+        f.authority.retain_write(&grant).unwrap();
+        f.authority.seal_write(&grant).unwrap();
+
+        let next = f
+            .cache
+            .begin_online_check(&f.lease, next_track.into())
+            .unwrap();
+        // Repeat One and a different next track both retire the old playback
+        // grant, while the already completed write gets only its bounded tail.
+        assert_eq!(f.authority.check(&grant), Err(CacheError::Revoked));
+        assert!(matches!(old_hit.admit(), Err(CacheError::Revoked)));
+        f.authority.check_write(&grant).unwrap();
+        f.cache.observe_verified_online(&f.lease, next).unwrap();
+        f.authority.check_write(&grant).unwrap();
+        f.authority.release_write(&grant);
+        assert_eq!(f.authority.check_write(&grant), Err(CacheError::Revoked));
+    }
+}
+
+#[test]
+fn registered_completion_can_be_noticed_after_next_check_without_reviving_playback() {
+    let f = Fixture::new();
+    f.observe(101);
+    let grant = current_grant(&f, 101);
+    f.authority.retain_write(&grant).unwrap();
+    let _next = f.cache.begin_online_check(&f.lease, 102u64.into()).unwrap();
+    assert_eq!(f.authority.check_write(&grant), Err(CacheError::Revoked));
+    assert_eq!(f.authority.check(&grant), Err(CacheError::Revoked));
+    // The Request owner now observes its actual complete-and-played capture.
+    // Registration already existed; this closes the last-buffer/next-check race.
+    f.authority.seal_write(&grant).unwrap();
+    f.authority.check_write(&grant).unwrap();
+    assert_eq!(f.authority.check(&grant), Err(CacheError::Revoked));
+    let deadline = f
+        .authority
+        .state
+        .lock()
+        .unwrap()
+        .writes
+        .get(&grant.revision)
+        .unwrap()
+        .deadline;
+    f.authority.seal_write(&grant).unwrap();
+    assert_eq!(
+        f.authority
+            .state
+            .lock()
+            .unwrap()
+            .writes
+            .get(&grant.revision)
+            .unwrap()
+            .deadline,
+        deadline,
+        "repeated completion checks must not renew finalization"
+    );
+    f.authority
+        .state
+        .lock()
+        .unwrap()
+        .writes
+        .get_mut(&grant.revision)
+        .unwrap()
+        .deadline = Instant::now();
+    assert_eq!(f.authority.check_write(&grant), Err(CacheError::Expired));
+    assert_eq!(f.authority.seal_write(&grant), Err(CacheError::Revoked));
+}
+
+#[test]
+fn explicit_resource_refusal_revokes_write_and_cannot_reregister_old_revision() {
+    let f = Fixture::new();
+    f.observe(101);
+    let grant = current_grant(&f, 101);
+    f.authority.retain_write(&grant).unwrap();
+    f.authority.seal_write(&grant).unwrap();
+    f.authority.revoke_writes(&grant.identity, grant.revision);
+    assert_eq!(f.authority.check_write(&grant), Err(CacheError::Revoked));
+    assert_eq!(f.authority.retain_write(&grant), Err(CacheError::Revoked));
+    assert_eq!(f.authority.seal_write(&grant), Err(CacheError::Revoked));
+
+    f.observe(101);
+    let refreshed = current_grant(&f, 101);
+    f.authority.retain_write(&refreshed).unwrap();
+    f.authority.seal_write(&refreshed).unwrap();
+    f.permission.deny(&account(1), &101u64.into());
+    assert_eq!(
+        f.authority.check_write(&refreshed),
+        Err(CacheError::Revoked)
+    );
+}
+
+#[test]
+fn late_refusal_cannot_revoke_a_newer_same_resource_write() {
+    let f = Fixture::new();
+    f.observe(101);
+    let old = current_grant(&f, 101);
+    f.authority.retain_write(&old).unwrap();
+    f.authority.seal_write(&old).unwrap();
+    f.observe(101);
+    let latest = current_grant(&f, 101);
+    f.authority.retain_write(&latest).unwrap();
+    f.authority.seal_write(&latest).unwrap();
+    f.authority.revoke_writes(&old.identity, old.revision);
+    f.authority.check_write(&old).unwrap();
+    f.authority.check_write(&latest).unwrap();
+
+    let next = f.cache.begin_online_check(&f.lease, 101u64.into()).unwrap();
+    f.authority.revoke_writes(&next.identity, next.sequence);
+    assert_eq!(f.authority.check_write(&old), Err(CacheError::Revoked));
+    assert_eq!(f.authority.check_write(&latest), Err(CacheError::Revoked));
+}
+
+#[test]
+fn write_registration_is_bounded_and_its_finite_lifetime_cannot_be_renewed() {
+    let f = Fixture::new();
+    let mut registered = Vec::new();
+    for track in 101..105 {
+        if track > 102 {
+            f.permission.allow(&account(1), &track.into());
+        }
+        f.observe(track);
+        let grant = current_grant(&f, track);
+        f.authority.retain_write(&grant).unwrap();
+        f.authority.seal_write(&grant).unwrap();
+        registered.push(grant);
+    }
+    f.permission.allow(&account(1), &105u64.into());
+    f.observe(105);
+    let current = current_grant(&f, 105);
+    assert_eq!(f.authority.retain_write(&current), Err(CacheError::Limit));
+    f.authority.release_write(&registered[0]);
+    f.authority.retain_write(&current).unwrap();
+    assert_eq!(
+        f.authority.retain_write(&current),
+        Err(CacheError::Duplicate)
+    );
+    f.authority
+        .state
+        .lock()
+        .unwrap()
+        .writes
+        .get_mut(&current.revision)
+        .unwrap()
+        .deadline = Instant::now();
+    assert_eq!(f.authority.check_write(&current), Err(CacheError::Expired));
+    assert_eq!(f.authority.retain_write(&current), Err(CacheError::Revoked));
+    f.observe(105);
+    f.authority.retain_write(&current_grant(&f, 105)).unwrap();
+}
+
+#[test]
+fn account_namespace_and_lease_changes_prune_write_pins() {
+    for change in 0..3 {
+        let f = Fixture::new();
+        f.observe(101);
+        let grant = current_grant(&f, 101);
+        f.authority.retain_write(&grant).unwrap();
+        f.authority.seal_write(&grant).unwrap();
+        let mut next = grant.identity;
+        match change {
+            0 => next.account = account(2).audio_cache_key(),
+            1 => next.namespace += 1,
+            _ => next.admission[0] ^= 1,
+        }
+        f.authority.begin_online(next).unwrap();
+        assert_eq!(f.authority.check_write(&grant), Err(CacheError::Revoked));
+        assert_eq!(f.authority.seal_write(&grant), Err(CacheError::Revoked));
+    }
+}

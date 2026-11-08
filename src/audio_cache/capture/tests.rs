@@ -7,7 +7,9 @@ fn pair() -> (Capture, CaptureReader) {
 }
 
 fn http_pair() -> (Capture, CaptureReader) {
-    channel_http(Cancellation(Arc::new(AtomicBool::new(false))))
+    let pair = channel_http(Cancellation(Arc::new(AtomicBool::new(false))));
+    pair.0.confirm_playing();
+    pair
 }
 
 fn http_headers(capture: &Capture, fields: &[(&str, &str)]) {
@@ -51,7 +53,10 @@ fn private_http_metadata_is_available_only_for_the_complete_played_response() {
     );
     assert!(capture.completed_http_policy().is_none());
     buffer(&capture, 0, b"onetwo");
-    assert!(capture.completed_http_policy().is_none());
+    // Exact Content-Length already establishes a completed response; a native
+    // flush/drop before its source EOS must not discard the received bytes.
+    assert!(capture.is_complete());
+    assert!(capture.completed_http_policy().is_some());
     capture.eos();
     let mut bytes = Vec::new();
     reader.read_to_end(&mut bytes).unwrap();
@@ -228,6 +233,213 @@ fn complete_linear_bytes_are_reused_without_another_transport() {
 }
 
 #[test]
+fn one_supported_response_fits_before_writer_start_even_with_small_source_buffers() {
+    let (capture, mut reader) = channel_http(Cancellation(Arc::new(AtomicBool::new(false))));
+    headers(&capture, MAX_AUDIO as usize, None);
+    let bytes = [0x5a; 4096];
+    // The old slot-per-native-buffer queue overflowed long before this finite
+    // body finished. No writer, Playing acknowledgment or source EOS is needed
+    // to receive the full supported response without delaying the producer.
+    for offset in (0..MAX_AUDIO).step_by(bytes.len()) {
+        buffer(&capture, offset, &bytes);
+    }
+    assert_eq!(SLOTS * CHUNK, MAX_AUDIO as usize);
+    assert!(capture.is_complete());
+    assert!(!capture.has_played());
+    assert_eq!(capture.failure(), None);
+    assert!(capture.completed_http_policy().is_none());
+    capture.event(&gst::event::FlushStart::new());
+    capture.interrupt_with(CaptureFailure::PipelineDropped);
+    assert!(capture.is_complete());
+    capture.confirm_playing();
+    let mut total = 0u64;
+    let mut output = [0; 8192];
+    loop {
+        let count = reader.read(&mut output).unwrap();
+        if count == 0 {
+            break;
+        }
+        assert!(output[..count].iter().all(|byte| *byte == 0x5a));
+        total += count as u64;
+    }
+    assert_eq!(total, MAX_AUDIO);
+    assert!(capture.completed_http_policy().is_some());
+    assert_eq!(capture.failure(), None);
+}
+
+#[test]
+fn preroll_writer_drains_complete_bytes_but_waits_for_actual_playing_before_eof() {
+    let (capture, mut reader) = channel_http(Cancellation(Arc::new(AtomicBool::new(false))));
+    http_headers(&capture, &[("ETag", "\"original-v1\"")]);
+    buffer(&capture, 0, b"onetwo");
+    assert!(capture.is_complete());
+    let (drained, body_drained) = mpsc::channel();
+    let (waiting, eof_waiting) = mpsc::channel();
+    let (done, finished) = mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let mut body = [0; 6];
+        reader.read_exact(&mut body).unwrap();
+        drained.send(body).unwrap();
+        let polls = std::cell::Cell::new(0);
+        let result = reader.read_checked(&mut [0; 1], || {
+            polls.set(polls.get() + 1);
+            if polls.get() == 2 {
+                waiting.send(()).unwrap();
+            }
+            true
+        });
+        done.send(result).unwrap();
+    });
+    assert_eq!(
+        body_drained.recv_timeout(Duration::from_secs(2)).unwrap(),
+        *b"onetwo"
+    );
+    // A second predicate poll is an observed blocked EOF state, not a sleep
+    // used to guess which callback happened first.
+    eof_waiting.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert!(matches!(finished.try_recv(), Err(TryRecvError::Empty)));
+    assert!(capture.completed_http_policy().is_none());
+    capture.confirm_playing();
+    assert_eq!(
+        finished
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap()
+            .unwrap(),
+        0
+    );
+    worker.join().unwrap();
+    assert!(capture.completed_http_policy().is_some());
+    assert_eq!(capture.failure(), None);
+}
+
+#[test]
+fn retirement_observer_finishes_a_queued_count_marker_but_never_revives_aborted_input() {
+    let (capture, mut reader) = pair();
+    headers(&capture, 6, None);
+    buffer(&capture, 0, b"onetwo");
+    // Deterministically expose the exact producer instruction boundary:
+    // complete bytes are genuinely queued and received==expected, while the
+    // final RECEIVING→COMPLETE CAS has not yet been observed.
+    capture.0.status.store(RECEIVING, Ordering::Release);
+    capture.interrupt_with(CaptureFailure::PipelineDropped);
+    assert!(capture.is_complete());
+    assert_eq!(capture.failure(), None);
+    let mut bytes = Vec::new();
+    reader.read_to_end(&mut bytes).unwrap();
+    assert_eq!(bytes, b"onetwo");
+
+    // A queued-count observation must never revive a capture with an earlier
+    // failure, even if another producer observation arrives after retirement.
+    let (capture, reader) = pair();
+    headers(&capture, 6, None);
+    capture.interrupt_with(CaptureFailure::Seek);
+    capture.0.received.store(6, Ordering::Release);
+    assert!(!capture.is_complete());
+    assert_eq!(capture.failure(), Some(CaptureFailure::Seek));
+    drop(reader);
+}
+
+#[test]
+fn destructive_cancellation_retires_an_unplayed_complete_writer_waiting_for_eof() {
+    let (capture, mut reader) = channel_http(Cancellation(Arc::new(AtomicBool::new(false))));
+    http_headers(&capture, &[]);
+    buffer(&capture, 0, b"onetwo");
+    let (waiting, ready) = mpsc::channel();
+    let (done, finished) = mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        reader.read_exact(&mut [0; 6]).unwrap();
+        let polls = std::cell::Cell::new(0);
+        let result = reader.read_checked(&mut [0; 1], || {
+            polls.set(polls.get() + 1);
+            if polls.get() == 2 {
+                waiting.send(()).unwrap();
+            }
+            true
+        });
+        done.send(result).unwrap();
+    });
+    ready.recv_timeout(Duration::from_secs(2)).unwrap();
+    capture.0.cancellation.cancel();
+    assert!(
+        finished
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap()
+            .is_err()
+    );
+    worker.join().unwrap();
+    capture.confirm_playing();
+    assert!(capture.completed_http_policy().is_none());
+}
+
+#[test]
+fn repeated_segment_size_updates_are_not_discontinuities_but_remapping_is() {
+    gst::init().unwrap();
+    let (capture, mut reader) = pair();
+    headers(&capture, 6, None);
+    let first = gst::FormattedSegment::<gst::format::Bytes>::new();
+    capture.event(&gst::event::Segment::new(&first));
+    buffer(&capture, 0, b"one");
+    let mut known_size = first.clone();
+    known_size.set_duration(gst::format::Bytes::from_u64(6));
+    known_size.set_stop(gst::format::Bytes::from_u64(6));
+    capture.event(&gst::event::Segment::new(&known_size));
+    buffer(&capture, 3, b"two");
+    capture.event(&gst::event::FlushStart::new());
+    capture.interrupt_with(CaptureFailure::PipelineDropped);
+    assert_eq!(capture.failure(), None);
+    let mut bytes = Vec::new();
+    reader.read_to_end(&mut bytes).unwrap();
+    assert_eq!(bytes, b"onetwo");
+
+    let (capture, mut reader) = pair();
+    headers(&capture, 6, None);
+    capture.event(&gst::event::Segment::new(&first));
+    buffer(&capture, 0, b"one");
+    let mut remapped = first;
+    remapped.set_start(gst::format::Bytes::from_u64(3));
+    capture.event(&gst::event::Segment::new(&remapped));
+    assert!(reader.read_to_end(&mut Vec::new()).is_err());
+    assert_eq!(capture.failure(), Some(CaptureFailure::Segment));
+}
+
+#[test]
+fn first_capture_failure_survives_followup_eos_and_pipeline_drop() {
+    gst::init().unwrap();
+    let seek = gst::event::Seek::new(
+        1.0,
+        gst::SeekFlags::FLUSH,
+        gst::SeekType::Set,
+        gst::format::Bytes::from_u64(1),
+        gst::SeekType::None,
+        gst::format::Bytes::from_u64(0),
+    );
+    for (event, expected) in [
+        (seek, CaptureFailure::Seek),
+        (gst::event::FlushStart::new(), CaptureFailure::Flush),
+    ] {
+        let (capture, mut reader) = pair();
+        headers(&capture, 6, None);
+        buffer(&capture, 0, b"one");
+        capture.event(&event);
+        capture.eos();
+        capture.interrupt_with(CaptureFailure::PipelineDropped);
+        assert!(reader.read_to_end(&mut Vec::new()).is_err());
+        assert_eq!(capture.failure(), Some(expected));
+    }
+    for (offset, expected) in [
+        (u64::MAX, CaptureFailure::OffsetUnknown),
+        (1, CaptureFailure::OffsetMismatch),
+    ] {
+        let (capture, reader) = pair();
+        headers(&capture, 6, None);
+        buffer(&capture, offset, b"one");
+        capture.eos();
+        drop(reader);
+        assert_eq!(capture.failure(), Some(expected));
+    }
+}
+
+#[test]
 fn incomplete_reordered_or_noncontiguous_bytes_never_complete() {
     for offset in [0, 1, 4] {
         let (capture, mut reader) = pair();
@@ -266,13 +478,17 @@ fn redirects_partial_encoded_and_no_store_responses_are_not_copied() {
 
 #[test]
 fn a_slow_writer_or_oversized_resource_abandons_copy_without_blocking_player() {
-    let (capture, mut reader) = pair();
-    headers(&capture, (SLOTS + 1) * CHUNK, None);
+    // Exercise the actual nonblocking overflow branch with a deliberately
+    // smaller test queue, rather than exhausting an unsupported response size.
+    let (capture, mut reader) =
+        create_channel_with_slots(Cancellation(Arc::new(AtomicBool::new(false))), false, 2);
+    headers(&capture, 3 * CHUNK, None);
     let bytes = vec![1; CHUNK];
-    for index in 0..=SLOTS {
+    for index in 0..3 {
         buffer(&capture, (index * CHUNK) as u64, &bytes);
     }
     assert_eq!(capture.0.status.load(Ordering::Acquire), ABORTED);
+    assert_eq!(capture.failure(), Some(CaptureFailure::BufferOverflow));
     assert!(reader.read_to_end(&mut Vec::new()).is_err());
     let (capture, mut reader) = pair();
     headers(&capture, MAX_AUDIO as usize + 1, None);

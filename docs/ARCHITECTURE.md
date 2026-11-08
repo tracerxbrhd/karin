@@ -196,8 +196,8 @@ I/O gate covers initialization and atomic commit, with a live staging marker.
 Scans preserve that marker; Clear fences and unlinks it without waiting for more
 network bytes. Commit retries contention only on the worker, for at most 250 ms,
 with cancellation checks. Retired staging is recovered before quota eviction.
-Per-resource 64 MiB, 1024-record and four-pending bounds remain;
-these safety bounds are independent of the shared user quota.
+Per-resource 64 MiB, 1024-record and four-pending-capture bounds remain, with one
+staging writer; these safety bounds are independent of the shared user quota.
 
 Disk integrity preparation overlaps fresh StreamResolver resolution on bounded
 workers. Only an already-ready candidate is considered; a slow or busy cache
@@ -225,13 +225,27 @@ The shared bridge hands an admitted hit's verified read-only file descriptor to
 the same PlaybackController. A decoder failure before any actual Playing can
 fall back once to its admitted online source in that same worker. A failure after
 Playing remains a normal player error, preserving Wave's actual-playing ledger.
-A bounded source-pad capture reuses that player's compressed HTTP bytes,
-without an extra media GET or second pipeline. Its 2 MiB queue never waits for
-storage: incomplete/partial or non-identity encoded responses, `no-store`,
-discontinuity, seek, cancellation and queue overflow abandon only the cache copy. Complete
-HTTP200 or whole-representation HTTP206 can feed the existing writer after
-actual Playing. The response's bounded HTTP metadata is retained with the
-complete integrity-checked record; credentials, cookies and signed URLs are not.
+A source-pad capture reuses that player's compressed HTTP bytes without an extra
+media GET or second pipeline. Its bounded retention can hold a complete resource
+up to 64 MiB; at most four bodies allocate on arrival, for a worst-case retained
+body bound of 256 MiB. The writer starts draining during preparation, before Playing or
+the next GTK tick. The existing queue2 transport limit remains 2 MiB. Neither
+probe nor GTK waits for storage. Exact HTTP-body receipt marks capture complete
+without waiting for pipeline EOS, and completed bytes survive pipeline drop.
+Actual GStreamer Playing is latched separately and gates publication. A finite
+`captured` progress diagnostic cannot stand in for `write-confirmed`.
+
+A write-specific pin acquired after fresh access can be sealed only for a
+completed, played resource, allowing at most 30 seconds for final hash/metadata/
+atomic commit. Ordinary Next, natural EOS, Wave rollover and the next online
+lookup do not invalidate that finalization merely by changing current playback.
+This pin is not a playback admission and cannot be reused for a later cache hit.
+Partial replacement, seek/discontinuity, overflow and failed capture cancel the
+incomplete copy with a preserved first cause. Explicit Stop, account/logout,
+Clear and Disable cancel or fence writes. Complete HTTP200 or whole-resource
+HTTP206 and valid policy/integrity remain necessary for publication. The
+response's bounded metadata is retained with that record; credentials, cookies
+and signed URLs are not.
 `no-cache` and `must-revalidate` cannot authorize stale reuse: the private path
 requires a new successful online validation before every hit, even if an HTTP
 freshness lifetime has not elapsed. `Content-Encoding: identity` is allowed;

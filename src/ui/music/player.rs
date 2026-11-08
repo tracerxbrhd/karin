@@ -2,6 +2,7 @@
 //! Music transport controls. Provider resolution and native media stay off GTK.
 
 use std::{
+    collections::VecDeque,
     thread,
     time::{Duration, Instant},
 };
@@ -47,8 +48,8 @@ pub(super) struct MusicPlayback {
     volume: f64,
     output: PlaybackOutput,
     cache_fill_running: bool,
-    cache_fill_cancel: Option<crate::audio_cache::Cancellation>,
-    cache_fill_pending: Option<(u64, crate::audio_cache::bridge::Fill)>,
+    cache_fill_cancel: Option<crate::audio_cache::bridge::FillControl>,
+    cache_fill_pending: VecDeque<(u64, crate::audio_cache::bridge::Fill)>,
     #[cfg(test)]
     fixture_resolver: Option<StreamResolver>,
 }
@@ -74,7 +75,7 @@ impl Default for MusicPlayback {
             output: PlaybackOutput::System,
             cache_fill_running: false,
             cache_fill_cancel: None,
-            cache_fill_pending: None,
+            cache_fill_pending: VecDeque::new(),
             #[cfg(test)]
             fixture_resolver: None,
         }
@@ -451,7 +452,15 @@ impl Controller {
             }
             (model.generation, track.id.clone())
         };
-        self.stop_music_engine();
+        let why = if self
+            .music_snapshot()
+            .is_some_and(|snapshot| snapshot.state == PlaybackState::Ended)
+        {
+            crate::audio_cache::bridge::Retirement::Eos
+        } else {
+            crate::audio_cache::bridge::Retirement::Replaced
+        };
+        self.stop_music_engine_for(why);
         self.widgets.status.set_title("Получаем источник аудио…");
         self.widgets.status.set_subtitle("");
         {
@@ -576,12 +585,16 @@ impl Controller {
                             Ok(controller) => {
                                 let mut player = this.player.borrow_mut();
                                 player.controller = Some(controller);
-                                player.cache_fill_pending =
-                                    selection.fill.map(|fill| (intent.serial, fill));
+                                if let Some(fill) = selection.fill {
+                                    player.cache_fill_pending.push_back((intent.serial, fill));
+                                }
                                 player.preparing = Some((intent.autoplay, intent.position));
                                 player.failure = None;
                                 player.ended_handled = false;
                                 drop(player);
+                                // Drain preroll immediately. The native capture gates EOF
+                                // on actual Playing, independently of GTK polling.
+                                this.begin_cache_fill();
                                 if this.widgets.status.title() == "Получаем источник аудио…"
                                 {
                                     this.widgets
@@ -607,15 +620,28 @@ impl Controller {
     }
 
     pub(super) fn stop_music_engine(&self) {
+        let model = self.model.borrow();
+        let why = if model.closed || !model.account_valid {
+            crate::audio_cache::bridge::Retirement::Account
+        } else {
+            crate::audio_cache::bridge::Retirement::Stop
+        };
+        drop(model);
+        self.stop_music_engine_for(why);
+    }
+
+    pub(super) fn stop_music_engine_for(&self, why: crate::audio_cache::bridge::Retirement) {
         let (old, owned_error) = {
             let mut player = self.player.borrow_mut();
             player.serial = player.serial.wrapping_add(1);
-            if let Some(cancellation) = player.cache_fill_cancel.take() {
-                cancellation.cancel();
+            if let Some(control) = &player.cache_fill_cancel {
+                control.retire(why);
             }
-            player.cache_fill_pending = None;
-            // A cancelled admitted copy retains the one running slot until its
-            // bounded worker actually exits. The latest track may wait for it.
+            player
+                .cache_fill_pending
+                .retain(|(_, fill)| fill.control().retire(why));
+            // Complete, actually played input may finish under its own bounded
+            // write ticket. Incomplete input retires; playback never waits for it.
             if let Some(cancellation) = player.cancellation.take() {
                 cancellation.cancel();
             }
@@ -666,7 +692,7 @@ impl Controller {
     #[cfg(test)]
     pub(super) fn cache_work_settled_for_test(&self) -> bool {
         let player = self.player.borrow();
-        !player.resolving && !player.cache_fill_running && player.cache_fill_pending.is_none()
+        !player.resolving && !player.cache_fill_running && player.cache_fill_pending.is_empty()
     }
 
     #[cfg(test)]
@@ -840,10 +866,12 @@ impl Controller {
         if let Some(failure) = failure {
             self.music_failure(failure);
         }
+        // A short completed source may already be Ended at this first poll.
+        // Start its retained writer before automatic queue/Wave replacement.
+        self.begin_cache_fill();
         if ended {
             self.skip_music(true, true);
         }
-        self.begin_cache_fill();
         self.render_music_player();
     }
 
@@ -851,24 +879,15 @@ impl Controller {
         if self.model.borrow().closed || !self.model.borrow().account_valid {
             return;
         }
-        let Some(snapshot) = self.music_snapshot() else {
-            return;
-        };
-        if snapshot.state != PlaybackState::Playing || snapshot.playing_time.is_zero() {
-            return;
-        }
         let fill = {
             let mut player = self.player.borrow_mut();
             if player.cache_fill_running {
                 return;
             }
-            let Some((serial, fill)) = player.cache_fill_pending.take() else {
+            let Some((_serial, fill)) = player.cache_fill_pending.pop_front() else {
                 return;
             };
-            if serial != player.serial {
-                return;
-            }
-            player.cache_fill_cancel = Some(fill.cancellation());
+            player.cache_fill_cancel = Some(fill.control());
             player.cache_fill_running = true;
             fill
         };
@@ -919,14 +938,22 @@ impl Controller {
                 .is_some_and(|id| model.queue.current().is_none_or(|track| &track.id != id))
         };
         if mismatched {
+            let why = if self
+                .music_snapshot()
+                .is_some_and(|snapshot| snapshot.state == PlaybackState::Ended)
+            {
+                crate::audio_cache::bridge::Retirement::Eos
+            } else {
+                crate::audio_cache::bridge::Retirement::Replaced
+            };
             if !self.is_wave_queue() {
                 // A natural ordinary EOS is older than a pending Wave start.
                 // Explicit ordinary actions cancel that pending intent in
                 // their own handlers; binding repair only retires the engine.
-                self.stop_music_engine();
+                self.stop_music_engine_for(why);
             } else if self.wave_current_allowed() {
                 self.observe_wave_snapshot(self.music_snapshot().as_ref());
-                self.stop_music_engine();
+                self.stop_music_engine_for(why);
             } else {
                 self.stop_music();
             }
@@ -1016,7 +1043,7 @@ impl Controller {
         }
         self.render_queue();
         if active && removed_current {
-            self.stop_music_engine();
+            self.stop_music_engine_for(crate::audio_cache::bridge::Retirement::Replaced);
             if self
                 .model
                 .borrow()

@@ -574,7 +574,7 @@ impl Drop for ActivePipeline {
         // Native calls stay on the playback worker, including stop/replacement,
         // decoder error, EOS and application shutdown.
         if let Some(capture) = &self.cache_capture {
-            capture.interrupt();
+            capture.interrupt_with(crate::audio_cache::capture::CaptureFailure::PipelineDropped);
         }
         let _ = self.element.set_state(gst::State::Null);
     }
@@ -937,7 +937,7 @@ impl Worker {
         self.account_playing(false);
         let pipeline = self.pipeline.as_ref().ok_or(PlaybackError::InvalidState)?;
         if let Some(capture) = &pipeline.cache_capture {
-            capture.interrupt();
+            capture.interrupt_with(crate::audio_cache::capture::CaptureFailure::Seek);
         }
         pipeline
             .element
@@ -973,6 +973,16 @@ impl Worker {
                     break;
                 };
                 match message.view() {
+                    gst::MessageView::StateChanged(state)
+                        if state.current() == gst::State::Playing
+                            && message.src().is_some_and(|source| {
+                                source == pipeline.element.upcast_ref::<gst::Object>()
+                            }) =>
+                    {
+                        if let Some(capture) = &pipeline.cache_capture {
+                            capture.confirm_playing();
+                        }
+                    }
                     gst::MessageView::Error(error) => {
                         failure = Some(
                             if pipeline
@@ -1076,6 +1086,9 @@ impl Worker {
         let playing = snapshot.state == PlaybackState::Playing
             && result.is_ok()
             && current == gst::State::Playing;
+        if playing && let Some(capture) = &pipeline.cache_capture {
+            capture.confirm_playing();
+        }
         let cached_playing = playing && snapshot.source_kind == PlaybackSourceKind::CachedFile;
         drop(snapshot);
         if cached_playing && self.playing.since.is_none() && self.playing.total.is_zero() {

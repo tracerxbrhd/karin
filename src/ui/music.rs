@@ -1747,7 +1747,7 @@ impl Controller {
         self.begin_forget_session();
         self.set_info_open(false);
         self.dismiss_logout_confirmation();
-        self.stop_music();
+        self.stop_music_engine_for(crate::audio_cache::bridge::Retirement::Account);
         self.clear_system_media();
         self.mutation_busy.set(false);
         self.detail_like_controls.borrow_mut().clear();

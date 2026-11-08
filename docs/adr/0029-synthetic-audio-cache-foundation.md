@@ -16,6 +16,11 @@ provider-contract rejection. Playback access, HTTP storage eligibility, retained
 representation validation and explicit content restrictions are separate checks.
 Local HTTP admission does not assert a provider entitlement or legal license.
 
+Capture-lifecycle extension: drain during preparation and gate publication on
+latched actual Playing. Exact full-body receipt, rather than pipeline EOS, seals
+capture completion. A short write-only finalization admission is distinct from
+the current-playback admission.
+
 ## Scope and evidence
 
 The first candidate at `0ce9ea0` compiled its store only under `cfg(test)`. That
@@ -72,8 +77,9 @@ Use `$XDG_CACHE_HOME/<app-id>/audio`, separate from metadata/artwork, with priva
 0700 directories/0600 files, SHA-256 integrity and atomic publication of complete
 records. Hashes are integrity/opaque-name mechanisms, not encryption. The one
 shared user budget and six choices follow ADR-0030, with 2 GiB by default. Hard
-bounds are 1024 records, 64 MiB per resource and four pending requests. Bounded
-staging counts against that shared budget; only complete records are published.
+bounds are 1024 records, 64 MiB per resource, four pending captures and one
+staging writer. Bounded staging counts against that shared budget; only complete
+records are published.
 I/O belongs on workers. Clear, logout/account changes and cancellation fence pending writes
 before cleanup. Incomplete/corrupt entries are not hits. Independent namespace
 owners cannot create conflicting generations; stale requests/hits must not regain
@@ -89,14 +95,16 @@ busy cache leaves that play online. Reuse additionally requires a bounded HTTP
 version check against the currently admitted source, with no full audio GET.
 File-descriptor wrapping and final admission are memory-only, while LRU work is
 deferred. Start the selection's opaque check before network resolution. Failure,
-cancellation or replacement retires that admission; an older completion cannot
-replace a newer account/request/policy generation, including a return to the same
-account. This local freshness fence does not grant legal rights, delete a
+cancellation or replacement retires that playback admission; an older completion
+cannot replace a newer account/request/policy generation, including a return to
+the same account. A completed write has the separate bounded finalization rule
+below. This local freshness fence does not grant legal rights, delete a
 valid payload or invalidate the file descriptor of already admitted playback.
 Only a policy-admitted hit supplies the verified read-only file descriptor to
 the single PlaybackController. Playback uses that pinned file, not a path reopened
-after validation. A cache miss retains the existing remote source; an admitted
-write starts only after the actual Playing acknowledgment. A decoder failure
+after validation. A cache miss retains the existing remote source. The writer
+starts draining during preparation; publication requires latched actual Playing
+and a complete valid body. A decoder failure
 before any actual Playing gets one guarded fallback to the already admitted
 online source, preserving pending transport intent in the same worker. After
 actual Playing, a failure remains the normal player error; there is no seamless
@@ -105,9 +113,11 @@ audio engine or repeated resolution loop.
 
 A policy-admitted fill captures the existing guarded `souphttpsrc`
 compressed bytes without changing buffers/events, starting another request or
-creating another GStreamer pipeline. Its nonblocking 2 MiB memory queue abandons
-the cache copy on overflow instead of delaying audio. The existing writer starts
-only after actual Playing. HTTP headers must establish `audio/mpeg`, a bounded
+creating another GStreamer pipeline. Bounded retention can hold a whole resource
+up to 64 MiB; four pending captures cap retained compressed bodies at 256 MiB,
+allocated on arrival, and the existing single writer bounds staging work. Probe
+callbacks never wait for disk. The writer drains before Playing,
+while the actual GStreamer Playing latch gates publication. HTTP headers must establish `audio/mpeg`, a bounded
 complete length and either HTTP200 or HTTP206 covering exactly `0..total-1`.
 `no-store`, non-identity encoding, partial ranges, seek/discontinuity, incomplete
 transfer, network failure and cancellation prevent publication while leaving the online
@@ -116,6 +126,22 @@ validators, opaque URI identity and the measured payload SHA-256/length alongsid
 atomic publication. No OAuth token, cookie or signed URL is persisted or forwarded
 to the media host. A separately licensed record must also match its independent
 exact-content claim.
+
+Exact complete HTTP-body receipt keeps the completed capture readable in bounded
+memory independently of downstream/pipeline EOS. Source teardown must preserve
+completed bytes for the reader. An incomplete capture still fails on replacement,
+seek/flush/segment discontinuity, overflow or premature transport completion,
+preserving its first finite cause.
+
+After fresh source admission, a completed and played resource may seal a
+write-specific pin for at most 30 seconds of finalization. Hashing, metadata and
+atomic commit can finish across ordinary Next, EOS, Wave rollover or the next
+online check. These transitions do not themselves revoke access to the completed
+response. Explicit Stop, account change/logout, Clear and Disable still cancel
+or fence writes. A seal is neither a permanent entitlement nor permission to
+play saved bytes: every hit retains the current strict access/version checks.
+Diagnostics distinguish full `captured` progress from atomic `write-confirmed`,
+and preserve a finite first failure reason through subsequent teardown.
 
 `no-cache` and `must-revalidate` never authorize stale replay: every local play
 requires new successful online access and version validation. Same track ID or

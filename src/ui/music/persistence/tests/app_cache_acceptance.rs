@@ -358,11 +358,15 @@ fn write_response(stream: &mut TcpStream, content_type: &str, body: &[u8]) {
 }
 
 fn permitted_audio(directory: &Path, frequency: f64) -> Vec<u8> {
+    encode_audio(directory, frequency, 600)
+}
+
+fn encode_audio(directory: &Path, frequency: f64, buffers: i32) -> Vec<u8> {
     gst::init().unwrap();
     let path = directory.join("original-cc0.mp3");
     let pipeline = gst::Pipeline::new();
     let source = gst::ElementFactory::make("audiotestsrc")
-        .property("num-buffers", 600_i32)
+        .property("num-buffers", buffers)
         .property("samplesperbuffer", 441_i32)
         .property("freq", frequency)
         .property("volume", 0.01_f64)
@@ -481,6 +485,7 @@ fn run_phase(input: &Path, phase: &str, directory: &Path) -> PhaseReport {
         assert!(matches!(
             fields[0],
             "cache=miss"
+                | "cache=captured"
                 | "cache=write-confirmed"
                 | "cache=hit"
                 | "cache=stale"
@@ -492,7 +497,7 @@ fn run_phase(input: &Path, phase: &str, directory: &Path) -> PhaseReport {
         assert!(
             reason
                 .bytes()
-                .all(|byte| byte.is_ascii_lowercase() || byte == b'-')
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
         );
     }
     serde_json::from_slice(&fs::read(directory.join(format!("{phase}.json"))).unwrap()).unwrap()
@@ -505,6 +510,10 @@ fn native_audio_cache_application_process_restart() {
         let input: Input =
             serde_json::from_slice(&fs::read(std::env::var_os(INPUT_ENV).unwrap()).unwrap())
                 .unwrap();
+        if phase.starts_with("lifecycle-") {
+            lifecycle::run_child(&input, &phase);
+            return;
+        }
         application_child(&input, &phase);
         return;
     }
@@ -731,6 +740,7 @@ fn native_audio_cache_application_process_restart() {
         "Karin cache application: policy=private-http media-get-count={} media-bytes={} restart=local refusal=blocked corruption=online-repair changed=online-update no-store=retired get-no-store=retired restore=saved clear=playing no-validator=online-only",
         final_counts.media_gets, final_counts.media_bytes
     );
+    lifecycle::run_parent();
 }
 
 fn source_name(kind: PlaybackSourceKind) -> &'static str {
@@ -1161,3 +1171,5 @@ fn assert_original_file(path: &Path, input: &Input) {
     assert_eq!(bytes.len() as u64, input.bytes);
     assert_eq!(digest(&SHA256, &bytes).as_ref(), input.sha256);
 }
+
+mod lifecycle;

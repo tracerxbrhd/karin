@@ -807,7 +807,12 @@ rediscover a gate that remains closed.
 
 ## PR26 private HTTP integration — 2026-11-08
 
-The ordinary application now selects `PrivateHttpCachePolicy` rather than the
+The following integration/fixture record describes
+[`f8a85b8`](https://github.com/tracerxbrhd/karin/commit/f8a85b8775b8176f008023e500c8888c2e293c52),
+before the owner's Fedora failure and the lifecycle correction below. Its
+automated results are not live Music acceptance.
+
+At that head the ordinary application selects `PrivateHttpCachePolicy` rather than the
 blanket missing-provider-contract gate. Its typed candidate is not a provider
 entitlement or copyright license: direct ordinary writes/reads cannot bypass
 HTTP response checks and current representation validation. Playback access,
@@ -845,11 +850,79 @@ head does not validate new runtime code. The one final owner procedure is
 `cache`, `source` and `reason` diagnostics, without sharing user credentials,
 identifiers, signed URLs, response bodies or music files.
 
-**Real Yandex Music service compatibility is unverified in Cloud.** The working
-production path is enabled for eligible responses, but actual CDN validators
-and audible local reuse need the final owner run. Public-distribution/content
-questions remain separate in #5/#22. Installed Flatpak and Fedora acceptance are
-not inferred from fixtures, source preparation or Xvfb. PR #26 remains Draft.
+**Cloud did not verify the real service. The later owner result was FAIL**, as
+recorded below. Public-distribution/content questions remain separate in #5/#22.
+Installed Flatpak and Fedora acceptance are not inferred from fixtures, source
+preparation or Xvfb. PR #26 remains Draft.
+
+## PR26 completed-capture lifecycle correction
+
+### Owner evidence at f8a85b8
+
+The owner built `f8a85b8775b8176f008023e500c8888c2e293c52` on Fedora 44,
+KDE Plasma, Wayland and PipeWire with Rust 1.98.1. Ordinary sign-in and audible
+Music worked. Real Liked and My Wave playback repeatedly reported:
+
+```text
+cache=miss source=remote reason=record-absent
+cache=not-cacheable source=remote reason=cancelled
+```
+
+No `write-confirmed` or `hit source=local` was observed. This is **service-cache
+FAIL**, irrespective of the earlier 8/8 CI result. The generic cancellation pair
+does not identify the first rejected event, body size, Playing transition,
+pipeline drop or writer/commit ordering on that machine. The exact Fedora event
+must not be inferred from a local fixture or described as an HTTP/storage refusal
+without the corresponding evidence.
+
+### Revised lifecycle contract
+
+Code inspection identified independently actionable cancellation paths: the
+writer waited for a GTK-observed positive Playing clock while the source could
+fill its 2 MiB channel; full byte receipt still depended on an EOS event for
+completion; normal track teardown could cancel pending publication; and the
+next online check retired a previous `current` admission still used by the
+writer. The new contract separates those events:
+
+- Drain during preparation, before Playing. Latch actual GStreamer Playing
+  separately and require it before publication. Never publish an unplayed body.
+- Complete capture at the exact validated HTTP byte count, without waiting for
+  pipeline EOS. Keep complete queued bytes readable after source teardown.
+- Bound retained media to 64 MiB per capture, four pending captures and one
+  staging writer. Allocation follows incoming bytes, with a worst-case retained
+  body bound of 256 MiB; the GStreamer queue2 transport limit remains 2 MiB.
+- A completed, played write can seal its own admission for at most 30 seconds of
+  finalization. Natural EOS, automatic Next, Wave rollover or a new online check
+  do not revoke that finalization merely by replacing the current track. This
+  does not admit any later playback without fresh access/version checks.
+- Partial replacement, seek/discontinuity, overflow and failed capture cannot
+  publish. Explicit Stop, account/logout, Clear and Disable still cancel/fence
+  writes. Capture, actual Playing, final hash/metadata and atomic commit remain
+  distinct gates; HTTP no-store and validator rules are unchanged.
+- Preserve the first finite failure cause. `cache=captured` reports full-body
+  progress, including allowed EOS/replacement finalization, rather than a saved
+  record. Only `cache=write-confirmed` reports successful publication.
+
+These are lifecycle defects identified in the code and correction invariants,
+not a claim that the owner's ambiguous `cancelled` line proves one particular race.
+
+### Verification and remaining service acceptance
+
+The final source must exercise these races through the ordinary application and
+single player: full capture through automatic Next/EOS and a paused atomic
+commit, fast source before Playing with a delayed writer, partial Skip/Seek,
+consecutive Wave tracks, admission replacement, Clear/logout and fresh
+refusal/changed-resource checks. Gates/barriers must establish event order;
+passing a static local MP3 test cannot establish these races or live CDN behavior.
+
+Final-head compiler, native, packaging and CI results remain to be recorded from
+their actual executions at [PR #26 checks](https://github.com/tracerxbrhd/karin/pull/26/checks).
+No unexecuted regression is marked PASS here. **No post-correction Fedora or
+installed-Flatpak result has been reported.** After the Cloud work is complete,
+the [single final Native/Flatpak procedure](BUILDING.md#pr-26-corrected-cache-acceptance)
+checks real first save, EOS/Next/Wave continuity, local replay/restart and partial
+cancellation using fixed categories only. No IDs, URLs, headers, accounts,
+tokens or music files are requested.
 
 ## Known unresolved checks
 

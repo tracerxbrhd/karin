@@ -137,10 +137,14 @@ legal license, Offline Mode or permission to distribute content. See
 
 ## PR #26 corrected-cache acceptance
 
-**The real service has not been verified for this revision.** After the final
-Cloud checks, perform this single sequence on the exact PR HEAD in Native and
-installed Flatpak. Local HTTP fixtures establish application behavior; only this
-local service check can establish what a real CDN resource supports.
+The owner reported **FAIL at `f8a85b8`** on Fedora: normal sign-in and audible
+Music worked, but Liked and Wave repeatedly produced `record-absent` followed by
+`cancelled`, with no confirmed write or local hit. Those categories did not
+identify the originating callback. The lifecycle correction needs one final
+service check after its Cloud validation; no new Fedora PASS is implied.
+Perform the same sequence on the exact final PR HEAD in Native and installed
+Flatpak. Local fixtures cannot establish the next real CDN response or desktop
+event ordering.
 
 Build Native as described above:
 
@@ -148,7 +152,7 @@ Build Native as described above:
 cargo +1.98.1 build --release --locked --no-default-features --features cassette-auth
 ulimit -c 0
 KARIN_AUDIO_CACHE_DIAGNOSTICS=1 ./target/release/karin 2>&1 |
-  grep --line-buffered -E '^cache=(miss|write-confirmed|hit|stale|not-cacheable) source=(local|remote) reason=[a-z0-9-]+$'
+  grep --line-buffered -E '^cache=(miss|captured|write-confirmed|hit|stale|not-cacheable) source=(local|remote) reason=[a-z0-9-]+$'
 ```
 
 Build/install the same source with the Flatpak instructions below, then run:
@@ -156,7 +160,7 @@ Build/install the same source with the Flatpak instructions below, then run:
 ```sh
 ulimit -c 0
 flatpak run --env=KARIN_AUDIO_CACHE_DIAGNOSTICS=1 io.github.tracerxbrhd.Karin 2>&1 |
-  grep --line-buffered -E '^cache=(miss|write-confirmed|hit|stale|not-cacheable) source=(local|remote) reason=[a-z0-9-]+$'
+  grep --line-buffered -E '^cache=(miss|captured|write-confirmed|hit|stale|not-cacheable) source=(local|remote) reason=[a-z0-9-]+$'
 ```
 
 The opt-in diagnostic reports only fixed `cache`, `source` and `reason`
@@ -164,12 +168,23 @@ categories. It does not enable HTTP, WebKit or GStreamer tracing. Keep those
 traces off; do not share URLs, tokens, IDs, HTTP bodies, music files or personal
 screenshots. No developer credentials or altered client identity are required.
 
-1. Use ordinary sign-in or protected restoration. Keep caching enabled and choose
-   one ordinary track you can play. Confirm audible sound and normal
-   Pause/Resume/Seek. First playback should select `source=remote`; eligible
-   complete responses can produce `cache=write-confirmed` without a second full
-   media download. Wait for that confirmation before checking a replay.
-2. Select the same track again. A verified saved representation must report
+`cache=captured source=remote reason=capture-complete` means the full HTTP body
+was retained; it is **not** a published record or a local hit. The finite
+`natural-eos-finalizing` and `track-replaced-finalizing` reasons can describe
+allowed completion after a track transition. Only `cache=write-confirmed`
+confirms publication. Stop, incomplete replacement, seek/flush/discontinuity,
+overflow, headers, admission/finalization and atomic-commit failures have
+separate fixed reasons; keep the earliest reported cause. Do not replace a
+failure with success merely because capture completed.
+
+1. Use ordinary sign-in or protected restoration with caching enabled. Play an
+   ordinary Liked track through its natural end and automatic Next; repeat with
+   a few successive Wave tracks. Sound, queue and radio controls must continue.
+   For eligible complete, played responses, `captured` may precede EOS/Next and
+   `write-confirmed` may follow the transition. Ordinary replacement must not
+   systematically destroy completed writes. Wait for `write-confirmed` before
+   testing reuse; do not infer it from `captured` or increased usage alone.
+2. Select one of those same tracks again. A verified saved representation must report
    `cache=hit source=local`; hearing audio alone or seeing larger total usage is
    insufficient proof. If the resource reports `stale` or `not-cacheable`, retain
    only its fixed reason: the app must continue permitted online playback without
@@ -178,12 +193,14 @@ screenshots. No developer credentials or altered client identity are required.
    and play that track again. Protected sign-in and fresh access/version checks
    must precede any local hit. A renewed signature alone must neither prove a new
    audio version nor authorize reuse without a valid resource binding/validator.
-4. While audio is playing, use Preferences → **Очистить кеш**. Existing playback
-   and sign-in must remain active; later play starts from a cache miss. Check
-   all six limit choices, one measured total, persisted choice and any reported
-   Retry. Exercise Next/Previous, queue, Wave and media keys/MPRIS briefly.
+4. Separately skip a still-partial transfer and seek during capture: these must
+   not publish an incomplete/corrupt record. While audio is playing, use
+   Preferences → **Очистить кеш**. Existing playback and sign-in must remain
+   active; later play starts from a miss. Check the six limits, persisted choice
+   and Retry; briefly exercise Pause/Resume, Previous and media keys/MPRIS.
 5. Report the exact revision, Native/installed-Flatpak installation and the fixed
-   category lines with PASS/FAIL/not-assessed for save, replay, restart and Clear.
+   category lines with PASS/FAIL/not-assessed for EOS/Next/Wave save, replay,
+   restart, partial skip/seek and Clear.
    A CDN without a safe validator is an explicit per-resource limitation, not a
    confirmed cache hit. Do not weaken checks or send private data to diagnose it.
 

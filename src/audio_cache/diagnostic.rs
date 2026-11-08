@@ -8,6 +8,7 @@ pub(crate) enum Event {
     Hit,
     Stale,
     NotCacheable,
+    Captured,
 }
 
 #[derive(Clone, Copy)]
@@ -20,6 +21,21 @@ pub(crate) enum Cause {
     WriteFailed,
     AccessUnavailable,
     Decode,
+    CaptureComplete,
+    Capture(super::capture::CaptureFailure),
+    UserStop,
+    TrackReplaced,
+    NaturalEos,
+    TrackFinalizing,
+    EosFinalizing,
+    AccountChanged,
+    CacheCleared,
+    CacheDisabled,
+    PolicyChanged,
+    AdmissionRevoked,
+    FinalizationCancelled,
+    AtomicCommitFailed,
+    PlaybackAccessExpired,
     Policy(super::http_policy::Reason),
 }
 impl Cause {
@@ -33,6 +49,21 @@ impl Cause {
             Self::WriteFailed => "cache-write-failed",
             Self::AccessUnavailable => "playback-access-unavailable",
             Self::Decode => "cache-decode-failed",
+            Self::CaptureComplete => "capture-complete",
+            Self::Capture(reason) => reason.as_str(),
+            Self::UserStop => "user-stop",
+            Self::TrackReplaced => "track-replaced-incomplete",
+            Self::NaturalEos => "natural-eos-incomplete",
+            Self::TrackFinalizing => "track-replaced-finalizing",
+            Self::EosFinalizing => "natural-eos-finalizing",
+            Self::AccountChanged => "account-changed",
+            Self::CacheCleared => "cache-cleared",
+            Self::CacheDisabled => "cache-disabled",
+            Self::PolicyChanged => "cache-policy-changed",
+            Self::AdmissionRevoked => "admission-revoked",
+            Self::FinalizationCancelled => "finalization-cancelled",
+            Self::AtomicCommitFailed => "atomic-commit-failed",
+            Self::PlaybackAccessExpired => "playback-access-expired",
             Self::Policy(reason) => reason.as_str(),
         }
     }
@@ -50,6 +81,7 @@ pub(crate) fn report(event: Event, reason: Cause) {
         Event::Hit => "hit",
         Event::Stale => "stale",
         Event::NotCacheable => "not-cacheable",
+        Event::Captured => "captured",
     };
     let source = if matches!(event, Event::Hit) {
         "local"

@@ -4,12 +4,13 @@
 //! This is transport only. Independently licensed content and ordinary private
 //! HTTP caching have separate admission policies. Neither changes the playback
 //! data or creates another request, GStreamer engine or temporary spool. The
-//! existing cache writer consumes this reader only after actual Playing.
+//! writer can drain during preroll; EOF/publication remains gated on actual
+//! Playing. Neither producer callbacks nor GTK wait for that gate.
 
 use std::{
     io::{self, Read},
     sync::{
-        Arc, OnceLock,
+        Arc, Mutex, OnceLock,
         atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
         mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError},
     },
@@ -28,20 +29,85 @@ const RECEIVING: u8 = 1;
 const COMPLETE: u8 = 2;
 const ABORTED: u8 = 3;
 const CHUNK: usize = 16 * 1024;
-const SLOTS: usize = 128; // At most 2 MiB of queued preroll/copy data.
 const MAX_AUDIO: u64 = 64 * 1024 * 1024;
+// A finite supported response must fit while the writer is being scheduled or
+// doing disk initialization. Coalescing below makes this a byte bound even when
+// souphttpsrc emits tiny buffers. Slots do not preallocate the audio bodies.
+const SLOTS: usize = MAX_AUDIO as usize / CHUNK;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CaptureFailure {
+    Cancelled,
+    AdmissionRetired,
+    SourceAttachment,
+    Headers,
+    HeadersMissing,
+    RepeatedHeaders,
+    BufferOverflow,
+    ReaderGone,
+    ReaderDropped,
+    OffsetUnknown,
+    OffsetMismatch,
+    LengthMismatch,
+    Discontinuity,
+    BufferMapping,
+    ConcurrentInput,
+    IncompleteEos,
+    Seek,
+    Flush,
+    Segment,
+    PipelineDropped,
+    #[cfg(test)]
+    Interrupted,
+}
+impl CaptureFailure {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Cancelled => "capture-cancelled",
+            Self::AdmissionRetired => "capture-admission-retired",
+            Self::SourceAttachment => "capture-source-unsupported",
+            Self::Headers => "capture-headers-unsupported",
+            Self::HeadersMissing => "capture-headers-missing",
+            Self::RepeatedHeaders => "capture-headers-repeated",
+            Self::BufferOverflow => "capture-buffer-overflow",
+            Self::ReaderGone => "capture-reader-gone",
+            Self::ReaderDropped => "capture-reader-dropped",
+            Self::OffsetUnknown => "capture-offset-unknown",
+            Self::OffsetMismatch => "capture-offset-mismatch",
+            Self::LengthMismatch => "capture-length-mismatch",
+            Self::Discontinuity => "capture-discontinuity",
+            Self::BufferMapping => "capture-buffer-map-failed",
+            Self::ConcurrentInput => "capture-concurrent-input",
+            Self::IncompleteEos => "capture-incomplete-eos",
+            Self::Seek => "capture-seek",
+            Self::Flush => "capture-flush",
+            Self::Segment => "capture-segment-discontinuity",
+            Self::PipelineDropped => "capture-pipeline-dropped",
+            #[cfg(test)]
+            Self::Interrupted => "capture-interrupted",
+        }
+    }
+}
+
+struct Producer {
+    pending: Vec<u8>,
+    segment: Option<gst::Segment>,
+}
 
 struct Shared {
     status: AtomicU8,
     expected: AtomicU64,
     received: AtomicU64,
     attached: AtomicBool,
-    segment_seen: AtomicBool,
+    producer: Mutex<Producer>,
     sender: SyncSender<Vec<u8>>,
     cancellation: Cancellation,
     private_http: bool,
     http_policy: OnceLock<ResponsePolicy>,
     http_rejection: OnceLock<Reason>,
+    failure: OnceLock<CaptureFailure>,
+    playing_required: AtomicBool,
+    played: AtomicBool,
 }
 
 #[derive(Clone)]
@@ -65,18 +131,32 @@ pub(crate) fn channel_http(cancellation: Cancellation) -> (Capture, CaptureReade
 }
 
 fn create_channel(cancellation: Cancellation, private_http: bool) -> (Capture, CaptureReader) {
-    let (sender, receiver) = mpsc::sync_channel(SLOTS);
+    create_channel_with_slots(cancellation, private_http, SLOTS)
+}
+
+fn create_channel_with_slots(
+    cancellation: Cancellation,
+    private_http: bool,
+    slots: usize,
+) -> (Capture, CaptureReader) {
+    let (sender, receiver) = mpsc::sync_channel(slots);
     let capture = Capture(Arc::new(Shared {
         status: AtomicU8::new(WAITING),
         expected: AtomicU64::new(0),
         received: AtomicU64::new(0),
         attached: AtomicBool::new(false),
-        segment_seen: AtomicBool::new(false),
+        producer: Mutex::new(Producer {
+            pending: Vec::with_capacity(CHUNK),
+            segment: None,
+        }),
         sender,
         cancellation,
         private_http,
         http_policy: OnceLock::new(),
         http_rejection: OnceLock::new(),
+        failure: OnceLock::new(),
+        playing_required: AtomicBool::new(private_http),
+        played: AtomicBool::new(false),
     }));
     let reader = CaptureReader {
         capture: capture.clone(),
@@ -88,11 +168,58 @@ fn create_channel(cancellation: Cancellation, private_http: bool) -> (Capture, C
 }
 
 impl Capture {
+    /// Body completion is separate from playback and write publication. It is
+    /// established as soon as exactly the complete declared response is queued,
+    /// before a later EOS, Flush or pipeline destruction can retire the source.
+    pub(crate) fn is_complete(&self) -> bool {
+        if self.0.status.load(Ordering::Acquire) == RECEIVING {
+            let expected = self.0.expected.load(Ordering::Acquire);
+            if expected > 0 && self.0.received.load(Ordering::Acquire) == expected {
+                // The count is released only after every final chunk has been
+                // queued. A source-retirement observer can finish this marker
+                // if it runs between that store and the producer's final CAS.
+                // An already aborted capture is deliberately never revived.
+                let _ = self.0.status.compare_exchange(
+                    RECEIVING,
+                    COMPLETE,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                );
+            }
+        }
+        self.0.status.load(Ordering::Acquire) == COMPLETE
+    }
+
+    pub(crate) fn has_played(&self) -> bool {
+        self.0.played.load(Ordering::Acquire)
+    }
+
+    /// Call before preparation for any bridge-owned capture. The independent
+    /// store tests retain their ungated channel; ordinary HTTP is gated by
+    /// default. This never waits for the native player or the writer.
+    pub(crate) fn require_playing(&self) {
+        self.0.playing_required.store(true, Ordering::Release);
+    }
+
+    pub(crate) fn confirm_playing(&self) {
+        self.0.played.store(true, Ordering::Release);
+    }
+
+    fn publication_ready(&self) -> bool {
+        !self.0.playing_required.load(Ordering::Acquire) || self.has_played()
+    }
+
+    pub(crate) fn failure(&self) -> Option<CaptureFailure> {
+        (self.0.status.load(Ordering::Acquire) == ABORTED)
+            .then(|| self.0.failure.get().copied())
+            .flatten()
+    }
+
     /// Only exact completed input can supply persistence metadata. The cache
     /// writer calls this after consuming EOF and verifying payload length/hash,
     /// before publishing its media/metadata transaction.
     pub(crate) fn completed_http_policy(&self) -> Option<ResponsePolicy> {
-        if self.0.status.load(Ordering::Acquire) != COMPLETE || self.0.cancellation.is_cancelled() {
+        if !self.is_complete() || !self.publication_ready() || self.0.cancellation.is_cancelled() {
             return None;
         }
         self.0.http_policy.get().cloned()
@@ -113,11 +240,11 @@ impl Capture {
                 .factory()
                 .is_some_and(|factory| factory.name() == "souphttpsrc")
         {
-            self.interrupt();
+            self.interrupt_with(CaptureFailure::SourceAttachment);
             return;
         }
         let Some(pad) = source.static_pad("src") else {
-            self.interrupt();
+            self.interrupt_with(CaptureFailure::SourceAttachment);
             return;
         };
         let capture = self.clone();
@@ -135,36 +262,66 @@ impl Capture {
                         capture.buffer(buffer);
                     }
                 } else if let Some(event) = info.event() {
-                    match event.view() {
-                        gst::EventView::CustomDownstreamSticky(event)
-                            if event
-                                .structure()
-                                .is_some_and(|s| s.name() == "http-headers") =>
-                        {
-                            if let Some(headers) = event.structure() {
-                                capture.headers(headers);
-                            }
-                        }
-                        gst::EventView::Segment(_) => {
-                            if capture.0.segment_seen.swap(true, Ordering::AcqRel) {
-                                capture.interrupt();
-                            }
-                        }
-                        gst::EventView::Seek(_)
-                        | gst::EventView::FlushStart(_)
-                        | gst::EventView::FlushStop(_) => capture.interrupt(),
-                        gst::EventView::Eos(_) => capture.eos(),
-                        _ => {}
-                    }
+                    capture.event(event);
                 }
                 gst::PadProbeReturn::Ok
             },
         );
     }
 
+    fn event(&self, event: &gst::EventRef) {
+        match event.view() {
+            gst::EventView::CustomDownstreamSticky(event)
+                if event
+                    .structure()
+                    .is_some_and(|s| s.name() == "http-headers") =>
+            {
+                if let Some(headers) = event.structure() {
+                    self.headers(headers);
+                }
+            }
+            gst::EventView::Segment(event) => self.segment(event.segment()),
+            gst::EventView::Seek(_) => self.interrupt_with(CaptureFailure::Seek),
+            gst::EventView::FlushStart(_) | gst::EventView::FlushStop(_) => {
+                self.interrupt_with(CaptureFailure::Flush)
+            }
+            gst::EventView::Eos(_) => self.eos(),
+            _ => {}
+        }
+    }
+
+    fn segment(&self, segment: &gst::Segment) {
+        if self.is_complete() {
+            return;
+        }
+        // A repeated source segment can update its known stop/duration without
+        // changing the byte mapping. Preserve that benign update; actual seek,
+        // flush, remapping and non-contiguous buffer offsets remain forbidden.
+        let Ok(mut producer) = self.0.producer.try_lock() else {
+            self.interrupt_with(CaptureFailure::ConcurrentInput);
+            return;
+        };
+        if segment.format() != gst::Format::Bytes
+            || producer.segment.as_ref().is_some_and(|first| {
+                first.format() != segment.format()
+                    || first.flags() != segment.flags()
+                    || first.rate().to_bits() != segment.rate().to_bits()
+                    || first.applied_rate().to_bits() != segment.applied_rate().to_bits()
+                    || first.base() != segment.base()
+                    || first.offset() != segment.offset()
+                    || first.start() != segment.start()
+                    || first.time() != segment.time()
+            })
+        {
+            self.interrupt_with(CaptureFailure::Segment);
+            return;
+        }
+        producer.segment = Some(segment.clone());
+    }
+
     fn headers(&self, structure: &gst::StructureRef) {
         if self.0.status.load(Ordering::Acquire) != WAITING {
-            self.interrupt();
+            self.interrupt_with(CaptureFailure::RepeatedHeaders);
             return;
         }
         let accepted = (|| {
@@ -239,7 +396,7 @@ impl Capture {
             if self.0.private_http {
                 let _ = self.0.http_rejection.set(Reason::HeadersInvalid);
             }
-            self.interrupt();
+            self.interrupt_with(CaptureFailure::Headers);
             return;
         };
         self.0.expected.store(length, Ordering::Release);
@@ -249,7 +406,7 @@ impl Capture {
             .compare_exchange(WAITING, RECEIVING, Ordering::AcqRel, Ordering::Acquire)
             .is_err()
         {
-            self.interrupt();
+            self.interrupt_with(CaptureFailure::RepeatedHeaders);
         }
     }
 
@@ -348,63 +505,134 @@ impl Capture {
 
     fn buffer(&self, buffer: &gst::BufferRef) {
         if self.0.cancellation.is_cancelled() {
-            self.interrupt();
+            self.interrupt_with(CaptureFailure::Cancelled);
             return;
         }
-        if self.0.status.load(Ordering::Acquire) != RECEIVING {
+        let status = self.0.status.load(Ordering::Acquire);
+        if status != RECEIVING {
+            if status == WAITING {
+                self.interrupt_with(CaptureFailure::HeadersMissing);
+            }
             return;
         }
-        let received = self.0.received.load(Ordering::Acquire);
-        let expected = self.0.expected.load(Ordering::Acquire);
-        if buffer.offset() != received
-            || (received > 0 && buffer.flags().contains(gst::BufferFlags::DISCONT))
-            || received
-                .checked_add(buffer.size() as u64)
-                .is_none_or(|next| next > expected)
-        {
-            self.interrupt();
-            return;
-        }
-        let Ok(bytes) = buffer.map_readable() else {
-            self.interrupt();
+        // Source pads serialize data/events. Use only a nonwaiting guard so an
+        // unexpected concurrent input cannot block GStreamer or corrupt the
+        // chunk accumulator. Readers and GTK never acquire this guard.
+        let Ok(mut producer) = self.0.producer.try_lock() else {
+            self.interrupt_with(CaptureFailure::ConcurrentInput);
             return;
         };
-        for bytes in bytes.as_slice().chunks(CHUNK) {
-            match self.0.sender.try_send(bytes.to_vec()) {
-                Ok(()) => {}
-                Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {
-                    self.interrupt();
+        let received = self.0.received.load(Ordering::Acquire);
+        let expected = self.0.expected.load(Ordering::Acquire);
+        if buffer.offset() == u64::MAX {
+            self.interrupt_with(CaptureFailure::OffsetUnknown);
+            return;
+        }
+        if buffer.offset() != received {
+            self.interrupt_with(CaptureFailure::OffsetMismatch);
+            return;
+        }
+        if received > 0 && buffer.flags().contains(gst::BufferFlags::DISCONT) {
+            self.interrupt_with(CaptureFailure::Discontinuity);
+            return;
+        }
+        let Some(next) = received
+            .checked_add(buffer.size() as u64)
+            .filter(|next| *next <= expected)
+        else {
+            self.interrupt_with(CaptureFailure::LengthMismatch);
+            return;
+        };
+        let Ok(bytes) = buffer.map_readable() else {
+            self.interrupt_with(CaptureFailure::BufferMapping);
+            return;
+        };
+        let mut bytes = bytes.as_slice();
+        while !bytes.is_empty() {
+            if self.0.cancellation.is_cancelled() {
+                self.interrupt_with(CaptureFailure::Cancelled);
+                return;
+            }
+            if self.0.status.load(Ordering::Acquire) != RECEIVING {
+                return;
+            }
+            let count = bytes.len().min(CHUNK - producer.pending.len());
+            producer.pending.extend_from_slice(&bytes[..count]);
+            bytes = &bytes[count..];
+            if producer.pending.len() == CHUNK {
+                let chunk = std::mem::replace(&mut producer.pending, Vec::with_capacity(CHUNK));
+                if !self.queue_chunk(chunk) {
                     return;
                 }
             }
         }
-        self.0
-            .received
-            .store(received + buffer.size() as u64, Ordering::Release);
+        if next == expected && !producer.pending.is_empty() {
+            let chunk = std::mem::replace(&mut producer.pending, Vec::with_capacity(CHUNK));
+            if !self.queue_chunk(chunk) {
+                return;
+            }
+        }
+        self.0.received.store(next, Ordering::Release);
+        if next == expected {
+            self.complete();
+        }
+    }
+
+    fn queue_chunk(&self, bytes: Vec<u8>) -> bool {
+        match self.0.sender.try_send(bytes) {
+            Ok(()) => true,
+            Err(TrySendError::Full(_)) => {
+                self.interrupt_with(CaptureFailure::BufferOverflow);
+                false
+            }
+            Err(TrySendError::Disconnected(_)) => {
+                self.interrupt_with(CaptureFailure::ReaderGone);
+                false
+            }
+        }
+    }
+
+    fn complete(&self) {
+        if self.0.cancellation.is_cancelled() {
+            self.interrupt_with(CaptureFailure::Cancelled);
+            return;
+        }
+        let _ = self.0.status.compare_exchange(
+            RECEIVING,
+            COMPLETE,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
     }
 
     fn eos(&self) {
+        if self.is_complete() {
+            return;
+        }
         if self.0.status.load(Ordering::Acquire) == RECEIVING
             && self.0.received.load(Ordering::Acquire) == self.0.expected.load(Ordering::Acquire)
-            && !self.0.cancellation.is_cancelled()
         {
-            let _ = self.0.status.compare_exchange(
-                RECEIVING,
-                COMPLETE,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            );
+            self.complete();
         } else {
-            self.interrupt();
+            self.interrupt_with(CaptureFailure::IncompleteEos);
         }
     }
 
     /// Seeking, a failed source, shutdown or an incomplete pipeline can never
     /// publish a partial record. Once the complete resource has arrived, later
     /// player seeks need not invalidate those already received exact bytes.
+    #[cfg(test)]
     pub(crate) fn interrupt(&self) {
+        self.interrupt_with(CaptureFailure::Interrupted);
+    }
+
+    pub(crate) fn interrupt_with(&self, failure: CaptureFailure) {
         let mut status = self.0.status.load(Ordering::Acquire);
         while status != COMPLETE && status != ABORTED {
+            if self.is_complete() {
+                return;
+            }
+            let _ = self.0.failure.set(failure);
             match self.0.status.compare_exchange_weak(
                 status,
                 ABORTED,
@@ -443,9 +671,11 @@ fn whole_range(value: &str, length: u64) -> bool {
 
 impl CaptureReader {
     fn check(&self) -> io::Result<()> {
-        if self.capture.0.cancellation.is_cancelled()
-            || self.capture.0.status.load(Ordering::Acquire) == ABORTED
-        {
+        if self.capture.0.cancellation.is_cancelled() {
+            self.capture.interrupt_with(CaptureFailure::Cancelled);
+            return Err(io::Error::other("Audio cache capture was retired"));
+        }
+        if self.capture.0.status.load(Ordering::Acquire) == ABORTED {
             Err(io::Error::other("Audio cache capture was retired"))
         } else {
             Ok(())
@@ -468,6 +698,8 @@ impl CaptureReader {
         loop {
             self.check()?;
             if !current() {
+                self.capture
+                    .interrupt_with(CaptureFailure::AdmissionRetired);
                 return Err(io::Error::other("Audio cache capture lease was retired"));
             }
             if self.position < self.current.len() {
@@ -487,14 +719,19 @@ impl CaptureReader {
                 Err(TryRecvError::Empty)
                     if self.capture.0.status.load(Ordering::Acquire) == COMPLETE =>
                 {
-                    // EOS may have raced the first empty observation. Once
-                    // Complete is acquired, no producer can enqueue more data.
+                    // The final byte may have raced the empty observation.
+                    // Complete means the entire body is already queued; EOF
+                    // additionally waits for the actual Playing gate.
                     match self.receiver.try_recv() {
                         Ok(bytes) => {
                             self.current = bytes;
                             continue;
                         }
-                        Err(TryRecvError::Empty | TryRecvError::Disconnected) => return Ok(0),
+                        Err(TryRecvError::Empty | TryRecvError::Disconnected) => {
+                            if self.capture.publication_ready() {
+                                return Ok(0);
+                            }
+                        }
                     }
                 }
                 Err(TryRecvError::Disconnected) => {
@@ -521,7 +758,7 @@ impl Read for CaptureReader {
 
 impl Drop for CaptureReader {
     fn drop(&mut self) {
-        self.capture.interrupt();
+        self.capture.interrupt_with(CaptureFailure::ReaderDropped);
     }
 }
 

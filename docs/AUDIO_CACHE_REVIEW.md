@@ -136,15 +136,35 @@ and clears `temp-template`; it rejects downloadbuffer and manifest paths.
 confirms that a temporary-file template would instead spool the stream
 independently of these memory limits.
 
-For a policy-admitted resource, a source-pad probe copies the existing
-player's compressed bytes into a bounded **2 MiB** memory channel. This is
-separate from queue2's limit and creates no disk spool or additional media GET.
-Callbacks pass buffers/events unchanged and abandon caching on overflow rather
-than block playback. The existing writer starts only after actual Playing and
-publishes only a complete HTTP-eligible representation. A complete HTTP200 response,
-or HTTP206 covering exactly bytes `0..total-1`, is eligible; partial ranges,
-non-identity encoding, `no-store`, seek/discontinuity, cancellation and network
-failure leave online playback available without publishing an incomplete cache file.
+For a policy-admitted resource, a source-pad probe copies the existing player's
+compressed bytes into a bounded channel. The writer starts draining at playback
+preparation, before Playing, so fast network/preroll data does not wait for a GTK
+tick or a positive playback clock. The capture can retain at most one complete
+**64 MiB** resource; at most four pending captures and one staging writer are
+admitted. Bodies allocate on arrival, with a worst-case retained-body bound of
+256 MiB across the four captures. This is separate from queue2's unchanged
+limit, and creates no second
+media GET or second player. Probe callbacks never wait for storage.
+
+Capture completion means the exact HTTP body length has arrived with valid
+sequence/policy checks; it does not wait for downstream or pipeline EOS. A
+completed capture remains readable after the source pipeline is dropped. Actual
+GStreamer Playing is latched separately and is still required before publication:
+early draining is not permission to publish an unplayed or incomplete response.
+HTTP200 or HTTP206 covering exactly bytes `0..total-1` can qualify. Incomplete
+transfer, non-identity encoding, `no-store`, invalid byte sequence, premature
+seek/flush/segment changes and overflow reject only the cache copy. The first
+finite failure cause is retained instead of being overwritten by teardown.
+The opt-in `captured` diagnostic denotes body completion, not publication;
+`write-confirmed` remains a separate atomic-publication result.
+
+A completed, played resource can seal its write-specific finalization admission
+for at most **30 seconds** to finish hashing, metadata and atomic publication.
+Normal Next, natural EOS, Wave continuation and a new online lookup do not revoke
+that sealed write merely by replacing the playing track. Partial captures are
+cancelled on replacement. Explicit Stop, account/logout, Clear and Disable still
+cancel or fence pending writes immediately. The finalization pin cannot admit a
+cache hit: every later play must obtain fresh access and version validation.
 
 Disk integrity work overlaps StreamResolver's fresh access check. Selection
 consumes only an already-ready candidate; a slow or busy cache leaves that play

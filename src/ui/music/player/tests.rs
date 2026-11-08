@@ -1059,7 +1059,11 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
             .is_some_and(|snapshot| snapshot.state == PlaybackState::Ready)
             && this.player.borrow().preparing.is_none()
     });
-    assert!(this.player.borrow().cache_fill_pending.is_some());
+    assert!(
+        this.player.borrow().cache_fill_running,
+        "preroll must drain before actual Playing"
+    );
+    pump_until(|| cache.stats().is_ok_and(|stats| stats.entries == 0));
     assert_eq!(fixture.counts.lock().unwrap().cache_reads[0], 0);
     assert_eq!(cache.stats().unwrap().entries, 0);
     this.widgets.play.emit_clicked();
@@ -1100,7 +1104,7 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
     assert_eq!(fixture.counts.lock().unwrap().cache_reads[0], 0);
     assert!(
         !this.player.borrow().cache_fill_running
-            && this.player.borrow().cache_fill_pending.is_none()
+            && this.player.borrow().cache_fill_pending.is_empty()
     );
     this.pause_music();
     pump_until(|| {
@@ -1228,7 +1232,7 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
     assert_eq!(cache.stats().unwrap().entries, 1);
     assert!(
         !this.player.borrow().cache_fill_running
-            && this.player.borrow().cache_fill_pending.is_none()
+            && this.player.borrow().cache_fill_pending.is_empty()
     );
 
     // Hold the actual playback transfer after its preroll prefix. GTK timers,

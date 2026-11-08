@@ -172,6 +172,16 @@ impl PreparedSelection {
 
     pub(crate) fn retire_record(&mut self) -> Result<()> {
         self.cache.lease_current(&self.lease)?;
+        self.cache
+            .0
+            .authority
+            .check_storage_prepared(&self.prepared)?;
+        // Fence already-complete older writes before any contended disk work.
+        self.cache.revoke_resource_writes(
+            &self.lease,
+            self.prepared.permission.identity,
+            self.prepared.check.sequence,
+        );
         let _io = self.cache.io()?;
         self.cache.lease_current(&self.lease)?;
         self.cache

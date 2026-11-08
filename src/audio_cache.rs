@@ -19,7 +19,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex, MutexGuard, Weak,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
     },
     time::{Duration, Instant, UNIX_EPOCH},
 };
@@ -161,6 +161,24 @@ impl fmt::Debug for StorageGrant {
 pub trait StorageAuthority: Send + Sync {
     fn authorize(&self, identity: &ResourceIdentity) -> Result<StorageGrant>;
     fn check(&self, grant: &StorageGrant) -> Result<()>;
+    /// A bounded, request-owned write operation, separate from admission of a
+    /// new playback. Only a complete, actually played capture can be sealed.
+    #[doc(hidden)]
+    fn retain_write(&self, grant: &StorageGrant) -> Result<()> {
+        self.check(grant)
+    }
+    #[doc(hidden)]
+    fn seal_write(&self, grant: &StorageGrant) -> Result<()> {
+        self.check(grant)
+    }
+    #[doc(hidden)]
+    fn check_write(&self, grant: &StorageGrant) -> Result<()> {
+        self.check(grant)
+    }
+    #[doc(hidden)]
+    fn release_write(&self, _: &StorageGrant) {}
+    #[doc(hidden)]
+    fn revoke_writes(&self, _: &ResourceIdentity, _: u64) {}
     /// Whether callers must validate actual HTTP response/reuse policy. This
     /// flag does not grant a provider content license or permission to play.
     fn private_http(&self) -> bool {
@@ -312,6 +330,7 @@ struct State {
     pending: BTreeMap<Key, Arc<()>>,
     sequence: u64,
     active_stage: Option<PathBuf>,
+    retirement: diagnostic::Cause,
 }
 struct Inner {
     sandbox: Arc<Sandbox>,
@@ -328,6 +347,8 @@ struct Inner {
     admission_nonce: Key,
     lookup_running: Arc<AtomicBool>,
     shared: Option<Arc<crate::cache_budget::CacheBudget>>,
+    #[cfg(test)]
+    commit_gate: Mutex<Option<(ResourceKey, Arc<CommitGate>)>>,
 }
 impl Drop for Inner {
     fn drop(&mut self) {
@@ -360,6 +381,49 @@ pub struct Request {
     permit: StorageGrant,
     nonce: Arc<()>,
     cancel: Arc<AtomicBool>,
+    write: Option<Arc<WriteOperation>>,
+}
+struct WriteOperation {
+    capture: capture::Capture,
+    sealed: AtomicBool,
+    phase: AtomicU8,
+    current: Arc<dyn Fn() -> bool + Send + Sync>,
+}
+/// Deterministic test-only ordering at the completed-body/publication boundary.
+#[cfg(test)]
+pub(crate) struct CommitGate {
+    entered: AtomicBool,
+    released: Mutex<bool>,
+    changed: std::sync::Condvar,
+}
+#[cfg(test)]
+impl CommitGate {
+    pub(crate) fn entered(&self) -> bool {
+        self.entered.load(Ordering::Acquire)
+    }
+    pub(crate) fn release(&self) {
+        *self.released.lock().unwrap() = true;
+        self.changed.notify_all();
+    }
+    fn wait(&self) -> Result<()> {
+        self.entered.store(true, Ordering::Release);
+        let deadline = Instant::now() + Duration::from_secs(25);
+        let mut released = self.released.lock().map_err(|_| CacheError::Unavailable)?;
+        while !*released {
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .ok_or(CacheError::Busy)?;
+            let (next, timeout) = self
+                .changed
+                .wait_timeout(released, remaining)
+                .map_err(|_| CacheError::Unavailable)?;
+            released = next;
+            if timeout.timed_out() && !*released {
+                return Err(CacheError::Busy);
+            }
+        }
+        Ok(())
+    }
 }
 #[derive(Clone)]
 pub struct Cancellation(Arc<AtomicBool>);
@@ -381,8 +445,13 @@ impl Request {
 }
 impl Drop for Request {
     fn drop(&mut self) {
-        if let Some(inner) = self.lease.owner.upgrade()
-            && let Ok(mut state) = inner.state.lock()
+        let Some(inner) = self.lease.owner.upgrade() else {
+            return;
+        };
+        if self.write.is_some() {
+            inner.authority.release_write(&self.permit);
+        }
+        if let Ok(mut state) = inner.state.lock()
             && state
                 .pending
                 .get(&self.permit.identity.key())
@@ -464,6 +533,35 @@ impl Drop for PartialRecord {
 }
 
 impl AudioCache {
+    #[cfg(test)]
+    pub(crate) fn set_commit_gate_for_test(&self, key: ResourceKey) -> Arc<CommitGate> {
+        let gate = Arc::new(CommitGate {
+            entered: AtomicBool::new(false),
+            released: Mutex::new(false),
+            changed: std::sync::Condvar::new(),
+        });
+        *self.0.commit_gate.lock().unwrap() = Some((key, gate.clone()));
+        gate
+    }
+    #[cfg(test)]
+    fn wait_commit_gate_for_test(&self, key: ResourceKey) -> Result<()> {
+        let gate = {
+            let mut slot = self
+                .0
+                .commit_gate
+                .lock()
+                .map_err(|_| CacheError::Unavailable)?;
+            if slot.as_ref().is_some_and(|(target, _)| *target == key) {
+                slot.take().map(|(_, gate)| gate)
+            } else {
+                None
+            }
+        };
+        if let Some(gate) = gate {
+            gate.wait()?;
+        }
+        Ok(())
+    }
     pub fn open(
         path: PathBuf,
         authority: Arc<dyn StorageAuthority>,
@@ -538,6 +636,7 @@ impl AudioCache {
                 pending: BTreeMap::new(),
                 sequence: 0,
                 active_stage: None,
+                retirement: diagnostic::Cause::PolicyChanged,
             }),
             io: Mutex::new(()),
             writer: Mutex::new(()),
@@ -546,6 +645,8 @@ impl AudioCache {
             admission_nonce,
             lookup_running: Arc::new(AtomicBool::new(false)),
             shared,
+            #[cfg(test)]
+            commit_gate: Mutex::new(None),
         }));
         {
             let _io = cache.io()?;
@@ -564,6 +665,7 @@ impl AudioCache {
         let mut state = self.0.state.lock().map_err(|_| CacheError::Unavailable)?;
         state.generation = state.generation.checked_add(1).ok_or(CacheError::Limit)?;
         state.account = account;
+        state.retirement = diagnostic::Cause::AccountChanged;
         state.pending.clear();
         Ok(account.map(|account| Lease {
             owner: Arc::downgrade(&self.0),
@@ -636,6 +738,7 @@ impl AudioCache {
         let mut state = self.0.state.lock().map_err(|_| CacheError::Unavailable)?;
         state.generation = state.generation.checked_add(1).ok_or(CacheError::Limit)?;
         state.clearing = true;
+        state.retirement = diagnostic::Cause::CacheCleared;
         state.pending.clear();
         Ok(())
     }
@@ -647,6 +750,7 @@ impl AudioCache {
         }
         state.generation = state.generation.checked_add(1).ok_or(CacheError::Limit)?;
         state.pending.clear();
+        state.retirement = diagnostic::Cause::PolicyChanged;
         self.0.budget.store(policy.max_bytes, Ordering::Release);
         // A budget change cannot clear a failed/in-flight cleanup fence.
         Ok(())
@@ -731,6 +835,7 @@ impl AudioCache {
             permit,
             nonce,
             cancel: Arc::new(AtomicBool::new(false)),
+            write: None,
         })
     }
     pub(crate) fn check_request(&self, request: &Request) -> Result<()> {
@@ -740,7 +845,84 @@ impl AudioCache {
         if request.cancel.load(Ordering::Acquire) {
             return Err(CacheError::Cancelled);
         }
-        self.check(&request.lease, request.permit)
+        self.check_write_operation(&request.lease, request.permit, request.write.as_deref())
+    }
+    fn retain_capture(
+        &self,
+        request: &mut Request,
+        capture: capture::Capture,
+        current: impl Fn() -> bool + Send + Sync + 'static,
+    ) -> Result<()> {
+        self.request_current(request)?;
+        self.0.authority.retain_write(&request.permit)?;
+        request.write = Some(Arc::new(WriteOperation {
+            capture,
+            sealed: AtomicBool::new(false),
+            phase: AtomicU8::new(0),
+            current: Arc::new(current),
+        }));
+        Ok(())
+    }
+    fn check_write_operation(
+        &self,
+        lease: &Lease,
+        permit: StorageGrant,
+        write: Option<&WriteOperation>,
+    ) -> Result<()> {
+        self.lease_current(lease)?;
+        if permit.identity != self.identity(lease, permit.identity.track)? {
+            return Err(CacheError::Cancelled);
+        }
+        let Some(write) = write else {
+            return self.0.authority.check(&permit);
+        };
+        if !(write.current)() {
+            return Err(CacheError::Cancelled);
+        }
+        if !write.sealed.load(Ordering::Acquire)
+            && write.capture.is_complete()
+            && write.capture.has_played()
+        {
+            self.0.authority.seal_write(&permit)?;
+            write.sealed.store(true, Ordering::Release);
+        }
+        self.0.authority.check_write(&permit)
+    }
+    fn revoke_resource_writes(&self, lease: &Lease, identity: ResourceIdentity, sequence: u64) {
+        if self.lease_current(lease).is_ok()
+            && self.identity(lease, identity.track).ok() == Some(identity)
+        {
+            self.0.authority.revoke_writes(&identity, sequence);
+        }
+    }
+    fn retired_lease_cause(&self, lease: &Lease) -> Option<diagnostic::Cause> {
+        let state = self.0.state.lock().ok()?;
+        if state.account != Some(lease.account) {
+            return Some(diagnostic::Cause::AccountChanged);
+        }
+        if self
+            .0
+            .shared
+            .as_ref()
+            .is_some_and(|budget| !budget.enabled())
+        {
+            return Some(diagnostic::Cause::CacheDisabled);
+        }
+        if state.clearing {
+            return Some(diagnostic::Cause::CacheCleared);
+        }
+        if state.generation != lease.generation {
+            return Some(state.retirement);
+        }
+        if self
+            .0
+            .shared
+            .as_ref()
+            .is_some_and(|budget| budget.generation() != lease.budget_generation)
+        {
+            return Some(diagnostic::Cause::PolicyChanged);
+        }
+        None
     }
     pub fn put_reader(&self, request: Request, reader: impl Read) -> Result<()> {
         self.put_reader_before_commit(request, reader, || Ok(()))
@@ -793,7 +975,10 @@ impl AudioCache {
         };
         let key = request.permit.identity.key();
         let (temporary, reservation, output) = {
-            let _io = self.io()?;
+            // Stats/LRU/Clear use this short gate too. A transient observer
+            // must not discard a valid capture; retry only on this worker,
+            // with the same bounded deadline and cancellation as publication.
+            let _io = self.commit_io(&request)?;
             self.request_current(&request)?;
             let reservation = self
                 .0
@@ -885,8 +1070,17 @@ impl AudioCache {
             if length == 0 {
                 return Err(CacheError::InvalidInput);
             }
+            if let Some(write) = &request.write {
+                write.phase.store(1, Ordering::Release);
+                diagnostic::report(
+                    diagnostic::Event::Captured,
+                    diagnostic::Cause::CaptureComplete,
+                );
+            }
             output.sync_all().map_err(|_| CacheError::Unavailable)?;
         }
+        #[cfg(test)]
+        self.wait_commit_gate_for_test(request.permit.identity.track)?;
         let _io = self.commit_io(&request)?;
         let measured_digest = content.finish();
         if request
@@ -940,6 +1134,9 @@ impl AudioCache {
         let entries = self.scan_except(Some(&temporary))?;
         self.evict(entries, record_bytes, Some(key))?;
         let path = self.path(key);
+        if let Some(write) = &request.write {
+            write.phase.store(2, Ordering::Release);
+        }
         fs::rename(&temporary, &path).map_err(|_| CacheError::Unavailable)?;
         sync_dir(&self.0.sandbox.path)?;
         if let Err(error) = self.request_current(&request) {
@@ -1039,6 +1236,7 @@ impl AudioCache {
             let mut state = self.0.state.lock().map_err(|_| CacheError::Unavailable)?;
             state.generation = state.generation.checked_add(1).ok_or(CacheError::Limit)?;
             state.clearing = true;
+            state.retirement = diagnostic::Cause::CacheCleared;
             state.pending.clear();
             (state.generation, state.active_stage.clone())
         };
