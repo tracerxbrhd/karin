@@ -273,6 +273,7 @@ impl PlaybackSource {
 pub struct RemotePlaybackSource {
     uri: Zeroizing<String>,
     expires_at: Instant,
+    http_resource: Option<Arc<[u8; 32]>>,
     #[cfg(test)]
     ca_file: Option<PathBuf>,
 }
@@ -327,6 +328,7 @@ impl RemotePlaybackSource {
         Ok(Self {
             uri: Zeroizing::new(uri.to_owned()),
             expires_at,
+            http_resource: None,
             #[cfg(test)]
             ca_file: None,
         })
@@ -334,6 +336,59 @@ impl RemotePlaybackSource {
 
     pub fn is_expired(&self) -> bool {
         Instant::now() >= self.expires_at
+    }
+
+    /// Opaque exact-request binding for a private HTTP cache record. A renewed
+    /// signed address intentionally has a different binding; this is not an
+    /// assertion that the underlying audio has changed.
+    pub(crate) fn http_cache_uri_hash(&self) -> [u8; 32] {
+        let mut context = ring::digest::Context::new(&ring::digest::SHA256);
+        context.update(b"Karin private HTTP media request v1\0");
+        context.update(self.uri.as_bytes());
+        let mut result = [0; 32];
+        result.copy_from_slice(context.finish().as_ref());
+        result
+    }
+
+    /// The descriptor's validated MP3 file locator and encoding are distinct
+    /// from its transient signed request address. This binding never proves
+    /// immutability: every local hit additionally needs a fresh strong validator
+    /// and full representation length, or a matching full representation digest.
+    pub(crate) fn http_cache_resource_hash(&self) -> [u8; 32] {
+        self.http_resource
+            .as_deref()
+            .copied()
+            .unwrap_or_else(|| self.http_cache_uri_hash())
+    }
+
+    pub(crate) fn with_http_cache_resource(
+        mut self,
+        identity: crate::stream::HttpResourceIdentity,
+    ) -> Self {
+        self.http_resource = Some(Arc::new(identity.hash()));
+        self
+    }
+
+    /// The existing resolver is the sole source of this sealed address. The
+    /// cache transport still rechecks its narrow HTTPS/host/path/deadline policy
+    /// before a metadata-only request; no caller-supplied URL is accepted.
+    pub(crate) fn http_cache_probe_url(&self) -> Result<Url, PlaybackError> {
+        if self.is_expired() {
+            return Err(PlaybackError::SourceExpired);
+        }
+        let url = checked_remote_url(self.uri.as_str())?;
+        let permitted = url.scheme() == "https"
+            && url.port_or_known_default() == Some(443)
+            && url.host_str().is_some_and(permitted_media_host);
+        #[cfg(test)]
+        let permitted = permitted
+            || (url.scheme() == "http"
+                && matches!(url.host_str(), Some("127.0.0.1" | "[::1]"))
+                && url.port().is_some_and(|port| port != 0));
+        if !permitted {
+            return Err(PlaybackError::SourcePolicy);
+        }
+        Ok(url)
     }
 
     #[cfg(test)]
@@ -1021,7 +1076,14 @@ impl Worker {
         let playing = snapshot.state == PlaybackState::Playing
             && result.is_ok()
             && current == gst::State::Playing;
+        let cached_playing = playing && snapshot.source_kind == PlaybackSourceKind::CachedFile;
         drop(snapshot);
+        if cached_playing && self.playing.since.is_none() && self.playing.total.is_zero() {
+            crate::audio_cache::diagnostic::report(
+                crate::audio_cache::diagnostic::Event::Hit,
+                crate::audio_cache::diagnostic::Cause::Validated,
+            );
+        }
         self.account_playing(playing);
     }
 
@@ -1047,6 +1109,10 @@ impl Worker {
                 .as_ref()
                 .map_or(PlaybackState::Ready, |pending| pending.result);
             self.source = Some(PlaybackSource::remote(fallback));
+            crate::audio_cache::diagnostic::report(
+                crate::audio_cache::diagnostic::Event::Stale,
+                crate::audio_cache::diagnostic::Cause::Decode,
+            );
             match self.start_pipeline(desired) {
                 Ok(()) => return,
                 Err(failure) => error = failure,

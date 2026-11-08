@@ -6,7 +6,7 @@ use super::*;
 use crate::{
     audio_cache::{
         AudioCache, CacheError as AudioError, CachePolicy as AudioPolicy, Lease as AudioLease,
-        MissingStorageContract, OnlineStreamAuthority, Stats as AudioStats, StorageAuthority,
+        OnlineStreamAuthority, PrivateHttpCachePolicy, Stats as AudioStats, StorageAuthority,
     },
     cache::{AccountScope, Cache, CachePolicy, CacheStats},
     cache_budget::CacheBudget,
@@ -206,7 +206,7 @@ impl State {
             cache_message: None,
             audio_root: enabled.then_some(audio_root),
             audio_cache: None,
-            audio_permission: Arc::new(MissingStorageContract),
+            audio_permission: Arc::new(PrivateHttpCachePolicy),
             audio_cache_stats: None,
             audio_purge_pending: false,
             audio_purge_generation: 0,

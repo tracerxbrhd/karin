@@ -201,7 +201,7 @@ impl PreferencesView {
 
         let storage = adw::PreferencesGroup::builder()
             .title("Кеширование")
-            .description("Загруженные данные и обложки. Сохранение музыки пока недоступно.")
+            .description("Данные, обложки и аудио, допускаемое правилами HTTP-кеша. Доступ к музыке проверяется перед повторным воспроизведением.")
             .build();
         let cache_enabled = adw::SwitchRow::builder()
             .title("Использовать кеш")

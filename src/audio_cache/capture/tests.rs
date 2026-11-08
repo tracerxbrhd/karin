@@ -5,6 +5,193 @@ use std::sync::atomic::AtomicBool;
 fn pair() -> (Capture, CaptureReader) {
     channel(Cancellation(Arc::new(AtomicBool::new(false))))
 }
+
+fn http_pair() -> (Capture, CaptureReader) {
+    channel_http(Cancellation(Arc::new(AtomicBool::new(false))))
+}
+
+fn http_headers(capture: &Capture, fields: &[(&str, &str)]) {
+    gst::init().unwrap();
+    let mut response = gst::Structure::builder("response-headers")
+        .field("Content-Type", "audio/mpeg")
+        .field("Content-Length", "6")
+        .build();
+    for (name, value) in fields {
+        response.set(*name, *value);
+    }
+    capture.headers(
+        &gst::Structure::builder("http-headers")
+            .field("http-status-code", 200u32)
+            .field(
+                "uri",
+                "https://example.invalid/private?token=synthetic-uri-secret",
+            )
+            .field(
+                "request-headers",
+                gst::Structure::builder("request-headers")
+                    .field("Authorization", "synthetic-auth-secret")
+                    .field("Cookie", "synthetic-cookie-secret")
+                    .build(),
+            )
+            .field("response-headers", response)
+            .build(),
+    );
+}
+
+#[test]
+fn private_http_metadata_is_available_only_for_the_complete_played_response() {
+    let (capture, mut reader) = http_pair();
+    http_headers(
+        &capture,
+        &[
+            ("ETag", "\"original-v1\""),
+            ("Cache-Control", "private, no-cache, must-revalidate"),
+            ("Set-Cookie", "synthetic-set-cookie-secret"),
+        ],
+    );
+    assert!(capture.completed_http_policy().is_none());
+    buffer(&capture, 0, b"onetwo");
+    assert!(capture.completed_http_policy().is_none());
+    capture.eos();
+    let mut bytes = Vec::new();
+    reader.read_to_end(&mut bytes).unwrap();
+    assert_eq!(bytes, b"onetwo");
+    let policy = capture.completed_http_policy().unwrap();
+    assert_eq!(policy.complete_mp3().unwrap(), 6);
+    let text = format!("{policy:?}");
+    for forbidden in [
+        "synthetic-uri-secret",
+        "synthetic-auth-secret",
+        "synthetic-cookie-secret",
+        "synthetic-set-cookie-secret",
+        "original-v1",
+    ] {
+        assert!(!text.contains(forbidden));
+    }
+    // A completed source can be released without discarding its proof. Clear
+    // and account retirement use the independent cancellation fence instead.
+    capture.interrupt();
+    assert!(capture.completed_http_policy().is_some());
+    capture.0.cancellation.cancel();
+    assert!(capture.completed_http_policy().is_none());
+}
+
+#[test]
+fn private_http_refusals_retire_only_the_optional_capture() {
+    for fields in [
+        vec![("Cache-Control", "private, no-store")],
+        vec![("Vary", "Cookie")],
+        vec![("content-length", "6")],
+        vec![("Cache-Control", "max-age=not-a-number")],
+    ] {
+        let (capture, mut reader) = http_pair();
+        http_headers(&capture, &fields);
+        buffer(&capture, 0, b"onetwo");
+        capture.eos();
+        assert!(reader.read_to_end(&mut Vec::new()).is_err());
+        assert!(capture.completed_http_policy().is_none());
+        assert!(capture.http_rejection().is_some());
+        // No request or pipeline handle is owned by the capture. Its failure
+        // state cannot stop the player or rewrite buffers/events.
+        assert_eq!(capture.0.status.load(Ordering::Acquire), ABORTED);
+    }
+}
+
+#[test]
+fn private_http_complete_storage_and_future_reuse_are_distinct_decisions() {
+    let (capture, mut reader) = http_pair();
+    http_headers(&capture, &[("ETag", "\"original-v1\"")]);
+    buffer(&capture, 0, b"one");
+    capture.eos();
+    assert!(reader.read_to_end(&mut Vec::new()).is_err());
+    assert!(capture.completed_http_policy().is_none());
+
+    // Complete cacheable bytes can be retained without a validator. A later
+    // fresh response may provide Repr-Digest, but these bytes alone never prove
+    // that the next authorized source is unchanged.
+    let (capture, mut reader) = http_pair();
+    http_headers(&capture, &[]);
+    buffer(&capture, 0, b"onetwo");
+    capture.eos();
+    reader.read_to_end(&mut Vec::new()).unwrap();
+    let policy = capture.completed_http_policy().unwrap();
+    let stored = policy.record([1; 32], [2; 32], [3; 32], 6).unwrap();
+    assert_eq!(
+        policy.revalidate(&stored, [1; 32], [2; 32]),
+        Err(Reason::ValidatorsMissing)
+    );
+}
+
+#[test]
+fn native_duplicate_response_header_containers_preserve_policy_and_bounds() {
+    gst::init().unwrap();
+    for use_list in [false, true] {
+        for no_store in [false, true] {
+            let (capture, mut reader) = http_pair();
+            let controls = [
+                "private",
+                "must-revalidate",
+                if no_store { "no-store" } else { "no-cache" },
+            ];
+            let controls = if use_list {
+                gst::glib::SendValue::from_owned(gst::List::new(controls))
+            } else {
+                gst::glib::SendValue::from_owned(gst::Array::new(controls))
+            };
+            let mut response = gst::Structure::builder("response-headers")
+                .field("Content-Type", "audio/mpeg")
+                .field("Content-Length", "6")
+                .field("ETag", "\"original-v1\"")
+                .field("Vary", gst::Array::new(["Accept-Encoding"]))
+                .build();
+            response.set_value("Cache-Control", controls);
+            capture.headers(
+                &gst::Structure::builder("http-headers")
+                    .field("http-status-code", 200u32)
+                    .field("response-headers", response)
+                    .build(),
+            );
+            buffer(&capture, 0, b"onetwo");
+            capture.eos();
+            let bytes = reader.read_to_end(&mut Vec::new());
+            if no_store {
+                assert!(bytes.is_err());
+                assert!(capture.completed_http_policy().is_none());
+                assert_eq!(capture.http_rejection(), Some(Reason::NoStore));
+            } else {
+                assert_eq!(bytes.unwrap(), 6);
+                let policy = capture.completed_http_policy().unwrap();
+                assert!(policy.directives.private);
+                assert!(policy.directives.no_cache);
+                assert!(policy.directives.must_revalidate);
+            }
+        }
+    }
+    // Exact-length fields remain singleton even when native code represents
+    // their duplicate values as an array. Container shape cannot hide a
+    // conflicting directive or amplify the bounded metadata allocation.
+    for (name, value) in [
+        ("Content-Length", gst::Array::new(["6", "6"])),
+        ("Cache-Control", gst::Array::new(vec!["private"; 65])),
+        ("Cache-Control", gst::Array::new(["x".repeat(4097)])),
+    ] {
+        let (capture, mut reader) = http_pair();
+        let mut response = gst::Structure::builder("response-headers")
+            .field("Content-Type", "audio/mpeg")
+            .field("Content-Length", "6")
+            .build();
+        response.set(name, value);
+        capture.headers(
+            &gst::Structure::builder("http-headers")
+                .field("http-status-code", 200u32)
+                .field("response-headers", response)
+                .build(),
+        );
+        assert!(reader.read_to_end(&mut Vec::new()).is_err());
+        assert!(capture.completed_http_policy().is_none());
+    }
+}
+
 fn headers(capture: &Capture, length: usize, extra: Option<(&str, &str)>) {
     gst::init().unwrap();
     let mut response = gst::Structure::builder("response-headers")

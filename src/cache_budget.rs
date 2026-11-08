@@ -14,7 +14,7 @@ use std::{
 
 const MIB: u64 = 1024 * 1024;
 const MAX_SCAN: usize = 16_384;
-const MAX_RECORD: u64 = 64 * MIB + 112;
+const MAX_RECORD: u64 = 64 * MIB + 112 + 8192;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Category {
@@ -383,7 +383,7 @@ impl CacheBudget {
                 let mut count = 0;
                 for child in children(&path, &mut visited)? {
                     let name = child.file_name();
-                    if name != "header" && name != "media.bin" {
+                    if name != "header" && name != "media.bin" && name != "http" {
                         valid = false;
                         break;
                     }
@@ -477,7 +477,7 @@ impl CacheBudget {
             let result = if record.category == Category::Audio {
                 // Never recurse: unexpected children are preserved and fail closed.
                 (|| {
-                    for name in ["header", "media.bin"] {
+                    for name in ["header", "media.bin", "http"] {
                         match fs::remove_file(record.path.join(name)) {
                             Ok(()) => {}
                             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}

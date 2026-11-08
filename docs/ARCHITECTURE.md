@@ -23,7 +23,7 @@ flowchart LR
 | Catalog | `music`, `api`, `application` | Typed service access and separate anonymous diagnostics |
 | Authentication | `auth`, `auth::cassette`, `ui::auth`, `oauth` | Ordinary sign-in and independent PKCE diagnostic |
 | Session | `session`, `credentials`, `session_lifecycle`, `settings` | Live tokens, protected persistence and non-secret preferences |
-| Data | `cache_budget`, `cache`, `catalog_cache`, `artwork`, `audio_cache` | One shared resource policy; typed metadata/artwork and separately authority-gated audio stores |
+| Data | `cache_budget`, `cache`, `catalog_cache`, `artwork`, `audio_cache` | One shared resource policy; typed metadata/artwork and separately policy-admitted audio stores |
 | Playback | `queue`, `stream`, `audio_cache::bridge`, `playback` | Context/order policy, resource/cache admission and one media worker |
 | Desktop | `mpris`, `ui::music::system_media` | Session D-Bus commands and actual snapshots |
 | Presentation | `ui::music` and its view modules | Native views, user intents and guarded result admission |
@@ -111,8 +111,9 @@ PlaybackController sends commands through a 32-entry channel to one worker-owned
 `playbin`. Snapshots supply actual state, position/duration, seekability, volume
 and safe errors. A worker-owned cumulative Playing clock excludes pause and seek
 distance independently of GTK scheduling. Commands alone do not imply Playing; Seeked requires worker
-acknowledgement. Local-file diagnostics remain; independently permitted media can
-use the shared audio cache. Ordinary Yandex catalog audio remains online-only.
+acknowledgement. Local-file diagnostics remain. Supported online MP3 resources
+can use the shared private HTTP cache when storage and version checks succeed;
+otherwise the same player uses the admitted network source.
 Shutdown bypasses channel capacity and releases the pipeline in `Null` before
 completion, without GTK joining the worker.
 
@@ -198,17 +199,27 @@ with cancellation checks. Retired staging is recovered before quota eviction.
 Per-resource 64 MiB, 1024-record and four-pending bounds remain;
 these safety bounds are independent of the shared user quota.
 
-Independent permission lookup and disk integrity preparation overlap fresh
-StreamResolver resolution on bounded workers. Only an already-ready result can
-be admitted after current access succeeds; a slow or busy cache leaves that play
-online. Final file-descriptor admission is memory-only and LRU bookkeeping is
-deferred. `StorageAuthority` separately checks storage/reuse permission and its
-current revision. `LicensedResourceAuthority` accepts trusted rightsholder CC0
-input bound to account/track and exact SHA-256/length; neither untrusted API
-license labels nor streaming success supply that declaration. Read/publication
-must match the permitted bytes. Ordinary Yandex assembly still uses
-`MissingStorageContract`, so real catalog audio keeps the accepted online path
-without saving. This is online-revalidated reuse, not an invented offline lease.
+Disk integrity preparation overlaps fresh StreamResolver resolution on bounded
+workers. Only an already-ready candidate is considered; a slow or busy cache
+leaves that play online. The ordinary application's private HTTP policy separates
+current account/resource access, storage eligibility of the actual response,
+validation of retained bytes and explicit content restrictions. Local cache
+admission is not a provider entitlement or copyright license. The absence of a
+separate storage-grant endpoint is not itself an HTTP refusal.
+
+Each replay resolves the currently admitted MP3 source, then checks an existing
+candidate using bounded, credential-free HTTP validation. A strong validator must
+be bound to the same resource/variant: either exact URI identity or the sealed
+Legacy descriptor's lowercase host, validated XML path, MP3 codec and selected
+bitrate fingerprint. Signing inputs `s` and `ts` are excluded from this file
+locator. This is not a claim that a path is immutable. Equal track IDs or a
+renewed signed URL alone do not establish unchanged bytes. A trusted full
+`Repr-Digest` can identify the representation independently of URL rotation. Unverifiable versions,
+explicit refusals and failed checks select the ordinary network source. A
+validated hit pins its verified read-only descriptor; final admission is
+memory-only and LRU bookkeeping remains deferred. The separate exact-content
+licensed-resource policy remains available for independently licensed material.
+This is online-revalidated caching, not offline entitlement.
 
 The shared bridge hands an admitted hit's verified read-only file descriptor to
 the same PlaybackController. A decoder failure before any actual Playing can
@@ -216,15 +227,28 @@ fall back once to its admitted online source in that same worker. A failure afte
 Playing remains a normal player error, preserving Wave's actual-playing ledger.
 A bounded source-pad capture reuses that player's compressed HTTP bytes,
 without an extra media GET or second pipeline. Its 2 MiB queue never waits for
-storage: incomplete/partial or encoded responses, `no-store`, discontinuity,
-seek, cancellation and queue overflow abandon only the cache copy. Complete
+storage: incomplete/partial or non-identity encoded responses, `no-store`,
+discontinuity, seek, cancellation and queue overflow abandon only the cache copy. Complete
 HTTP200 or whole-representation HTTP206 can feed the existing writer after
-actual Playing. Only complete, integrity-checked permitted bytes are published.
+actual Playing. The response's bounded HTTP metadata is retained with the
+complete integrity-checked record; credentials, cookies and signed URLs are not.
+`no-cache` and `must-revalidate` cannot authorize stale reuse: the private path
+requires a new successful online validation before every hit, even if an HTTP
+freshness lifetime has not elapsed. `Content-Encoding: identity` is allowed;
+other encodings and unsupported `Vary` dimensions are declined. The supported
+`Vary: Accept-Encoding` case sends `identity` on both the player and HEAD request.
+A fresh `no-store` response removes the completed record before online fallback,
+without invalidating an
+already active playback descriptor. Missing validators do not forbid storing a
+complete eligible response; they forbid a hit until the current version can be
+proved. HTTP451 is a fixed content-restriction refusal.
 Clear/logout/account changes fence old work before cleanup. Clear can unlink a
 record without invalidating an already admitted active descriptor; normal close
 may retain records for fresh online admission after restart. The process-level
 application fixture supplies original audio expressly dedicated to CC0 and uses
-this production rights/store/player path without a real Yandex account.
+the ordinary private HTTP policy/store/player path without a real Yandex account.
+It does not establish actual Music CDN validator support or legal rights for
+public distribution; live Native/Flatpak acceptance remains separate.
 [ADR-0029](adr/0029-synthetic-audio-cache-foundation.md) and
 [AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md) define the admission gate.
 

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Account-isolated, authority-gated audio storage used by the ordinary app.
+//! Account-isolated, policy-admitted audio storage used by the ordinary app.
 //!
 //! All filesystem operations run on workers. Binding/fencing are memory-only.
-//! Cache operations require independent storage permission and fresh account-
-//! bound stream admission. Streaming alone never grants permission. No protected
-//! formats are handled. Tests use original generated audio and fake authorities.
+//! Current playback access, HTTP response policy, representation revalidation
+//! and independent content constraints are separate decisions. Private HTTP
+//! candidates are not provider entitlements. No protected formats are handled.
 
 use ring::{
     digest::{SHA256, digest},
@@ -32,6 +32,8 @@ const MAX_ENTRIES: usize = 1024;
 const MAX_BUDGET: u64 = 4 * 1024 * 1024 * 1024;
 const MAX_REQUESTS: usize = 4;
 const HEADER: usize = 112;
+// The bounded HTTP sidecar is included in every reservation and measured quota.
+const MAX_HTTP_METADATA: u64 = 8 * 1024;
 const MAGIC: &[u8; 8] = b"KARNADC2";
 type Key = [u8; 32];
 
@@ -57,6 +59,8 @@ pub enum CacheError {
     Revoked,
     #[error("Storage permission requires an online check")]
     NeedsOnline,
+    #[error("Private HTTP caching requires validated response policy")]
+    HttpPolicyRequired,
 }
 pub type Result<T> = std::result::Result<T, CacheError>;
 
@@ -107,15 +111,24 @@ impl fmt::Debug for ResourceIdentity {
         f.write_str("AudioIdentity([opaque])")
     }
 }
-/// The authority owns this freshness revision. A coordinating authority can
-/// scope an independently checked permission to a local online attempt; that
-/// attempt is neither a retention deadline nor an offline entitlement.
+/// The local reason for considering a resource for the cache. HTTP candidacy
+/// still requires the actual response and current representation to be checked.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AdmissionBasis {
+    IndependentLicense,
+    // A local storage candidate, never a claim of provider entitlement. An
+    // actual cacheable response and revalidation still gate write and reuse.
+    PrivateHttpCandidate,
+}
 #[derive(Clone, Copy)]
+/// Opaque local admission revision. This is neither a provider entitlement nor
+/// an offline lease; its basis determines which additional checks are required.
 pub struct StorageGrant {
     identity: ResourceIdentity,
     revision: u64,
     // An independent exact-content license can admit only these media bytes.
     content: Option<ContentClaim>,
+    basis: AdmissionBasis,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ContentClaim {
@@ -141,12 +154,18 @@ impl fmt::Debug for StorageGrant {
         f.write_str("AudioStorageGrant([opaque])")
     }
 }
-/// Network revalidation belongs in authorize on a worker. check must only
-/// examine an already established live grant/revocation lease, never do I/O on
-/// GTK admission. Stored bytes cannot supply either decision.
+/// Preparation can perform policy work on a worker. check only examines an
+/// established live admission/revocation lease, never does I/O on GTK. Private
+/// HTTP callers separately validate response storage and current representation;
+/// stored bytes cannot supply the current user's playback authorization.
 pub trait StorageAuthority: Send + Sync {
     fn authorize(&self, identity: &ResourceIdentity) -> Result<StorageGrant>;
     fn check(&self, grant: &StorageGrant) -> Result<()>;
+    /// Whether callers must validate actual HTTP response/reuse policy. This
+    /// flag does not grant a provider content license or permission to play.
+    fn private_http(&self) -> bool {
+        false
+    }
     /// Memory-only start: retire earlier online admission before network I/O.
     #[doc(hidden)]
     fn begin_online(&self, identity: ResourceIdentity) -> Result<OnlineCheck> {
@@ -203,7 +222,11 @@ impl StorageAuthority for MissingStorageContract {
     }
 }
 
+pub(crate) mod diagnostic;
+mod http_admission;
+pub(crate) mod http_policy;
 pub mod licensed;
+pub use http_admission::PrivateHttpCachePolicy;
 mod online;
 pub use online::OnlineStreamAuthority;
 
@@ -725,8 +748,40 @@ impl AudioCache {
     fn put_reader_before_commit(
         &self,
         request: Request,
+        reader: impl Read,
+        before_commit: impl FnOnce() -> Result<()>,
+    ) -> Result<()> {
+        if request.permit.basis == AdmissionBasis::PrivateHttpCandidate
+            || self.0.authority.private_http()
+        {
+            return Err(CacheError::HttpPolicyRequired);
+        }
+        self.put_reader_complete(request, reader, before_commit, |_, _| Ok(None), 0)
+    }
+    /// Publish the media and response-policy metadata in the same transaction.
+    /// The callback consumes only the completed native response policy; it must
+    /// reject a failed/partial capture and bind the measured SHA and length.
+    pub(crate) fn put_reader_http(
+        &self,
+        request: Request,
+        reader: impl Read,
+        http: impl FnOnce([u8; 32], u64) -> Result<http_policy::Metadata>,
+    ) -> Result<()> {
+        self.put_reader_complete(
+            request,
+            reader,
+            || Ok(()),
+            |sha256, bytes| http(sha256, bytes).map(Some),
+            MAX_HTTP_METADATA,
+        )
+    }
+    fn put_reader_complete(
+        &self,
+        request: Request,
         mut reader: impl Read,
         before_commit: impl FnOnce() -> Result<()>,
+        http: impl FnOnce([u8; 32], u64) -> Result<Option<http_policy::Metadata>>,
+        metadata_reserve: u64,
     ) -> Result<()> {
         self.request_current(&request)?;
         // One bounded staging writer, without occupying the read/Clear gate
@@ -750,6 +805,7 @@ impl AudioCache {
                             crate::cache_budget::Category::Audio,
                             &self.path(key),
                             HEADER as u64
+                                + metadata_reserve
                                 + request
                                     .permit
                                     .content
@@ -816,7 +872,8 @@ impl AudioCache {
                 }
                 if length > MAX_AUDIO
                     || (self.0.shared.is_none()
-                        && (HEADER + length) as u64 > self.0.budget.load(Ordering::Acquire))
+                        && (HEADER + length) as u64 + metadata_reserve
+                            > self.0.budget.load(Ordering::Acquire))
                 {
                     return Err(CacheError::Limit);
                 }
@@ -839,12 +896,41 @@ impl AudioCache {
         {
             return Err(CacheError::NoGrant);
         }
+        let measured_sha: [u8; 32] = measured_digest
+            .as_ref()
+            .try_into()
+            .map_err(|_| CacheError::Unavailable)?;
+        let http = http(measured_sha, length as u64)?;
+        if request.permit.basis == AdmissionBasis::PrivateHttpCandidate && http.is_none() {
+            return Err(CacheError::HttpPolicyRequired);
+        }
+        let http_bytes = http
+            .map(|metadata| {
+                if metadata.sha256 != measured_sha || metadata.bytes != length as u64 {
+                    return Err(CacheError::InvalidInput);
+                }
+                let encoded = metadata.encode().map_err(|_| CacheError::InvalidInput)?;
+                if encoded.is_empty() || encoded.len() as u64 > MAX_HTTP_METADATA {
+                    return Err(CacheError::Limit);
+                }
+                Ok(encoded)
+            })
+            .transpose()?;
+        let record_bytes = HEADER as u64
+            + length as u64
+            + http_bytes.as_ref().map_or(0, |bytes| bytes.len() as u64);
+        if self.0.shared.is_none() && record_bytes > self.0.budget.load(Ordering::Acquire) {
+            return Err(CacheError::Limit);
+        }
         let header = encode_digest(
             request.permit.identity,
             length as u64,
             measured_digest.as_ref(),
         );
         write_private(&temporary.join("header"), &header)?;
+        if let Some(http_bytes) = http_bytes {
+            write_private(&temporary.join("http"), &http_bytes)?;
+        }
         sync_dir(&temporary)?;
         before_commit()?;
         self.request_current(&request)?;
@@ -852,7 +938,7 @@ impl AudioCache {
         // most one bounded staging file exists under the writer gate. Completed
         // records obey the budget; peak temporary overhead is MAX_AUDIO.
         let entries = self.scan_except(Some(&temporary))?;
-        self.evict(entries, (HEADER + length) as u64, Some(key))?;
+        self.evict(entries, record_bytes, Some(key))?;
         let path = self.path(key);
         fs::rename(&temporary, &path).map_err(|_| CacheError::Unavailable)?;
         sync_dir(&self.0.sandbox.path)?;
@@ -868,7 +954,7 @@ impl AudioCache {
             return Err(error);
         }
         if let Some(reservation) = reservation
-            && let Err(error) = reservation.finish((HEADER + length) as u64)
+            && let Err(error) = reservation.finish(record_bytes)
         {
             remove_record(&path)?;
             return Err(budget_error(error));
@@ -908,6 +994,11 @@ impl AudioCache {
         };
         if permit.identity != identity {
             return Err(CacheError::Cancelled);
+        }
+        // Only the online-selection path can validate HTTP metadata and its
+        // current representation. A direct get must not bypass that step.
+        if permit.basis == AdmissionBasis::PrivateHttpCandidate || self.0.authority.private_http() {
+            return Err(CacheError::NeedsOnline);
         }
         self.check(lease, permit)?;
         let _io = self.io()?;
@@ -1165,7 +1256,23 @@ fn record_size(path: &Path, key: Key) -> Result<Option<u64>> {
         {
             return Ok(None);
         }
-        Ok(Some(HEADER as u64 + length))
+        let http_size = match read_http_record(path) {
+            Ok(Some(metadata)) => {
+                let mut data = header[..80].to_vec();
+                data.extend_from_slice(&metadata.sha256);
+                if metadata.bytes != length || hash(&data) != header[80..112] {
+                    return Ok(None);
+                }
+                open_private(&path.join("http"))?
+                    .metadata()
+                    .map_err(|_| CacheError::Unavailable)?
+                    .len()
+            }
+            Ok(None) => 0,
+            Err(CacheError::InvalidInput | CacheError::Limit) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        Ok(Some(HEADER as u64 + length + http_size))
     })();
     match record {
         Ok(None) => {
@@ -1174,6 +1281,30 @@ fn record_size(path: &Path, key: Key) -> Result<Option<u64>> {
         }
         other => other,
     }
+}
+
+/// Bounded policy-only read, available to the child selection module while it
+/// already owns the store I/O gate. A missing sidecar is a legacy record; it is
+/// not evidence that the record is admissible for private HTTP reuse.
+fn read_http_record(path: &Path) -> Result<Option<http_policy::Metadata>> {
+    let sidecar = path.join("http");
+    match fs::symlink_metadata(&sidecar) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err(CacheError::Unavailable),
+        Ok(_) => {}
+    }
+    let mut input = open_private(&sidecar)?;
+    let length = input.metadata().map_err(|_| CacheError::Unavailable)?.len();
+    if length == 0 || length > MAX_HTTP_METADATA {
+        return Err(CacheError::Limit);
+    }
+    let mut bytes = vec![0; length as usize];
+    input
+        .read_exact(&mut bytes)
+        .map_err(|_| CacheError::Unavailable)?;
+    http_policy::Metadata::decode(&bytes)
+        .map(Some)
+        .map_err(|_| CacheError::InvalidInput)
 }
 
 fn read_record(
@@ -1236,6 +1367,18 @@ fn read_record(
             || claim.is_some_and(|expected| !expected.matches(measured, measured_digest.as_ref()))
         {
             return Ok(None);
+        }
+        match read_http_record(path) {
+            Ok(Some(metadata)) => {
+                if metadata.bytes != measured
+                    || metadata.sha256.as_slice() != measured_digest.as_ref()
+                {
+                    return Ok(None);
+                }
+            }
+            Ok(None) => {}
+            Err(CacheError::InvalidInput | CacheError::Limit) => return Ok(None),
+            Err(error) => return Err(error),
         }
         input
             .seek(SeekFrom::Start(0))
@@ -1330,13 +1473,15 @@ fn remove_record(path: &Path) -> Result<()> {
     private_dir(path)?;
     let children = fs::read_dir(path)
         .map_err(|_| CacheError::Unavailable)?
-        .take(3)
+        .take(4)
         .collect::<std::io::Result<Vec<_>>>()
         .map_err(|_| CacheError::Unavailable)?;
-    if children.len() > 2
-        || children
-            .iter()
-            .any(|entry| entry.file_name() != "header" && entry.file_name() != "media.bin")
+    if children.len() > 3
+        || children.iter().any(|entry| {
+            entry.file_name() != "header"
+                && entry.file_name() != "media.bin"
+                && entry.file_name() != "http"
+        })
     {
         return Err(CacheError::Unavailable);
     }

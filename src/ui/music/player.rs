@@ -664,6 +664,12 @@ impl Controller {
     }
 
     #[cfg(test)]
+    pub(super) fn cache_work_settled_for_test(&self) -> bool {
+        let player = self.player.borrow();
+        !player.resolving && !player.cache_fill_running && player.cache_fill_pending.is_none()
+    }
+
+    #[cfg(test)]
     pub(super) fn music_cleanup_observer_for_test(&self) -> impl Fn() -> bool {
         let player = self.player.borrow();
         let controllers = player

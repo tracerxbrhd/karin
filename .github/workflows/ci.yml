@@ -627,8 +627,8 @@ jobs:
           Native and current Flatpak acceptance require separate local checks; no broad bus grants.
           Preserve GPL and third-party notices. Shared OAuth public-distribution/service permission remains unresolved separately.
           Do not enable network/GStreamer logs or share tokens, URLs, account data, private screenshots or audio.
-          The production audio-cache service includes private storage maintenance; service audio reuse remains disabled pending a reviewed storage/reuse grant and resource-admission contract.
-          Follow docs/BUILDING.md#pr-26-corrected-cache-acceptance for the single final Native/installed-Flatpak check and the permitted-original-audio evidence; real Yandex cache remains gated.
+          Private HTTP audio caching uses the current validated Legacy MP3 session, actual response directives and fresh representation validation; it is not a provider entitlement or an offline mode.
+          Follow docs/BUILDING.md#pr-26-corrected-cache-acceptance for the one final Native/Flatpak check with KARIN_AUDIO_CACHE_DIAGNOSTICS=1. Real service compatibility is unverified until this owner check.
           Settings has one enabled-by-default 2GiB shared cache allowance, six-position slider (500MiB/1/2/3/4GiB/Unlimited), measured total and Clear; no download/offline or permission-override controls.
           Active-footer Like and Dislike require independent live membership confirmation; Dislike stays hidden if unavailable, while fresh Like-only remains supported.
           Test separate marks, their removal/opposite clearing, pending/error GET recovery and exactly one Next after confirmed current Dislike; removal/Like/errors never advance or add new Wave events.

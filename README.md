@@ -38,7 +38,8 @@ Actual GTK captures with synthetic library data and original test artwork.
 - My Wave personal radio from Home, using the same queue, player and MPRIS.
 - A pinned track information / queue panel, responsive layouts, light/dark themes and HiDPI.
 - MPRIS media controls and metadata for KDE Plasma and other Linux desktops.
-- Protected remembered sign-in and an account-scoped metadata/artwork cache.
+- Protected remembered sign-in and one account-scoped cache for metadata,
+  artwork and eligible online-revalidated MP3 responses.
 
 ## Status
 
@@ -69,17 +70,18 @@ cause or resolution. See [known limitations](docs/LIMITATIONS.md).
 
 PR #26 provides one cache policy: enabled by default, one 2 GiB allowance,
 combined usage and Clear, with a native slider for 500 MiB, 1/2/3/4 GiB or
-Unlimited. Metadata, artwork and authority-gated audio share one disk coordinator,
+Unlimited. Metadata, artwork and policy-admitted audio share one disk coordinator,
 including in-flight writes. The owner identifies `0709729` as the last accepted
 PR #26 revision; later online-authority changes require separate acceptance.
-Independently licensed resources use the existing GStreamer transfer for saving,
-with local replay/restart after fresh access checks; caching creates no second
-media GET. The normal-application process test records actual source kinds and
-network bytes. Real Music remains online-only: storage/reuse is disabled until an applicable
-permission and the provider's online revalidation rule are established. PR #26
-remains Draft; generated-audio tests do not establish service caching or offline
-Music. See the [source/rights review](docs/AUDIO_CACHE_REVIEW.md) and the
-[prepared provider questions](docs/AUDIO_CACHE_PROVIDER_REQUEST.md).
+Private HTTP caching uses the existing GStreamer transfer for eligible full MP3
+responses, without a second media download. Each replay obtains fresh Music
+access and delivery information and validates the saved representation before
+selecting its local file. `no-store`, explicit restrictions, failed access or
+unverifiable versions keep playback online. This policy does not manufacture a
+provider entitlement or establish public-distribution rights. PR #26 remains
+Draft; **the real service has not been verified for this revision** and local
+fixtures are not Music acceptance. See the [cache policy](docs/AUDIO_CACHE_REVIEW.md)
+and the [single final Native/Flatpak check](docs/BUILDING.md#pr-26-corrected-cache-acceptance).
 
 ## Build and run
 

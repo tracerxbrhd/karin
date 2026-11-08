@@ -719,7 +719,11 @@ and real-service acceptance. The Cloud has Flatpak/Builder but no installed
 GNOME50 SDK/runtime; source/vendor validation is not a full installed Flatpak
 result. PR #26 remains Draft and Issue #20 remains open. No merge is authorized.
 
-## PR26 single-transfer application cache
+## Historical afd3ce4 single-transfer application cache
+
+This section records the preceding revision. Its ordinary `NoGrant` assembly is
+superseded by the private HTTP integration below; its service-cache limitation
+must not be read as the behavior of the new implementation.
 
 The follow-up replaces the duplicate cache download with capture of the existing
 guarded GStreamer source. Exact independently licensed SHA-256/length claims are
@@ -800,6 +804,52 @@ third-party ban. [AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md) separates those fac
 from HTTP cacheability and the genuine CC0 rightsholder declaration used here.
 PR #26 stays Draft and #20 stays open. No repeated owner test is requested to
 rediscover a gate that remains closed.
+
+## PR26 private HTTP integration — 2026-11-08
+
+The ordinary application now selects `PrivateHttpCachePolicy` rather than the
+blanket missing-provider-contract gate. Its typed candidate is not a provider
+entitlement or copyright license: direct ordinary writes/reads cannot bypass
+HTTP response checks and current representation validation. Playback access,
+response storage policy, retained byte version and explicit content restrictions
+remain separate. The existing single GStreamer source supplies the cache bytes.
+
+Complete media and bounded checksummed HTTP metadata publish in one transaction,
+under the existing shared budget. Each local hit first refreshes Music delivery
+and validates a strong representation proof through the existing HTTP client.
+The sealed Legacy file-locator/encoding binding can survive a renewed signature;
+it is not an immutability assumption. Changed validators/locators, refusals,
+unsupported variants and failed checks fall back online. No-store on validation
+retires the old record; actual streamed no-store cannot publish its replacement.
+Missing validators may permit storage, but never an unverified local hit.
+
+The existing ordinary-application fixture now uses the production HTTP policy,
+without injecting a CC0 or mock storage authority. Its original generated media
+remains CC0 for provenance. Eleven separate processes cover first/replay/restart,
+rotating signed wrappers, refusal, corruption, changed audio/ETag, HEAD no-store,
+restoration, GET-only no-store, restoration, active Clear and missing validators.
+It checks the actual player source, completed bytes/hash, conditional requests,
+whole-media GET counts and the restricted diagnostic grammar. These local HTTP
+results are not a live Yandex Music or Fedora result.
+
+The controlled first/replay/restart sequence needs one whole-media GET in total.
+The complete scenario's cumulative GET counts are
+`1 / 1 / 1 / 2 / 3 / 4 / 5 / 6 / 7 / 7 / 9`: later GETs deliberately exercise
+repair, changed representations, no-store and unverifiable versions. Fresh
+account/delivery checks are not counted as media downloads.
+
+Final-head compiler, native, packaging and CI results belong to
+[PR #26 checks](https://github.com/tracerxbrhd/karin/pull/26/checks); an earlier
+head does not validate new runtime code. The one final owner procedure is
+[BUILDING](BUILDING.md#pr-26-corrected-cache-acceptance). It uses only fixed
+`cache`, `source` and `reason` diagnostics, without sharing user credentials,
+identifiers, signed URLs, response bodies or music files.
+
+**Real Yandex Music service compatibility is unverified in Cloud.** The working
+production path is enabled for eligible responses, but actual CDN validators
+and audible local reuse need the final owner run. Public-distribution/content
+questions remain separate in #5/#22. Installed Flatpak and Fedora acceptance are
+not inferred from fixtures, source preparation or Xvfb. PR #26 remains Draft.
 
 ## Known unresolved checks
 

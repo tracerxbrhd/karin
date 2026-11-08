@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Bounded, nonblocking copy of the existing player's compressed HTTP bytes.
 //!
-//! This is transport only. The caller must first acquire independent storage
-//! permission. There is no extra request, GStreamer engine or temporary spool.
-//! The existing cache writer consumes this reader only after actual Playing.
+//! This is transport only. Independently licensed content and ordinary private
+//! HTTP caching have separate admission policies. Neither changes the playback
+//! data or creates another request, GStreamer engine or temporary spool. The
+//! existing cache writer consumes this reader only after actual Playing.
 
 use std::{
     io::{self, Read},
     sync::{
-        Arc,
+        Arc, OnceLock,
         atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
         mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError},
     },
@@ -17,7 +18,10 @@ use std::{
 
 use gstreamer::{self as gst, prelude::*};
 
-use super::Cancellation;
+use super::{
+    Cancellation,
+    http_policy::{Reason, ResponsePolicy},
+};
 
 const WAITING: u8 = 0;
 const RECEIVING: u8 = 1;
@@ -35,6 +39,9 @@ struct Shared {
     segment_seen: AtomicBool,
     sender: SyncSender<Vec<u8>>,
     cancellation: Cancellation,
+    private_http: bool,
+    http_policy: OnceLock<ResponsePolicy>,
+    http_rejection: OnceLock<Reason>,
 }
 
 #[derive(Clone)]
@@ -48,6 +55,16 @@ pub(crate) struct CaptureReader {
 }
 
 pub(crate) fn channel(cancellation: Cancellation) -> (Capture, CaptureReader) {
+    create_channel(cancellation, false)
+}
+
+/// The ordinary app's private HTTP-cache path observes the actual player's
+/// response. This is not a provider entitlement or a content-license claim.
+pub(crate) fn channel_http(cancellation: Cancellation) -> (Capture, CaptureReader) {
+    create_channel(cancellation, true)
+}
+
+fn create_channel(cancellation: Cancellation, private_http: bool) -> (Capture, CaptureReader) {
     let (sender, receiver) = mpsc::sync_channel(SLOTS);
     let capture = Capture(Arc::new(Shared {
         status: AtomicU8::new(WAITING),
@@ -57,6 +74,9 @@ pub(crate) fn channel(cancellation: Cancellation) -> (Capture, CaptureReader) {
         segment_seen: AtomicBool::new(false),
         sender,
         cancellation,
+        private_http,
+        http_policy: OnceLock::new(),
+        http_rejection: OnceLock::new(),
     }));
     let reader = CaptureReader {
         capture: capture.clone(),
@@ -68,6 +88,22 @@ pub(crate) fn channel(cancellation: Cancellation) -> (Capture, CaptureReader) {
 }
 
 impl Capture {
+    /// Only exact completed input can supply persistence metadata. The cache
+    /// writer calls this after consuming EOF and verifying payload length/hash,
+    /// before publishing its media/metadata transaction.
+    pub(crate) fn completed_http_policy(&self) -> Option<ResponsePolicy> {
+        if self.0.status.load(Ordering::Acquire) != COMPLETE || self.0.cancellation.is_cancelled() {
+            return None;
+        }
+        self.0.http_policy.get().cloned()
+    }
+
+    /// A finite classification only; native events and header values are never
+    /// formatted or exposed in diagnostics.
+    pub(crate) fn http_rejection(&self) -> Option<Reason> {
+        self.0.http_rejection.get().copied()
+    }
+
     /// Attach only after the existing source guard has validated souphttpsrc.
     /// Probe callbacks always pass the player's data/events unchanged. A slow
     /// cache writer abandons its own capture instead of delaying streaming.
@@ -142,6 +178,9 @@ impl Capture {
             if headers.n_fields() > 64 {
                 return None;
             }
+            if self.0.private_http {
+                return self.private_http_headers(status, &headers);
+            }
             let mut content_type = None;
             let mut length = None;
             let mut range = None;
@@ -197,6 +236,9 @@ impl Capture {
             }
         })();
         let Some(length) = accepted else {
+            if self.0.private_http {
+                let _ = self.0.http_rejection.set(Reason::HeadersInvalid);
+            }
             self.interrupt();
             return;
         };
@@ -209,6 +251,99 @@ impl Capture {
         {
             self.interrupt();
         }
+    }
+
+    fn private_http_headers(&self, status: u32, headers: &gst::StructureRef) -> Option<u64> {
+        // A native response event also carries the signed URI and request
+        // headers. Neither is read here. Even response fields are a small
+        // allowlist, so Set-Cookie, Authorization and unrelated personal data
+        // cannot enter the persistent metadata.
+        const ALLOWED: &[&str] = &[
+            "content-type",
+            "content-length",
+            "content-range",
+            "content-encoding",
+            "cache-control",
+            "pragma",
+            "expires",
+            "date",
+            "age",
+            "vary",
+            "etag",
+            "last-modified",
+            "repr-digest",
+        ];
+        let mut fields = Vec::new();
+        let mut total = 0usize;
+        for (name, value) in headers.iter() {
+            if !ALLOWED
+                .iter()
+                .any(|allowed| name.eq_ignore_ascii_case(allowed))
+            {
+                continue;
+            }
+            // souphttpsrc's insert_http_header represents repeated response
+            // fields as GST_TYPE_ARRAY. Accept its bounded string elements,
+            // preserving each occurrence so the HTTP parser can merge Cache-
+            // Control/Vary while rejecting duplicate representation fields.
+            if let Ok(values) = value.get::<gst::ArrayRef<'_>>() {
+                if values.is_empty() || values.len() > 64 {
+                    let _ = self.0.http_rejection.set(Reason::HeadersInvalid);
+                    return None;
+                }
+                for value in values.iter() {
+                    self.push_private_header(&mut fields, &mut total, name, value)?;
+                }
+            } else if let Ok(values) = value.get::<gst::ListRef<'_>>() {
+                if values.is_empty() || values.len() > 64 {
+                    let _ = self.0.http_rejection.set(Reason::HeadersInvalid);
+                    return None;
+                }
+                for value in values.iter() {
+                    self.push_private_header(&mut fields, &mut total, name, value)?;
+                }
+            } else {
+                self.push_private_header(&mut fields, &mut total, name, value)?;
+            }
+        }
+        let parsed = u16::try_from(status).ok().and_then(|status| {
+            match ResponsePolicy::parse(status, fields) {
+                Ok(policy) => Some(policy),
+                Err(reason) => {
+                    let _ = self.0.http_rejection.set(reason);
+                    None
+                }
+            }
+        })?;
+        let length = match parsed.complete_mp3() {
+            Ok(length) => length,
+            Err(reason) => {
+                let _ = self.0.http_rejection.set(reason);
+                return None;
+            }
+        };
+        self.0.http_policy.set(parsed).ok()?;
+        Some(length)
+    }
+
+    fn push_private_header(
+        &self,
+        fields: &mut Vec<(String, String)>,
+        total: &mut usize,
+        name: &str,
+        value: &gst::glib::Value,
+    ) -> Option<()> {
+        // Containers are deliberately not recursively flattened. Every native
+        // element must itself be a string, never another list or arbitrary
+        // typed value that might be formatted into persistent metadata.
+        let value = value.get::<&str>().ok()?;
+        *total = total.checked_add(name.len())?.checked_add(value.len())?;
+        if fields.len() >= 64 || value.len() > 4096 || *total > 8192 {
+            let _ = self.0.http_rejection.set(Reason::ResponseTooLarge);
+            return None;
+        }
+        fields.push((name.to_owned(), value.to_owned()));
+        Some(())
     }
 
     fn buffer(&self, buffer: &gst::BufferRef) {

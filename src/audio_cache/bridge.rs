@@ -5,6 +5,7 @@
 //! fill. Cached bytes never bypass the current Music account/source validation.
 //! Storage permission is independent: a resolved stream alone cannot admit writes.
 
+use super::diagnostic::{self, Cause, Event};
 use super::{AudioCache, CacheError, Cancellation, Lease, OnlineCheck, Request, ResourceKey};
 use crate::{
     music::MusicService,
@@ -45,7 +46,19 @@ pub(crate) fn resolve(
         let (cache, lease) = binding.as_ref()?;
         cache.lookup(lease.clone(), check)
     });
-    let remote = resolver.resolve(service, token, track, cancellation)?;
+    let remote = resolver
+        .resolve(service, token, track, cancellation)
+        .inspect_err(|report| {
+            let reason = match report.http_status {
+                Some(401 | 403) => Cause::Policy(super::http_policy::Reason::AccessDenied),
+                Some(451) => Cause::Policy(super::http_policy::Reason::ContentRestricted),
+                _ if cancellation.cancelled(token) => {
+                    Cause::Policy(super::http_policy::Reason::Cancelled)
+                }
+                _ => Cause::AccessUnavailable,
+            };
+            diagnostic::report(Event::NotCacheable, reason);
+        })?;
     let online = || Selection {
         source: PlaybackSource::remote(remote.clone()),
         fill: None,
@@ -53,9 +66,29 @@ pub(crate) fn resolve(
     let Some((cache, lease)) = binding.filter(|_| authenticated) else {
         return Ok(online());
     };
-    let Some(prepared) = lookup.and_then(|lookup| lookup.ready()) else {
+    let Some(mut prepared) = lookup.and_then(|lookup| lookup.ready()) else {
+        diagnostic::report(Event::NotCacheable, Cause::Busy);
         return Ok(online());
     };
+    if prepared.has_file() {
+        if let Err(reason) = prepared.revalidate_http(&resolver, &remote, token, cancellation) {
+            diagnostic::report(Event::Stale, Cause::Policy(reason));
+            if matches!(
+                reason,
+                super::http_policy::Reason::NoStore
+                    | super::http_policy::Reason::ContentRestricted
+                    | super::http_policy::Reason::RepresentationChanged
+                    | super::http_policy::Reason::ResourceChanged
+                    | super::http_policy::Reason::DigestMismatch
+            ) && prepared.retire_record().is_err()
+            {
+                diagnostic::report(Event::NotCacheable, Cause::Busy);
+            }
+            prepared.discard_file();
+        }
+    } else {
+        diagnostic::report(Event::Miss, Cause::Empty);
+    }
     match prepared.admit(|| !cancellation.cancelled(token) && !remote.is_expired()) {
         Ok(Some(hit)) => Ok(Selection {
             source: PlaybackSource::cached_file(hit, remote.clone())
@@ -164,7 +197,19 @@ fn fill_selection(
             fill: None,
         };
     };
-    let (capture, reader) = super::capture::channel(request.cancellation());
+    let private_http = cache.0.authority.private_http();
+    let (capture, reader) = if private_http {
+        super::capture::channel_http(request.cancellation())
+    } else {
+        super::capture::channel(request.cancellation())
+    };
+    let http = private_http.then(|| {
+        (
+            capture.clone(),
+            remote.http_cache_uri_hash(),
+            remote.http_cache_resource_hash(),
+        )
+    });
     Selection {
         source: PlaybackSource::remote(remote).with_cache_capture(capture),
         fill: Some(Fill {
@@ -173,6 +218,7 @@ fn fill_selection(
             reader,
             token: token.clone(),
             cancellation: cancellation.clone(),
+            http,
         }),
     }
 }
@@ -185,6 +231,7 @@ pub(crate) struct Fill {
     reader: super::capture::CaptureReader,
     token: AccessToken,
     cancellation: DeliveryCancellation,
+    http: Option<(super::capture::Capture, [u8; 32], [u8; 32])>,
 }
 impl Fill {
     pub(crate) fn cancellation(&self) -> Cancellation {
@@ -201,7 +248,58 @@ impl Fill {
             token: self.token,
             cancellation: self.cancellation,
         };
-        self.cache.put_reader(self.request, reader)
+        if let Some((capture, uri, resource)) = self.http {
+            let retained_lease = self.request.lease.clone();
+            let retained_admission = self.request.permit;
+            let mut rejection = None;
+            let result = self
+                .cache
+                .put_reader_http(self.request, reader, |sha, bytes| {
+                    capture
+                        .completed_http_policy()
+                        .ok_or(CacheError::HttpPolicyRequired)?
+                        .record(uri, resource, sha, bytes)
+                        .map_err(|reason| {
+                            rejection = Some(reason);
+                            CacheError::HttpPolicyRequired
+                        })
+                });
+            if matches!(
+                rejection.or(capture.http_rejection()),
+                Some(
+                    super::http_policy::Reason::NoStore
+                        | super::http_policy::Reason::ContentRestricted
+                )
+            ) && let Ok(_io) = self.cache.io()
+                && self
+                    .cache
+                    .check(&retained_lease, retained_admission)
+                    .is_ok()
+            {
+                let _ = super::remove_record(&self.cache.path(retained_admission.identity.key()));
+            }
+            match &result {
+                Ok(()) => diagnostic::report(Event::WriteConfirmed, Cause::Complete),
+                Err(error) => diagnostic::report(
+                    Event::NotCacheable,
+                    if let Some(reason) = rejection.or(capture.http_rejection()) {
+                        Cause::Policy(reason)
+                    } else {
+                        match error {
+                            CacheError::Cancelled | CacheError::Expired | CacheError::Revoked => {
+                                Cause::Policy(super::http_policy::Reason::Cancelled)
+                            }
+                            CacheError::Limit => Cause::Limit,
+                            CacheError::Busy => Cause::Busy,
+                            _ => Cause::WriteFailed,
+                        }
+                    },
+                ),
+            }
+            result
+        } else {
+            self.cache.put_reader(self.request, reader)
+        }
     }
 }
 struct GuardedCapture {

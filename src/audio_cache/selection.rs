@@ -25,6 +25,8 @@ pub(crate) struct PreparedSelection {
     lease: Lease,
     prepared: VerifiedOnline,
     file: Option<Arc<File>>,
+    http: Option<http_policy::Metadata>,
+    http_verified: bool,
     touch: Option<Sender<()>>,
 }
 struct Slot(Arc<AtomicBool>);
@@ -64,15 +66,26 @@ impl AudioCache {
                         return Err(CacheError::Cancelled);
                     }
                     cache.0.authority.check_storage_prepared(&prepared)?;
-                    let file = {
+                    let (file, http) = {
                         let _io = cache.io()?;
                         cache.lease_current(&lease)?;
-                        read_record(
+                        let file = read_record(
                             &cache.path(identity.key()),
                             identity.key(),
                             Some(identity.scope()),
                             prepared.permission.content,
-                        )?
+                        )?;
+                        let http = if cache.0.authority.private_http() && file.is_some() {
+                            read_http_record(&cache.path(identity.key()))?
+                        } else {
+                            None
+                        };
+                        let file = if cache.0.authority.private_http() && http.is_none() {
+                            None
+                        } else {
+                            file
+                        };
+                        (file, http)
                     };
                     cache.lease_current(&lease)?;
                     if worker_abandoned.load(Ordering::Acquire) {
@@ -85,6 +98,8 @@ impl AudioCache {
                             lease: lease.clone(),
                             prepared,
                             file: file.map(Arc::new),
+                            http,
+                            http_verified: false,
                             touch: Some(touch),
                         },
                         used,
@@ -120,6 +135,55 @@ impl AudioCache {
     }
 }
 impl PreparedSelection {
+    pub(crate) fn has_file(&self) -> bool {
+        self.file.is_some()
+    }
+
+    pub(crate) fn revalidate_http(
+        &mut self,
+        resolver: &crate::stream::StreamResolver,
+        remote: &crate::playback::RemotePlaybackSource,
+        token: &crate::session::AccessToken,
+        cancellation: &crate::stream::DeliveryCancellation,
+    ) -> std::result::Result<(), http_policy::Reason> {
+        if !self.cache.0.authority.private_http() || self.file.is_none() {
+            return Ok(());
+        }
+        self.cache
+            .lease_current(&self.lease)
+            .map_err(|_| http_policy::Reason::Cancelled)?;
+        let metadata = self
+            .http
+            .as_ref()
+            .ok_or(http_policy::Reason::ValidatorsMissing)?;
+        resolver.revalidate_http(remote, metadata, token, cancellation)?;
+        self.cache
+            .lease_current(&self.lease)
+            .map_err(|_| http_policy::Reason::Cancelled)?;
+        self.http_verified = true;
+        Ok(())
+    }
+
+    pub(crate) fn discard_file(&mut self) {
+        self.file = None;
+        self.http = None;
+        self.http_verified = false;
+    }
+
+    pub(crate) fn retire_record(&mut self) -> Result<()> {
+        self.cache.lease_current(&self.lease)?;
+        let _io = self.cache.io()?;
+        self.cache.lease_current(&self.lease)?;
+        self.cache
+            .0
+            .authority
+            .check_storage_prepared(&self.prepared)?;
+        remove_record(&self.cache.path(self.prepared.permission.identity.key()))?;
+        drop(_io);
+        self.discard_file();
+        Ok(())
+    }
+
     /// Fresh authenticated source resolution is required before this memory-only
     /// commit. No cached bytes become a playable Hit before it succeeds.
     pub(crate) fn admit(self, current: impl Fn() -> bool) -> Result<Option<Hit>> {
@@ -129,7 +193,12 @@ impl PreparedSelection {
             prepared,
             file,
             touch,
+            http: _,
+            http_verified,
         } = self;
+        if cache.0.authority.private_http() && file.is_some() && !http_verified {
+            return Err(CacheError::NeedsOnline);
+        }
         let identity = prepared.permission.identity;
         {
             let state = cache.0.state.lock().map_err(|_| CacheError::Unavailable)?;

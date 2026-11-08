@@ -882,4 +882,6 @@ mod tests;
 mod xml;
 
 mod resolver;
+pub(crate) use resolver::HttpResourceIdentity;
 pub use resolver::StreamResolver;
+mod revalidation;

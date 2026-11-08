@@ -163,6 +163,7 @@ impl StorageAuthority for LicensedResourceAuthority {
             identity: *identity,
             revision: permission.revision,
             content: Some(permission.resource.content),
+            basis: AdmissionBasis::IndependentLicense,
         })
     }
     fn check(&self, grant: &StorageGrant) -> Result<()> {

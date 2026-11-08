@@ -137,6 +137,7 @@ impl StorageAuthority for SyntheticAuthority {
             identity: *identity,
             revision: rights.revision,
             content: None,
+            basis: AdmissionBasis::IndependentLicense,
         })
     }
     fn check(&self, permit: &StorageGrant) -> Result<()> {

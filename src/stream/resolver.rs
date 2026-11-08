@@ -17,6 +17,37 @@ const LEGACY_CHECKSUM_PREFIX: &[u8] = b"XGRlBW9FXlekgbPrRHuSiA";
 // XML `ts` or claim an authoritative server expiry / renew playback rights.
 const SOURCE_FRESHNESS: Duration = Duration::from_secs(60);
 
+/// Constructible only in this resolver after the descriptor has passed the
+/// existing legacy URI validation. This names a file/encoding, not immutable
+/// bytes and not a provider entitlement. No path or signing data is retained.
+pub(crate) struct HttpResourceIdentity([u8; 32]);
+
+impl HttpResourceIdentity {
+    fn from_validated_descriptor(parts: &xml::LegacyParts, bitrate: u32) -> Self {
+        let mut context = ring::digest::Context::new(&ring::digest::SHA256);
+        context.update(b"Karin resolved legacy MP3 file locator v1\0");
+        let host = parts.host.to_ascii_lowercase();
+        let bitrate = bitrate.to_be_bytes();
+        for component in [
+            b"https".as_slice(),
+            host.as_bytes(),
+            parts.path.as_bytes(),
+            b"audio/mpeg;codec=mp3".as_slice(),
+            &bitrate,
+        ] {
+            context.update(&(component.len() as u64).to_be_bytes());
+            context.update(component);
+        }
+        let mut result = [0; 32];
+        result.copy_from_slice(context.finish().as_ref());
+        Self(result)
+    }
+
+    pub(crate) fn hash(&self) -> [u8; 32] {
+        self.0
+    }
+}
+
 #[derive(Clone)]
 pub struct StreamResolver {
     transport: DeliveryProbe,
@@ -55,6 +86,19 @@ impl StreamResolver {
         self.resolve_until(service, token, track_id, cancellation, expires_at)
     }
 
+    /// Only a previously stored HTTP candidate needs this extra request. First
+    /// play remains the existing resolution followed immediately by GStreamer.
+    /// This method checks metadata only and is called on the resolution worker.
+    pub(crate) fn revalidate_http(
+        &self,
+        remote: &RemotePlaybackSource,
+        stored: &crate::audio_cache::http_policy::Metadata,
+        token: &AccessToken,
+        cancellation: &DeliveryCancellation,
+    ) -> Result<(), crate::audio_cache::http_policy::Reason> {
+        super::revalidation::revalidate(&self.transport.client, remote, stored, token, cancellation)
+    }
+
     fn resolve_until(
         &self,
         service: &MusicService,
@@ -82,8 +126,8 @@ impl StreamResolver {
             report.category = DeliveryCategory::NoDeliveryOptions;
             return Err(report);
         }
-        let url = self
-            .select_mp3(envelope.result)
+        let (url, bitrate) = self
+            .select_mp3_details(envelope.result)
             .map_err(|category| DeliveryReport { category, ..report })?;
         if Instant::now() >= expires_at {
             report.stage = DeliveryStage::Resolution;
@@ -121,6 +165,7 @@ impl StreamResolver {
             return Err(report);
         }
         let uri = legacy_uri(&parts).map_err(|category| DeliveryReport { category, ..report })?;
+        let identity = HttpResourceIdentity::from_validated_descriptor(&parts, bitrate);
         #[cfg(test)]
         if let Some(origin) = &self.media_fixture_origin {
             let parsed = Url::parse(&uri).map_err(|_| DeliveryReport {
@@ -132,24 +177,34 @@ impl StreamResolver {
                 origin.as_str().trim_end_matches('/'),
                 parsed.path()
             ));
-            return RemotePlaybackSource::from_test_resolver(&resource, expires_at).map_err(|_| {
-                DeliveryReport {
+            return RemotePlaybackSource::from_test_resolver(&resource, expires_at)
+                .map(|source| source.with_http_cache_resource(identity))
+                .map_err(|_| DeliveryReport {
                     category: DeliveryCategory::SourceExpired,
                     ..report
-                }
-            });
+                });
         }
-        RemotePlaybackSource::from_resolver(&uri, expires_at).map_err(|_| DeliveryReport {
-            category: if Instant::now() >= expires_at {
-                DeliveryCategory::SourceExpired
-            } else {
-                DeliveryCategory::UnsafeResource
-            },
-            ..report
-        })
+        RemotePlaybackSource::from_resolver(&uri, expires_at)
+            .map(|source| source.with_http_cache_resource(identity))
+            .map_err(|_| DeliveryReport {
+                category: if Instant::now() >= expires_at {
+                    DeliveryCategory::SourceExpired
+                } else {
+                    DeliveryCategory::UnsafeResource
+                },
+                ..report
+            })
     }
 
+    #[cfg(test)]
     fn select_mp3(&self, options: Vec<DeliveryOption>) -> Result<Url, DeliveryCategory> {
+        self.select_mp3_details(options).map(|(url, _)| url)
+    }
+
+    fn select_mp3_details(
+        &self,
+        options: Vec<DeliveryOption>,
+    ) -> Result<(Url, u32), DeliveryCategory> {
         // A declared transport changes the protocol contract. Do not silently
         // ignore protected/unknown declarations by selecting another entry.
         if options
@@ -218,7 +273,7 @@ impl StreamResolver {
                 selected = Some((bitrate, url));
             }
         }
-        selected.map(|(_, url)| url).ok_or(failure)
+        selected.map(|(bitrate, url)| (url, bitrate)).ok_or(failure)
     }
 
     #[cfg(test)]

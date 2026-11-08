@@ -231,6 +231,7 @@ fn configure_source(source: &gst::Element, admission: &Admission) -> bool {
     for (name, expected) in [
         ("automatic-redirect", bool::static_type()),
         ("ssl-strict", bool::static_type()),
+        ("compress", bool::static_type()),
         ("cookies", gst::glib::StrV::static_type()),
         ("extra-headers", gst::Structure::static_type()),
         ("user-id", String::static_type()),
@@ -248,6 +249,11 @@ fn configure_source(source: &gst::Element, admission: &Admission) -> bool {
     }
     source.set_property("automatic-redirect", false);
     source.set_property("ssl-strict", true);
+    // In supported souphttpsrc 1.24/1.26, compress=false explicitly appends
+    // Accept-Encoding: identity to every request, including later ranges.
+    // Keep extra-headers empty: adding identity there too appends a duplicate
+    // value and would differ from the revalidator's single identity header.
+    source.set_property("compress", false);
     // A non-NULL empty GStrv disables SoupCookieJar for every request without
     // adding a Cookie header (souphttpsrc's public cookies-property contract).
     // Passing NULL instead would leave the session's automatic jar enabled.
@@ -272,12 +278,6 @@ fn configure_source(source: &gst::Element, admission: &Admission) -> bool {
         .is_some_and(|property| property.value_type() == bool::static_type())
     {
         source.set_property("iradio-mode", false);
-    }
-    if source
-        .find_property("compress")
-        .is_some_and(|property| property.value_type() == bool::static_type())
-    {
-        source.set_property("compress", false);
     }
     #[cfg(test)]
     {
@@ -316,6 +316,7 @@ fn configure_source(source: &gst::Element, admission: &Admission) -> bool {
     }
     !source.property::<bool>("automatic-redirect")
         && source.property::<bool>("ssl-strict")
+        && !source.property::<bool>("compress")
         && source.property::<gst::glib::StrV>("cookies").is_empty()
         && source
             .property::<Option<gst::Structure>>("extra-headers")
@@ -327,6 +328,43 @@ fn configure_source(source: &gst::Element, admission: &Admission) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn identity_negotiation_does_not_add_duplicate_or_credential_headers() {
+        gst::init().unwrap();
+        let uri = "http://127.0.0.1:12345/get-mp3/isolated-header-fixture";
+        let admission =
+            RemotePlaybackSource::from_test_resolver(uri, Instant::now() + Duration::from_secs(60))
+                .unwrap();
+        let source = gst::ElementFactory::make("souphttpsrc")
+            .property("location", uri)
+            .property("compress", true)
+            .property(
+                "extra-headers",
+                gst::Structure::builder("headers")
+                    .field("Authorization", "synthetic-secret-not-forwarded")
+                    .field("Cookie", "synthetic-cookie-not-forwarded")
+                    .field("Accept-Encoding", "gzip")
+                    .build(),
+            )
+            .build()
+            .unwrap();
+        assert!(configure_source(&source, &Admission::Remote(admission)));
+        assert!(!source.property::<bool>("compress"));
+        assert!(
+            source
+                .property::<Option<gst::Structure>>("extra-headers")
+                .is_some_and(|headers| headers.n_fields() == 0)
+        );
+        assert!(source.property::<gst::glib::StrV>("cookies").is_empty());
+        assert!(source.property::<Option<String>>("user-id").is_none());
+        assert!(source.property::<Option<String>>("user-pw").is_none());
+        assert!(!source.property::<bool>("automatic-redirect"));
+        assert!(source.property::<bool>("ssl-strict"));
+        // Actual GET/HEAD/range wire values are independently asserted by the
+        // ordinary remote transport fixtures, not inferred from this property.
+        assert_eq!(source.current_state(), gst::State::Null);
+    }
 
     #[test]
     fn only_audio_codec_caps_can_autoplug_not_a_manifest_or_uri_list() {

@@ -12,6 +12,101 @@ use std::{net::TcpListener, thread};
 const PRIVATE: &str = "synthetic-private-delivery-value";
 const XML: &str = "<download-info><host>s268myt.storage.yandex.net</host><path>/synthetic-resource/track.mp3</path><ts>000592c073d58600</ts><s>synthetic-private-delivery-value</s></download-info>";
 
+#[test]
+fn descriptor_binding_distinguishes_file_and_encoding_from_temporary_signature_address() {
+    let source = |path: &str, timestamp: &str, bitrate: u32| {
+        let xml = format!(
+            "<download-info><host>s268myt.storage.yandex.net</host><path>{path}</path><ts>{timestamp}</ts><s>synthetic-private-delivery-value</s></download-info>"
+        );
+        let parts = xml::parse(xml.as_bytes()).unwrap();
+        let uri = legacy_uri(&parts).unwrap();
+        RemotePlaybackSource::from_resolver(&uri, Instant::now() + SOURCE_FRESHNESS)
+            .unwrap()
+            .with_http_cache_resource(HttpResourceIdentity::from_validated_descriptor(
+                &parts, bitrate,
+            ))
+    };
+    let first = source("/synthetic-resource/track.mp3", "000592c073d58600", 192);
+    let renewed = source("/synthetic-resource/track.mp3", "000592c073d58601", 192);
+    let other = source("/synthetic-resource/other.mp3", "000592c073d58601", 192);
+    let encoding = source("/synthetic-resource/track.mp3", "000592c073d58601", 320);
+    assert_ne!(first.http_cache_uri_hash(), renewed.http_cache_uri_hash());
+    assert_eq!(
+        first.http_cache_resource_hash(),
+        renewed.http_cache_resource_hash()
+    );
+    assert_ne!(
+        first.http_cache_resource_hash(),
+        other.http_cache_resource_hash()
+    );
+    assert_ne!(
+        first.http_cache_resource_hash(),
+        encoding.http_cache_resource_hash()
+    );
+    let headers = || {
+        [
+            ("content-type", "audio/mpeg"),
+            ("content-length", "3"),
+            ("etag", "\"synthetic-version\""),
+        ]
+        .map(|(name, value)| (name.into(), value.into()))
+    };
+    let policy = crate::audio_cache::http_policy::ResponsePolicy::parse(200, headers()).unwrap();
+    let stored = policy
+        .record(
+            first.http_cache_uri_hash(),
+            first.http_cache_resource_hash(),
+            [3; 32],
+            3,
+        )
+        .unwrap();
+    assert!(
+        policy
+            .revalidate(
+                &stored,
+                renewed.http_cache_uri_hash(),
+                renewed.http_cache_resource_hash()
+            )
+            .is_ok()
+    );
+    assert_eq!(
+        policy.revalidate(
+            &stored,
+            other.http_cache_uri_hash(),
+            other.http_cache_resource_hash()
+        ),
+        Err(crate::audio_cache::http_policy::Reason::ResourceChanged)
+    );
+    assert_eq!(
+        policy.revalidate(
+            &stored,
+            encoding.http_cache_uri_hash(),
+            encoding.http_cache_resource_hash()
+        ),
+        Err(crate::audio_cache::http_policy::Reason::ResourceChanged)
+    );
+    let replacement = crate::audio_cache::http_policy::ResponsePolicy::parse(
+        200,
+        [
+            ("content-type", "audio/mpeg"),
+            ("content-length", "3"),
+            ("etag", "\"synthetic-replacement\""),
+        ]
+        .map(|(name, value)| (name.into(), value.into())),
+    )
+    .unwrap();
+    assert_eq!(
+        replacement.revalidate(
+            &stored,
+            renewed.http_cache_uri_hash(),
+            renewed.http_cache_resource_hash()
+        ),
+        Err(crate::audio_cache::http_policy::Reason::RepresentationChanged)
+    );
+    let visible = format!("{renewed:?}");
+    assert!(!visible.contains("synthetic-resource") && !visible.contains("get-mp3"));
+}
+
 fn options(body: &str) -> Vec<DeliveryOption> {
     serde_json::from_str::<Envelope>(body).unwrap().result
 }

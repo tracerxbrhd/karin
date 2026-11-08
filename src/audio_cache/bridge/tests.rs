@@ -307,6 +307,14 @@ fn production_resolution_fill_hit_restart_and_current_session_admission() {
     );
     assert_eq!(http.requested(), 1);
     drop(second);
+    // The successful hit schedules deferred LRU work which still legitimately
+    // owns the namespace. Await that owner before asserting a process reopen;
+    // do not retry or weaken the namespace lock itself.
+    let cleanup = Instant::now() + Duration::from_secs(2);
+    while cache.0.lookup_running.load(Ordering::Acquire) {
+        assert!(Instant::now() < cleanup, "cache lookup cleanup timed out");
+        thread::yield_now();
+    }
     drop(cache);
     let reopened = AudioCache::open(
         directory.0.join("audio"),

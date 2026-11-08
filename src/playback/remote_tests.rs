@@ -200,7 +200,7 @@ impl Drop for HttpFixture {
         if !thread::panicking() {
             assert!(
                 self.clean_headers.load(Ordering::Acquire),
-                "no session credentials, origin or referer reached the media fixture"
+                "media requests must omit credentials and negotiate only identity encoding"
             );
         }
     }
@@ -237,6 +237,14 @@ fn serve(
             .iter()
             .any(|name| line.starts_with(name))
     }) {
+        clean_headers.store(false, Ordering::Release);
+    }
+    let encodings = lowered
+        .lines()
+        .filter_map(|line| line.strip_prefix("accept-encoding:"))
+        .map(str::trim)
+        .collect::<Vec<_>>();
+    if encodings.as_slice() != ["identity"] {
         clean_headers.store(false, Ordering::Release);
     }
     let head = request.starts_with("HEAD ");
@@ -537,7 +545,7 @@ fn cdn_set_cookie_is_not_stored_or_replayed_on_a_later_range_request() {
     assert!(fixture.requested.load(Ordering::Acquire) >= 2);
     assert!(
         fixture.clean_headers.load(Ordering::Acquire),
-        "a CDN-issued cookie must not be replayed"
+        "a CDN-issued cookie must not be replayed and range encoding must stay identity"
     );
     controller.play().unwrap();
     wait_for(&controller, |snapshot| {
@@ -697,6 +705,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_HEAD(self): self.respond(True)
     def respond(self, head):
         if any(self.headers.get(h) for h in ('Authorization','Cookie','Origin','Referer')):
+            self.send_error(400); return
+        if self.headers.get_all('Accept-Encoding') != ['identity']:
             self.send_error(400); return
         start = 0
         value = self.headers.get('Range')

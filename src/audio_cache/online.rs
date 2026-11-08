@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Fresh online admission layered over independently established storage rights.
+//! Fresh playback admission layered over a separately selected cache policy.
 use super::*;
 
-/// Production coordinator, with no service permission by default. The delegate
-/// owns storage entitlement; online resolution can only narrow it. Neither the
-/// local attempt sequence nor a cached file is a provider storage grant.
+/// Production coordinator. A delegate can provide an independently licensed
+/// admission or a private HTTP candidate; the latter still needs actual response
+/// policy before publication and fresh representation validation before a hit.
 pub struct OnlineStreamAuthority {
     permission: Arc<dyn StorageAuthority>,
     state: Mutex<OnlineState>,
@@ -21,8 +21,9 @@ impl Default for OnlineStreamAuthority {
     }
 }
 impl OnlineStreamAuthority {
-    /// The delegate must establish applicable storage/reuse permission separately
-    /// from streaming. Currently Karin has no such Yandex service integration.
+    /// Select a local cache policy independently from playback access. A private
+    /// HTTP candidate still requires actual response and representation checks;
+    /// an independent license policy retains its own rights constraints.
     pub fn with_storage_permission(permission: Arc<dyn StorageAuthority>) -> Self {
         Self {
             permission,
@@ -31,6 +32,9 @@ impl OnlineStreamAuthority {
     }
 }
 impl StorageAuthority for OnlineStreamAuthority {
+    fn private_http(&self) -> bool {
+        self.permission.private_http()
+    }
     fn begin_online(&self, identity: ResourceIdentity) -> Result<OnlineCheck> {
         let mut state = self.state.lock().map_err(|_| CacheError::Unavailable)?;
         state.current = None;
@@ -59,7 +63,15 @@ impl StorageAuthority for OnlineStreamAuthority {
         Ok(VerifiedOnline { check, permission })
     }
     fn check_storage_prepared(&self, prepared: &VerifiedOnline) -> Result<()> {
-        self.permission.check(&prepared.permission)
+        self.permission.check(&prepared.permission)?;
+        let state = self.state.lock().map_err(|_| CacheError::Unavailable)?;
+        if state.sequence == prepared.check.sequence
+            && state.pending == Some((prepared.check.identity, true))
+        {
+            Ok(())
+        } else {
+            Err(CacheError::Cancelled)
+        }
     }
     fn commit_online(&self, prepared: VerifiedOnline) -> Result<()> {
         let VerifiedOnline { check, permission } = prepared;
@@ -74,6 +86,7 @@ impl StorageAuthority for OnlineStreamAuthority {
                 identity: check.identity,
                 revision: check.sequence,
                 content: permission.content,
+                basis: permission.basis,
             },
             permission,
         ));
@@ -100,6 +113,7 @@ impl StorageAuthority for OnlineStreamAuthority {
                     current.identity == grant.identity
                         && current.revision == grant.revision
                         && current.content == grant.content
+                        && current.basis == grant.basis
                 })
                 .map(|(_, permission)| permission)
                 .ok_or(CacheError::Revoked)?
@@ -110,6 +124,7 @@ impl StorageAuthority for OnlineStreamAuthority {
             current.identity == grant.identity
                 && current.revision == grant.revision
                 && current.content == grant.content
+                && current.basis == grant.basis
         }) {
             Ok(())
         } else {

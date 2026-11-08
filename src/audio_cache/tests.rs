@@ -732,6 +732,7 @@ fn authorization_for_a_different_resource_is_never_accepted() {
                 },
                 revision: 1,
                 content: None,
+                basis: AdmissionBasis::IndependentLicense,
             })
         }
         fn check(&self, _: &StorageGrant) -> Result<()> {

@@ -95,7 +95,7 @@ accounts in Cloud/CI or point capture tools at a personal desktop.
 
 <a id="synthetic-audio-cache-checks"></a>
 
-## Unified cache checks and current service boundary
+## Unified cache checks and private HTTP policy
 
 The production stores share one coordinator, enabled by default with a 2 GiB
 allowance. Preferences → **Кеширование** offers exactly 500 МБ (500 MiB),
@@ -109,13 +109,12 @@ cargo +1.98.1 test --lib --all-features --locked audio_cache
 cargo +stable test --lib --locked audio_cache
 cargo +1.98.1 test --lib --all-features --locked cache_budget
 cargo +stable test --lib --locked settings
-cargo +1.98.1 build --release --locked
-./target/release/karin
 ```
 
-Tests use private isolated directories, generated audio and fake grants, not your
-application cache or wallet. They retain the original reopen/Busy regression and
-exercise the actual shared stores/player without establishing Music storage rights.
+Tests use private isolated directories, original generated audio and local HTTP
+responses, not your application cache or account. They exercise the ordinary
+private HTTP policy and shared store/player, including validators, changed
+representations, refusals and restart. This does not establish live Music results.
 The disk guard requires free space for the reserved write plus 1% of filesystem
 capacity, clamped to 64–512 MiB; tests must have that headroom too. Unlimited
 removes the user byte quota, not this guard or format/work bounds.
@@ -123,69 +122,74 @@ removes the user byte quota, not this guard or format/work bounds.
 Existing v1 settings migrate without resetting sign-in: the two old default
 256 MiB limits become 2 GiB; custom valid limits are summed and rounded up to
 the next offered choice, with sums above 4 GiB becoming Unlimited. Corrupt cache
-values recover independently of valid session/forget/appearance fields. The
-on-disk metadata/artwork/audio formats and locations are retained.
+values recover independently of valid session/forget/appearance fields. Existing
+records without usable HTTP validation metadata are refreshed online rather
+than trusted as private HTTP hits.
 
-The owner identifies `0709729` as the last accepted PR #26 revision. This does
-not accept the later online-authority changes or their correction. Build using the
-commands above and the Flatpak section below, then check in **each** environment:
-
-1. Light/dark, compact/wide and HiDPI: six positions; Home/End/arrows and pointer;
-   readable value and no horizontal clipping. Restart preserves the choice.
-2. Compare the single usage total before/after ordinary browsing. Rapid slider
-   motion must leave the UI responsive; reducing the quota trims in the background.
-3. Play real Music, use Pause/Resume/Seek/Next, Wave and MPRIS. Disable and Clear
-   must preserve current playback/sign-in while preventing late cache publication.
-4. Retry a reported storage failure, restart/logout, and confirm account isolation.
-
-No switch bypasses the missing [service storage/reuse contract](AUDIO_CACHE_REVIEW.md).
-Music remains online-only, so the audio category must stay empty; metadata/artwork
-can make the displayed combined usage nonzero. Network-save → restart → fresh
-online validation → local reuse remains unaccepted until both provider conditions
-are established. See [ADR-0030](adr/0030-unified-cache-budget-and-preferences.md),
-[provider questions](AUDIO_CACHE_PROVIDER_REQUEST.md) and
-[validation](VALIDATION.md#v06-unified-cache).
+A resource is stored only when its actual supported MP3 response allows it.
+Every replay obtains fresh account/resource access and verifies the retained
+representation. `no-store` and explicit restrictions decline storage; absent or
+unusable version evidence declines local reuse. Storage failure leaves admitted
+network playback available. HTTP cache admission is not a provider entitlement,
+legal license, Offline Mode or permission to distribute content. See
+[AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md) and
+[ADR-0030](adr/0030-unified-cache-budget-and-preferences.md).
 
 ## PR #26 corrected-cache acceptance
 
-Cloud/CI exercise the complete normal application factory across six actual
-processes: owned CC0 audio → one GStreamer transfer/save → local replay → new
-process/fresh account and resource check → the same cached inode. They also
-exercise HTTP403, corrupt-file online repair, native Clear during Playing and
-`no-store`. The production policy checks the rightsholder's exact SHA-256/length;
-no mock authority, cache-install shortcut or release fake-login/origin flag is
-used for this scenario. The credential backend and HTTP account are isolated
-fixtures. This establishes no access to the real Yandex service.
+**The real service has not been verified for this revision.** After the final
+Cloud checks, perform this single sequence on the exact PR HEAD in Native and
+installed Flatpak. Local HTTP fixtures establish application behavior; only this
+local service check can establish what a real CDN resource supports.
 
-For optional reproduction as an ordinary desktop user with MP3 plugins:
+Build Native as described above:
 
 ```sh
-cargo +1.98.1 test --lib --all-features --locked \
-  native_audio_cache_application_process_restart -- --ignored --test-threads=1 --nocapture
+cargo +1.98.1 build --release --locked --no-default-features --features cassette-auth
+ulimit -c 0
+KARIN_AUDIO_CACHE_DIAGNOSTICS=1 ./target/release/karin 2>&1 |
+  grep --line-buffered -E '^cache=(miss|write-confirmed|hit|stale|not-cacheable) source=(local|remote) reason=[a-z0-9-]+$'
 ```
 
-Use one final owner check for the exact PR HEAD after Cloud verification:
+Build/install the same source with the Flatpak instructions below, then run:
 
-1. Build Native with `cargo +1.98.1 build --release --locked`; install the same
-   source as Flatpak using the next section. Record the commit and installation.
-2. In each application, use ordinary sign-in and play Music. Exercise
-   Pause/Resume/Seek/Next, queue, Wave, media keys/MPRIS and normal close/reopen.
-3. Check Preferences: enabled by default, 2 GiB, all six choices, one measured
-   total, retained choice after restart, Clear and any reported operation Retry.
-   Clear must retain sign-in and already playing audio. If an unverified older
-   revision was used, Clear once before measuring the new baseline.
-4. Report PASS/FAIL for this final build. Do not upload account data, tokens,
-   signed URLs or music files. Cloud/Xvfb is not KDE/Wayland/PipeWire acceptance.
+```sh
+ulimit -c 0
+flatpak run --env=KARIN_AUDIO_CACHE_DIAGNOSTICS=1 io.github.tracerxbrhd.Karin 2>&1 |
+  grep --line-buffered -E '^cache=(miss|write-confirmed|hit|stale|not-cacheable) source=(local|remote) reason=[a-z0-9-]+$'
+```
 
-**Real Yandex audio saving is still unavailable**, rather than an expected PASS
-in this owner check. The exact stop is the ordinary assembly's
-`MissingStorageContract::authorize → NoGrant`; no independent permission or
-confirmed retained-representation mapping has been established for that service.
-Yandex playback remains online and the audio category stays empty after Clear;
-metadata/artwork can contribute to total usage. Do not repeat a local service
-cache test while that gate is closed or interpret the CC0 receipt as Music
-acceptance. See [AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md). No user flag bypasses
-this boundary; there is no offline mode, Downloads or content export.
+The opt-in diagnostic reports only fixed `cache`, `source` and `reason`
+categories. It does not enable HTTP, WebKit or GStreamer tracing. Keep those
+traces off; do not share URLs, tokens, IDs, HTTP bodies, music files or personal
+screenshots. No developer credentials or altered client identity are required.
+
+1. Use ordinary sign-in or protected restoration. Keep caching enabled and choose
+   one ordinary track you can play. Confirm audible sound and normal
+   Pause/Resume/Seek. First playback should select `source=remote`; eligible
+   complete responses can produce `cache=write-confirmed` without a second full
+   media download. Wait for that confirmation before checking a replay.
+2. Select the same track again. A verified saved representation must report
+   `cache=hit source=local`; hearing audio alone or seeing larger total usage is
+   insufficient proof. If the resource reports `stale` or `not-cacheable`, retain
+   only its fixed reason: the app must continue permitted online playback without
+   guessing identity or overriding a response restriction.
+3. Close normally without logging out, reopen with the same diagnostic command
+   and play that track again. Protected sign-in and fresh access/version checks
+   must precede any local hit. A renewed signature alone must neither prove a new
+   audio version nor authorize reuse without a valid resource binding/validator.
+4. While audio is playing, use Preferences → **Очистить кеш**. Existing playback
+   and sign-in must remain active; later play starts from a cache miss. Check
+   all six limit choices, one measured total, persisted choice and any reported
+   Retry. Exercise Next/Previous, queue, Wave and media keys/MPRIS briefly.
+5. Report the exact revision, Native/installed-Flatpak installation and the fixed
+   category lines with PASS/FAIL/not-assessed for save, replay, restart and Clear.
+   A CDN without a safe validator is an explicit per-resource limitation, not a
+   confirmed cache hit. Do not weaken checks or send private data to diagnose it.
+
+No offline behavior is promised. Public client distribution remains a separate
+question in #5/#22. This procedure is one final service acceptance, not a request
+to repeat a local test after each internal change.
 
 ## Flatpak source build
 

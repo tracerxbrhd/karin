@@ -61,24 +61,24 @@ installed Flatpak. The owner identifies `0709729` as the last accepted PR #26 re
 online-authority correction requires new acceptance. One shared policy/budget/usage
 and Clear covers all permitted categories, with
 2 GiB by default and an explicit Unlimited choice guarded by available disk space.
-This interface does not enable audio storage: the service authority still refuses
-storage/reuse admission.
-For independently licensed resources, the completed production path captures
-one existing GStreamer transfer and checks exact content before publication.
-Separate application processes verify local replay/restart, refusal, corruption
-repair and Clear. These results concern the expressly CC0 original resource,
-not the real catalog. Cache lookup and bookkeeping do not delay source admission;
-a busy/failed cache keeps that selection online.
-Music still plays over the established online path and is not saved. The exact
-missing inputs are an applicable Karin storage/reuse permission and the provider's
-fresh account/resource check authorizing a cached hit; a playable MP3, subscription,
-`permissions.until` or `cacheLimit` alone does not define that contract. See
-[AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md).
-PR #26 and Issue #20 remain unfinished. Generated-media tests exercise the shared
-store/bridge and actual GStreamer reuse/reopen with independent fixture permission;
-they are not service cache or installed-Flatpak acceptance. The production
-online coordinator defaults to the missing-contract authority and cannot grant
-storage from a playable URL. See the [post-acceptance audit](PR26_REVISION_AUDIT.md). Downloads,
+The private HTTP-cache path considers the real response received by the existing
+GStreamer source. It saves only complete supported MP3 responses whose HTTP and
+content restrictions allow storage. It does not issue a provider entitlement or
+call HTTP cacheability a copyright license. Every local replay requires fresh
+Music access and a verified representation; a track ID or renewed signed URL
+alone cannot prove unchanged bytes. Unusable validators, an explicit refusal,
+`no-store`, cancellation or a failed cache leave permitted network playback
+available. Cache lookup and bookkeeping remain off GTK.
+
+**Real Music caching for this revision has not been verified.** Local HTTP and
+generated-audio tests exercise the production application path, not the live
+service or installed Flatpak. A CDN may supply no suitable version validator;
+that resource then remains online with a fixed diagnostic reason. PR #26 and
+Issue #20 remain unfinished pending the final service check. Public client
+distribution/registration questions remain separate in #5/#22. See
+[AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md) and the
+[single acceptance procedure](BUILDING.md#pr-26-corrected-cache-acceptance).
+The [post-acceptance audit](PR26_REVISION_AUDIT.md) remains historical evidence. Downloads,
 mass prefetch and offline playback are outside this iteration. A later offline
 mode needs its own actual lifetime/revalidation rules; it is not a prerequisite
 invented for transparent online-revalidated caching.

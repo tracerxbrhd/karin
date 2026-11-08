@@ -2,24 +2,29 @@
 
 # Audio caching and offline access
 
-Karin's production path saves and reuses independently permitted audio with
-**fresh online admission before reuse**. Ordinary Yandex Music audio remains
-online-only: an applicable storage/reuse permission and a confirmed check that
-authorizes reuse of the same retained representation are not established.
-These are concrete unresolved service inputs, not a conclusion drawn merely
-from missing official documentation. Heard Music, a subscription, GPL source
-reuse and a working MP3 URL do not establish them. Downloads and offline mode
-remain outside this scope.
+Karin implements a private HTTP cache for supported, already authorized full-MP3
+playback, with **fresh online access and representation validation before reuse**.
+The policy considers the response actually delivered to the existing GStreamer
+player. It does not invent a Yandex storage entitlement or call HTTP caching a
+legal license. A missing bespoke provider-grant API no longer blocks analysis of
+an otherwise eligible response. Explicit content restrictions, protected formats
+and HTTP storage prohibitions still reject the cache copy.
+
+**Real Music service behavior for this revision has not been verified.** The
+production path is connected, but a local fixture cannot establish which
+validators the actual CDN supplies or that a particular real track will produce
+a local hit. Downloads, mass prefetch and offline mode remain outside this scope.
 Issue [#20](https://github.com/tracerxbrhd/karin/issues/20) remains open;
 public authorization/API distribution rights remain separately tracked in
-[#5](https://github.com/tracerxbrhd/karin/issues/5).
+[#5](https://github.com/tracerxbrhd/karin/issues/5) and the
+[release checklist #22](https://github.com/tracerxbrhd/karin/issues/22).
 
 ## Three distinct modes
 
 | Mode | Current result | Additional condition |
 | --- | --- | --- |
 | Active streaming buffer | Transient pipeline memory; no saved media or cross-play reuse | Preserve online-resource admission |
-| Reusable audio while online | Exact independently licensed resources use the production store/player path; Yandex catalog persistence remains disabled | Applicable permission, checked representation identity and fresh account/resource admission before each hit |
+| Reusable audio while online | Ordinary playback can save an eligible complete MP3 response and reuse a validated local record | Fresh account/resource access, acceptable HTTP/content policy and verified retained representation before each hit |
 | Offline audio | Outside this initial cache scope; no offline switch or badge | A separate contract for permitted resources, applicable account/device scope, expiry, renewal, revocation and offline checks |
 
 Automatic cleanup does not turn a disk recording into an in-memory stream.
@@ -27,8 +32,8 @@ An old local file cannot override an API refusal, lost rights or another account
 The resolver's sixty-second admission deadline and opaque descriptor `ts` are
 transport properties, not offline leases or permitted retention periods. An
 online-only cache need not invent an offline entitlement or demand an offline
-feature before shipping; its own storage and online reuse conditions still need
-to be established.
+feature before shipping. HTTP storage/revalidation, current playback access and
+content/distribution rights remain separate decisions.
 
 ## Cassette source audit
 
@@ -131,20 +136,22 @@ and clears `temp-template`; it rejects downloadbuffer and manifest paths.
 confirms that a temporary-file template would instead spool the stream
 independently of these memory limits.
 
-For an independently admitted resource, a source-pad probe copies the existing
+For a policy-admitted resource, a source-pad probe copies the existing
 player's compressed bytes into a bounded **2 MiB** memory channel. This is
 separate from queue2's limit and creates no disk spool or additional media GET.
 Callbacks pass buffers/events unchanged and abandon caching on overflow rather
 than block playback. The existing writer starts only after actual Playing and
-publishes only a complete permitted representation. A complete HTTP200 response,
+publishes only a complete HTTP-eligible representation. A complete HTTP200 response,
 or HTTP206 covering exactly bytes `0..total-1`, is eligible; partial ranges,
-encoding, `no-store`, seek/discontinuity, cancellation and network failure leave
-online playback available without publishing an incomplete cache file.
+non-identity encoding, `no-store`, seek/discontinuity, cancellation and network
+failure leave online playback available without publishing an incomplete cache file.
 
-Independent permission lookup and disk integrity work overlap StreamResolver's
-fresh access check. Selection consumes only an already-ready result; a slow or
-busy cache leaves that play online. Final file-descriptor admission is memory-only,
-and LRU bookkeeping is deferred rather than delaying audio.
+Disk integrity work overlaps StreamResolver's fresh access check. Selection
+consumes only an already-ready candidate; a slow or busy cache leaves that play
+online. A candidate additionally needs a bounded HTTP revalidation against the
+currently admitted source. Final file-descriptor admission is memory-only and
+LRU bookkeeping is deferred rather than delaying audio. The first play does not
+start another full media request to fill the cache.
 
 `LicensedResourceAuthority` is a production policy for trusted rightsholder
 input, currently an exact **CC0-1.0** dedication bound to account/track, SHA-256,
@@ -152,8 +159,8 @@ length and an application admission revision. It checks those exact bytes before
 publication and reuse. An HTTP `license` label, cache directive or API display
 field cannot populate that registry. The original audio generated by the
 ordinary-application process fixture is expressly dedicated to CC0; its Rust
-source remains GPL-3.0-or-later. This gives the permitted-resource path a real
-rights basis without manufacturing a grant for Yandex catalog audio.
+source remains GPL-3.0-or-later. This separate policy is not the ordinary private
+HTTP admission rule and does not manufacture a grant for Yandex catalog audio.
 
 Managed [playbin buffering](https://gstreamer.freedesktop.org/documentation/playback/playbin.html#buffering)
 would require explicit BUFFERING-message handling, preserving user pause intent
@@ -209,9 +216,9 @@ live Karin account response or an official permission for Karin:
   establishes a transport mechanism, not a stored-resource reuse grant. Karin
   does not adopt a protected transport or decryption-key path to fill this gap.
 
-These fields should be evaluated if the provider supplies an applicable contract;
-they must not be renamed into invented entitlement or silently ignored as proof
-that no account permission data exists.
+These fields remain account/content signals. They must not be renamed into a
+provider storage entitlement or silently ignored as proof that no account
+permission data exists. Their absence does not override ordinary HTTP policy.
 
 The concrete route is authenticated `GET /account/status`:
 [yamu's client](https://github.com/okhsunrog/yamu/blob/9803f319b9ea6f81befbc3117e4592132ed07d0e/src/client/account.rs)
@@ -223,56 +230,89 @@ as an offline track-count limit. The published MarshalX permission fixture conta
 value. None of these reviewed schemas makes `until` a saved track's retention
 deadline or maps an arbitrary unknown string to permission to cache.
 
-No real account response was collected for this review. Even a local confirmation
-that these fields exist would supply wire evidence only; it would not create the
-missing permission or define the provider's cache-hit authorization semantics.
+No real account response was collected for this review. A local confirmation of
+these fields would supply wire evidence, not a legal license or an immutable
+representation identity.
 
-HTTP cacheability is a separate technical signal. [RFC9111](https://www.rfc-editor.org/rfc/rfc9111.html),
-§§3 and 5.2.2.7, permits private response caching subject to its requirements;
-explicit directives matter for already permitted content. The protocol does not
-identify a rightsholder's permission for Karin's retained catalog audio. HTTP
-response caches use URI/Vary identity, while a track ID can outlive a particular
-recording or signed URL. A real-service adapter therefore also needs a confirmed
-mapping to the retained representation. Absence of `no-store`, the name
-`download-info`, `cacheLimit` or a successful stream must not substitute for that
-mapping or permission. No additional provider agreement is invented as a
-prerequisite for demonstrably owned or openly licensed original test audio.
+## Private HTTP admission and resource validation
 
-## Production boundary and concrete external gate
+The 2026-11-08 implementation revision supersedes the blanket
+`MissingStorageContract → NoGrant` decision for ordinary playback. Four checks
+remain distinct:
 
-[ADR-0029](adr/0029-synthetic-audio-cache-foundation.md) specifies the storage,
-resolver and application boundary. The ordinary-application fixture uses the
-production licensed-resource policy, MainWindow, persistence, shared budget,
-queue and GStreamer in separate application processes. Its first play, local
-replay/restart, refusal, corruption repair, active Clear and `no-store` scenarios
-record media-request/byte counts and representation identity. This is a
-credential-free demonstration on expressly permitted original audio, not a mock
-grant for Yandex or a live-service test. Executed results and the one final
-acceptance procedure belong in [BUILDING](BUILDING.md#synthetic-audio-cache-checks)
-and [VALIDATION](VALIDATION.md#v06-audio-cache-foundation).
+| Check | Required evidence and behavior |
+| --- | --- |
+| Current playback access | The existing account-bound Music session and a fresh supported, non-preview Legacy MP3 delivery resolution. A refusal never becomes a local cache hit. |
+| HTTP storage eligibility | Inspect the actual guarded GStreamer response. Accept only a bounded, complete `audio/mpeg` representation; allow identity encoding and `Vary: Accept-Encoding` with matching identity requests; reject other encodings/variant dimensions, `no-store`, partial transfer, malformed metadata and explicit storage restrictions such as HTTP451. |
+| Retained version | Validate an existing record against the currently admitted source without another full media GET. A track ID, equal size or changed signed URL alone is insufficient. |
+| Content constraints | Refuse protected/unsupported content and explicit restrictions. Private HTTP admission is a local engineering policy, not a fabricated provider entitlement or declaration of legal distribution rights. |
 
-Enabling transparent service caching requires these two concrete inputs:
+[RFC9111](https://www.rfc-editor.org/rfc/rfc9111.html) permits private response
+caching subject to its rules. `no-cache` permits storage with revalidation;
+`must-revalidate` cannot permit stale fallback. Karin requires a new successful
+online access/version check before **every** local play, even within an indicated
+freshness lifetime. A network failure therefore preserves a permitted online
+playback attempt but does not authorize stale local reuse. If fresh validation
+returns `no-store`, the completed record is removed before selecting the online
+source; an existing active playback descriptor remains valid. A complete eligible
+response may be stored without validators, but cannot become a local hit without
+a later successful proof of its current version.
 
-1. An applicable provider/rightsholder permission covering Karin's local storage
-   and later online reuse of the admitted resource/format, including any retention
-   conditions. The reviewed service facilities and official-app license do not
-   supply that permission for Karin.
-2. A documented or specifically confirmed provider contract defining the fresh
-   account/resource check that authorizes reuse, including refusal and rights-loss
-   behavior. Current streaming account validation and an issued MP3 address do not
-   themselves state that contract. No local TTL or invented entitlement substitutes
-   for it.
+For URI-bound validation, a returned strong validator must describe the same
+resource/variant. A bare `304` is not an exact-byte guarantee: `If-None-Match`
+uses weak comparison. [RFC9110 §8.8.1](https://www.rfc-editor.org/rfc/rfc9110.html#section-8.8.1)
+also warns that equal ETags on different resources do not prove equal bytes.
+Karin retains opaque fingerprints, not signed URLs. The resolver additionally
+binds the sealed Legacy descriptor's lowercase host, validated XML path, MP3
+codec and selected bitrate to a file-locator fingerprint across renewed
+signatures. Signing inputs `s` and `ts` are excluded. That binding still needs a
+matching strong validator and length; it does not declare the path immutable.
+Arbitrarily stripping URI signature or timestamp components is not a
+representation proof. A strong Last-Modified validation can be used only with the conservative RFC Date gap of
+at least sixty seconds and the required resource/length checks; an arbitrary date
+is not a content version. Both player and validation requests explicitly use
+`Accept-Encoding: identity`, allowing that one `Vary` dimension. Other nonempty
+`Vary` dimensions are declined rather than compared under unknown request state.
 
-A [prepared provider request](AUDIO_CACHE_PROVIDER_REQUEST.md) asks for these
-specific inputs and their machine-checkable semantics. It has **not been sent**.
-The owner can obtain that applicable permission and contract from the provider
-or rightsholder; account tokens, signed URLs and successful synthetic tests are
-not the missing evidence. There is no proven categorical ban on every independent
-client, and a storage implementation defect is not evidence of such a ban.
-Until the inputs are available, the real service must decline cache admission,
-fall back to the established online path and leave PR #26/Issue #20 unfinished.
+A trusted full-representation SHA-256 in
+[`Repr-Digest`, RFC9530 §3](https://www.rfc-editor.org/rfc/rfc9530.html#section-3)
+can be compared with the completed record's measured hash and length even when a
+signed URI changes. `Content-Digest` on a HEAD message is not the full audio
+digest. A suitable standard validator can establish identity without a bespoke
+Yandex SHA field, new entitlement endpoint or Offline Lease. If the actual server
+offers none, that resource stays online with a fixed diagnostic reason; its
+identity is not guessed.
 
-A later offline mode additionally needs its actual offline validation/lifetime
-rules; it is not a prerequisite we invent for the initial online-only cache.
-Do not import/decrypt official-app caches, persist signed URLs, infer permissions
-from reversible encoding or bypass DRM/device binding.
+Only bounded cache metadata, opaque identity, measured length/hash and validators
+are retained beside the completed record. OAuth tokens, cookies, signed URLs,
+raw responses and personal account fields are never serialized. The existing
+shared budget accounts for storage; Clear, logout, account changes and
+cancellation fence both payload and metadata. Partial or corrupt records are not
+hits. A storage or validation failure must not break otherwise admitted network
+playback.
+
+## Rights, distribution and verification scope
+
+The HTTP policy does not convert a subscription, transport URL, GPL code or
+`Cache-Control` into a copyright license. Primary service terms and applicable
+content rights remain separate; public registration/distribution questions stay
+in #5/#22. Qualifying statutory personal copying is also distinct from transient
+buffering or a provider-issued entitlement. No categorical independent-client
+ban or universal permission is inferred here. The earlier
+[prepared provider questions](AUDIO_CACHE_PROVIDER_REQUEST.md) remain unsent
+historical context, not a mandatory new API prerequisite for private HTTP checks.
+
+[ADR-0029](adr/0029-synthetic-audio-cache-foundation.md) records the revised
+boundary. Automated fixtures use the ordinary MainWindow, persistence, shared
+budget, queue and GStreamer with original audio and local HTTP responses. They
+cover first save, replay/restart, validators, changed representations, refusal,
+corruption, Clear and cancellation without a real account. Results belong in
+[VALIDATION](VALIDATION.md); they do not demonstrate live CDN behavior.
+
+**The real service has not been verified for this revision.** The single final
+[Native/Flatpak procedure](BUILDING.md#pr-26-corrected-cache-acceptance) obtains only
+fixed cache/source/reason categories from the actual playback path. It never
+requests tokens, signed addresses, identifiers, response bodies or music files.
+PR #26/Issue #20 remain open until the requested live user scenario is accepted.
+Offline listening, official-cache import/decryption, downloads and mass prefetch
+are outside this implementation.
