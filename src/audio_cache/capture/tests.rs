@@ -313,6 +313,42 @@ fn preroll_writer_drains_complete_bytes_but_waits_for_actual_playing_before_eof(
 }
 
 #[test]
+fn pipeline_retirement_releases_unplayed_complete_capture_but_preserves_played_body() {
+    for played in [false, true] {
+        let (capture, mut reader) = channel_http(Cancellation(Arc::new(AtomicBool::new(false))));
+        http_headers(&capture, &[("ETag", "\"original-v1\"")]);
+        buffer(&capture, 0, b"onetwo");
+        assert!(capture.is_complete());
+        // The early writer can drain the entire response during preroll. Only
+        // its EOF remains gated on a worker-confirmed Playing transition.
+        let mut body = [0; 6];
+        reader.read_exact(&mut body).unwrap();
+        assert_eq!(body, *b"onetwo");
+        if played {
+            capture.confirm_playing();
+        }
+        capture.retire_pipeline();
+        if played {
+            assert!(capture.is_complete());
+            assert_eq!(reader.read(&mut [0; 1]).unwrap(), 0);
+            assert!(capture.completed_http_policy().is_some());
+            assert_eq!(capture.failure(), None);
+        } else {
+            // No request cancellation or account retirement is needed to
+            // release the writer after a decoder/output failure. Late native
+            // events cannot revive or publish the abandoned unplayed body.
+            assert!(reader.read(&mut [0; 1]).is_err());
+            assert_eq!(capture.failure(), Some(CaptureFailure::PipelineDropped));
+            capture.confirm_playing();
+            capture.eos();
+            assert!(!capture.is_complete());
+            assert!(capture.completed_http_policy().is_none());
+            assert!(reader.read(&mut [0; 1]).is_err());
+        }
+    }
+}
+
+#[test]
 fn retirement_observer_finishes_a_queued_count_marker_but_never_revives_aborted_input() {
     let (capture, mut reader) = pair();
     headers(&capture, 6, None);

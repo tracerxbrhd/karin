@@ -574,7 +574,7 @@ impl Drop for ActivePipeline {
         // Native calls stay on the playback worker, including stop/replacement,
         // decoder error, EOS and application shutdown.
         if let Some(capture) = &self.cache_capture {
-            capture.interrupt_with(crate::audio_cache::capture::CaptureFailure::PipelineDropped);
+            capture.retire_pipeline();
         }
         let _ = self.element.set_state(gst::State::Null);
     }
@@ -1028,6 +1028,17 @@ impl Worker {
             return;
         }
         if eos {
+            // A very short stream can reach EOS before the next regular state
+            // observation. Query the real native state before retiring its
+            // pipeline; an accepted Play command alone is still insufficient.
+            if let Some(pipeline) = &self.pipeline
+                && let Some(capture) = &pipeline.cache_capture
+            {
+                let (result, state, _) = pipeline.element.state(gst::ClockTime::ZERO);
+                if result.is_ok() && state == gst::State::Playing {
+                    capture.confirm_playing();
+                }
+            }
             self.account_playing(false);
             self.pending = None;
             self.pipeline = None;

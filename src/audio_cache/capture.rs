@@ -626,6 +626,30 @@ impl Capture {
         self.interrupt_with(CaptureFailure::Interrupted);
     }
 
+    /// The native worker calls this when the owning pipeline is destroyed,
+    /// after its last possible Playing acknowledgment. A complete preroll body
+    /// whose decoder/output never played cannot leave a writer waiting for a
+    /// now impossible acknowledgment. Played complete bodies still finalize.
+    pub(crate) fn retire_pipeline(&self) {
+        if self.publication_ready() {
+            self.interrupt_with(CaptureFailure::PipelineDropped);
+            return;
+        }
+        let mut status = self.0.status.load(Ordering::Acquire);
+        while status != ABORTED {
+            let _ = self.0.failure.set(CaptureFailure::PipelineDropped);
+            match self.0.status.compare_exchange_weak(
+                status,
+                ABORTED,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => break,
+                Err(current) => status = current,
+            }
+        }
+    }
+
     pub(crate) fn interrupt_with(&self, failure: CaptureFailure) {
         let mut status = self.0.status.load(Ordering::Acquire);
         while status != COMPLETE && status != ABORTED {
@@ -648,8 +672,8 @@ impl Capture {
 
 // A request for `bytes=0-` can legitimately produce 206 for the WHOLE
 // representation. Accept no multipart, unknown total, gap or partial response.
-// Publication still requires contiguous offsets, exact EOF and the independent
-// content claim; status 206 is never treated as a general range-assembly mode.
+// Publication still requires contiguous complete bytes, actual Playing and
+// record integrity/policy checks; 206 is not a general range-assembly mode.
 fn whole_range(value: &str, length: u64) -> bool {
     let Some(value) = value.trim().strip_prefix("bytes ") else {
         return false;

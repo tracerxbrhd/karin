@@ -885,7 +885,8 @@ next online check retired a previous `current` admission still used by the
 writer. The new contract separates those events:
 
 - Drain during preparation, before Playing. Latch actual GStreamer Playing
-  separately and require it before publication. Never publish an unplayed body.
+  separately and require it before publication. Never publish an unplayed body;
+  pipeline retirement before Playing also releases a complete preroll reader.
 - Complete capture at the exact validated HTTP byte count, without waiting for
   pipeline EOS. Keep complete queued bytes readable after source teardown.
 - Bound retained media to 64 MiB per capture, four pending captures and one

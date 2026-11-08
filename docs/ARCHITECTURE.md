@@ -231,8 +231,10 @@ up to 64 MiB; at most four bodies allocate on arrival, for a worst-case retained
 body bound of 256 MiB. The writer starts draining during preparation, before Playing or
 the next GTK tick. The existing queue2 transport limit remains 2 MiB. Neither
 probe nor GTK waits for storage. Exact HTTP-body receipt marks capture complete
-without waiting for pipeline EOS, and completed bytes survive pipeline drop.
-Actual GStreamer Playing is latched separately and gates publication. A finite
+without waiting for pipeline EOS, and completed, played bytes survive pipeline drop.
+Actual GStreamer Playing is latched separately and gates publication. Retiring
+a pipeline before Playing aborts even a complete preroll body, so the reader
+cannot wait for an acknowledgement that can no longer arrive. A finite
 `captured` progress diagnostic cannot stand in for `write-confirmed`.
 
 A write-specific pin acquired after fresh access can be sealed only for a

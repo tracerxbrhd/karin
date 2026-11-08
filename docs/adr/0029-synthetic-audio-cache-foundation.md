@@ -129,7 +129,9 @@ exact-content claim.
 
 Exact complete HTTP-body receipt keeps the completed capture readable in bounded
 memory independently of downstream/pipeline EOS. Source teardown must preserve
-completed bytes for the reader. An incomplete capture still fails on replacement,
+completed, played bytes for the reader. Retiring a pipeline before Playing aborts
+even a complete preroll body instead of leaving the reader waiting for a now
+impossible acknowledgement. An incomplete capture still fails on replacement,
 seek/flush/segment discontinuity, overflow or premature transport completion,
 preserving its first finite cause.
 
