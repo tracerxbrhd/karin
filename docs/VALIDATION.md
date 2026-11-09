@@ -988,6 +988,18 @@ a real Music result. One
 [final Native/installed-Flatpak procedure](BUILDING.md#pr-26-corrected-cache-acceptance)
 is reserved for the finished revision; no intermediate owner runs are requested.
 
+At `64019ca`, both compiler matrices, 22 Native executions/140 child processes
+and both offline source releases passed locally. Its first push CI nevertheless
+failed: the new Wave fixture rejected a later original batch outside its three
+intended completion cases. Its fourth response was fully served and cleanup
+released HTTP gates before stopping playback. The correction holds that fourth
+response and settles/stops the player before releasing gates, retaining the
+three exact payloads, original `1,1,2` markers, request counts and deadlines.
+The same push also missed a distinct intermediate animation phase in the
+existing HiDPI motion gate (66,668 µs native frame gap); the paired PR job passed.
+That observation is retained without changing motion, renderer or acceptance
+thresholds. Neither failure is erased by later source checks or service claims.
+
 ## Known unresolved checks
 
 ### Cold Player Bar rendering in Cloud

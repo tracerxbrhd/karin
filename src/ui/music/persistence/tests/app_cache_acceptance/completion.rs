@@ -433,12 +433,16 @@ fn serve(
                     | "completion-clear"
                     | "completion-logout"
             );
-        let boundary = if initial {
+        // The fourth Wave occurrence is outside the three completion cases.
+        // Keep its source unfinished while their independent publication and
+        // feedback observers run; elapsed wall time must not start batch three.
+        let held_fourth = profile == "completion-wave" && n == 3 && range.is_none() && request == 1;
+        let boundary = if initial || held_fourth {
             prefix[n]
         } else {
             8192.min(data.len())
         };
-        if initial || held_fallback {
+        if initial || held_fourth || held_fallback {
             if stream.write_all(&data[start..boundary]).is_err() {
                 return;
             }
@@ -448,7 +452,14 @@ fn serve(
             gate(
                 directory,
                 stop,
-                &format!("{}-{n}", if initial { "primary" } else { "fallback" }),
+                &format!(
+                    "{}-{n}",
+                    if initial || held_fourth {
+                        "primary"
+                    } else {
+                        "fallback"
+                    }
+                ),
             );
             if stream.write_all(&data[boundary..=end]).is_ok() {
                 update(directory, counts, |c| {
@@ -671,6 +682,7 @@ pub(super) fn run_child(input: &Input, phase: &str) {
                 lifecycle::playing(this, next);
                 release(&input.directory, &format!("primary-{n}"));
             }
+            pump_until(|| held(&input.directory, "primary-3"));
             let ready = Arc::new(AtomicBool::new(false));
             let observed = ready.clone();
             let (cache, _) = this.audio_cache_binding().unwrap();
@@ -806,6 +818,12 @@ pub(super) fn run_child(input: &Input, phase: &str) {
                 }
             }
         }
+    }
+    if phase == "completion-wave" {
+        // Retire the Wave session before the held fourth response is released.
+        // A late native EOS cannot create an unintended next occurrence.
+        pump_until(|| this.cache_work_settled_for_test());
+        this.stop_music();
     }
     let files = media_files(&root);
     let records = files.len();
