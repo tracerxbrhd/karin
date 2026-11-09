@@ -508,6 +508,73 @@ impl PlaybackController {
         self.handle.shared.snapshot().clone()
     }
 
+    /// Deterministic native-source fixture only. It asks the existing active
+    /// souphttpsrc to end its task while a local HTTP server holds trailing
+    /// bytes. GstBaseSrc unblocks create and emits real downstream/pipeline EOS;
+    /// no snapshot mutation, fabricated bus message or second player is used.
+    /// The caller must label this as injected source EOS, not a live parser test.
+    #[cfg(test)]
+    pub(crate) fn source_eos_for_test(&self) -> Result<(), PlaybackError> {
+        let source = self.active_remote_source_for_test()?;
+        source.call_async(|source| {
+            let _ = source.send_event(gst::event::Eos::new());
+        });
+        Ok(())
+    }
+
+    /// An injected native byte range models a parser-requested bounded segment.
+    /// Its real HTTP 206/source EOS must be checked by the calling fixture. It
+    /// never goes through the application's explicit user-Seek control.
+    #[cfg(test)]
+    pub(crate) fn source_range_for_test(&self, end: u64) -> Result<(), PlaybackError> {
+        if end <= 1 || end > i64::MAX as u64 {
+            return Err(PlaybackError::InvalidSeek);
+        }
+        let source = self.active_remote_source_for_test()?;
+        source.call_async(move |source| {
+            let _ = source.seek(
+                1.0,
+                gst::SeekFlags::FLUSH,
+                gst::SeekType::Set,
+                // souphttpsrc deliberately removes Range when restarting an
+                // existing message at byte zero, even with a bounded stop.
+                // A positive source offset exercises an actual HTTP 206; the
+                // MP3 parser must resynchronize without an application Seek.
+                gst::format::Bytes::from_u64(1),
+                gst::SeekType::Set,
+                gst::format::Bytes::from_u64(end),
+            );
+        });
+        Ok(())
+    }
+
+    #[cfg(test)]
+    fn active_remote_source_for_test(&self) -> Result<gst::Element, PlaybackError> {
+        let snapshot = self.snapshot();
+        if snapshot.state != PlaybackState::Playing
+            || snapshot.source_kind != PlaybackSourceKind::RemoteHttps
+        {
+            return Err(PlaybackError::InvalidState);
+        }
+        let pipeline = self
+            .handle
+            .shared
+            .pipelines
+            .lock()
+            .unwrap()
+            .last()
+            .and_then(gst::glib::WeakRef::upgrade)
+            .ok_or(PlaybackError::InvalidState)?;
+        pipeline
+            .property::<Option<gst::Element>>("source")
+            .filter(|source| {
+                source
+                    .factory()
+                    .is_some_and(|factory| factory.name() == "souphttpsrc")
+            })
+            .ok_or(PlaybackError::SourcePolicy)
+    }
+
     fn send(&self, command: Command) -> Result<(), PlaybackError> {
         if self.handle.shared.shutdown.load(Ordering::Acquire) {
             return Err(PlaybackError::ShuttingDown);
@@ -937,7 +1004,7 @@ impl Worker {
         self.account_playing(false);
         let pipeline = self.pipeline.as_ref().ok_or(PlaybackError::InvalidState)?;
         if let Some(capture) = &pipeline.cache_capture {
-            capture.interrupt_with(crate::audio_cache::capture::CaptureFailure::Seek);
+            capture.user_seek();
         }
         pipeline
             .element
@@ -1002,6 +1069,12 @@ impl Worker {
                         break;
                     }
                     gst::MessageView::Eos(_) => {
+                        if message.src().is_some_and(|source| {
+                            source == pipeline.element.upcast_ref::<gst::Object>()
+                        }) && let Some(capture) = &pipeline.cache_capture
+                        {
+                            capture.confirm_pipeline_eos();
+                        }
                         eos = true;
                         break;
                     }

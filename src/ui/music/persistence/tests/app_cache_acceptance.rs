@@ -485,6 +485,8 @@ fn run_phase(input: &Path, phase: &str, directory: &Path) -> PhaseReport {
         assert!(matches!(
             fields[0],
             "cache=miss"
+                | "cache=observed"
+                | "cache=completing"
                 | "cache=captured"
                 | "cache=write-confirmed"
                 | "cache=hit"
@@ -514,7 +516,17 @@ fn native_audio_cache_application_process_restart() {
             lifecycle::run_child(&input, &phase);
             return;
         }
+        if phase.starts_with("completion-") {
+            completion::run_child(&input, &phase);
+            return;
+        }
         application_child(&input, &phase);
+        return;
+    }
+    if let Ok(phase) = std::env::var("KARIN_TEST_COMPLETION_ONLY") {
+        // Diagnostic selection never writes a full-coverage receipt. Normal
+        // local/CI execution leaves this unset and runs every old/new phase.
+        completion::run_parent_only(&phase);
         return;
     }
     let directory = Directory::new();
@@ -741,6 +753,7 @@ fn native_audio_cache_application_process_restart() {
         final_counts.media_gets, final_counts.media_bytes
     );
     lifecycle::run_parent();
+    completion::run_parent();
 }
 
 fn source_name(kind: PlaybackSourceKind) -> &'static str {
@@ -1172,4 +1185,5 @@ fn assert_original_file(path: &Path, input: &Input) {
     assert_eq!(digest(&SHA256, &bytes).as_ref(), input.sha256);
 }
 
+mod completion;
 mod lifecycle;

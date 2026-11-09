@@ -62,6 +62,81 @@ fn miss_hit_integrity_and_opaque_private_storage() {
 }
 
 #[test]
+fn retrying_a_failed_http_capture_starts_a_clean_same_request_transaction() {
+    struct InterruptedPrefix {
+        sent: bool,
+    }
+    impl Read for InterruptedPrefix {
+        fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+            if self.sent {
+                return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof));
+            }
+            self.sent = true;
+            let prefix = b"original-incomplete-prefix";
+            bytes[..prefix.len()].copy_from_slice(prefix);
+            Ok(prefix.len())
+        }
+    }
+    let sandbox = Sandbox::create(&std::env::temp_dir()).unwrap();
+    let authority = Arc::new(OnlineStreamAuthority::with_storage_permission(Arc::new(
+        PrivateHttpCachePolicy,
+    )));
+    let cache = AudioCache::open_namespace(sandbox.clone(), authority, 1, 100_000).unwrap();
+    let lease = cache.bind(Some(account(1))).unwrap().unwrap();
+    let track = ResourceKey::track("101").unwrap();
+    let check = cache.begin_online_check(&lease, track).unwrap();
+    cache.observe_verified_online(&lease, check).unwrap();
+    let request = cache.begin(&lease, track).unwrap();
+    let metadata_called = AtomicBool::new(false);
+    assert_eq!(
+        cache.put_reader_http_attempt(&request, InterruptedPrefix { sent: false }, |_, _| {
+            metadata_called.store(true, Ordering::Release);
+            Err(CacheError::HttpPolicyRequired)
+        }),
+        Err(CacheError::Unavailable)
+    );
+    assert!(!metadata_called.load(Ordering::Acquire));
+    assert_eq!(cache.stats().unwrap().entries, 0);
+    assert_eq!(fs::read_dir(&sandbox.path).unwrap().count(), 1);
+    cache.check_request(&request).unwrap();
+
+    let original = SyntheticAudio::tone(400).unwrap();
+    let response = http_policy::ResponsePolicy::parse(
+        200,
+        [
+            ("Content-Type".into(), "audio/mpeg".into()),
+            ("Content-Length".into(), original.0.len().to_string()),
+            ("ETag".into(), "\"original-clean-full-body\"".into()),
+        ],
+    )
+    .unwrap();
+    cache
+        .put_reader_http_attempt(&request, original.0.as_slice(), |sha256, bytes| {
+            assert_eq!(sha256, hash(&original.0));
+            assert_eq!(bytes, original.0.len() as u64);
+            response
+                .record([1; 32], [2; 32], sha256, bytes)
+                .map_err(|_| CacheError::HttpPolicyRequired)
+        })
+        .unwrap();
+    let identity = cache.identity(&lease, track).unwrap();
+    let record = cache.path(identity.key());
+    assert_eq!(fs::read(record.join("media.bin")).unwrap(), original.0);
+    let metadata = read_http_record(&record).unwrap().unwrap();
+    assert_eq!(metadata.sha256, hash(&original.0));
+    assert_eq!(metadata.bytes, original.0.len() as u64);
+    assert_eq!(cache.stats().unwrap().entries, 1);
+    // The same request still occupies its bounded slot until its owner drops;
+    // neither a failed prefix nor a clean retry can create another live ticket.
+    assert!(matches!(
+        cache.begin(&lease, track),
+        Err(CacheError::Duplicate)
+    ));
+    drop(request);
+    assert!(cache.begin(&lease, track).is_ok());
+}
+
+#[test]
 fn corrupted_truncated_and_swapped_records_become_misses() {
     let (_, _, cache, lease) = fixture(100_000);
     for failure in 0..4 {

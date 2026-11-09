@@ -31,6 +31,8 @@ use zeroize::Zeroizing;
 
 use crate::{music::MusicService, session::AccessToken};
 
+mod completion;
+
 const ORIGIN: &str = "https://api.music.yandex.net/";
 const MAX_BODY: usize = 128 * 1024;
 const MAX_METADATA_BODY: usize = 64 * 1024;

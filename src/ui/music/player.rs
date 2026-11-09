@@ -48,7 +48,7 @@ pub(super) struct MusicPlayback {
     volume: f64,
     output: PlaybackOutput,
     cache_fill_running: bool,
-    cache_fill_cancel: Option<crate::audio_cache::bridge::FillControl>,
+    cache_fill_cancel: Option<(u64, crate::audio_cache::bridge::FillControl)>,
     cache_fill_pending: VecDeque<(u64, crate::audio_cache::bridge::Fill)>,
     #[cfg(test)]
     fixture_resolver: Option<StreamResolver>,
@@ -238,6 +238,7 @@ impl Controller {
                 return;
             }
             drop(model);
+            self.retire_music_cache(crate::audio_cache::bridge::Retirement::Replaced);
             self.leave_wave();
             let mut model = self.model.borrow_mut();
             // A context contains one already loaded, bounded list. Replace it
@@ -271,6 +272,7 @@ impl Controller {
             {
                 return;
             }
+            self.retire_music_cache(crate::audio_cache::bridge::Retirement::Replaced);
             model.queue.select(index);
         }
         self.cancel_pending_wave_for_ordinary_action();
@@ -323,6 +325,7 @@ impl Controller {
                     index
                 }
             };
+            self.retire_music_cache(crate::audio_cache::bridge::Retirement::Replaced);
             model.queue.select(index);
         }
         self.cancel_pending_wave_for_ordinary_action();
@@ -407,6 +410,7 @@ impl Controller {
             .as_ref()
             .map(|controller| controller.seek(position));
         if self.music_command_result(result) {
+            self.retire_music_cache(crate::audio_cache::bridge::Retirement::Seek);
             // Acceptance only arms the bridge. It emits Seeked after a later
             // actual worker snapshot acknowledges this position/track binding.
             self.note_music_seek_from(position, before);
@@ -423,6 +427,19 @@ impl Controller {
     }
 
     pub(super) fn request_music(self: &Rc<Self>, autoplay: bool, position: Option<Duration>) {
+        self.request_music_for(
+            autoplay,
+            position,
+            crate::audio_cache::bridge::Retirement::Replaced,
+        );
+    }
+
+    fn request_music_for(
+        self: &Rc<Self>,
+        autoplay: bool,
+        position: Option<Duration>,
+        why: crate::audio_cache::bridge::Retirement,
+    ) {
         if !self.wave_current_allowed() {
             self.widgets
                 .status
@@ -451,14 +468,6 @@ impl Controller {
                 return;
             }
             (model.generation, track.id.clone())
-        };
-        let why = if self
-            .music_snapshot()
-            .is_some_and(|snapshot| snapshot.state == PlaybackState::Ended)
-        {
-            crate::audio_cache::bridge::Retirement::Eos
-        } else {
-            crate::audio_cache::bridge::Retirement::Replaced
         };
         self.stop_music_engine_for(why);
         self.widgets.status.set_title("Получаем источник аудио…");
@@ -631,17 +640,13 @@ impl Controller {
     }
 
     pub(super) fn stop_music_engine_for(&self, why: crate::audio_cache::bridge::Retirement) {
+        self.retire_music_cache(why);
         let (old, owned_error) = {
             let mut player = self.player.borrow_mut();
             player.serial = player.serial.wrapping_add(1);
-            if let Some(control) = &player.cache_fill_cancel {
-                control.retire(why);
-            }
-            player
-                .cache_fill_pending
-                .retain(|(_, fill)| fill.control().retire(why));
-            // Complete, actually played input may finish under its own bounded
-            // write ticket. Incomplete input retires; playback never waits for it.
+            // Complete, actually played input or an admitted native-EOS
+            // completion may finish under its own bounded write ticket.
+            // Other incomplete input retires; playback never waits for cache I/O.
             if let Some(cancellation) = player.cancellation.take() {
                 cancellation.cancel();
             }
@@ -689,10 +694,64 @@ impl Controller {
         self.render_music_player();
     }
 
+    /// Bind the initiating transition to the old playback cycle before queue
+    /// rendering/binding repair can remove its snapshot. A later action on a
+    /// different track must not relabel or cancel an older admitted finalizer.
+    fn retire_music_cache(&self, why: crate::audio_cache::bridge::Retirement) {
+        let mut player = self.player.borrow_mut();
+        let serial = player.serial;
+        let all = matches!(
+            why,
+            crate::audio_cache::bridge::Retirement::Stop
+                | crate::audio_cache::bridge::Retirement::Account
+        );
+        if let Some((bound, control)) = &player.cache_fill_cancel
+            && (all || *bound == serial)
+        {
+            control.retire(why);
+        }
+        player
+            .cache_fill_pending
+            .retain(|(bound, fill)| (!all && *bound != serial) || fill.control().retire(why));
+    }
+
+    fn retire_native_cache_eos(&self, snapshot: Option<&PlaybackSnapshot>) {
+        if snapshot.is_some_and(|snapshot| snapshot.state == PlaybackState::Ended) {
+            self.retire_music_cache(if self.is_wave_queue() {
+                crate::audio_cache::bridge::Retirement::WaveEos
+            } else {
+                crate::audio_cache::bridge::Retirement::Eos
+            });
+        }
+    }
+
     #[cfg(test)]
     pub(super) fn cache_work_settled_for_test(&self) -> bool {
         let player = self.player.borrow();
         !player.resolving && !player.cache_fill_running && player.cache_fill_pending.is_empty()
+    }
+
+    /// Inject actual native source EOS into the original fixture pipeline.
+    /// Tests label this controlled event; it is not a decoder/CDN observation.
+    #[cfg(test)]
+    pub(super) fn source_eos_for_test(&self) -> Result<(), PlaybackError> {
+        self.player
+            .borrow()
+            .controller
+            .as_ref()
+            .ok_or(PlaybackError::InvalidState)?
+            .source_eos_for_test()
+    }
+
+    /// Exercise a native parser-shaped byte range without a user Seek intent.
+    #[cfg(test)]
+    pub(super) fn source_range_for_test(&self, end: u64) -> Result<(), PlaybackError> {
+        self.player
+            .borrow()
+            .controller
+            .as_ref()
+            .ok_or(PlaybackError::InvalidState)?
+            .source_range_for_test(end)
     }
 
     #[cfg(test)]
@@ -809,6 +868,7 @@ impl Controller {
     }
 
     fn tick_music(self: &Rc<Self>) {
+        self.retire_native_cache_eos(self.music_snapshot().as_ref());
         self.guard_music_binding();
         let has_activity = {
             let player = self.player.borrow();
@@ -864,6 +924,7 @@ impl Controller {
             }
         }
         if let Some(failure) = failure {
+            self.retire_music_cache(crate::audio_cache::bridge::Retirement::SourceError);
             self.music_failure(failure);
         }
         // A short completed source may already be Ended at this first poll.
@@ -884,10 +945,10 @@ impl Controller {
             if player.cache_fill_running {
                 return;
             }
-            let Some((_serial, fill)) = player.cache_fill_pending.pop_front() else {
+            let Some((serial, fill)) = player.cache_fill_pending.pop_front() else {
                 return;
             };
-            player.cache_fill_cancel = Some(fill.control());
+            player.cache_fill_cancel = Some((serial, fill.control()));
             player.cache_fill_running = true;
             fill
         };
@@ -929,6 +990,9 @@ impl Controller {
     }
 
     pub(super) fn guard_music_binding(&self) {
+        // This method also runs from render_queue, before the periodic poll.
+        // Preserve native EOS before repairing a changed queue binding.
+        self.retire_native_cache_eos(self.music_snapshot().as_ref());
         let mismatched = {
             let model = self.model.borrow();
             let player = self.player.borrow();
@@ -938,14 +1002,7 @@ impl Controller {
                 .is_some_and(|id| model.queue.current().is_none_or(|track| &track.id != id))
         };
         if mismatched {
-            let why = if self
-                .music_snapshot()
-                .is_some_and(|snapshot| snapshot.state == PlaybackState::Ended)
-            {
-                crate::audio_cache::bridge::Retirement::Eos
-            } else {
-                crate::audio_cache::bridge::Retirement::Replaced
-            };
+            let why = crate::audio_cache::bridge::Retirement::BindingChanged;
             if !self.is_wave_queue() {
                 // A natural ordinary EOS is older than a pending Wave start.
                 // Explicit ordinary actions cancel that pending intent in
@@ -966,6 +1023,12 @@ impl Controller {
         }
         self.observe_wave_snapshot(self.music_snapshot().as_ref());
         let (active, autoplay) = self.continuation();
+        let why = match (self.is_wave_queue(), eos) {
+            (true, true) => crate::audio_cache::bridge::Retirement::WaveEos,
+            (false, true) => crate::audio_cache::bridge::Retirement::AutomaticNext,
+            (true, false) => crate::audio_cache::bridge::Retirement::WaveSkip,
+            (false, false) => crate::audio_cache::bridge::Retirement::UserSkip,
+        };
         let (advanced, changed_occurrence) = {
             let mut model = self.model.borrow_mut();
             let before = model.queue.current_index();
@@ -979,10 +1042,18 @@ impl Controller {
             (advanced, before != model.queue.current_index())
         };
         if !advanced {
+            if active && eos {
+                self.retire_music_cache(why);
+            }
             if forward {
                 self.wave_wait_for_next(eos);
             }
             return;
+        }
+        // Capture the actual initiating action before queue/render callbacks
+        // can clear the old engine. Native EOS proof is checked by the fill.
+        if active {
+            self.retire_music_cache(why);
         }
         if !eos {
             self.cancel_pending_wave_for_ordinary_action();
@@ -994,7 +1065,7 @@ impl Controller {
         }
         self.render_queue();
         if active {
-            self.request_music(autoplay || eos, None);
+            self.request_music_for(autoplay || eos, None, why);
             if !changed_occurrence {
                 self.note_repeat_restart(self.music_serial());
             }
@@ -1033,6 +1104,9 @@ impl Controller {
             model.queue.remove(index);
             current
         };
+        if active && removed_current {
+            self.retire_music_cache(crate::audio_cache::bridge::Retirement::UserSkip);
+        }
         if was_wave && !self.is_wave_queue() {
             self.leave_wave();
         }
@@ -1043,7 +1117,7 @@ impl Controller {
         }
         self.render_queue();
         if active && removed_current {
-            self.stop_music_engine_for(crate::audio_cache::bridge::Retirement::Replaced);
+            self.stop_music_engine_for(crate::audio_cache::bridge::Retirement::UserSkip);
             if self
                 .model
                 .borrow()

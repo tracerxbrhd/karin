@@ -60,6 +60,83 @@ pub(crate) enum CaptureFailure {
     #[cfg(test)]
     Interrupted,
 }
+
+/// A finite diagnostic vocabulary, deliberately without byte counts, addresses,
+/// native structures or response values. Observations describe transport and
+/// playback independently: pipeline EOS does not prove HTTP body completion.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CaptureObservation {
+    Probe(bool),
+    Headers(bool),
+    Http(HttpObservation),
+    Length(bool),
+    Started(bool),
+    Progress(CompletionBand),
+    SourceEos(bool),
+    PlaybackEos(bool),
+    Playing(bool),
+    Discontinuity(bool),
+    UserSeek(bool),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum HttpObservation {
+    Unknown,
+    Complete200,
+    Partial206,
+    Other,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CompletionBand {
+    Unknown,
+    Zero,
+    UnderQuarter,
+    QuarterToHalf,
+    HalfToThreeQuarters,
+    ThreeQuartersToFull,
+    Complete,
+}
+
+impl CaptureObservation {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Probe(true) => "probe-attached",
+            Self::Probe(false) => "source-not-attached",
+            Self::Headers(true) => "headers-received",
+            Self::Headers(false) => "headers-not-received",
+            Self::Http(HttpObservation::Unknown) => "capture-http-unknown",
+            Self::Http(HttpObservation::Complete200) => "capture-http-200",
+            Self::Http(HttpObservation::Partial206) => "capture-http-206",
+            Self::Http(HttpObservation::Other) => "capture-http-other",
+            Self::Length(true) => "capture-length-known",
+            Self::Length(false) => "capture-length-missing",
+            Self::Started(true) => "capture-started",
+            Self::Started(false) => "capture-not-started",
+            Self::Progress(CompletionBand::Unknown) => "capture-bytes-unknown",
+            Self::Progress(CompletionBand::Zero) => "capture-bytes-zero",
+            Self::Progress(CompletionBand::UnderQuarter) => "capture-bytes-under-quarter",
+            Self::Progress(CompletionBand::QuarterToHalf) => "capture-bytes-quarter-to-half",
+            Self::Progress(CompletionBand::HalfToThreeQuarters) => {
+                "capture-bytes-half-to-three-quarters"
+            }
+            Self::Progress(CompletionBand::ThreeQuartersToFull) => {
+                "capture-bytes-three-quarters-to-full"
+            }
+            Self::Progress(CompletionBand::Complete) => "capture-bytes-complete",
+            Self::SourceEos(true) => "source-eos-observed",
+            Self::SourceEos(false) => "source-eos-not-observed",
+            Self::PlaybackEos(true) => "playback-eos-observed",
+            Self::PlaybackEos(false) => "playback-eos-not-observed",
+            Self::Playing(true) => "capture-playing-confirmed",
+            Self::Playing(false) => "capture-playing-not-confirmed",
+            Self::Discontinuity(true) => "capture-discontinuity-observed",
+            Self::Discontinuity(false) => "capture-discontinuity-not-observed",
+            Self::UserSeek(true) => "user-seek-observed",
+            Self::UserSeek(false) => "user-seek-not-observed",
+        }
+    }
+}
 impl CaptureFailure {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
@@ -99,12 +176,23 @@ struct Shared {
     expected: AtomicU64,
     received: AtomicU64,
     attached: AtomicBool,
+    attach_attempted: AtomicBool,
+    headers_seen: AtomicBool,
+    http_status: AtomicU8,
+    buffer_seen: AtomicBool,
+    source_eos: AtomicBool,
+    pipeline_eos: AtomicBool,
+    pipeline_retired: AtomicBool,
+    discontinuity: AtomicBool,
+    user_seek: AtomicBool,
     producer: Mutex<Producer>,
     sender: SyncSender<Vec<u8>>,
     cancellation: Cancellation,
     private_http: bool,
     http_policy: OnceLock<ResponsePolicy>,
     http_rejection: OnceLock<Reason>,
+    http_refusal: OnceLock<Reason>,
+    http_partial: AtomicBool,
     failure: OnceLock<CaptureFailure>,
     playing_required: AtomicBool,
     played: AtomicBool,
@@ -145,6 +233,15 @@ fn create_channel_with_slots(
         expected: AtomicU64::new(0),
         received: AtomicU64::new(0),
         attached: AtomicBool::new(false),
+        attach_attempted: AtomicBool::new(false),
+        headers_seen: AtomicBool::new(false),
+        http_status: AtomicU8::new(0),
+        buffer_seen: AtomicBool::new(false),
+        source_eos: AtomicBool::new(false),
+        pipeline_eos: AtomicBool::new(false),
+        pipeline_retired: AtomicBool::new(false),
+        discontinuity: AtomicBool::new(false),
+        user_seek: AtomicBool::new(false),
         producer: Mutex::new(Producer {
             pending: Vec::with_capacity(CHUNK),
             segment: None,
@@ -154,6 +251,8 @@ fn create_channel_with_slots(
         private_http,
         http_policy: OnceLock::new(),
         http_rejection: OnceLock::new(),
+        http_refusal: OnceLock::new(),
+        http_partial: AtomicBool::new(false),
         failure: OnceLock::new(),
         playing_required: AtomicBool::new(private_http),
         played: AtomicBool::new(false),
@@ -194,6 +293,104 @@ impl Capture {
         self.0.played.load(Ordering::Acquire)
     }
 
+    /// Only the existing playback worker records the actual native pipeline EOS.
+    /// A public Ended snapshot or a queue action is not this proof.
+    pub(crate) fn confirm_pipeline_eos(&self) {
+        self.0.pipeline_eos.store(true, Ordering::Release);
+    }
+
+    pub(crate) fn has_pipeline_eos(&self) -> bool {
+        self.0.pipeline_eos.load(Ordering::Acquire)
+    }
+
+    /// A user-requested seek is different from a demuxer's native byte seeks.
+    /// Neither can publish a discontiguous capture; only the latter may be
+    /// recovered after natural EOS by a separately validated complete response.
+    pub(crate) fn user_seek(&self) {
+        self.0.user_seek.store(true, Ordering::Release);
+        self.interrupt_with(CaptureFailure::Seek);
+    }
+
+    /// This permits attempting one independent response, never combining old
+    /// bytes or bypassing HTTP policy. The completion worker must obtain fresh
+    /// access/delivery and independently validate the entire new response.
+    pub(crate) fn can_complete_in_background(&self) -> bool {
+        self.has_played()
+            && self.has_pipeline_eos()
+            && !self.is_complete()
+            && self.can_wait_for_completion()
+    }
+
+    /// Capture failure may precede actual Playing/EOS (for example an MP3
+    /// demuxer can issue a native byte seek). A writer may await that proof,
+    /// but never an impossible EOS after error/Stop has destroyed the pipeline.
+    pub(crate) fn can_wait_for_completion(&self) -> bool {
+        !self.0.user_seek.load(Ordering::Acquire)
+            && !self.0.cancellation.is_cancelled()
+            && matches!(self.http_rejection(), None | Some(Reason::PartialResponse))
+            && (!self.0.pipeline_retired.load(Ordering::Acquire) || self.has_pipeline_eos())
+    }
+
+    /// Bounded parsed response policy for comparing a fresh independent full
+    /// response to an incomplete source. Never format this or use it to admit
+    /// incomplete bytes; the new complete response supplies its own policy.
+    pub(crate) fn response_http_policy(&self) -> Option<ResponsePolicy> {
+        self.0.http_policy.get().cloned()
+    }
+
+    /// Snapshot only coarse fixed categories. No consumer can format a source
+    /// URL, exact length, native event or response field through this API.
+    pub(crate) fn observations(&self) -> [CaptureObservation; 11] {
+        let captured_length = self.0.expected.load(Ordering::Acquire);
+        let policy = self.0.http_policy.get();
+        let length_known =
+            captured_length > 0 || policy.is_some_and(|policy| policy.length.is_some());
+        // A valid partial 206 supplies its Content-Length and full range total
+        // even though this capture cannot admit its bytes. Keep that observed
+        // header distinct from an absent length without changing admission.
+        let expected = if captured_length > 0 {
+            captured_length
+        } else {
+            policy
+                .and_then(ResponsePolicy::representation_length)
+                .unwrap_or(0)
+        };
+        let received = self.0.received.load(Ordering::Acquire);
+        let progress = if expected == 0 {
+            CompletionBand::Unknown
+        } else if received == 0 {
+            CompletionBand::Zero
+        } else if received >= expected {
+            CompletionBand::Complete
+        } else if received.saturating_mul(4) < expected {
+            CompletionBand::UnderQuarter
+        } else if received.saturating_mul(2) < expected {
+            CompletionBand::QuarterToHalf
+        } else if received.saturating_mul(4) < expected.saturating_mul(3) {
+            CompletionBand::HalfToThreeQuarters
+        } else {
+            CompletionBand::ThreeQuartersToFull
+        };
+        [
+            CaptureObservation::Probe(self.0.attached.load(Ordering::Acquire)),
+            CaptureObservation::Headers(self.0.headers_seen.load(Ordering::Acquire)),
+            CaptureObservation::Http(match self.0.http_status.load(Ordering::Acquire) {
+                1 => HttpObservation::Complete200,
+                2 => HttpObservation::Partial206,
+                3 => HttpObservation::Other,
+                _ => HttpObservation::Unknown,
+            }),
+            CaptureObservation::Length(length_known),
+            CaptureObservation::Started(self.0.buffer_seen.load(Ordering::Acquire)),
+            CaptureObservation::Progress(progress),
+            CaptureObservation::SourceEos(self.0.source_eos.load(Ordering::Acquire)),
+            CaptureObservation::PlaybackEos(self.has_pipeline_eos()),
+            CaptureObservation::Playing(self.has_played()),
+            CaptureObservation::Discontinuity(self.0.discontinuity.load(Ordering::Acquire)),
+            CaptureObservation::UserSeek(self.0.user_seek.load(Ordering::Acquire)),
+        ]
+    }
+
     /// Call before preparation for any bridge-owned capture. The independent
     /// store tests retain their ungated channel; ordinary HTTP is gated by
     /// default. This never waits for the native player or the writer.
@@ -219,7 +416,11 @@ impl Capture {
     /// writer calls this after consuming EOF and verifying payload length/hash,
     /// before publishing its media/metadata transaction.
     pub(crate) fn completed_http_policy(&self) -> Option<ResponsePolicy> {
-        if !self.is_complete() || !self.publication_ready() || self.0.cancellation.is_cancelled() {
+        if !self.is_complete()
+            || !self.publication_ready()
+            || self.0.cancellation.is_cancelled()
+            || self.0.http_refusal.get().is_some()
+        {
             return None;
         }
         self.0.http_policy.get().cloned()
@@ -228,14 +429,41 @@ impl Capture {
     /// A finite classification only; native events and header values are never
     /// formatted or exposed in diagnostics.
     pub(crate) fn http_rejection(&self) -> Option<Reason> {
-        self.0.http_rejection.get().copied()
+        self.0
+            .http_refusal
+            .get()
+            .or_else(|| self.0.http_rejection.get())
+            .copied()
+            .or_else(|| {
+                self.0
+                    .http_partial
+                    .load(Ordering::Acquire)
+                    .then_some(Reason::PartialResponse)
+            })
+    }
+
+    fn reject_http(&self, reason: Reason) {
+        // A valid partial representation is a transport limitation that an
+        // independent full GET may recover. A subsequent malformed policy or
+        // explicit refusal must not be hidden behind this weaker observation.
+        if reason == Reason::PartialResponse {
+            self.0.http_partial.store(true, Ordering::Release);
+            return;
+        }
+        if matches!(
+            reason,
+            Reason::NoStore | Reason::AccessDenied | Reason::ContentRestricted
+        ) {
+            let _ = self.0.http_refusal.set(reason);
+        }
+        let _ = self.0.http_rejection.set(reason);
     }
 
     /// Attach only after the existing source guard has validated souphttpsrc.
     /// Probe callbacks always pass the player's data/events unchanged. A slow
     /// cache writer abandons its own capture instead of delaying streaming.
     pub(crate) fn attach(&self, source: &gst::Element) {
-        if self.0.attached.swap(true, Ordering::AcqRel)
+        if self.0.attach_attempted.swap(true, Ordering::AcqRel)
             || !source
                 .factory()
                 .is_some_and(|factory| factory.name() == "souphttpsrc")
@@ -248,7 +476,7 @@ impl Capture {
             return;
         };
         let capture = self.clone();
-        pad.add_probe(
+        let probe = pad.add_probe(
             gst::PadProbeType::BUFFER
                 | gst::PadProbeType::BUFFER_LIST
                 | gst::PadProbeType::EVENT_DOWNSTREAM
@@ -267,6 +495,11 @@ impl Capture {
                 gst::PadProbeReturn::Ok
             },
         );
+        if probe.is_some() {
+            self.0.attached.store(true, Ordering::Release);
+        } else {
+            self.interrupt_with(CaptureFailure::SourceAttachment);
+        }
     }
 
     fn event(&self, event: &gst::EventRef) {
@@ -320,13 +553,45 @@ impl Capture {
     }
 
     fn headers(&self, structure: &gst::StructureRef) {
+        if !self.0.headers_seen.swap(true, Ordering::AcqRel) {
+            self.0.http_status.store(
+                match structure.get::<u32>("http-status-code").ok() {
+                    Some(200) => 1,
+                    Some(206) => 2,
+                    Some(_) => 3,
+                    None => 0,
+                },
+                Ordering::Release,
+            );
+        }
         if self.0.status.load(Ordering::Acquire) != WAITING {
+            // A demuxer may seek after a partial response and receive another
+            // event. Keep the original policy/first capture failure, but do
+            // not let a later explicit no-store/refusal disappear behind it.
+            if self.0.private_http {
+                match (
+                    structure.get::<u32>("http-status-code"),
+                    structure.get::<gst::Structure>("response-headers"),
+                ) {
+                    (Ok(status), Ok(headers)) if headers.n_fields() <= 64 => {
+                        let _ = self.private_http_headers(status, &headers);
+                    }
+                    _ => self.reject_http(Reason::HeadersInvalid),
+                }
+            }
             self.interrupt_with(CaptureFailure::RepeatedHeaders);
             return;
         }
         let accepted = (|| {
             let status = structure.get::<u32>("http-status-code").ok()?;
             if !matches!(status, 200 | 206) {
+                if self.0.private_http {
+                    self.reject_http(match status {
+                        401 | 403 => Reason::AccessDenied,
+                        451 => Reason::ContentRestricted,
+                        _ => Reason::UnsupportedStatus,
+                    });
+                }
                 return None;
             }
             // Deliberately never read `uri`, `request-headers`, cookies, tokens
@@ -393,8 +658,8 @@ impl Capture {
             }
         })();
         let Some(length) = accepted else {
-            if self.0.private_http {
-                let _ = self.0.http_rejection.set(Reason::HeadersInvalid);
+            if self.0.private_http && self.http_rejection().is_none() {
+                self.reject_http(Reason::HeadersInvalid);
             }
             self.interrupt_with(CaptureFailure::Headers);
             return;
@@ -445,7 +710,7 @@ impl Capture {
             // Control/Vary while rejecting duplicate representation fields.
             if let Ok(values) = value.get::<gst::ArrayRef<'_>>() {
                 if values.is_empty() || values.len() > 64 {
-                    let _ = self.0.http_rejection.set(Reason::HeadersInvalid);
+                    self.reject_http(Reason::HeadersInvalid);
                     return None;
                 }
                 for value in values.iter() {
@@ -453,7 +718,7 @@ impl Capture {
                 }
             } else if let Ok(values) = value.get::<gst::ListRef<'_>>() {
                 if values.is_empty() || values.len() > 64 {
-                    let _ = self.0.http_rejection.set(Reason::HeadersInvalid);
+                    self.reject_http(Reason::HeadersInvalid);
                     return None;
                 }
                 for value in values.iter() {
@@ -463,23 +728,29 @@ impl Capture {
                 self.push_private_header(&mut fields, &mut total, name, value)?;
             }
         }
-        let parsed = u16::try_from(status).ok().and_then(|status| {
-            match ResponsePolicy::parse(status, fields) {
-                Ok(policy) => Some(policy),
-                Err(reason) => {
-                    let _ = self.0.http_rejection.set(reason);
-                    None
-                }
-            }
-        })?;
-        let length = match parsed.complete_mp3() {
-            Ok(length) => length,
+        let Ok(status) = u16::try_from(status) else {
+            self.reject_http(Reason::UnsupportedStatus);
+            return None;
+        };
+        let parsed = match ResponsePolicy::parse(status, fields) {
+            Ok(policy) => policy,
             Err(reason) => {
-                let _ = self.0.http_rejection.set(reason);
+                self.reject_http(reason);
                 return None;
             }
         };
-        self.0.http_policy.set(parsed).ok()?;
+        // A valid partial response still supplies a known representation
+        // validator and total length. Retain that bounded original policy so
+        // a later independent full GET cannot silently switch versions. This
+        // does not make partial bytes complete or eligible for publication.
+        let _ = self.0.http_policy.set(parsed.clone());
+        let length = match parsed.complete_mp3() {
+            Ok(length) => length,
+            Err(reason) => {
+                self.reject_http(reason);
+                return None;
+            }
+        };
         Some(length)
     }
 
@@ -493,10 +764,20 @@ impl Capture {
         // Containers are deliberately not recursively flattened. Every native
         // element must itself be a string, never another list or arbitrary
         // typed value that might be formatted into persistent metadata.
-        let value = value.get::<&str>().ok()?;
-        *total = total.checked_add(name.len())?.checked_add(value.len())?;
+        let Ok(value) = value.get::<&str>() else {
+            self.reject_http(Reason::HeadersInvalid);
+            return None;
+        };
+        let Some(size) = total
+            .checked_add(name.len())
+            .and_then(|size| size.checked_add(value.len()))
+        else {
+            self.reject_http(Reason::ResponseTooLarge);
+            return None;
+        };
+        *total = size;
         if fields.len() >= 64 || value.len() > 4096 || *total > 8192 {
-            let _ = self.0.http_rejection.set(Reason::ResponseTooLarge);
+            self.reject_http(Reason::ResponseTooLarge);
             return None;
         }
         fields.push((name.to_owned(), value.to_owned()));
@@ -504,6 +785,10 @@ impl Capture {
     }
 
     fn buffer(&self, buffer: &gst::BufferRef) {
+        self.0.buffer_seen.store(true, Ordering::Release);
+        if buffer.flags().contains(gst::BufferFlags::DISCONT) {
+            self.0.discontinuity.store(true, Ordering::Release);
+        }
         if self.0.cancellation.is_cancelled() {
             self.interrupt_with(CaptureFailure::Cancelled);
             return;
@@ -606,6 +891,7 @@ impl Capture {
     }
 
     fn eos(&self) {
+        self.0.source_eos.store(true, Ordering::Release);
         if self.is_complete() {
             return;
         }
@@ -631,6 +917,7 @@ impl Capture {
     /// whose decoder/output never played cannot leave a writer waiting for a
     /// now impossible acknowledgment. Played complete bodies still finalize.
     pub(crate) fn retire_pipeline(&self) {
+        self.0.pipeline_retired.store(true, Ordering::Release);
         if self.publication_ready() {
             self.interrupt_with(CaptureFailure::PipelineDropped);
             return;

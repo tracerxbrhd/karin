@@ -21,6 +21,12 @@ latched actual Playing. Exact full-body receipt, rather than pipeline EOS, seals
 capture completion. A short write-only finalization admission is distinct from
 the current-playback admission.
 
+Incomplete-source extension, 2026-11-09: native pipeline EOS and actual Playing
+can retain one bounded completion operation when the original HTTP body is
+incomplete. The complete-capture path still uses one media transfer. Only the
+incomplete natural-completion path may make one fresh, policy-checked full GET;
+manual partial Skip/Seek does not authorize that request.
+
 ## Scope and evidence
 
 The first candidate at `0ce9ea0` compiled its store only under `cfg(test)`. That
@@ -111,9 +117,9 @@ actual Playing, a failure remains the normal player error; there is no seamless
 mid-track retry or reset of Wave's measured-playing ledger. There is no parallel
 audio engine or repeated resolution loop.
 
-A policy-admitted fill captures the existing guarded `souphttpsrc`
-compressed bytes without changing buffers/events, starting another request or
-creating another GStreamer pipeline. Bounded retention can hold a whole resource
+A policy-admitted fill first captures the existing guarded `souphttpsrc`
+compressed bytes without changing buffers/events or creating another GStreamer
+pipeline. Complete capture needs no second request. Bounded retention can hold a whole resource
 up to 64 MiB; four pending captures cap retained compressed bodies at 256 MiB,
 allocated on arrival, and the existing single writer bounds staging work. Probe
 callbacks never wait for disk. The writer drains before Playing,
@@ -136,14 +142,45 @@ seek/flush/segment discontinuity, overflow or premature transport completion,
 preserving its first finite cause.
 
 After fresh source admission, a completed and played resource may seal a
-write-specific pin for at most 30 seconds of finalization. Hashing, metadata and
-atomic commit can finish across ordinary Next, EOS, Wave rollover or the next
-online check. These transitions do not themselves revoke access to the completed
-response. Explicit Stop, account change/logout, Clear and Disable still cancel
+write-specific pin for at most 30 seconds of finalization. Native pipeline EOS
+and actual Playing can also retain that bounded operation for an incomplete
+source body. Transition origin is carried explicitly through the queue/Wave
+lifecycle; `PlaybackSnapshot::Ended` after another handler mutates state is not
+sufficient evidence. Manual partial Skip, Seek, failure and context replacement
+cannot create a natural-completion admission.
+Native parser discontinuities still reject the original copy; after proven
+natural completion, an independently validated whole-response request need not
+reuse or join those bytes. Explicit user Seek remains ineligible.
+
+For an admitted incomplete natural completion, discard the old partial staging
+file and perform one bounded full GET through the existing HTTP client, after
+checking the live account/token scope and resolving fresh account-bound delivery. Do not join partial byte ranges. This
+minimum strategy avoids having to prove safe continuation support from an
+unstable source; it costs a duplicate transfer only when the player did not
+capture the whole body. Require the sealed resource binding and any known
+original representation evidence to match, then check the entire response's
+HTTP storage policy, length/hash and atomic publication. Strong ETag uses
+If-Match; Last-Modified requires the conservative Date gap before using
+If-Unmodified-Since. An original full Repr-Digest is checked against the final
+measured SHA-256 even if the fresh response omits that digest. If no original
+headers were observed, a complete fresh response may establish its own policy;
+no old prefix participates. Expired delivery may be freshly resolved,
+but no-store, a changed version or an access refusal cannot be bypassed.
+The GET has a 15-second request timeout; fresh source resolution keeps its
+existing timeouts. The operation retains the same request/concurrency, 64 MiB
+body and nonrenewable 30-second finalization admission; it does not prefetch
+another track or introduce another engine. Signed addresses and session credentials are not persisted or
+forwarded to the media host.
+
+Hashing, completion, metadata and atomic commit can finish across ordinary Next,
+EOS, Wave rollover or a new online check without revocation merely from replacing
+the track. Explicit Stop, account change/logout, Clear and Disable still cancel
 or fence writes. A seal is neither a permanent entitlement nor permission to
 play saved bytes: every hit retains the current strict access/version checks.
 Diagnostics distinguish full `captured` progress from atomic `write-confirmed`,
-and preserve a finite first failure reason through subsequent teardown.
+preserve the first finite failure cause and expose fixed probe/header/body/EOS/
+Playing categories without URLs, IDs or response data. `completing` means that
+a replacement request is starting, not that capture or publication succeeded.
 
 `no-cache` and `must-revalidate` never authorize stale replay: every local play
 requires new successful online access and version validation. Same track ID or

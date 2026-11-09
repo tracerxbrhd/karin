@@ -99,6 +99,28 @@ impl StreamResolver {
         super::revalidation::revalidate(&self.transport.client, remote, stored, token, cancellation)
     }
 
+    /// One bounded, credential-free full response for an explicitly retained
+    /// natural-EOS cache completion. The caller re-resolves access first and
+    /// keeps its request-owned cache fence live while consuming the response.
+    pub(crate) fn cache_completion_response(
+        &self,
+        remote: &RemotePlaybackSource,
+        observed: Option<&crate::audio_cache::http_policy::ResponsePolicy>,
+        token: &AccessToken,
+        cancellation: &DeliveryCancellation,
+    ) -> Result<
+        (Response, crate::audio_cache::http_policy::ResponsePolicy),
+        crate::audio_cache::http_policy::Reason,
+    > {
+        super::completion::response(
+            &self.transport.client,
+            remote,
+            observed,
+            token,
+            cancellation,
+        )
+    }
+
     fn resolve_until(
         &self,
         service: &MusicService,

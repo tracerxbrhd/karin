@@ -423,7 +423,10 @@ fn original_with_large_tag(audio: &[u8]) -> Vec<u8> {
     bytes
 }
 
-fn normal_window(input: &Input, origin: &str) -> (adw::Application, crate::ui::MainWindow) {
+pub(super) fn normal_window(
+    input: &Input,
+    origin: &str,
+) -> (adw::Application, crate::ui::MainWindow) {
     let settings = SettingsStore::for_application().unwrap();
     settings.save(&Preferences::default()).unwrap();
     let root = input.directory.join("cache").join(crate::config::APP_ID);
@@ -484,7 +487,7 @@ fn track(id: &str) -> crate::music::Track {
         available: true,
     }
 }
-fn start(this: &Rc<Controller>, ids: &[&str], autoplay: bool) {
+pub(super) fn start(this: &Rc<Controller>, ids: &[&str], autoplay: bool) {
     let context = PlaybackContext::new(
         ContextKind::Playlist,
         Some("lifecycle-context".into()),
@@ -497,7 +500,7 @@ fn start(this: &Rc<Controller>, ids: &[&str], autoplay: bool) {
     this.render_queue();
     this.request_music(autoplay, None);
 }
-fn playing(this: &Controller, expected: &str) {
+pub(super) fn playing(this: &Controller, expected: &str) {
     pump_until(|| {
         this.model
             .borrow()
@@ -511,7 +514,7 @@ fn playing(this: &Controller, expected: &str) {
             })
     });
 }
-fn wait_records(this: &Controller, input: &Input, expected: &[Arc<Vec<u8>>]) {
+pub(super) fn wait_records(this: &Controller, input: &Input, expected: &[Arc<Vec<u8>>]) {
     let (cache, _) = this.audio_cache_binding().unwrap();
     let root = input
         .directory

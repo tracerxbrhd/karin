@@ -561,3 +561,101 @@ fn account_namespace_and_lease_changes_prune_write_pins() {
         assert_eq!(f.authority.seal_write(&grant), Err(CacheError::Revoked));
     }
 }
+
+fn completion_request(
+    f: &Fixture,
+) -> (
+    Request,
+    capture::Capture,
+    capture::CaptureReader,
+    CompletionPermit,
+) {
+    f.observe(101);
+    let mut request = f.cache.begin(&f.lease, 101u64).unwrap();
+    let (capture, reader) = capture::channel_http(request.cancellation());
+    f.cache
+        .retain_capture(&mut request, capture.clone(), || true)
+        .unwrap();
+    let completion = f.cache.completion_permit(&request).unwrap();
+    (request, capture, reader, completion)
+}
+
+#[test]
+fn incomplete_native_eos_completion_is_finite_write_only_and_not_a_playback_grant() {
+    let f = Fixture::new();
+    let (request, capture, _reader, completion) = completion_request(&f);
+    assert_eq!(completion.allow(), Err(CacheError::NoGrant));
+    capture.confirm_playing();
+    assert_eq!(completion.allow(), Err(CacheError::NoGrant));
+    capture.confirm_pipeline_eos();
+    assert!(!capture.is_complete());
+    completion.allow().unwrap();
+    let deadline = f
+        .authority
+        .state
+        .lock()
+        .unwrap()
+        .writes
+        .get(&request.permit.revision)
+        .unwrap()
+        .deadline;
+    assert!(deadline <= Instant::now() + SEALED_WRITE_LIMIT);
+
+    let _next = f.cache.begin_online_check(&f.lease, 102u64.into()).unwrap();
+    assert_eq!(f.authority.check(&request.permit), Err(CacheError::Revoked));
+    completion.current().unwrap();
+    completion.allow().unwrap();
+    assert_eq!(
+        f.authority
+            .state
+            .lock()
+            .unwrap()
+            .writes
+            .get(&request.permit.revision)
+            .unwrap()
+            .deadline,
+        deadline,
+        "EOS completion must not renew its finite write deadline"
+    );
+    f.authority
+        .state
+        .lock()
+        .unwrap()
+        .writes
+        .get_mut(&request.permit.revision)
+        .unwrap()
+        .deadline = Instant::now();
+    assert_eq!(completion.current(), Err(CacheError::Expired));
+    assert_eq!(completion.allow(), Err(CacheError::Revoked));
+}
+
+#[test]
+fn incomplete_native_eos_completion_still_obeys_seek_cancel_delegate_and_lease_fences() {
+    for change in 0..6 {
+        let f = Fixture::new();
+        let (request, capture, _reader, completion) = completion_request(&f);
+        capture.confirm_playing();
+        capture.confirm_pipeline_eos();
+        completion.allow().unwrap();
+        match change {
+            0 => capture.user_seek(),
+            1 => request.cancel(),
+            2 => {
+                f.cache.clear().unwrap();
+            }
+            3 => {
+                f.cache.bind(None).unwrap();
+            }
+            4 => {
+                f.budget
+                    .configure(false, Some(2 * 1024 * 1024 * 1024))
+                    .unwrap();
+            }
+            _ => f.permission.deny(&account(1), &101u64.into()),
+        }
+        assert!(completion.allow().is_err(), "fence case {change}");
+        assert!(completion.current().is_err(), "fence case {change}");
+        assert!(!capture.is_complete());
+        assert_eq!(f.cache.stats().unwrap().entries, 0);
+    }
+}

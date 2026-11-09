@@ -128,6 +128,13 @@ impl fmt::Debug for Metadata {
 }
 
 impl ResponsePolicy {
+    /// Total selected representation size, even when the observed source
+    /// response covered only one range. This never makes a partial body
+    /// publishable; `complete_mp3` retains that separate requirement.
+    pub(crate) fn representation_length(&self) -> Option<u64> {
+        self.range.map(|(_, _, total)| total).or(self.length)
+    }
+
     pub(crate) fn parse(
         status: u16,
         headers: impl IntoIterator<Item = (String, String)>,

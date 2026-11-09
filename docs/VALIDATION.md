@@ -855,7 +855,11 @@ recorded below. Public-distribution/content questions remain separate in #5/#22.
 Installed Flatpak and Fedora acceptance are not inferred from fixtures, source
 preparation or Xvfb. PR #26 remains Draft.
 
-## PR26 completed-capture lifecycle correction
+## PR26 completed-capture lifecycle correction — f2050b0
+
+This section records the previous correction, whose later real-service result
+is **FAIL** below. Its controlled complete-body regressions do not establish
+successful capture of the whole response during real sequential playback.
 
 ### Owner evidence at f8a85b8
 
@@ -909,21 +913,80 @@ not a claim that the owner's ambiguous `cancelled` line proves one particular ra
 
 ### Verification and remaining service acceptance
 
-The final source must exercise these races through the ordinary application and
-single player: full capture through automatic Next/EOS and a paused atomic
-commit, fast source before Playing with a delayed writer, partial Skip/Seek,
-consecutive Wave tracks, admission replacement, Clear/logout and fresh
-refusal/changed-resource checks. Gates/barriers must establish event order;
-passing a static local MP3 test cannot establish these races or live CDN behavior.
+The `f2050b0` ordinary-application regressions exercised complete capture through
+automatic Next/EOS and a held publication boundary, fast source before Playing,
+partial Skip/Seek, consecutive Wave tracks, admission replacement, Clear/logout
+and fresh refusal/changed-resource checks. Those controlled complete-body
+scenarios did not establish behavior when decoder EOS precedes complete HTTP
+receipt on a real source.
 
-Final-head compiler, native, packaging and CI results remain to be recorded from
-their actual executions at [PR #26 checks](https://github.com/tracerxbrhd/karin/pull/26/checks).
-No unexecuted regression is marked PASS here. **No post-correction Fedora or
-installed-Flatpak result has been reported.** After the Cloud work is complete,
-the [single final Native/Flatpak procedure](BUILDING.md#pr-26-corrected-cache-acceptance)
-checks real first save, EOS/Next/Wave continuity, local replay/restart and partial
-cancellation using fixed categories only. No IDs, URLs, headers, accounts,
-tokens or music files are requested.
+At `f2050b0`, stable 1.99.1 and exact 1.98.1 passed the default/all/minimal
+matrix (563/571/549 library tests plus four CLI tests per configuration),
+22 native selections and both CI workflows: [push](https://github.com/tracerxbrhd/karin/actions/runs/42481898361)
+and [PR](https://github.com/tracerxbrhd/karin/actions/runs/42481904320), eight jobs
+in total. These executed results remain valid for that immutable source, but
+do not override the later real-service failure below. No installed-Flatpak
+acceptance for this correction was reported.
+
+## PR26 incomplete-source completion correction
+
+### Owner evidence at f2050b0
+
+The owner repeated Native acceptance at
+`f2050b06c99b28ca1bdb4a839ee6d2b1e4c24e1b` on Fedora 44, KDE Plasma,
+Wayland and PipeWire. Sign-in and audible real Music remained working. Liked
+and My Wave produced the following pair at least six times:
+
+```text
+cache=miss source=remote reason=record-absent
+cache=not-cacheable source=remote reason=track-replaced-incomplete
+```
+
+No `captured`, `write-confirmed` or `hit source=local` appeared. This remains
+**service-cache FAIL**; the earlier complete-body lifecycle fix and 8/8 CI do
+not override the observation. The category establishes incomplete capture at
+retirement, but does not identify whether the native source had finished, why
+the track changed or which HTTP/body state prevented completion. Those missing
+observations must not be invented from a Cloud fixture.
+
+### Completion contract and evidence boundary
+
+The revised path carries the actual queue/Wave transition origin and observes
+native source/pipeline EOS separately. Complete capture retains the one-transfer
+fast path. Only confirmed native pipeline EOS plus actual Playing can keep an
+incomplete source's bounded completion operation alive while the next track
+starts. A worker can then discard partial staging, check the live account/token
+scope, resolve fresh delivery and request one complete replacement response; no partial ranges are
+joined and no new audio engine is created. The sealed resource binding, known
+original version evidence, response policy, size/hash and publication fences
+still apply. Missing original headers require an independently complete fresh
+response; they do not allow an old prefix to be guessed or joined. Manual incomplete Skip/Seek does not admit that request; Stop, Clear,
+Disable and account/logout close pending publication immediately.
+
+New fixed categories expose probe attachment, response status/length, body
+progress buckets, source/pipeline EOS, Playing and transition origin. They do
+not include exact private response values, URLs, identifiers or credentials.
+`captured` remains distinct from `write-confirmed` and `hit source=local`.
+
+Final-head compiler/native/packaging/CI results must be recorded from actual
+executions at [PR #26 checks](https://github.com/tracerxbrhd/karin/pull/26/checks).
+Earlier-head results do not validate this correction. Original local audio
+and HTTP fixtures must exercise incomplete natural completion, auto-Next/Wave,
+fresh full GET, changed/expired sources, refusals and cancellation through the
+ordinary application, then prove local replay and restart without another media
+GET. The held-tail fixture explicitly identifies injected native source/pipeline
+EOS while the HTTP tail is gated: it controls event order rather than claiming
+that the local decoder or real CDN naturally produced that order. A separate
+`native-byte-segment-eos-with-partial-http-response` case bounds the actual Soup
+source's byte segment at the MP3 prefix. It obtains a real 206/Content-Range and
+native pipeline EOS without injecting EOS, then requires a complete conditional
+GET and validated local replay. This source constraint is test-controlled; it
+is not evidence that the real CDN caused the same event. Another case closes
+the replacement response after 8192 bytes despite a full declared length and
+requires no partial or published file. These remain Cloud evidence rather than
+a real Music result. One
+[final Native/installed-Flatpak procedure](BUILDING.md#pr-26-corrected-cache-acceptance)
+is reserved for the finished revision; no intermediate owner runs are requested.
 
 ## Known unresolved checks
 

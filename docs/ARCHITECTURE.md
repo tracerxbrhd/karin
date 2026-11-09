@@ -227,8 +227,8 @@ The shared bridge hands an admitted hit's verified read-only file descriptor to
 the same PlaybackController. A decoder failure before any actual Playing can
 fall back once to its admitted online source in that same worker. A failure after
 Playing remains a normal player error, preserving Wave's actual-playing ledger.
-A source-pad capture reuses that player's compressed HTTP bytes without an extra
-media GET or second pipeline. Its bounded retention can hold a complete resource
+A source-pad capture normally reuses that player's compressed HTTP bytes without
+an extra media GET or second pipeline. Its bounded retention can hold a complete resource
 up to 64 MiB; at most four bodies allocate on arrival, for a worst-case retained
 body bound of 256 MiB. The writer starts draining during preparation, before Playing or
 the next GTK tick. The existing queue2 transport limit remains 2 MiB. Neither
@@ -239,14 +239,41 @@ a pipeline before Playing aborts even a complete preroll body, so the reader
 cannot wait for an acknowledgement that can no longer arrive. A finite
 `captured` progress diagnostic cannot stand in for `write-confirmed`.
 
-A write-specific pin acquired after fresh access can be sealed only for a
-completed, played resource, allowing at most 30 seconds for final hash/metadata/
-atomic commit. Ordinary Next, natural EOS, Wave rollover and the next online
-lookup do not invalidate that finalization merely by changing current playback.
-This pin is not a playback admission and cannot be reused for a later cache hit.
-Partial replacement, seek/discontinuity, overflow and failed capture cancel the
-incomplete copy with a preserved first cause. Explicit Stop, account/logout,
-Clear and Disable cancel or fence writes. Complete HTTP200 or whole-resource
+A write-specific pin acquired after fresh access separates finalization from
+current playback admission. A complete, played resource can finish hashing,
+metadata and atomic commit for at most 30 seconds after sealing. An incomplete
+capture can retain the same bounded operation only when actual native pipeline
+EOS and Playing have both been observed. Queue and Wave transitions carry their
+origin explicitly; a mutable GTK snapshot is not proof of natural completion.
+Ordinary Next/Wave rollover after that EOS and a new online lookup do not revoke
+the operation merely by changing the current track. This pin cannot admit a
+later cache hit.
+
+If the original capture is complete, no media request is repeated. If native
+EOS arrives before its HTTP body completes, the existing worker may discard
+the partial staging file and perform one bounded full-resource completion GET,
+after checking the live account/token scope and resolving a fresh account-bound
+source through the existing network layer.
+The full GET has a 15-second request timeout within the nonrenewable write
+admission; fresh resolution keeps its existing bounded timeouts. This is not
+a second player or prefetch of an unplayed track. It does not join
+partial ranges: the complete response must satisfy HTTP policy, the sealed
+resource binding, any already observed representation evidence and the usual
+length/hash/atomic-publication checks. A strong ETag uses If-Match; a usable
+Last-Modified uses If-Unmodified-Since with the conservative Date gap. If the
+original headers were never observed, a fresh complete response can establish
+its own policy; no old prefix is joined. Known no-store, a conflicting version,
+refusal or failed verification prevents publication. Credentials are not sent to the media host; signed addresses stay
+in memory. The existing work/memory bounds and single staging writer remain.
+
+Manual partial Skip, explicit Seek and failed playback do not authorize this
+completion request. Native byte discontinuities reject the original copy; a
+fresh whole-response completion never joins those bytes. Explicit Stop,
+account/logout, Clear and Disable cancel
+or fence it. Fixed diagnostics distinguish transition origin, probe/header/body
+state, source EOS, pipeline EOS and actual Playing without addresses or exact
+private response data. `completing` reports a replacement request, not body
+completion or publication. Complete HTTP200 or whole-resource
 HTTP206 and valid policy/integrity remain necessary for publication. The
 response's bounded metadata is retained with that record; credentials, cookies
 and signed URLs are not.

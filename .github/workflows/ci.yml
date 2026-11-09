@@ -659,6 +659,7 @@ jobs:
           path: |
             build/ui-captures/fixtures/audio-cache-application/audio-cache-application-receipt.json
             build/ui-captures/fixtures/audio-cache-application/audio-cache-lifecycle-receipt.json
+            build/ui-captures/fixtures/audio-cache-application/audio-cache-completion-receipt.json
             build/ui-captures/fixtures/audio-cache-application/audio-cache-application-*.log
           retention-days: 14
           if-no-files-found: error

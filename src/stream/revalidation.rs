@@ -162,7 +162,7 @@ fn validate_response(
     ResponsePolicy::parse(status, headers)?.revalidate(stored, uri_hash, resource_hash)
 }
 
-fn selected_headers(response: &Response) -> Result<Vec<(String, String)>, Reason> {
+pub(super) fn selected_headers(response: &Response) -> Result<Vec<(String, String)>, Reason> {
     if response.headers().len() > MAX_HEADERS {
         return Err(Reason::ResponseTooLarge);
     }

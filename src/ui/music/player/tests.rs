@@ -1256,7 +1256,7 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
                 .music_snapshot()
                 .is_some_and(|s| (s.volume - 0.31).abs() < 0.001)
     });
-    let cancellation = this.player.borrow().cache_fill_cancel.clone().unwrap();
+    let cancellation = this.player.borrow().cache_fill_cancel.clone().unwrap().1;
     this.play_music_queue(0);
     wait_playing(this, 0);
     assert!(cancellation.is_cancelled());
@@ -1284,7 +1284,7 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
     pump_until(|| {
         fixture.counts.lock().unwrap().cache_hold_started && this.player.borrow().cache_fill_running
     });
-    let cancellation = this.player.borrow().cache_fill_cancel.clone().unwrap();
+    let cancellation = this.player.borrow().cache_fill_cancel.clone().unwrap().1;
     let retired = this.player.borrow().controller.clone().unwrap();
     this.logout();
     assert!(cancellation.is_cancelled());

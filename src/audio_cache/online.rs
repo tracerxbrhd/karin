@@ -99,7 +99,7 @@ impl StorageAuthority for OnlineStreamAuthority {
         let mut state = self.state.lock().map_err(|_| CacheError::Unavailable)?;
         // A new playback attempt still retires every old hit and incomplete
         // write check. Only registered writes in the same account/lease can
-        // subsequently be sealed by the owner's actual completed capture.
+        // subsequently be sealed by complete played capture or native EOS.
         let now = Instant::now();
         state.writes.retain(|_, registered| {
             registered.deadline > now && same_context(&registered.presented.identity, &identity)
@@ -254,7 +254,8 @@ impl StorageAuthority for OnlineStreamAuthority {
     }
 
     fn seal_write(&self, grant: &StorageGrant) -> Result<()> {
-        // The owning Request supplies the completed-and-played capture proof.
+        // The owning Request supplies complete-and-played capture or actual
+        // native EOS/Playing proof for a separately validated full HTTP fetch.
         // Registration predates that event, so noticing it after next-track
         // admission cannot lose a physically complete resource. This method
         // never makes the old grant current for playback or cache reuse.

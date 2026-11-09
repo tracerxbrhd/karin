@@ -5,15 +5,19 @@
 Karin implements a private HTTP cache for supported, already authorized full-MP3
 playback, with **fresh online access and representation validation before reuse**.
 The policy considers the response actually delivered to the existing GStreamer
-player. It does not invent a Yandex storage entitlement or call HTTP caching a
+player or a bounded, freshly authorized completion response after native EOS.
+It does not invent a Yandex storage entitlement or call HTTP caching a
 legal license. A missing bespoke provider-grant API no longer blocks analysis of
 an otherwise eligible response. Explicit content restrictions, protected formats
 and HTTP storage prohibitions still reject the cache copy.
 
-**Real Music service behavior for this revision has not been verified.** The
-production path is connected, but a local fixture cannot establish which
-validators the actual CDN supplies or that a particular real track will produce
-a local hit. Downloads, mass prefetch and offline mode remain outside this scope.
+**The owner tested `f2050b0`: real playback worked, but cache acceptance failed**
+with repeated `track-replaced-incomplete` and no completed save/local hit. The
+incomplete-source correction has no new real-service acceptance; see
+[VALIDATION](VALIDATION.md#pr26-incomplete-source-completion-correction).
+A local fixture cannot establish the actual CDN's validators or prove that a
+particular real track will produce a local hit. Downloads, mass prefetch and
+offline mode remain outside this scope.
 Issue [#20](https://github.com/tracerxbrhd/karin/issues/20) remains open;
 public authorization/API distribution rights remain separately tracked in
 [#5](https://github.com/tracerxbrhd/karin/issues/5) and the
@@ -50,7 +54,7 @@ official-client material is copied into Karin's store.
 | [job.vala](https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/cachier/job.vala#L145) | Album/playlist jobs reconcile constituent tracks. Cancellation stops further scheduling and waits for active saves before cleanup; the reviewed whole-file download has no per-chunk cancellation contract. |
 | [storager.vala](https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/cachier/storager.vala#L614) | Separate XDG cache/data locations, local-first lookup, whole-file writes and decoded temporary playback files. Size reporting uses `du`; these six reviewed files do not establish an automatic quota/LRU policy. Reversible XOR is neither authenticated encryption nor a storage grant. |
 | [info-db.vala](https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/cachier/info-db.vala#L23) | SQLite references retain tracks used by several saved collections. Those references are not account/device/track licenses. |
-| [player.vala](https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/player/player.vala#L492) | Passes the local/network URI to playbin and may prefetch the next track. Karin retains its existing player without adopting automatic service-audio saving. |
+| [player.vala](https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/player/player.vala#L492) | Passes the local/network URI to playbin and may prefetch the next track. Karin retains one player without adopting its next-track prefetch. |
 
 The network side is concrete:
 [`YaMTalker.get_download_uri/load_track`](https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/talkers/yam-talker.vala#L300)
@@ -143,8 +147,8 @@ tick or a positive playback clock. The capture can retain at most one complete
 **64 MiB** resource; at most four pending captures and one staging writer are
 admitted. Bodies allocate on arrival, with a worst-case retained-body bound of
 256 MiB across the four captures. This is separate from queue2's unchanged
-limit, and creates no second
-media GET or second player. Probe callbacks never wait for storage.
+limit. The complete-capture fast path creates no second media GET or second
+player. Probe callbacks never wait for storage.
 
 Capture completion means the exact HTTP body length has arrived with valid
 sequence/policy checks; it does not wait for downstream or pipeline EOS. A
@@ -160,18 +164,38 @@ The opt-in `captured` diagnostic denotes body completion, not publication;
 
 A completed, played resource can seal its write-specific finalization admission
 for at most **30 seconds** to finish hashing, metadata and atomic publication.
-Normal Next, natural EOS, Wave continuation and a new online lookup do not revoke
-that sealed write merely by replacing the playing track. Partial captures are
-cancelled on replacement. Explicit Stop, account/logout, Clear and Disable still
-cancel or fence pending writes immediately. The finalization pin cannot admit a
-cache hit: every later play must obtain fresh access and version validation.
+Native pipeline EOS plus actual Playing can also admit bounded completion of an
+incomplete body. That operation discards the partial staging file, checks the
+live account/token scope, resolves fresh delivery and uses the existing HTTP
+client for one complete
+replacement response. It does not append guessed ranges or relax representation
+identity. The sealed resource binding and every known original validator/length
+must still match, and the whole new response must pass normal HTTP policy and
+integrity checks. Strong ETag uses If-Match; conservatively usable Last-Modified
+uses If-Unmodified-Since. When no original headers were observed, a fresh whole
+response establishes its own policy without reusing a partial prefix. A known
+version conflict, no-store, refusal or failed check cannot publish. No next-track prefetch
+or library download follows.
+
+That replacement GET has a 15-second request timeout and remains inside the
+nonrenewable write admission. Existing source-resolution timeouts still apply.
+Normal Next/Wave continuation after native EOS and a new online lookup do not
+revoke that bounded completion merely by replacing the track. A manual partial
+Skip or Seek does not admit it; explicit Stop, account/logout, Clear and Disable
+still cancel or fence pending work immediately. Transition origin is passed
+explicitly rather than inferred from a later mutable snapshot. The finalization
+pin cannot admit a cache hit: every later play still obtains fresh access and
+version validation. `completing` denotes a replacement transfer, not successful
+capture or publication. Safe capture-state diagnostics distinguish whether a probe,
+headers, body bytes, source EOS, pipeline EOS and Playing were observed.
 
 Disk integrity work overlaps StreamResolver's fresh access check. Selection
 consumes only an already-ready candidate; a slow or busy cache leaves that play
 online. A candidate additionally needs a bounded HTTP revalidation against the
 currently admitted source. Final file-descriptor admission is memory-only and
-LRU bookkeeping is deferred rather than delaying audio. The first play does not
-start another full media request to fill the cache.
+LRU bookkeeping is deferred rather than delaying audio. Full capture uses the
+single playback transfer. Only proven native completion of a listened track can
+trigger the bounded replacement GET; it never blocks the next composition.
 
 `LicensedResourceAuthority` is a production policy for trusted rightsholder
 input, currently an exact **CC0-1.0** dedication bound to account/track, SHA-256,

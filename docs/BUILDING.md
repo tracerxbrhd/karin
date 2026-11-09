@@ -137,11 +137,14 @@ legal license, Offline Mode or permission to distribute content. See
 
 ## PR #26 corrected-cache acceptance
 
-The owner reported **FAIL at `f8a85b8`** on Fedora: normal sign-in and audible
-Music worked, but Liked and Wave repeatedly produced `record-absent` followed by
-`cancelled`, with no confirmed write or local hit. Those categories did not
-identify the originating callback. The lifecycle correction needs one final
-service check after its Cloud validation; no new Fedora PASS is implied.
+The owner reported **FAIL at `f2050b0`** on Fedora: normal sign-in and audible
+Music worked, but Liked and Wave repeated `record-absent` followed by
+`track-replaced-incomplete` at least six times, with no `captured`, confirmed
+write or local hit. The previous `f8a85b8` result was also FAIL with generic
+`cancelled`. Neither category alone establishes source/pipeline EOS, complete
+HTTP receipt or why the next track was selected. The incomplete-source
+completion correction needs one final service check after its Cloud validation;
+no new Fedora PASS is implied.
 Perform the same sequence on the exact final PR HEAD in Native and installed
 Flatpak. Local fixtures cannot establish the next real CDN response or desktop
 event ordering.
@@ -152,7 +155,7 @@ Build Native as described above:
 cargo +1.98.1 build --release --locked --no-default-features --features cassette-auth
 ulimit -c 0
 KARIN_AUDIO_CACHE_DIAGNOSTICS=1 ./target/release/karin 2>&1 |
-  grep --line-buffered -E '^cache=(miss|captured|write-confirmed|hit|stale|not-cacheable) source=(local|remote) reason=[a-z0-9-]+$'
+  grep --line-buffered -E '^cache=(miss|observed|captured|completing|write-confirmed|hit|stale|not-cacheable) source=(local|remote) reason=[a-z0-9-]+$'
 ```
 
 Build/install the same source with the Flatpak instructions below, then run:
@@ -160,18 +163,24 @@ Build/install the same source with the Flatpak instructions below, then run:
 ```sh
 ulimit -c 0
 flatpak run --env=KARIN_AUDIO_CACHE_DIAGNOSTICS=1 io.github.tracerxbrhd.Karin 2>&1 |
-  grep --line-buffered -E '^cache=(miss|captured|write-confirmed|hit|stale|not-cacheable) source=(local|remote) reason=[a-z0-9-]+$'
+  grep --line-buffered -E '^cache=(miss|observed|captured|completing|write-confirmed|hit|stale|not-cacheable) source=(local|remote) reason=[a-z0-9-]+$'
 ```
 
 The opt-in diagnostic reports only fixed `cache`, `source` and `reason`
-categories. It does not enable HTTP, WebKit or GStreamer tracing. Keep those
+categories, including transition origin and bounded capture-state categories.
+`cache=observed` reports those states; it is not a successful save.
+It does not enable HTTP, WebKit or GStreamer tracing. Keep those
 traces off; do not share URLs, tokens, IDs, HTTP bodies, music files or personal
 screenshots. No developer credentials or altered client identity are required.
 
 `cache=captured source=remote reason=capture-complete` means the full HTTP body
 was retained; it is **not** a published record or a local hit. The finite
-`natural-eos-finalizing` and `track-replaced-finalizing` reasons can describe
-allowed completion after a track transition. Only `cache=write-confirmed`
+finalization reasons can describe allowed completion after a track transition.
+`cache=completing source=remote reason=natural-eos-full-fetch` means a bounded
+replacement transfer is starting; it is not complete capture or publication.
+When native EOS precedes full HTTP receipt, the app may perform one bounded
+fresh full-resource request after access/version checks, without delaying Next.
+A complete original capture does not need that request. Only `cache=write-confirmed`
 confirms publication. Stop, incomplete replacement, seek/flush/discontinuity,
 overflow, headers, admission/finalization and atomic-commit failures have
 separate fixed reasons; keep the earliest reported cause. Do not replace a
@@ -180,9 +189,11 @@ failure with success merely because capture completed.
 1. Use ordinary sign-in or protected restoration with caching enabled. Play an
    ordinary Liked track through its natural end and automatic Next; repeat with
    a few successive Wave tracks. Sound, queue and radio controls must continue.
-   For eligible complete, played responses, `captured` may precede EOS/Next and
-   `write-confirmed` may follow the transition. Ordinary replacement must not
-   systematically destroy completed writes. Wait for `write-confirmed` before
+   Capture-state categories must distinguish probe/header/body progress, source
+   and pipeline EOS, actual Playing and the transition origin. For eligible
+   played responses, completion and `write-confirmed` may follow EOS/Next while
+   the next composition is already playing. Ordinary automatic replacement must
+   not systematically destroy admitted completion. Wait for `write-confirmed` before
    testing reuse; do not infer it from `captured` or increased usage alone.
 2. Select one of those same tracks again. A verified saved representation must report
    `cache=hit source=local`; hearing audio alone or seeing larger total usage is
