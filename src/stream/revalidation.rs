@@ -35,9 +35,7 @@ pub(super) fn revalidate(
     let url = remote
         .http_cache_probe_url()
         .map_err(|_| Reason::UnsupportedStatus)?;
-    let uri_hash = remote.http_cache_uri_hash();
-    let resource_hash = remote.http_cache_resource_hash();
-    let request = conditionals(client.head(url.clone()), stored, uri_hash, resource_hash)?;
+    let request = conditionals(client.head(url.clone()), stored, remote)?;
     let response = send(request, remote, token, cancellation)?;
     let status = response.status().as_u16();
     if matches!(status, 405 | 501) {
@@ -46,12 +44,7 @@ pub(super) fn revalidate(
         // without consuming its body, and cannot establish a local hit.
         drop(response);
         current(remote, token, cancellation)?;
-        let request = conditionals(
-            client.get(url).header(RANGE, "bytes=0-0"),
-            stored,
-            uri_hash,
-            resource_hash,
-        )?;
+        let request = conditionals(client.get(url).header(RANGE, "bytes=0-0"), stored, remote)?;
         let response = send(request, remote, token, cancellation)?;
         let status = response.status().as_u16();
         if !matches!(status, 206 | 304) {
@@ -63,7 +56,7 @@ pub(super) fn revalidate(
                 Reason::RangeUnsupported
             });
         }
-        validate_response(response, stored, uri_hash, resource_hash)?;
+        validate_response(response, stored, remote)?;
     } else {
         if status == 451 {
             return Err(Reason::ContentRestricted);
@@ -74,7 +67,7 @@ pub(super) fn revalidate(
         if !matches!(status, 200 | 304) {
             return Err(Reason::UnsupportedStatus);
         }
-        validate_response(response, stored, uri_hash, resource_hash)?;
+        validate_response(response, stored, remote)?;
     }
     current(remote, token, cancellation)
 }
@@ -96,8 +89,7 @@ fn current(
 fn conditionals(
     request: RequestBuilder,
     stored: &Metadata,
-    uri_hash: [u8; 32],
-    resource_hash: [u8; 32],
+    remote: &RemotePlaybackSource,
 ) -> Result<RequestBuilder, Reason> {
     let request = request
         .timeout(PROBE_TIMEOUT)
@@ -109,7 +101,7 @@ fn conditionals(
         // A successful fresh access check must not be paired with a silently
         // stale intermediary response. No cookie or Authorization is supplied.
         .header(CACHE_CONTROL, "no-cache");
-    if uri_hash != stored.uri_hash && resource_hash != stored.resource_hash {
+    if !stored.validator_scope(remote) {
         // ETags compare the same resolved file/encoding (or exact URI), not
         // arbitrary files with a coincidentally equal tag. Only a full
         // Repr-Digest can bridge an unbound resource boundary.
@@ -151,15 +143,14 @@ fn send(
 fn validate_response(
     response: Response,
     stored: &Metadata,
-    uri_hash: [u8; 32],
-    resource_hash: [u8; 32],
+    remote: &RemotePlaybackSource,
 ) -> Result<(), Reason> {
     let headers = selected_headers(&response)?;
     let status = response.status().as_u16();
     // In particular, do not call bytes/text/read, even when a broken HEAD or
     // Range implementation has attached an entire media body to the response.
     drop(response);
-    ResponsePolicy::parse(status, headers)?.revalidate(stored, uri_hash, resource_hash)
+    ResponsePolicy::parse(status, headers)?.revalidate_source(stored, remote)
 }
 
 pub(super) fn selected_headers(response: &Response) -> Result<Vec<(String, String)>, Reason> {

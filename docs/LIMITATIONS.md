@@ -57,8 +57,8 @@ Wave event or recommendation-effect guarantee. See
 Other recommendation shelves/similar tracks and lyrics are not implemented.
 The v0.6 audio store, player bridge and cleanup are ordinary production code.
 The owner accepted the available functions/tests at `707539b` on Native and
-installed Flatpak. The owner identifies `0709729` as the last accepted PR #26 revision; the later
-online-authority correction requires new acceptance. One shared policy/budget/usage
+installed Flatpak. `0709729` remains the last fully accepted PR #26 revision;
+newer available functions and later acceptance are recorded separately. One shared policy/budget/usage
 and Clear covers all permitted categories, with
 2 GiB by default and an explicit Unlimited choice guarded by available disk space.
 The private HTTP-cache path independently downloads the selected source while the
@@ -70,17 +70,22 @@ alone cannot prove unchanged bytes. Unusable validators, an explicit refusal,
 `no-store`, cancellation or a failed cache leave permitted network playback
 available. Cache lookup and bookkeeping remain off GTK.
 
-**The owner reported playback FAIL at `6ec2407`; real Music playback/cache
-acceptance of this correction has not been verified.** The descriptor-host naming
-restriction is corrected within the existing dedicated CDN zone; the actual
-rejected hostname is unavailable in Cloud. The accompanying generic Wave error
-does not establish its failed response stage. Independent complete-file downloads
-replace source capture and EOS-finalization dependencies. Local HTTP and
-generated-audio tests exercise the production application path, not the live
-service or installed Flatpak. A CDN may supply no suitable version validator;
-that resource then remains online with a fixed diagnostic reason. PR #26 and
-Issue #20 remain unfinished pending the final service check. Public client
-distribution/registration questions remain separate in #5/#22. See
+**At `31d873d` the owner confirmed real first playback and complete background
+saving on Fedora Native; same-track and post-restart local replay still failed
+with `resource-changed`.** The revised identity binds the logical descriptor
+object/encoding separately from physical CDN placement. Scoped validators remain
+required; an unproved modern boundary retains the valid record online without
+repeated cache-body writes. Older records can establish the new binding through
+a complete validated replacement. Graphical indicators derive complete local
+presence, not offline availability or current playback permission.
+
+The earlier `6ec2407` playback failure remains historical; the exact rejected
+host and the stage of its separately reported generic Wave error were not
+established in Cloud. The corrected replay and indicators require final owner
+acceptance. Local HTTP/generated-audio checks exercise production code, not the
+live CDN or installed Flatpak. A resource without sufficient scoped/full-digest
+proof stays online with a finite reason. PR #26 and Issue #20 remain open.
+Public client distribution questions remain separate in #5/#22. See
 [AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md) and the
 [single acceptance procedure](BUILDING.md#pr-26-corrected-cache-acceptance).
 The [post-acceptance audit](PR26_REVISION_AUDIT.md) remains historical evidence. Downloads,

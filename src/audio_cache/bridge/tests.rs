@@ -918,3 +918,49 @@ fn changed_disk_bytes_and_cancelled_resolution_cannot_be_used_as_a_hit_or_fill()
     assert_eq!(http.requested(), 2);
     assert_eq!(cache.stats().unwrap().entries, 0);
 }
+
+#[test]
+fn speculative_lookup_contention_retains_complete_records_without_another_media_get() {
+    for already_stored in [false, true] {
+        let directory = Directory::new();
+        let http = Http::new(media(), 200, "ETag: \"complete-version\"\r\n");
+        let cache = AudioCache::open(
+            directory.0.join("audio"),
+            Arc::new(OnlineStreamAuthority::with_storage_permission(Arc::new(
+                crate::audio_cache::PrivateHttpCachePolicy,
+            ))),
+            CachePolicy::default(),
+        )
+        .unwrap();
+        let lease = cache.bind(Some(scope())).unwrap().unwrap();
+        if already_stored {
+            cache_from_playback(http.select(&cache, &lease)).unwrap();
+        }
+        let before = http.requested();
+        let service = MusicService::for_test(&http.origin);
+        let token = token();
+        service.account(&token).unwrap();
+        // Force the actual speculative lookup to return Busy while fresh online
+        // source resolution proceeds. The first save must still be admitted;
+        // an existing modern complete file must not be blindly overwritten.
+        let gate = cache.io().unwrap();
+        let selected = resolve(
+            http.resolver(),
+            &service,
+            &token,
+            "123",
+            &DeliveryCancellation::new(),
+            Some((cache.clone(), lease.clone())),
+        )
+        .unwrap();
+        drop(gate);
+        assert!(!selected.source.is_cached());
+        let fill = selected
+            .fill
+            .expect("speculative worker must distinguish miss from a retained record");
+        assert!(fill.speculative);
+        assert_eq!(fill.download(&mut None).unwrap(), !already_stored);
+        assert_eq!(http.requested(), before + usize::from(!already_stored));
+        assert_eq!(cache.stats().unwrap().entries, 1);
+    }
+}

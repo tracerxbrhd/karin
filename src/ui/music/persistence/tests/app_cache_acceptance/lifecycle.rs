@@ -66,13 +66,13 @@ pub(super) fn run_parent() {
 }
 
 #[derive(Default)]
-struct Gate {
-    entered: AtomicBool,
+pub(super) struct Gate {
+    pub(super) entered: AtomicBool,
     released: Mutex<bool>,
     changed: Condvar,
 }
 impl Gate {
-    fn wait(&self) {
+    pub(super) fn wait(&self) {
         self.entered.store(true, Ordering::Release);
         let value = self.released.lock().unwrap();
         let (value, _) = self
@@ -81,7 +81,7 @@ impl Gate {
             .unwrap();
         assert!(*value, "bounded lifecycle HTTP gate was released");
     }
-    fn release(&self) {
+    pub(super) fn release(&self) {
         *self.released.lock().unwrap() = true;
         self.changed.notify_all();
     }

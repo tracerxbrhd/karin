@@ -2,9 +2,9 @@
 
 # ADR-0029: Production audio-cache boundary and service admission
 
-Status: Private HTTP caching with online resource revalidation; real-service acceptance pending
+Status: Private HTTP first save owner-confirmed; revised local replay and indicators await acceptance
 
-Date: 2026-11-05; independent-download revision 2026-11-10
+Date: 2026-11-05; independent-download and replay/presence revisions 2026-11-10
 
 Extends: ADR-0015, ADR-0019, ADR-0026 and ADR-0030
 
@@ -67,16 +67,38 @@ Neither GTK nor the audio worker waits for storage or a background download.
 ## Local replay and failure
 
 Every replay resolves fresh Music access and verifies the saved representation
-through a bounded credential-free HTTP check. Strong validators must describe
-the same resource/variant, using exact URI identity or the sealed descriptor's
-host/path/codec/bitrate binding; signing wrappers alone do not identify bytes.
-A full Repr-Digest can establish exact representation identity. Same track ID,
-equal size or local file presence are insufficient. `no-cache` and
-`must-revalidate` never permit stale fallback. Missing/unusable proof leaves
-that playback online. Cache refusal or I/O failure must not turn a valid stream
-into a playback error. New private copies without a usable strong ETag,
-Last-Modified or Repr-Digest are declined before body storage rather than writing
-unreusable data. HTTP storage and provider/content rights remain separate.
+through a bounded credential-free HTTP check. Bind the logical descriptor
+request object and selected encoding separately from physical host/path and
+signed URI. The hashed descriptor origin, full object path and semantic query
+identify that storage object; omit only documented `sign`/`ts` credentials and
+retain unknown parameters. The published MDS chain maps namespace/file to a
+physical replica and can rewrite regional delivery paths. Its timestamp/size
+ETag is scoped to that logical object, not a body MD5 or global checksum; see the
+[primary-source analysis](../AUDIO_CACHE_REVIEW.md#private-http-admission-and-resource-validation).
+Scoped strong ETag or Last-Modified plus length can validate the same logical
+object/variant despite a physical locator change. A full representation digest
+can independently establish saved bytes. Track ID, size or presence alone
+remain insufficient; a known different variant must not reuse the wrong copy.
+
+An unproved modern-object change, absent validator or temporary validation
+failure keeps the valid record online without a repeated cache-body refill.
+Legacy records lack the new optional logical binding: a complete validated
+replacement can establish it once, with the old copy retained until publication.
+Confirmed representation/variant changes,
+no-store, explicit access/content refusals and corruption retain their scoped
+retirement rules. `no-cache` and `must-revalidate` never permit stale local
+fallback. Cache failure must not turn an admitted stream into a playback error.
+New private copies without useful version evidence are still declined before
+body storage. Existing records are not discarded just for missing new optional
+binding metadata; they need sufficient current proof before reuse.
+
+GTK displays a bounded, worker-derived AudioCache presence view in existing
+track rows and current-track surfaces. Missing hides the indicator; actual
+background work shows Downloading; only a verified complete record shows Stored.
+Restart rebuilds that view from the store, and Clear/Disable, eviction, corruption
+and account changes remove obsolete status. GTK performs no per-row file or HTTP
+checks. This adds neither a second track database nor offline availability.
+HTTP storage, current playback access and provider/content rights remain separate.
 
 Only completed, admitted local data reaches the single GStreamer engine through
 its pinned file descriptor. Clear may unlink a record without interrupting that
@@ -91,7 +113,10 @@ first playback and background save; Next/Wave/Skip/Seek; actual local replay and
 restart; refusal/version change/no-store; timeout/truncated response; Clear,
 logout, corruption, quota/LRU and disk headroom. Record actual HTTP counters,
 GStreamer source, full hash and file identity. These tests do not establish real
-CDN support. The owner's `6ec2407` playback failure and earlier cache failures
-remain failures until a final [Native/installed-Flatpak check](../BUILDING.md#pr-26-corrected-cache-acceptance)
-confirms the real scenario. PR #26 stays Draft; offline listening and public
-client/content distribution are separate matters.
+CDN behavior. At `31d873d` the owner confirmed first playback and complete
+background saving on Fedora Native; repeated and post-restart local replay
+failed with `resource-changed`. Earlier failures remain historical results.
+The revised proof/presence behavior needs the single final
+[Native/installed-Flatpak check](../BUILDING.md#pr-26-corrected-cache-acceptance).
+PR #26 stays Draft; offline listening and public client/content distribution are
+separate matters.

@@ -257,7 +257,7 @@ impl PlaybackSource {
 pub struct RemotePlaybackSource {
     uri: Zeroizing<String>,
     expires_at: Instant,
-    http_resource: Option<Arc<[u8; 32]>>,
+    http_resource: Option<Arc<crate::stream::HttpResourceIdentity>>,
     #[cfg(test)]
     ca_file: Option<PathBuf>,
 }
@@ -323,6 +323,11 @@ impl RemotePlaybackSource {
     /// signed address intentionally has a different binding; this is not an
     /// assertion that the underlying audio has changed.
     pub(crate) fn http_cache_uri_hash(&self) -> [u8; 32] {
+        if let Some(identity) = &self.http_resource {
+            // Tests map transport to loopback, but trust/validator scope must
+            // still describe the provider URI, including its real origin.
+            return identity.request_hash();
+        }
         let mut context = ring::digest::Context::new(&ring::digest::SHA256);
         context.update(b"Karin private HTTP media request v1\0");
         context.update(self.uri.as_bytes());
@@ -337,16 +342,24 @@ impl RemotePlaybackSource {
     /// and full representation length, or a matching full representation digest.
     pub(crate) fn http_cache_resource_hash(&self) -> [u8; 32] {
         self.http_resource
-            .as_deref()
-            .copied()
+            .as_ref()
+            .map(|identity| identity.hash())
             .unwrap_or_else(|| self.http_cache_uri_hash())
+    }
+
+    pub(crate) fn http_cache_binding(
+        &self,
+    ) -> Option<crate::audio_cache::http_policy::ResourceBinding> {
+        self.http_resource
+            .as_ref()
+            .map(|identity| identity.binding())
     }
 
     pub(crate) fn with_http_cache_resource(
         mut self,
         identity: crate::stream::HttpResourceIdentity,
     ) -> Self {
-        self.http_resource = Some(Arc::new(identity.hash()));
+        self.http_resource = Some(Arc::new(identity));
         self
     }
 

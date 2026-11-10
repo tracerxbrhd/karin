@@ -1313,6 +1313,7 @@ impl Controller {
             )
         };
         if cache_changed && !self.persistence.borrow().values.cache_enabled {
+            self.clear_cache_presence();
             self.cancel_music_cache(crate::audio_cache::diagnostic::Cause::CacheDisabled);
         }
         self.apply_appearance();
@@ -1432,6 +1433,7 @@ impl Controller {
         self.cache_operation(CacheTask::Trim);
     }
     fn clear_persistent_cache(self: &Rc<Self>) {
+        self.clear_cache_presence();
         self.cache_operation(CacheTask::Clear);
     }
     fn cache_operation(self: &Rc<Self>, kind: CacheTask) {

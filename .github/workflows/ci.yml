@@ -628,7 +628,7 @@ jobs:
           Preserve GPL and third-party notices. Shared OAuth public-distribution/service permission remains unresolved separately.
           Do not enable network/GStreamer logs or share tokens, URLs, account data, private screenshots or audio.
           Private HTTP audio caching uses the current validated Legacy MP3 session, actual response directives and fresh representation validation; it is not a provider entitlement or an offline mode.
-          Follow docs/BUILDING.md#pr-26-corrected-cache-acceptance for the one final Native/Flatpak check with KARIN_AUDIO_CACHE_DIAGNOSTICS=1. Real service compatibility is unverified until this owner check.
+          Follow docs/BUILDING.md#pr-26-corrected-cache-acceptance for the one final Native/Flatpak check. Verify automatic saved indicators and local replay/restart; fixed cache diagnostics are optional for source proof. The owner confirmed Native first playback/save at 31d873d; corrected local replay and installed Flatpak remain unverified until this check.
           Settings has one enabled-by-default 2GiB shared cache allowance, six-position slider (500MiB/1/2/3/4GiB/Unlimited), measured total and Clear; no download/offline or permission-override controls.
           Active-footer Like and Dislike require independent live membership confirmation; Dislike stays hidden if unavailable, while fresh Like-only remains supported.
           Test separate marks, their removal/opposite clearing, pending/error GET recovery and exactly one Next after confirmed current Dislike; removal/Like/errors never advance or add new Wave events.
@@ -660,6 +660,10 @@ jobs:
             build/ui-captures/fixtures/audio-cache-application/audio-cache-application-receipt.json
             build/ui-captures/fixtures/audio-cache-application/audio-cache-lifecycle-receipt.json
             build/ui-captures/fixtures/audio-cache-application/audio-cache-completion-receipt.json
+            build/ui-captures/fixtures/audio-cache-application/audio-cache-identity-receipt.json
+            build/ui-captures/fixtures/audio-cache-application/audio-cache-presence-receipt.json
+            build/ui-captures/fixtures/audio-cache-application/audio-cache-saved-*.png
+            build/ui-captures/fixtures/audio-cache-application/audio-cache-presence-*.png
             build/ui-captures/fixtures/audio-cache-application/audio-cache-application-*.log
           retention-days: 14
           if-no-files-found: error

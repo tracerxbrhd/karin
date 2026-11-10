@@ -105,20 +105,30 @@ pub(crate) fn resolve(
                 track,
                 resolver,
                 service.clone(),
+                true,
             )
         } else {
             online()
         });
     };
-    let mut storage_refused = false;
+    let mut preserve_record = false;
     if prepared.has_file() {
         if let Err(reason) = prepared.revalidate_http(&resolver, &remote, token, cancellation) {
-            storage_refused = matches!(
-                reason,
-                super::http_policy::Reason::NoStore
-                    | super::http_policy::Reason::ContentRestricted
-                    | super::http_policy::Reason::AccessDenied
-            );
+            // Relocation, missing proof and transient failures do not make a
+            // verified completed file corrupt. Keep it for a later provable
+            // selection, and do not download/overwrite it on every Play.
+            let upgrade =
+                reason == Reason::IdentityUnverified && prepared.needs_binding_upgrade(&remote);
+            if upgrade {
+                diagnostic::report(Event::Checking, Cause::BindingUpgrade);
+            }
+            preserve_record = !upgrade
+                && !matches!(
+                    reason,
+                    Reason::RepresentationChanged
+                        | Reason::EncodingChanged
+                        | Reason::DigestMismatch
+                );
             diagnostic::report(Event::Stale, Cause::Policy(reason));
             if matches!(
                 reason,
@@ -126,7 +136,7 @@ pub(crate) fn resolve(
                     | super::http_policy::Reason::ContentRestricted
                     | super::http_policy::Reason::AccessDenied
                     | super::http_policy::Reason::RepresentationChanged
-                    | super::http_policy::Reason::ResourceChanged
+                    | super::http_policy::Reason::EncodingChanged
                     | super::http_policy::Reason::DigestMismatch
             ) && prepared.retire_record().is_err()
             {
@@ -143,7 +153,7 @@ pub(crate) fn resolve(
                 .unwrap_or_else(|_| PlaybackSource::remote(remote)),
             fill: None,
         }),
-        Ok(None) if storage_refused => Ok(online()),
+        Ok(None) if preserve_record => Ok(online()),
         Ok(None) => Ok(fill_selection(
             cache,
             lease,
@@ -153,6 +163,7 @@ pub(crate) fn resolve(
             track,
             resolver,
             service.clone(),
+            false,
         )),
         Err(_) => Ok(online()),
     }
@@ -177,6 +188,7 @@ fn fill_selection(
     track: &str,
     resolver: StreamResolver,
     service: MusicService,
+    speculative: bool,
 ) -> Selection {
     let online = || PlaybackSource::remote(remote.clone());
     if cancellation.cancelled(token) || remote.is_expired() {
@@ -233,6 +245,7 @@ fn fill_selection(
             service,
             remote,
             track: track.to_owned(),
+            speculative,
             control,
         }),
     }
@@ -247,6 +260,7 @@ pub(crate) struct Fill {
     service: MusicService,
     remote: RemotePlaybackSource,
     track: String,
+    speculative: bool,
     control: FillControl,
 }
 #[derive(Clone)]
@@ -279,7 +293,8 @@ impl Fill {
         let mut rejection = None;
         let result = self.download(&mut rejection);
         match &result {
-            Ok(()) => diagnostic::report(Event::WriteConfirmed, Cause::Complete),
+            Ok(true) => diagnostic::report(Event::WriteConfirmed, Cause::Complete),
+            Ok(false) => diagnostic::report(Event::Stale, Cause::RecordRetained),
             Err(error) => {
                 let phase = self.request.write.as_ref().map_or(0, |write| {
                     write.phase.load(std::sync::atomic::Ordering::Acquire)
@@ -310,10 +325,70 @@ impl Fill {
                 diagnostic::report(Event::NotCacheable, cause);
             }
         }
-        result
+        result.map(|_| ())
     }
 
-    fn download(&self, rejection: &mut Option<Reason>) -> Result<(), CacheError> {
+    /// A speculative lookup miss is not proof that the disk record is absent.
+    /// Verify the candidate on this worker before issuing any media GET; modern
+    /// complete records are retained until selection can revalidate them.
+    fn retain_speculative_record(&self) -> Result<bool, CacheError> {
+        if !self.speculative {
+            return Ok(false);
+        }
+        let current = || {
+            self.cache.lease_current(&self.request.lease)?;
+            if self.request.cancellation().is_cancelled()
+                || self.cancellation.cancelled(&self.token)
+            {
+                return Err(CacheError::Cancelled);
+            }
+            let scope = self
+                .service
+                .cache_scope(&self.token)
+                .map_err(|_| CacheError::Cancelled)?;
+            if !self.request.lease.matches_scope(&scope) {
+                return Err(CacheError::Cancelled);
+            }
+            Ok(())
+        };
+        current()?;
+        let identity = self.request.permit.identity;
+        let path = self.cache.path(identity.key());
+        // Non-mutating and outside the I/O/state gate: a slow integrity read
+        // cannot block GTK or remove a record concurrently replaced by Clear.
+        let complete = match super::inspect_record(
+            &path,
+            identity.key(),
+            Some(identity.scope()),
+            self.request.permit.content,
+        ) {
+            Ok(file) => file.is_some(),
+            Err(CacheError::InvalidInput) => false,
+            Err(error) => return Err(error),
+        };
+        let metadata = if complete {
+            match super::read_http_record(&path) {
+                Ok(metadata) => metadata,
+                Err(CacheError::InvalidInput | CacheError::Limit) => None,
+                Err(error) => return Err(error),
+            }
+        } else {
+            None
+        };
+        current()?;
+        Ok(metadata.is_some_and(|metadata| {
+            metadata.binding.is_some()
+                || !self
+                    .remote
+                    .http_cache_binding()
+                    .is_some_and(|binding| binding.logical.is_some())
+        }))
+    }
+
+    fn download(&self, rejection: &mut Option<Reason>) -> Result<bool, CacheError> {
+        if self.retain_speculative_record()? {
+            return Ok(false);
+        }
         self.cache.start_write(&self.request)?;
         diagnostic::report(Event::Downloading, Cause::FullResponse);
         let fetched = self.fetch();
@@ -341,17 +416,10 @@ impl Fill {
         let result = if private_http {
             self.cache
                 .put_reader_http_attempt(&self.request, reader, |sha, bytes| {
-                    policy
-                        .record(
-                            remote.http_cache_uri_hash(),
-                            remote.http_cache_resource_hash(),
-                            sha,
-                            bytes,
-                        )
-                        .map_err(|reason| {
-                            *rejection = Some(reason);
-                            CacheError::HttpPolicyRequired
-                        })
+                    policy.record_source(&remote, sha, bytes).map_err(|reason| {
+                        *rejection = Some(reason);
+                        CacheError::HttpPolicyRequired
+                    })
                 })
         } else {
             self.cache.put_reader_attempt(&self.request, reader)
@@ -359,7 +427,7 @@ impl Fill {
         if result.is_err() && rejection.is_none() {
             *rejection = failure.get();
         }
-        result
+        result.map(|_| true)
     }
 
     fn fetch(

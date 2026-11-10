@@ -41,6 +41,9 @@ categories. The old naming rule also exists in earlier working revisions, so
 this is not evidence that `6ec2407` introduced it. The actual rejected host is
 not available in Cloud. The correction preserves the existing trusted zone and
 does not invent a newly observed CDN domain or authorize arbitrary HTTPS origins.
+The subsequent owner run at `31d873d` confirmed real first playback and background
+saving on Fedora Native. Repeated/post-restart local replay still failed;
+[AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md) separates that identity correction.
 
 The monotonic 60-second admission deadline begins before the offer request and
 is not reset by descriptor latency. XML `ts` is opaque, not an entitlement or

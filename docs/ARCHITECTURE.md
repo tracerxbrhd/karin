@@ -226,11 +226,34 @@ sent to media hosts; signed URLs remain in memory. HTTP permission to store is
 separate from playback access and applicable content/distribution rights.
 
 Every later local play needs fresh Music access and successful representation
-validation. Strong validators must identify the same resource/variant using
-exact URI identity or the descriptor host/path/codec/bitrate fingerprint; signing
-wrappers, track ID and equal size alone are insufficient. A full Repr-Digest can
-prove exact bytes independently of URL rotation. No-cache/must-revalidate never
-permit stale reuse. Missing or unusable version evidence leaves playback online.
+validation. Separate the descriptor request's logical storage object and chosen
+encoding variant from its physical CDN host/path and signed address. The opaque
+logical binding retains the validated descriptor origin, full object path and
+semantic query; only documented `sign`/`ts` credentials are omitted. Unknown
+parameters remain significant. Published Yandex MDS code resolves that request
+to a namespace/file object, then chooses physical replicas/regions independently.
+Its ETag is a scoped timestamp/size version tag, not a global content checksum.
+A matching strong ETag/Last-Modified and length can therefore validate the same
+logical object/variant across physical delivery changes. A trusted full
+representation digest provides an independent saved-SHA-256/length proof.
+Track ID, address changes, equal size or a tag on another object do not.
+No-cache/must-revalidate never permit stale reuse. Unproved modern-object
+rotation, missing proof or temporary validation failure leaves playback online
+while retaining the valid record, without another cache-body download. Older
+records without the new logical binding can acquire it through one complete,
+validated replacement; the old copy remains until successful publication.
+Confirmed version/encoding changes, explicit refusals and corruption retain their
+invalidation and account/cache fences.
+
+Compact GTK cache indicators use a derived view of AudioCache, not playback
+intent, HTTP200, usage totals or a second persisted track database. A bounded
+worker batch verifies requested local records and publishes account-scoped
+Missing/Downloading/Stored states; unchanged-file fingerprints avoid repeated
+hashing. GTK only updates weakly registered slots, with no file or HTTP work per
+row. Downloading follows an actual cache writer; Stored follows verified complete
+publication or disk recovery. Clear/Disable, LRU eviction, corruption and account
+changes remove the corresponding indication. A Stored icon promises a completed
+local record, not offline rights or a successful future local hit.
 Final descriptor admission is memory-only; LRU updates are deferred. An early
 local decoder failure before actual Playing may fall back once to its admitted
 online source in the same worker; later errors remain normal playback errors.
@@ -241,8 +264,10 @@ after restart. Storage and access failures never become fabricated offline
 rights. [ADR-0029](adr/0029-synthetic-audio-cache-foundation.md) and
 [AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md) record the policy and source influence.
 Cloud checks use original permitted audio/local HTTP through this ordinary
-application, not a second player or a mock provider grant. They do not establish
-real Music CDN support; final Native/installed-Flatpak acceptance remains separate.
+application, not a second player or a mock provider grant. The owner confirmed
+real first playback/background save at `31d873d`, but replay and restart still
+failed with `resource-changed`. Those service results remain separate from the
+new code and final Native/installed-Flatpak acceptance.
 
 ## GTK workspace, MPRIS and Flatpak
 

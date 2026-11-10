@@ -692,10 +692,61 @@ pub(super) fn run_child(input: &Input, phase: &str) {
         pump_until(|| {
             counts(input).started_batches.len() >= 3 && counts(input).track_finished >= 3
         });
+        // The fourth selected source may still start its independent no-store
+        // job after native Loading. Finish that known job before measuring
+        // whether passive queue markers introduce any NEW media requests.
+        pump_until(|| this.cache_work_settled_for_test());
         let wire = counts(input);
         assert_eq!(&wire.started_batches[..3], &[1, 1, 2]);
         assert_eq!(&wire.native_full_gets[..3], &[1, 1, 1]);
         assert_eq!(&wire.background_full_gets[..3], &[1, 1, 1]);
+        // Wave uses the same passive queue markers, backed by the three
+        // complete records above. Opening the view must not issue API/media
+        // calls, alter original batch markers or mark the no-store fourth
+        // source saved while its native response is still pending.
+        this.toggle_queue_panel();
+        pump_until(|| this.panel_mode.get() == crate::ui::music::workspace::PanelMode::Queue);
+        for id in ["42", "43", "44"] {
+            pump_until(|| {
+                !this.cache_presence_query_running_for_test()
+                    && this.cache_presence_for_test(id) == crate::audio_cache::Presence::Stored
+            });
+            let indicator = this
+                .cache_indicators_for_test(id)
+                .into_iter()
+                .find(|slot| slot.widget_name() == "music-queue-cache" && slot.is_mapped())
+                .expect("the completed Wave resource has a mapped native queue marker");
+            assert!(indicator.is_visible());
+            assert!(
+                indicator
+                    .last_child()
+                    .and_downcast::<gtk::Image>()
+                    .unwrap()
+                    .is_visible()
+            );
+        }
+        pump_until(|| {
+            this.cache_work_settled_for_test()
+                && this.cache_presence_for_test("45") == crate::audio_cache::Presence::Missing
+        });
+        for indicator in this.cache_indicators_for_test("45") {
+            assert!(
+                !indicator
+                    .last_child()
+                    .and_downcast::<gtk::Image>()
+                    .unwrap()
+                    .is_visible(),
+                "a refused pending Wave resource has no saved marker"
+            );
+        }
+        assert_eq!(
+            counts(input).media_gets,
+            wire.media_gets,
+            "queue presence must not fetch audio"
+        );
+        assert_eq!(counts(input).started_batches, wire.started_batches);
+        assert_eq!(counts(input).track_finished, wire.track_finished);
+        this.set_panel_mode(crate::ui::music::workspace::PanelMode::Closed);
         // Do not release the fourth real source until the ordinary Stop intent
         // retires the Wave session and all its remaining cache work.
         this.stop_music();

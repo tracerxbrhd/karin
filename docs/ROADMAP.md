@@ -95,10 +95,14 @@ existing player. Local replay still requires fresh Music access and representati
 validation; missing validators, explicit storage refusals and unsupported sources
 stay online. This is transparent reuse, not Downloads or offline mode. The
 [source/rights review](AUDIO_CACHE_REVIEW.md) separates HTTP policy from provider
-terms and content rights. The owner's latest `6ec2407` playback failure and earlier
-failed saving remain recorded; the corrected real-service path is not yet accepted.
-PR #26 stays Draft and #20 stays open. Cloud fixtures do not establish live CDN
-compatibility or desktop acceptance.
+terms and content rights. The owner confirmed real first playback/background
+save at `31d873d`; local replay and restart failed with `resource-changed`.
+The revised proof model scopes validators to the logical descriptor object and
+encoding across physical CDN changes, retaining valid records when proof is
+unavailable. Native indicators derive downloading/complete status from AudioCache.
+PR #26 stays Draft and #20 stays open until local replay/restart and indicators
+are accepted. Cloud fixtures do not establish live CDN compatibility or desktop
+acceptance.
 
 - [Lyrics and related tracks](https://github.com/tracerxbrhd/karin/issues/18): confirm permitted endpoints/resources before
   exposing a user workflow; no extracted official-client signing material.

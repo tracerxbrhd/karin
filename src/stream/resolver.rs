@@ -20,32 +20,178 @@ const SOURCE_FRESHNESS: Duration = Duration::from_secs(60);
 /// Constructible only in this resolver after the descriptor has passed the
 /// existing legacy URI validation. This names a file/encoding, not immutable
 /// bytes and not a provider entitlement. No path or signing data is retained.
-pub(crate) struct HttpResourceIdentity([u8; 32]);
+pub(crate) struct HttpResourceIdentity {
+    request: [u8; 32],
+    locator: [u8; 32],
+    binding: crate::audio_cache::http_policy::ResourceBinding,
+}
 
 impl HttpResourceIdentity {
-    fn from_validated_descriptor(parts: &xml::LegacyParts, bitrate: u32) -> Self {
-        let mut context = ring::digest::Context::new(&ring::digest::SHA256);
-        context.update(b"Karin resolved legacy MP3 file locator v1\0");
+    fn from_validated_descriptor(
+        parts: &xml::LegacyParts,
+        bitrate: u32,
+        uri: &str,
+        logical: Option<[u8; 32]>,
+    ) -> Self {
         let host = parts.host.to_ascii_lowercase();
         let bitrate = bitrate.to_be_bytes();
-        for component in [
-            b"https".as_slice(),
-            host.as_bytes(),
-            parts.path.as_bytes(),
-            b"audio/mpeg;codec=mp3".as_slice(),
-            &bitrate,
-        ] {
-            context.update(&(component.len() as u64).to_be_bytes());
-            context.update(component);
+        let hash = |domain: &[u8], components: &[&[u8]]| {
+            let mut context = ring::digest::Context::new(&ring::digest::SHA256);
+            context.update(domain);
+            for component in components {
+                context.update(&(component.len() as u64).to_be_bytes());
+                context.update(component);
+            }
+            let mut result = [0; 32];
+            result.copy_from_slice(context.finish().as_ref());
+            result
+        };
+        // Retain the v1 locator recipe so existing complete records remain
+        // candidates. Locator changes are not assertions about changed bytes.
+        let locator = hash(
+            b"Karin resolved legacy MP3 file locator v1\0",
+            &[
+                b"https",
+                host.as_bytes(),
+                parts.path.as_bytes(),
+                b"audio/mpeg;codec=mp3",
+                &bitrate,
+            ],
+        );
+        let binding = crate::audio_cache::http_policy::ResourceBinding {
+            logical,
+            host: hash(b"Karin MP3 authority v1\0", &[b"https", host.as_bytes()]),
+            path: hash(b"Karin MP3 descriptor path v1\0", &[parts.path.as_bytes()]),
+            variant: hash(
+                b"Karin selected MP3 encoding v1\0",
+                &[b"audio/mpeg;codec=mp3", &bitrate],
+            ),
+        };
+        let mut request = ring::digest::Context::new(&ring::digest::SHA256);
+        request.update(b"Karin private HTTP media request v1\0");
+        request.update(uri.as_bytes());
+        let mut request_hash = [0; 32];
+        request_hash.copy_from_slice(request.finish().as_ref());
+        Self {
+            request: request_hash,
+            locator,
+            binding,
         }
-        let mut result = [0; 32];
-        result.copy_from_slice(context.finish().as_ref());
-        Self(result)
     }
 
     pub(crate) fn hash(&self) -> [u8; 32] {
-        self.0
+        self.locator
     }
+    pub(crate) fn request_hash(&self) -> [u8; 32] {
+        self.request
+    }
+    pub(crate) fn binding(&self) -> crate::audio_cache::http_policy::ResourceBinding {
+        self.binding
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_test_object(
+        host: &str,
+        path: &str,
+        bitrate: u32,
+        timestamp: &str,
+        descriptor: &str,
+    ) -> Self {
+        let mut identity = Self::for_test(host, path, bitrate, timestamp);
+        identity.binding.logical =
+            logical_descriptor_object(&Url::parse(descriptor).expect("synthetic descriptor URL"));
+        identity
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_test(host: &str, path: &str, bitrate: u32, timestamp: &str) -> Self {
+        let body = format!(
+            "<download-info><host>{host}</host><path>{path}</path><ts>{timestamp}</ts><s>synthetic-private-value</s></download-info>"
+        );
+        let parts = xml::parse(body.as_bytes()).expect("synthetic descriptor");
+        let uri = legacy_uri(&parts).expect("synthetic admitted provider URI");
+        Self::from_validated_descriptor(&parts, bitrate, &uri, None)
+    }
+}
+
+/// The published MDS proxy looks up a logical object from the descriptor
+/// request's namespace/group/file path. Its XML host/path are physical placement
+/// and may be rewritten by regional delivery. Keep the complete opaque path;
+/// neither a basename nor the legacy MD5 address checksum identifies bytes.
+fn logical_descriptor_object(url: &Url) -> Option<[u8; 32]> {
+    let trusted = url.scheme() == "https"
+        && url.host_str() == Some("storage.mds.yandex.net")
+        && url.port_or_known_default() == Some(443);
+    #[cfg(test)]
+    let trusted = trusted
+        || (url.scheme() == "http"
+            && url.host_str() == Some("127.0.0.1")
+            && url.port().is_some_and(|port| port != 0));
+    if !trusted
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.fragment().is_some()
+    {
+        return None;
+    }
+    let path = url.path();
+    let mut parts = path.strip_prefix('/')?.split('/');
+    if !matches!(
+        parts.next()?,
+        "get-download-info" | "download-info" | "file-download-info"
+    ) {
+        return None;
+    }
+    let object = parts.collect::<Vec<_>>();
+    if object.len() < 2
+        || object
+            .iter()
+            .any(|part| part.is_empty() || *part == "." || *part == "..")
+    {
+        return None;
+    }
+    let mut context = ring::digest::Context::new(&ring::digest::SHA256);
+    context.update(b"Karin MDS logical descriptor object v1\0");
+    let mut component = |value: &[u8]| {
+        context.update(&(value.len() as u64).to_be_bytes());
+        context.update(value);
+    };
+    component(url.origin().ascii_serialization().as_bytes());
+    component(path.as_bytes());
+    let (mut sign, mut timestamp) = (false, false);
+    for pair in url.query().into_iter().flat_map(|query| query.split('&')) {
+        let (name, value) = pair.split_once('=').unwrap_or((pair, ""));
+        match name {
+            "sign" => {
+                if sign || value.len() != 64 || !value.bytes().all(|byte| byte.is_ascii_hexdigit())
+                {
+                    return None;
+                }
+                sign = true;
+            }
+            "ts" => {
+                if timestamp
+                    || value.is_empty()
+                    || value.len() > 32
+                    || !value.bytes().all(|byte| byte.is_ascii_hexdigit())
+                {
+                    return None;
+                }
+                timestamp = true;
+            }
+            // Keep unknown names, escapes, pair ordering and duplicates exactly.
+            // Their semantics do not belong to the known authentication wrapper.
+            _ => component(pair.as_bytes()),
+        }
+    }
+    // The published wrapper is a credential pair. A lone similarly named
+    // parameter is not assumed to be transient object-independent signing.
+    if sign != timestamp {
+        return None;
+    }
+    let mut result = [0; 32];
+    result.copy_from_slice(context.finish().as_ref());
+    Some(result)
 }
 
 #[derive(Clone)]
@@ -147,6 +293,7 @@ impl StreamResolver {
             report.category = DeliveryCategory::SourceExpired;
             return Err(report);
         }
+        let logical = logical_descriptor_object(&url);
         let (descriptor, mut report) =
             self.transport
                 .descriptor_body(report, url, token, cancellation)?;
@@ -178,7 +325,8 @@ impl StreamResolver {
             return Err(report);
         }
         let uri = legacy_uri(&parts).map_err(|category| DeliveryReport { category, ..report })?;
-        let identity = HttpResourceIdentity::from_validated_descriptor(&parts, bitrate);
+        let identity =
+            HttpResourceIdentity::from_validated_descriptor(&parts, bitrate, &uri, logical);
         #[cfg(test)]
         if let Some(origin) = &self.media_fixture_origin {
             let parsed = Url::parse(&uri).map_err(|_| DeliveryReport {

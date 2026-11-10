@@ -137,79 +137,89 @@ legal license, Offline Mode or permission to distribute content. See
 
 ## PR #26 corrected-cache acceptance
 
-The owner's `6ec2407` Native result is **playback FAIL**:
-`media-origin-unverified` after successful delivery/descriptor HTTP responses.
-Earlier `f2050b0` playback worked but repeated `track-replaced-incomplete` without
-a saved record or local hit. Those failures remain recorded; Cloud checks do not
-establish a repaired real-service path. The new implementation corrects the
-narrow descriptor-host naming rule and saves independently of player/EOS lifetime.
+At `31d873d` the owner confirmed real first playback and independent background
+saving on Fedora Native. Same-track and post-restart local replay failed with
+`resource-changed` and repeated cache downloads. The revised logical-object
+revalidation and graphical indicators need this **one final sequence**, first
+Native and then the installed Flatpak built from the same final PR HEAD.
+The earlier `6ec2407` playback failure remains a historical result.
 
-Perform this **one final sequence** on the exact final PR HEAD, first Native and
-then the installed Flatpak built from the same source. No account, music files or
-private URLs belong in Cloud/CI/GitHub. Build Native:
+Build and start the ordinary Native app:
 
 ```sh
 cargo +1.98.1 build --release --locked --no-default-features --features cassette-auth
 ulimit -c 0
-KARIN_AUDIO_CACHE_DIAGNOSTICS=1 ./target/release/karin 2>&1 |
-  grep --line-buffered -E '^cache=[a-z-]+ source=(local|remote) reason=[a-z0-9-]+$'
+./target/release/karin
 ```
 
-Build/install the same source with the Flatpak instructions below, then run:
+After closing Native, build/install the same source with the Flatpak instructions
+below and start it normally:
 
 ```sh
 ulimit -c 0
+flatpak run io.github.tracerxbrhd.Karin
+```
+
+1. Sign in normally or restore protected sign-in with the default enabled **2 GiB**
+   cache. Play a real track; confirm audible sound and ordinary Pause/Resume,
+   Seek, queue, My Wave and MPRIS/media controls. No developer credentials,
+   changed application identity or technical login input are needed.
+2. Observe the small downloading indicator, then the saved symbolic icon without
+   refreshing the page. The icon must agree in Liked, playlist/search rows,
+   Queue (including Wave), the footer and Track Info. Its tooltip reads
+   **«Аудио сохранено в кеше. При воспроизведении проверяется доступ.»**
+   It means a complete local record, not offline availability or a local hit.
+3. Replay that track and confirm actual local use: the current-player tooltip
+   additionally says **«Воспроизводится из локального кеша»**, or the optional
+   finite diagnostic below reports `cache=hit source=local`. The saved icon must
+   stay through access/version checking. A legacy record may need one complete
+   validated binding upgrade; modern records must not redownload merely because
+   a signed address or physical CDN location changed. Missing proof stays online
+   and retains the valid copy; it is not a local-replay PASS.
+4. Close normally without logout, reopen the same build and confirm the saved
+   indicator is recovered before playing. Replay with fresh access/version
+   checking and require the same actual-local cue. A saved icon, increased usage,
+   HTTP200 or hearing sound alone does not prove local reuse.
+5. During local playback use Preferences → **Очистить кеш**. Saved indicators must
+   disappear across views while already admitted audio and sign-in continue;
+   later replay must miss. Disable/account changes must not show stale or foreign
+   cache status. The existing six limit choices, LRU and Retry remain; automated
+   tests cover eviction, failed/partial writes and the large-list path. Repeat
+   this same sequence in installed Flatpak and report revision/installation plus
+   fixed PASS/FAIL/not-assessed outcomes, without private music or screenshots.
+
+Diagnostics are optional; no terminal or size inspection is required to see
+saved tracks. If exact cache-source proof or a failure category is needed, start
+only this bounded diagnostic instead of network/WebKit/GStreamer tracing:
+
+```sh
+KARIN_AUDIO_CACHE_DIAGNOSTICS=1 ./target/release/karin 2>&1 |
+  grep --line-buffered -E '^cache=[a-z-]+ source=(local|remote) reason=[a-z0-9-]+$'
+# Or, after closing Native:
 flatpak run --env=KARIN_AUDIO_CACHE_DIAGNOSTICS=1 io.github.tracerxbrhd.Karin 2>&1 |
   grep --line-buffered -E '^cache=[a-z-]+ source=(local|remote) reason=[a-z0-9-]+$'
 ```
-
-The opt-in diagnostic emits only finite cache/source/reason categories. It does
-not enable network, WebKit or GStreamer tracing; keep those traces off. Share
-only these fixed categories and PASS/FAIL/not-assessed, without IDs, addresses,
-headers, bodies, credentials, music or personal screenshots. No new developer
-credentials, changed account identity or technical login input is needed.
 
 | Fixed diagnostic | Meaning |
 | --- | --- |
 | `cache=queued source=remote reason=play-requested` | A selected Play intent queued its independent job. |
 | `cache=downloading source=remote reason=full-response` | The bounded whole-response worker started. |
-| `cache=downloaded source=remote reason=download-complete` | Body receipt finished; format/policy/atomic publication may still fail. |
-| `cache=write-confirmed source=remote reason=complete-response` | The completed verified file was atomically published. |
-| `cache=hit source=local reason=representation-validated` | Fresh access/version checks admitted the existing local file. |
+| `cache=downloaded source=remote reason=download-complete` | Body receipt finished; publication may still fail. |
+| `cache=write-confirmed source=remote reason=complete-response` | The complete checked file was atomically published. |
+| `cache=hit source=local reason=representation-validated` | Fresh access/version proof admitted the local file. |
 
-`validators-missing` means the new private response cannot support safe later
-reuse, so its cache body/store is declined while online playback remains
-available. Keep the first fixed failure category; a progress event cannot
-replace it with success.
-
-1. Sign in normally or restore protected sign-in with the default enabled **2 GiB**
-   cache. Play real tracks from Liked, a playlist and search; start My Wave and
-   advance a few tracks. Confirm audible sound, Pause/Resume, Seek, queue and
-   MPRIS/media controls. The online player must start without waiting for a save.
-2. Observe `cache=write-confirmed source=remote` for a completed saved resource.
-   The independent job starts with playback intent and may finish before or after
-   Next/EOS, manual Skip or a source change. Pause/Seek do not break its whole-file
-   transfer. No diagnostic progress event alone establishes a saved record.
-3. Select a saved track again and require **`cache=hit source=local`** with audible
-   sound. Hearing sound, HTTP200 or increased usage alone does not prove local
-   reuse. A per-resource `stale`/`not-cacheable` reason must leave permitted online
-   playback available; absent usable version evidence is not a local hit.
-4. Close normally without logout, reopen the same build and replay that track.
-   Fresh Music access and representation validation must precede the local hit.
-   Completed cache survives restart; signed-URL renewal alone does not prove
-   unchanged bytes. Explicit Stop/close, Clear/Disable and logout/account changes
-   cancel or fence unfinished jobs; completed cache is retained on normal close.
-5. During local playback use Preferences → **Очистить кеш**. Already admitted
-   sound and sign-in must continue, later replay must miss, and usage must update.
-   Briefly check all six limit positions, retained selection and Retry. Report
-   the exact revision/installation and fixed outcomes for online sound, background
-   save across transitions, local replay, restart and Clear. If anything fails,
-   preserve its first fixed category rather than inferring a cause.
-
-A real CDN without suitable representation proof remains online. No offline
-behavior is promised. Public client/content distribution remains a separate
-question in #5/#22. This is the final owner procedure, not a series of requested
-local runs after internal changes.
+Finite checking reasons include `signed-url-changed`, `cdn-host-changed`,
+`descriptor-path-changed`, `encoding-changed` and `logical-object-changed`.
+They distinguish locator/variant changes from `representation-changed` version
+proof. `resource-identity-unverified` or `validators-missing` keeps an unproved
+candidate online; `record-retained` prevents a redundant refill. `binding-upgrade`
+identifies the older-record conversion, not a local hit. No actual hostname,
+path, URL, identifiers, headers, response bodies, token or music belong in logs
+or shared evidence. Preserve the first failure category. A real resource
+without sufficient scoped or full-digest proof stays online; do not count its
+saved icon as successful replay. This procedure is the final owner check, not a
+new diagnostic-only acceptance stage. Public distribution and offline mode remain
+separate questions under [AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md).
 
 ## Flatpak source build
 

@@ -99,8 +99,10 @@ reviewable and consistent with the accepted application.
 - Distinguish authored code, executed tests and owner acceptance. See
   [VALIDATION](docs/VALIDATION.md): native/UI and Flatpak at `97093ee` are accepted;
   Dislike→Next and available `707539b` Native/installed-Flatpak functions are
-  owner-accepted; `0709729` is the last owner-accepted PR #26 revision. Later
-  online-authority changes and their correction need separate acceptance.
+  owner-accepted; `0709729` is the last fully accepted PR #26 revision. At
+  `31d873d` the owner confirmed real first playback/background saving on Native,
+  while local replay and restart failed with `resource-changed`. Revised replay
+  and cache indicators need separate acceptance.
   Unreported individual scenarios and unresolved Cloud cold gaps are not PASS.
   This is not a published release. Read [LIMITATIONS](docs/LIMITATIONS.md).
 

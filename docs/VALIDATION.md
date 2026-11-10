@@ -1048,11 +1048,74 @@ source; earlier-head CI and these test descriptions are not a new PASS.
 Final compiler/native/packaging/CI results belong with the final PR #26 revision
 and [checks](https://github.com/tracerxbrhd/karin/pull/26/checks).
 
-**Real Music playback/cache acceptance of this correction remains unconfirmed.**
-Local fixtures do not prove a real CDN's storage directives, usable validators,
-heard service music or installed-Flatpak operation. Perform only the final
+At the initial handoff, real playback/cache acceptance of this correction was
+unconfirmed. The subsequent `31d873d` owner result below confirms first playback
+and saving, while local replay/restart failed. Local fixtures did not establish
+that CDN result or installed-Flatpak operation. The current final
 [Native/installed-Flatpak procedure](BUILDING.md#pr-26-corrected-cache-acceptance)
-once the finished build is available. PR #26 remains Draft and unmerged.
+applies to the revised replay/indicator build. PR #26 remains Draft and unmerged.
+
+## PR26 locator revalidation and cache indicators — 2026-11-10
+
+### Owner result at 31d873d
+
+The owner tested real Yandex Music on Fedora Native at
+`31d873dc1b7f2349d5900dd895c4afc4be479678` and confirmed:
+
+| Scenario | Owner result |
+| --- | --- |
+| First real MP3 playback | PASS |
+| Independent background save | PASS: miss → queued → downloading → downloaded → write-confirmed; measured cache usage increased |
+| Same-track local replay | FAIL: stale/resource-changed, followed by another download/write; no local hit |
+| Local replay after application restart | FAIL: the same resource-changed/refill sequence; no local hit |
+| New graphical cache indicators | Not yet accepted |
+| This revision installed as Flatpak, or individual Wave/MPRIS/source combinations | Not established by this report |
+
+This supersedes the earlier unconfirmed first-save result for that revision; it
+does not relabel the `6ec2407` playback failure or earlier incomplete-cache
+failures. The [31d873d push](https://github.com/tracerxbrhd/karin/actions/runs/42772868403)
+and [PR](https://github.com/tracerxbrhd/karin/actions/runs/42772875846) Cloud checks
+passed, but their permitted fixtures did not establish the real CDN's local hit.
+
+### Correction and acceptance boundary
+
+The old aggregate resource hash combined descriptor host/path with codec/bitrate.
+A changed field entered the same resource-changed branch, deleted a valid record
+and scheduled a replacement without establishing that its MP3 bytes changed.
+The owner's finite log establishes that aggregate mismatch, not which address or
+encoding component changed. No host, path or signed resource is requested here.
+
+The correction separates the descriptor request's logical object/variant from
+physical CDN placement and byte-version proof. Published Yandex MDS source maps
+a namespace/file object to independently selected replica/region addresses;
+its ETag describes a scoped timestamp/size version, not a body MD5. Keeping the
+full logical object binding permits a proper scoped validator check despite
+physical host/path rotation. Only documented signing parameters are omitted;
+unknown query dimensions remain significant. Track ID or an equal tag on another
+logical object is insufficient. Unproved modern-object rotation retains the
+valid copy online and suppresses a redundant cache-body rewrite. An older record
+without the new binding can be replaced once through a successful complete,
+validated download; it is not removed before that succeeds. Actual
+version/variant changes, access refusals, no-store and corrupt records retain
+their retirement rules. New finite diagnostic categories expose the type of
+change or proof result, never the underlying address, identifiers or headers.
+
+Native indicators derive Missing/Downloading/Stored from the account-scoped
+AudioCache and its complete records, with worker-only integrity/file work and
+no per-row HTTP. A Stored icon describes retained local data; it does not prove
+that the next playback is local or available offline. Clear/Disable, LRU,
+corruption and account changes must remove obsolete indications; normal restart
+must recover them from actual records.
+
+Automated coverage must exercise first save, address/host/path rotation with
+sufficient and insufficient proof, real version/variant changes, actual local
+source and zero extra full media GET, restart, refusal and retention. Indicator
+coverage must include multiple simultaneous views, complete versus partial
+writes, recovery, eviction/clear/scope changes and light/dark compact/HiDPI native
+input. These requirements describe the correction, not yet executed results.
+Final immutable-head compiler/native/packaging/CI results belong with PR #26.
+The **new real local-replay/indicator result remains unconfirmed** until the
+single final [Native/installed-Flatpak procedure](BUILDING.md#pr-26-corrected-cache-acceptance).
 
 ## Known unresolved checks
 

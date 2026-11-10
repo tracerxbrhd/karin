@@ -231,3 +231,156 @@ fn cancellation_during_request_retires_an_otherwise_matching_response() {
     assert_eq!(worker.join().unwrap(), Err(Reason::Cancelled));
     server.join().unwrap();
 }
+
+fn scoped_source(
+    listener: &TcpListener,
+    host: &str,
+    path: &str,
+    object: &str,
+    bitrate: u32,
+) -> RemotePlaybackSource {
+    let origin = format!("http://{}/", listener.local_addr().unwrap());
+    RemotePlaybackSource::from_test_resolver(
+        &format!("{origin}get-mp3/current/fixture"),
+        Instant::now() + Duration::from_secs(60),
+    )
+    .unwrap()
+    .with_http_cache_resource(crate::stream::HttpResourceIdentity::for_test_object(
+        host,
+        path,
+        bitrate,
+        "0002",
+        &format!("{origin}download-info/group/{object}"),
+    ))
+}
+
+#[test]
+fn logical_object_scopes_strong_validators_across_changed_physical_cdn_placement() {
+    let (listener, resolver, _, _) = setup();
+    let before = scoped_source(
+        &listener,
+        "s123.storage.yandex.net",
+        "/physical-a-offset-1-size-3",
+        "object",
+        192,
+    );
+    let now = scoped_source(
+        &listener,
+        "server-2026.storage.yandex.net",
+        "/physical-b-offset-2-size-3",
+        "object",
+        192,
+    );
+    assert_ne!(before.http_cache_uri_hash(), now.http_cache_uri_hash());
+    assert_ne!(
+        before.http_cache_resource_hash(),
+        now.http_cache_resource_hash()
+    );
+    let policy = ResponsePolicy::parse(
+        200,
+        [
+            ("content-type".into(), "audio/mpeg".into()),
+            ("content-length".into(), "3".into()),
+            ("etag".into(), "\"scoped-version\"".into()),
+        ],
+    )
+    .unwrap();
+    let metadata = policy.record_source(&before, [3; 32], 3).unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let request = read_request(&mut stream);
+        assert!(request.starts_with("head "));
+        assert!(request.contains("if-none-match: \"scoped-version\"\r\n"));
+        stream.write_all(b"HTTP/1.1 304 Not Modified\r\nETag: \"scoped-version\"\r\nConnection: close\r\n\r\n").unwrap();
+    });
+    assert_eq!(
+        resolver.revalidate_http(&now, &metadata, &token(), &DeliveryCancellation::new()),
+        Ok(())
+    );
+    server.join().unwrap();
+}
+
+#[test]
+fn equal_etags_on_different_logical_objects_never_prove_byte_equivalence() {
+    let (listener, resolver, _, _) = setup();
+    let before = scoped_source(
+        &listener,
+        "s123.storage.yandex.net",
+        "/physical-a-offset-1-size-3",
+        "object-a",
+        192,
+    );
+    let now = scoped_source(
+        &listener,
+        "server-2026.storage.yandex.net",
+        "/physical-b-offset-2-size-3",
+        "object-b",
+        192,
+    );
+    let policy = ResponsePolicy::parse(
+        200,
+        [
+            ("content-type".into(), "audio/mpeg".into()),
+            ("content-length".into(), "3".into()),
+            ("etag".into(), "\"collision\"".into()),
+        ],
+    )
+    .unwrap();
+    let metadata = policy.record_source(&before, [3; 32], 3).unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let request = read_request(&mut stream);
+        assert!(!request.contains("if-none-match:") && !request.contains("if-modified-since:"));
+        stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\nContent-Length: 3\r\nETag: \"collision\"\r\nConnection: close\r\n\r\n").unwrap();
+    });
+    assert_eq!(
+        resolver.revalidate_http(&now, &metadata, &token(), &DeliveryCancellation::new()),
+        Err(Reason::IdentityUnverified)
+    );
+    server.join().unwrap();
+}
+
+#[test]
+fn selected_encoding_change_cannot_use_even_a_matching_whole_digest() {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    let (listener, resolver, _, _) = setup();
+    let before = scoped_source(
+        &listener,
+        "s123.storage.yandex.net",
+        "/physical-a-offset-1-size-3",
+        "object",
+        192,
+    );
+    let now = scoped_source(
+        &listener,
+        "s123.storage.yandex.net",
+        "/physical-a-offset-1-size-3",
+        "object",
+        320,
+    );
+    let sha: [u8; 32] = ring::digest::digest(&ring::digest::SHA256, b"abc")
+        .as_ref()
+        .try_into()
+        .unwrap();
+    let policy = ResponsePolicy::parse(
+        200,
+        [
+            ("content-type".into(), "audio/mpeg".into()),
+            ("content-length".into(), "3".into()),
+            ("etag".into(), "\"version\"".into()),
+        ],
+    )
+    .unwrap();
+    let metadata = policy.record_source(&before, sha, 3).unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let request = read_request(&mut stream);
+        assert!(!request.contains("if-none-match:"));
+        write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\nContent-Length: 3\r\nRepr-Digest: sha-256=:{}:\r\nConnection: close\r\n\r\n", STANDARD.encode(sha)).unwrap();
+    });
+    assert_eq!(
+        resolver.revalidate_http(&now, &metadata, &token(), &DeliveryCancellation::new()),
+        Err(Reason::EncodingChanged)
+    );
+    server.join().unwrap();
+}

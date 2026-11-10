@@ -28,8 +28,9 @@ The user policy is one enabled switch (default **on**) and one `CacheLimit`:
 Preferences expose a native horizontal integer Scale at positions 0–5 with a
 textual value and accessible name/value. Unlimited is `None`, not an invented
 large integer. There is one measured usage, Clear, busy/error state and Retry.
-A short explanation identifies the currently available cached data without
-promising stored music while its independent admission gate remains closed.
+A short explanation identifies measured cached data without promising offline
+playback. Audio row indicators derive complete-record presence independently of
+the next online access/version decision under ADR-0029.
 
 ### Shared storage accounting
 
@@ -91,14 +92,15 @@ Clear keeps active memory/session state and an already admitted playback FD;
 logout purges the retired account. There is still one PlaybackController and no
 additional daemon or wider Flatpak permission.
 
-`MissingStorageContract` still refuses real service audio before media I/O. A
-shared quota, Unlimited, a subscription or a successful streaming check cannot
-issue a storage grant. [AUDIO_CACHE_REVIEW](../AUDIO_CACHE_REVIEW.md) and the
-[prepared provider request](../AUDIO_CACHE_PROVIDER_REQUEST.md) state the two
-external inputs. This infrastructure does not complete Issue #20.
-An online-admission wrapper must retain that independent permission gate and
-retire failed/stale resolution tickets under ADR-0029. These corrections change
-neither the shared quota nor its six Preferences choices.
+The later private HTTP policy in ADR-0029 supersedes the original blanket
+MissingStorageContract refusal for ordinary supported audio. Shared quota,
+Unlimited, a subscription or HTTP200 still supplies no content license. Actual
+response policy, fresh playback access and scoped representation proof remain
+required; [AUDIO_CACHE_REVIEW](../AUDIO_CACHE_REVIEW.md) records that boundary.
+The prepared provider questions are historical context, not an invented cache-hit
+API prerequisite. Audio presence indicators read the same store and disappear on
+shared LRU eviction; they neither reserve a second quota nor authorize local use.
+Issue #20 remains open until the complete real user scenario is accepted.
 
 ## Verification and consequences
 

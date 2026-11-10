@@ -405,3 +405,131 @@ fn reusable_download_validator_requires_strong_identity_or_full_representation_d
             .has_validator()
     );
 }
+
+fn remote_object(
+    host: &str,
+    path: &str,
+    object: &str,
+    bitrate: u32,
+) -> crate::playback::RemotePlaybackSource {
+    use std::time::{Duration, Instant};
+    crate::playback::RemotePlaybackSource::from_resolver(
+        "https://s123.storage.yandex.net/get-mp3/synthetic/0001/resource",
+        Instant::now() + Duration::from_secs(60),
+    )
+    .unwrap()
+    .with_http_cache_resource(crate::stream::HttpResourceIdentity::for_test_object(
+        host,
+        path,
+        bitrate,
+        "0001",
+        &format!("https://storage.mds.yandex.net/download-info/group/{object}"),
+    ))
+}
+
+#[test]
+fn scoped_object_metadata_survives_restart_and_authenticates_relocated_http_version() {
+    let first = remote_object(
+        "s123.storage.yandex.net",
+        "/physical-a-offset-1-size-4",
+        "object",
+        192,
+    );
+    let moved = remote_object(
+        "server-2026.storage.yandex.net",
+        "/regional/physical-b-offset-2-size-4",
+        "object",
+        192,
+    );
+    let policy = response(200, &[("ETag", "\"object-version\"")]).unwrap();
+    let metadata = policy.record_source(&first, [3; 32], 4).unwrap();
+    let restored = Metadata::decode(&metadata.encode().unwrap()).unwrap();
+    assert_ne!(first.http_cache_uri_hash(), moved.http_cache_uri_hash());
+    assert_ne!(
+        first.http_cache_resource_hash(),
+        moved.http_cache_resource_hash()
+    );
+    assert_eq!(policy.revalidate_source(&restored, &moved), Ok(()));
+    assert_eq!(
+        response(200, &[("ETag", "\"new-version\"")])
+            .unwrap()
+            .revalidate_source(&restored, &moved),
+        Err(Reason::RepresentationChanged)
+    );
+    assert!(!format!("{restored:?}").contains("physical"));
+}
+
+#[test]
+fn logical_object_mismatch_cannot_fall_back_to_matching_physical_location_or_etag() {
+    let first = remote_object(
+        "s123.storage.yandex.net",
+        "/same-physical-offset-1-size-4",
+        "object-a",
+        192,
+    );
+    let other = remote_object(
+        "s123.storage.yandex.net",
+        "/same-physical-offset-1-size-4",
+        "object-b",
+        192,
+    );
+    let policy = response(200, &[("ETag", "\"coincidence\"")]).unwrap();
+    let metadata = policy.record_source(&first, [3; 32], 4).unwrap();
+    assert_eq!(first.http_cache_uri_hash(), other.http_cache_uri_hash());
+    assert_eq!(
+        first.http_cache_resource_hash(),
+        other.http_cache_resource_hash()
+    );
+    assert!(!metadata.validator_scope(&other));
+    assert_eq!(
+        policy.revalidate_source(&metadata, &other),
+        Err(Reason::IdentityUnverified)
+    );
+    let full = format!("sha-256=:{}:", STANDARD.encode([3; 32]));
+    assert_eq!(
+        response(200, &[("Repr-Digest", &full)])
+            .unwrap()
+            .revalidate_source(&metadata, &other),
+        Ok(())
+    );
+}
+
+#[test]
+fn old_record_without_binding_decodes_and_can_use_only_its_existing_scope_or_full_digest() {
+    let first = remote_object(
+        "s123.storage.yandex.net",
+        "/physical-a-offset-1-size-4",
+        "object",
+        192,
+    );
+    let moved = remote_object(
+        "server-2026.storage.yandex.net",
+        "/physical-b-offset-2-size-4",
+        "object",
+        192,
+    );
+    let policy = response(200, &[("ETag", "\"version\"")]).unwrap();
+    let metadata = policy
+        .record(
+            first.http_cache_uri_hash(),
+            first.http_cache_resource_hash(),
+            [3; 32],
+            4,
+        )
+        .unwrap();
+    let encoded = metadata.encode().unwrap();
+    assert!(!String::from_utf8_lossy(&encoded).contains("binding"));
+    let restored = Metadata::decode(&encoded).unwrap();
+    assert_eq!(policy.revalidate_source(&restored, &first), Ok(()));
+    assert_eq!(
+        policy.revalidate_source(&restored, &moved),
+        Err(Reason::IdentityUnverified)
+    );
+    let full = format!("sha-256=:{}:", STANDARD.encode([3; 32]));
+    assert_eq!(
+        response(200, &[("Repr-Digest", &full)])
+            .unwrap()
+            .revalidate_source(&restored, &moved),
+        Ok(())
+    );
+}

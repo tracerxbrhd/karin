@@ -11,6 +11,7 @@ pub(crate) enum Event {
     Queued,
     Downloading,
     Downloaded,
+    Checking,
 }
 
 #[derive(Clone, Copy)]
@@ -27,6 +28,13 @@ pub(crate) enum Cause {
     FullResponse,
     PlayRequested,
     SourceOriginUnverified,
+    SignedUrlChanged,
+    CdnHostChanged,
+    DescriptorPathChanged,
+    EncodingChanged,
+    LogicalObjectChanged,
+    BindingUpgrade,
+    RecordRetained,
     UserStop,
     AccountChanged,
     CacheCleared,
@@ -53,6 +61,13 @@ impl Cause {
             Self::FullResponse => "full-response",
             Self::PlayRequested => "play-requested",
             Self::SourceOriginUnverified => "media-origin-unverified",
+            Self::SignedUrlChanged => "signed-url-changed",
+            Self::CdnHostChanged => "cdn-host-changed",
+            Self::DescriptorPathChanged => "descriptor-path-changed",
+            Self::EncodingChanged => "encoding-changed",
+            Self::LogicalObjectChanged => "logical-object-changed",
+            Self::BindingUpgrade => "binding-upgrade",
+            Self::RecordRetained => "record-retained",
             Self::UserStop => "user-stop",
             Self::AccountChanged => "account-changed",
             Self::CacheCleared => "cache-cleared",
@@ -82,6 +97,7 @@ pub(crate) fn report(event: Event, reason: Cause) {
         Event::Queued => "queued",
         Event::Downloading => "downloading",
         Event::Downloaded => "downloaded",
+        Event::Checking => "checking",
     };
     let source = if matches!(event, Event::Hit) {
         "local"
@@ -89,4 +105,87 @@ pub(crate) fn report(event: Event, reason: Cause) {
         "remote"
     };
     eprintln!("cache={cache} source={source} reason={}", reason.as_str());
+}
+
+/// Classify only opaque equality comparisons; never format the underlying
+/// descriptor, URI, validators, account or track. Several dimensions may change.
+pub(crate) fn identity(
+    stored: &super::http_policy::Metadata,
+    remote: &crate::playback::RemotePlaybackSource,
+) {
+    if let Some((before, now)) = stored.binding.zip(remote.http_cache_binding()) {
+        if before
+            .logical
+            .zip(now.logical)
+            .is_some_and(|(before, now)| before != now)
+        {
+            report(Event::Checking, Cause::LogicalObjectChanged);
+        }
+        if before.host != now.host {
+            report(Event::Checking, Cause::CdnHostChanged);
+        }
+        if before.path != now.path {
+            report(Event::Checking, Cause::DescriptorPathChanged);
+        }
+        if before.variant != now.variant {
+            report(Event::Checking, Cause::EncodingChanged);
+        }
+    }
+    if stored.uri_hash != remote.http_cache_uri_hash()
+        && stored.resource_hash == remote.http_cache_resource_hash()
+        && signing_binding_only(stored.binding, remote.http_cache_binding())
+    {
+        report(Event::Checking, Cause::SignedUrlChanged);
+    }
+}
+
+fn signing_binding_only(
+    before: Option<super::http_policy::ResourceBinding>,
+    now: Option<super::http_policy::ResourceBinding>,
+) -> bool {
+    match (before, now) {
+        (Some(before), Some(now)) => before == now,
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::audio_cache::http_policy::ResourceBinding;
+
+    #[test]
+    fn signing_only_never_masks_a_logical_object_or_variant_change() {
+        let binding = ResourceBinding {
+            logical: Some([1; 32]),
+            host: [2; 32],
+            path: [3; 32],
+            variant: [4; 32],
+        };
+        assert!(signing_binding_only(Some(binding), Some(binding)));
+        assert!(!signing_binding_only(
+            Some(binding),
+            Some(ResourceBinding {
+                logical: Some([9; 32]),
+                ..binding
+            })
+        ));
+        assert!(!signing_binding_only(
+            Some(binding),
+            Some(ResourceBinding {
+                variant: [9; 32],
+                ..binding
+            })
+        ));
+        assert!(!signing_binding_only(
+            Some(binding),
+            Some(ResourceBinding {
+                host: [9; 32],
+                ..binding
+            })
+        ));
+        assert!(!signing_binding_only(Some(binding), None));
+        assert!(signing_binding_only(None, None));
+    }
 }

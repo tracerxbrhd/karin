@@ -14,6 +14,10 @@ Resource-policy extension, 2026-11-06: [ADR-0030](0030-unified-cache-budget-and-
 replaces the user-facing quota/defaults below with one shared budget and migrates
 settings. Typed formats, admission, integrity and lifecycle boundaries remain.
 
+Audio extension: [ADR-0029](0029-synthetic-audio-cache-foundation.md) defines the
+separate production AudioCache/private HTTP policy and current replay/presence
+rules. This metadata/artwork store still does not secretly record service audio.
+
 ## Context
 
 The accepted music client repeatedly loads the same metadata and cover images.

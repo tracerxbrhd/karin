@@ -369,6 +369,15 @@ fn permitted_audio(directory: &Path, frequency: f64) -> Vec<u8> {
 }
 
 fn encode_audio(directory: &Path, frequency: f64, buffers: i32) -> Vec<u8> {
+    encode_audio_with_bitrate(directory, frequency, buffers, 128)
+}
+
+fn encode_audio_with_bitrate(
+    directory: &Path,
+    frequency: f64,
+    buffers: i32,
+    bitrate: i32,
+) -> Vec<u8> {
     gst::init().unwrap();
     let path = directory.join("original-cc0.mp3");
     let pipeline = gst::Pipeline::new();
@@ -391,7 +400,7 @@ fn encode_audio(directory: &Path, frequency: f64, buffers: i32) -> Vec<u8> {
         .build()
         .unwrap();
     let encoder = gst::ElementFactory::make("lamemp3enc")
-        .property("bitrate", 128_i32)
+        .property("bitrate", bitrate)
         .property("cbr", true)
         .build()
         .unwrap();
@@ -437,7 +446,8 @@ fn media_files(root: &Path) -> Vec<PathBuf> {
 
 fn run_phase(input: &Path, phase: &str, directory: &Path) -> PhaseReport {
     let log = fs::File::create(directory.join(format!("{phase}.log"))).unwrap();
-    let mut child: Child = Command::new(std::env::current_exe().unwrap())
+    let mut command = Command::new(std::env::current_exe().unwrap());
+    command
         .args([
             "--exact",
             SELECTOR,
@@ -453,9 +463,11 @@ fn run_phase(input: &Path, phase: &str, directory: &Path) -> PhaseReport {
         .env("XDG_DATA_HOME", directory.join("data"))
         .env("XDG_STATE_HOME", directory.join("state"))
         .stdout(Stdio::from(log.try_clone().unwrap()))
-        .stderr(Stdio::from(log))
-        .spawn()
-        .unwrap();
+        .stderr(Stdio::from(log));
+    if phase.starts_with("presence-") {
+        command.env("GTK_A11Y", "test");
+    }
+    let mut child: Child = command.spawn().unwrap();
     let deadline = Instant::now() + Duration::from_secs(45);
     loop {
         if let Some(status) = child.try_wait().unwrap() {
@@ -498,6 +510,7 @@ fn run_phase(input: &Path, phase: &str, directory: &Path) -> PhaseReport {
                 | "cache=write-confirmed"
                 | "cache=hit"
                 | "cache=stale"
+                | "cache=checking"
                 | "cache=not-cacheable"
         ));
         assert!(matches!(fields[1], "source=local" | "source=remote"));
@@ -519,6 +532,10 @@ fn native_audio_cache_application_process_restart() {
         let input: Input =
             serde_json::from_slice(&fs::read(std::env::var_os(INPUT_ENV).unwrap()).unwrap())
                 .unwrap();
+        if phase.starts_with("identity-") || phase.starts_with("presence-") {
+            identity::run_child(&input, &phase);
+            return;
+        }
         if phase.starts_with("lifecycle-") {
             lifecycle::run_child(&input, &phase);
             return;
@@ -528,6 +545,14 @@ fn native_audio_cache_application_process_restart() {
             return;
         }
         application_child(&input, &phase);
+        return;
+    }
+    if std::env::var_os("KARIN_TEST_CACHE_UI_ONLY").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        // Debug selection never writes the five-receipt/full-51 coverage set.
+        // Child dispatch above must precede it so inherited selection cannot
+        // recursively start another parent. Normal local/CI leaves it unset.
+        eprintln!("Karin native cache fixture: scope=presence-only coverage=partial");
+        identity::run_presence_only();
         return;
     }
     if let Ok(phase) = std::env::var("KARIN_TEST_COMPLETION_ONLY") {
@@ -785,6 +810,7 @@ fn native_audio_cache_application_process_restart() {
     );
     lifecycle::run_parent();
     completion::run_parent();
+    identity::run_parent();
 }
 
 fn source_name(kind: PlaybackSourceKind) -> &'static str {
@@ -1185,19 +1211,26 @@ fn pointer(window: &adw::ApplicationWindow, target: &impl IsA<gtk::Widget>) {
         target,
         super::super::super::test_input::Target::Leading,
     );
+    let widget = target.as_ref();
+    if widget.native().and_then(|native| native.surface()) == window.surface() {
+        let scale = f64::from(window.scale_factor());
+        let (dx, dy) = window.surface_transform();
+        let picked = window.pick(
+            f64::from(x) / scale - dx,
+            f64::from(y) / scale - dy,
+            gtk::PickFlags::DEFAULT,
+        );
+        assert!(
+            picked
+                .as_ref()
+                .is_some_and(|picked| picked == widget || picked.is_ancestor(widget)),
+            "native fixture pointer target is covered: target={} picked={:?}",
+            widget.type_().name(),
+            picked.as_ref().map(|picked| picked.type_().name()),
+        );
+    }
     let id = window_id();
-    for args in [
-        vec!["windowfocus".into(), "--sync".into(), id.clone()],
-        vec![
-            "mousemove".into(),
-            "--sync".into(),
-            "--window".into(),
-            id,
-            x.to_string(),
-            y.to_string(),
-        ],
-        vec!["click".into(), "1".into()],
-    ] {
+    let command = |args: Vec<String>| {
         assert!(
             Command::new("xdotool")
                 .args(args)
@@ -1205,7 +1238,39 @@ fn pointer(window: &adw::ApplicationWindow, target: &impl IsA<gtk::Widget>) {
                 .unwrap()
                 .success()
         );
+    };
+    command(vec!["windowfocus".into(), "--sync".into(), id.clone()]);
+    let query = |args: &[&str]| {
+        let output = Command::new("xdotool").args(args).output().unwrap();
+        assert!(output.status.success());
+        String::from_utf8(output.stdout).unwrap()
+    };
+    let geometry = query(&["getwindowgeometry", "--shell", &id]);
+    let position = query(&["getmouselocation", "--shell"]);
+    let field = |text: &str, name: &str| {
+        text.lines()
+            .find_map(|line| line.strip_prefix(name))
+            .unwrap()
+            .parse::<i32>()
+            .unwrap()
+    };
+    // xdotool's --sync can wait forever for a no-op relative move.
+    // Repeated clicks at the same row could otherwise block this GTK
+    // thread forever. Skip only movement already confirmed at the real root
+    // coordinates; changed targets keep the original synchronized motion.
+    if field(&position, "X=") != field(&geometry, "X=") + x
+        || field(&position, "Y=") != field(&geometry, "Y=") + y
+    {
+        command(vec![
+            "mousemove".into(),
+            "--sync".into(),
+            "--window".into(),
+            id,
+            x.to_string(),
+            y.to_string(),
+        ]);
     }
+    command(vec!["click".into(), "1".into()]);
 }
 fn key(_window: &adw::ApplicationWindow, value: &str) {
     assert!(
@@ -1244,3 +1309,5 @@ fn assert_original_file(path: &Path, input: &Input) {
 
 mod completion;
 mod lifecycle;
+
+mod identity;

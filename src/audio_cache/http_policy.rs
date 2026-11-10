@@ -32,6 +32,8 @@ pub(crate) enum Reason {
     ValidatorsMissing,
     RepresentationChanged,
     ResourceChanged,
+    IdentityUnverified,
+    EncodingChanged,
     DigestMismatch,
     Integrity,
     ContentRestricted,
@@ -58,6 +60,8 @@ impl Reason {
             Self::ValidatorsMissing => "validators-missing",
             Self::RepresentationChanged => "representation-changed",
             Self::ResourceChanged => "resource-changed",
+            Self::IdentityUnverified => "resource-identity-unverified",
+            Self::EncodingChanged => "encoding-changed",
             Self::DigestMismatch => "digest-mismatch",
             Self::Integrity => "metadata-corrupt",
             Self::ContentRestricted => "content-restricted",
@@ -108,11 +112,30 @@ impl fmt::Debug for ResponsePolicy {
     }
 }
 
+/// Opaque dimensions of a fresh admitted locator. They classify relocation
+/// and selected encoding; no component is an immutable byte-version claim.
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ResourceBinding {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub logical: Option<[u8; 32]>,
+    pub host: [u8; 32],
+    pub path: [u8; 32],
+    pub variant: [u8; 32],
+}
+impl fmt::Debug for ResourceBinding {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("ResourceBinding([opaque])")
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Metadata {
     pub uri_hash: [u8; 32],
     pub resource_hash: [u8; 32],
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binding: Option<ResourceBinding>,
     pub sha256: [u8; 32],
     pub bytes: u64,
     pub etag: Option<String>,
@@ -297,6 +320,7 @@ impl ResponsePolicy {
         Ok(Metadata {
             uri_hash,
             resource_hash,
+            binding: None,
             sha256,
             bytes,
             etag: self.etag.clone(),
@@ -313,14 +337,70 @@ impl ResponsePolicy {
         })
     }
 
+    /// Production records retain only opaque locator dimensions. This is not a
+    /// second track database or a globally scoped ETag/content identifier.
+    pub(crate) fn record_source(
+        &self,
+        remote: &crate::playback::RemotePlaybackSource,
+        sha256: [u8; 32],
+        bytes: u64,
+    ) -> Result<Metadata, Reason> {
+        let mut metadata = self.record(
+            remote.http_cache_uri_hash(),
+            remote.http_cache_resource_hash(),
+            sha256,
+            bytes,
+        )?;
+        metadata.binding = remote.http_cache_binding();
+        Ok(metadata)
+    }
+
+    pub(crate) fn revalidate_source(
+        &self,
+        stored: &Metadata,
+        remote: &crate::playback::RemotePlaybackSource,
+    ) -> Result<(), Reason> {
+        if stored
+            .binding
+            .zip(remote.http_cache_binding())
+            .is_some_and(|(before, now)| before.variant != now.variant)
+        {
+            return Err(Reason::EncodingChanged);
+        }
+        self.revalidate_scoped(
+            stored,
+            remote.http_cache_uri_hash(),
+            remote.http_cache_resource_hash(),
+            Some(stored.validator_scope(remote)),
+        )
+        .map_err(|reason| {
+            if reason == Reason::ResourceChanged {
+                Reason::IdentityUnverified
+            } else {
+                reason
+            }
+        })
+    }
+
     /// Validate a newly admitted response without downloading its full body.
     /// A digest covers the complete selected representation, including on HEAD
     /// and partial responses; Content-Digest is intentionally never used here.
+    #[cfg(test)]
     pub(crate) fn revalidate(
         &self,
         stored: &Metadata,
         uri_hash: [u8; 32],
         resource_hash: [u8; 32],
+    ) -> Result<(), Reason> {
+        self.revalidate_scoped(stored, uri_hash, resource_hash, None)
+    }
+
+    fn revalidate_scoped(
+        &self,
+        stored: &Metadata,
+        uri_hash: [u8; 32],
+        resource_hash: [u8; 32],
+        scoped: Option<bool>,
     ) -> Result<(), Reason> {
         stored.validate()?;
         let length = match (self.status, self.range) {
@@ -347,7 +427,7 @@ impl ResponsePolicy {
                 return Ok(());
             }
         }
-        if uri_hash != stored.uri_hash && resource_hash != stored.resource_hash {
+        if !scoped.unwrap_or(uri_hash == stored.uri_hash || resource_hash == stored.resource_hash) {
             return Err(Reason::ResourceChanged);
         }
         if self.status != 304 && length.is_none() {
@@ -379,6 +459,23 @@ impl ResponsePolicy {
 }
 
 impl Metadata {
+    /// Opaque validators are compared only within an established object/variant
+    /// scope. A known different logical object cannot fall back to coincidental
+    /// physical placement or a reused opaque ETag. Legacy records retain their
+    /// conservative exact-request/physical-locator rule until an upgrade.
+    pub(crate) fn validator_scope(&self, remote: &crate::playback::RemotePlaybackSource) -> bool {
+        if let Some((before, now)) = self.binding.zip(remote.http_cache_binding()) {
+            if before.variant != now.variant {
+                return false;
+            }
+            if let Some((before, now)) = before.logical.zip(now.logical) {
+                return before == now;
+            }
+        }
+        self.uri_hash == remote.http_cache_uri_hash()
+            || self.resource_hash == remote.http_cache_resource_hash()
+    }
+
     fn strong_modified(&self) -> bool {
         strong_modified(self.modified_unix, self.date_unix)
     }

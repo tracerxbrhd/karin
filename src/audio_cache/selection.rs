@@ -156,12 +156,25 @@ impl PreparedSelection {
             .http
             .as_ref()
             .ok_or(http_policy::Reason::ValidatorsMissing)?;
+        super::diagnostic::identity(metadata, remote);
         resolver.revalidate_http(remote, metadata, token, cancellation)?;
         self.cache
             .lease_current(&self.lease)
             .map_err(|_| http_policy::Reason::Cancelled)?;
         self.http_verified = true;
         Ok(())
+    }
+
+    pub(crate) fn needs_binding_upgrade(
+        &self,
+        remote: &crate::playback::RemotePlaybackSource,
+    ) -> bool {
+        self.http
+            .as_ref()
+            .is_some_and(|metadata| metadata.binding.is_none())
+            && remote
+                .http_cache_binding()
+                .is_some_and(|binding| binding.logical.is_some())
     }
 
     pub(crate) fn discard_file(&mut self) {

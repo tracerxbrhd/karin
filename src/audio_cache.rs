@@ -243,6 +243,8 @@ impl StorageAuthority for MissingStorageContract {
 
 pub(crate) mod diagnostic;
 mod http_admission;
+mod presence;
+pub(crate) use presence::Presence;
 pub(crate) mod http_policy;
 pub mod licensed;
 pub use http_admission::PrivateHttpCachePolicy;
@@ -329,6 +331,7 @@ struct State {
     generation: u64,
     clearing: bool,
     pending: BTreeMap<Key, Arc<()>>,
+    downloading: BTreeMap<Key, presence::Download>,
     sequence: u64,
     active_stage: Option<PathBuf>,
     retirement: diagnostic::Cause,
@@ -347,6 +350,7 @@ struct Inner {
     owner_pid: u32,
     admission_nonce: Key,
     lookup_running: Arc<AtomicBool>,
+    presence: Mutex<presence::Memo>,
     shared: Option<Arc<crate::cache_budget::CacheBudget>>,
     #[cfg(test)]
     commit_gate: Mutex<Option<(ResourceKey, Arc<CommitGate>)>>,
@@ -457,6 +461,7 @@ impl Drop for Request {
                 .is_some_and(|nonce| Arc::ptr_eq(nonce, &self.nonce))
         {
             state.pending.remove(&self.permit.identity.key());
+            state.downloading.remove(&self.permit.identity.key());
         }
     }
 }
@@ -633,6 +638,7 @@ impl AudioCache {
                 generation: 1,
                 clearing: false,
                 pending: BTreeMap::new(),
+                downloading: BTreeMap::new(),
                 sequence: 0,
                 active_stage: None,
                 retirement: diagnostic::Cause::PolicyChanged,
@@ -643,6 +649,7 @@ impl AudioCache {
             owner_pid: std::process::id(),
             admission_nonce,
             lookup_running: Arc::new(AtomicBool::new(false)),
+            presence: Mutex::new(presence::Memo::default()),
             shared,
             #[cfg(test)]
             commit_gate: Mutex::new(None),
@@ -666,6 +673,7 @@ impl AudioCache {
         state.account = account;
         state.retirement = diagnostic::Cause::AccountChanged;
         state.pending.clear();
+        state.downloading.clear();
         Ok(account.map(|account| Lease {
             owner: Arc::downgrade(&self.0),
             account,
@@ -757,6 +765,7 @@ impl AudioCache {
         state.clearing = true;
         state.retirement = diagnostic::Cause::CacheCleared;
         state.pending.clear();
+        state.downloading.clear();
         Ok(())
     }
     pub fn configure(&self, policy: CachePolicy) -> Result<()> {
@@ -767,6 +776,7 @@ impl AudioCache {
         }
         state.generation = state.generation.checked_add(1).ok_or(CacheError::Limit)?;
         state.pending.clear();
+        state.downloading.clear();
         state.retirement = diagnostic::Cause::PolicyChanged;
         self.0.budget.store(policy.max_bytes, Ordering::Release);
         // A budget change cannot clear a failed/in-flight cleanup fence.
@@ -899,7 +909,8 @@ impl AudioCache {
         // Do not require the old playback admission here: registration already
         // checked it, and a new selected track may now own the current hit.
         self.0.authority.activate_write(&request.permit)?;
-        self.request_current(request)
+        self.request_current(request)?;
+        self.mark_downloading(request)
     }
     fn check_write_operation(
         &self,
@@ -1307,6 +1318,7 @@ impl AudioCache {
             state.clearing = true;
             state.retirement = diagnostic::Cause::CacheCleared;
             state.pending.clear();
+            state.downloading.clear();
             (state.generation, state.active_stage.clone())
         };
         // The fence above is immediate. Only this filesystem worker retries a
@@ -1605,12 +1617,30 @@ fn read_record(
     scope: Option<Key>,
     claim: Option<ContentClaim>,
 ) -> Result<Option<File>> {
+    match inspect_record(path, key, scope, claim) {
+        Ok(None) => {
+            remove_record(path)?;
+            Ok(None)
+        }
+        other => other,
+    }
+}
+
+/// Non-mutating integrity check. A status observer may use this without owning
+/// the store's I/O gate; it rechecks immutable inode fingerprints afterwards.
+/// Playback selection retains read_record's serialized corrupt-record removal.
+fn inspect_record(
+    path: &Path,
+    key: Key,
+    scope: Option<Key>,
+    claim: Option<ContentClaim>,
+) -> Result<Option<File>> {
     if !path.exists() {
         return Ok(None);
     }
     private_dir(path)?;
     let mut header = [0u8; HEADER];
-    let record = (|| {
+    (|| {
         let mut input = open_private(&path.join("header"))?;
         if input.metadata().map_err(|_| CacheError::Unavailable)?.len() != HEADER as u64 {
             return Ok(None);
@@ -1676,14 +1706,7 @@ fn read_record(
             .seek(SeekFrom::Start(0))
             .map_err(|_| CacheError::Unavailable)?;
         Ok(Some(input))
-    })();
-    match record {
-        Ok(None) => {
-            remove_record(path)?;
-            Ok(None)
-        }
-        other => other,
-    }
+    })()
 }
 fn create_private_tree(path: &Path) -> Result<()> {
     let mut ancestor = PathBuf::new();

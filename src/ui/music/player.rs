@@ -162,6 +162,7 @@ impl Controller {
                 return glib::ControlFlow::Break;
             }
             this.tick_music();
+            this.tick_cache_presence();
             glib::ControlFlow::Continue
         });
     }
@@ -1363,6 +1364,8 @@ impl Controller {
         drop(model);
         self.publish_mpris();
         self.sync_track_pane();
+        self.sync_cache_presence_targets();
+        self.sync_cache_source_tooltip();
         self.sync_catalog_rows();
         self.sync_wave_queue_controls();
     }

@@ -23,7 +23,7 @@ fn descriptor_binding_distinguishes_file_and_encoding_from_temporary_signature_a
         RemotePlaybackSource::from_resolver(&uri, Instant::now() + SOURCE_FRESHNESS)
             .unwrap()
             .with_http_cache_resource(HttpResourceIdentity::from_validated_descriptor(
-                &parts, bitrate,
+                &parts, bitrate, &uri, None,
             ))
     };
     let first = source("/synthetic-resource/track.mp3", "000592c073d58600", 192);
@@ -139,7 +139,9 @@ fn legacy_descriptor_server_labels_are_canonicalized_without_collapsing_resource
         let uri = legacy_uri(&parts).unwrap();
         RemotePlaybackSource::from_resolver(&uri, Instant::now() + SOURCE_FRESHNESS)
             .unwrap()
-            .with_http_cache_resource(HttpResourceIdentity::from_validated_descriptor(&parts, 192))
+            .with_http_cache_resource(HttpResourceIdentity::from_validated_descriptor(
+                &parts, 192, &uri, None,
+            ))
     };
     let lower = source("s123.storage.yandex.net");
     let upper = source("S123.STORAGE.YANDEX.NET");
@@ -769,4 +771,108 @@ fn cancel_logout_and_cache_invalidation_during_descriptor_never_return_a_source(
         metadata_server.join().unwrap();
         check_no_second_request(media);
     }
+}
+
+#[test]
+fn logical_mds_object_scope_excludes_only_valid_signing_fields_and_keeps_semantics() {
+    let url = |path: &str, query: &str| {
+        Url::parse(&format!("https://storage.mds.yandex.net/{path}?{query}")).unwrap()
+    };
+    let sign_a = "a".repeat(64);
+    let sign_b = "b".repeat(64);
+    let first = logical_descriptor_object(&url(
+        "download-info/synthetic-group/object",
+        &format!("ns=fixture&sign={sign_a}&ts=0001"),
+    ))
+    .unwrap();
+    let fresh = logical_descriptor_object(&url(
+        "download-info/synthetic-group/object",
+        &format!("ns=fixture&sign={sign_b}&ts=0002"),
+    ))
+    .unwrap();
+    assert_eq!(first, fresh);
+    for changed in [
+        url(
+            "download-info/synthetic-group/other",
+            &format!("ns=fixture&sign={sign_b}&ts=0002"),
+        ),
+        url(
+            "download-info/other-group/object",
+            &format!("ns=fixture&sign={sign_b}&ts=0002"),
+        ),
+        url(
+            "download-info/synthetic-group/object",
+            &format!("ns=other&sign={sign_b}&ts=0002"),
+        ),
+        url(
+            "download-info/synthetic-group/object",
+            &format!("ns=fixture&version=other&sign={sign_b}&ts=0002"),
+        ),
+    ] {
+        assert_ne!(first, logical_descriptor_object(&changed).unwrap());
+    }
+    for query in [
+        "sign=unknown&ts=0002".into(),
+        format!("sign={sign_a}"),
+        "ts=0002".into(),
+        format!("sign={sign_a}&sign={sign_b}&ts=0002"),
+        format!("sign={sign_a}&ts=0002&ts=0003"),
+        format!("sign={sign_a}&ts=not-a-timestamp"),
+    ] {
+        assert_eq!(
+            logical_descriptor_object(&url("download-info/synthetic-group/object", &query)),
+            None
+        );
+    }
+    assert!(logical_descriptor_object(&url("download-info/short", "")).is_none());
+}
+
+#[test]
+fn logical_mds_scope_stays_stable_across_physical_region_and_append_location_changes() {
+    let make = |host, path, bitrate, timestamp| {
+        HttpResourceIdentity::for_test_object(
+            host,
+            path,
+            bitrate,
+            timestamp,
+            "https://storage.mds.yandex.net/file-download-info/synthetic-group/opaque-object?ns=fixture",
+        )
+    };
+    let first = make(
+        "s123.storage.yandex.net",
+        "/physical-a-offset-10-size-123",
+        192,
+        "0001",
+    );
+    let region = make(
+        "server-2026.storage.yandex.net",
+        "/s123/physical-b-offset-20-size-123",
+        192,
+        "0002",
+    );
+    assert_eq!(first.binding.logical, region.binding.logical);
+    assert_eq!(first.binding.variant, region.binding.variant);
+    assert_ne!(first.binding.host, region.binding.host);
+    assert_ne!(first.binding.path, region.binding.path);
+    assert_ne!(first.request_hash(), region.request_hash());
+    assert_ne!(first.hash(), region.hash());
+    let encoding = make(
+        "server-2026.storage.yandex.net",
+        "/s123/physical-b-offset-20-size-123",
+        320,
+        "0002",
+    );
+    assert_ne!(first.binding.variant, encoding.binding.variant);
+}
+
+#[test]
+fn sealed_request_hash_keeps_the_previous_exact_uri_hash_recipe() {
+    let parts = xml::parse(XML.as_bytes()).unwrap();
+    let uri = legacy_uri(&parts).unwrap();
+    let old = RemotePlaybackSource::from_resolver(&uri, Instant::now() + SOURCE_FRESHNESS).unwrap();
+    let old_hash = old.http_cache_uri_hash();
+    let sealed = old.with_http_cache_resource(HttpResourceIdentity::from_validated_descriptor(
+        &parts, 192, &uri, None,
+    ));
+    assert_eq!(old_hash, sealed.http_cache_uri_hash());
 }

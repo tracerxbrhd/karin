@@ -12,11 +12,13 @@ remain separate: HTTP cacheability does not create a provider entitlement or
 legal license. Protected formats, explicit restrictions and `no-store` reject
 storage; unverifiable versions reject local reuse.
 
-**The owner reported playback FAIL at `6ec2407`**, after earlier real playback
-worked but cache acceptance failed at `f2050b0`. The host-policy correction and
-independent-download implementation need final Native/installed-Flatpak
-acceptance; Cloud fixtures cannot establish the real CDN response or heard
-service audio. See [VALIDATION](VALIDATION.md#pr26-independent-background-cache-and-playback-correction).
+**The owner confirmed real first playback and complete background saving on
+Fedora Native at `31d873d`; local replay and restart still failed with
+`resource-changed`.** The revised logical-object revalidation and graphical
+indicators need final Native/installed-Flatpak acceptance. The earlier `6ec2407`
+playback and `f2050b0` saving failures remain historical results. Cloud fixtures
+cannot establish a new real-CDN result. See
+[VALIDATION](VALIDATION.md#owner-result-at-31d873d).
 Downloads, mass prefetch and offline mode remain outside this scope.
 Issue [#20](https://github.com/tracerxbrhd/karin/issues/20) remains open;
 public authorization/API distribution rights remain separately tracked in
@@ -284,30 +286,59 @@ declines a new private copy without usable ETag/Last-Modified/Repr-Digest eviden
 so an unreusable body is not downloaded solely for cache storage. Any older
 record still needs successful current-version proof before a local hit.
 
-For URI-bound validation, a returned strong validator must describe the same
-resource/variant. A bare `304` is not an exact-byte guarantee: `If-None-Match`
-uses weak comparison. [RFC9110 §8.8.1](https://www.rfc-editor.org/rfc/rfc9110.html#section-8.8.1)
-also warns that equal ETags on different resources do not prove equal bytes.
-Karin retains opaque fingerprints, not signed URLs. The resolver additionally
-binds the sealed Legacy descriptor's lowercase host, validated XML path, MP3
-codec and selected bitrate to a file-locator fingerprint across renewed
-signatures. Signing inputs `s` and `ts` are excluded. That binding still needs a
-matching strong validator and length; it does not declare the path immutable.
-Arbitrarily stripping URI signature or timestamp components is not a
-representation proof. A strong Last-Modified validation can be used only with the conservative RFC Date gap of
-at least sixty seconds and the required resource/length checks; an arbitrary date
-is not a content version. The storage and validation requests explicitly use
-`Accept-Encoding: identity`, allowing that one `Vary` dimension. Other nonempty
-`Vary` dimensions are declined rather than compared under unknown request state.
+A changed download address is not itself a new audio representation. The old
+hash joined XML host/path and codec/bitrate; a legitimate placement change then
+entered a destructive resource-changed/refill branch. The owner confirmed this
+failure at `31d873d`, without exposing the actual changed component.
 
-A trusted full-representation SHA-256 in
+The revised opaque binding follows the **logical descriptor request object and
+encoding** separately from physical delivery and saved bytes. It retains the
+validated descriptor origin, full object path and semantic query. Only the
+published signing fields `sign` and `ts` are excluded; unknown parameters remain
+significant. Only documented routes with unambiguous, well-formed signing fields
+receive that normalization; other inputs leave logical identity unavailable.
+This is not guessed path trimming or Track-ID-only identity.
+
+Primary source evidence from Yandex's public
+[mediastorage-proxy `d7102c4`](https://github.com/yandex/mediastorage-proxy/tree/d7102c46252275e702ba5bbf62c73f581e1497d5):
+
+| Source | Relevant contract |
+| --- | --- |
+| [Download-info handler](https://github.com/yandex/mediastorage-proxy/blob/d7102c46252275e702ba5bbf62c73f581e1497d5/src/download_info.cpp#L171) and [object lookup](https://github.com/yandex/mediastorage-proxy/blob/d7102c46252275e702ba5bbf62c73f581e1497d5/src/proxy.cpp#L838) | Resolve the descriptor request path to namespace/group/file. The namespace/file key names the stored object; query signing fields do not choose its physical location. |
+| [Physical locator](https://github.com/yandex/mediastorage-proxy/blob/d7102c46252275e702ba5bbf62c73f581e1497d5/src/lookup_result.cpp#L113), [XML generation](https://github.com/yandex/mediastorage-proxy/blob/d7102c46252275e702ba5bbf62c73f581e1497d5/src/utils.cpp#L98) and [regional rewrite](https://github.com/yandex/mediastorage-proxy/blob/d7102c46252275e702ba5bbf62c73f581e1497d5/src/proxy.cpp#L920) | Select replica host and physical file/offset/size paths; regional delivery can move a host component into the path. These addresses are not immutable object identity. |
+| [ETag generation](https://github.com/yandex/mediastorage-proxy/blob/d7102c46252275e702ba5bbf62c73f581e1497d5/src/get.cpp#L702) and [conditional response](https://github.com/yandex/mediastorage-proxy/blob/d7102c46252275e702ba5bbf62c73f581e1497d5/src/get.cpp#L831) | ETag derives from object timestamp/size, not audio bytes. It is usable as a scoped version validator, never a global MD5 content fingerprint. |
+
+The published Music client's
+[download-info fixture](https://github.com/MarshalX/yandex-music-api/blob/9ca132e5c18a72aab779c1fc68c169380a9357d0/tests/test_download_info.py#L20)
+also separates logical file-download-info paths from `sign`/`ts`. The older MDS
+source explains the protocol model; it does not establish that the owner's 2026
+CDN deployment or every endpoint behaves identically. No real-account resource
+or signing value is copied into diagnostics.
+
+Strong validators must still describe a confirmed common logical object/variant
+or exact resource scope. [RFC9110 §8.8.1](https://www.rfc-editor.org/rfc/rfc9110.html#section-8.8.1)
+warns that equal ETags on different resources do not prove equal bytes, and bare
+304/If-None-Match uses weak comparison. Same object and a matching strong tag plus
+length can survive physical placement changes; a different logical object cannot
+borrow that tag. Strong Last-Modified additionally needs the conservative RFC
+Date gap of at least sixty seconds and the same resource/length checks.
+Requests use identity encoding; unsupported Vary dimensions remain refused.
+
+A trusted full SHA-256 in
 [`Repr-Digest`, RFC9530 §3](https://www.rfc-editor.org/rfc/rfc9530.html#section-3)
-can be compared with the completed record's measured hash and length even when a
-signed URI changes. `Content-Digest` on a HEAD message is not the full audio
-digest. A suitable standard validator can establish identity without a bespoke
-Yandex SHA field, new entitlement endpoint or Offline Lease. If the actual server
-offers none, that resource stays online with a fixed diagnostic reason; its
-identity is not guessed.
+can independently match the completed record's measured hash/length across
+locators. Content-Digest on a HEAD message is not the full audio digest. A known
+encoding mismatch cannot select the wrong representation. Older records without
+separate binding metadata require sufficient existing proof or one complete
+validated replacement before the new binding is available; the old copy remains
+until successful atomic publication.
+
+An unproved modern object/locator change, missing validator or temporary failure
+uses online playback while retaining the correct local record and suppressing
+another cache-body rewrite. Confirmed version/encoding changes, no-store,
+explicit access/content refusals and corruption retain scoped retirement.
+No stale local fallback is introduced. Finite diagnostic categories identify
+signing, host, path, variant or proof outcomes, never their raw values.
 
 Only bounded cache metadata, opaque identity, measured length/hash and validators
 are retained beside the completed record. OAuth tokens, cookies, signed URLs,
@@ -335,7 +366,9 @@ cover first save, replay/restart, validators, changed representations, refusal,
 corruption, Clear and cancellation without a real account. Results belong in
 [VALIDATION](VALIDATION.md); they do not demonstrate live CDN behavior.
 
-**The real service has not been verified for this revision.** The single final
+The owner confirmed first real playback/background saving at `31d873d`, but
+local replay and restart failed with resource-changed. **The revised replay and
+presence behavior is not yet accepted on the real service.** The single final
 [Native/Flatpak procedure](BUILDING.md#pr-26-corrected-cache-acceptance) obtains only
 fixed cache/source/reason categories from the actual playback path. It never
 requests tokens, signed addresses, identifiers, response bodies or music files.
