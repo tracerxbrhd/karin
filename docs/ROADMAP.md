@@ -89,22 +89,26 @@ and permission rules stay distinct. Concurrent reservations and bounded backgrou
 eviction enforce the common budget; Unlimited still needs free-space protection.
 New revision-specific tests and desktop acceptance remain separately recorded.
 
-The service authority still refuses cache admission, so ordinary Music keeps its
-working online playback. The immediate goal is transparent reuse after fresh
-online revalidation, not Downloads or offline mode. The
-[source/rights review](AUDIO_CACHE_REVIEW.md) identifies the missing applicable
-storage/reuse permission and concrete provider check; a prepared technical request
-does not supply that answer. PR #26 stays Draft and #20 stays open. Compilation,
-fixture success and previous owner acceptance are not completion of service caching.
+PR #26 now admits ordinary private HTTP caching for eligible MP3 responses and
+saves them with one bounded full-response background download alongside the
+existing player. Local replay still requires fresh Music access and representation
+validation; missing validators, explicit storage refusals and unsupported sources
+stay online. This is transparent reuse, not Downloads or offline mode. The
+[source/rights review](AUDIO_CACHE_REVIEW.md) separates HTTP policy from provider
+terms and content rights. The owner's latest `6ec2407` playback failure and earlier
+failed saving remain recorded; the corrected real-service path is not yet accepted.
+PR #26 stays Draft and #20 stays open. Cloud fixtures do not establish live CDN
+compatibility or desktop acceptance.
 
 - [Lyrics and related tracks](https://github.com/tracerxbrhd/karin/issues/18): confirm permitted endpoints/resources before
   exposing a user workflow; no extracted official-client signing material.
 - [Playlist editing](https://github.com/tracerxbrhd/karin/issues/19): extend beyond
   confirmed creation only with ownership/revision and ambiguous-write recovery.
 - [Audio storage and later offline audio](https://github.com/tracerxbrhd/karin/issues/20):
-  first establish the storage/reuse grant and online hit-admission contract; any
-  later offline mode needs its separately confirmed lifetime and renewal rules.
-  A working MP3 source is not either contract.
+  confirm the implemented first-save/local-replay/restart path on eligible real
+  responses and the applicable service/content terms. A later offline mode needs
+  separately confirmed access lifetimes and renewal rules; a working MP3 or
+  HTTP200 alone establishes neither permission nor unchanged bytes.
 - [Restart playback state](https://github.com/tracerxbrhd/karin/issues/21): define
   bounded same-account context/position restoration without storing media URLs.
 - Whole-collection search/sorting: provide complete coverage or label a loaded

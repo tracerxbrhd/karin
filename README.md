@@ -73,8 +73,9 @@ combined usage and Clear, with a native slider for 500 MiB, 1/2/3/4 GiB or
 Unlimited. Metadata, artwork and policy-admitted audio share one disk coordinator,
 including in-flight writes. The owner identifies `0709729` as the last accepted
 PR #26 revision; later online-authority changes require separate acceptance.
-Private HTTP caching uses the existing GStreamer transfer for eligible full MP3
-responses, without a second media download. Each replay obtains fresh Music
+Private HTTP caching queues one bounded complete-response MP3 download alongside
+the existing GStreamer player, independently of Next, Seek and EOS. Only verified
+complete files are published. Each replay obtains fresh Music
 access and delivery information and validates the saved representation before
 selecting its local file. `no-store`, explicit restrictions, failed access or
 unverifiable versions keep playback online. This policy does not manufacture a
