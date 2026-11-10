@@ -25,10 +25,22 @@ job. [`src/stream.rs`](../src/stream.rs) and
    bounded host/path/ts/server-input components and reject protection/preview
    indications. The historical checksum uses public framing plus fresh server
    components, without modern extracted signing or decryption material.
-4. Admit only canonical HTTPS `/get-mp3/` resources on the single-label family
-   `s` + 1–5 decimal digits + 3 lowercase letters + `.storage.yandex.net`.
+4. Admit only canonical HTTPS `/get-mp3/` resources on one canonical DNS label
+   below the existing dedicated `.storage.yandex.net` CDN zone. Labels contain
+   1–63 lowercase ASCII letters, digits or internal hyphens; nested labels,
+   lookalike zones, IP addresses and malformed names remain refused. The earlier
+   `s` + 1–5 digits + exactly 3 letters rule inferred trust from a historical
+   server naming convention, which Cassette's descriptor contract does not impose.
    No arbitrary Yandex subdomain, query, fragment or caller-supplied URI is allowed.
    Check account/token validity and cancellation again before returning the source.
+
+The owner reported `media-origin-unverified` at `6ec2407` with successful offer
+and descriptor HTTP responses. That category is emitted specifically when the
+descriptor host fails this policy; expiry, XML and path failures have other
+categories. The old naming rule also exists in earlier working revisions, so
+this is not evidence that `6ec2407` introduced it. The actual rejected host is
+not available in Cloud. The correction preserves the existing trusted zone and
+does not invent a newly observed CDN domain or authorize arbitrary HTTPS origins.
 
 The monotonic 60-second admission deadline begins before the offer request and
 is not reset by descriptor latency. XML `ts` is opaque, not an entitlement or

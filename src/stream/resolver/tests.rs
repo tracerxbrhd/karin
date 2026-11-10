@@ -130,6 +130,37 @@ fn legacy_source_uses_the_canonical_checksum_path_without_grant_time_guessing() 
 }
 
 #[test]
+fn legacy_descriptor_server_labels_are_canonicalized_without_collapsing_resource_identity() {
+    // Names deliberately exercise the former naming-layout rejection. They
+    // are fixtures within the existing trusted zone, not live CDN assertions.
+    let source = |host: &str| {
+        let body = XML.replace("s268myt.storage.yandex.net", host);
+        let parts = xml::parse(body.as_bytes()).unwrap();
+        let uri = legacy_uri(&parts).unwrap();
+        RemotePlaybackSource::from_resolver(&uri, Instant::now() + SOURCE_FRESHNESS)
+            .unwrap()
+            .with_http_cache_resource(HttpResourceIdentity::from_validated_descriptor(&parts, 192))
+    };
+    let lower = source("s123.storage.yandex.net");
+    let upper = source("S123.STORAGE.YANDEX.NET");
+    let other = source("server-2026.storage.yandex.net");
+    assert_eq!(lower.http_cache_uri_hash(), upper.http_cache_uri_hash());
+    assert_eq!(
+        lower.http_cache_resource_hash(),
+        upper.http_cache_resource_hash()
+    );
+    assert_ne!(
+        lower.http_cache_resource_hash(),
+        other.http_cache_resource_hash()
+    );
+    for item in [lower, upper, other] {
+        assert!(!item.is_expired());
+        let visible = format!("{item:?}");
+        assert!(!visible.contains(PRIVATE) && !visible.contains("storage.yandex.net"));
+    }
+}
+
+#[test]
 fn metadata_policy_accepts_only_the_three_known_exact_https_paths() {
     let probe = DeliveryProbe::new().unwrap();
     for path in ["get-download-info", "download-info", "file-download-info"] {
@@ -356,7 +387,11 @@ fn invalid_media_origins_and_path_components_never_escape_the_resolver() {
 
 #[test]
 fn full_resolution_for_all_paths_sends_credentials_only_to_music_and_never_fetches_media() {
-    for prefix in ["get-download-info", "download-info", "file-download-info"] {
+    for (prefix, host) in [
+        ("get-download-info", "s268myt.storage.yandex.net"),
+        ("download-info", "s123.storage.yandex.net"),
+        ("file-download-info", "server-2026.storage.yandex.net"),
+    ] {
         let token = token();
         let service = validated_service(&token);
         let api = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -373,20 +408,21 @@ fn full_resolution_for_all_paths_sends_credentials_only_to_music_and_never_fetch
         )))
         .unwrap();
         // Cover legacy omission, optional null, and the known unprotected raw
-        // declaration without changing acquisition or admitting any new host.
+        // declaration without changing acquisition or credential boundaries.
         if prefix == "download-info" {
             body["result"][0]["transport"] = json!(null);
         } else if prefix == "file-download-info" {
             body["result"][0]["transport"] = json!("raw");
         }
         let body = body.to_string();
+        let xml = XML.replace("s268myt.storage.yandex.net", host);
         let xml = if prefix == "file-download-info" {
-            XML.replace(
+            xml.replace(
                 "</download-info>",
                 "<transport>raw</transport></download-info>",
             )
         } else {
-            XML.to_owned()
+            xml
         };
         let api_server = thread::spawn(move || {
             let mut stream = accepted(&api);

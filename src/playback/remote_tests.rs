@@ -401,6 +401,55 @@ fn prepare_error(
 }
 
 #[test]
+fn media_origin_is_the_exact_storage_zone_not_a_server_numbering_convention() {
+    // These are synthetic DNS-label boundary fixtures, not observed service
+    // hosts. The existing dedicated zone is unchanged; arbitrary/nested Yandex
+    // names, IPs and malformed labels still cannot enter the transport.
+    let longest = "a".repeat(63);
+    for label in [
+        "a",
+        "1",
+        "s123",
+        "sabc",
+        "s123456abc",
+        "server-2026",
+        &longest,
+    ] {
+        let host = format!("{label}.storage.yandex.net");
+        assert!(permitted_media_host(&host));
+        let uri = format!("https://{host}/get-mp3/synthetic");
+        assert!(
+            RemotePlaybackSource::from_resolver(&uri, Instant::now() + Duration::from_secs(60))
+                .is_ok()
+        );
+    }
+    let too_long = "a".repeat(64);
+    for host in [
+        "storage.yandex.net".to_owned(),
+        ".storage.yandex.net".to_owned(),
+        "-server.storage.yandex.net".to_owned(),
+        "server-.storage.yandex.net".to_owned(),
+        "server_name.storage.yandex.net".to_owned(),
+        "a.b.storage.yandex.net".to_owned(),
+        "server.storage.yandex.net.evil.invalid".to_owned(),
+        "server.storage.yandex.net.".to_owned(),
+        "server.storage.yandex.ru".to_owned(),
+        "server.music.yandex.net".to_owned(),
+        "server.yandex.net".to_owned(),
+        "s12éé.storage.yandex.net".to_owned(),
+        "127.0.0.1".to_owned(),
+        format!("{too_long}.storage.yandex.net"),
+    ] {
+        assert!(!permitted_media_host(&host));
+        let uri = format!("https://{host}/get-mp3/synthetic");
+        assert!(
+            RemotePlaybackSource::from_resolver(&uri, Instant::now() + Duration::from_secs(60))
+                .is_err()
+        );
+    }
+}
+
+#[test]
 fn remote_source_is_sealed_bounded_expiring_and_redacted() {
     assert!(!permitted_media_host("s12éé.storage.yandex.net"));
     let uri = "https://s268myt.storage.yandex.net/get-mp3/synthetic-private-source-marker";
@@ -421,8 +470,6 @@ fn remote_source_is_sealed_bounded_expiring_and_redacted() {
         "https://s268myt.storage.yandex.net./get-mp3/x",
         "https://s268myt.extra.storage.yandex.net/get-mp3/x",
         "https://storage.yandex.net/get-mp3/x",
-        "https://sabc.storage.yandex.net/get-mp3/x",
-        "https://s123456abc.storage.yandex.net/get-mp3/x",
         "https://127.0.0.1/get-mp3/x",
         "https://name@s268myt.storage.yandex.net/get-mp3/x",
         "https://@s268myt.storage.yandex.net/get-mp3/x",

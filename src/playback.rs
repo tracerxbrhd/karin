@@ -284,9 +284,11 @@ impl fmt::Debug for RemotePlaybackSource {
     }
 }
 
-/// A deliberately narrow generated host family corroborated by the published
-/// legacy descriptor example `s268myt.storage.yandex.net`. It is not a promise
-/// that every current service CDN name is supported.
+/// Admit a canonical server name in the dedicated, already supported storage
+/// zone. The fresh official descriptor chooses the server; a historical server
+/// numbering layout is not an origin boundary. Nested labels and other Yandex
+/// zones are not admitted here. HTTPS, port and resource-path checks remain at
+/// the sealed-source boundary below.
 pub(crate) fn permitted_media_host(host: &str) -> bool {
     if !host.is_ascii() {
         return false;
@@ -294,16 +296,11 @@ pub(crate) fn permitted_media_host(host: &str) -> bool {
     let Some(label) = host.strip_suffix(".storage.yandex.net") else {
         return false;
     };
-    let Some(label) = label.strip_prefix('s') else {
-        return false;
-    };
-    if !(4..=8).contains(&label.len()) {
-        return false;
-    }
-    let (digits, suffix) = label.split_at(label.len() - 3);
-    !digits.is_empty()
-        && digits.bytes().all(|byte| byte.is_ascii_digit())
-        && suffix.bytes().all(|byte| byte.is_ascii_lowercase())
+    let alphanumeric = |byte: u8| byte.is_ascii_lowercase() || byte.is_ascii_digit();
+    (1..=63).contains(&label.len())
+        && label.as_bytes().first().copied().is_some_and(alphanumeric)
+        && label.as_bytes().last().copied().is_some_and(alphanumeric)
+        && label.bytes().all(|byte| alphanumeric(byte) || byte == b'-')
 }
 
 impl RemotePlaybackSource {
