@@ -188,7 +188,7 @@ pub(super) fn run_child(original: &Input, phase: &str) {
         });
         wait_presence(this, "42", Presence::Stored);
         assert!(find_named(this.widgets.detail.upcast_ref(), "music-track-cache").is_some());
-        capture_native("audio-cache-saved-playlist");
+        capture_native(&ui.window, "audio-cache-saved-playlist");
         this.widgets.search.set_text("Original");
         this.search(0);
         pump_until(|| {
@@ -211,13 +211,13 @@ pub(super) fn run_child(original: &Input, phase: &str) {
             "a saved search row click must use local data"
         );
         assert_eq!(server.counts().background_gets, 1);
-        capture_native("audio-cache-saved-search");
+        capture_native(&ui.window, "audio-cache-saved-search");
         pointer(&ui.window, &this.widgets.nav_liked);
         pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("library"));
         this.toggle_queue_panel();
         pump_until(|| this.panel_mode.get() == PanelMode::Queue);
         wait_presence(this, "42", Presence::Stored);
-        capture_native("audio-cache-saved-queue");
+        capture_native(&ui.window, "audio-cache-saved-queue");
         this.set_panel_mode(PanelMode::Closed);
         // A second real selected source leaves track 42 off the fixed targets.
         this.skip_music(true, false);
@@ -639,12 +639,12 @@ fn geometry(ui: &crate::ui::MainWindow, this: &Rc<Controller>) -> Vec<serde_json
                 }
             }
         }
-        capture_native(&format!("audio-cache-presence-{name}"));
+        capture_native(&ui.window, &format!("audio-cache-presence-{name}"));
         records.push(json!({"shape":name,"width":ui.window.width(),"height":ui.window.height(),"scale":ui.window.scale_factor(),"surface_width":ui.window.surface().unwrap().width(),"surface_height":ui.window.surface().unwrap().height(),"maximized":ui.window.is_maximized(),"themes":["light","dark"],"captures":[format!("audio-cache-presence-{name}-light.png"),format!("audio-cache-presence-{name}-dark.png")]}));
     }
     ui.window.maximize();
     pump_until(|| ui.window.is_maximized());
-    capture_native("audio-cache-presence-maximized");
+    capture_native(&ui.window, "audio-cache-presence-maximized");
     records.push(json!({"shape":"maximized","width":ui.window.width(),"height":ui.window.height(),"scale":ui.window.scale_factor(),"surface_width":ui.window.surface().unwrap().width(),"surface_height":ui.window.surface().unwrap().height(),"maximized":ui.window.is_maximized(),"themes":["light","dark"],"captures":["audio-cache-presence-maximized-light.png","audio-cache-presence-maximized-dark.png"]}));
     ui.window.unmaximize();
     ui.window.set_default_size(900, 650);
@@ -653,7 +653,7 @@ fn geometry(ui: &crate::ui::MainWindow, this: &Rc<Controller>) -> Vec<serde_json
 
 // Capture this exact isolated fixture window, with its own stable title. The
 // shared catalog helper intentionally targets a different fixture's title.
-fn capture_native(name: &str) {
+fn capture_native(window: &adw::ApplicationWindow, name: &str) {
     let Some(directory) = std::env::var_os("KARIN_TEST_CAPTURE_DIR") else {
         return;
     };
@@ -662,21 +662,92 @@ fn capture_native(name: &str) {
     if let Some(settings) = gtk::Settings::default() {
         settings.set_gtk_enable_animations(false);
     }
+    let mut light = None;
     for (theme, scheme) in [
         ("light", adw::ColorScheme::ForceLight),
         ("dark", adw::ColorScheme::ForceDark),
     ] {
-        adw::StyleManager::default().set_color_scheme(scheme);
+        let manager = adw::StyleManager::default();
+        let dark = theme == "dark";
+        manager.set_color_scheme(scheme);
+        pump_until(|| manager.is_dark() == dark);
+        let clock = window
+            .frame_clock()
+            .expect("mapped native capture frame clock");
+        let frames = Rc::new(Cell::new(0_u32));
+        let observed = frames.clone();
+        let handler = clock.connect_after_paint(move |_| {
+            observed.set(observed.get() + 1);
+        });
+        window.queue_draw();
         let deadline = Instant::now() + Duration::from_millis(180);
-        pump_until(|| Instant::now() >= deadline);
+        pump_until(|| Instant::now() >= deadline && frames.get() > 0);
+        // A maximized surface can finish a pending allocation/style frame after
+        // its color-scheme property changes. Require another completed paint,
+        // then synchronize the real X11 display before reading native pixels.
+        let first = frames.get();
+        window.queue_draw();
+        pump_until(|| frames.get() > first);
+        clock.disconnect(handler);
+        gtk::prelude::WidgetExt::display(window).sync();
+        let path = directory.join(format!("{name}-{theme}.png"));
         assert!(
             Command::new("import")
                 .args(["-silent", "-screen", "-window", &window_id()])
-                .arg(directory.join(format!("{name}-{theme}.png")))
+                .arg(&path)
                 .status()
                 .unwrap()
                 .success()
         );
+        // This margin lies inside the native window background and outside
+        // catalog rows/pane artwork at every admitted geometry and scale.
+        // Check actual captured pixels, not only StyleManager's property.
+        let scale = window.scale_factor();
+        let x = 12 * scale;
+        let y = window.surface().unwrap().height() * scale / 2;
+        let sample = Command::new("convert")
+            .arg(&path)
+            .args([
+                "+repage",
+                "-crop",
+                &format!("1x1+{x}+{y}"),
+                "+repage",
+                "-format",
+                "%[fx:r] %[fx:g] %[fx:b]",
+                "info:",
+            ])
+            .output()
+            .unwrap();
+        assert!(sample.status.success());
+        let rgb = String::from_utf8(sample.stdout)
+            .unwrap()
+            .split_whitespace()
+            .map(|value| value.parse::<f64>().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(rgb.len(), 3);
+        assert!(
+            rgb.iter()
+                .all(|value| value.is_finite() && (0.0..=1.0).contains(value))
+        );
+        let background = rgb.iter().sum::<f64>() / 3.0;
+        assert!(
+            if dark {
+                background < 0.45
+            } else {
+                background > 0.65
+            },
+            "native capture must paint the requested theme: dark={dark} background={rgb:?}"
+        );
+        let bytes = fs::read(path).unwrap();
+        if dark {
+            assert_ne!(
+                light.as_ref(),
+                Some(&bytes),
+                "native theme captures must differ"
+            );
+        } else {
+            light = Some(bytes);
+        }
     }
 }
 
