@@ -109,7 +109,15 @@ impl AudioCache {
                 match prepared {
                     Ok((prepared, used, identity)) => {
                         let has_file = prepared.file.is_some();
-                        if sender.send(Ok(prepared)).is_ok()
+                        let published = sender.send(Ok(prepared)).is_ok();
+                        #[cfg(test)]
+                        if published {
+                            // A fixture may order its HTTP response after the
+                            // actual selection message, never after a guessed
+                            // elapsed delay or the later LRU worker shutdown.
+                            cache.0.lookup_publications.fetch_add(1, Ordering::Release);
+                        }
+                        if published
                             && has_file
                             && used.recv_timeout(Duration::from_secs(35)).is_ok()
                             && cache.lease_current(&lease).is_ok()

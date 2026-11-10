@@ -350,6 +350,8 @@ struct Inner {
     owner_pid: u32,
     admission_nonce: Key,
     lookup_running: Arc<AtomicBool>,
+    #[cfg(test)]
+    lookup_publications: AtomicU64,
     presence: Mutex<presence::Memo>,
     shared: Option<Arc<crate::cache_budget::CacheBudget>>,
     #[cfg(test)]
@@ -649,6 +651,8 @@ impl AudioCache {
             owner_pid: std::process::id(),
             admission_nonce,
             lookup_running: Arc::new(AtomicBool::new(false)),
+            #[cfg(test)]
+            lookup_publications: AtomicU64::new(0),
             presence: Mutex::new(presence::Memo::default()),
             shared,
             #[cfg(test)]

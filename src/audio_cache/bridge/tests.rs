@@ -19,7 +19,7 @@ use std::{
     os::unix::fs::DirBuilderExt,
     path::PathBuf,
     sync::{
-        Arc, OnceLock,
+        Arc, Mutex, OnceLock,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     thread,
@@ -61,11 +61,14 @@ fn media() -> Vec<u8> {
     }).clone()
 }
 
+type LookupBarrier = Arc<Mutex<Option<(AudioCache, u64)>>>;
+
 struct Http {
     origin: String,
     media_requests: Arc<AtomicUsize>,
     delivery_requests: Arc<AtomicUsize>,
     stop: Arc<AtomicBool>,
+    lookup_barrier: LookupBarrier,
     server: Option<thread::JoinHandle<()>>,
 }
 impl Http {
@@ -80,11 +83,13 @@ impl Http {
         let media_requests = Arc::new(AtomicUsize::new(0));
         let delivery_requests = Arc::new(AtomicUsize::new(0));
         let stop = Arc::new(AtomicBool::new(false));
+        let lookup_barrier: LookupBarrier = Arc::new(Mutex::new(None));
         let server = {
             let origin = origin.clone();
             let media_requests = media_requests.clone();
             let delivery_requests = delivery_requests.clone();
             let stop = stop.clone();
+            let lookup_barrier = lookup_barrier.clone();
             thread::spawn(move || {
                 while !stop.load(Ordering::Acquire) {
                     let (mut stream, _) = match listener.accept() {
@@ -112,10 +117,26 @@ impl Http {
                         (200, "application/json", "", format!(r#"{{"result":{{"account":{{"uid":{account},"displayName":"Synthetic account"}}}}}}"#).into_bytes())
                     } else if path == "/tracks/123/download-info" {
                         delivery_requests.fetch_add(1, Ordering::AcqRel);
-                        // Cache lookup runs alongside source validation. A
-                        // small loopback metadata delay models a real request
-                        // instead of requiring synchronous cache selection.
-                        thread::sleep(Duration::from_millis(15));
+                        let barrier = lookup_barrier.lock().unwrap().take();
+                        if let Some((cache, previous)) = barrier {
+                            // The pinned-FD/Clear test needs an actually ready
+                            // local selection. Order this one HTTP response
+                            // after its worker has published the message; normal
+                            // playback remains nonblocking and other fixtures
+                            // retain their fast-network/contention behavior.
+                            let deadline = Instant::now() + Duration::from_secs(8);
+                            while cache.0.lookup_publications.load(Ordering::Acquire) == previous {
+                                assert!(
+                                    Instant::now() < deadline,
+                                    "cache selection was not published before the bounded fixture response"
+                                );
+                                thread::yield_now();
+                            }
+                        } else {
+                            // A small loopback delay models an ordinary request;
+                            // it is not a guarantee that a cache worker is ready.
+                            thread::sleep(Duration::from_millis(15));
+                        }
                         (200, "application/json", "", format!(r#"{{"result":[{{"codec":"mp3","preview":false,"downloadInfoUrl":"{origin}download-info/original"}}]}}"#).into_bytes())
                     } else if path == "/download-info/original" {
                         assert!(!lower.contains("authorization:") && !lower.contains("cookie:"));
@@ -141,6 +162,7 @@ impl Http {
             media_requests,
             delivery_requests,
             stop,
+            lookup_barrier,
             server: Some(server),
         }
     }
@@ -161,6 +183,27 @@ impl Http {
         )
         .unwrap()
     }
+    fn select_ready(&self, cache: &AudioCache, lease: &Lease) -> Selection {
+        self.order_next_response_after_lookup(cache);
+        self.select(cache, lease)
+    }
+
+    fn order_next_response_after_lookup(&self, cache: &AudioCache) {
+        // Retire the previous job before arming a signal for the *next* lookup.
+        // A hit worker stays running until admission/LRU, so running=false is
+        // only this precondition and must never be used as the ready signal.
+        let deadline = Instant::now() + Duration::from_secs(8);
+        while cache.0.lookup_running.load(Ordering::Acquire) {
+            assert!(
+                Instant::now() < deadline,
+                "previous cache lookup did not retire"
+            );
+            thread::yield_now();
+        }
+        let previous = cache.0.lookup_publications.load(Ordering::Acquire);
+        *self.lookup_barrier.lock().unwrap() = Some((cache.clone(), previous));
+    }
+
     fn requested(&self) -> usize {
         self.media_requests.load(Ordering::Acquire)
     }
@@ -288,6 +331,7 @@ fn production_resolution_fill_hit_restart_and_current_session_admission() {
     cache_from_playback(first).unwrap();
     assert_eq!(http.requested(), 2);
     assert_eq!(cache.stats().unwrap().entries, 1);
+    http.order_next_response_after_lookup(&cache);
     let second = resolve(
         http.resolver(),
         &service,
@@ -321,7 +365,7 @@ fn production_resolution_fill_hit_restart_and_current_session_admission() {
     )
     .unwrap();
     let lease = reopened.bind(Some(scope())).unwrap().unwrap();
-    assert!(http.select(&reopened, &lease).source.is_cached());
+    assert!(http.select_ready(&reopened, &lease).source.is_cached());
     let other = reopened
         .bind(Some(AccountScope::from_account_id("9999").unwrap()))
         .unwrap()
@@ -431,6 +475,7 @@ fn independently_permitted_media_requires_fresh_online_resolution_after_reopen()
     assert_eq!(cache.stats().unwrap().entries, 1);
     assert_eq!(http.requested(), 2);
 
+    http.order_next_response_after_lookup(&cache);
     let hit = resolve(
         http.resolver(),
         &service,
@@ -487,6 +532,7 @@ fn independently_permitted_media_requires_fresh_online_resolution_after_reopen()
     );
     assert_eq!(http.requested(), 2);
     fresh_service.account(&token).unwrap();
+    http.order_next_response_after_lookup(&reopened);
     let hit_after_restart = resolve(
         http.resolver(),
         &fresh_service,
@@ -548,6 +594,7 @@ fn cleared_and_invalidated_sessions_retire_previous_online_admission_before_tran
         )
         .unwrap();
         cache_from_playback(first).unwrap();
+        http.order_next_response_after_lookup(&cache);
         let selection = resolve(
             http.resolver(),
             &service,
@@ -639,7 +686,7 @@ fn pending_hit_is_fenced_at_final_admission_by_clear_and_revocation() {
         let http = Http::new(media(), 200, "");
         let (cache, lease, authority) = store(&directory);
         cache_from_playback(http.select(&cache, &lease)).unwrap();
-        let selected = http.select(&cache, &lease);
+        let selected = http.select_ready(&cache, &lease);
         assert!(selected.source.is_cached());
         if revoked {
             authority.deny(&scope(), &key());
@@ -734,7 +781,7 @@ fn complete_206_representation_is_downloaded_once_and_reused_as_a_local_file() {
         ring::digest::digest(&ring::digest::SHA256, &cached).as_ref(),
         expected_sha.as_slice()
     );
-    let selected = http.select(&cache, &lease);
+    let selected = http.select_ready(&cache, &lease);
     assert!(selected.source.is_cached() && selected.fill.is_none());
     let player = PlaybackController::new(PlaybackOutput::Fakesink).unwrap();
     player
@@ -759,7 +806,7 @@ fn cached_mp3_uses_existing_player_and_survives_active_clear() {
     let http = Http::new(media(), 200, "");
     let (cache, lease, _) = store(&directory);
     cache_from_playback(http.select(&cache, &lease)).unwrap();
-    let selected = http.select(&cache, &lease);
+    let selected = http.select_ready(&cache, &lease);
     assert!(selected.source.is_cached());
     assert!(!format!("{:?}", selected.source).contains("original"));
     let player = PlaybackController::new(PlaybackOutput::Fakesink).unwrap();
@@ -809,7 +856,10 @@ fn pending_native_admission_and_bad_decoder_fall_back_once() {
                 b"#EXTM3U\nhttp://127.0.0.1:1/forbidden\n".as_slice(),
             )
             .unwrap();
-        let selected = http.select(&cache, &lease).source.admit_cache_or_online();
+        let selected = http
+            .select_ready(&cache, &lease)
+            .source
+            .admit_cache_or_online();
         assert!(selected.is_cached());
         if clear_before_worker {
             cache.clear().unwrap();
