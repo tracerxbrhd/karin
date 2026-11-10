@@ -61,8 +61,8 @@ installed Flatpak. The owner identifies `0709729` as the last accepted PR #26 re
 online-authority correction requires new acceptance. One shared policy/budget/usage
 and Clear covers all permitted categories, with
 2 GiB by default and an explicit Unlimited choice guarded by available disk space.
-The private HTTP-cache path considers the real response received by the existing
-GStreamer source. It saves only complete supported MP3 responses whose HTTP and
+The private HTTP-cache path independently downloads the selected source while the
+existing player starts immediately. It saves only complete MP3 responses whose HTTP and
 content restrictions allow storage. It does not issue a provider entitlement or
 call HTTP cacheability a copyright license. Every local replay requires fresh
 Music access and a verified representation; a track ID or renewed signed URL
@@ -70,7 +70,12 @@ alone cannot prove unchanged bytes. Unusable validators, an explicit refusal,
 `no-store`, cancellation or a failed cache leave permitted network playback
 available. Cache lookup and bookkeeping remain off GTK.
 
-**Real Music caching for this revision has not been verified.** Local HTTP and
+**The owner reported playback FAIL at `6ec2407`; real Music playback/cache
+acceptance of this correction has not been verified.** The descriptor-host naming
+restriction is corrected within the existing dedicated CDN zone; the actual
+rejected hostname is unavailable in Cloud. The accompanying generic Wave error
+does not establish its failed response stage. Independent complete-file downloads
+replace source capture and EOS-finalization dependencies. Local HTTP and
 generated-audio tests exercise the production application path, not the live
 service or installed Flatpak. A CDN may supply no suitable version validator;
 that resource then remains online with a fixed diagnostic reason. PR #26 and

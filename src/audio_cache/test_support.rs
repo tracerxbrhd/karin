@@ -27,6 +27,15 @@ impl SyntheticAudio {
     }
 }
 
+/// Original MPEG1 Layer III headers and zero payloads for structural screening
+/// only. Native decode/playback tests generate actual original audio separately.
+pub(super) fn structural_mp3() -> Vec<u8> {
+    let mut bytes = vec![0; 2 * 417];
+    bytes[..4].copy_from_slice(&[0xff, 0xfb, 0x90, 0]);
+    bytes[417..421].copy_from_slice(&[0xff, 0xfb, 0x90, 0]);
+    bytes
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) struct Identity {
     pub(super) account: u64,

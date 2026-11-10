@@ -31,7 +31,8 @@ use zeroize::Zeroizing;
 
 use crate::{music::MusicService, session::AccessToken};
 
-mod completion;
+mod download;
+pub(crate) use download::DownloadError;
 
 const ORIGIN: &str = "https://api.music.yandex.net/";
 const MAX_BODY: usize = 128 * 1024;

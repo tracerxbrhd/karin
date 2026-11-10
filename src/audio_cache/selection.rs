@@ -176,7 +176,7 @@ impl PreparedSelection {
             .0
             .authority
             .check_storage_prepared(&self.prepared)?;
-        // Fence already-complete older writes before any contended disk work.
+        // Fence refused-resource writes before any contended disk work.
         self.cache.revoke_resource_writes(
             &self.lease,
             self.prepared.permission.identity,

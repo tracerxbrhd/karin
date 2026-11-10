@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Actual source EOS with an incomplete HTTP body, through the normal app.
+//! Normal application playback with an independent, bounded whole-file GET.
 //!
-//! The local server retains the HTTP tail after delivering original CC0 MP3
-//! frames. A test-only native GstBaseSrc EOS event unlocks the pending read and
-//! traverses the real pad/decoder/sink/bus path. This deliberately controls an
-//! upstream termination; it is not a claim to reproduce Yandex's parser/CDN.
+//! Native GStreamer receives the complete original CC0 MP3. Only the separate
+//! cache response is gated, refused, changed, truncated or timed out. These
+//! local HTTP cases do not claim to reproduce Yandex's live CDN behavior.
 use super::*;
 use std::collections::BTreeSet;
 
-const CASES: [&str; 15] = [
+const CASES: [&str; 16] = [
     "completion-eos",
     "completion-no-range",
     "completion-wave",
@@ -22,10 +21,11 @@ const CASES: [&str; 15] = [
     "completion-clear",
     "completion-logout",
     "completion-rapid",
-    "completion-partial-206",
+    "completion-forbidden",
     "completion-broken-body",
+    "completion-timeout",
 ];
-const FIXTURE: &str = "injected-native-source-eos-with-held-http-tail";
+const FIXTURE: &str = "independent-full-response";
 
 #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 struct Counts {
@@ -34,9 +34,9 @@ struct Counts {
     descriptors: [u64; 4],
     media_gets: [u64; 4],
     native_full_gets: [u64; 4],
-    completion_full_gets: [u64; 4],
+    background_full_gets: [u64; 4],
     media_heads: [u64; 4],
-    conditional_gets: [u64; 4],
+    background_requests: [u64; 4],
     sent_bytes: [u64; 4],
     range_gets: u64,
     partial_responses: u64,
@@ -111,7 +111,7 @@ impl Drop for Source {
         self.stop.store(true, Ordering::Release);
         for n in 0..4 {
             release(&self.directory, &format!("primary-{n}"));
-            release(&self.directory, &format!("fallback-{n}"));
+            release(&self.directory, &format!("background-{n}"));
         }
         self.worker.take().unwrap().join().unwrap();
     }
@@ -314,15 +314,19 @@ fn serve(
             .strip_suffix(".mp3")
             .unwrap();
         let n = index(id);
+        let background = header("cache-control") == Some("no-cache");
         let changed =
-            profile == "completion-changed" && n == 0 && counts.lock().unwrap().media_gets[0] > 0;
+            profile == "completion-changed" && n == 0 && (background || first[0] == "HEAD");
         let data = if changed { &media[1] } else { &media[n] };
         let etag = if changed {
             "\"completion-v2\""
         } else {
             "\"completion-v1\""
         };
-        let allowed = n == 0 || (profile == "completion-wave" && n < 3);
+        let allowed = n == 0
+            || (profile == "completion-wave" && n < 3)
+            || profile == "completion-rapid"
+            || (profile == "completion-forbidden" && n == 1);
         let no_store = !allowed || profile == "completion-no-store";
         let policy = if no_store {
             "no-store"
@@ -365,27 +369,39 @@ fn serve(
                 c.partial_responses += 1;
             } else {
                 c.media_gets[n] += 1;
-                if header("if-match").is_some() {
-                    c.completion_full_gets[n] += 1;
+                if background {
+                    c.background_full_gets[n] += 1;
+                    c.background_requests[n] += 1;
                 } else {
                     c.native_full_gets[n] += 1;
                 }
-                if header("if-match") == Some("\"completion-v1\"") {
-                    c.conditional_gets[n] += 1;
-                }
             }
-            c.media_gets[n]
+            c.background_full_gets[n]
         });
-        if profile == "completion-expired" && n == 0 && request > 1 && path.contains("/1700000000/")
+        if background
+            && n == 0
+            && ((profile == "completion-expired" && path.contains("/1700000000/"))
+                || profile == "completion-forbidden")
         {
-            update(directory, counts, |c| c.expired_old_requests += 1);
+            if profile == "completion-expired" {
+                update(directory, counts, |c| c.expired_old_requests += 1);
+            }
             let _ = stream.write_all(
                 b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
             );
             return;
         }
-        let (start, end) = range.unwrap_or((0, data.len() - 1));
-        let status = if range.is_some() {
+        let refused_partial = background && profile == "completion-forbidden" && n == 1;
+        let (start, end) = if refused_partial {
+            (0, data.len() / 2)
+        } else {
+            range.unwrap_or((0, data.len() - 1))
+        };
+        let partial = range.is_some() || refused_partial;
+        if refused_partial {
+            update(directory, counts, |c| c.partial_responses += 1);
+        }
+        let status = if partial {
             "206 Partial Content"
         } else {
             "200 OK"
@@ -400,7 +416,7 @@ fn serve(
             "HTTP/1.1 {status}\r\nContent-Type: audio/mpeg\r\nContent-Length: {}\r\nETag: {etag}\r\nCache-Control: {policy}\r\nAccept-Ranges: {ranges}\r\nConnection: close\r\n",
             end - start + 1
         );
-        if range.is_some() {
+        if partial {
             let _ = write!(
                 stream,
                 "Content-Range: bytes {start}-{end}/{}\r\n",
@@ -408,41 +424,39 @@ fn serve(
             );
         }
         let _ = stream.write_all(b"\r\n");
-        if profile == "completion-broken-body" && n == 0 && request == 2 && range.is_none() {
-            assert_eq!(header("if-match"), Some("\"completion-v1\""));
-            if stream.write_all(&data[..8192]).is_ok() {
-                update(directory, counts, |c| c.sent_bytes[n] += 8192);
+        if background && profile == "completion-broken-body" && n == 0 {
+            let boundary = 1024.min(data.len() / 2);
+            if stream.write_all(&data[..boundary]).is_ok() {
+                update(directory, counts, |c| c.sent_bytes[n] += boundary as u64);
             }
-            // Close before the declared full length: reqwest must reject the
-            // truncated body and the cache must not publish its partial stage.
             return;
         }
-        let initial = range.is_none()
-            && request == 1
-            && (n == 0
-                || profile == "completion-wave" && n < 3
-                || profile == "completion-rapid" && n < 3);
-        let held_fallback = range.is_none()
-            && request == 2
+        // This barrier applies only to the background HTTP client. Native
+        // playback stays independent and receives its complete MP3 immediately.
+        let held_background = background
             && n == 0
+            && request == 1
             && matches!(
                 profile,
                 "completion-eos"
+                    | "completion-skip"
+                    | "completion-seek"
                     | "completion-stop"
                     | "completion-disable"
                     | "completion-clear"
                     | "completion-logout"
+                    | "completion-rapid"
+                    | "completion-timeout"
             );
-        // The fourth Wave occurrence is outside the three completion cases.
-        // Keep its source unfinished while their independent publication and
-        // feedback observers run; elapsed wall time must not start batch three.
-        let held_fourth = profile == "completion-wave" && n == 3 && range.is_none() && request == 1;
-        let boundary = if initial || held_fourth {
+        // Keep the fourth real Wave source pending until Stop retires it, so
+        // observing the first three natural EOS events cannot race batch three.
+        let held_fourth = !background && profile == "completion-wave" && n == 3;
+        let boundary = if held_fourth {
             prefix[n]
         } else {
-            8192.min(data.len())
+            1024.min(data.len() / 2)
         };
-        if initial || held_fourth || held_fallback {
+        if held_background || held_fourth {
             if stream.write_all(&data[start..boundary]).is_err() {
                 return;
             }
@@ -452,14 +466,7 @@ fn serve(
             gate(
                 directory,
                 stop,
-                &format!(
-                    "{}-{n}",
-                    if initial || held_fourth {
-                        "primary"
-                    } else {
-                        "fallback"
-                    }
-                ),
+                &format!("{}-{n}", if held_fourth { "primary" } else { "background" }),
             );
             if stream.write_all(&data[boundary..=end]).is_ok() {
                 update(directory, counts, |c| {
@@ -505,7 +512,11 @@ fn run_profiles(only: Option<&str>) {
         let first = encode_audio(
             &directory.0,
             440.0,
-            if phase == "completion-seek" { 600 } else { 120 },
+            if matches!(phase, "completion-eos" | "completion-wave") {
+                120
+            } else {
+                600
+            },
         );
         let second = encode_audio(
             &directory.0,
@@ -514,11 +525,13 @@ fn run_profiles(only: Option<&str>) {
         );
         let third = encode_audio(&directory.0, 880.0, 120);
         let fourth = encode_audio(&directory.0, 990.0, 600);
-        let prefix = [first.len(), second.len(), third.len(), fourth.len()];
-        let media = [first, second, third, fourth].map(|mut value| {
-            value.resize(value.len() + 256 * 1024, 0);
-            Arc::new(value)
-        });
+        let prefix = [
+            first.len() / 2,
+            second.len() / 2,
+            third.len() / 2,
+            fourth.len() / 2,
+        ];
+        let media = [first, second, third, fourth].map(Arc::new);
         let expected = media
             .iter()
             .map(|value| {
@@ -537,8 +550,11 @@ fn run_profiles(only: Option<&str>) {
         let input = Input {
             directory: directory.0.clone(),
             origin: source.origin.clone(),
-            sha256: digest(&SHA256, &media[0]).as_ref().try_into().unwrap(),
-            bytes: media[0].len() as u64,
+            sha256: digest(&SHA256, &media[usize::from(phase == "completion-changed")])
+                .as_ref()
+                .try_into()
+                .unwrap(),
+            bytes: media[usize::from(phase == "completion-changed")].len() as u64,
             license: "CC0-1.0".into(),
         };
         let path = directory.0.join("completion-input.json");
@@ -586,20 +602,13 @@ fn run_profiles(only: Option<&str>) {
         assert_eq!(pids.len(), if phase == "completion-eos" { 2 } else { 1 });
         return;
     }
-    assert_eq!(pids.len(), 16);
+    assert_eq!(pids.len(), 17);
     if let Some(path) = std::env::var_os("KARIN_TEST_CAPTURE_DIR") {
         fs::create_dir_all(&path).unwrap();
-        fs::write(PathBuf::from(path).join("audio-cache-completion-receipt.json"),serde_json::to_vec_pretty(&json!({"scope":"ordinary-application-bounded-cache-completion","real_yandex_service":false,"eos_fixture_kind":"controlled-native-source-events-with-held-http-tail","processes":16,"cases":reports})).unwrap()).unwrap();
+        fs::write(PathBuf::from(path).join("audio-cache-completion-receipt.json"),serde_json::to_vec_pretty(&json!({"scope":"ordinary-application-bounded-cache-completion","real_yandex_service":false,"mechanism":"independent-full-response","processes":17,"cases":reports})).unwrap()).unwrap();
     }
 }
 
-fn emit_source_eos(this: &Controller, input: &Input, n: usize) {
-    pump_until(|| held(&input.directory, &format!("primary-{n}")));
-    // The body cannot be complete: the server has not released its remaining
-    // bytes. Ask the actual GstBaseSrc to finish its native stream, not the
-    // controller state or bus; native source and pipeline EOS drive the app.
-    this.source_eos_for_test().unwrap();
-}
 fn no_records(this: &Controller, input: &Input) {
     pump_until(|| this.cache_work_settled_for_test());
     let root = input
@@ -609,8 +618,44 @@ fn no_records(this: &Controller, input: &Input) {
         .join("audio");
     assert!(
         media_files(&root).is_empty(),
-        "refused/cancelled completion must not leave partial or published audio"
+        "refused or cancelled background response must leave no partial or completed audio"
     );
+}
+fn expected_media(input: &Input) -> Vec<(u64, [u8; 32])> {
+    serde_json::from_slice(
+        &fs::read(input.directory.join("completion-expected-media.json")).unwrap(),
+    )
+    .unwrap()
+}
+fn wait_expected(this: &Controller, input: &Input, indexes: &[usize]) {
+    let (cache, _) = this.audio_cache_binding().unwrap();
+    let root = input
+        .directory
+        .join("cache")
+        .join(crate::config::APP_ID)
+        .join("audio");
+    let expected = expected_media(input);
+    let expected = indexes.iter().map(|&n| expected[n]).collect::<Vec<_>>();
+    let ready = Arc::new(AtomicBool::new(false));
+    let observed = ready.clone();
+    let worker = thread::spawn(move || {
+        let end = Instant::now() + Duration::from_secs(7);
+        while Instant::now() < end {
+            if cache
+                .stats()
+                .is_ok_and(|stats| stats.entries == expected.len())
+                && expected
+                    .iter()
+                    .all(|(bytes, hash)| completed_media_matches(&root, *bytes, *hash))
+            {
+                observed.store(true, Ordering::Release);
+                return;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+    });
+    pump_until(|| ready.load(Ordering::Acquire));
+    worker.join().unwrap();
 }
 pub(super) fn run_child(input: &Input, phase: &str) {
     assert!(CASES.contains(&phase) || phase == "completion-restart");
@@ -626,7 +671,9 @@ pub(super) fn run_child(input: &Input, phase: &str) {
     let mut cached_source = false;
     let mut replay_source = "none";
     let mut next_while_pending = false;
-    let mut fallback_held = false;
+    let mut background_held = false;
+    let mut paused_while_pending = false;
+    let mut seek_while_pending = false;
     if phase == "completion-restart" {
         lifecycle::start(this, &["42"], true);
         wait_source(this, PlaybackSourceKind::CachedFile);
@@ -635,115 +682,108 @@ pub(super) fn run_child(input: &Input, phase: &str) {
         let files = media_files(&root);
         assert_eq!(files.len(), 1);
         assert_original_file(&files[0], input);
-    } else {
-        if phase == "completion-wave" {
-            this.start_wave();
-        } else if phase == "completion-rapid" {
-            lifecycle::start(this, &["42", "43", "44", "45"], true);
-        } else {
-            lifecycle::start(this, &["42", "43"], true);
+    } else if phase == "completion-wave" {
+        this.start_wave();
+        for id in ["42", "43", "44"] {
+            lifecycle::playing(this, id);
         }
-        lifecycle::playing(this, "42");
-        pump_until(|| held(&input.directory, "primary-0"));
-        if phase == "completion-skip" || phase == "completion-rapid" {
-            this.skip_music(true, false);
-            lifecycle::playing(this, "43");
-            release(&input.directory, "primary-0");
+        pump_until(|| held(&input.directory, "primary-3"));
+        wait_expected(this, input, &[0, 1, 2]);
+        pump_until(|| {
+            counts(input).started_batches.len() >= 3 && counts(input).track_finished >= 3
+        });
+        let wire = counts(input);
+        assert_eq!(&wire.started_batches[..3], &[1, 1, 2]);
+        assert_eq!(&wire.native_full_gets[..3], &[1, 1, 1]);
+        assert_eq!(&wire.background_full_gets[..3], &[1, 1, 1]);
+        // Do not release the fourth real source until the ordinary Stop intent
+        // retires the Wave session and all its remaining cache work.
+        this.stop_music();
+        release(&input.directory, "primary-3");
+        pump_until(|| this.cache_work_settled_for_test());
+    } else {
+        lifecycle::start(
+            this,
             if phase == "completion-rapid" {
-                pump_until(|| held(&input.directory, "primary-1"));
-                this.skip_music(true, false);
-                lifecycle::playing(this, "44");
-                release(&input.directory, "primary-1");
-                pump_until(|| held(&input.directory, "primary-2"));
-                this.skip_music(true, false);
-                lifecycle::playing(this, "45");
-                release(&input.directory, "primary-2");
-            }
-            no_records(this, input);
-            assert_eq!(counts(input).media_gets[0], 1);
-        } else if phase == "completion-seek" {
-            let serial = this.music_snapshot().unwrap().seek_serial;
-            this.seek_music(Duration::from_millis(500));
-            pump_until(|| {
-                this.music_snapshot()
-                    .is_some_and(|s| s.seek_serial > serial)
-                    && counts(input).range_gets > 0
-            });
-            lifecycle::playing(this, "42");
-            emit_source_eos(this, input, 0);
-            lifecycle::playing(this, "43");
-            release(&input.directory, "primary-0");
-            no_records(this, input);
-            assert_eq!(counts(input).media_gets[0], 1);
-        } else if phase == "completion-wave" {
-            for (n, id, next) in [(0, "42", "43"), (1, "43", "44"), (2, "44", "45")] {
-                lifecycle::playing(this, id);
-                emit_source_eos(this, input, n);
-                lifecycle::playing(this, next);
-                release(&input.directory, &format!("primary-{n}"));
-            }
-            pump_until(|| held(&input.directory, "primary-3"));
-            let ready = Arc::new(AtomicBool::new(false));
-            let observed = ready.clone();
-            let (cache, _) = this.audio_cache_binding().unwrap();
-            let worker = thread::spawn(move || {
-                let deadline = Instant::now() + Duration::from_secs(7);
-                while Instant::now() < deadline {
-                    if cache.stats().is_ok_and(|s| s.entries == 3) {
-                        observed.store(true, Ordering::Release);
-                        return;
-                    }
-                    thread::sleep(Duration::from_millis(5));
-                }
-            });
-            pump_until(|| ready.load(Ordering::Acquire));
-            worker.join().unwrap();
-            pump_until(|| {
-                counts(input).started_batches.len() >= 3 && counts(input).track_finished >= 3
-            });
-            let wire = counts(input);
-            assert_eq!(&wire.started_batches[..3], &[1, 1, 2]);
-            assert_eq!(&wire.media_gets[..3], &[2, 2, 2]);
-            assert_eq!(media_files(&root).len(), 3);
-            let expected: Vec<(u64, [u8; 32])> = serde_json::from_slice(
-                &fs::read(input.directory.join("completion-expected-media.json")).unwrap(),
-            )
-            .unwrap();
-            for (bytes, hash) in expected.into_iter().take(3) {
-                assert!(
-                    completed_media_matches(&root, bytes, hash),
-                    "every Wave publication must match its complete original payload"
-                );
-            }
-        } else {
-            if phase == "completion-partial-206" {
-                // Native parser-style byte range, without the UI time-seek
-                // command. Real 206/source EOS/pipeline EOS drive completion.
-                this.source_range_for_test(input.bytes - 256 * 1024)
-                    .unwrap();
+                &["42", "43", "44", "45"]
+            } else if phase == "completion-eos" {
+                &["42", "43"]
             } else {
-                emit_source_eos(this, input, 0);
+                &["42"]
+            },
+            true,
+        );
+        lifecycle::playing(this, "42");
+        if matches!(
+            phase,
+            "completion-eos"
+                | "completion-skip"
+                | "completion-seek"
+                | "completion-stop"
+                | "completion-disable"
+                | "completion-clear"
+                | "completion-logout"
+                | "completion-rapid"
+                | "completion-timeout"
+        ) {
+            pump_until(|| held(&input.directory, "background-0"));
+            background_held = true;
+        }
+        match phase {
+            "completion-eos" => {
+                // The complete real MP3 naturally reaches EOS and starts
+                // the next context item while its separate GET is still held.
+                lifecycle::playing(this, "43");
+                next_while_pending = true;
+                release(&input.directory, "background-0");
+                wait_publication(this, input);
             }
-            lifecycle::playing(this, "43");
-            release(&input.directory, "primary-0");
-            if matches!(
-                phase,
-                "completion-eos"
-                    | "completion-stop"
-                    | "completion-disable"
-                    | "completion-clear"
-                    | "completion-logout"
-            ) {
-                pump_until(|| held(&input.directory, "fallback-0"));
-                fallback_held = true;
-                next_while_pending = this
-                    .music_snapshot()
-                    .is_some_and(|s| s.state == PlaybackState::Playing)
-                    && counts(input).media_gets[0] == 2;
-                assert!(
-                    next_while_pending,
-                    "next track must play while previous completion is held"
-                );
+            "completion-skip" | "completion-rapid" => {
+                let ids: &[&str] = if phase == "completion-rapid" {
+                    &["43", "44", "45"]
+                } else {
+                    &["43"]
+                };
+                for id in ids {
+                    // Context replacement is an ordinary user action. It must
+                    // start the next player while the first full GET is held.
+                    lifecycle::start(this, &[*id], true);
+                    lifecycle::playing(this, id);
+                }
+                next_while_pending = true;
+                release(&input.directory, "background-0");
+                if phase == "completion-rapid" {
+                    wait_expected(this, input, &[0, 1, 2, 3]);
+                    assert_eq!(counts(input).background_full_gets, [1, 1, 1, 1]);
+                } else {
+                    wait_publication(this, input);
+                }
+            }
+            "completion-seek" => {
+                this.pause_music();
+                pump_until(|| {
+                    this.music_snapshot()
+                        .is_some_and(|s| s.state == PlaybackState::Paused)
+                });
+                paused_while_pending = true;
+                let serial = this.music_snapshot().unwrap().seek_serial;
+                this.seek_music(Duration::from_secs(3));
+                pump_until(|| {
+                    this.music_snapshot()
+                        .is_some_and(|s| s.seek_serial > serial)
+                        && counts(input).range_gets > 0
+                });
+                seek_while_pending = true;
+                this.play_music();
+                lifecycle::playing(this, "42");
+                release(&input.directory, "background-0");
+                wait_publication(this, input);
+            }
+            "completion-stop" | "completion-disable" | "completion-clear" | "completion-logout" => {
+                lifecycle::start(this, &["43"], true);
+                lifecycle::playing(this, "43");
+                next_while_pending = true;
+                let before = this.music_snapshot().unwrap();
                 match phase {
                     "completion-stop" => this.stop_music(),
                     "completion-disable" => {
@@ -754,100 +794,115 @@ pub(super) fn run_child(input: &Input, phase: &str) {
                     }
                     "completion-clear" => this.clear_persistent_cache(),
                     "completion-logout" => this.logout(),
-                    _ => (),
+                    _ => unreachable!(),
                 }
-                release(&input.directory, "fallback-0");
-            }
-            if matches!(
-                phase,
-                "completion-eos"
-                    | "completion-no-range"
-                    | "completion-expired"
-                    | "completion-partial-206"
-            ) {
-                wait_publication(this, input);
-                let paths = media_files(&root);
-                assert_eq!(paths.len(), 1);
-                assert_original_file(&paths[0], input);
-                lifecycle::start(this, &["42"], true);
-                wait_source(this, PlaybackSourceKind::CachedFile);
-                cached_source = true;
-                replay_source = "cached-file";
-                let wire = counts(input);
-                eprintln!(
-                    "Karin cache completion fixture: {}",
-                    serde_json::to_string(&wire).unwrap()
-                );
-                assert_eq!(wire.media_gets[0], 2);
-                if phase == "completion-partial-206" {
-                    assert!(
-                        wire.range_gets > 0,
-                        "source must receive an actual partial 206"
-                    );
-                    assert!(wire.partial_responses > 0);
-                    assert_eq!(wire.native_full_gets[0], 1);
-                    assert_eq!(wire.completion_full_gets[0], 1);
-                    assert_eq!(
-                        wire.conditional_gets[0], 1,
-                        "fallback must preserve the observed strong validator"
-                    );
-                } else {
-                    assert_eq!(wire.range_gets, 0);
-                }
-                assert_eq!(wire.expired_old_requests, 0);
-                if phase == "completion-expired" {
-                    assert!(
-                        wire.descriptors[0] >= 3,
-                        "fallback and local replay must freshly resolve signing wrappers"
-                    );
-                }
-            } else {
+                release(&input.directory, "background-0");
                 no_records(this, input);
-                if phase == "completion-no-store" {
-                    assert_eq!(counts(input).media_gets[0], 1);
-                } else {
-                    assert_eq!(counts(input).media_gets[0], 2);
-                }
                 if matches!(phase, "completion-clear" | "completion-disable") {
                     assert!(this.model.borrow().account_valid);
-                    assert_eq!(this.music_snapshot().unwrap().state, PlaybackState::Playing);
+                    pump_until(|| {
+                        this.music_snapshot().is_some_and(|s| {
+                            s.state == PlaybackState::Playing
+                                && s.generation == before.generation
+                                && s.playing_time > before.playing_time + Duration::from_millis(40)
+                        })
+                    });
                 }
                 if phase == "completion-logout" {
                     assert!(this.model.borrow().token.is_none());
                     assert!(this.music_snapshot().is_none());
                 }
             }
+            "completion-forbidden" => {
+                no_records(this, input);
+                assert_eq!(
+                    counts(input).background_full_gets[0],
+                    1,
+                    "unchanged descriptor must not retry a forbidden CDN URI"
+                );
+                assert_eq!(this.music_snapshot().unwrap().state, PlaybackState::Playing);
+                lifecycle::start(this, &["43"], true);
+                lifecycle::playing(this, "43");
+                no_records(this, input);
+                assert_eq!(counts(input).background_full_gets[1], 1);
+                assert_eq!(
+                    counts(input).partial_responses,
+                    1,
+                    "unexpected full-download 206 must not publish a partial file"
+                );
+            }
+            "completion-timeout" => {
+                no_records(this, input);
+                assert_eq!(this.music_snapshot().unwrap().state, PlaybackState::Playing);
+                release(&input.directory, "background-0");
+            }
+            "completion-no-store" | "completion-broken-body" => {
+                no_records(this, input);
+                assert_eq!(
+                    this.music_snapshot().unwrap().state,
+                    PlaybackState::Playing,
+                    "failed or refused caching must preserve online playback"
+                );
+            }
+            "completion-no-range" | "completion-changed" | "completion-expired" => {
+                wait_publication(this, input)
+            }
+            _ => unreachable!(),
         }
-    }
-    if phase == "completion-wave" {
-        // Retire the Wave session before the held fourth response is released.
-        // A late native EOS cannot create an unintended next occurrence.
-        pump_until(|| this.cache_work_settled_for_test());
-        this.stop_music();
+        if matches!(
+            phase,
+            "completion-eos"
+                | "completion-no-range"
+                | "completion-changed"
+                | "completion-expired"
+                | "completion-skip"
+                | "completion-seek"
+        ) {
+            let files = media_files(&root);
+            assert_eq!(files.len(), 1);
+            assert_original_file(&files[0], input);
+            let before = counts(input).media_gets;
+            lifecycle::start(this, &["42"], true);
+            wait_source(this, PlaybackSourceKind::CachedFile);
+            cached_source = true;
+            replay_source = "cached-file";
+            let wire = counts(input);
+            assert_eq!(
+                wire.media_gets, before,
+                "replay must use the complete local file without another media GET"
+            );
+            assert_eq!(wire.native_full_gets[0], 1);
+            assert_eq!(
+                wire.background_full_gets[0],
+                if phase == "completion-expired" { 2 } else { 1 }
+            );
+            assert_eq!(
+                wire.expired_old_requests,
+                u64::from(phase == "completion-expired")
+            );
+            if phase == "completion-expired" {
+                assert!(wire.descriptors[0] >= 3);
+            }
+        }
     }
     let files = media_files(&root);
     let records = files.len();
     let wire = counts(input);
     let cached_files = files.iter().map(|path| {
         let bytes = fs::read(path).unwrap();
-        json!({"bytes": bytes.len(), "sha256": digest(&SHA256, &bytes).as_ref().iter().map(|byte|format!("{byte:02x}")).collect::<String>(), "inode": fs::metadata(path).unwrap().ino()})
+        json!({"bytes":bytes.len(),"sha256":digest(&SHA256,&bytes).as_ref().iter().map(|byte|format!("{byte:02x}")).collect::<String>(),"inode":fs::metadata(path).unwrap().ino()})
     }).collect::<Vec<_>>();
     for n in 0..4 {
         release(&input.directory, &format!("primary-{n}"));
-        release(&input.directory, &format!("fallback-{n}"));
+        release(&input.directory, &format!("background-{n}"));
     }
     close_child(&ui, this);
     let expected_sha256 = input
         .sha256
         .iter()
-        .map(|b| format!("{b:02x}"))
+        .map(|byte| format!("{byte:02x}"))
         .collect::<String>();
-    let eos_fixture_kind = if phase == "completion-partial-206" {
-        "native-byte-segment-eos-with-partial-http-response"
-    } else {
-        FIXTURE
-    };
-    fs::write(input.directory.join(format!("{phase}-result.json")),serde_json::to_vec_pretty(&json!({"phase":phase,"pid":std::process::id(),"passed":true,"eos_fixture_kind":eos_fixture_kind,"counters":wire,"cached_records":records,"cached_files":cached_files,"cached_source":cached_source,"replay_source":replay_source,"expected_sha256":expected_sha256,"expected_bytes":input.bytes,"fallback_held":fallback_held,"next_while_pending":next_while_pending,"wave_original_markers":phase=="completion-wave"})).unwrap()).unwrap();
+    fs::write(input.directory.join(format!("{phase}-result.json")),serde_json::to_vec_pretty(&json!({"phase":phase,"pid":std::process::id(),"passed":true,"mechanism":FIXTURE,"counters":wire,"cached_records":records,"cached_files":cached_files,"cached_source":cached_source,"replay_source":replay_source,"expected_sha256":expected_sha256,"expected_bytes":input.bytes,"background_held":background_held,"next_while_pending":next_while_pending,"paused_while_pending":paused_while_pending,"seek_while_pending":seek_while_pending,"wave_original_markers":phase=="completion-wave"})).unwrap()).unwrap();
     write_phase(
         input,
         PhaseReport {

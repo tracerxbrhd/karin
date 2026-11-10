@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! All audio below is generated PCM; no account or service resource is used.
+//! Original generated PCM/MP3 fixtures; no account or service resource is used.
 use super::*;
 use crate::playback::{PlaybackController, PlaybackOutput, PlaybackSource, PlaybackState};
 use std::{process::Command, sync::mpsc, thread, time::Instant};
@@ -62,7 +62,7 @@ fn miss_hit_integrity_and_opaque_private_storage() {
 }
 
 #[test]
-fn retrying_a_failed_http_capture_starts_a_clean_same_request_transaction() {
+fn retrying_a_failed_http_download_starts_a_clean_same_request_transaction() {
     struct InterruptedPrefix {
         sent: bool,
     }
@@ -100,20 +100,20 @@ fn retrying_a_failed_http_capture_starts_a_clean_same_request_transaction() {
     assert_eq!(fs::read_dir(&sandbox.path).unwrap().count(), 1);
     cache.check_request(&request).unwrap();
 
-    let original = SyntheticAudio::tone(400).unwrap();
+    let original = test_support::structural_mp3();
     let response = http_policy::ResponsePolicy::parse(
         200,
         [
             ("Content-Type".into(), "audio/mpeg".into()),
-            ("Content-Length".into(), original.0.len().to_string()),
+            ("Content-Length".into(), original.len().to_string()),
             ("ETag".into(), "\"original-clean-full-body\"".into()),
         ],
     )
     .unwrap();
     cache
-        .put_reader_http_attempt(&request, original.0.as_slice(), |sha256, bytes| {
-            assert_eq!(sha256, hash(&original.0));
-            assert_eq!(bytes, original.0.len() as u64);
+        .put_reader_http_attempt(&request, original.as_slice(), |sha256, bytes| {
+            assert_eq!(sha256, hash(&original));
+            assert_eq!(bytes, original.len() as u64);
             response
                 .record([1; 32], [2; 32], sha256, bytes)
                 .map_err(|_| CacheError::HttpPolicyRequired)
@@ -121,10 +121,10 @@ fn retrying_a_failed_http_capture_starts_a_clean_same_request_transaction() {
         .unwrap();
     let identity = cache.identity(&lease, track).unwrap();
     let record = cache.path(identity.key());
-    assert_eq!(fs::read(record.join("media.bin")).unwrap(), original.0);
+    assert_eq!(fs::read(record.join("media.bin")).unwrap(), original);
     let metadata = read_http_record(&record).unwrap().unwrap();
-    assert_eq!(metadata.sha256, hash(&original.0));
-    assert_eq!(metadata.bytes, original.0.len() as u64);
+    assert_eq!(metadata.sha256, hash(&original));
+    assert_eq!(metadata.bytes, original.len() as u64);
     assert_eq!(cache.stats().unwrap().entries, 1);
     // The same request still occupies its bounded slot until its owner drops;
     // neither a failed prefix nor a clean retry can create another live ticket.
@@ -1231,29 +1231,26 @@ fn paused_writer_preserves_completed_reads_and_live_stage_during_maintenance() {
 }
 
 #[test]
-fn clear_unlinks_a_paused_capture_and_lease_checks_finish_it_without_new_bytes() {
-    struct PausedCapture {
-        reader: capture::CaptureReader,
+fn clear_unlinks_a_waiting_download_and_lease_checks_finish_it_without_new_bytes() {
+    struct WaitingDownload {
         cache: AudioCache,
         lease: Lease,
         permit: StorageGrant,
-        entered: mpsc::SyncSender<()>,
-        observed: AtomicBool,
+        entered: Option<mpsc::SyncSender<()>>,
     }
-    impl Read for PausedCapture {
-        fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
-            let cache = &self.cache;
-            let lease = &self.lease;
-            let permit = self.permit;
-            let observed = &self.observed;
-            let entered = &self.entered;
-            self.reader.read_checked(out, || {
-                let current = cache.check(lease, permit).is_ok();
-                if !observed.swap(true, Ordering::AcqRel) {
-                    entered.send(()).unwrap();
+    impl Read for WaitingDownload {
+        fn read(&mut self, _out: &mut [u8]) -> std::io::Result<usize> {
+            if let Some(entered) = self.entered.take() {
+                entered.send(()).unwrap();
+            }
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while self.cache.check(&self.lease, self.permit).is_ok() {
+                if Instant::now() >= deadline {
+                    return Err(std::io::ErrorKind::TimedOut.into());
                 }
-                current
-            })
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(std::io::ErrorKind::Interrupted.into())
         }
     }
     let (_root, _authority, budget, _metadata, cache) =
@@ -1267,15 +1264,12 @@ fn clear_unlinks_a_paused_capture_and_lease_checks_finish_it_without_new_bytes()
         .admit_file()
         .unwrap();
     let request = cache.begin(&lease, 101u64).unwrap();
-    let (capture, reader) = capture::channel(request.cancellation());
     let (entered, waiting) = mpsc::sync_channel(0);
-    let reader = PausedCapture {
-        reader,
+    let reader = WaitingDownload {
         cache: cache.clone(),
         lease: request.lease.clone(),
         permit: request.permit,
-        entered,
-        observed: AtomicBool::new(false),
+        entered: Some(entered),
     };
     let (completed, completion) = mpsc::channel();
     let worker = cache.clone();
@@ -1284,16 +1278,14 @@ fn clear_unlinks_a_paused_capture_and_lease_checks_finish_it_without_new_bytes()
     });
     waiting.recv_timeout(Duration::from_secs(2)).unwrap();
     let cleared = cache.clear();
-    let empty_before_capture_exit = fs::read_dir(&cache.0.sandbox.path)
+    let empty_before_writer_exit = fs::read_dir(&cache.0.sandbox.path)
         .unwrap()
         .all(|entry| entry.unwrap().file_name() == ".lock");
-    // The producer remains alive and sends no bytes. The production reader's
-    // 50ms polling lease predicate, not a new buffer/EOS, must finish the writer.
+    // No extra body byte or native EOS is needed to observe Clear's lease fence.
     let result = completion.recv_timeout(Duration::from_secs(2)).unwrap();
     writer.join().unwrap();
-    drop(capture);
     assert_eq!(cleared.unwrap(), Stats::default());
-    assert!(empty_before_capture_exit);
+    assert!(empty_before_writer_exit);
     assert_eq!(result, Err(CacheError::Cancelled));
     assert_eq!(budget.usage().unwrap().bytes, 0);
     let mut admitted = active_file.as_ref().try_clone().unwrap();

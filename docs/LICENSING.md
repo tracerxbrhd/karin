@@ -29,6 +29,13 @@ Express approval for Karin's registration reuse/public distribution and Linux
 embedded authentication remains unestablished. Local interoperability does not
 settle those conditions. See [authentication](AUTHENTICATION_REVIEW.md).
 
+The independent Rust cache scheduling follows the released Cassette
+v0.2.4/v0.2.5 local-first/background-save pattern. The
+[pinned source review](AUDIO_CACHE_REVIEW.md#cassette-source-audit) credits
+Vladimir Vaskov and GPL-3.0-or-later. No cache source, reversible encoding,
+graphics, client secrets or new signing material is copied by this change;
+existing authentication/playback attribution remains intact.
+
 ## Locked Rust dependencies
 
 [DEPENDENCY_LICENSES.md](DEPENDENCY_LICENSES.md) is the reproducible inventory:

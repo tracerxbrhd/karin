@@ -27,6 +27,8 @@ struct Counts {
     offers: u64,
     descriptors: u64,
     media_gets: u64,
+    native_gets: u64,
+    background_gets: u64,
     media_heads: u64,
     media_not_modified: u64,
     media_bytes: u64,
@@ -311,6 +313,11 @@ fn serve_original(
                 let mut counts = counts.lock().unwrap();
                 if first[0] != "HEAD" {
                     counts.media_gets += 1;
+                    if header("cache-control") == Some("no-cache") {
+                        counts.background_gets += 1;
+                    } else {
+                        counts.native_gets += 1;
+                    }
                     counts.media_bytes += (end - start + 1) as u64;
                 }
             }
@@ -485,9 +492,9 @@ fn run_phase(input: &Path, phase: &str, directory: &Path) -> PhaseReport {
         assert!(matches!(
             fields[0],
             "cache=miss"
-                | "cache=observed"
-                | "cache=completing"
-                | "cache=captured"
+                | "cache=queued"
+                | "cache=downloading"
+                | "cache=downloaded"
                 | "cache=write-confirmed"
                 | "cache=hit"
                 | "cache=stale"
@@ -558,10 +565,12 @@ fn native_audio_cache_application_process_restart() {
     let first_counts = server.counts();
     assert_eq!(first_counts.account, 1);
     assert_eq!(
-        first_counts.media_gets, 1,
-        "first play and save must share one origin transfer"
+        first_counts.media_gets, 2,
+        "first play must use one native transfer and one independent background copy"
     );
-    assert_eq!(first_counts.media_bytes, media.len() as u64);
+    assert_eq!(first_counts.native_gets, 1);
+    assert_eq!(first_counts.background_gets, 1);
+    assert_eq!(first_counts.media_bytes, 2 * media.len() as u64);
     assert!(first_counts.media_heads >= 1);
     assert!(first_counts.media_not_modified >= 1);
     let audio_root = directory
@@ -624,8 +633,8 @@ fn native_audio_cache_application_process_restart() {
     assert_original_file(&repaired_files[0], &input);
     let repaired_counts = server.counts();
     assert_eq!(
-        repaired_counts.media_gets, 2,
-        "corruption may require exactly one replacement origin transfer"
+        repaired_counts.media_gets, 4,
+        "corruption must fall back to native playback and a complete replacement copy"
     );
     server.changed.store(true, Ordering::Release);
     server.etag_revision.store(2, Ordering::Release);
@@ -639,8 +648,8 @@ fn native_audio_cache_application_process_restart() {
     assert_original_file(&changed_files[0], &input);
     let changed_counts = server.counts();
     assert_eq!(
-        changed_counts.media_gets, 3,
-        "changed ETag must fetch one current body"
+        changed_counts.media_gets, 6,
+        "changed ETag must fetch complete current bodies without mixing bytes"
     );
     assert_eq!(changed_counts.media_heads, repaired_counts.media_heads + 1);
     assert_eq!(
@@ -655,7 +664,7 @@ fn native_audio_cache_application_process_restart() {
         "no-store revalidation must retire the previously reusable record"
     );
     let no_store_counts = server.counts();
-    assert_eq!(no_store_counts.media_gets, 4);
+    assert_eq!(no_store_counts.media_gets, 7);
     assert_eq!(no_store_counts.media_heads, changed_counts.media_heads + 1);
     assert_eq!(
         no_store_counts.media_not_modified,
@@ -669,7 +678,7 @@ fn native_audio_cache_application_process_restart() {
     assert_eq!(restored_files.len(), 1);
     assert_original_file(&restored_files[0], &input);
     let restored_counts = server.counts();
-    assert_eq!(restored_counts.media_gets, 5);
+    assert_eq!(restored_counts.media_gets, 9);
     assert_eq!(restored_counts.media_heads, no_store_counts.media_heads);
     // HEAD permits caching but announces a changed validator. The following
     // actual playback response alone withdraws storage, which must also retire
@@ -683,7 +692,7 @@ fn native_audio_cache_application_process_restart() {
         "the streamed GET no-store must remove the old completed record"
     );
     let get_no_store_counts = server.counts();
-    assert_eq!(get_no_store_counts.media_gets, 6);
+    assert_eq!(get_no_store_counts.media_gets, 11);
     assert_eq!(
         get_no_store_counts.media_heads,
         restored_counts.media_heads + 1
@@ -699,7 +708,7 @@ fn native_audio_cache_application_process_restart() {
     assert_eq!(restored_again_files.len(), 1);
     assert_original_file(&restored_again_files[0], &input);
     let restored_again_counts = server.counts();
-    assert_eq!(restored_again_counts.media_gets, 7);
+    assert_eq!(restored_again_counts.media_gets, 13);
     assert_eq!(
         restored_again_counts.media_heads,
         get_no_store_counts.media_heads
@@ -710,7 +719,7 @@ fn native_audio_cache_application_process_restart() {
     assert!(media_files(&audio_root).is_empty());
     let cleared_counts = server.counts();
     assert_eq!(
-        cleared_counts.media_gets, 7,
+        cleared_counts.media_gets, 13,
         "clear of an active cached source must not reconnect"
     );
     assert_eq!(
@@ -734,12 +743,34 @@ fn native_audio_cache_application_process_restart() {
         final_counts.descriptors, 12,
         "the denied resource must not reach descriptor/CDN delivery"
     );
-    assert_eq!(final_counts.media_gets, 9);
+    assert_eq!(final_counts.media_gets, 17);
     assert_eq!(
         final_counts.media_bytes,
-        media.len() as u64 * 2 + input.bytes * 7
+        media.len() as u64 * 4 + input.bytes * 13
     );
-    let receipt = json!({"scope":"original-audio-private-http-normal-application","real_yandex_service":false,"account_checks":final_counts.account,"download_info_checks":final_counts.offers,"descriptor_checks":final_counts.descriptors,"media_gets":final_counts.media_gets,"media_heads":final_counts.media_heads,"media_not_modified":final_counts.media_not_modified,"media_bytes":final_counts.media_bytes,"original_bytes":media.len(),"changed_bytes":input.bytes,"payload_sha256":digest(&SHA256,&media).as_ref().iter().map(|byte|format!("{byte:02x}")).collect::<String>(),"changed_payload_sha256":input.sha256.iter().map(|byte|format!("{byte:02x}")).collect::<String>(),"cached_inode_unchanged_after_restart":true,"restart_signed_wrapper_rotated":true,"no_store_revalidation_removed_record":true,"no_store_get_removed_record":true,"after_first":first_counts,"after_restart":restart_counts,"after_denial":denied_counts,"after_corruption":repaired_counts,"after_changed":changed_counts,"after_no_store":no_store_counts,"after_restore":restored_counts,"after_get_no_store":get_no_store_counts,"after_restore_again":restored_again_counts,"after_clear":cleared_counts,"after_no_validator":final_counts,"first":first,"restart":restart,"denied":denied,"corrupt":repaired,"changed":changed,"no_store":no_store,"restore":restored,"get_no_store":get_no_store,"restore_again":restored_again,"clear":cleared,"no_validator":no_validator});
+    let mut receipt = json!({
+        "scope":"original-audio-private-http-normal-application",
+        "mechanism":"independent-full-response", "real_yandex_service":false,
+        "account_checks":final_counts.account, "download_info_checks":final_counts.offers,
+        "descriptor_checks":final_counts.descriptors, "media_gets":final_counts.media_gets,
+        "native_gets":final_counts.native_gets, "background_gets":final_counts.background_gets,
+        "media_heads":final_counts.media_heads, "media_not_modified":final_counts.media_not_modified,
+        "media_bytes":final_counts.media_bytes, "original_bytes":media.len(), "changed_bytes":input.bytes,
+        "payload_sha256":digest(&SHA256,&media).as_ref().iter().map(|byte|format!("{byte:02x}")).collect::<String>(),
+        "changed_payload_sha256":input.sha256.iter().map(|byte|format!("{byte:02x}")).collect::<String>(),
+        "cached_inode_unchanged_after_restart":true, "restart_signed_wrapper_rotated":true,
+        "no_store_revalidation_removed_record":true, "no_store_get_removed_record":true
+    });
+    let phases = json!({"first":first,"restart":restart,"denied":denied,"corrupt":repaired,"changed":changed,"no_store":no_store,"restore":restored,"get_no_store":get_no_store,"restore_again":restored_again,"clear":cleared,"no_validator":no_validator});
+    let wire = json!({"after_first":first_counts,"after_restart":restart_counts,"after_denial":denied_counts,"after_corruption":repaired_counts,"after_changed":changed_counts,"after_no_store":no_store_counts,"after_restore":restored_counts,"after_get_no_store":get_no_store_counts,"after_restore_again":restored_again_counts,"after_clear":cleared_counts,"after_no_validator":final_counts});
+    receipt
+        .as_object_mut()
+        .unwrap()
+        .extend(phases.as_object().unwrap().clone());
+    receipt
+        .as_object_mut()
+        .unwrap()
+        .extend(wire.as_object().unwrap().clone());
     if let Some(captures) = std::env::var_os("KARIN_TEST_CAPTURE_DIR") {
         fs::create_dir_all(&captures).unwrap();
         fs::write(
@@ -920,13 +951,35 @@ fn application_child(input: &Input, phase: &str) {
         replay_source = Some(source_name(this.music_snapshot().unwrap().source_kind).into());
     }
     if phase == "no-validator" {
-        wait_publication(this, input);
+        pump_until(|| this.cache_work_settled_for_test());
+        assert!(
+            media_files(
+                &input
+                    .directory
+                    .join("cache")
+                    .join(crate::config::APP_ID)
+                    .join("audio")
+            )
+            .is_empty(),
+            "no validator must prevent publishing reusable audio"
+        );
         let serial = this.music_serial();
         assert!(row.grab_focus());
         key(&ui.window, "Return");
         pump_until(|| this.music_serial() > serial);
         wait_source(this, PlaybackSourceKind::RemoteHttps);
         replay_source = Some(source_name(this.music_snapshot().unwrap().source_kind).into());
+        pump_until(|| this.cache_work_settled_for_test());
+        assert!(
+            media_files(
+                &input
+                    .directory
+                    .join("cache")
+                    .join(crate::config::APP_ID)
+                    .join("audio")
+            )
+            .is_empty()
+        );
     }
     if phase == "clear" {
         let before = this.music_snapshot().unwrap();
@@ -980,6 +1033,10 @@ fn application_child(input: &Input, phase: &str) {
         clear_kept_playing = true;
         dialog.close();
     }
+    // Observe the selected cache response's final result before AppClose can
+    // legitimately cancel it. Refusal cases must exercise HTTP policy, rather
+    // than pass because the process happened to exit before its worker ran.
+    pump_until(|| this.cache_work_settled_for_test());
     close_child(&ui, this);
     write_phase(
         input,
@@ -1032,7 +1089,7 @@ fn wait_publication(this: &Controller, input: &Input) {
     while !published.load(Ordering::Acquire) {
         assert!(
             Instant::now() < end,
-            "a fully heard original resource must publish a completed record"
+            "a complete authorized original response must publish its full file"
         );
         while glib::MainContext::default().pending() {
             glib::MainContext::default().iteration(false);

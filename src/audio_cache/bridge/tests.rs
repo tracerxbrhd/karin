@@ -147,22 +147,19 @@ impl Http {
     fn resolver(&self) -> StreamResolver {
         StreamResolver::for_test(&self.origin, &self.origin, &self.origin)
     }
-    fn remote(&self) -> RemotePlaybackSource {
-        RemotePlaybackSource::from_test_resolver(
-            &format!("{}get-mp3/original", self.origin),
-            Instant::now() + Duration::from_secs(60),
-        )
-        .unwrap()
-    }
     fn select(&self, cache: &AudioCache, lease: &Lease) -> Selection {
-        select(
+        let service = MusicService::for_test(&self.origin);
+        let token = token();
+        service.account(&token).unwrap();
+        resolve(
             self.resolver(),
-            &token(),
-            &DeliveryCancellation::new(),
-            self.remote(),
+            &service,
+            &token,
             "123",
+            &DeliveryCancellation::new(),
             Some((cache.clone(), lease.clone())),
         )
+        .unwrap()
     }
     fn requested(&self) -> usize {
         self.media_requests.load(Ordering::Acquire)
@@ -247,11 +244,12 @@ fn shutdown(player: &PlaybackController) {
     }
 }
 
-/// Save only the bytes delivered to the real playback source. There is no
-/// independent HTTP copy or test-only reader supplying the cache contents.
+/// Exercise the existing player and the independent whole-response downloader.
+/// The original MP3 is fetched by each client once on a miss; publication does
+/// not wait for the three-second native playback to reach EOS.
 fn cache_from_playback(selection: Selection) -> Result<(), CacheError> {
     let Selection { source, fill } = selection;
-    let fill = fill.expect("independently admitted capture");
+    let fill = fill.expect("independently admitted whole-resource download");
     let player = PlaybackController::new(PlaybackOutput::Fakesink).unwrap();
     player.prepare(source).unwrap();
     let prepared = wait_or_error(&player, |s| s.state == PlaybackState::Ready);
@@ -261,8 +259,8 @@ fn cache_from_playback(selection: Selection) -> Result<(), CacheError> {
             s.state == PlaybackState::Playing && !s.playing_time.is_zero()
         });
     }
-    // Refused HTTP responses abort the capture even when native preparation
-    // failed before Playing. Valid responses use the identical capture reader.
+    // A refused response can fail native preparation, but it cannot make a
+    // background cache request publish unsupported or incomplete bytes.
     let result = fill.run();
     shutdown(&player);
     result
@@ -288,7 +286,7 @@ fn production_resolution_fill_hit_restart_and_current_session_admission() {
     assert!(!first.source.is_cached());
     assert_eq!(http.requested(), 0);
     cache_from_playback(first).unwrap();
-    assert_eq!(http.requested(), 1);
+    assert_eq!(http.requested(), 2);
     assert_eq!(cache.stats().unwrap().entries, 1);
     let second = resolve(
         http.resolver(),
@@ -305,7 +303,7 @@ fn production_resolution_fill_hit_restart_and_current_session_admission() {
         2,
         "fresh streaming admission on each hit"
     );
-    assert_eq!(http.requested(), 1);
+    assert_eq!(http.requested(), 2);
     drop(second);
     // The successful hit schedules deferred LRU work which still legitimately
     // owns the namespace. Await that owner before asserting a process reopen;
@@ -349,7 +347,7 @@ fn production_resolution_fill_hit_restart_and_current_session_admission() {
         )
         .is_err()
     );
-    assert_eq!(http.requested(), 1);
+    assert_eq!(http.requested(), 2);
 }
 
 #[test]
@@ -431,7 +429,7 @@ fn independently_permitted_media_requires_fresh_online_resolution_after_reopen()
     assert!(!first.source.is_cached());
     cache_from_playback(first).unwrap();
     assert_eq!(cache.stats().unwrap().entries, 1);
-    assert_eq!(http.requested(), 1);
+    assert_eq!(http.requested(), 2);
 
     let hit = resolve(
         http.resolver(),
@@ -443,7 +441,11 @@ fn independently_permitted_media_requires_fresh_online_resolution_after_reopen()
     )
     .unwrap();
     assert!(hit.source.is_cached() && hit.fill.is_none());
-    assert_eq!(http.requested(), 1, "local hit must not fetch media twice");
+    assert_eq!(
+        http.requested(),
+        2,
+        "a local hit must not fetch additional media"
+    );
     drop(hit);
     // Successful selection schedules optional LRU I/O. Reopen only after that
     // live owner has actually completed, without retrying namespace acquisition.
@@ -483,7 +485,7 @@ fn independently_permitted_media_requires_fresh_online_resolution_after_reopen()
         .is_err(),
         "retained bytes do not authenticate a new MusicService session"
     );
-    assert_eq!(http.requested(), 1);
+    assert_eq!(http.requested(), 2);
     fresh_service.account(&token).unwrap();
     let hit_after_restart = resolve(
         http.resolver(),
@@ -495,7 +497,7 @@ fn independently_permitted_media_requires_fresh_online_resolution_after_reopen()
     )
     .unwrap();
     assert!(hit_after_restart.source.is_cached());
-    assert_eq!(http.requested(), 1);
+    assert_eq!(http.requested(), 2);
     assert_eq!(
         http.delivery_requests.load(Ordering::Acquire),
         3,
@@ -576,7 +578,7 @@ fn cleared_and_invalidated_sessions_retire_previous_online_admission_before_tran
         assert!(matches!(cache.get(&lease, key()), Err(CacheError::NoGrant)));
         assert!(matches!(pending_hit.admit(), Err(CacheError::Revoked)));
         assert_eq!(http.delivery_requests.load(Ordering::Acquire), 2);
-        assert_eq!(http.requested(), 1);
+        assert_eq!(http.requested(), 2);
         assert_eq!(cache.stats().unwrap().entries, 1);
     }
 }
@@ -626,7 +628,7 @@ fn validated_foreign_account_cannot_retire_the_current_cache_admission() {
     assert!(!selection.source.is_cached() && selection.fill.is_none());
     assert!(cache.get(&lease, key()).unwrap().is_some());
     hit.admit().unwrap();
-    assert_eq!(http.requested(), 1);
+    assert_eq!(http.requested(), 2);
     assert_eq!(foreign.requested(), 0);
 }
 
@@ -645,7 +647,7 @@ fn pending_hit_is_fenced_at_final_admission_by_clear_and_revocation() {
             cache.clear().unwrap();
         }
         assert!(!selected.source.admit_cache_or_online().is_cached());
-        assert_eq!(http.requested(), 1);
+        assert_eq!(http.requested(), 2);
     }
 }
 
@@ -675,7 +677,7 @@ fn rejected_http_copies_leave_online_source_and_no_record() {
         (206, ""),
         (200, "Cache-Control: private, no-store\r\n"),
         (200, "Content-Range: bytes 0-5/20\r\n"),
-        (200, "Content-Encoding: identity\r\n"),
+        (200, "Content-Encoding: gzip\r\n"),
         (200, "Content-Type: text/html\r\n"),
     ] {
         let directory = Directory::new();
@@ -683,14 +685,18 @@ fn rejected_http_copies_leave_online_source_and_no_record() {
         let (cache, lease, _) = store(&directory);
         let selection = http.select(&cache, &lease);
         assert!(!selection.source.is_cached());
-        assert_eq!(cache_from_playback(selection), Err(CacheError::Unavailable));
-        assert_eq!(http.requested(), 1, "no redirects or retry");
+        assert!(cache_from_playback(selection).is_err());
+        assert_eq!(
+            http.requested(),
+            2,
+            "one player request and one independent cache request, without redirects or media retries"
+        );
         assert_eq!(cache.stats().unwrap().entries, 0);
     }
 }
 
 #[test]
-fn complete_206_representation_is_captured_once_and_reused_as_a_local_file() {
+fn complete_206_representation_is_downloaded_once_and_reused_as_a_local_file() {
     use crate::audio_cache::licensed::{LicensedResource, LicensedResourceAuthority};
     let directory = Directory::new();
     let original = media();
@@ -713,7 +719,11 @@ fn complete_206_representation_is_captured_once_and_reused_as_a_local_file() {
     .unwrap();
     let lease = cache.bind(Some(scope())).unwrap().unwrap();
     cache_from_playback(http.select(&cache, &lease)).unwrap();
-    assert_eq!(http.requested(), 1, "capture must not issue a second GET");
+    assert_eq!(
+        http.requested(),
+        2,
+        "one native GET and one independent whole download"
+    );
     assert_eq!(cache.stats().unwrap().entries, 1);
     let hit = cache.get(&lease, key()).unwrap().unwrap();
     let mut file = hit.admit_file().unwrap().as_ref().try_clone().unwrap();
@@ -738,7 +748,7 @@ fn complete_206_representation_is_captured_once_and_reused_as_a_local_file() {
     shutdown(&player);
     assert_eq!(
         http.requested(),
-        1,
+        2,
         "repeat playback must stay on the verified inode"
     );
 }
@@ -775,8 +785,8 @@ fn cached_mp3_uses_existing_player_and_survives_active_clear() {
     wait(&player, |s| s.state == PlaybackState::Ended);
     assert_eq!(
         http.requested(),
-        1,
-        "active pinned inode, no remote playback"
+        2,
+        "active pinned inode, no additional remote playback"
     );
     player.stop().unwrap();
     wait(&player, |s| s.state == PlaybackState::Stopped);
@@ -809,7 +819,11 @@ fn pending_native_admission_and_bad_decoder_fall_back_once() {
         wait(&player, |s| s.state == PlaybackState::Ready);
         player.play().unwrap();
         wait(&player, |s| s.state == PlaybackState::Playing);
-        assert_eq!(http.requested(), 1);
+        assert_eq!(
+            http.requested(),
+            1,
+            "a rejected local decoder falls back once without a background fill"
+        );
         player.shutdown();
         wait(&player, |s| !s.worker_running);
     }
@@ -843,11 +857,15 @@ fn expired_online_fallback_fences_cached_construction_and_final_admission() {
         PlaybackSource::cached_file(later_hit, remote),
         Err(crate::playback::PlaybackError::SourceExpired)
     ));
-    assert_eq!(http.requested(), 1, "expired admission cannot fetch media");
+    assert_eq!(
+        http.requested(),
+        2,
+        "expired admission cannot fetch additional media"
+    );
 }
 
 #[test]
-fn changed_disk_bytes_and_expired_remote_cannot_be_used_as_a_hit_or_fill() {
+fn changed_disk_bytes_and_cancelled_resolution_cannot_be_used_as_a_hit_or_fill() {
     let directory = Directory::new();
     let http = Http::new(media(), 200, "");
     let (cache, lease, _) = store(&directory);
@@ -875,25 +893,28 @@ fn changed_disk_bytes_and_expired_remote_cannot_be_used_as_a_hit_or_fill() {
     assert!(!http.select(&cache, &lease).source.is_cached());
     cache.clear().unwrap();
     let lease = cache.lease().unwrap();
-    let expired = RemotePlaybackSource::from_test_resolver(
-        &format!("{}get-mp3/original", http.origin),
-        Instant::now() + Duration::from_millis(40),
-    )
-    .unwrap();
-    thread::sleep(Duration::from_millis(60));
-    let selected = select(
-        http.resolver(),
-        &token(),
-        &DeliveryCancellation::new(),
-        expired,
-        "123",
-        Some((cache.clone(), lease)),
-    );
-    assert!(!selected.source.is_cached());
+    let service = MusicService::for_test(&http.origin);
+    let token = token();
+    service.account(&token).unwrap();
+    let cancellation = DeliveryCancellation::new();
+    cancellation.cancel();
+    let delivery_before = http.delivery_requests.load(Ordering::Acquire);
     assert!(
-        selected.fill.is_none(),
-        "expired source must not schedule a copy"
+        resolve(
+            http.resolver(),
+            &service,
+            &token,
+            "123",
+            &cancellation,
+            Some((cache.clone(), lease)),
+        )
+        .is_err(),
+        "cancelled resolution cannot select local media or schedule a copy"
     );
-    assert_eq!(http.requested(), 1);
+    assert_eq!(
+        http.delivery_requests.load(Ordering::Acquire),
+        delivery_before
+    );
+    assert_eq!(http.requested(), 2);
     assert_eq!(cache.stats().unwrap().entries, 0);
 }

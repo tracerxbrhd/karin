@@ -220,3 +220,98 @@ fn lease_replacement_retires_inflight_lookup_without_destroying_healthy_bytes() 
     assert_eq!(&*hit.admit().unwrap(), &f.audio.0);
     f.wait_idle();
 }
+
+#[test]
+fn fresh_private_http_source_admission_is_memory_only_when_disk_lookup_is_not_ready() {
+    let directory = Sandbox::create(&std::env::temp_dir()).unwrap();
+    let cache = AudioCache::open(
+        directory.path.join("audio"),
+        Arc::new(OnlineStreamAuthority::with_storage_permission(Arc::new(
+            PrivateHttpCachePolicy,
+        ))),
+        CachePolicy::default(),
+    )
+    .unwrap();
+    let lease = cache.bind(Some(account(1))).unwrap().unwrap();
+    let obsolete = cache.begin_online_check(&lease, 101u64.into()).unwrap();
+    // A slow speculative read may own this gate; registration must not wait for
+    // any file, and its fresh check must invalidate the abandoned read attempt.
+    let io = cache.io().unwrap();
+    let worker = cache.clone();
+    let worker_lease = lease.clone();
+    let (sent, result) = mpsc::channel();
+    let handle = thread::spawn(move || {
+        sent.send(worker.admit_source_for_write(&worker_lease, 101u64.into(), || true))
+            .unwrap();
+    });
+    let admitted = result.recv_timeout(Duration::from_secs(1));
+    drop(io);
+    handle.join().unwrap();
+    admitted
+        .expect("current source registration must not wait for disk lookup")
+        .unwrap();
+    assert_eq!(
+        cache.0.authority.prepare_online(obsolete).err(),
+        Some(CacheError::Cancelled)
+    );
+    let mut request = cache.begin(&lease, 101u64).unwrap();
+    cache.retain_write(&mut request, || true).unwrap();
+    cache.start_write(&request).unwrap();
+    cache.check_request(&request).unwrap();
+    assert_eq!(cache.stats().unwrap(), Stats::default());
+}
+
+#[test]
+fn source_admission_never_replaces_licensed_permission_or_revives_cancelled_source() {
+    let f = Fixture::new();
+    f.permission.hold_next.store(true, Ordering::Release);
+    assert_eq!(
+        f.cache
+            .admit_source_for_write(&f.lease, 101u64.into(), || true),
+        Err(CacheError::NoGrant)
+    );
+    assert!(
+        f.entered.try_recv().is_err(),
+        "a licensed permission lookup must not run here"
+    );
+
+    let directory = Sandbox::create(&std::env::temp_dir()).unwrap();
+    let cache = AudioCache::open(
+        directory.path.join("audio"),
+        Arc::new(OnlineStreamAuthority::with_storage_permission(Arc::new(
+            PrivateHttpCachePolicy,
+        ))),
+        CachePolicy::default(),
+    )
+    .unwrap();
+    let lease = cache.bind(Some(account(1))).unwrap().unwrap();
+    assert_eq!(
+        cache.admit_source_for_write(&lease, 101u64.into(), || false),
+        Err(CacheError::Cancelled)
+    );
+    assert!(matches!(
+        cache.begin(&lease, 101u64),
+        Err(CacheError::NoGrant)
+    ));
+    // Cancellation at either the preparation or commit checkpoint cannot leave
+    // a usable admission, even if the initial current-source check passed.
+    for allowed_checks in [1, 2] {
+        let checks = AtomicU64::new(0);
+        assert_eq!(
+            cache.admit_source_for_write(&lease, 101u64.into(), || checks
+                .fetch_add(1, Ordering::AcqRel)
+                < allowed_checks),
+            Err(CacheError::Cancelled)
+        );
+        assert!(matches!(
+            cache.begin(&lease, 101u64),
+            Err(CacheError::NoGrant)
+        ));
+    }
+    cache.bind(None).unwrap();
+    assert_eq!(
+        cache.admit_source_for_write(&lease, 101u64.into(), || true),
+        Err(CacheError::Cancelled)
+    );
+    assert_eq!(cache.stats().unwrap(), Stats::default());
+}

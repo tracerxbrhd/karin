@@ -14,7 +14,11 @@ use crate::{
     stream::{DeliveryCancellation, DeliveryReport, StreamResolver},
 };
 
-mod completion;
+use super::http_policy::Reason;
+use std::{
+    io::{self, Read},
+    sync::{Arc, OnceLock},
+};
 
 pub(crate) struct Selection {
     pub source: PlaybackSource,
@@ -66,6 +70,9 @@ pub(crate) fn resolve(
                 _ if cancellation.cancelled(token) => {
                     Cause::Policy(super::http_policy::Reason::Cancelled)
                 }
+                _ if report.category == crate::stream::DeliveryCategory::MediaOriginUnverified => {
+                    Cause::SourceOriginUnverified
+                }
                 _ => Cause::AccessUnavailable,
             };
             diagnostic::report(Event::NotCacheable, reason);
@@ -78,8 +85,30 @@ pub(crate) fn resolve(
         return Ok(online());
     };
     let Some(mut prepared) = lookup.and_then(|lookup| lookup.ready()) else {
-        diagnostic::report(Event::NotCacheable, Cause::Busy);
-        return Ok(online());
+        // Speculative disk work is optional. A freshly authenticated source
+        // still admits a bounded private HTTP write through memory-only state.
+        let admitted = ResourceKey::track(track).ok().is_some_and(|key| {
+            cache
+                .admit_source_for_write(&lease, key, || {
+                    !cancellation.cancelled(token) && !remote.is_expired()
+                })
+                .is_ok()
+        });
+        return Ok(if admitted {
+            diagnostic::report(Event::Miss, Cause::Empty);
+            fill_selection(
+                cache,
+                lease,
+                token,
+                cancellation,
+                remote,
+                track,
+                resolver,
+                service.clone(),
+            )
+        } else {
+            online()
+        });
     };
     let mut storage_refused = false;
     if prepared.has_file() {
@@ -122,7 +151,8 @@ pub(crate) fn resolve(
             cancellation,
             remote,
             track,
-            Some((resolver, service.clone())),
+            resolver,
+            service.clone(),
         )),
         Err(_) => Ok(online()),
     }
@@ -135,73 +165,9 @@ fn start_check(binding: &Option<(AudioCache, Lease)>, track: &str) -> Option<Onl
         .ok()
 }
 
-#[cfg(test)]
-fn select(
-    resolver: StreamResolver,
-    token: &AccessToken,
-    cancellation: &DeliveryCancellation,
-    remote: RemotePlaybackSource,
-    track: &str,
-    binding: Option<(AudioCache, Lease)>,
-) -> Selection {
-    let check = start_check(&binding, track);
-    select_admitted(resolver, token, cancellation, remote, track, binding, check)
-}
-
-#[cfg(test)]
-fn select_admitted(
-    _resolver: StreamResolver,
-    token: &AccessToken,
-    cancellation: &DeliveryCancellation,
-    remote: RemotePlaybackSource,
-    track: &str,
-    binding: Option<(AudioCache, Lease)>,
-    check: Option<OnlineCheck>,
-) -> Selection {
-    let online = || PlaybackSource::remote(remote.clone());
-    let (Some((cache, lease)), Some(check)) = (binding, check) else {
-        return Selection {
-            source: online(),
-            fill: None,
-        };
-    };
-    let Ok(key) = ResourceKey::track(track) else {
-        return Selection {
-            source: online(),
-            fill: None,
-        };
-    };
-    // Online admission is necessary, never sufficient for storage/reuse.
-    if remote.is_expired()
-        || cancellation.cancelled(token)
-        || cache
-            .observe_verified_online_if(&lease, check, || {
-                !cancellation.cancelled(token) && !remote.is_expired()
-            })
-            .is_err()
-    {
-        return Selection {
-            source: online(),
-            fill: None,
-        };
-    }
-    match cache.get(&lease, key) {
-        Ok(Some(hit)) => {
-            let source =
-                PlaybackSource::cached_file(hit, remote.clone()).unwrap_or_else(|_| online());
-            Selection { source, fill: None }
-        }
-        Ok(None) => fill_selection(cache, lease, token, cancellation, remote, track, None),
-        Err(_) => Selection {
-            source: online(),
-            fill: None,
-        },
-    }
-}
-
-/// Capture the existing guarded player's bytes. Only a genuinely ended, played
-/// source may need one independently validated full-response completion fetch.
-/// Cache work never creates another engine or delays the next playback.
+/// One independent full-response save for a selected track. Neither the
+/// GStreamer source nor its EOS/seek/range lifecycle owns the cache transaction.
+#[allow(clippy::too_many_arguments)]
 fn fill_selection(
     cache: AudioCache,
     lease: Lease,
@@ -209,228 +175,95 @@ fn fill_selection(
     cancellation: &DeliveryCancellation,
     remote: RemotePlaybackSource,
     track: &str,
-    completion: Option<(StreamResolver, MusicService)>,
+    resolver: StreamResolver,
+    service: MusicService,
 ) -> Selection {
+    let online = || PlaybackSource::remote(remote.clone());
+    if cancellation.cancelled(token) || remote.is_expired() {
+        return Selection {
+            source: online(),
+            fill: None,
+        };
+    }
     let request = ResourceKey::track(track)
         .ok()
         .and_then(|key| cache.begin(&lease, key).ok());
     let Some(mut request) = request else {
         diagnostic::report(Event::NotCacheable, Cause::Busy);
         return Selection {
-            source: PlaybackSource::remote(remote),
+            source: online(),
             fill: None,
         };
     };
-    let private_http = cache.0.authority.private_http();
-    let (capture, reader) = if private_http {
-        super::capture::channel_http(request.cancellation())
-    } else {
-        super::capture::channel(request.cancellation())
-    };
-    capture.require_playing();
+    // The resolution attempt belongs to the player; this selected write has
+    // its own cancellation and finite lifetime. Ordinary Next cannot revoke it.
+    let delivery = DeliveryCancellation::new();
+    let active_delivery = delivery.clone();
     let active_token = token.clone();
-    let active_resolution = cancellation.clone();
+    let active_service = service.clone();
+    let active_lease = lease.clone();
     if cache
-        .retain_capture(&mut request, capture.clone(), move || {
-            !active_resolution.cancelled(&active_token)
+        .retain_write(&mut request, move || {
+            !active_delivery.cancelled(&active_token)
+                && active_service
+                    .cache_scope(&active_token)
+                    .is_ok_and(|scope| active_lease.matches_scope(&scope))
         })
         .is_err()
     {
         diagnostic::report(Event::NotCacheable, Cause::AdmissionRevoked);
         return Selection {
-            source: PlaybackSource::remote(remote),
+            source: online(),
             fill: None,
         };
     }
     let control = FillControl {
         cancellation: request.cancellation(),
-        capture: capture.clone(),
-        reason: std::sync::Arc::new(std::sync::OnceLock::new()),
-        reported: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        finalizing_reported: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        completion: cache.completion_permit(&request).ok(),
-        completing: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        observed: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        transition: std::sync::Arc::new(std::sync::OnceLock::new()),
+        delivery: delivery.clone(),
+        reason: Arc::new(OnceLock::new()),
     };
-    let http = private_http.then(|| {
-        (
-            capture.clone(),
-            remote.http_cache_uri_hash(),
-            remote.http_cache_resource_hash(),
-        )
-    });
     Selection {
-        source: PlaybackSource::remote(remote.clone()).with_cache_capture(capture),
+        source: online(),
         fill: Some(Fill {
             cache,
             request,
-            reader,
             token: token.clone(),
-            cancellation: cancellation.clone(),
-            http,
+            cancellation: delivery,
+            resolver,
+            service,
+            remote,
+            track: track.to_owned(),
             control,
-            completion: completion.map(|(resolver, service)| completion::Source {
-                resolver,
-                service,
-                remote,
-                track: track.to_owned(),
-            }),
         }),
     }
 }
 
-/// Drain from preparation; publication requires complete input and native Playing.
-/// Its initial reader is fed by the existing GStreamer HTTP source. A natural
-/// decoder EOS may precede source-body completion; that case can restart the
-/// private staging transaction with one fresh whole-response request.
 pub(crate) struct Fill {
     cache: AudioCache,
     request: Request,
-    reader: super::capture::CaptureReader,
     token: AccessToken,
     cancellation: DeliveryCancellation,
-    http: Option<(super::capture::Capture, [u8; 32], [u8; 32])>,
+    resolver: StreamResolver,
+    service: MusicService,
+    remote: RemotePlaybackSource,
+    track: String,
     control: FillControl,
-    completion: Option<completion::Source>,
-}
-#[derive(Clone, Copy)]
-pub(crate) enum Retirement {
-    Replaced,
-    Eos,
-    AutomaticNext,
-    WaveEos,
-    UserSkip,
-    WaveSkip,
-    WaveReplacement,
-    BindingChanged,
-    SourceError,
-    Seek,
-    Stop,
-    Account,
 }
 #[derive(Clone)]
 pub(crate) struct FillControl {
     cancellation: Cancellation,
-    capture: super::capture::Capture,
-    reason: std::sync::Arc<std::sync::OnceLock<Cause>>,
-    reported: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    finalizing_reported: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    completion: Option<super::CompletionPermit>,
-    completing: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    observed: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    transition: std::sync::Arc<std::sync::OnceLock<Cause>>,
+    delivery: DeliveryCancellation,
+    reason: Arc<OnceLock<Cause>>,
 }
 impl FillControl {
     #[cfg(test)]
     pub(crate) fn is_cancelled(&self) -> bool {
         self.cancellation.is_cancelled()
     }
-    pub(crate) fn retire(&self, why: Retirement) -> bool {
-        let transition = match why {
-            Retirement::Replaced => Cause::TrackReplaced,
-            Retirement::Eos => Cause::NaturalEos,
-            Retirement::AutomaticNext => Cause::AutomaticNextIncomplete,
-            Retirement::WaveEos => Cause::WaveEosIncomplete,
-            Retirement::UserSkip => Cause::UserSkipIncomplete,
-            Retirement::WaveSkip => Cause::WaveSkipIncomplete,
-            Retirement::WaveReplacement => Cause::WaveReplacementIncomplete,
-            Retirement::BindingChanged => Cause::BindingChanged,
-            Retirement::SourceError => Cause::SourceError,
-            Retirement::Seek => Cause::UserSeek,
-            Retirement::Stop => Cause::UserStop,
-            Retirement::Account => Cause::AccountChanged,
-        };
-        if self.transition.set(transition).is_ok() {
-            diagnostic::report(Event::Observed, Cause::Transition(why));
-            self.observe_capture();
-        }
-        let soft = !matches!(
-            why,
-            Retirement::Stop | Retirement::Account | Retirement::Seek
-        );
-        if soft
-            && self.completing.load(std::sync::atomic::Ordering::Acquire)
-            && self
-                .completion
-                .as_ref()
-                .is_some_and(|permit| permit.current().is_ok())
-        {
-            return true;
-        }
-        if soft
-            && self.capture.is_complete()
-            && self.capture.has_played()
-            && !self.cancellation.is_cancelled()
-        {
-            if !self
-                .finalizing_reported
-                .swap(true, std::sync::atomic::Ordering::AcqRel)
-            {
-                diagnostic::report(
-                    Event::Captured,
-                    if matches!(
-                        why,
-                        Retirement::Eos | Retirement::AutomaticNext | Retirement::WaveEos
-                    ) {
-                        Cause::EosFinalizing
-                    } else {
-                        Cause::TrackFinalizing
-                    },
-                );
-            }
-            return true;
-        }
-        if soft && self.allow_completion() {
-            return true;
-        }
-        let reason = self
-            .capture
-            .failure()
-            .map(Cause::Capture)
-            .unwrap_or(transition);
+    pub(crate) fn cancel(&self, reason: Cause) {
         let _ = self.reason.set(reason);
         self.cancellation.cancel();
-        self.report_failure(reason);
-        false
-    }
-    fn allow_completion(&self) -> bool {
-        if !self.capture.can_complete_in_background()
-            || self
-                .completion
-                .as_ref()
-                .is_none_or(|permit| permit.allow().is_err())
-        {
-            return false;
-        }
-        if !self
-            .completing
-            .swap(true, std::sync::atomic::Ordering::AcqRel)
-        {
-            diagnostic::report(Event::Completing, Cause::BackgroundCompletion);
-        }
-        true
-    }
-    fn observe_capture(&self) {
-        if !self
-            .observed
-            .swap(true, std::sync::atomic::Ordering::AcqRel)
-        {
-            for state in self.capture.observations() {
-                diagnostic::report(Event::Observed, Cause::CaptureState(state));
-            }
-            if let Some(failure) = self.capture.failure() {
-                diagnostic::report(Event::Observed, Cause::Capture(failure));
-            }
-        }
-    }
-    fn report_failure(&self, reason: Cause) {
-        if !self
-            .reported
-            .swap(true, std::sync::atomic::Ordering::AcqRel)
-        {
-            diagnostic::report(Event::NotCacheable, reason);
-        }
+        self.delivery.cancel();
     }
 }
 impl Fill {
@@ -443,175 +276,207 @@ impl Fill {
     }
 
     pub(crate) fn run(self) -> Result<(), CacheError> {
-        let Self {
-            cache,
-            request,
-            reader,
-            token,
-            cancellation,
-            http,
-            control,
-            completion,
-        } = self;
-        let lease = request.lease.clone();
-        let permit = request.permit;
-        let write = request.write.clone();
-        let guard_token = token.clone();
         let mut rejection = None;
-        let mut result = (|| {
-            cache.check_request(&request)?;
-            let reader = GuardedCapture {
-                cache: cache.clone(),
-                lease: lease.clone(),
-                permit,
-                write: write.clone(),
-                reader,
-                token: token.clone(),
-                cancellation: cancellation.clone(),
-            };
-            if let Some((capture, uri, resource)) = &http {
-                cache.put_reader_http_attempt(&request, reader, |sha, bytes| {
-                    capture
-                        .completed_http_policy()
-                        .ok_or(CacheError::HttpPolicyRequired)?
-                        .record(*uri, *resource, sha, bytes)
-                        .map_err(|reason| {
-                            rejection = Some(reason);
-                            CacheError::HttpPolicyRequired
-                        })
-                })
-            } else {
-                cache.put_reader_attempt(&request, reader)
-            }
-        })();
-        if matches!(result, Err(CacheError::Unavailable))
-            && http.is_some()
-            && let Some(source) = &completion
-            && let Some(retried) = completion::retry(
-                source,
-                &cache,
-                &request,
-                &token,
-                &cancellation,
-                &control,
-                &mut rejection,
-            )
-        {
-            result = retried;
-        }
-        let captured_rejection = control.capture.http_rejection();
-        let http_rejection = if matches!(
-            rejection,
-            None | Some(super::http_policy::Reason::Cancelled)
-        ) && matches!(
-            captured_rejection,
-            Some(
-                super::http_policy::Reason::NoStore
-                    | super::http_policy::Reason::AccessDenied
-                    | super::http_policy::Reason::ContentRestricted
-            )
-        ) {
-            // A late native refusal fences an in-flight completion. Its real
-            // policy reason must survive the reader's generic cancellation;
-            // a specific fresh-response/network rejection remains primary.
-            captured_rejection
-        } else {
-            rejection.or(captured_rejection)
-        };
-        if matches!(
-            http_rejection,
-            Some(
-                super::http_policy::Reason::NoStore | super::http_policy::Reason::ContentRestricted
-            )
-        ) {
-            cache.revoke_resource_writes(&lease, permit.identity, permit.revision);
-            // Only the same still-current revision may retire an older record.
-            if let Ok(_io) = cache.io()
-                && cache.check(&lease, permit).is_ok()
-            {
-                let _ = super::remove_record(&cache.path(permit.identity.key()));
-            }
-        }
+        let result = self.download(&mut rejection);
         match &result {
-            Ok(()) => {
-                if !control
-                    .reported
-                    .swap(true, std::sync::atomic::Ordering::AcqRel)
-                {
-                    diagnostic::report(Event::WriteConfirmed, Cause::Complete);
-                }
-            }
+            Ok(()) => diagnostic::report(Event::WriteConfirmed, Cause::Complete),
             Err(error) => {
-                let phase = write.as_ref().map_or(0, |write| {
+                let phase = self.request.write.as_ref().map_or(0, |write| {
                     write.phase.load(std::sync::atomic::Ordering::Acquire)
                 });
-                let cause = control
+                let cause = self
+                    .control
                     .reason
                     .get()
                     .copied()
-                    .or_else(|| cache.retired_lease_cause(&lease))
+                    .or_else(|| self.cache.retired_lease_cause(&self.request.lease))
                     .or_else(|| {
-                        guard_token
+                        self.token
                             .is_expired()
                             .then_some(Cause::PlaybackAccessExpired)
                     })
-                    .or_else(|| http_rejection.map(Cause::Policy))
-                    .or_else(|| {
-                        control
-                            .capture
-                            .failure()
-                            .filter(|failure| {
-                                !matches!(
-                                    failure,
-                                    super::capture::CaptureFailure::Cancelled
-                                        | super::capture::CaptureFailure::AdmissionRetired
-                                )
-                            })
-                            .map(Cause::Capture)
-                    })
-                    .or_else(|| control.capture.failure().map(Cause::Capture))
-                    .unwrap_or_else(|| {
-                        if guard_token.is_expired() {
-                            return Cause::PlaybackAccessExpired;
+                    .or_else(|| rejection.map(Cause::Policy))
+                    .unwrap_or(match error {
+                        CacheError::Revoked | CacheError::NoGrant | CacheError::Expired => {
+                            Cause::AdmissionRevoked
                         }
-                        match error {
-                            CacheError::Revoked | CacheError::NoGrant | CacheError::Expired => {
-                                Cause::AdmissionRevoked
-                            }
-                            CacheError::Cancelled if phase > 0 => Cause::FinalizationCancelled,
-                            CacheError::Cancelled => {
-                                Cause::Policy(super::http_policy::Reason::Cancelled)
-                            }
-                            CacheError::Limit => Cause::Limit,
-                            CacheError::Busy => Cause::Busy,
-                            _ if phase >= 2 => Cause::AtomicCommitFailed,
-                            _ => Cause::WriteFailed,
-                        }
+                        CacheError::Cancelled if phase > 0 => Cause::FinalizationCancelled,
+                        CacheError::Cancelled => Cause::Policy(Reason::Cancelled),
+                        CacheError::Limit => Cause::Limit,
+                        CacheError::Busy | CacheError::Duplicate => Cause::Busy,
+                        _ if phase >= 2 => Cause::AtomicCommitFailed,
+                        _ => Cause::WriteFailed,
                     });
-                control.report_failure(cause);
+                diagnostic::report(Event::NotCacheable, cause);
             }
         }
         result
     }
+
+    fn download(&self, rejection: &mut Option<Reason>) -> Result<(), CacheError> {
+        self.cache.start_write(&self.request)?;
+        diagnostic::report(Event::Downloading, Cause::FullResponse);
+        let fetched = self.fetch();
+        let (response, policy, remote) = fetched.map_err(|reason| {
+            *rejection = Some(reason);
+            CacheError::HttpPolicyRequired
+        })?;
+        let private_http = self.cache.0.authority.private_http();
+        if private_http && !policy.has_validator() {
+            *rejection = Some(Reason::ValidatorsMissing);
+            return Err(CacheError::HttpPolicyRequired);
+        }
+        let expected = policy.complete_mp3().map_err(|reason| {
+            *rejection = Some(reason);
+            CacheError::HttpPolicyRequired
+        })?;
+        self.cache.check_request(&self.request)?;
+        let failure = std::cell::Cell::new(None);
+        let reader = WholeResponse {
+            response,
+            expected,
+            received: 0,
+            failure: &failure,
+        };
+        let result = if private_http {
+            self.cache
+                .put_reader_http_attempt(&self.request, reader, |sha, bytes| {
+                    policy
+                        .record(
+                            remote.http_cache_uri_hash(),
+                            remote.http_cache_resource_hash(),
+                            sha,
+                            bytes,
+                        )
+                        .map_err(|reason| {
+                            *rejection = Some(reason);
+                            CacheError::HttpPolicyRequired
+                        })
+                })
+        } else {
+            self.cache.put_reader_attempt(&self.request, reader)
+        };
+        if result.is_err() && rejection.is_none() {
+            *rejection = failure.get();
+        }
+        result
+    }
+
+    fn fetch(
+        &self,
+    ) -> Result<
+        (
+            reqwest::blocking::Response,
+            super::http_policy::ResponsePolicy,
+            RemotePlaybackSource,
+        ),
+        Reason,
+    > {
+        self.current()?;
+        let mut remote = self.remote.clone();
+        let mut refreshed = false;
+        if remote.is_expired() {
+            remote = self.refresh()?;
+            refreshed = true;
+        }
+        loop {
+            self.current()?;
+            match self
+                .resolver
+                .download_response(&remote, &self.token, &self.cancellation)
+            {
+                Ok((response, policy)) => {
+                    self.current()?;
+                    return Ok((response, policy, remote));
+                }
+                Err(error) if !refreshed && matches!(error.status, Some(403 | 410)) => {
+                    let renewed = self.refresh()?;
+                    if renewed.http_cache_uri_hash() == remote.http_cache_uri_hash() {
+                        return Err(error.reason);
+                    }
+                    remote = renewed;
+                    refreshed = true;
+                }
+                Err(error) => return Err(error.reason),
+            }
+        }
+    }
+    fn refresh(&self) -> Result<RemotePlaybackSource, Reason> {
+        self.current()?;
+        let remote = self
+            .resolver
+            .resolve(&self.service, &self.token, &self.track, &self.cancellation)
+            .map_err(delivery_reason)?;
+        self.current()?;
+        Ok(remote)
+    }
+    fn current(&self) -> Result<(), Reason> {
+        if self.cancellation.cancelled(&self.token)
+            || self.cache.check_request(&self.request).is_err()
+        {
+            return Err(Reason::Cancelled);
+        }
+        let scope = self
+            .service
+            .cache_scope(&self.token)
+            .map_err(|_| Reason::AccessDenied)?;
+        if !self.request.lease.matches_scope(&scope) {
+            return Err(Reason::AccessDenied);
+        }
+        Ok(())
+    }
 }
-struct GuardedCapture {
-    cache: AudioCache,
-    lease: Lease,
-    permit: super::StorageGrant,
-    write: Option<std::sync::Arc<super::WriteOperation>>,
-    reader: super::capture::CaptureReader,
-    token: AccessToken,
-    cancellation: DeliveryCancellation,
+fn delivery_reason(report: DeliveryReport) -> Reason {
+    use crate::stream::DeliveryCategory;
+    match report.http_status {
+        Some(401 | 403) => Reason::AccessDenied,
+        Some(451) => Reason::ContentRestricted,
+        _ => match report.category {
+            DeliveryCategory::Cancelled => Reason::Cancelled,
+            DeliveryCategory::Timeout => Reason::Timeout,
+            DeliveryCategory::SourceExpired => Reason::SourceExpired,
+            DeliveryCategory::SessionRequired | DeliveryCategory::AccessDenied => {
+                Reason::AccessDenied
+            }
+            DeliveryCategory::Network => Reason::Network,
+            _ => Reason::UnsupportedStatus,
+        },
+    }
 }
-impl std::io::Read for GuardedCapture {
-    fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
-        self.reader.read_checked(out, || {
-            !self.cancellation.cancelled(&self.token)
-                && self
-                    .cache
-                    .check_write_operation(&self.lease, self.permit, self.write.as_deref())
-                    .is_ok()
-        })
+struct WholeResponse<'a> {
+    response: reqwest::blocking::Response,
+    expected: u64,
+    received: u64,
+    failure: &'a std::cell::Cell<Option<Reason>>,
+}
+impl Read for WholeResponse<'_> {
+    fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
+        let count = self.response.read(out).inspect_err(|error| {
+            self.failure.set(Some(
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
+                ) {
+                    Reason::Timeout
+                } else {
+                    Reason::Network
+                },
+            ));
+        })?;
+        let Some(received) = self
+            .received
+            .checked_add(count as u64)
+            .filter(|n| *n <= self.expected)
+        else {
+            self.failure.set(Some(Reason::InvalidLength));
+            return Err(io::Error::from(io::ErrorKind::InvalidData));
+        };
+        self.received = received;
+        if count == 0 && received != self.expected {
+            self.failure.set(Some(Reason::InvalidLength));
+            return Err(io::Error::from(io::ErrorKind::UnexpectedEof));
+        }
+        Ok(count)
     }
 }
 

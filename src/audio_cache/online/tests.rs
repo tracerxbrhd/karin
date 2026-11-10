@@ -386,7 +386,7 @@ fn current_grant(fixture: &Fixture, track: u64) -> StorageGrant {
 }
 
 #[test]
-fn completed_write_survives_next_admission_but_old_hit_does_not() {
+fn active_background_write_survives_next_admission_but_old_hit_does_not() {
     for next_track in [101, 102] {
         let f = Fixture::new();
         f.observe(101);
@@ -394,14 +394,14 @@ fn completed_write_survives_next_admission_but_old_hit_does_not() {
         let old_hit = f.cache.get(&f.lease, 101u64).unwrap().unwrap();
         let grant = current_grant(&f, 101);
         f.authority.retain_write(&grant).unwrap();
-        f.authority.seal_write(&grant).unwrap();
+        f.authority.activate_write(&grant).unwrap();
 
         let next = f
             .cache
             .begin_online_check(&f.lease, next_track.into())
             .unwrap();
         // Repeat One and a different next track both retire the old playback
-        // grant, while the already completed write gets only its bounded tail.
+        // grant, while the independent write keeps its bounded lifetime.
         assert_eq!(f.authority.check(&grant), Err(CacheError::Revoked));
         assert!(matches!(old_hit.admit(), Err(CacheError::Revoked)));
         f.authority.check_write(&grant).unwrap();
@@ -413,7 +413,7 @@ fn completed_write_survives_next_admission_but_old_hit_does_not() {
 }
 
 #[test]
-fn registered_completion_can_be_noticed_after_next_check_without_reviving_playback() {
+fn queued_background_write_can_start_after_next_check_without_reviving_playback() {
     let f = Fixture::new();
     f.observe(101);
     let grant = current_grant(&f, 101);
@@ -421,9 +421,9 @@ fn registered_completion_can_be_noticed_after_next_check_without_reviving_playba
     let _next = f.cache.begin_online_check(&f.lease, 102u64.into()).unwrap();
     assert_eq!(f.authority.check_write(&grant), Err(CacheError::Revoked));
     assert_eq!(f.authority.check(&grant), Err(CacheError::Revoked));
-    // The Request owner now observes its actual complete-and-played capture.
-    // Registration already existed; this closes the last-buffer/next-check race.
-    f.authority.seal_write(&grant).unwrap();
+    // Registration belongs to the selected source, not the current player.
+    // The one worker can activate this queued resource after a later selection.
+    f.authority.activate_write(&grant).unwrap();
     f.authority.check_write(&grant).unwrap();
     assert_eq!(f.authority.check(&grant), Err(CacheError::Revoked));
     let deadline = f
@@ -435,7 +435,7 @@ fn registered_completion_can_be_noticed_after_next_check_without_reviving_playba
         .get(&grant.revision)
         .unwrap()
         .deadline;
-    f.authority.seal_write(&grant).unwrap();
+    f.authority.activate_write(&grant).unwrap();
     assert_eq!(
         f.authority
             .state
@@ -446,7 +446,7 @@ fn registered_completion_can_be_noticed_after_next_check_without_reviving_playba
             .unwrap()
             .deadline,
         deadline,
-        "repeated completion checks must not renew finalization"
+        "repeated activation must not renew the finite write deadline"
     );
     f.authority
         .state
@@ -457,7 +457,7 @@ fn registered_completion_can_be_noticed_after_next_check_without_reviving_playba
         .unwrap()
         .deadline = Instant::now();
     assert_eq!(f.authority.check_write(&grant), Err(CacheError::Expired));
-    assert_eq!(f.authority.seal_write(&grant), Err(CacheError::Revoked));
+    assert_eq!(f.authority.activate_write(&grant), Err(CacheError::Revoked));
 }
 
 #[test]
@@ -466,16 +466,16 @@ fn explicit_resource_refusal_revokes_write_and_cannot_reregister_old_revision() 
     f.observe(101);
     let grant = current_grant(&f, 101);
     f.authority.retain_write(&grant).unwrap();
-    f.authority.seal_write(&grant).unwrap();
+    f.authority.activate_write(&grant).unwrap();
     f.authority.revoke_writes(&grant.identity, grant.revision);
     assert_eq!(f.authority.check_write(&grant), Err(CacheError::Revoked));
     assert_eq!(f.authority.retain_write(&grant), Err(CacheError::Revoked));
-    assert_eq!(f.authority.seal_write(&grant), Err(CacheError::Revoked));
+    assert_eq!(f.authority.activate_write(&grant), Err(CacheError::Revoked));
 
     f.observe(101);
     let refreshed = current_grant(&f, 101);
     f.authority.retain_write(&refreshed).unwrap();
-    f.authority.seal_write(&refreshed).unwrap();
+    f.authority.activate_write(&refreshed).unwrap();
     f.permission.deny(&account(1), &101u64.into());
     assert_eq!(
         f.authority.check_write(&refreshed),
@@ -489,11 +489,11 @@ fn late_refusal_cannot_revoke_a_newer_same_resource_write() {
     f.observe(101);
     let old = current_grant(&f, 101);
     f.authority.retain_write(&old).unwrap();
-    f.authority.seal_write(&old).unwrap();
+    f.authority.activate_write(&old).unwrap();
     f.observe(101);
     let latest = current_grant(&f, 101);
     f.authority.retain_write(&latest).unwrap();
-    f.authority.seal_write(&latest).unwrap();
+    f.authority.activate_write(&latest).unwrap();
     f.authority.revoke_writes(&old.identity, old.revision);
     f.authority.check_write(&old).unwrap();
     f.authority.check_write(&latest).unwrap();
@@ -515,7 +515,7 @@ fn write_registration_is_bounded_and_its_finite_lifetime_cannot_be_renewed() {
         f.observe(track);
         let grant = current_grant(&f, track);
         f.authority.retain_write(&grant).unwrap();
-        f.authority.seal_write(&grant).unwrap();
+        f.authority.activate_write(&grant).unwrap();
         registered.push(grant);
     }
     f.permission.allow(&account(1), &105u64.into());
@@ -549,7 +549,7 @@ fn account_namespace_and_lease_changes_prune_write_pins() {
         f.observe(101);
         let grant = current_grant(&f, 101);
         f.authority.retain_write(&grant).unwrap();
-        f.authority.seal_write(&grant).unwrap();
+        f.authority.activate_write(&grant).unwrap();
         let mut next = grant.identity;
         match change {
             0 => next.account = account(2).audio_cache_key(),
@@ -558,65 +558,37 @@ fn account_namespace_and_lease_changes_prune_write_pins() {
         }
         f.authority.begin_online(next).unwrap();
         assert_eq!(f.authority.check_write(&grant), Err(CacheError::Revoked));
-        assert_eq!(f.authority.seal_write(&grant), Err(CacheError::Revoked));
+        assert_eq!(f.authority.activate_write(&grant), Err(CacheError::Revoked));
     }
 }
 
-fn completion_request(
-    f: &Fixture,
-) -> (
-    Request,
-    capture::Capture,
-    capture::CaptureReader,
-    CompletionPermit,
-) {
+fn background_request(f: &Fixture, current: Arc<AtomicBool>) -> Request {
     f.observe(101);
     let mut request = f.cache.begin(&f.lease, 101u64).unwrap();
-    let (capture, reader) = capture::channel_http(request.cancellation());
     f.cache
-        .retain_capture(&mut request, capture.clone(), || true)
+        .retain_write(&mut request, move || current.load(Ordering::Acquire))
         .unwrap();
-    let completion = f.cache.completion_permit(&request).unwrap();
-    (request, capture, reader, completion)
+    request
 }
 
 #[test]
-fn incomplete_native_eos_completion_is_finite_write_only_and_not_a_playback_grant() {
+fn selected_source_write_starts_without_native_events_and_never_admits_old_playback() {
     let f = Fixture::new();
-    let (request, capture, _reader, completion) = completion_request(&f);
-    assert_eq!(completion.allow(), Err(CacheError::NoGrant));
-    capture.confirm_playing();
-    assert_eq!(completion.allow(), Err(CacheError::NoGrant));
-    capture.confirm_pipeline_eos();
-    assert!(!capture.is_complete());
-    completion.allow().unwrap();
-    let deadline = f
-        .authority
-        .state
-        .lock()
-        .unwrap()
-        .writes
-        .get(&request.permit.revision)
-        .unwrap()
-        .deadline;
-    assert!(deadline <= Instant::now() + SEALED_WRITE_LIMIT);
-
+    let current = Arc::new(AtomicBool::new(true));
+    let request = background_request(&f, current);
     let _next = f.cache.begin_online_check(&f.lease, 102u64.into()).unwrap();
     assert_eq!(f.authority.check(&request.permit), Err(CacheError::Revoked));
-    completion.current().unwrap();
-    completion.allow().unwrap();
+    f.cache.start_write(&request).unwrap();
+    let deadline = f.authority.state.lock().unwrap().writes[&request.permit.revision].deadline;
+    assert!(deadline <= Instant::now() + WRITE_LIMIT);
+    f.cache.check_request(&request).unwrap();
+    f.cache.start_write(&request).unwrap();
     assert_eq!(
-        f.authority
-            .state
-            .lock()
-            .unwrap()
-            .writes
-            .get(&request.permit.revision)
-            .unwrap()
-            .deadline,
+        f.authority.state.lock().unwrap().writes[&request.permit.revision].deadline,
         deadline,
-        "EOS completion must not renew its finite write deadline"
+        "repeated activation must not renew the finite write deadline"
     );
+    assert_eq!(f.authority.check(&request.permit), Err(CacheError::Revoked));
     f.authority
         .state
         .lock()
@@ -625,20 +597,19 @@ fn incomplete_native_eos_completion_is_finite_write_only_and_not_a_playback_gran
         .get_mut(&request.permit.revision)
         .unwrap()
         .deadline = Instant::now();
-    assert_eq!(completion.current(), Err(CacheError::Expired));
-    assert_eq!(completion.allow(), Err(CacheError::Revoked));
+    assert_eq!(f.cache.check_request(&request), Err(CacheError::Expired));
+    assert_eq!(f.cache.start_write(&request), Err(CacheError::Revoked));
 }
 
 #[test]
-fn incomplete_native_eos_completion_still_obeys_seek_cancel_delegate_and_lease_fences() {
+fn independent_write_obeys_cancellation_token_delegate_and_lease_fences() {
     for change in 0..6 {
         let f = Fixture::new();
-        let (request, capture, _reader, completion) = completion_request(&f);
-        capture.confirm_playing();
-        capture.confirm_pipeline_eos();
-        completion.allow().unwrap();
+        let current = Arc::new(AtomicBool::new(true));
+        let request = background_request(&f, current.clone());
+        f.cache.start_write(&request).unwrap();
         match change {
-            0 => capture.user_seek(),
+            0 => current.store(false, Ordering::Release),
             1 => request.cancel(),
             2 => {
                 f.cache.clear().unwrap();
@@ -653,9 +624,14 @@ fn incomplete_native_eos_completion_still_obeys_seek_cancel_delegate_and_lease_f
             }
             _ => f.permission.deny(&account(1), &101u64.into()),
         }
-        assert!(completion.allow().is_err(), "fence case {change}");
-        assert!(completion.current().is_err(), "fence case {change}");
-        assert!(!capture.is_complete());
+        assert!(
+            f.cache.start_write(&request).is_err(),
+            "fence case {change}"
+        );
+        assert!(
+            f.cache.check_request(&request).is_err(),
+            "fence case {change}"
+        );
         assert_eq!(f.cache.stats().unwrap().entries, 0);
     }
 }

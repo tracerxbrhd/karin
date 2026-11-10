@@ -2,8 +2,8 @@
 //! Fresh playback admission layered over a separately selected cache policy.
 use super::*;
 
-const ACTIVE_WRITE_LIMIT: Duration = Duration::from_secs(30 * 60);
-const SEALED_WRITE_LIMIT: Duration = Duration::from_secs(30);
+const QUEUED_WRITE_LIMIT: Duration = Duration::from_secs(30 * 60);
+const WRITE_LIMIT: Duration = Duration::from_secs(30);
 
 /// Production coordinator. A delegate can provide an independently licensed
 /// admission or a private HTTP candidate; the latter still needs actual response
@@ -26,7 +26,7 @@ struct RegisteredWrite {
     presented: StorageGrant,
     permission: StorageGrant,
     deadline: Instant,
-    sealed: bool,
+    active: bool,
 }
 
 fn same_grant(left: &StorageGrant, right: &StorageGrant) -> bool {
@@ -61,7 +61,7 @@ impl OnlineStreamAuthority {
     fn registered_write(
         &self,
         candidate: &StorageGrant,
-        allow_retired_unsealed: bool,
+        allow_queued: bool,
     ) -> Result<RegisteredWrite> {
         let mut state = self.state.lock().map_err(|_| CacheError::Unavailable)?;
         let registered = state
@@ -80,8 +80,8 @@ impl OnlineStreamAuthority {
             }
             return Err(CacheError::Expired);
         }
-        if !registered.sealed
-            && !allow_retired_unsealed
+        if !registered.active
+            && !allow_queued
             && !state
                 .current
                 .is_some_and(|(current, _)| same_grant(&current, candidate))
@@ -97,9 +97,9 @@ impl StorageAuthority for OnlineStreamAuthority {
     }
     fn begin_online(&self, identity: ResourceIdentity) -> Result<OnlineCheck> {
         let mut state = self.state.lock().map_err(|_| CacheError::Unavailable)?;
-        // A new playback attempt still retires every old hit and incomplete
-        // write check. Only registered writes in the same account/lease can
-        // subsequently be sealed by complete played capture or native EOS.
+        // A new playback retires old hit admissions. Independently registered
+        // selected-resource writes remain bounded in this same account/lease;
+        // their worker can activate them without making old hits playable.
         let now = Instant::now();
         state.writes.retain(|_, registered| {
             registered.deadline > now && same_context(&registered.presented.identity, &identity)
@@ -203,7 +203,7 @@ impl StorageAuthority for OnlineStreamAuthority {
     fn retain_write(&self, grant: &StorageGrant) -> Result<()> {
         // Registration is possible only while this exact fresh playback
         // admission is current. The copied delegate is rechecked independently
-        // at every later write/finalization checkpoint.
+        // at every later write/publication checkpoint.
         self.check(grant)?;
         let mut state = self.state.lock().map_err(|_| CacheError::Unavailable)?;
         let permission = state
@@ -233,7 +233,7 @@ impl StorageAuthority for OnlineStreamAuthority {
             return Err(CacheError::Limit);
         }
         let deadline = now
-            .checked_add(ACTIVE_WRITE_LIMIT)
+            .checked_add(QUEUED_WRITE_LIMIT)
             .ok_or(CacheError::Limit)?;
         state.writes.insert(
             grant.revision,
@@ -241,7 +241,7 @@ impl StorageAuthority for OnlineStreamAuthority {
                 presented: *grant,
                 permission,
                 deadline,
-                sealed: false,
+                active: false,
             },
         );
         Ok(())
@@ -253,12 +253,10 @@ impl StorageAuthority for OnlineStreamAuthority {
         self.registered_write(grant, false).map(|_| ())
     }
 
-    fn seal_write(&self, grant: &StorageGrant) -> Result<()> {
-        // The owning Request supplies complete-and-played capture or actual
-        // native EOS/Playing proof for a separately validated full HTTP fetch.
-        // Registration predates that event, so noticing it after next-track
-        // admission cannot lose a physically complete resource. This method
-        // never makes the old grant current for playback or cache reuse.
+    fn activate_write(&self, grant: &StorageGrant) -> Result<()> {
+        // Start one queued selected-resource write on its bounded worker. A
+        // later playback may own `current`; only the registered operation and
+        // its delegate matter here. Activation is finite and nonrenewable.
         let registered = self.registered_write(grant, true)?;
         self.permission.check(&registered.permission)?;
         let mut state = self.state.lock().map_err(|_| CacheError::Unavailable)?;
@@ -271,12 +269,11 @@ impl StorageAuthority for OnlineStreamAuthority {
         if registered.deadline <= now {
             return Err(CacheError::Expired);
         }
-        if !registered.sealed {
-            registered.deadline = registered.deadline.min(
-                now.checked_add(SEALED_WRITE_LIMIT)
-                    .ok_or(CacheError::Limit)?,
-            );
-            registered.sealed = true;
+        if !registered.active {
+            registered.deadline = registered
+                .deadline
+                .min(now.checked_add(WRITE_LIMIT).ok_or(CacheError::Limit)?);
+            registered.active = true;
         }
         Ok(())
     }

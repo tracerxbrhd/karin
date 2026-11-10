@@ -56,7 +56,7 @@ pub(super) fn run_parent() {
         fs::write(
             PathBuf::from(path).join("audio-cache-lifecycle-receipt.json"),
             serde_json::to_vec_pretty(&json!({
-                "scope":"ordinary-application-cache-lifecycle", "real_yandex_service":false,
+                "scope":"ordinary-application-cache-lifecycle", "mechanism":"independent-full-response", "real_yandex_service":false,
                 "cases":reports, "processes":CASES.len(),
             }))
             .unwrap(),
@@ -91,6 +91,8 @@ impl Gate {
 struct WireCounts {
     offers: [u64; 4],
     media_gets: [u64; 4],
+    native_gets: [u64; 4],
+    background_gets: [u64; 4],
     media_heads: [u64; 4],
     sent_bytes: [u64; 4],
     range_gets: u64,
@@ -324,6 +326,11 @@ fn serve(
         let n = index(id);
         let data = media.get(id).unwrap();
         let etag = format!("\"lifecycle-{id}\"");
+        let policy = if mode.2 && id == "45" {
+            "no-store"
+        } else {
+            "private, no-cache, must-revalidate"
+        };
         if first[0] == "HEAD" {
             counts.lock().unwrap().media_heads[n] += 1;
             let status = if header("if-none-match") == Some(etag.as_str()) {
@@ -333,12 +340,13 @@ fn serve(
             };
             let _ = write!(
                 stream,
-                "HTTP/1.1 {status}\r\nContent-Type: audio/mpeg\r\nContent-Length: {}\r\nCache-Control: private, no-cache, must-revalidate\r\nETag: {etag}\r\nConnection: close\r\n\r\n",
+                "HTTP/1.1 {status}\r\nContent-Type: audio/mpeg\r\nContent-Length: {}\r\nCache-Control: {policy}\r\nETag: {etag}\r\nConnection: close\r\n\r\n",
                 data.len()
             );
             return;
         }
         assert_eq!(first[0], "GET");
+        let background = header("cache-control") == Some("no-cache");
         let range = header("range").map(|value| {
             assert!(mode.1, "nonseekable fast fixture must not request a range");
             let (start, end) = value
@@ -360,6 +368,11 @@ fn serve(
             let mut state = counts.lock().unwrap();
             if start == 0 {
                 state.media_gets[n] += 1;
+                if background {
+                    state.background_gets[n] += 1;
+                } else {
+                    state.native_gets[n] += 1;
+                }
             } else {
                 state.range_gets += 1;
             }
@@ -372,7 +385,7 @@ fn serve(
         let ranges = if mode.1 { "bytes" } else { "none" };
         let _ = write!(
             stream,
-            "HTTP/1.1 {status}\r\nContent-Type: audio/mpeg\r\nContent-Length: {}\r\nCache-Control: private, no-cache, must-revalidate\r\nETag: {etag}\r\nAccept-Ranges: {ranges}\r\nConnection: close\r\n",
+            "HTTP/1.1 {status}\r\nContent-Type: audio/mpeg\r\nContent-Length: {}\r\nCache-Control: {policy}\r\nETag: {etag}\r\nAccept-Ranges: {ranges}\r\nConnection: close\r\n",
             end - start + 1
         );
         if range.is_some() {
@@ -383,10 +396,10 @@ fn serve(
             );
         }
         let _ = stream.write_all(b"\r\n");
-        if mode.2 && id == "45" {
+        if mode.2 && id == "45" && !background {
             gate.wait();
         }
-        if mode.0 && id == "42" && start == 0 {
+        if mode.0 && id == "42" && start == 0 && background {
             assert!(end >= 8192 && data.len() > 8192);
             if stream.write_all(&data[..8192]).is_err() {
                 return;
@@ -619,22 +632,24 @@ pub(super) fn run_child(input: &Input, phase: &str) {
             })
         });
         pump_until(|| server.counts().sent_bytes[0] > 2 * 1024 * 1024);
+        assert_eq!(
+            server.counts().background_gets[0],
+            0,
+            "preparation alone must not request a cache copy"
+        );
+        assert!(this.cache_work_settled_for_test());
         assert!(
-            media_files(&root).iter().all(|p| p
-                .parent()
-                .unwrap()
-                .file_name()
-                .unwrap()
-                .as_encoded_bytes()
-                .starts_with(b".part-")),
-            "unheard preroll must not publish a record"
+            media_files(&root).is_empty(),
+            "preparation without Play intent must not create cache audio"
         );
         this.play_music();
         playing(this, "42");
         wait_records(this, input, std::slice::from_ref(&first));
         published = 1;
         assert_eq!(server.counts().range_gets, 0);
-        assert_eq!(server.counts().media_gets[0], 1);
+        assert_eq!(server.counts().media_gets[0], 2);
+        assert_eq!(server.counts().native_gets[0], 1);
+        assert_eq!(server.counts().background_gets[0], 1);
     } else {
         playing(this, "42");
         if let Some(gate) = &gate {
@@ -662,8 +677,8 @@ pub(super) fn run_child(input: &Input, phase: &str) {
                 playing(this, "43");
                 next_source = "remote";
                 server.hold.release();
-                wait_records(this, input, std::slice::from_ref(&second));
-                published = 1;
+                wait_records(this, input, &[first.clone(), second.clone()]);
+                published = 2;
             }
             "lifecycle-seek" => {
                 pump_until(|| server.hold.entered.load(Ordering::Acquire));
@@ -682,11 +697,15 @@ pub(super) fn run_child(input: &Input, phase: &str) {
                     "seek must exercise a real range response"
                 );
                 server.hold.release();
-                this.stop_music();
-                pump_until(|| this.cache_work_settled_for_test());
-                assert!(
-                    media_files(&root).is_empty(),
-                    "seeked capture cannot leave a completed or partial record"
+                wait_records(this, input, std::slice::from_ref(&first));
+                published = 1;
+                let before = server.counts().media_gets[0];
+                start(this, &["42"], true);
+                wait_source(this, PlaybackSourceKind::CachedFile);
+                assert_eq!(
+                    server.counts().media_gets[0],
+                    before,
+                    "seek cannot damage independent whole-file cache reuse"
                 );
             }
             "lifecycle-clear" => {
@@ -726,7 +745,7 @@ pub(super) fn run_child(input: &Input, phase: &str) {
                 playing(this, "44");
                 wait_records(this, input, &[first.clone(), second.clone(), third.clone()]);
                 published = 3;
-                // Native Playing/capture and the serialized Wave feedback lane
+                // Native playback and the serialized Wave feedback lane
                 // are independent workers. Observe its actual acknowledgements
                 // rather than racing the next GTK ledger tick.
                 pump_until(|| {
@@ -781,13 +800,19 @@ pub(super) fn run_child(input: &Input, phase: &str) {
         "lifecycle-eos" | "lifecycle-switch" | "lifecycle-wave"
     ) {
         assert!(
-            stats.media_gets.iter().all(|n| *n <= 1),
-            "cache capture cannot start another media GET"
+            stats.background_gets.iter().all(|n| *n <= 1),
+            "one independent full response per selected uncached resource"
         );
+        assert!(
+            stats.native_gets.iter().all(|n| *n <= 1),
+            "cache jobs cannot reconnect the player"
+        );
+        assert_eq!(stats.background_gets[0], 1);
+        assert_eq!(stats.native_gets[0], 1);
     }
     close_child(&ui, this);
     fs::write(input.directory.join("lifecycle-result.json"),serde_json::to_vec_pretty(&json!({
-        "phase":phase,"pid":std::process::id(),"passed":true,"first_source":"remote","next_source":next_source,"published_records":published,"counters":stats,"fast_bytes":if fast {first.len()} else {0},"wave_original_markers":phase=="lifecycle-wave","commit_overlap":matches!(phase,"lifecycle-eos"|"lifecycle-switch"|"lifecycle-wave"),
+        "phase":phase,"pid":std::process::id(),"passed":true,"mechanism":"independent-full-response","first_source":"remote","next_source":next_source,"published_records":published,"counters":stats,"fast_bytes":if fast {first.len()} else {0},"wave_original_markers":phase=="lifecycle-wave","commit_overlap":matches!(phase,"lifecycle-eos"|"lifecycle-switch"|"lifecycle-wave"),
     })).unwrap()).unwrap();
     write_phase(
         input,

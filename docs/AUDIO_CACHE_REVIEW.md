@@ -4,20 +4,20 @@
 
 Karin implements a private HTTP cache for supported, already authorized full-MP3
 playback, with **fresh online access and representation validation before reuse**.
-The policy considers the response actually delivered to the existing GStreamer
-player or a bounded, freshly authorized completion response after native EOS.
-It does not invent a Yandex storage entitlement or call HTTP caching a
-legal license. A missing bespoke provider-grant API no longer blocks analysis of
-an otherwise eligible response. Explicit content restrictions, protected formats
-and HTTP storage prohibitions still reject the cache copy.
+The player receives its online source immediately; an independent bounded job
+can save a complete supported response to protected staging. This is not a
+GStreamer capture, a Playing/EOS prerequisite or a second audio engine.
+Playback access, HTTP storage policy, version validation and applicable rights
+remain separate: HTTP cacheability does not create a provider entitlement or
+legal license. Protected formats, explicit restrictions and `no-store` reject
+storage; unverifiable versions reject local reuse.
 
-**The owner tested `f2050b0`: real playback worked, but cache acceptance failed**
-with repeated `track-replaced-incomplete` and no completed save/local hit. The
-incomplete-source correction has no new real-service acceptance; see
-[VALIDATION](VALIDATION.md#pr26-incomplete-source-completion-correction).
-A local fixture cannot establish the actual CDN's validators or prove that a
-particular real track will produce a local hit. Downloads, mass prefetch and
-offline mode remain outside this scope.
+**The owner reported playback FAIL at `6ec2407`**, after earlier real playback
+worked but cache acceptance failed at `f2050b0`. The host-policy correction and
+independent-download implementation need final Native/installed-Flatpak
+acceptance; Cloud fixtures cannot establish the real CDN response or heard
+service audio. See [VALIDATION](VALIDATION.md#pr26-independent-background-cache-and-playback-correction).
+Downloads, mass prefetch and offline mode remain outside this scope.
 Issue [#20](https://github.com/tracerxbrhd/karin/issues/20) remains open;
 public authorization/API distribution rights remain separately tracked in
 [#5](https://github.com/tracerxbrhd/karin/issues/5) and the
@@ -41,7 +41,7 @@ content/distribution rights remain separate decisions.
 
 ## Cassette source audit
 
-Rechecked **2026-11-06** at Cassette v0.2.4, commit
+Rechecked **2026-11-10** at Cassette v0.2.4, commit
 [`9d34251`](https://github.com/Rirusha/Cassette/tree/9d34251d01bcd414ffbec2bef7931090d33c9124).
 All six files below carry Vladimir Vaskov's copyright and GPL-3.0-or-later.
 They are technical references; no cache implementation, obfuscation or
@@ -72,6 +72,18 @@ It establishes the legacy cache-selection/save chain, but not the current
 permission for Karin to reuse that file. Nor does it establish an offline lease or
 renewal/revocation protocol. This is an evidence gap, not a claim that Cassette
 cannot technically cache audio or that every independent client is forbidden.
+
+In both releases, the selected-track miss calls
+[`download_audio_async.begin` before returning the network URI](https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/cachier/cachier.vala#L190).
+The ordinary whole-file save runs on the audio pool with no player-generation,
+Playing or EOS gate; Next does not revoke it. Collection-job cancellation is a
+different layer. Saved cache/data files survive normal startup: the reviewed
+explicit wipe is a Preferences action, while playback unlinks only its decoded
+temporary file. Thus first Play can stream and save independently, replay finds
+local audio, and restart retains the completed copy. Karin follows that lifetime
+separation while requiring current access/version checks before its local hit.
+The extra full GET costs bandwidth; streaming it to bounded staging avoids
+Cassette's whole-response memory and Karin's former capture/EOS races.
 
 The reviewed v0.2.4 `save_audio` uses `FileUtils.set_data`, bound to
 [`g_file_set_contents`](https://docs.gtk.org/glib/func.file_set_contents.html).
@@ -112,105 +124,73 @@ for async storage/retry ideas, but is not evidence that its complete legacy audi
 cache chain still runs or that a new provider permission exists. No Cassette
 binary or live account was run in this source review.
 
-The PR #26 completion review on **2026-11-06** resolved the release tags again
-and checked the current main head. They still identify the revisions above;
-all thirteen re-fetched legacy/current cache and player source files match the
-earlier reviewed bytes. No newer cache chain or provider storage/reuse contract
-was established by that check.
+The **2026-11-10** recheck resolved both release tags and current main again;
+25 selected immutable blobs were checked against their Git hashes. The ten
+reviewed legacy cache/player/API files are byte-identical between v0.2.4 and
+v0.2.5. Current main remains the revision above. This establishes source behavior,
+not a new runtime or provider-permission result.
 
 The newer core cache/player files credit Vladimir Romanov and generally carry
 GPL-3.0-or-later. Auxiliary `humanity-size.vala`, `location.vala` and `settings.vala`
 carry GPL-3.0-only. Future reuse must retain each file's actual license/copyright;
 Karin does not copy their implementation or relabel them under its own license.
 
-## Current Karin audit
+## Current Karin implementation
 
-`cache`/`catalog_cache` persist reduced metadata and explicitly cacheable normalized
-covers under [ADR-0019](adr/0019-bounded-account-cache.md) and
-[ADR-0026](adr/0026-refusal-fences-and-queue-occurrence-identity.md). They store no
-audio, signed resources or credentials, and cannot establish playback rights.
-`stream`/`stream::resolver` admit a short-lived online source; `queue` and MPRIS
-do not depend on media persistence.
+The cache worker follows the released Cassette scheduling pattern while using
+Karin's existing AudioCache, CacheBudget and StreamResolver. An explicit playback
+intent receives a freshly admitted online source immediately. On a miss, one
+independent bounded job downloads the selected MP3 through the existing HTTP
+client; preparation without autoplay waits for Play. No unselected-track
+prefetch, second audio engine or GStreamer download mode is introduced.
 
-`playback` uses one worker-owned playbin with `audio+soft-volume` flags. Both
-DOWNLOAD and managed BUFFERING flags are absent. Its remote guard sets any
-created queue2 to **2 MiB / 64 buffers / 2 seconds**, whichever limit is reached,
-and clears `temp-template`; it rejects downloadbuffer and manifest paths.
-[GStreamer queue2 documentation](https://gstreamer.freedesktop.org/documentation/coreelements/queue2.html)
-confirms that a temporary-file template would instead spool the stream
-independently of these memory limits.
+The job streams to protected staging instead of retaining a whole response in
+memory. Bounded MP3 structure screening, declared/actual length, HTTP policy and
+SHA-256 are checked before atomic publication. Screening checks leading tag
+bounds and consecutive complete Layer III frames; it is not a full decoder or
+proof that every frame will play. Bounds remain 64 MiB/resource, 1024 records, four small job
+contexts and one staging writer, under the same enabled-by-default 2 GiB shared
+quota, LRU, disk headroom and six Preferences choices. Native Soup buffering stays
+at 2 MiB/64 buffers/2 seconds with no temporary-file template.
 
-For a policy-admitted resource, a source-pad probe copies the existing player's
-compressed bytes into a bounded channel. The writer starts draining at playback
-preparation, before Playing, so fast network/preroll data does not wait for a GTK
-tick or a positive playback clock. The capture can retain at most one complete
-**64 MiB** resource; at most four pending captures and one staging writer are
-admitted. Bodies allocate on arrival, with a worst-case retained-body bound of
-256 MiB across the four captures. This is separate from queue2's unchanged
-limit. The complete-capture fast path creates no second media GET or second
-player. Probe callbacks never wait for storage.
+Source-pad capture, compressed-byte channels, capture overflow/offset bookkeeping,
+Playing/EOS admission latches and the post-EOS completion downloader are removed.
+The background request has its own one-use write operation: at most 30 minutes
+queued, then a nonrenewable 30-second admission from worker start. Its HTTP
+request timeout is 15 seconds; account/cache fences are checked around each
+bounded read and before publication. Ordinary
+Next/Previous, source replacement, manual Skip, Pause, Seek and Wave rollover do
+not cancel it. Explicit Stop, application close, Disable/Clear, logout and account
+change fence unfinished work. Seek never causes discontiguous playback bytes to
+be joined into a saved file. Partial network responses are not published.
 
-Capture completion means the exact HTTP body length has arrived with valid
-sequence/policy checks; it does not wait for downstream or pipeline EOS. A
-completed capture remains readable after the source pipeline is dropped. Actual
-GStreamer Playing is latched separately and is still required before publication:
-early draining is not permission to publish an unplayed or incomplete response.
-HTTP200 or HTTP206 covering exactly bytes `0..total-1` can qualify. Incomplete
-transfer, non-identity encoding, `no-store`, invalid byte sequence, premature
-seek/flush/segment changes and overflow reject only the cache copy. The first
-finite failure cause is retained instead of being overwritten by teardown.
-The opt-in `captured` diagnostic denotes body completion, not publication;
-`write-confirmed` remains a separate atomic-publication result.
+The downloaded response establishes its own storage policy and complete version;
+no bytes from the player's response are reused. A complete newer representation
+is not spliced onto an older prefix. No-store, unsupported/protected content,
+access refusal, malformed metadata, timeout and incomplete transfer leave
+permitted online playback available. A new private response must provide a
+strong ETag, conservatively usable Last-Modified or full Repr-Digest; without
+one, the worker declines its body/store as `validators-missing`. A stale source
+can be refreshed through the existing account-bound resolver. A first CDN403/410
+permits one fresh resolution and a retry only if the sealed URI changed; an
+unchanged refusal, network/body error or a second refusal is not retried. No new
+client identity or region is attempted. Tokens/cookies never reach CDN, and
+signed addresses remain in memory.
 
-A completed, played resource can seal its write-specific finalization admission
-for at most **30 seconds** to finish hashing, metadata and atomic publication.
-Native pipeline EOS plus actual Playing can also admit bounded completion of an
-incomplete body. That operation discards the partial staging file, checks the
-live account/token scope, resolves fresh delivery and uses the existing HTTP
-client for one complete
-replacement response. It does not append guessed ranges or relax representation
-identity. The sealed resource binding and every known original validator/length
-must still match, and the whole new response must pass normal HTTP policy and
-integrity checks. Strong ETag uses If-Match; conservatively usable Last-Modified
-uses If-Unmodified-Since. When no original headers were observed, a fresh whole
-response establishes its own policy without reusing a partial prefix. A known
-version conflict, no-store, refusal or failed check cannot publish. No next-track prefetch
-or library download follows.
+A saved file is optional data, not playback entitlement. Every local replay
+resolves current Music access and verifies the retained representation with a
+bounded metadata request. A proven hit supplies its pinned read-only file to the
+same GStreamer worker; slow/corrupt/unverifiable cache falls back online. Clear
+can unlink the record while an admitted playback FD remains usable. Completed
+records survive normal close/restart, subject to fresh validation on reuse.
+The separate LicensedResourceAuthority exact-content policy is retained for
+trusted CC0 declarations; it is not a mock Music grant in the ordinary app.
 
-That replacement GET has a 15-second request timeout and remains inside the
-nonrenewable write admission. Existing source-resolution timeouts still apply.
-Normal Next/Wave continuation after native EOS and a new online lookup do not
-revoke that bounded completion merely by replacing the track. A manual partial
-Skip or Seek does not admit it; explicit Stop, account/logout, Clear and Disable
-still cancel or fence pending work immediately. Transition origin is passed
-explicitly rather than inferred from a later mutable snapshot. The finalization
-pin cannot admit a cache hit: every later play still obtains fresh access and
-version validation. `completing` denotes a replacement transfer, not successful
-capture or publication. Safe capture-state diagnostics distinguish whether a probe,
-headers, body bytes, source EOS, pipeline EOS and Playing were observed.
-
-Disk integrity work overlaps StreamResolver's fresh access check. Selection
-consumes only an already-ready candidate; a slow or busy cache leaves that play
-online. A candidate additionally needs a bounded HTTP revalidation against the
-currently admitted source. Final file-descriptor admission is memory-only and
-LRU bookkeeping is deferred rather than delaying audio. Full capture uses the
-single playback transfer. Only proven native completion of a listened track can
-trigger the bounded replacement GET; it never blocks the next composition.
-
-`LicensedResourceAuthority` is a production policy for trusted rightsholder
-input, currently an exact **CC0-1.0** dedication bound to account/track, SHA-256,
-length and an application admission revision. It checks those exact bytes before
-publication and reuse. An HTTP `license` label, cache directive or API display
-field cannot populate that registry. The original audio generated by the
-ordinary-application process fixture is expressly dedicated to CC0; its Rust
-source remains GPL-3.0-or-later. This separate policy is not the ordinary private
-HTTP admission rule and does not manufacture a grant for Yandex catalog audio.
-
-Managed [playbin buffering](https://gstreamer.freedesktop.org/documentation/playback/playbin.html#buffering)
-would require explicit BUFFERING-message handling, preserving user pause intent
-and the actual Playing ledger. No measured starvation defect establishes a need
-to change the accepted worker here. Its memory-only transport stays unchanged;
-no buffer-size change is presented as reusable audio caching.
+Fixed diagnostics distinguish download progress, atomic publication and actual
+local reuse. Cloud tests use original permitted audio/local HTTP through the
+normal application. They cannot prove compatibility with a real Music CDN or
+Fedora/installed-Flatpak acceptance. See [VALIDATION](VALIDATION.md) and the
+[single final procedure](BUILDING.md#pr-26-corrected-cache-acceptance).
 
 ## Provider-controlled evidence
 
@@ -287,7 +267,7 @@ remain distinct:
 | Check | Required evidence and behavior |
 | --- | --- |
 | Current playback access | The existing account-bound Music session and a fresh supported, non-preview Legacy MP3 delivery resolution. A refusal never becomes a local cache hit. |
-| HTTP storage eligibility | Inspect the actual guarded GStreamer response. Accept only a bounded, complete `audio/mpeg` representation; allow identity encoding and `Vary: Accept-Encoding` with matching identity requests; reject other encodings/variant dimensions, `no-store`, partial transfer, malformed metadata and explicit storage restrictions such as HTTP451. |
+| HTTP storage eligibility | Inspect the independent complete-download response. Require a usable version validator and bounded, complete `audio/mpeg` representation; allow identity encoding and `Vary: Accept-Encoding` with matching identity requests; reject other encodings/variant dimensions, `no-store`, partial transfer, malformed metadata and explicit storage restrictions such as HTTP451. |
 | Retained version | Validate an existing record against the currently admitted source without another full media GET. A track ID, equal size or changed signed URL alone is insufficient. |
 | Content constraints | Refuse protected/unsupported content and explicit restrictions. Private HTTP admission is a local engineering policy, not a fabricated provider entitlement or declaration of legal distribution rights. |
 
@@ -298,9 +278,11 @@ online access/version check before **every** local play, even within an indicate
 freshness lifetime. A network failure therefore preserves a permitted online
 playback attempt but does not authorize stale local reuse. If fresh validation
 returns `no-store`, the completed record is removed before selecting the online
-source; an existing active playback descriptor remains valid. A complete eligible
-response may be stored without validators, but cannot become a local hit without
-a later successful proof of its current version.
+source; an existing active playback descriptor remains valid. HTTP itself does
+not require a validator for every stored response, but Karin conservatively
+declines a new private copy without usable ETag/Last-Modified/Repr-Digest evidence,
+so an unreusable body is not downloaded solely for cache storage. Any older
+record still needs successful current-version proof before a local hit.
 
 For URI-bound validation, a returned strong validator must describe the same
 resource/variant. A bare `304` is not an exact-byte guarantee: `If-None-Match`
@@ -314,7 +296,7 @@ matching strong validator and length; it does not declare the path immutable.
 Arbitrarily stripping URI signature or timestamp components is not a
 representation proof. A strong Last-Modified validation can be used only with the conservative RFC Date gap of
 at least sixty seconds and the required resource/length checks; an arbitrary date
-is not a content version. Both player and validation requests explicitly use
+is not a content version. The storage and validation requests explicitly use
 `Accept-Encoding: identity`, allowing that one `Vary` dimension. Other nonempty
 `Vary` dimensions are declined rather than compared under unknown request state.
 

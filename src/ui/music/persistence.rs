@@ -1312,6 +1312,9 @@ impl Controller {
                 p.enabled,
             )
         };
+        if cache_changed && !self.persistence.borrow().values.cache_enabled {
+            self.cancel_music_cache(crate::audio_cache::diagnostic::Cause::CacheDisabled);
+        }
         self.apply_appearance();
         // Admission changes are memory-only and immediate; no in-flight writer
         // may bypass Disable while the latest disk maintenance is debounced.
@@ -1438,6 +1441,7 @@ impl Controller {
                 return;
             }
             if matches!(kind, CacheTask::Clear) {
+                self.cancel_music_cache(crate::audio_cache::diagnostic::Cause::CacheCleared);
                 // Fence admission before scheduling filesystem work. An old
                 // writer or returned hit cannot race a successful UI clear.
                 p.request_audio_purge();

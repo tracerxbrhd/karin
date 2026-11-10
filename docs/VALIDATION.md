@@ -930,6 +930,10 @@ acceptance for this correction was reported.
 
 ## PR26 incomplete-source completion correction
 
+This section records the historical design tested through `6ec2407`. The
+independent-download correction below supersedes its capture/EOS contract;
+its original executions and owner failures remain evidence for those revisions.
+
 ### Owner evidence at f2050b0
 
 The owner repeated Native acceptance at
@@ -999,6 +1003,56 @@ The same push also missed a distinct intermediate animation phase in the
 existing HiDPI motion gate (66,668 µs native frame gap); the paired PR job passed.
 That observation is retained without changing motion, renderer or acceptance
 thresholds. Neither failure is erased by later source checks or service claims.
+
+## PR26 independent background cache and playback correction
+
+### Owner evidence and established defect
+
+The owner reported **Native playback FAIL at `6ec2407`** on Fedora: real tracks
+no longer played and resolution reported `media-origin-unverified`, with
+HTTP200 for offers and the descriptor. Cache then reported
+`playback-access-unavailable`. My Wave displayed a response-processing error;
+no specific Wave response/stage was supplied, so it is not evidence of a shared
+cause. Earlier playback acceptance is historical, not acceptance of this source.
+
+The media-origin category is emitted when the XML descriptor's host fails the
+playback host policy. The old `s` + limited digits + exactly three letters rule
+also exists in earlier working revisions; it was not introduced by `6ec2407`.
+Commit `3692f39` replaces this naming convention with one canonical DNS label
+under the existing dedicated `.storage.yandex.net` zone. Exact zone, HTTPS,
+port, path, redirect, credential and expiry restrictions remain. No actual
+rejected owner hostname is available in Cloud and no newly observed domain is
+claimed. Tests exercise old and newly supported label shapes, normalization
+and hostile origins; they do not reproduce the owner's actual CDN response.
+
+### Independent-download correction
+
+The selected source starts on the existing player immediately; one bounded job
+can stream its full MP3 response into the existing private AudioCache. Explicit
+Play/autoplay intent starts the job, while preparation without autoplay waits
+for Play. There is no source-pad capture, compressed-body queue, physical-Playing
+permission, EOS finalizer or partial-byte reconstruction. Ordinary Next/Previous,
+manual Skip, Seek, Pause, source replacement and Wave rollover preserve that
+job. Stop/close, Clear/Disable and logout/account changes fence unfinished work.
+Current access, HTTP restrictions, whole-response size/hash/format and atomic
+publication remain necessary; each local replay still requires fresh access and
+representation validation. See [ADR-0029](adr/0029-synthetic-audio-cache-foundation.md).
+
+The application fixtures use original permitted audio/local HTTP through the
+ordinary account, resolver, store, player and queue path. They distinguish a
+complete saved file, the actual GStreamer local-file source, restart/revalidation
+and media-body request counts. They also exercise full downloads across track
+changes, refused/truncated/slow responses, corruption, Clear and scope fences.
+Any executed results recorded for this correction must name its actual immutable
+source; earlier-head CI and these test descriptions are not a new PASS.
+Final compiler/native/packaging/CI results belong with the final PR #26 revision
+and [checks](https://github.com/tracerxbrhd/karin/pull/26/checks).
+
+**Real Music playback/cache acceptance of this correction remains unconfirmed.**
+Local fixtures do not prove a real CDN's storage directives, usable validators,
+heard service music or installed-Flatpak operation. Perform only the final
+[Native/installed-Flatpak procedure](BUILDING.md#pr-26-corrected-cache-acceptance)
+once the finished build is available. PR #26 remains Draft and unmerged.
 
 ## Known unresolved checks
 

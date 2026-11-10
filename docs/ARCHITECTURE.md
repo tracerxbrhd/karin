@@ -174,128 +174,75 @@ refusal fence and stable queue identity extensions.
 
 ### Audio storage and playback selection
 
-`cache_budget` coordinates the ordinary application's metadata/artwork and audio
-stores through the same shared instance. One enabled policy defaults to **2 GiB**
-and offers 500 MiB, 1/2/3/4 GiB or Unlimited. Reservations account for concurrent
-writes and bounded staging; shared LRU/fairness protects small metadata within
-the one total. Disk-space headroom is checked in every mode. Unlimited removes
-the user byte cap, while retaining record/count bounds and the free-space guard.
-Worker-only scans, trims and publication never hold the GTK admission-state
-mutex over disk I/O. Preferences expose one integer Scale, total measured usage,
-Clear and operation Retry; limit maintenance is coalesced for 200 ms while
-Disable/Clear admission fences are immediate. Version-1 quotas migrate to the
-version-2 enum without replacing credentials or cache files.
-[ADR-0030](adr/0030-unified-cache-budget-and-preferences.md) defines migration,
-staging accounting, metadata fairness and local disk safeguards.
+`cache_budget` coordinates metadata, artwork and audio under one enabled-by-default
+**2 GiB** policy. Preferences retain 500 MiB, 1/2/3/4 GiB or Unlimited, total
+measured usage, LRU, Clear and Retry. Reservations, metadata fairness and disk
+headroom remain active in every mode. Limit maintenance is worker-only and
+coalesced while dragging; Disable/Clear fences are immediate. Version-1 settings
+migrate without resetting credentials or saved records; see [ADR-0030](adr/0030-unified-cache-budget-and-preferences.md).
 
-`audio_cache` remains typed production code, opened on a worker under the app's
-XDG cache `audio` directory. Account-scoped opaque keys, generation fences,
-integrity/atomic publication and an exclusive namespace owner guard reads/writes
-and restart. A separate one-writer gate spans the streamed body; the read/Clear
-I/O gate covers initialization and atomic commit, with a live staging marker.
-Scans preserve that marker; Clear fences and unlinks it without waiting for more
-network bytes. Initialization, commit and Clear retry short I/O contention only
-on workers, for at most 250 ms. Cancellation or a superseded Clear generation
-ends the wait; persistent failure keeps the existing visible Retry fence.
-Retired staging is recovered before quota eviction.
-Per-resource 64 MiB, 1024-record and four-pending-capture bounds remain, with one
-staging writer; these safety bounds are independent of the shared user quota.
+AudioCache retains private XDG storage, account-scoped opaque keys, integrity,
+atomic publication, crash recovery and exclusive namespace ownership. A separate
+one-writer gate spans each complete download; its short I/O gate covers staging
+initialization and commit, not network waits. Stats preserve live staging;
+Clear fences and unlinks it without waiting for more bytes. Initialization,
+commit and Clear retry short I/O contention on workers for at most 250 ms, with
+generation/cancellation checks. Keep the existing 64 MiB resource, 1024-record
+and four-job-context bounds. There is no whole-response capture buffer.
 
-Disk integrity preparation overlaps fresh StreamResolver resolution on bounded
-workers. Only an already-ready candidate is considered; a slow or busy cache
-leaves that play online. The ordinary application's private HTTP policy separates
-current account/resource access, storage eligibility of the actual response,
-validation of retained bytes and explicit content restrictions. Local cache
-admission is not a provider entitlement or copyright license. The absence of a
-separate storage-grant endpoint is not itself an HTTP refusal.
+A playback intent resolves a current account-bound MP3 and overlaps cache
+integrity work on bounded workers. An already-ready, freshly validated hit passes
+its pinned read-only file to the existing PlaybackController. A missing, slow,
+busy, corrupt or unverified candidate leaves that play online. Cache failure
+cannot turn a valid source into a playback error.
 
-Each replay resolves the currently admitted MP3 source, then checks an existing
-candidate using bounded, credential-free HTTP validation. A strong validator must
-be bound to the same resource/variant: either exact URI identity or the sealed
-Legacy descriptor's lowercase host, validated XML path, MP3 codec and selected
-bitrate fingerprint. Signing inputs `s` and `ts` are excluded from this file
-locator. This is not a claim that a path is immutable. Equal track IDs or a
-renewed signed URL alone do not establish unchanged bytes. A trusted full
-`Repr-Digest` can identify the representation independently of URL rotation. Unverifiable versions,
-explicit refusals and failed checks select the ordinary network source. A
-validated hit pins its verified read-only descriptor; final admission is
-memory-only and LRU bookkeeping remains deferred. The separate exact-content
-licensed-resource policy remains available for independently licensed material.
-This is online-revalidated caching, not offline entitlement.
+On a miss, the selected network source starts immediately and one independent
+worker saves a complete supported response through the existing HTTP client.
+Autoplay intent can schedule it before native Playing; a preparation without
+autoplay waits for explicit Play. No unselected-track prefetch is implied.
+The released Cassette orchestration informed this independent Rust design;
+Karin retains its own protected streaming writer and checks rather than copying
+whole-body memory loading or reversible cache encoding.
 
-The shared bridge hands an admitted hit's verified read-only file descriptor to
-the same PlaybackController. A decoder failure before any actual Playing can
-fall back once to its admitted online source in that same worker. A failure after
-Playing remains a normal player error, preserving Wave's actual-playing ledger.
-A source-pad capture normally reuses that player's compressed HTTP bytes without
-an extra media GET or second pipeline. Its bounded retention can hold a complete resource
-up to 64 MiB; at most four bodies allocate on arrival, for a worst-case retained
-body bound of 256 MiB. The writer starts draining during preparation, before Playing or
-the next GTK tick. The existing queue2 transport limit remains 2 MiB. Neither
-probe nor GTK waits for storage. Exact HTTP-body receipt marks capture complete
-without waiting for pipeline EOS, and completed, played bytes survive pipeline drop.
-Actual GStreamer Playing is latched separately and gates publication. Retiring
-a pipeline before Playing aborts even a complete preroll body, so the reader
-cannot wait for an acknowledgement that can no longer arrive. A finite
-`captured` progress diagnostic cannot stand in for `write-confirmed`.
+The cache job has its own one-use write ticket, separate from latest-playback
+admission. Registration lasts at most 30 minutes; activation starts a
+nonrenewable 30-second write admission, with a 15-second HTTP request timeout. Ordinary Next,
+Previous, source changes, manual Skip, Pause, Seek and Wave rollover do not
+cancel it. Explicit Stop, application close, Clear, Disable, logout and account
+change cancel or fence unfinished work. No GStreamer probe, compressed-byte
+channel, Playing admission latch, EOS finalizer or range-joining downloader
+controls the save. Queue/Wave still use actual playback snapshots for their
+own listening ledger and MPRIS.
 
-A write-specific pin acquired after fresh access separates finalization from
-current playback admission. A complete, played resource can finish hashing,
-metadata and atomic commit for at most 30 seconds after sealing. An incomplete
-capture can retain the same bounded operation only when actual native pipeline
-EOS and Playing have both been observed. Queue and Wave transitions carry their
-origin explicitly; a mutable GTK snapshot is not proof of natural completion.
-Ordinary Next/Wave rollover after that EOS and a new online lookup do not revoke
-the operation merely by changing the current track. This pin cannot admit a
-later cache hit.
+The worker streams to protected staging, screens bounded MP3 structure, verifies
+complete response length and SHA-256, and publishes atomically. It checks actual response policy,
+including no-store, encoding and supported Vary dimensions. A fresh source may
+be resolved when its short-lived admission expires. A first CDN403/410 can
+resolve once more and retry only a changed sealed URI. A new private response
+without usable ETag/Last-Modified/Repr-Digest is declined before body storage.
+Token/account/cache
+cancellation is checked throughout reads and publication. Credentials are not
+sent to media hosts; signed URLs remain in memory. HTTP permission to store is
+separate from playback access and applicable content/distribution rights.
 
-If the original capture is complete, no media request is repeated. If native
-EOS arrives before its HTTP body completes, the existing worker may discard
-the partial staging file and perform one bounded full-resource completion GET,
-after checking the live account/token scope and resolving a fresh account-bound
-source through the existing network layer.
-The full GET has a 15-second request timeout within the nonrenewable write
-admission; fresh resolution keeps its existing bounded timeouts. This is not
-a second player or prefetch of an unplayed track. It does not join
-partial ranges: the complete response must satisfy HTTP policy, the sealed
-resource binding, any already observed representation evidence and the usual
-length/hash/atomic-publication checks. A strong ETag uses If-Match; a usable
-Last-Modified uses If-Unmodified-Since with the conservative Date gap. If the
-original headers were never observed, a fresh complete response can establish
-its own policy; no old prefix is joined. Known no-store, a conflicting version,
-refusal or failed verification prevents publication. Credentials are not sent to the media host; signed addresses stay
-in memory. The existing work/memory bounds and single staging writer remain.
+Every later local play needs fresh Music access and successful representation
+validation. Strong validators must identify the same resource/variant using
+exact URI identity or the descriptor host/path/codec/bitrate fingerprint; signing
+wrappers, track ID and equal size alone are insufficient. A full Repr-Digest can
+prove exact bytes independently of URL rotation. No-cache/must-revalidate never
+permit stale reuse. Missing or unusable version evidence leaves playback online.
+Final descriptor admission is memory-only; LRU updates are deferred. An early
+local decoder failure before actual Playing may fall back once to its admitted
+online source in the same worker; later errors remain normal playback errors.
 
-Manual partial Skip, explicit Seek and failed playback do not authorize this
-completion request. Native byte discontinuities reject the original copy; a
-fresh whole-response completion never joins those bytes. Explicit Stop,
-account/logout, Clear and Disable cancel
-or fence it. Fixed diagnostics distinguish transition origin, probe/header/body
-state, source EOS, pipeline EOS and actual Playing without addresses or exact
-private response data. `completing` reports a replacement request, not body
-completion or publication. Complete HTTP200 or whole-resource
-HTTP206 and valid policy/integrity remain necessary for publication. The
-response's bounded metadata is retained with that record; credentials, cookies
-and signed URLs are not.
-`no-cache` and `must-revalidate` cannot authorize stale reuse: the private path
-requires a new successful online validation before every hit, even if an HTTP
-freshness lifetime has not elapsed. `Content-Encoding: identity` is allowed;
-other encodings and unsupported `Vary` dimensions are declined. The supported
-`Vary: Accept-Encoding` case sends `identity` on both the player and HEAD request.
-A fresh `no-store` response removes the completed record before online fallback,
-without invalidating an
-already active playback descriptor. Missing validators do not forbid storing a
-complete eligible response; they forbid a hit until the current version can be
-proved. HTTP451 is a fixed content-restriction refusal.
-Clear/logout/account changes fence old work before cleanup. Clear can unlink a
-record without invalidating an already admitted active descriptor; normal close
-may retain records for fresh online admission after restart. The process-level
-application fixture supplies original audio expressly dedicated to CC0 and uses
-the ordinary private HTTP policy/store/player path without a real Yandex account.
-It does not establish actual Music CDN validator support or legal rights for
-public distribution; live Native/Flatpak acceptance remains separate.
-[ADR-0029](adr/0029-synthetic-audio-cache-foundation.md) and
-[AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md) define the admission gate.
+Clear may unlink an entry without interrupting the already admitted playback
+file descriptor. Normal close can retain completed records for revalidation
+after restart. Storage and access failures never become fabricated offline
+rights. [ADR-0029](adr/0029-synthetic-audio-cache-foundation.md) and
+[AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md) record the policy and source influence.
+Cloud checks use original permitted audio/local HTTP through this ordinary
+application, not a second player or a mock provider grant. They do not establish
+real Music CDN support; final Native/installed-Flatpak acceptance remains separate.
 
 ## GTK workspace, MPRIS and Flatpak
 

@@ -424,7 +424,10 @@ fn serve(
             assert!(start <= end && end < data.len());
             (start, end)
         });
-        let cache_copy = header("accept") == Some("audio/mpeg");
+        // The normal bounded HTTP downloader requests revalidation. Native
+        // souphttpsrc does not send this header, so count the two real clients
+        // independently without changing the production playback request.
+        let cache_copy = first[0] == "GET" && header("cache-control") == Some("no-cache");
         let hold_cache = {
             let mut state = counts.lock().unwrap();
             state.media[track - 42] += 1;
@@ -435,11 +438,11 @@ fn serve(
                 assert_eq!(first[0], "GET");
                 assert!(
                     range.is_none(),
-                    "a legacy duplicate copy requests a complete resource"
+                    "the independent cache download requests a complete resource"
                 );
                 state.cache_reads[track - 42] += 1;
             }
-            first[0] == "GET" && state.hold_cache_track == Some(track)
+            cache_copy && state.hold_cache_track == Some(track)
         };
         if reject_media.load(Ordering::Acquire) {
             let body = "synthetic-http-private-body synthetic-response-secret";
@@ -461,7 +464,7 @@ fn serve(
         };
         let _ = write!(
             stream,
-            "HTTP/1.1 {status}\r\nContent-Type: audio/mpeg\r\nAccept-Ranges: bytes\r\nContent-Length: {}\r\nConnection: close\r\n",
+            "HTTP/1.1 {status}\r\nContent-Type: audio/mpeg\r\nAccept-Ranges: bytes\r\nCache-Control: private, max-age=0, must-revalidate\r\nETag: \"original-native-player-mp3-v1\"\r\nContent-Length: {}\r\nConnection: close\r\n",
             end - start + 1
         );
         if range.is_some() {
@@ -474,9 +477,9 @@ fn serve(
         let _ = stream.write_all(b"\r\n");
         if first[0] != "HEAD" {
             if hold_cache {
-                // Hold the one actual playback response after enough original
-                // MP3 bytes for native preroll/Playing. The cache tap must
-                // remain incomplete without starting a second origin GET.
+                // Hold only the independent whole-resource download. The
+                // ordinary player response remains free to start and change
+                // tracks while this incomplete cache job is in flight.
                 let prefix_end = (start + 8 * 1024).min(end + 1);
                 assert!(
                     prefix_end < end + 1,
@@ -1060,10 +1063,10 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
             && this.player.borrow().preparing.is_none()
     });
     assert!(
-        this.player.borrow().cache_fill_running,
-        "preroll must drain before actual Playing"
+        !this.player.borrow().cache_fill_running
+            && this.player.borrow().cache_fill_pending.is_empty(),
+        "preparing without a Play request must not download cache media"
     );
-    pump_until(|| cache.stats().is_ok_and(|stats| stats.entries == 0));
     assert_eq!(fixture.counts.lock().unwrap().cache_reads[0], 0);
     assert_eq!(cache.stats().unwrap().entries, 0);
     this.widgets.play.emit_clicked();
@@ -1073,6 +1076,12 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
             && !this.player.borrow().cache_fill_running
     });
     assert_eq!(cache.stats().unwrap().entries, 1);
+    assert_eq!(fixture.counts.lock().unwrap().cache_reads[0], 1);
+    assert_eq!(
+        fixture.counts.lock().unwrap().media[0],
+        2,
+        "the first play has one native GET and one independent complete cache GET"
+    );
     assert_eq!(budget.usage().unwrap().bytes, cache.stats().unwrap().bytes);
     assert!(cache.get(&lease, key("42")).unwrap().is_some());
     this.pause_music();
@@ -1101,7 +1110,7 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
         first_media,
         "a valid hit plays locally without a second media or cache GET"
     );
-    assert_eq!(fixture.counts.lock().unwrap().cache_reads[0], 0);
+    assert_eq!(fixture.counts.lock().unwrap().cache_reads[0], 1);
     assert!(
         !this.player.borrow().cache_fill_running
             && this.player.borrow().cache_fill_pending.is_empty()
@@ -1134,7 +1143,9 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
     permission.allow(&scope, &key("43"));
     let cache = AudioCache::open_with_budget(
         directory.0.join("audio"),
-        Arc::new(OnlineStreamAuthority::with_storage_permission(permission)),
+        Arc::new(OnlineStreamAuthority::with_storage_permission(
+            permission.clone(),
+        )),
         CachePolicy { max_bytes: 1 },
         budget.clone(),
     )
@@ -1180,7 +1191,7 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
     });
     assert_eq!(fixture.offers(0), offers_before_denial + 2);
     assert_eq!(fixture.counts.lock().unwrap().media[0], first_media);
-    assert_eq!(fixture.counts.lock().unwrap().cache_reads[0], 0);
+    assert_eq!(fixture.counts.lock().unwrap().cache_reads[0], 1);
     assert_eq!(budget.usage().unwrap().bytes, cache.stats().unwrap().bytes);
     this.pause_music();
     pump_until(|| {
@@ -1213,7 +1224,7 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
             .is_some_and(|s| !s.playing_time.is_zero())
     });
     assert_eq!(fixture.counts.lock().unwrap().media[0], first_media);
-    assert_eq!(fixture.counts.lock().unwrap().cache_reads[0], 0);
+    assert_eq!(fixture.counts.lock().unwrap().cache_reads[0], 1);
     this.pause_music();
     pump_until(|| {
         this.music_snapshot()
@@ -1235,9 +1246,9 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
             && this.player.borrow().cache_fill_pending.is_empty()
     );
 
-    // Hold the actual playback transfer after its preroll prefix. GTK timers,
-    // volume and a cached source change remain live while capture awaits the
-    // rest of this same HTTP response; no separate cache GET is allowed.
+    // An independent cache job stays incomplete while the actual player,
+    // GTK timers, volume and a manual switch to a local hit remain live.
+    // Ordinary source changes keep the already requested whole download.
     fixture.hold_descriptor();
     fixture.counts.lock().unwrap().hold_cache_track = Some(43);
     this.play_music_queue(1);
@@ -1256,35 +1267,52 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
                 .music_snapshot()
                 .is_some_and(|s| (s.volume - 0.31).abs() < 0.001)
     });
-    let cancellation = this.player.borrow().cache_fill_cancel.clone().unwrap().1;
+    let cancellation = this.player.borrow().cache_fill_cancel.clone().unwrap();
     this.play_music_queue(0);
     wait_playing(this, 0);
-    assert!(cancellation.is_cancelled());
+    assert!(!cancellation.is_cancelled());
     assert_eq!(
         fixture.counts.lock().unwrap().cache_reads[1],
-        0,
-        "capture must not start a duplicate origin GET beside the held playback transfer"
+        1,
+        "the full cache request remains active after a manual track change"
+    );
+    assert_eq!(
+        this.music_snapshot().unwrap().source_kind,
+        crate::playback::PlaybackSourceKind::CachedFile
     );
     fixture.release_descriptor();
-    pump_until(|| !this.player.borrow().cache_fill_running);
-    assert!(
-        matches!(
-            cache.get(&lease, key("43")),
-            Ok(None) | Err(CacheError::NoGrant)
-        ),
-        "a cancelled response cannot publish late bytes"
-    );
-    assert_eq!(cache.stats().unwrap().entries, 1);
+    pump_until(|| {
+        !this.player.borrow().cache_fill_running
+            && cache.stats().is_ok_and(|stats| stats.entries == 2)
+    });
+    assert_eq!(cache.stats().unwrap().entries, 2);
     assert_eq!(fixture.counts.lock().unwrap().media[0], first_media);
-
-    fixture.hold_descriptor();
-    fixture.counts.lock().unwrap().cache_hold_started = false;
+    let media_before_hit = fixture.counts.lock().unwrap().media[1];
     this.play_music_queue(1);
     wait_playing(this, 1);
+    assert_eq!(
+        this.music_snapshot().unwrap().source_kind,
+        crate::playback::PlaybackSourceKind::CachedFile
+    );
+    assert_eq!(fixture.counts.lock().unwrap().media[1], media_before_hit);
+    assert_eq!(media_before_hit, 2);
+
+    // A later independently licensed source gives logout a still-incomplete
+    // job to cancel, without weakening the no-grant playback case above.
+    let scope = this.service.as_ref().unwrap().cache_scope(&token).unwrap();
+    permission.allow(&scope, &key("44"));
+    fixture.hold_descriptor();
+    {
+        let mut counts = fixture.counts.lock().unwrap();
+        counts.hold_cache_track = Some(44);
+        counts.cache_hold_started = false;
+    }
+    this.play_music_queue(2);
+    wait_playing(this, 2);
     pump_until(|| {
         fixture.counts.lock().unwrap().cache_hold_started && this.player.borrow().cache_fill_running
     });
-    let cancellation = this.player.borrow().cache_fill_cancel.clone().unwrap().1;
+    let cancellation = this.player.borrow().cache_fill_cancel.clone().unwrap();
     let retired = this.player.borrow().controller.clone().unwrap();
     this.logout();
     assert!(cancellation.is_cancelled());
@@ -1297,11 +1325,16 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
         "logout fences old local hits"
     );
     pump_until(|| cache.stats().is_ok_and(|stats| stats.entries == 0));
-    assert_eq!(fixture.counts.lock().unwrap().cache_reads, [0; 4]);
+    assert_eq!(fixture.counts.lock().unwrap().cache_reads, [1, 1, 1, 0]);
     assert_eq!(
         fixture.counts.lock().unwrap().media[1],
         2,
-        "each interrupted playback uses just its one origin transfer"
+        "completed caching uses one native GET and one independent cache GET"
+    );
+    assert_eq!(
+        fixture.counts.lock().unwrap().media[2],
+        3,
+        "ungranted playback and the later granted play use two native GETs and one cancelled cache GET"
     );
     this.close();
     ui.window.close();

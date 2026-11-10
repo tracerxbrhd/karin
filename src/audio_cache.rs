@@ -161,15 +161,15 @@ impl fmt::Debug for StorageGrant {
 pub trait StorageAuthority: Send + Sync {
     fn authorize(&self, identity: &ResourceIdentity) -> Result<StorageGrant>;
     fn check(&self, grant: &StorageGrant) -> Result<()>;
-    /// A bounded, request-owned write operation, separate from admission of a
-    /// new playback. Actual Playing and either complete capture or confirmed
-    /// native EOS are required before the owning request seals finalization.
+    /// A bounded request-owned background write, separate from admission of a
+    /// later playback. The application creates it for an explicit play intent;
+    /// actual HTTP policy and complete validated bytes still gate publication.
     #[doc(hidden)]
     fn retain_write(&self, grant: &StorageGrant) -> Result<()> {
         self.check(grant)
     }
     #[doc(hidden)]
-    fn seal_write(&self, grant: &StorageGrant) -> Result<()> {
+    fn activate_write(&self, grant: &StorageGrant) -> Result<()> {
         self.check(grant)
     }
     #[doc(hidden)]
@@ -385,59 +385,8 @@ pub struct Request {
     write: Option<Arc<WriteOperation>>,
 }
 struct WriteOperation {
-    capture: capture::Capture,
-    sealed: AtomicBool,
-    background_completion: AtomicBool,
     phase: AtomicU8,
     current: Arc<dyn Fn() -> bool + Send + Sync>,
-}
-/// A write-only, finite completion operation belonging to the original request.
-/// Native EOS can permit a fresh full HTTP fetch after an incomplete capture;
-/// it does not make this grant current for playback or permit cached reuse.
-#[derive(Clone)]
-pub(crate) struct CompletionPermit {
-    cache: AudioCache,
-    lease: Lease,
-    permit: StorageGrant,
-    write: Arc<WriteOperation>,
-    cancellation: Cancellation,
-}
-impl CompletionPermit {
-    pub(crate) fn current(&self) -> Result<()> {
-        if self.cancellation.is_cancelled() {
-            return Err(CacheError::Cancelled);
-        }
-        self.cache
-            .check_write_operation(&self.lease, self.permit, Some(&self.write))
-    }
-    pub(crate) fn allow(&self) -> Result<()> {
-        self.cache.lease_current(&self.lease)?;
-        if self.cancellation.is_cancelled() || !(self.write.current)() {
-            return Err(CacheError::Cancelled);
-        }
-        if !self.write.capture.can_complete_in_background() {
-            return Err(CacheError::NoGrant);
-        }
-        if self.permit.identity
-            != self
-                .cache
-                .identity(&self.lease, self.permit.identity.track)?
-        {
-            return Err(CacheError::Cancelled);
-        }
-        // The registered operation predates EOS. Sealing can observe that
-        // native event after the next admission has started, but never renews
-        // the existing finite deadline or authorizes a later local replay.
-        self.write
-            .background_completion
-            .store(true, Ordering::Release);
-        self.cache.0.authority.seal_write(&self.permit)?;
-        self.write.sealed.store(true, Ordering::Release);
-        if self.cancellation.is_cancelled() {
-            return Err(CacheError::Cancelled);
-        }
-        self.current()
-    }
 }
 /// Deterministic test-only ordering at the completed-body/publication boundary.
 #[cfg(test)]
@@ -755,6 +704,25 @@ impl AudioCache {
         self.lease_current_locked(lease, &state)?;
         self.0.authority.begin_online(self.identity(lease, track)?)
     }
+    /// A just-resolved current source can register a private HTTP write even if
+    /// speculative disk lookup has not finished. This memory-only path never
+    /// admits a local hit, replaces a license lookup or performs permission I/O.
+    pub(crate) fn admit_source_for_write(
+        &self,
+        lease: &Lease,
+        track: ResourceKey,
+        current: impl Fn() -> bool,
+    ) -> Result<()> {
+        if !self.0.authority.private_http() {
+            return Err(CacheError::NoGrant);
+        }
+        self.lease_current(lease)?;
+        if !current() {
+            return Err(CacheError::Cancelled);
+        }
+        let check = self.begin_online_check(lease, track)?;
+        self.observe_verified_online_if(lease, check, current)
+    }
     /// Independently revalidate storage rights on a worker, then commit only if
     /// the exact lease and attempt remain current. Never hold GTK's state lock
     /// across permission lookup/network I/O.
@@ -762,8 +730,7 @@ impl AudioCache {
     pub(crate) fn observe_verified_online(&self, lease: &Lease, check: OnlineCheck) -> Result<()> {
         self.observe_verified_online_if(lease, check, || true)
     }
-    #[cfg(test)]
-    pub(crate) fn observe_verified_online_if(
+    fn observe_verified_online_if(
         &self,
         lease: &Lease,
         check: OnlineCheck,
@@ -897,32 +864,42 @@ impl AudioCache {
         }
         self.check_write_operation(&request.lease, request.permit, request.write.as_deref())
     }
-    fn retain_capture(
+    /// Register one selected resource while its fresh source admission is
+    /// current. No player, byte capture or native EOS owns this write lifetime.
+    pub(crate) fn retain_write(
         &self,
         request: &mut Request,
-        capture: capture::Capture,
         current: impl Fn() -> bool + Send + Sync + 'static,
     ) -> Result<()> {
         self.request_current(request)?;
+        if !current() {
+            return Err(CacheError::Cancelled);
+        }
         self.0.authority.retain_write(&request.permit)?;
         request.write = Some(Arc::new(WriteOperation {
-            capture,
-            sealed: AtomicBool::new(false),
-            background_completion: AtomicBool::new(false),
             phase: AtomicU8::new(0),
             current: Arc::new(current),
         }));
-        Ok(())
+        self.request_current(request)
     }
-    fn completion_permit(&self, request: &Request) -> Result<CompletionPermit> {
-        self.request_current(request)?;
-        Ok(CompletionPermit {
-            cache: self.clone(),
-            lease: request.lease.clone(),
-            permit: request.permit,
-            write: request.write.clone().ok_or(CacheError::NoGrant)?,
-            cancellation: request.cancellation(),
-        })
+    /// Start the finite active-write deadline on the existing bounded worker.
+    /// An eligible queued selection may outlive later playback admissions, but
+    /// never account/cache fences, cancellation, token expiry or delegate denial.
+    pub(crate) fn start_write(&self, request: &Request) -> Result<()> {
+        self.lease_current(&request.lease)?;
+        let write = request.write.as_ref().ok_or(CacheError::NoGrant)?;
+        if request.cancel.load(Ordering::Acquire) || !(write.current)() {
+            return Err(CacheError::Cancelled);
+        }
+        if request.permit.identity
+            != self.identity(&request.lease, request.permit.identity.track)?
+        {
+            return Err(CacheError::Cancelled);
+        }
+        // Do not require the old playback admission here: registration already
+        // checked it, and a new selected track may now own the current hit.
+        self.0.authority.activate_write(&request.permit)?;
+        self.request_current(request)
     }
     fn check_write_operation(
         &self,
@@ -939,22 +916,6 @@ impl AudioCache {
         };
         if !(write.current)() {
             return Err(CacheError::Cancelled);
-        }
-        // A full independent response must never outlive an explicit refusal
-        // observed on the original operation. Recheck at every staging/hash/
-        // publication checkpoint, including after rename. Ordinary already-
-        // complete captures do not use this recovery-only gate.
-        if write.background_completion.load(Ordering::Acquire)
-            && !write.capture.can_wait_for_completion()
-        {
-            return Err(CacheError::HttpPolicyRequired);
-        }
-        if !write.sealed.load(Ordering::Acquire)
-            && write.capture.is_complete()
-            && write.capture.has_played()
-        {
-            self.0.authority.seal_write(&permit)?;
-            write.sealed.store(true, Ordering::Release);
         }
         self.0.authority.check_write(&permit)
     }
@@ -1019,9 +980,8 @@ impl AudioCache {
         }
         self.put_reader_complete(&request, reader, before_commit, |_, _| Ok(None), 0)
     }
-    /// Publish the media and response-policy metadata in the same transaction.
-    /// The callback consumes only the completed native response policy; it must
-    /// reject a failed/partial capture and bind the measured SHA and length.
+    /// Publish complete media and its actual response policy in one transaction.
+    /// The callback binds the measured SHA and length to that response.
     #[cfg(test)]
     pub(crate) fn put_reader_http(
         &self,
@@ -1031,11 +991,9 @@ impl AudioCache {
     ) -> Result<()> {
         self.put_reader_http_attempt(&request, reader, http)
     }
-    /// One clean transaction for the request-owned HTTP fill. If an incomplete
-    /// native capture fails, the bridge may use the same still-live request for
-    /// one validated full-fetch attempt. The failed attempt drops its complete
-    /// private staging transaction before this method returns: no bytes, hash
-    /// state, quota reservation or output handle are reused or concatenated.
+    /// One bounded streamed transaction for an independently fetched full HTTP
+    /// response. Errors drop staging, quota reservation and output handle; no
+    /// partial bytes, hashing state or publication is retained.
     pub(crate) fn put_reader_http_attempt(
         &self,
         request: &Request,
@@ -1064,7 +1022,7 @@ impl AudioCache {
     ) -> Result<()> {
         self.request_current(request)?;
         // One bounded staging writer, without occupying the read/Clear gate
-        // while the captured source is paused or waiting for network bytes.
+        // while the independent HTTP source is waiting for network bytes.
         let _writer = match self.0.writer.try_lock() {
             Ok(writer) => writer,
             Err(std::sync::TryLockError::WouldBlock) => return Err(CacheError::Busy),
@@ -1073,7 +1031,7 @@ impl AudioCache {
         let key = request.permit.identity.key();
         let (temporary, reservation, output) = {
             // Stats/LRU/Clear use this short gate too. A transient observer
-            // must not discard a valid capture; retry only on this worker,
+            // must not discard a valid download; retry only on this worker,
             // with the same bounded deadline and cancellation as publication.
             let _io = self.commit_io(request)?;
             self.request_current(request)?;
@@ -1137,7 +1095,7 @@ impl AudioCache {
             loop {
                 self.request_current(request)?;
                 let read = reader.read(&mut chunk);
-                // A retiring capture reader may return an I/O error before
+                // A cancelled HTTP reader may return an I/O error before
                 // any new bytes. Preserve the actual lease/cancellation reason.
                 self.request_current(request)?;
                 let read = read.map_err(|_| CacheError::Unavailable)?;
@@ -1170,8 +1128,8 @@ impl AudioCache {
             if let Some(write) = &request.write {
                 write.phase.store(1, Ordering::Release);
                 diagnostic::report(
-                    diagnostic::Event::Captured,
-                    diagnostic::Cause::CaptureComplete,
+                    diagnostic::Event::Downloaded,
+                    diagnostic::Cause::DownloadComplete,
                 );
             }
             output.sync_all().map_err(|_| CacheError::Unavailable)?;
@@ -1191,6 +1149,13 @@ impl AudioCache {
             .as_ref()
             .try_into()
             .map_err(|_| CacheError::Unavailable)?;
+        if request.permit.basis == AdmissionBasis::PrivateHttpCandidate {
+            // HTTP Content-Type alone is not proof of an MP3. Only the worker
+            // reads these bounded staged headers; no second decoder or buffer.
+            let file = open_private(&temporary.join("media.bin"))?;
+            mp3::validate(&file, length as u64)?;
+            self.request_current(request)?;
+        }
         let http = http(measured_sha, length as u64)?;
         if request.permit.basis == AdmissionBasis::PrivateHttpCandidate && http.is_none() {
             return Err(CacheError::HttpPolicyRequired);
@@ -1864,7 +1829,7 @@ fn random_name() -> Result<String> {
 }
 
 pub(crate) mod bridge;
-pub(crate) mod capture;
+mod mp3;
 mod selection;
 
 #[cfg(test)]

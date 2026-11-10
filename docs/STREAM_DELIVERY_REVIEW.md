@@ -65,8 +65,10 @@ cross the boundary as fixed categories or trusted numeric HTTP status.
 Worker snapshots drive the existing controls, queue and MPRIS. One-running/
 latest-pending resolution and track/session/intent generations retire stale work.
 Stop, replacement, logout and close cancel intent and release its worker. Bounded
-in-flight HTTP can settle until its deadline without blocking GTK. Audio is not
-recorded or persistently cached.
+in-flight HTTP can settle until its deadline without blocking GTK. Optional
+[audio caching](AUDIO_CACHE_REVIEW.md) saves a complete selected resource in an
+independent bounded worker; ordinary source changes do not cancel that job.
+Cache failure cannot block the admitted online player.
 
 `--delivery-diagnostic` is a separate owner-local metadata-only probe. It reads
 offers and at most one descriptor, reports safe stage/category/HTTP results, then
@@ -90,6 +92,7 @@ yamu signer explicitly uses extracted official-client material and is excluded.
 Keep the [Cassette copyright/provenance](../packaging/third-party-licenses/cassette-auth/PROVENANCE.md)
 and [ADR-0015](adr/0015-guarded-legacy-mp3-playback.md). Technical playback and GPL
 reuse do not establish public registration/service-distribution or content rights.
-[Persistent audio](AUDIO_CACHE_REVIEW.md) requires a separate permission and
-rights-lifecycle contract. Real-token/resource/recording checks belong only on
+[Private audio caching](AUDIO_CACHE_REVIEW.md) separately checks current access,
+HTTP storage policy, retained version and content restrictions. Its HTTP policy
+is not a service entitlement or a content/distribution license. Real-token/resource/recording checks belong only on
 the consenting owner's local desktop, never in Cloud/CI/GitHub.

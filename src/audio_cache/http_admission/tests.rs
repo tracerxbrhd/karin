@@ -4,7 +4,7 @@
 use super::*;
 use crate::audio_cache::{
     http_policy::ResponsePolicy,
-    test_support::{SyntheticAudio, account},
+    test_support::{SyntheticAudio, account, structural_mp3},
 };
 
 fn fixture() -> (Arc<Sandbox>, AudioCache, Lease, ResourceKey) {
@@ -65,9 +65,9 @@ fn private_http_candidate_cannot_bypass_response_or_revalidation() {
 #[test]
 fn http_publication_binds_atomic_metadata_and_counts_it_in_quota() {
     let (_sandbox, cache, lease, track) = fixture();
-    let audio = SyntheticAudio::tone(40).unwrap();
-    let expected_sha = hash(&audio.0);
-    let response = policy(audio.0.len());
+    let audio = structural_mp3();
+    let expected_sha = hash(&audio);
+    let response = policy(audio.len());
     let identity = cache.identity(&lease, track).unwrap();
     let path = cache.path(identity.key());
 
@@ -75,10 +75,10 @@ fn http_publication_binds_atomic_metadata_and_counts_it_in_quota() {
         cache
             .put_reader_http(
                 cache.begin(&lease, track).unwrap(),
-                audio.0.as_slice(),
+                audio.as_slice(),
                 |sha256, bytes| {
                     assert_eq!(sha256, expected_sha);
-                    assert_eq!(bytes, audio.0.len() as u64);
+                    assert_eq!(bytes, audio.len() as u64);
                     // No completed record is visible before the response
                     // policy and exact observed payload are admitted together.
                     assert!(!path.exists());
@@ -97,7 +97,7 @@ fn http_publication_binds_atomic_metadata_and_counts_it_in_quota() {
         assert_eq!(names, ["header", "http", "media.bin"]);
         let metadata = read_http_record(&path).unwrap().unwrap();
         assert_eq!(metadata.sha256, expected_sha);
-        assert_eq!(metadata.bytes, audio.0.len() as u64);
+        assert_eq!(metadata.bytes, audio.len() as u64);
         assert!(metadata.directives.no_cache && metadata.directives.must_revalidate);
         let actual = fs::read_dir(&path)
             .unwrap()
@@ -112,7 +112,7 @@ fn http_publication_binds_atomic_metadata_and_counts_it_in_quota() {
         );
         assert_eq!(
             actual,
-            HEADER as u64 + audio.0.len() as u64 + metadata.encode().unwrap().len() as u64
+            HEADER as u64 + audio.len() as u64 + metadata.encode().unwrap().len() as u64
         );
         assert!(matches!(
             cache.get(&lease, track),
@@ -144,5 +144,37 @@ fn http_publication_binds_atomic_metadata_and_counts_it_in_quota() {
         );
         assert!(!path.exists());
         assert_eq!(cache.stats().unwrap(), Stats::default());
+    }
+}
+
+#[test]
+fn private_http_publication_rejects_non_mp3_even_when_headers_and_length_match() {
+    for bytes in [
+        b"<!doctype html><html>upstream error labeled audio/mpeg</html>".to_vec(),
+        b"ID3\x04\0\0\0\0\0\0".to_vec(),
+        structural_mp3()[..833].to_vec(),
+    ] {
+        let (_sandbox, cache, lease, track) = fixture();
+        let response = policy(bytes.len());
+        assert_eq!(
+            cache.put_reader_http(
+                cache.begin(&lease, track).unwrap(),
+                bytes.as_slice(),
+                |sha256, length| {
+                    response
+                        .record([1; 32], [2; 32], sha256, length)
+                        .map_err(|_| CacheError::HttpPolicyRequired)
+                }
+            ),
+            Err(CacheError::InvalidInput)
+        );
+        assert_eq!(cache.stats().unwrap(), Stats::default());
+        let identity = cache.identity(&lease, track).unwrap();
+        assert!(!cache.path(identity.key()).exists());
+        assert!(
+            fs::read_dir(&cache.0.sandbox.path)
+                .unwrap()
+                .all(|entry| entry.unwrap().file_name() == ".lock")
+        );
     }
 }

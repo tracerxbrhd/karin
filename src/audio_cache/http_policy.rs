@@ -128,11 +128,11 @@ impl fmt::Debug for Metadata {
 }
 
 impl ResponsePolicy {
-    /// Total selected representation size, even when the observed source
-    /// response covered only one range. This never makes a partial body
-    /// publishable; `complete_mp3` retains that separate requirement.
-    pub(crate) fn representation_length(&self) -> Option<u64> {
-        self.range.map(|(_, _, total)| total).or(self.length)
+    /// Whether a newly downloaded complete representation can later be checked
+    /// without downloading it again. Storage policy and current access remain
+    /// independent requirements; no validator is an offline entitlement.
+    pub(crate) fn has_validator(&self) -> bool {
+        self.etag.is_some() || self.strong_modified() || self.repr_sha256.is_some()
     }
 
     pub(crate) fn parse(

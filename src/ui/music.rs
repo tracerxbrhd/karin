@@ -1370,6 +1370,8 @@ impl Controller {
 
     fn auth_failed(&self, error: AuthError) {
         self.cancel_radio();
+        self.cancel_music_cache(crate::audio_cache::diagnostic::Cause::AccountChanged);
+        self.stop_music_engine();
         {
             let mut model = self.model.borrow_mut();
             model.generation += 1;
@@ -1747,7 +1749,8 @@ impl Controller {
         self.begin_forget_session();
         self.set_info_open(false);
         self.dismiss_logout_confirmation();
-        self.stop_music_engine_for(crate::audio_cache::bridge::Retirement::Account);
+        self.cancel_music_cache(crate::audio_cache::diagnostic::Cause::AccountChanged);
+        self.stop_music_engine();
         self.clear_system_media();
         self.mutation_busy.set(false);
         self.detail_like_controls.borrow_mut().clear();
@@ -2140,7 +2143,13 @@ fn item(title: &str, subtitle: &str) -> (gtk::ListBoxRow, gtk::Box) {
 
 impl Controller {
     fn authenticate(self: &Rc<Self>, token: AccessToken) {
+        if self.model.borrow().closed {
+            token.invalidate();
+            return;
+        }
         self.cancel_radio();
+        self.cancel_music_cache(crate::audio_cache::diagnostic::Cause::AccountChanged);
+        self.stop_music_engine();
         {
             let mut model = self.model.borrow_mut();
             if model.closed {

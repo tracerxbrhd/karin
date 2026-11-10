@@ -482,6 +482,7 @@ impl Controller {
     pub(super) fn cancel_wave(self: &Rc<Self>) {
         self.leave_wave_for_stop();
         if self.is_wave_queue() {
+            self.cancel_music_cache(crate::audio_cache::diagnostic::Cause::UserStop);
             self.stop_music_engine();
             self.model.borrow_mut().queue.clear();
             self.render_queue();
@@ -935,7 +936,7 @@ impl Controller {
             return;
         };
         // Deliberate successful source replacement, through the same engine.
-        self.stop_music_engine_for(crate::audio_cache::bridge::Retirement::WaveReplacement);
+        self.stop_music_engine();
         let (saved_modes, bindings) = {
             let mut model = self.model.borrow_mut();
             let saved = (model.queue.shuffle(), model.queue.repeat_mode());

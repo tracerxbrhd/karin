@@ -162,7 +162,6 @@ pub struct PlaybackSource {
     cached_file: Option<Arc<File>>,
     cache_admission: Option<Arc<crate::audio_cache::Hit>>,
     cache_fallback: Option<RemotePlaybackSource>,
-    cache_capture: Option<crate::audio_cache::capture::Capture>,
 }
 
 impl fmt::Debug for PlaybackSource {
@@ -190,7 +189,6 @@ impl PlaybackSource {
             cached_file: None,
             cache_admission: None,
             cache_fallback: None,
-            cache_capture: None,
         })
     }
 
@@ -203,20 +201,7 @@ impl PlaybackSource {
             cached_file: None,
             cache_admission: None,
             cache_fallback: None,
-            cache_capture: None,
         }
-    }
-
-    /// A separately permitted copy observes this same remote transfer. There
-    /// is no additional resource request or independent audio engine.
-    pub(crate) fn with_cache_capture(
-        mut self,
-        capture: crate::audio_cache::capture::Capture,
-    ) -> Self {
-        if self.remote.is_some() {
-            self.cache_capture = Some(capture);
-        }
-        self
     }
 
     /// Memory-only admission/pinning of the exact read-only inode already
@@ -240,7 +225,6 @@ impl PlaybackSource {
             cached_file: Some(file),
             cache_admission: Some(Arc::new(hit)),
             cache_fallback: Some(fallback),
-            cache_capture: None,
         })
     }
 
@@ -368,7 +352,7 @@ impl RemotePlaybackSource {
 
     /// The existing resolver is the sole source of this sealed address. The
     /// cache transport still rechecks its narrow HTTPS/host/path/deadline policy
-    /// before a metadata-only request; no caller-supplied URL is accepted.
+    /// before a revalidation or cache request; no caller-supplied URL is accepted.
     pub(crate) fn http_cache_probe_url(&self) -> Result<Url, PlaybackError> {
         if self.is_expired() {
             return Err(PlaybackError::SourceExpired);
@@ -505,73 +489,6 @@ impl PlaybackController {
         self.handle.shared.snapshot().clone()
     }
 
-    /// Deterministic native-source fixture only. It asks the existing active
-    /// souphttpsrc to end its task while a local HTTP server holds trailing
-    /// bytes. GstBaseSrc unblocks create and emits real downstream/pipeline EOS;
-    /// no snapshot mutation, fabricated bus message or second player is used.
-    /// The caller must label this as injected source EOS, not a live parser test.
-    #[cfg(test)]
-    pub(crate) fn source_eos_for_test(&self) -> Result<(), PlaybackError> {
-        let source = self.active_remote_source_for_test()?;
-        source.call_async(|source| {
-            let _ = source.send_event(gst::event::Eos::new());
-        });
-        Ok(())
-    }
-
-    /// An injected native byte range models a parser-requested bounded segment.
-    /// Its real HTTP 206/source EOS must be checked by the calling fixture. It
-    /// never goes through the application's explicit user-Seek control.
-    #[cfg(test)]
-    pub(crate) fn source_range_for_test(&self, end: u64) -> Result<(), PlaybackError> {
-        if end <= 1 || end > i64::MAX as u64 {
-            return Err(PlaybackError::InvalidSeek);
-        }
-        let source = self.active_remote_source_for_test()?;
-        source.call_async(move |source| {
-            let _ = source.seek(
-                1.0,
-                gst::SeekFlags::FLUSH,
-                gst::SeekType::Set,
-                // souphttpsrc deliberately removes Range when restarting an
-                // existing message at byte zero, even with a bounded stop.
-                // A positive source offset exercises an actual HTTP 206; the
-                // MP3 parser must resynchronize without an application Seek.
-                gst::format::Bytes::from_u64(1),
-                gst::SeekType::Set,
-                gst::format::Bytes::from_u64(end),
-            );
-        });
-        Ok(())
-    }
-
-    #[cfg(test)]
-    fn active_remote_source_for_test(&self) -> Result<gst::Element, PlaybackError> {
-        let snapshot = self.snapshot();
-        if snapshot.state != PlaybackState::Playing
-            || snapshot.source_kind != PlaybackSourceKind::RemoteHttps
-        {
-            return Err(PlaybackError::InvalidState);
-        }
-        let pipeline = self
-            .handle
-            .shared
-            .pipelines
-            .lock()
-            .unwrap()
-            .last()
-            .and_then(gst::glib::WeakRef::upgrade)
-            .ok_or(PlaybackError::InvalidState)?;
-        pipeline
-            .property::<Option<gst::Element>>("source")
-            .filter(|source| {
-                source
-                    .factory()
-                    .is_some_and(|factory| factory.name() == "souphttpsrc")
-            })
-            .ok_or(PlaybackError::SourcePolicy)
-    }
-
     fn send(&self, command: Command) -> Result<(), PlaybackError> {
         if self.handle.shared.shutdown.load(Ordering::Acquire) {
             return Err(PlaybackError::ShuttingDown);
@@ -630,16 +547,12 @@ struct ActivePipeline {
     element: gst::Element,
     bus: gst::Bus,
     transport_refused: Option<Arc<AtomicBool>>,
-    cache_capture: Option<crate::audio_cache::capture::Capture>,
 }
 
 impl Drop for ActivePipeline {
     fn drop(&mut self) {
         // Native calls stay on the playback worker, including stop/replacement,
         // decoder error, EOS and application shutdown.
-        if let Some(capture) = &self.cache_capture {
-            capture.retire_pipeline();
-        }
         let _ = self.element.set_state(gst::State::Null);
     }
 }
@@ -884,11 +797,7 @@ impl Worker {
         // Audio-only: local media must never create an unrequested video window.
         element.set_property_from_str("flags", "audio+soft-volume");
         let transport_refused = if let Some(remote) = &source.remote {
-            Some(remote::guard_pipeline(
-                &element,
-                remote.clone(),
-                source.cache_capture.clone(),
-            )?)
+            Some(remote::guard_pipeline(&element, remote.clone())?)
         } else if source.cached_file.is_some() {
             Some(remote::guard_cached_pipeline(&element, uri.as_str())?)
         } else {
@@ -921,7 +830,6 @@ impl Worker {
             element,
             bus,
             transport_refused,
-            cache_capture: source.cache_capture.clone(),
         });
         self.shared.snapshot().source_kind = source_kind;
         let target = if result == PlaybackState::Playing {
@@ -1000,9 +908,6 @@ impl Worker {
         }
         self.account_playing(false);
         let pipeline = self.pipeline.as_ref().ok_or(PlaybackError::InvalidState)?;
-        if let Some(capture) = &pipeline.cache_capture {
-            capture.user_seek();
-        }
         pipeline
             .element
             .seek_simple(
@@ -1037,16 +942,6 @@ impl Worker {
                     break;
                 };
                 match message.view() {
-                    gst::MessageView::StateChanged(state)
-                        if state.current() == gst::State::Playing
-                            && message.src().is_some_and(|source| {
-                                source == pipeline.element.upcast_ref::<gst::Object>()
-                            }) =>
-                    {
-                        if let Some(capture) = &pipeline.cache_capture {
-                            capture.confirm_playing();
-                        }
-                    }
                     gst::MessageView::Error(error) => {
                         failure = Some(
                             if pipeline
@@ -1066,12 +961,6 @@ impl Worker {
                         break;
                     }
                     gst::MessageView::Eos(_) => {
-                        if message.src().is_some_and(|source| {
-                            source == pipeline.element.upcast_ref::<gst::Object>()
-                        }) && let Some(capture) = &pipeline.cache_capture
-                        {
-                            capture.confirm_pipeline_eos();
-                        }
                         eos = true;
                         break;
                     }
@@ -1098,17 +987,6 @@ impl Worker {
             return;
         }
         if eos {
-            // A very short stream can reach EOS before the next regular state
-            // observation. Query the real native state before retiring its
-            // pipeline; an accepted Play command alone is still insufficient.
-            if let Some(pipeline) = &self.pipeline
-                && let Some(capture) = &pipeline.cache_capture
-            {
-                let (result, state, _) = pipeline.element.state(gst::ClockTime::ZERO);
-                if result.is_ok() && state == gst::State::Playing {
-                    capture.confirm_playing();
-                }
-            }
             self.account_playing(false);
             self.pending = None;
             self.pipeline = None;
@@ -1167,9 +1045,6 @@ impl Worker {
         let playing = snapshot.state == PlaybackState::Playing
             && result.is_ok()
             && current == gst::State::Playing;
-        if playing && let Some(capture) = &pipeline.cache_capture {
-            capture.confirm_playing();
-        }
         let cached_playing = playing && snapshot.source_kind == PlaybackSourceKind::CachedFile;
         drop(snapshot);
         if cached_playing && self.playing.since.is_none() && self.playing.total.is_zero() {
@@ -1281,7 +1156,6 @@ impl DiagnosticMedia {
             cached_file: None,
             cache_admission: None,
             cache_fallback: None,
-            cache_capture: None,
         };
         let guard = Self { source };
         let sample_rate = 22_050_u32;
@@ -1868,7 +1742,6 @@ mod tests {
                 element,
                 bus,
                 transport_refused: None,
-                cache_capture: None,
             }),
             // Paused was deliberately never requested: this real playbin stays
             // Ready, allowing the worker's own deadline path to be tested

@@ -361,3 +361,47 @@ fn unknown_headers_and_secrets_are_never_retained_in_metadata() {
         );
     }
 }
+
+#[test]
+fn reusable_download_validator_requires_strong_identity_or_full_representation_digest() {
+    assert!(!response(200, &[]).unwrap().has_validator());
+    assert!(
+        !response(200, &[("ETag", "W/\"weak\"")])
+            .unwrap()
+            .has_validator()
+    );
+    assert!(
+        response(200, &[("ETag", "\"strong\"")])
+            .unwrap()
+            .has_validator()
+    );
+    let modified = "Tue, 01 Dec 2020 09:00:00 GMT";
+    assert!(
+        response(
+            200,
+            &[
+                ("Last-Modified", modified),
+                ("Date", "Tue, 01 Dec 2020 09:01:00 GMT")
+            ]
+        )
+        .unwrap()
+        .has_validator()
+    );
+    assert!(
+        !response(
+            200,
+            &[
+                ("Last-Modified", modified),
+                ("Date", "Tue, 01 Dec 2020 09:00:59 GMT")
+            ]
+        )
+        .unwrap()
+        .has_validator()
+    );
+    let digest = format!("sha-256=:{}:", STANDARD.encode([1; 32]));
+    assert!(
+        response(200, &[("Repr-Digest", &digest)])
+            .unwrap()
+            .has_validator()
+    );
+}
