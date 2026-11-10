@@ -27,7 +27,18 @@ pub(crate) struct PreparedSelection {
     file: Option<Arc<File>>,
     http: Option<http_policy::Metadata>,
     http_verified: bool,
-    touch: Option<Sender<()>>,
+    rebase: Option<http_policy::Metadata>,
+    touch: Option<Sender<Used>>,
+}
+/// Distinguish a proved version change from merely uncomparable locators.
+pub(crate) enum Revalidation {
+    Same,
+    Different(http_policy::Reason),
+    Unproven(http_policy::Reason),
+}
+struct Used {
+    permit: StorageGrant,
+    rebase: Option<http_policy::Metadata>,
 }
 struct Slot(Arc<AtomicBool>);
 impl Drop for Slot {
@@ -36,6 +47,11 @@ impl Drop for Slot {
     }
 }
 impl AudioCache {
+    #[cfg(test)]
+    pub(crate) fn lookup_settled_for_test(&self) -> bool {
+        !self.0.lookup_running.load(Ordering::Acquire)
+    }
+
     /// One cache worker per namespace, including abandoned or slow reads. New
     /// selections skip a busy cache; they cannot accumulate threads/jobs.
     pub(crate) fn lookup(&self, lease: Lease, check: OnlineCheck) -> Option<Lookup> {
@@ -100,6 +116,7 @@ impl AudioCache {
                             file: file.map(Arc::new),
                             http,
                             http_verified: false,
+                            rebase: None,
                             touch: Some(touch),
                         },
                         used,
@@ -109,6 +126,13 @@ impl AudioCache {
                 match prepared {
                     Ok((prepared, used, identity)) => {
                         let has_file = prepared.file.is_some();
+                        let original = prepared.file.as_ref().zip(prepared.http.as_ref()).and_then(
+                            |(file, metadata)| {
+                                file.metadata()
+                                    .ok()
+                                    .map(|stamp| (Arc::clone(file), stamp, metadata.clone()))
+                            },
+                        );
                         let published = sender.send(Ok(prepared)).is_ok();
                         #[cfg(test)]
                         if published {
@@ -119,9 +143,27 @@ impl AudioCache {
                         }
                         if published
                             && has_file
-                            && used.recv_timeout(Duration::from_secs(35)).is_ok()
+                            && let Ok(used) = used.recv_timeout(Duration::from_secs(35))
                             && cache.lease_current(&lease).is_ok()
                         {
+                            if let (Some(current), Some((media, stamp, previous))) =
+                                (used.rebase, original)
+                                && cache.rebase_http_record(
+                                    &lease,
+                                    HttpRebase {
+                                        permit: used.permit,
+                                        media,
+                                        stamp,
+                                        previous,
+                                        current,
+                                    },
+                                ) == Ok(true)
+                            {
+                                diagnostic::report(
+                                    diagnostic::Event::Checking,
+                                    diagnostic::Cause::BindingRebased,
+                                );
+                            }
                             // Bookkeeping follows admission on this existing worker.
                             // Even a stalled filesystem cannot delay the audio path.
                             let path = cache.path(identity.key());
@@ -153,9 +195,9 @@ impl PreparedSelection {
         remote: &crate::playback::RemotePlaybackSource,
         token: &crate::session::AccessToken,
         cancellation: &crate::stream::DeliveryCancellation,
-    ) -> std::result::Result<(), http_policy::Reason> {
+    ) -> std::result::Result<Revalidation, http_policy::Reason> {
         if !self.cache.0.authority.private_http() || self.file.is_none() {
-            return Ok(());
+            return Ok(Revalidation::Same);
         }
         self.cache
             .lease_current(&self.lease)
@@ -165,30 +207,37 @@ impl PreparedSelection {
             .as_ref()
             .ok_or(http_policy::Reason::ValidatorsMissing)?;
         super::diagnostic::identity(metadata, remote);
-        resolver.revalidate_http(remote, metadata, token, cancellation)?;
+        let validated = resolver.revalidate_http(remote, metadata, token, cancellation)?;
         self.cache
             .lease_current(&self.lease)
             .map_err(|_| http_policy::Reason::Cancelled)?;
-        self.http_verified = true;
-        Ok(())
-    }
-
-    pub(crate) fn needs_binding_upgrade(
-        &self,
-        remote: &crate::playback::RemotePlaybackSource,
-    ) -> bool {
-        self.http
-            .as_ref()
-            .is_some_and(|metadata| metadata.binding.is_none())
-            && remote
-                .http_cache_binding()
-                .is_some_and(|binding| binding.logical.is_some())
+        Ok(match validated {
+            http_policy::Validation::Same(fresh) => {
+                self.http_verified = true;
+                // Rebase current validators together with their URI. Never
+                // attach a new locator to the old replica's opaque ETag.
+                if metadata.uri_hash != fresh.uri_hash
+                    || metadata.resource_hash != fresh.resource_hash
+                    || metadata.binding != fresh.binding
+                    || metadata.etag != fresh.etag
+                    || metadata.last_modified != fresh.last_modified
+                    || metadata.modified_unix != fresh.modified_unix
+                    || metadata.directives != fresh.directives
+                {
+                    self.rebase = Some(*fresh);
+                }
+                Revalidation::Same
+            }
+            http_policy::Validation::Different(reason) => Revalidation::Different(reason),
+            http_policy::Validation::Unproven(reason) => Revalidation::Unproven(reason),
+        })
     }
 
     pub(crate) fn discard_file(&mut self) {
         self.file = None;
         self.http = None;
         self.http_verified = false;
+        self.rebase = None;
     }
 
     pub(crate) fn retire_record(&mut self) -> Result<()> {
@@ -226,6 +275,7 @@ impl PreparedSelection {
             touch,
             http: _,
             http_verified,
+            rebase,
         } = self;
         if cache.0.authority.private_http() && file.is_some() && !http_verified {
             return Err(CacheError::NeedsOnline);
@@ -253,7 +303,7 @@ impl PreparedSelection {
         if hit.is_some()
             && let Some(touch) = touch
         {
-            let _ = touch.send(());
+            let _ = touch.send(Used { permit, rebase });
         }
         Ok(hit)
     }

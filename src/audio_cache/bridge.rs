@@ -15,6 +15,7 @@ use crate::{
 };
 
 use super::http_policy::Reason;
+use super::selection::Revalidation;
 use std::{
     io::{self, Read},
     sync::{Arc, OnceLock},
@@ -113,36 +114,41 @@ pub(crate) fn resolve(
     };
     let mut preserve_record = false;
     if prepared.has_file() {
-        if let Err(reason) = prepared.revalidate_http(&resolver, &remote, token, cancellation) {
-            // Relocation, missing proof and transient failures do not make a
-            // verified completed file corrupt. Keep it for a later provable
-            // selection, and do not download/overwrite it on every Play.
-            let upgrade =
-                reason == Reason::IdentityUnverified && prepared.needs_binding_upgrade(&remote);
-            if upgrade {
-                diagnostic::report(Event::Checking, Cause::BindingUpgrade);
+        match prepared.revalidate_http(&resolver, &remote, token, cancellation) {
+            Ok(Revalidation::Same) => {}
+            Ok(Revalidation::Different(reason)) => {
+                // Only positive current representation/version evidence may
+                // replace an otherwise intact retained MP3.
+                diagnostic::report(Event::Stale, Cause::Policy(reason));
+                if prepared.retire_record().is_err() {
+                    diagnostic::report(Event::NotCacheable, Cause::Busy);
+                }
+                prepared.discard_file();
             }
-            preserve_record = !upgrade
-                && !matches!(
+            Ok(Revalidation::Unproven(reason)) => {
+                // Independent replica tags, missing proof and legacy binding
+                // uncertainty are not evidence of changed or corrupt bytes.
+                preserve_record = true;
+                diagnostic::report(Event::Stale, Cause::Policy(reason));
+                diagnostic::report(Event::Stale, Cause::RecordRetained);
+                prepared.discard_file();
+            }
+            Err(reason) => {
+                let refusal = matches!(
                     reason,
-                    Reason::RepresentationChanged
-                        | Reason::EncodingChanged
-                        | Reason::DigestMismatch
+                    Reason::NoStore | Reason::ContentRestricted | Reason::AccessDenied
                 );
-            diagnostic::report(Event::Stale, Cause::Policy(reason));
-            if matches!(
-                reason,
-                super::http_policy::Reason::NoStore
-                    | super::http_policy::Reason::ContentRestricted
-                    | super::http_policy::Reason::AccessDenied
-                    | super::http_policy::Reason::RepresentationChanged
-                    | super::http_policy::Reason::EncodingChanged
-                    | super::http_policy::Reason::DigestMismatch
-            ) && prepared.retire_record().is_err()
-            {
-                diagnostic::report(Event::NotCacheable, Cause::Busy);
+                let corrupt = reason == Reason::Integrity;
+                preserve_record = !corrupt;
+                diagnostic::report(Event::Stale, Cause::Policy(reason));
+                if (refusal || corrupt) && prepared.retire_record().is_err() {
+                    diagnostic::report(Event::NotCacheable, Cause::Busy);
+                }
+                prepared.discard_file();
+                if !refusal && !corrupt {
+                    diagnostic::report(Event::Stale, Cause::RecordRetained);
+                }
             }
-            prepared.discard_file();
         }
     } else {
         diagnostic::report(Event::Miss, Cause::Empty);
@@ -376,13 +382,10 @@ impl Fill {
             None
         };
         current()?;
-        Ok(metadata.is_some_and(|metadata| {
-            metadata.binding.is_some()
-                || !self
-                    .remote
-                    .http_cache_binding()
-                    .is_some_and(|binding| binding.logical.is_some())
-        }))
+        // Missing optional binding metadata is not permission to download the
+        // same whole audio again. Legacy sidecars migrate only after positive
+        // equivalence, on the existing read/LRU worker without another GET.
+        Ok(metadata.is_some())
     }
 
     fn download(&self, rejection: &mut Option<Reason>) -> Result<bool, CacheError> {

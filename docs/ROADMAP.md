@@ -96,10 +96,12 @@ validation; missing validators, explicit storage refusals and unsupported source
 stay online. This is transparent reuse, not Downloads or offline mode. The
 [source/rights review](AUDIO_CACHE_REVIEW.md) separates HTTP policy from provider
 terms and content rights. The owner confirmed real first playback/background
-save at `31d873d`; local replay and restart failed with `resource-changed`.
-The revised proof model scopes validators to the logical descriptor object and
-encoding across physical CDN changes, retaining valid records when proof is
-unavailable. Native indicators derive downloading/complete status from AudioCache.
+save at `31d873d`. At `cac4d78`, repeated descriptor-path /
+representation-changed downloads still prevented confirmed local replay.
+The corrected model separates same-version proof, confirmed change and unknown
+equivalence. Logical object equality does not share validator scope across CDN
+replicas; insufficient proof retains the candidate online without another body
+save. Native indicators derive downloading/complete status from AudioCache.
 PR #26 stays Draft and #20 stays open until local replay/restart and indicators
 are accepted. Cloud fixtures do not establish live CDN compatibility or desktop
 acceptance.

@@ -338,8 +338,9 @@ impl RemotePlaybackSource {
 
     /// The descriptor's validated MP3 file locator and encoding are distinct
     /// from its transient signed request address. This binding never proves
-    /// immutability: every local hit additionally needs a fresh strong validator
-    /// and full representation length, or a matching full representation digest.
+    /// immutability or a shared validator scope: an opaque validator additionally
+    /// requires the exact compatible request URI and full length. A complete
+    /// representation digest can independently prove bytes across locators.
     pub(crate) fn http_cache_resource_hash(&self) -> [u8; 32] {
         self.http_resource
             .as_ref()

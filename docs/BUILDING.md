@@ -137,10 +137,10 @@ legal license, Offline Mode or permission to distribute content. See
 
 ## PR #26 corrected-cache acceptance
 
-At `31d873d` the owner confirmed real first playback and independent background
-saving on Fedora Native. Same-track and post-restart local replay failed with
-`resource-changed` and repeated cache downloads. The revised logical-object
-revalidation and graphical indicators need this **one final sequence**, first
+Real first playback and independent background saving on Fedora Native are
+owner-confirmed. At `cac4d78`, replay still repeated descriptor-path /
+representation-changed downloads without a confirmed local hit. Corrected
+validator scoping and retained indicators need this **one final sequence**, first
 Native and then the installed Flatpak built from the same final PR HEAD.
 The earlier `6ec2407` playback failure remains a historical result.
 
@@ -172,10 +172,13 @@ flatpak run io.github.tracerxbrhd.Karin
 3. Replay that track and confirm actual local use: the current-player tooltip
    additionally says **«Воспроизводится из локального кеша»**, or the optional
    finite diagnostic below reports `cache=hit source=local`. The saved icon must
-   stay through access/version checking. A legacy record may need one complete
-   validated binding upgrade; modern records must not redownload merely because
-   a signed address or physical CDN location changed. Missing proof stays online
-   and retains the valid copy; it is not a local-replay PASS.
+   stay through access/version checking. A legacy record receives binding
+   metadata only after positive representation proof, without another full audio
+   GET. Uncomparable CDN validators must retain the candidate and stay online,
+   without repeated background downloads. Missing proof is not a local-replay
+   PASS; identical logical keys alone cannot turn different replicas into a hit.
+   Renewed media URIs require full representation proof; if the actual CDN offers
+   none, report online fallback as such, without counting Saved as local replay.
 4. Close normally without logout, reopen the same build and confirm the saved
    indicator is recovered before playing. Replay with fresh access/version
    checking and require the same actual-local cue. A saved icon, increased usage,
@@ -206,16 +209,26 @@ flatpak run --env=KARIN_AUDIO_CACHE_DIAGNOSTICS=1 io.github.tracerxbrhd.Karin 2>
 | `cache=downloading source=remote reason=full-response` | The bounded whole-response worker started. |
 | `cache=downloaded source=remote reason=download-complete` | Body receipt finished; publication may still fail. |
 | `cache=write-confirmed source=remote reason=complete-response` | The complete checked file was atomically published. |
+| `cache=checking source=remote reason=binding-rebased` | A proved binding was updated in metadata; no audio download occurred. |
 | `cache=hit source=local reason=representation-validated` | Fresh access/version proof admitted the local file. |
 
 Finite checking reasons include `signed-url-changed`, `cdn-host-changed`,
 `descriptor-path-changed`, `encoding-changed` and `logical-object-changed`.
-They distinguish locator/variant changes from `representation-changed` version
-proof. `resource-identity-unverified` or `validators-missing` keeps an unproved
-candidate online; `record-retained` prevents a redundant refill. `binding-upgrade`
-identifies the older-record conversion, not a local hit. No actual hostname,
-path, URL, identifiers, headers, response bodies, token or music belong in logs
-or shared evidence. Preserve the first failure category. A real resource
+They do not themselves establish changed audio. The fixed proof reasons are:
+
+| Reason | Established fact |
+| --- | --- |
+| `content-digest-changed` | The full Repr-Digest differs from the measured saved audio hash. |
+| `representation-length-changed` | The complete selected representation has a different length. |
+| `scoped-validator-changed` | A compatible exact-URI validator invalidates the stored representation version. |
+| `cdn-validators-incomparable` | Validators from different URI/replica scopes cannot establish equivalence or a byte change. |
+| `resource-identity-unverified` / `validators-missing` | No sufficient proof admits the candidate. |
+| `record-retained` | The good candidate remains without a redundant cache-body save. |
+| `representation-validated` | Current access and representation proof admit the local source. |
+
+Binding migration is a positive-proof metadata update, not permission to replace
+the body. No actual hostname, path, URL, identifiers, headers, response bodies,
+token or music belong in logs or shared evidence. Preserve the first failure category. A real resource
 without sufficient scoped or full-digest proof stays online; do not count its
 saved icon as successful replay. This procedure is the final owner check, not a
 new diagnostic-only acceptance stage. Public distribution and offline mode remain

@@ -67,24 +67,28 @@ Neither GTK nor the audio worker waits for storage or a background download.
 ## Local replay and failure
 
 Every replay resolves fresh Music access and verifies the saved representation
-through a bounded credential-free HTTP check. Bind the logical descriptor
-request object and selected encoding separately from physical host/path and
-signed URI. The hashed descriptor origin, full object path and semantic query
-identify that storage object; omit only documented `sign`/`ts` credentials and
-retain unknown parameters. The published MDS chain maps namespace/file to a
-physical replica and can rewrite regional delivery paths. Its timestamp/size
-ETag is scoped to that logical object, not a body MD5 or global checksum; see the
+through a bounded credential-free HTTP check. Keep the logical descriptor
+request/encoding as provenance separately from physical delivery and byte version.
+A logical MDS key does not establish a shared ETag/Last-Modified namespace across
+replicas. The earlier `cac4d78` model overextended that assumption; published
+MDS timestamp/size tags are not global body hashes. See the
 [primary-source analysis](../AUDIO_CACHE_REVIEW.md#private-http-admission-and-resource-validation).
-Scoped strong ETag or Last-Modified plus length can validate the same logical
-object/variant despite a physical locator change. A full representation digest
-can independently establish saved bytes. Track ID, size or presence alone
-remain insufficient; a known different variant must not reuse the wrong copy.
 
-An unproved modern-object change, absent validator or temporary validation
-failure keeps the valid record online without a repeated cache-body refill.
-Legacy records lack the new optional logical binding: a complete validated
-replacement can establish it once, with the old copy retained until publication.
-Confirmed representation/variant changes,
+Only the exact provider media URI, without a known logical/encoding mismatch,
+permits opaque conditional strong-validator/length validation. Legacy XML ts is
+opaque, so even a changed signed wrapper cannot borrow the former URI's tag or
+date. A valid full Repr-Digest plus whole length can independently prove equal
+bytes across locators. Complete-length/full-digest differences, same-scope representation
+version invalidation and a different encoding must be distinguished from mere
+uncomparable replica validators. A bare 304, Track ID, equal size, logical key
+or file presence alone cannot establish a hit.
+
+Model Same, Different and Unknown separately. Same admits only after current
+access and final fences; Different follows the applicable update policy; Unknown
+retains the valid record online without a repeated body refill. Legacy binding
+metadata is rebased only after positive Same proof, atomically, without another
+full media GET. Missing binding or uncomparable replica metadata cannot authorize
+blind replacement. Confirmed representation/variant changes,
 no-store, explicit access/content refusals and corruption retain their scoped
 retirement rules. `no-cache` and `must-revalidate` never permit stale local
 fallback. Cache failure must not turn an admitted stream into a playback error.
@@ -114,8 +118,9 @@ restart; refusal/version change/no-store; timeout/truncated response; Clear,
 logout, corruption, quota/LRU and disk headroom. Record actual HTTP counters,
 GStreamer source, full hash and file identity. These tests do not establish real
 CDN behavior. At `31d873d` the owner confirmed first playback and complete
-background saving on Fedora Native; repeated and post-restart local replay
-failed with `resource-changed`. Earlier failures remain historical results.
+background saving on Fedora Native. At `cac4d78`, descriptor-path /
+representation-changed still caused repeated downloads; no local hit was
+confirmed. Earlier failures remain historical results.
 The revised proof/presence behavior needs the single final
 [Native/installed-Flatpak check](../BUILDING.md#pr-26-corrected-cache-acceptance).
 PR #26 stays Draft; offline listening and public client/content distribution are

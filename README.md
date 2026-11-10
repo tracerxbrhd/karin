@@ -71,17 +71,20 @@ cause or resolution. See [known limitations](docs/LIMITATIONS.md).
 PR #26 provides one cache policy: enabled by default, one 2 GiB allowance,
 combined usage and Clear, with a native slider for 500 MiB, 1/2/3/4 GiB or
 Unlimited. Metadata, artwork and policy-admitted audio share one disk coordinator,
-including in-flight writes. At `31d873d` the owner confirmed real first playback
-and background saving on Fedora Native; local replay and restart failed with
-`resource-changed`. Acceptance of earlier available functions is recorded separately.
+including in-flight writes. The owner confirmed real first playback/background
+saving on Fedora Native. At `cac4d78`, replay still repeated descriptor-path /
+representation-changed downloads; no local hit was confirmed. Acceptance of
+earlier available functions is recorded separately.
 Private HTTP caching queues one bounded complete-response MP3 download alongside
 the existing GStreamer player, independently of Next, Seek and EOS. Only verified
 complete files are published. Each replay obtains fresh Music
 access and delivery information and validates the saved representation before
-selecting its local file. Scoped validators follow the logical storage object
-and encoding, independently of physical CDN placement. Unknown modern-object
-rotation keeps the valid copy online instead of repeatedly replacing it; older
-records can acquire the new binding through a complete validated replacement.
+selecting its local file. A logical object does not make different CDN replicas'
+ETags or modification dates comparable. Conditional validators require the exact
+provider media URI and compatible provenance/encoding; a full digest can prove the
+saved bytes. Missing proof keeps playback online and retains the valid candidate
+without another cache-body download. Legacy binding metadata is updated only
+after positive representation proof, without downloading the same audio again.
 Compact track indicators show actual downloading/complete local records; they
 do not promise offline playback. `no-store`, explicit restrictions and failed
 access retain their fences. This policy does not manufacture a provider

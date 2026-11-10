@@ -93,6 +93,142 @@ fn reservations_account_concurrent_writers_and_release_on_cancel() {
     drop(next);
 }
 #[test]
+fn sidecar_update_protects_its_existing_audio_during_admission_and_later_eviction() {
+    let f = Fixture::new();
+    let b = f.budget(Some(500));
+    let target = f.audio(1, 100);
+    let victim = f.audio(2, 100);
+    for (path, age) in [(&target, 1), (&victim, 2)] {
+        File::open(path)
+            .unwrap()
+            .set_times(
+                fs::FileTimes::new()
+                    .set_modified(SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(age)),
+            )
+            .unwrap();
+    }
+    let ticket = b.reserve_update(Category::Audio, &target, 80).unwrap();
+    assert!(
+        target.exists(),
+        "the update must not evict its oldest target"
+    );
+    assert!(!victim.exists(), "ordinary other records remain evictable");
+    assert_eq!(fs::read(target.join("media.bin")).unwrap(), vec![0; 100]);
+    // A smaller policy fences the ticket but does not let maintenance remove
+    // its target while the sidecar owner is still unwinding its operation.
+    b.configure(true, Some(1)).unwrap();
+    assert!(matches!(b.trim(), Err(BudgetError::Limit)));
+    assert!(target.exists());
+    assert!(matches!(ticket.finish(80), Err(BudgetError::Cancelled)));
+    assert_eq!(b.trim().unwrap().bytes, 0);
+    assert!(!target.exists());
+}
+#[test]
+fn sidecar_update_reserves_only_temporary_bytes_and_reports_actual_replaced_size() {
+    let f = Fixture::new();
+    let b = f.budget(Some(400));
+    let target = f.audio(1, 100);
+    let http = target.join("http");
+    fs::write(&http, vec![1; 20]).unwrap();
+    fs::set_permissions(&http, fs::Permissions::from_mode(0o600)).unwrap();
+    let original_media = fs::metadata(target.join("media.bin")).unwrap();
+    assert_eq!(b.usage().unwrap().bytes, 232);
+    let ticket = b.reserve_update(Category::Audio, &target, 40).unwrap();
+    let staging = f.0.join("audio").join(format!(".part-{}", "a".repeat(32)));
+    fs::DirBuilder::new().mode(0o700).create(&staging).unwrap();
+    let next = staging.join("http");
+    fs::write(&next, vec![2; 40]).unwrap();
+    fs::set_permissions(&next, fs::Permissions::from_mode(0o600)).unwrap();
+    assert_eq!(b.usage().unwrap().bytes, 272);
+    fs::rename(next, &http).unwrap();
+    fs::remove_dir(staging).unwrap();
+    ticket.finish(40).unwrap();
+    assert_eq!(b.usage().unwrap().bytes, 252);
+    assert_eq!(b.usage().unwrap().entries, 1);
+    assert_eq!(fs::read(http).unwrap(), vec![2; 40]);
+    let current_media = fs::metadata(target.join("media.bin")).unwrap();
+    assert_eq!(original_media.ino(), current_media.ino());
+    assert_eq!(original_media.dev(), current_media.dev());
+}
+#[test]
+fn sidecar_update_holds_shared_allowance_without_sacrificing_the_candidate() {
+    let f = Fixture::new();
+    let b = f.budget(Some(500));
+    let target = f.audio(1, 100);
+    let future = f.0.join("audio").join("2".repeat(64));
+    let ticket = b.reserve_update(Category::Audio, &target, 80).unwrap();
+    assert!(matches!(
+        b.reserve(Category::Audio, &future, 300),
+        Err(BudgetError::Limit)
+    ));
+    assert!(target.exists());
+    drop(ticket);
+    let other = b.reserve(Category::Audio, &future, 300).unwrap();
+    assert!(!target.exists());
+    drop(other);
+    let target = f.audio(3, 100);
+    b.configure(true, Some(300)).unwrap();
+    assert!(matches!(
+        b.reserve_update(Category::Audio, &target, 80),
+        Err(BudgetError::Limit)
+    ));
+    assert!(
+        target.exists(),
+        "a refused update must retain the candidate"
+    );
+}
+#[test]
+fn sidecar_update_rejects_missing_unsafe_and_busy_targets_without_waiting() {
+    let f = Fixture::new();
+    let b = f.budget(None);
+    let target = f.audio(1, 100);
+    let missing = f.0.join("audio").join("2".repeat(64));
+    assert!(matches!(
+        b.reserve_update(Category::Audio, &missing, 40),
+        Err(BudgetError::Unavailable)
+    ));
+    for (category, size) in [
+        (Category::Metadata, 40),
+        (Category::Audio, 0),
+        (Category::Audio, 8193),
+    ] {
+        assert!(matches!(
+            b.reserve_update(category, &target, size),
+            Err(BudgetError::InvalidInput)
+        ));
+    }
+    let outside = f.0.join("keep");
+    fs::DirBuilder::new().mode(0o700).create(&outside).unwrap();
+    fs::write(outside.join("personal"), b"keep").unwrap();
+    let linked = f.0.join("audio").join("3".repeat(64));
+    symlink(&outside, &linked).unwrap();
+    assert!(matches!(
+        b.reserve_update(Category::Audio, &linked, 40),
+        Err(BudgetError::Unavailable)
+    ));
+    let io = b.io.lock().unwrap();
+    assert!(matches!(
+        b.reserve_update(Category::Audio, &target, 40),
+        Err(BudgetError::Unavailable)
+    ));
+    assert!(target.exists());
+    assert_eq!(fs::read(outside.join("personal")).unwrap(), b"keep");
+    drop(io);
+    assert!(b.reserve_update(Category::Audio, &target, 40).is_ok());
+    b.configure(false, None).unwrap();
+    assert!(matches!(
+        b.reserve_update(Category::Audio, &target, 40),
+        Err(BudgetError::Disabled)
+    ));
+    b.configure(true, None).unwrap();
+    *b.available.lock().unwrap() = Some((64 * MIB + 32, 1000 * MIB));
+    assert!(matches!(
+        b.reserve_update(Category::Audio, &target, 40),
+        Err(BudgetError::Limit)
+    ));
+    assert!(target.exists());
+}
+#[test]
 fn changing_policy_fences_late_publication_and_disable_is_immediate() {
     let f = Fixture::new();
     let b = f.budget(Some(500));

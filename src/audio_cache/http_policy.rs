@@ -30,8 +30,14 @@ pub(crate) enum Reason {
     PartialResponse,
     VaryUnsupported,
     ValidatorsMissing,
+    #[cfg(test)]
     RepresentationChanged,
+    #[cfg(test)]
     ResourceChanged,
+    ContentChanged,
+    LengthChanged,
+    ScopedValidatorChanged,
+    ValidatorsIncomparable,
     IdentityUnverified,
     EncodingChanged,
     DigestMismatch,
@@ -58,8 +64,14 @@ impl Reason {
             Self::PartialResponse => "partial-response",
             Self::VaryUnsupported => "vary-unsupported",
             Self::ValidatorsMissing => "validators-missing",
+            #[cfg(test)]
             Self::RepresentationChanged => "representation-changed",
+            #[cfg(test)]
             Self::ResourceChanged => "resource-changed",
+            Self::ContentChanged => "content-digest-changed",
+            Self::LengthChanged => "representation-length-changed",
+            Self::ScopedValidatorChanged => "scoped-validator-changed",
+            Self::ValidatorsIncomparable => "cdn-validators-incomparable",
             Self::IdentityUnverified => "resource-identity-unverified",
             Self::EncodingChanged => "encoding-changed",
             Self::DigestMismatch => "digest-mismatch",
@@ -148,6 +160,16 @@ impl fmt::Debug for Metadata {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("PrivateHttpMetadata([redacted])")
     }
+}
+
+/// Representation equivalence is distinct from a failed operational/policy
+/// check. Unproven keeps a verified candidate without authorizing local use or
+/// claiming that its audio bytes changed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Validation {
+    Same(Box<Metadata>),
+    Different(Reason),
+    Unproven(Reason),
 }
 
 impl ResponsePolicy {
@@ -359,32 +381,26 @@ impl ResponsePolicy {
         &self,
         stored: &Metadata,
         remote: &crate::playback::RemotePlaybackSource,
-    ) -> Result<(), Reason> {
+    ) -> Result<Validation, Reason> {
+        stored.validate()?;
         if stored
             .binding
             .zip(remote.http_cache_binding())
             .is_some_and(|(before, now)| before.variant != now.variant)
         {
-            return Err(Reason::EncodingChanged);
+            return Ok(Validation::Different(Reason::EncodingChanged));
         }
         self.revalidate_scoped(
             stored,
             remote.http_cache_uri_hash(),
             remote.http_cache_resource_hash(),
-            Some(stored.validator_scope(remote)),
+            remote.http_cache_binding(),
+            stored.validator_scope(remote),
         )
-        .map_err(|reason| {
-            if reason == Reason::ResourceChanged {
-                Reason::IdentityUnverified
-            } else {
-                reason
-            }
-        })
     }
 
-    /// Validate a newly admitted response without downloading its full body.
-    /// A digest covers the complete selected representation, including on HEAD
-    /// and partial responses; Content-Digest is intentionally never used here.
+    /// Numeric-hash test compatibility for the original policy fixtures. The
+    /// production path always carries the sealed descriptor dimensions above.
     #[cfg(test)]
     pub(crate) fn revalidate(
         &self,
@@ -392,7 +408,22 @@ impl ResponsePolicy {
         uri_hash: [u8; 32],
         resource_hash: [u8; 32],
     ) -> Result<(), Reason> {
-        self.revalidate_scoped(stored, uri_hash, resource_hash, None)
+        match self.revalidate_scoped(
+            stored,
+            uri_hash,
+            resource_hash,
+            None,
+            uri_hash == stored.uri_hash && resource_hash == stored.resource_hash,
+        )? {
+            Validation::Same(_) => Ok(()),
+            Validation::Different(
+                Reason::ContentChanged | Reason::LengthChanged | Reason::ScopedValidatorChanged,
+            ) => Err(Reason::RepresentationChanged),
+            Validation::Unproven(Reason::IdentityUnverified | Reason::ValidatorsIncomparable) => {
+                Err(Reason::ResourceChanged)
+            }
+            Validation::Different(reason) | Validation::Unproven(reason) => Err(reason),
+        }
     }
 
     fn revalidate_scoped(
@@ -400,9 +431,32 @@ impl ResponsePolicy {
         stored: &Metadata,
         uri_hash: [u8; 32],
         resource_hash: [u8; 32],
-        scoped: Option<bool>,
-    ) -> Result<(), Reason> {
+        binding: Option<ResourceBinding>,
+        comparable: bool,
+    ) -> Result<Validation, Reason> {
         stored.validate()?;
+        // A 304 only describes a conditional request for a selectable stored
+        // response. It cannot bootstrap a new URI/replica from a coincidental
+        // tag or even an unsolicited digest header.
+        if self.status == 304 {
+            if !comparable {
+                return Ok(Validation::Unproven(Reason::UnsupportedValidator));
+            }
+            let matched = if let Some(before) = &stored.etag {
+                match &self.etag {
+                    Some(now) if before == now => true,
+                    Some(_) => return Ok(Validation::Unproven(Reason::UnsupportedValidator)),
+                    None => return Ok(Validation::Unproven(Reason::ValidatorsMissing)),
+                }
+            } else if stored.strong_modified() {
+                self.strong_modified() && self.modified_unix == stored.modified_unix
+            } else {
+                return Ok(Validation::Unproven(Reason::UnsupportedValidator));
+            };
+            if !matched {
+                return Ok(Validation::Unproven(Reason::UnsupportedValidator));
+            }
+        }
         let length = match (self.status, self.range) {
             (200, None) if self.mp3 => self.length,
             (206, Some((0, 0, total))) if self.mp3 && self.length == Some(1) => Some(total),
@@ -415,42 +469,120 @@ impl ResponsePolicy {
             _ => return Err(Reason::PartialResponse),
         };
         if length.is_some_and(|n| n != stored.bytes) {
-            return Err(Reason::RepresentationChanged);
+            return Ok(if self.status == 304 {
+                Validation::Unproven(Reason::UnsupportedValidator)
+            } else {
+                Validation::Different(Reason::LengthChanged)
+            });
         }
         if let Some(digest) = self.repr_sha256 {
             if digest != stored.sha256 {
-                return Err(Reason::RepresentationChanged);
+                return Ok(if self.status == 304 {
+                    Validation::Unproven(Reason::UnsupportedValidator)
+                } else {
+                    Validation::Different(Reason::ContentChanged)
+                });
             }
-            // A HEAD/range response must establish the full representation's
-            // size. 304 can retain its known length only on the same URI.
+            // A HEAD/range response establishes the whole selected length.
+            // Only a scoped conditional 304 on the exact URI can retain it.
             if length == Some(stored.bytes) || self.status == 304 && uri_hash == stored.uri_hash {
-                return Ok(());
+                return Ok(Validation::Same(Box::new(self.refreshed(
+                    stored,
+                    uri_hash,
+                    resource_hash,
+                    binding,
+                )?)));
             }
         }
-        if !scoped.unwrap_or(uri_hash == stored.uri_hash || resource_hash == stored.resource_hash) {
-            return Err(Reason::ResourceChanged);
+        if !comparable {
+            let old_opaque = stored.etag.is_some() || stored.last_modified.is_some();
+            let new_opaque = self.etag.is_some() || self.last_modified.is_some();
+            return Ok(Validation::Unproven(if old_opaque && new_opaque {
+                Reason::ValidatorsIncomparable
+            } else {
+                Reason::IdentityUnverified
+            }));
         }
         if self.status != 304 && length.is_none() {
             return Err(Reason::InvalidLength);
         }
-        if let (Some(before), Some(now)) = (&stored.etag, &self.etag) {
-            return if before == now {
-                Ok(())
+        let same = if let (Some(before), Some(now)) = (&stored.etag, &self.etag) {
+            before == now
+        } else if stored.strong_modified() && self.strong_modified() {
+            // Both observations must independently meet RFC9110's conservative
+            // strong Last-Modified inference and share the proven resource.
+            self.modified_unix == stored.modified_unix
+        } else {
+            return Ok(Validation::Unproven(Reason::ValidatorsMissing));
+        };
+        if !same {
+            return Ok(if self.status == 304 {
+                // A contradictory Not Modified response is not proof of either
+                // version. Do not replace data based on an invalid response.
+                Validation::Unproven(Reason::UnsupportedValidator)
             } else {
-                Err(Reason::RepresentationChanged)
-            };
+                Validation::Different(Reason::ScopedValidatorChanged)
+            });
         }
-        // RFC9110's conservative strong Last-Modified inference: the origin's
-        // Date is at least 60 seconds newer. Require this for both observations,
-        // the same resource and the same date, never a bare weak 304 response.
-        if stored.strong_modified() && self.strong_modified() {
-            return if self.modified_unix == stored.modified_unix {
-                Ok(())
-            } else {
-                Err(Reason::RepresentationChanged)
-            };
+        Ok(Validation::Same(Box::new(self.refreshed(
+            stored,
+            uri_hash,
+            resource_hash,
+            binding,
+        )?)))
+    }
+
+    /// Rebind only after positive byte/version proof. A digest-bridged new
+    /// replica receives its own validators; old opaque tags never migrate into
+    /// that scope. A valid same-scope304 may retain omitted stored metadata.
+    fn refreshed(
+        &self,
+        stored: &Metadata,
+        uri_hash: [u8; 32],
+        resource_hash: [u8; 32],
+        binding: Option<ResourceBinding>,
+    ) -> Result<Metadata, Reason> {
+        let mut current = Metadata {
+            uri_hash,
+            resource_hash,
+            binding,
+            sha256: stored.sha256,
+            bytes: stored.bytes,
+            etag: self.etag.clone(),
+            last_modified: self
+                .strong_modified()
+                .then(|| self.last_modified.clone())
+                .flatten(),
+            modified_unix: self
+                .strong_modified()
+                .then_some(self.modified_unix)
+                .flatten(),
+            date_unix: self.date_unix,
+            directives: self.directives.clone(),
+        };
+        if self.status == 304 {
+            current.etag = current.etag.or_else(|| stored.etag.clone());
+            if current.last_modified.is_none() {
+                current.last_modified = stored.last_modified.clone();
+                current.modified_unix = stored.modified_unix;
+                current.date_unix = stored.date_unix;
+            }
+            // Preserve stricter absent metadata on a 304; never turn an old
+            // revalidation requirement into a fresh/offline permission.
+            current.directives.no_cache |= stored.directives.no_cache;
+            current.directives.must_revalidate |= stored.directives.must_revalidate;
+            current.directives.private |= stored.directives.private;
+            current.directives.vary_accept_encoding |= stored.directives.vary_accept_encoding;
+            current.directives.max_age = current.directives.max_age.or(stored.directives.max_age);
+            current.directives.s_maxage =
+                current.directives.s_maxage.or(stored.directives.s_maxage);
+            current.directives.expires_unix = current
+                .directives
+                .expires_unix
+                .or(stored.directives.expires_unix);
         }
-        Err(Reason::ValidatorsMissing)
+        current.validate()?;
+        Ok(current)
     }
 
     fn strong_modified(&self) -> bool {
@@ -459,24 +591,25 @@ impl ResponsePolicy {
 }
 
 impl Metadata {
-    /// Opaque validators are compared only within an established object/variant
-    /// scope. A known different logical object cannot fall back to coincidental
-    /// physical placement or a reused opaque ETag. Legacy records retain their
-    /// conservative exact-request/physical-locator rule until an upgrade.
+    /// A logical object or physical locator does not establish one validator
+    /// namespace across different request URIs. The deployed legacy signing
+    /// timestamp is opaque; only an exact provider request may carry the old
+    /// conditional. Resource/variant checks additionally protect legacy records.
     pub(crate) fn validator_scope(&self, remote: &crate::playback::RemotePlaybackSource) -> bool {
-        if let Some((before, now)) = self.binding.zip(remote.http_cache_binding()) {
-            if before.variant != now.variant {
-                return false;
-            }
-            if let Some((before, now)) = before.logical.zip(now.logical) {
-                return before == now;
-            }
+        if let Some((before, now)) = self.binding.zip(remote.http_cache_binding())
+            && (before.variant != now.variant
+                || before
+                    .logical
+                    .zip(now.logical)
+                    .is_some_and(|(before, now)| before != now))
+        {
+            return false;
         }
         self.uri_hash == remote.http_cache_uri_hash()
-            || self.resource_hash == remote.http_cache_resource_hash()
+            && self.resource_hash == remote.http_cache_resource_hash()
     }
 
-    fn strong_modified(&self) -> bool {
+    pub(crate) fn strong_modified(&self) -> bool {
         strong_modified(self.modified_unix, self.date_unix)
     }
 

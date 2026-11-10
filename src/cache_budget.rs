@@ -135,6 +135,36 @@ impl CacheBudget {
             return Err(BudgetError::InvalidInput);
         }
         let _io = self.io.lock().map_err(|_| BudgetError::Unavailable)?;
+        self.reserve_locked(category, path, upper, false)
+    }
+    /// Opportunistic replacement of an existing audio HTTP sidecar. Reserve
+    /// only its bounded temporary bytes, while retaining the completed record
+    /// as an eviction-protected candidate for the lifetime of the ticket.
+    /// Callers retain the ticket through publication and finish with the new
+    /// sidecar's length, not the size of the whole audio record.
+    pub(crate) fn reserve_update(
+        self: &Arc<Self>,
+        category: Category,
+        path: &Path,
+        upper: u64,
+    ) -> Result<Reservation> {
+        if category != Category::Audio
+            || upper == 0
+            || upper > 8192
+            || !self.record_path(category, path)
+        {
+            return Err(BudgetError::InvalidInput);
+        }
+        let _io = self.io.try_lock().map_err(|_| BudgetError::Unavailable)?;
+        self.reserve_locked(category, path, upper, true)
+    }
+    fn reserve_locked(
+        self: &Arc<Self>,
+        category: Category,
+        path: &Path,
+        upper: u64,
+        protect_existing: bool,
+    ) -> Result<Reservation> {
         let (generation, limit, pending) = {
             let s = self.state.lock().map_err(|_| BudgetError::Unavailable)?;
             if !s.enabled {
@@ -155,6 +185,14 @@ impl CacheBudget {
             .ok_or(BudgetError::Limit)?;
         self.disk_room(reserved)?;
         let mut scan = self.scan()?;
+        if protect_existing
+            && !scan
+                .records
+                .iter()
+                .any(|record| record.path == path && record.category == category)
+        {
+            return Err(BudgetError::Unavailable);
+        }
         // Large in-flight audio must leave admission room for small metadata.
         // This is a protected floor inside the ONE quota, never a second quota.
         let floor = if category == Category::Audio
@@ -183,11 +221,22 @@ impl CacheBudget {
                 0
             });
         let held_floor = floor.saturating_sub(small);
+        let mut protected = pending;
+        if protect_existing {
+            // The new ticket is installed only after eviction succeeds. Its
+            // target must nevertheless already be protected during this scan.
+            // Zero bytes avoids counting the staged sidecar reservation twice.
+            protected.push(Pending {
+                path: path.to_owned(),
+                bytes: 0,
+                category,
+            });
+        }
         self.evict(
             &mut scan,
             limit,
             reserved.saturating_add(held_floor),
-            &pending,
+            &protected,
             Some(category),
         )?;
         let mut s = self.state.lock().map_err(|_| BudgetError::Unavailable)?;

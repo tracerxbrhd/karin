@@ -64,7 +64,6 @@ struct OriginalServer {
     changed: Arc<AtomicBool>,
     etag_revision: Arc<AtomicU64>,
     no_validator: Arc<AtomicBool>,
-    timestamp: Arc<AtomicU64>,
     stop: Arc<AtomicBool>,
     handle: Option<thread::JoinHandle<()>>,
 }
@@ -157,7 +156,6 @@ impl OriginalServer {
             changed,
             etag_revision,
             no_validator,
-            timestamp,
             stop,
             handle: Some(handle),
         }
@@ -607,10 +605,9 @@ fn native_audio_cache_application_process_restart() {
     assert_eq!(files.len(), 1);
     assert_original_file(&files[0], &input);
     let inode = fs::metadata(&files[0]).unwrap().ino();
-    // A new signed wrapper is not itself a new audio version. The fresh
-    // descriptor still identifies the same origin/path/encoding; the server
-    // must positively confirm its strong ETag before any local replay.
-    server.timestamp.fetch_add(1, Ordering::AcqRel);
+    // This baseline restart returns the exact stored provider URI and freshly
+    // validates its opaque ETag. Signed-URI changes need independent byte proof
+    // and are exercised separately by the replica-validator application cases.
     let restart = run_phase(&input_path, "restart", &directory.0);
     assert_ne!(
         first.pid, restart.pid,

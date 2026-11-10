@@ -60,14 +60,15 @@ fn descriptor_binding_distinguishes_file_and_encoding_from_temporary_signature_a
             3,
         )
         .unwrap();
-    assert!(
-        policy
-            .revalidate(
-                &stored,
-                renewed.http_cache_uri_hash(),
-                renewed.http_cache_resource_hash()
-            )
-            .is_ok()
+    // The URI includes an opaque legacy timestamp. A stable physical locator
+    // is not permission to compare its ETag across distinct signed requests.
+    assert_eq!(
+        policy.revalidate(
+            &stored,
+            renewed.http_cache_uri_hash(),
+            renewed.http_cache_resource_hash()
+        ),
+        Err(crate::audio_cache::http_policy::Reason::ResourceChanged)
     );
     assert_eq!(
         policy.revalidate(
@@ -101,7 +102,7 @@ fn descriptor_binding_distinguishes_file_and_encoding_from_temporary_signature_a
             renewed.http_cache_uri_hash(),
             renewed.http_cache_resource_hash()
         ),
-        Err(crate::audio_cache::http_policy::Reason::RepresentationChanged)
+        Err(crate::audio_cache::http_policy::Reason::ResourceChanged)
     );
     let visible = format!("{renewed:?}");
     assert!(!visible.contains("synthetic-resource") && !visible.contains("get-mp3"));

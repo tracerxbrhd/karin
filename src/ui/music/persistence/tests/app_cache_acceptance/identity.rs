@@ -8,10 +8,11 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 
 mod presence;
 
-const CASES: [&str; 13] = [
+const CASES: [&str; 17] = [
     "identity-first",
-    "identity-upgrade-failed",
-    "identity-upgrade",
+    "identity-legacy-unproved",
+    "identity-legacy-upgrade",
+    "identity-rebased",
     "identity-signed",
     "identity-host",
     "identity-path",
@@ -22,6 +23,9 @@ const CASES: [&str; 13] = [
     "identity-variant",
     "identity-codec",
     "identity-denied",
+    "identity-lm-first",
+    "identity-lm-replica",
+    "identity-lm-repeat",
 ];
 
 #[derive(Clone)]
@@ -33,6 +37,7 @@ struct Mode {
     version: u8,
     bitrate: u32,
     digest: bool,
+    modified_only: bool,
     codec: &'static str,
     denied: bool,
     broken_background: bool,
@@ -48,6 +53,7 @@ impl Default for Mode {
             version: 1,
             bitrate: 128,
             digest: false,
+            modified_only: false,
             codec: "mp3",
             denied: false,
             broken_background: false,
@@ -62,6 +68,9 @@ struct Wire {
     descriptors: u64,
     heads: u64,
     conditional_heads: u64,
+    etag_conditionals: u64,
+    modified_conditionals: u64,
+    not_modified: u64,
     native_gets: u64,
     background_gets: u64,
     media_bytes: u64,
@@ -193,6 +202,26 @@ impl Drop for Server {
 }
 fn track(id: &str) -> serde_json::Value {
     json!({"id":id,"title":format!("Original permitted audio {id}"),"durationMs":6000,"available":true,"artists":[{"id":7,"name":"Karin original fixture"}]})
+}
+fn replica_etag(mode: &Mode) -> Option<String> {
+    (!mode.modified_only).then(|| {
+        // A replica-local opaque tag is deliberately independent of the audio
+        // hash. Identical bytes on another placement have a different tag.
+        format!(
+            "\"original-replica-{}-{}-version-{}\"",
+            u8::from(mode.host),
+            mode.path,
+            mode.version
+        )
+    })
+}
+fn replica_modified(mode: &Mode) -> &'static str {
+    match (mode.host, mode.path) {
+        (false, 0) => "Mon, 01 Jan 2024 00:00:00 GMT",
+        (true, 1) => "Tue, 02 Jan 2024 00:00:00 GMT",
+        (false, 1) => "Wed, 03 Jan 2024 00:00:00 GMT",
+        _ => "Thu, 04 Jan 2024 00:00:00 GMT",
+    }
 }
 #[allow(clippy::too_many_arguments)]
 fn serve(
@@ -339,16 +368,17 @@ fn serve(
             let is_head = first[0] == "HEAD";
             let background = !is_head && header("cache-control") == Some("no-cache");
             let bytes = &media[usize::from(m.version - 1)];
-            let etag = match m.version {
-                1 => "\"scoped-original-version-1\"",
-                2 => "\"scoped-original-version-2\"",
-                _ => "\"scoped-original-version-3\"",
-            };
+            let etag = replica_etag(&m);
+            let modified = replica_modified(&m);
             {
                 let mut c = counts.lock().unwrap();
                 if is_head {
                     c.heads += 1;
-                    c.conditional_heads += u64::from(header("if-none-match").is_some());
+                    let etag_conditional = header("if-none-match").is_some();
+                    let modified_conditional = header("if-modified-since").is_some();
+                    c.conditional_heads += u64::from(etag_conditional || modified_conditional);
+                    c.etag_conditionals += u64::from(etag_conditional);
+                    c.modified_conditionals += u64::from(modified_conditional);
                 } else if background {
                     c.background_gets += 1;
                 } else {
@@ -367,7 +397,13 @@ fn serve(
                 );
                 return;
             }
-            let not_modified = is_head && header("if-none-match") == Some(etag);
+            let not_modified = is_head
+                && if let Some(condition) = header("if-none-match") {
+                    etag.as_deref() == Some(condition)
+                } else {
+                    header("if-modified-since") == Some(modified)
+                };
+            counts.lock().unwrap().not_modified += u64::from(not_modified);
             let status = if not_modified {
                 "304 Not Modified"
             } else {
@@ -375,9 +411,12 @@ fn serve(
             };
             let _ = write!(
                 stream,
-                "HTTP/1.1 {status}\r\nContent-Type: audio/mpeg\r\nContent-Length: {}\r\nETag: {etag}\r\nCache-Control: private, no-cache, must-revalidate\r\nAccept-Ranges: bytes\r\nConnection: close\r\n",
+                "HTTP/1.1 {status}\r\nContent-Type: audio/mpeg\r\nContent-Length: {}\r\nLast-Modified: {modified}\r\nDate: Wed, 10 Jan 2024 00:00:00 GMT\r\nCache-Control: private, no-cache, must-revalidate\r\nAccept-Ranges: bytes\r\nConnection: close\r\n",
                 bytes.len()
             );
+            if let Some(etag) = etag {
+                let _ = write!(stream, "ETag: {etag}\r\n");
+            }
             if m.digest {
                 let _ = write!(
                     stream,
@@ -432,6 +471,42 @@ fn assert_saved(input: &Input, inode: Option<u64>) {
     }
 }
 
+fn cached_metadata(input: &Input) -> Option<Metadata> {
+    let records = media_files(&audio_root(input));
+    assert!(records.len() <= 1);
+    records.first().map(|path| {
+        Metadata::decode(&fs::read(path.parent().unwrap().join("http")).unwrap()).unwrap()
+    })
+}
+
+fn retained_candidate(phase: &str) -> bool {
+    matches!(
+        phase,
+        "identity-legacy-unproved"
+            | "identity-host"
+            | "identity-path"
+            | "identity-unknown"
+            | "identity-unknown-restart"
+            | "identity-lm-replica"
+    )
+}
+fn cached_phase(phase: &str) -> bool {
+    matches!(
+        phase,
+        "identity-legacy-upgrade"
+            | "identity-rebased"
+            | "identity-signed"
+            | "identity-digest"
+            | "identity-lm-repeat"
+    )
+}
+fn first_save(phase: &str) -> bool {
+    matches!(phase, "identity-first" | "identity-lm-first")
+}
+fn repeat_unproved(phase: &str) -> bool {
+    matches!(phase, "identity-legacy-unproved" | "identity-unknown")
+}
+
 pub(super) fn run_parent() {
     let directory = Directory::new();
     for kind in ["config", "cache", "data", "state"] {
@@ -444,30 +519,64 @@ pub(super) fn run_parent() {
     let path = directory.0.join("replay-input.json");
     let mut reports = Vec::new();
     let mut original_inode = 0;
+    let mut stored_mode: Option<Mode> = None;
     for phase in CASES {
-        if phase == "identity-upgrade-failed" {
+        if phase == "identity-legacy-unproved" {
             let input = make_input(&directory.0, &server);
             let http = record(&input).parent().unwrap().join("http");
             let mut metadata = Metadata::decode(&fs::read(&http).unwrap()).unwrap();
             metadata.binding = None;
             fs::write(http, metadata.encode().unwrap()).unwrap();
         }
-        {
+        let current_mode = {
             let mut m = server.mode.lock().unwrap();
             m.timestamp += 1;
             match phase {
-                "identity-upgrade-failed" => {
+                "identity-legacy-unproved" => {
                     m.host = true;
                     m.path = 1;
-                    m.broken_background = true;
                 }
-                "identity-upgrade" => m.broken_background = false,
-                "identity-host" => m.host = false,
+                "identity-legacy-upgrade" => m.digest = true,
+                "identity-rebased" => {
+                    // Return the exact URI established by the metadata-only
+                    // upgrade. A new replica's tag must not be replaced with
+                    // the old replica tag when the binding is refreshed.
+                    *m = stored_mode.clone().unwrap();
+                    m.digest = false;
+                }
+                "identity-signed" => m.digest = true,
+                "identity-host" => {
+                    m.host = false;
+                    m.digest = false;
+                }
                 "identity-path" => m.path = 2,
-                "identity-unknown" | "identity-unknown-restart" => m.object = true,
-                "identity-digest" => m.digest = true,
+                "identity-unknown" => {
+                    // Same opaque tag as the saved replica, but a different
+                    // logical object and a new signed URI prove nothing.
+                    let saved = stored_mode.as_ref().unwrap();
+                    m.host = saved.host;
+                    m.path = saved.path;
+                    m.object = !saved.object;
+                }
+                "identity-unknown-restart" => {
+                    // Matching bytes/tags and physical placement still do not
+                    // prove a newly signed provider URI without full digest.
+                    let timestamp = m.timestamp;
+                    *m = stored_mode.clone().unwrap();
+                    m.timestamp = timestamp;
+                    m.digest = false;
+                }
+                "identity-digest" => {
+                    let saved = stored_mode.as_ref().unwrap();
+                    m.host = !saved.host;
+                    m.path = 2;
+                    m.object = !saved.object;
+                    m.digest = true;
+                }
                 "identity-version" => {
-                    m.object = false;
+                    // A real content/version change at the stored exact URI,
+                    // not incomparable tags at different replica addresses.
+                    *m = stored_mode.clone().unwrap();
                     m.digest = false;
                     m.version = 2;
                 }
@@ -480,13 +589,30 @@ pub(super) fn run_parent() {
                     m.codec = "mp3";
                     m.denied = true;
                 }
+                "identity-lm-first" => {
+                    let timestamp = m.timestamp;
+                    *m = Mode::default();
+                    m.timestamp = timestamp;
+                    m.modified_only = true;
+                }
+                "identity-lm-replica" => {
+                    m.host = true;
+                    m.path = 1;
+                }
+                "identity-lm-repeat" => {
+                    // The retained original LM-only candidate can still be
+                    // proved when its exact resource URI returns after restart.
+                    *m = stored_mode.clone().unwrap();
+                }
                 _ => {}
             }
-        }
+            m.clone()
+        };
         let input = make_input(&directory.0, &server);
         fs::write(&path, serde_json::to_vec(&input).unwrap()).unwrap();
         let before = server.counts();
         let before_files = file_facts(&input);
+        let before_metadata = cached_metadata(&input);
         let result = run_phase(&path, phase, &directory.0);
         let after = server.counts();
         let extra: serde_json::Value =
@@ -496,13 +622,15 @@ pub(super) fn run_parent() {
         assert_eq!(extra["pid"], result.pid);
         assert_eq!(extra["passed"], true);
         let (native, background) = match phase {
-            "identity-first"
-            | "identity-upgrade-failed"
-            | "identity-upgrade"
-            | "identity-version"
-            | "identity-variant" => (1, 1),
-            "identity-unknown" => (2, 0),
-            "identity-unknown-restart" | "identity-denied" => (1, 0),
+            "identity-first" | "identity-version" | "identity-variant" | "identity-lm-first" => {
+                (1, 1)
+            }
+            "identity-legacy-unproved" | "identity-unknown" => (2, 0),
+            "identity-host"
+            | "identity-path"
+            | "identity-unknown-restart"
+            | "identity-denied"
+            | "identity-lm-replica" => (1, 0),
             _ => (0, 0),
         };
         assert_eq!(
@@ -515,42 +643,111 @@ pub(super) fn run_parent() {
             background,
             "background transfer count for {phase}"
         );
+        let offers = if repeat_unproved(phase) { 2 } else { 1 };
+        let descriptors = if phase == "identity-codec" { 0 } else { offers };
+        let heads = if first_save(phase) || phase == "identity-codec" {
+            0
+        } else {
+            offers
+        };
+        assert_eq!(after.account - before.account, 1);
+        assert_eq!(after.offers - before.offers, offers);
+        assert_eq!(after.descriptors - before.descriptors, descriptors);
+        assert_eq!(
+            after.heads - before.heads,
+            heads,
+            "every reused candidate needs a real current HTTP validation for {phase}"
+        );
+        let media_bytes = if phase == "identity-denied" {
+            0
+        } else {
+            (native + background) * input.bytes
+        };
+        assert_eq!(
+            after.media_bytes - before.media_bytes,
+            media_bytes,
+            "exact audio response bytes for {phase}"
+        );
+        let after_metadata = cached_metadata(&input);
+        let metadata_unchanged = before_metadata == after_metadata;
         if phase == "identity-denied" {
             assert!(media_files(&audio_root(&input)).is_empty());
         } else {
-            let old = matches!(
-                phase,
-                "identity-upgrade-failed"
-                    | "identity-signed"
-                    | "identity-host"
-                    | "identity-path"
-                    | "identity-unknown"
-                    | "identity-unknown-restart"
-                    | "identity-digest"
-                    | "identity-codec"
-            );
-            assert_saved(&input, old.then_some(original_inode));
-            if !old {
+            let unchanged =
+                !first_save(phase) && !matches!(phase, "identity-version" | "identity-variant");
+            assert_saved(&input, unchanged.then_some(original_inode));
+            if !unchanged {
                 original_inode = fs::metadata(record(&input)).unwrap().ino();
             }
         }
-        if matches!(phase, "identity-signed" | "identity-host" | "identity-path") {
-            assert_eq!(
-                after.conditional_heads - before.conditional_heads,
-                1,
-                "ETag must be scoped to the stable logical object"
+        if retained_candidate(phase) {
+            assert!(
+                metadata_unchanged,
+                "unproved relocation must not rebind cached validators"
             );
-        }
-        if matches!(
-            phase,
-            "identity-unknown" | "identity-unknown-restart" | "identity-digest"
-        ) {
             assert_eq!(
                 after.conditional_heads, before.conditional_heads,
-                "a coincidentally equal tag on a different object is not a conditional validator"
+                "independent resources have no common opaque validator scope"
             );
         }
-        reports.push(json!({"phase":phase,"pid":result.pid,"passed":true,"source":result.first_source,"replay":result.replay_source,"before":before,"after":after,"before_files":before_files,"after_files":file_facts(&input),"expected_bytes":input.bytes,"expected_payload_sha256":input.sha256.iter().map(|byte|format!("{byte:02x}")).collect::<String>(),"details":extra}));
+        if phase == "identity-legacy-upgrade" {
+            assert!(
+                before_metadata
+                    .as_ref()
+                    .is_some_and(|value| value.binding.is_none())
+            );
+            let migrated = after_metadata.as_ref().unwrap();
+            assert!(
+                migrated.binding.is_some(),
+                "confirmed local hit upgrades the legacy sidecar"
+            );
+            assert!(
+                migrated.etag == replica_etag(&current_mode),
+                "metadata upgrade records the proven current response validator"
+            );
+            assert!(
+                !metadata_unchanged,
+                "legacy migration must publish current scoped metadata"
+            );
+        }
+        if phase == "identity-rebased" {
+            assert!(
+                metadata_unchanged,
+                "a confirmed legacy migration is idempotent"
+            );
+        }
+        if matches!(phase, "identity-signed" | "identity-digest") {
+            assert!(
+                !metadata_unchanged,
+                "full representation proof rebases validators to the proven current resource"
+            );
+        }
+        let etag_conditions = u64::from(matches!(phase, "identity-rebased" | "identity-version"));
+        let modified_conditions = u64::from(phase == "identity-lm-repeat");
+        assert_eq!(
+            after.etag_conditionals - before.etag_conditionals,
+            etag_conditions,
+            "exact-URI ETag conditions for {phase}"
+        );
+        assert_eq!(
+            after.modified_conditionals - before.modified_conditionals,
+            modified_conditions,
+            "exact-URI Last-Modified conditions for {phase}"
+        );
+        assert_eq!(
+            after.conditional_heads - before.conditional_heads,
+            etag_conditions + modified_conditions
+        );
+        let not_modified = u64::from(matches!(phase, "identity-rebased" | "identity-lm-repeat"));
+        assert_eq!(
+            after.not_modified - before.not_modified,
+            not_modified,
+            "304 only follows a valid exact-resource condition for {phase}"
+        );
+        if after_metadata.is_some() && !metadata_unchanged {
+            stored_mode = Some(current_mode.clone());
+        }
+        reports.push(json!({"phase":phase,"pid":result.pid,"passed":true,"source":result.first_source,"replay":result.replay_source,"before":before,"after":after,"before_files":before_files,"after_files":file_facts(&input),"expected_bytes":input.bytes,"expected_payload_sha256":input.sha256.iter().map(|byte|format!("{byte:02x}")).collect::<String>(),"validator_kind":if current_mode.modified_only {"last-modified"} else {"etag"},"full_repr_digest":current_mode.digest,"metadata_unchanged":metadata_unchanged,"binding_before":before_metadata.as_ref().is_some_and(|value|value.binding.is_some()),"binding_after":after_metadata.as_ref().is_some_and(|value|value.binding.is_some()),"details":extra}));
     }
     assert_eq!(
         reports
@@ -562,7 +759,7 @@ pub(super) fn run_parent() {
     );
     if let Some(path) = std::env::var_os("KARIN_TEST_CAPTURE_DIR") {
         fs::create_dir_all(&path).unwrap();
-        fs::write(PathBuf::from(path).join("audio-cache-identity-receipt.json"),serde_json::to_vec_pretty(&json!({"scope":"ordinary-application-logical-mds-replay","real_yandex_service":false,"cases":reports,"processes":CASES.len()})).unwrap()).unwrap();
+        fs::write(PathBuf::from(path).join("audio-cache-identity-receipt.json"),serde_json::to_vec_pretty(&json!({"scope":"ordinary-application-replica-validator-replay","real_yandex_service":false,"cases":reports,"processes":CASES.len()})).unwrap()).unwrap();
     }
     presence::run_parent();
 }
@@ -575,11 +772,8 @@ pub(super) fn run_child(input: &Input, phase: &str) {
     let (_app, ui) = application(input);
     let this = &ui.music.controller;
     let row = this.widgets.library_rows.row_at_index(0).unwrap();
-    let expected_cached = matches!(
-        phase,
-        "identity-signed" | "identity-host" | "identity-path" | "identity-digest"
-    );
-    let existing = phase != "identity-first";
+    let expected_cached = cached_phase(phase);
+    let existing = !first_save(phase);
     if existing {
         wait_presence(this, "42", Presence::Stored);
     } else {
@@ -616,13 +810,13 @@ pub(super) fn run_child(input: &Input, phase: &str) {
     }
     if matches!(
         phase,
-        "identity-first" | "identity-upgrade" | "identity-version" | "identity-variant"
+        "identity-first" | "identity-version" | "identity-variant" | "identity-lm-first"
     ) {
         wait_publication(this, input);
     }
     pump_until(|| this.cache_work_settled_for_test());
     let mut replay = None;
-    if phase == "identity-unknown" {
+    if repeat_unproved(phase) {
         let serial = this.music_serial();
         assert!(row.grab_focus());
         key(&ui.window, "Return");
@@ -631,6 +825,12 @@ pub(super) fn run_child(input: &Input, phase: &str) {
         pump_until(|| this.cache_work_settled_for_test());
         replay = Some("remote-https".to_owned());
     }
+    // Same proofs rebase HTTP metadata on the existing lookup/LRU worker.
+    // Observe that actual worker completion before AppClose can fence its
+    // lease; do not substitute a delay or a second playback request.
+    let (cache, _) = this.audio_cache_binding().unwrap();
+    pump_until(|| cache.lookup_settled_for_test());
+    drop(cache);
     if phase == "identity-denied" {
         wait_presence(this, "42", Presence::Missing);
     } else {
@@ -643,7 +843,7 @@ pub(super) fn run_child(input: &Input, phase: &str) {
     } else {
         "remote-https"
     };
-    let details = json!({"phase":phase,"pid":std::process::id(),"passed":true,"source":source,"startup_stored_without_player":existing,"retained_good_file":matches!(phase,"identity-unknown"|"identity-unknown-restart"|"identity-upgrade-failed"),"local_replay":expected_cached});
+    let details = json!({"phase":phase,"pid":std::process::id(),"passed":true,"source":source,"startup_stored_without_player":existing,"retained_good_file":retained_candidate(phase),"local_replay":expected_cached});
     close_child(&ui, this);
     fs::write(
         input.directory.join("identity-result.json"),

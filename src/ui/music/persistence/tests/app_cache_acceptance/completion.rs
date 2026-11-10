@@ -5,6 +5,7 @@
 //! cache response is gated, refused, changed, truncated or timed out. These
 //! local HTTP cases do not claim to reproduce Yandex's live CDN behavior.
 use super::*;
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use std::collections::BTreeSet;
 
 const CASES: [&str; 16] = [
@@ -340,9 +341,21 @@ fn serve(
             } else {
                 "200 OK"
             };
+            // The expiry case deliberately renews the signed provider URI on
+            // every descriptor response. Its opaque tag cannot span those
+            // resources; supply a digest of this entire original representation
+            // so the later local replay has actual independent byte proof.
+            let digest_header = if profile == "completion-expired" {
+                format!(
+                    "Repr-Digest: sha-256=:{}:\r\n",
+                    STANDARD.encode(digest(&SHA256, data).as_ref())
+                )
+            } else {
+                String::new()
+            };
             let _ = write!(
                 stream,
-                "HTTP/1.1 {status}\r\nContent-Type: audio/mpeg\r\nContent-Length: {}\r\nETag: {etag}\r\nCache-Control: {policy}\r\nConnection: close\r\n\r\n",
+                "HTTP/1.1 {status}\r\nContent-Type: audio/mpeg\r\nContent-Length: {}\r\nETag: {etag}\r\nCache-Control: {policy}\r\nConnection: close\r\n{digest_header}\r\n",
                 data.len()
             );
             return;

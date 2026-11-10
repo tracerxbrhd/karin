@@ -15,7 +15,7 @@ use reqwest::{
 
 use super::{DeliveryCancellation, Duration};
 use crate::{
-    audio_cache::http_policy::{Metadata, Reason, ResponsePolicy},
+    audio_cache::http_policy::{Metadata, Reason, ResponsePolicy, Validation},
     playback::RemotePlaybackSource,
     session::AccessToken,
 };
@@ -30,7 +30,7 @@ pub(super) fn revalidate(
     stored: &Metadata,
     token: &AccessToken,
     cancellation: &DeliveryCancellation,
-) -> Result<(), Reason> {
+) -> Result<Validation, Reason> {
     current(remote, token, cancellation)?;
     let url = remote
         .http_cache_probe_url()
@@ -38,7 +38,7 @@ pub(super) fn revalidate(
     let request = conditionals(client.head(url.clone()), stored, remote)?;
     let response = send(request, remote, token, cancellation)?;
     let status = response.status().as_u16();
-    if matches!(status, 405 | 501) {
+    let validation = if matches!(status, 405 | 501) {
         // A range probe is useful only when HEAD is unsupported. A conforming
         // server sends one byte; a server ignoring Range is immediately dropped
         // without consuming its body, and cannot establish a local hit.
@@ -56,7 +56,7 @@ pub(super) fn revalidate(
                 Reason::RangeUnsupported
             });
         }
-        validate_response(response, stored, remote)?;
+        validate_response(response, stored, remote)?
     } else {
         if status == 451 {
             return Err(Reason::ContentRestricted);
@@ -67,9 +67,10 @@ pub(super) fn revalidate(
         if !matches!(status, 200 | 304) {
             return Err(Reason::UnsupportedStatus);
         }
-        validate_response(response, stored, remote)?;
-    }
-    current(remote, token, cancellation)
+        validate_response(response, stored, remote)?
+    };
+    current(remote, token, cancellation)?;
+    Ok(validation)
 }
 
 fn current(
@@ -98,13 +99,16 @@ fn conditionals(
             concat!("Karin/", env!("CARGO_PKG_VERSION"), " playback"),
         )
         .header(ACCEPT_ENCODING, "identity")
+        // A supporting origin can supply full selected-representation proof on
+        // this same metadata request. Absence never weakens the admission rule.
+        .header("Want-Repr-Digest", "sha-256=1")
         // A successful fresh access check must not be paired with a silently
         // stale intermediary response. No cookie or Authorization is supplied.
         .header(CACHE_CONTROL, "no-cache");
     if !stored.validator_scope(remote) {
-        // ETags compare the same resolved file/encoding (or exact URI), not
-        // arbitrary files with a coincidentally equal tag. Only a full
-        // Repr-Digest can bridge an unbound resource boundary.
+        // A logical object can be served by independent replicas. Never send
+        // its old conditional to another physical validator scope; a complete
+        // Repr-Digest may independently establish byte equivalence there.
         return Ok(request);
     }
     if let Some(etag) = stored
@@ -114,7 +118,11 @@ fn conditionals(
     {
         let value = HeaderValue::from_str(etag).map_err(|_| Reason::HeadersInvalid)?;
         Ok(request.header(IF_NONE_MATCH, value))
-    } else if let Some(modified) = stored.last_modified.as_deref() {
+    } else if let Some(modified) = stored
+        .last_modified
+        .as_deref()
+        .filter(|_| stored.strong_modified())
+    {
         let value = HeaderValue::from_str(modified).map_err(|_| Reason::HeadersInvalid)?;
         Ok(request.header(IF_MODIFIED_SINCE, value))
     } else {
@@ -144,7 +152,7 @@ fn validate_response(
     response: Response,
     stored: &Metadata,
     remote: &RemotePlaybackSource,
-) -> Result<(), Reason> {
+) -> Result<Validation, Reason> {
     let headers = selected_headers(&response)?;
     let status = response.status().as_u16();
     // In particular, do not call bytes/text/read, even when a broken HEAD or

@@ -70,13 +70,17 @@ alone cannot prove unchanged bytes. Unusable validators, an explicit refusal,
 `no-store`, cancellation or a failed cache leave permitted network playback
 available. Cache lookup and bookkeeping remain off GTK.
 
-**At `31d873d` the owner confirmed real first playback and complete background
-saving on Fedora Native; same-track and post-restart local replay still failed
-with `resource-changed`.** The revised identity binds the logical descriptor
-object/encoding separately from physical CDN placement. Scoped validators remain
-required; an unproved modern boundary retains the valid record online without
-repeated cache-body writes. Older records can establish the new binding through
-a complete validated replacement. Graphical indicators derive complete local
+**Real first playback and complete background saving on Fedora Native are
+owner-confirmed. At `cac4d78`, replay still caused descriptor-path /
+representation-changed downloads; no local hit was confirmed.** The corrected
+model does not compare independent CDN validators merely because a logical
+object matches. Opaque conditional validation requires the exact compatible
+provider media URI; a full representation digest can independently establish
+reuse across locators. A renewed signed URI without full-byte proof remains
+unproved, not a hit. An unknown result retains the valid candidate and
+plays online without another cache-body write. Legacy binding metadata can be
+rebased only after positive representation proof; missing binding is not a
+reason to replace the audio. Graphical indicators describe complete local
 presence, not offline availability or current playback permission.
 
 The earlier `6ec2407` playback failure remains historical; the exact rejected

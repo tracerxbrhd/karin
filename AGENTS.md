@@ -101,8 +101,10 @@ reviewable and consistent with the accepted application.
   Dislike→Next and available `707539b` Native/installed-Flatpak functions are
   owner-accepted; `0709729` is the last fully accepted PR #26 revision. At
   `31d873d` the owner confirmed real first playback/background saving on Native,
-  while local replay and restart failed with `resource-changed`. Revised replay
-  and cache indicators need separate acceptance.
+  while local replay and restart failed with `resource-changed`. At `cac4d78`,
+  real saving still worked, but descriptor-path/representation-changed caused
+  repeated downloads; no local hit was confirmed. Revised validator scoping and
+  retained cache indicators need separate acceptance.
   Unreported individual scenarios and unresolved Cloud cold gaps are not PASS.
   This is not a published release. Read [LIMITATIONS](docs/LIMITATIONS.md).
 

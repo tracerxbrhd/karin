@@ -1085,20 +1085,23 @@ and scheduled a replacement without establishing that its MP3 bytes changed.
 The owner's finite log establishes that aggregate mismatch, not which address or
 encoding component changed. No host, path or signed resource is requested here.
 
-The correction separates the descriptor request's logical object/variant from
-physical CDN placement and byte-version proof. Published Yandex MDS source maps
-a namespace/file object to independently selected replica/region addresses;
-its ETag describes a scoped timestamp/size version, not a body MD5. Keeping the
-full logical object binding permits a proper scoped validator check despite
-physical host/path rotation. Only documented signing parameters are omitted;
-unknown query dimensions remain significant. Track ID or an equal tag on another
-logical object is insufficient. Unproved modern-object rotation retains the
-valid copy online and suppresses a redundant cache-body rewrite. An older record
-without the new binding can be replaced once through a successful complete,
-validated download; it is not removed before that succeeds. Actual
-version/variant changes, access refusals, no-store and corrupt records retain
-their retirement rules. New finite diagnostic categories expose the type of
-change or proof result, never the underlying address, identifiers or headers.
+At `cac4d78`, the attempted correction separated logical object/variant from
+physical placement, but incorrectly treated logical equality as a common
+validator scope across CDN replicas. Different replica ETags/modification dates
+could therefore enter the destructive representation-changed branch even for
+equivalent audio. This was an unsupported inference from historical MDS source,
+not confirmed current CDN byte-version semantics.
+
+The current correction requires the exact compatible provider media URI before
+using old conditionals or comparing opaque validators. A changed signed URI,
+including an opaque legacy XML ts, is not presumed equivalent. Logical keys are
+provenance, not global byte/version IDs. A trusted full representation digest can prove the
+saved payload independently; complete-length/full-digest differences and
+same-scope representation invalidation remain distinct. Same, Different and
+Unknown have separate outcomes; Unknown retains the valid file and streams
+online without another body save. Legacy metadata rebases only after positive
+Same proof, without a download just to add binding fields. Actual version/
+encoding changes, refusals, no-store and corrupt records keep their fences.
 
 Native indicators derive Missing/Downloading/Stored from the account-scoped
 AudioCache and its complete records, with worker-only integrity/file work and
@@ -1107,14 +1110,30 @@ that the next playback is local or available offline. Clear/Disable, LRU,
 corruption and account changes must remove obsolete indications; normal restart
 must recover them from actual records.
 
-Automated coverage must exercise first save, address/host/path rotation with
-sufficient and insufficient proof, real version/variant changes, actual local
-source and zero extra full media GET, restart, refusal and retention. Indicator
-coverage must include multiple simultaneous views, complete versus partial
-writes, recovery, eviction/clear/scope changes and light/dark compact/HiDPI native
-input. These requirements describe the correction, not yet executed results.
-Final immutable-head compiler/native/packaging/CI results belong with PR #26.
-The **new real local-replay/indicator result remains unconfirmed** until the
+### Owner result at cac4d78
+
+The owner reports that Fedora Native still downloads and atomically saves real
+audio. Repeating the same tracks produced
+`descriptor-path-changed → representation-changed → queued/downloading → write-confirmed`.
+A binding-upgrade/resource-identity-unverified sequence was also observed.
+**No cache=hit/source=local is confirmed.** These fixed categories do not expose
+the actual CDN addresses or validator values, so their exact current behavior
+must not be invented. Installed-Flatpak replay and individual indicator/Wave/MPRIS
+combinations are not established by this report.
+
+Automated correction coverage must include identical original MP3 bytes on
+different replicas with different ETags or Last-Modified dates, equal tags on
+unrelated scopes, signed-wrapper renewal, full Repr-Digest, actual audio/encoding
+changes, repeated Unknown without another body write, proof-based legacy binding
+migration and process restart. Preserve the original refusal/no-store/Clear/
+logout/integrity tests and all worker-derived indicator checks. Fixtures use the
+ordinary application and GStreamer with permitted original audio/local HTTP;
+they do not demonstrate the real service.
+
+The successful `cac4d78` Cloud checks remain historical evidence for what those
+fixtures asserted; their logical-object/304 assumption was not a valid test of
+independent replicas. Current immutable-head compiler/native/packaging/CI results
+belong with PR #26. **Current real local replay remains unconfirmed** until the
 single final [Native/installed-Flatpak procedure](BUILDING.md#pr-26-corrected-cache-acceptance).
 
 ## Known unresolved checks

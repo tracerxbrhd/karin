@@ -241,7 +241,8 @@ impl StreamResolver {
         stored: &crate::audio_cache::http_policy::Metadata,
         token: &AccessToken,
         cancellation: &DeliveryCancellation,
-    ) -> Result<(), crate::audio_cache::http_policy::Reason> {
+    ) -> Result<crate::audio_cache::http_policy::Validation, crate::audio_cache::http_policy::Reason>
+    {
         super::revalidation::revalidate(&self.transport.client, remote, stored, token, cancellation)
     }
 

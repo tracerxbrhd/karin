@@ -16,7 +16,7 @@ use std::{
     fs,
     io::{Read, Write},
     net::TcpListener,
-    os::unix::fs::DirBuilderExt,
+    os::unix::fs::{DirBuilderExt, MetadataExt},
     path::PathBuf,
     sync::{
         Arc, Mutex, OnceLock,
@@ -1013,4 +1013,290 @@ fn speculative_lookup_contention_retains_complete_records_without_another_media_
         assert_eq!(http.requested(), before + usize::from(!already_stored));
         assert_eq!(cache.stats().unwrap().entries, 1);
     }
+}
+
+struct RebaseFixture {
+    _directory: Directory,
+    http: Http,
+    cache: AudioCache,
+    lease: Lease,
+    budget: Arc<crate::cache_budget::CacheBudget>,
+}
+impl RebaseFixture {
+    fn new() -> Self {
+        let directory = Directory::new();
+        let http = Http::new(media(), 200, "ETag: \"original-response\"\r\n");
+        let audio = directory.0.join("audio");
+        let budget = crate::cache_budget::CacheBudget::new(
+            directory.0.join("metadata"),
+            audio.clone(),
+            true,
+            Some(2 * 1024 * 1024 * 1024),
+        )
+        .unwrap();
+        let cache = AudioCache::open_with_budget(
+            audio,
+            Arc::new(OnlineStreamAuthority::with_storage_permission(Arc::new(
+                crate::audio_cache::PrivateHttpCachePolicy,
+            ))),
+            CachePolicy::default(),
+            budget.clone(),
+        )
+        .unwrap();
+        let lease = cache.bind(Some(scope())).unwrap().unwrap();
+        cache_from_playback(http.select(&cache, &lease)).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(8);
+        while !cache.lookup_settled_for_test() {
+            assert!(Instant::now() < deadline, "initial lookup must retire");
+            thread::yield_now();
+        }
+        Self {
+            _directory: directory,
+            http,
+            cache,
+            lease,
+            budget,
+        }
+    }
+    fn path(&self) -> PathBuf {
+        let identity = self.cache.identity(&self.lease, key()).unwrap();
+        self.cache.path(identity.key())
+    }
+    fn update(&self) -> crate::audio_cache::HttpRebase {
+        use crate::audio_cache::http_policy::{ResponsePolicy, Validation};
+        use base64::Engine;
+        let service = MusicService::for_test(&self.http.origin);
+        let token = token();
+        service.account(&token).unwrap();
+        let check = self.cache.begin_online_check(&self.lease, key()).unwrap();
+        let remote = self
+            .http
+            .resolver()
+            .resolve(&service, &token, "123", &DeliveryCancellation::new())
+            .unwrap();
+        self.cache
+            .observe_verified_online(&self.lease, check)
+            .unwrap();
+        let identity = self.cache.identity(&self.lease, key()).unwrap();
+        let path = self.path();
+        let previous = crate::audio_cache::read_http_record(&path)
+            .unwrap()
+            .unwrap();
+        let digest = base64::engine::general_purpose::STANDARD.encode(previous.sha256);
+        // A complete representation digest proves these exact original bytes;
+        // a changed opaque response tag alone supplies no content permission.
+        let policy = ResponsePolicy::parse(
+            200,
+            [
+                ("Content-Type".into(), "audio/mpeg".into()),
+                ("Content-Length".into(), previous.bytes.to_string()),
+                ("ETag".into(), "\"fresh-response-validator\"".into()),
+                ("Repr-Digest".into(), format!("sha-256=:{digest}:")),
+            ],
+        )
+        .unwrap();
+        let Validation::Same(fresh) = policy.revalidate_source(&previous, &remote).unwrap() else {
+            panic!("the original complete payload must prove equivalence");
+        };
+        let media = Arc::new(crate::audio_cache::open_private(&path.join("media.bin")).unwrap());
+        let stamp = media.metadata().unwrap();
+        let permit = self.cache.0.authority.authorize(&identity).unwrap();
+        crate::audio_cache::HttpRebase {
+            permit,
+            media,
+            stamp,
+            previous,
+            current: *fresh,
+        }
+    }
+}
+
+#[test]
+fn metadata_rebase_updates_only_proved_policy_and_is_idempotent() {
+    let fixture = RebaseFixture::new();
+    let path = fixture.path();
+    let original = fs::read(path.join("media.bin")).unwrap();
+    let inode = fs::metadata(path.join("media.bin")).unwrap().ino();
+    let update = fixture.update();
+    let expected = update.current.clone();
+    let before_requests = fixture.http.requested();
+    assert_eq!(
+        fixture.cache.rebase_http_record(&fixture.lease, update),
+        Ok(true)
+    );
+    assert_eq!(
+        crate::audio_cache::read_http_record(&path)
+            .unwrap()
+            .unwrap(),
+        expected
+    );
+    assert!(
+        fs::read(path.join("media.bin")).unwrap() == original,
+        "audio bytes remain unchanged"
+    );
+    assert_eq!(fs::metadata(path.join("media.bin")).unwrap().ino(), inode);
+    assert_eq!(fixture.http.requested(), before_requests);
+    let unchanged = fs::read(path.join("http")).unwrap();
+    let update = fixture.update();
+    assert_eq!(
+        fixture.cache.rebase_http_record(&fixture.lease, update),
+        Ok(false)
+    );
+    assert!(
+        fs::read(path.join("http")).unwrap() == unchanged,
+        "unchanged policy needs no rewrite"
+    );
+}
+
+#[test]
+fn metadata_rebase_rejects_changed_record_cas_without_replacing_either_file() {
+    for change_media in [false, true] {
+        let fixture = RebaseFixture::new();
+        let path = fixture.path();
+        let update = fixture.update();
+        if change_media {
+            let mut bytes = fs::read(path.join("media.bin")).unwrap();
+            bytes[0] ^= 1;
+            fs::write(path.join("media.bin"), bytes).unwrap();
+            fs::File::open(path.join("media.bin"))
+                .unwrap()
+                .set_times(fs::FileTimes::new().set_modified(std::time::SystemTime::UNIX_EPOCH))
+                .unwrap();
+        } else {
+            let mut other = update.previous.clone();
+            other.etag = Some("\"another-current-policy\"".into());
+            fs::write(path.join("http"), other.encode().unwrap()).unwrap();
+        }
+        let policy = fs::read(path.join("http")).unwrap();
+        let media = fs::read(path.join("media.bin")).unwrap();
+        assert_eq!(
+            fixture.cache.rebase_http_record(&fixture.lease, update),
+            Err(CacheError::Cancelled)
+        );
+        assert!(
+            fs::read(path.join("http")).unwrap() == policy,
+            "failed migration preserves policy"
+        );
+        assert!(
+            fs::read(path.join("media.bin")).unwrap() == media,
+            "migration never writes audio bytes"
+        );
+    }
+}
+
+#[test]
+fn metadata_rebase_account_and_quota_fences_preserve_the_candidate() {
+    for action in [0, 1, 2] {
+        let mut fixture = RebaseFixture::new();
+        let path = fixture.path();
+        if action == 2 {
+            let bytes = fixture.budget.usage().unwrap().bytes;
+            fixture.budget.configure(true, Some(bytes)).unwrap();
+            fixture.lease = fixture.cache.lease().unwrap();
+        }
+        let update = fixture.update();
+        let policy = fs::read(path.join("http")).unwrap();
+        let media = fs::read(path.join("media.bin")).unwrap();
+        match action {
+            0 => {
+                fixture
+                    .cache
+                    .bind(Some(AccountScope::from_account_id("9999").unwrap()))
+                    .unwrap();
+            }
+            1 => fixture
+                .budget
+                .configure(false, Some(2 * 1024 * 1024 * 1024))
+                .unwrap(),
+            _ => {}
+        }
+        assert_eq!(
+            fixture.cache.rebase_http_record(&fixture.lease, update),
+            Err(if action == 2 {
+                CacheError::Limit
+            } else {
+                CacheError::Cancelled
+            })
+        );
+        assert!(
+            fs::read(path.join("http")).unwrap() == policy,
+            "failed migration preserves policy"
+        );
+        assert!(
+            fs::read(path.join("media.bin")).unwrap() == media,
+            "migration never writes audio bytes"
+        );
+    }
+}
+
+#[test]
+fn metadata_rebase_rolls_back_the_atomic_sidecar_on_late_fences() {
+    for disable in [false, true] {
+        let fixture = RebaseFixture::new();
+        let path = fixture.path();
+        let update = fixture.update();
+        let old = fs::read(path.join("http")).unwrap();
+        let media = fs::read(path.join("media.bin")).unwrap();
+        let gate = fixture.cache.set_rebase_gate_for_test();
+        let cache = fixture.cache.clone();
+        let lease = fixture.lease.clone();
+        let worker = thread::spawn(move || cache.rebase_http_record(&lease, update));
+        let deadline = Instant::now() + Duration::from_secs(8);
+        while !gate.entered() {
+            assert!(
+                Instant::now() < deadline,
+                "sidecar must reach its actual exchange"
+            );
+            thread::yield_now();
+        }
+        assert!(
+            fs::read(path.join("http")).unwrap() != old,
+            "the test observes the actual atomic exchange"
+        );
+        if disable {
+            fixture
+                .budget
+                .configure(false, Some(2 * 1024 * 1024 * 1024))
+                .unwrap();
+        } else {
+            fixture
+                .cache
+                .bind(Some(AccountScope::from_account_id("9999").unwrap()))
+                .unwrap();
+        }
+        gate.release();
+        assert_eq!(worker.join().unwrap(), Err(CacheError::Cancelled));
+        assert!(
+            fs::read(path.join("http")).unwrap() == old,
+            "the original policy is preserved"
+        );
+        assert!(
+            fs::read(path.join("media.bin")).unwrap() == media,
+            "migration never writes audio bytes"
+        );
+    }
+}
+
+#[test]
+fn metadata_rebase_skips_an_active_writer_without_waiting_for_its_completion() {
+    let fixture = RebaseFixture::new();
+    let path = fixture.path();
+    let update = fixture.update();
+    let old = fs::read(path.join("http")).unwrap();
+    let gate = fixture.cache.0.writer.lock().unwrap();
+    let cache = fixture.cache.clone();
+    let lease = fixture.lease.clone();
+    let (sent, result) = std::sync::mpsc::channel();
+    let worker =
+        thread::spawn(move || sent.send(cache.rebase_http_record(&lease, update)).unwrap());
+    assert_eq!(
+        result.recv_timeout(Duration::from_secs(8)).unwrap(),
+        Err(CacheError::Busy)
+    );
+    drop(gate);
+    worker.join().unwrap();
+    assert!(
+        fs::read(path.join("http")).unwrap() == old,
+        "the original policy is preserved"
+    );
 }

@@ -63,6 +63,7 @@ fn read_request(stream: &mut TcpStream) -> String {
         assert!(!request.contains(forbidden));
     }
     assert!(request.contains("accept-encoding: identity\r\n"));
+    assert!(request.contains("want-repr-digest: sha-256=1\r\n"));
     assert!(request.contains("cache-control: no-cache\r\n"));
     assert!(request.contains(concat!(
         "user-agent: karin/",
@@ -70,6 +71,13 @@ fn read_request(stream: &mut TcpStream) -> String {
         " playback\r\n"
     )));
     request
+}
+
+fn same(result: Result<Validation, Reason>) -> Metadata {
+    match result.unwrap() {
+        Validation::Same(metadata) => *metadata,
+        other => panic!("expected proven same representation, got {other:?}"),
+    }
 }
 
 fn token() -> AccessToken {
@@ -89,10 +97,7 @@ fn head_revalidation_sends_only_same_resource_condition_and_no_credentials() {
             .write_all(b"HTTP/1.1 304 Not Modified\r\nETag: \"synthetic-version-one\"\r\nCache-Control: private,no-cache\r\nContent-Length: 3\r\nConnection: close\r\n\r\n")
             .unwrap();
     });
-    assert_eq!(
-        resolver.revalidate_http(&source, &metadata, &token(), &DeliveryCancellation::new()),
-        Ok(())
-    );
+    same(resolver.revalidate_http(&source, &metadata, &token(), &DeliveryCancellation::new()));
     server.join().unwrap();
 }
 
@@ -115,10 +120,7 @@ fn unsupported_head_can_use_only_a_one_byte_partial_response() {
             .write_all(b"HTTP/1.1 206 Partial Content\r\nContent-Type: audio/mpeg\r\nContent-Length: 1\r\nContent-Range: bytes 0-0/3\r\nETag: \"synthetic-version-one\"\r\nConnection: close\r\n\r\na")
             .unwrap();
     });
-    assert_eq!(
-        resolver.revalidate_http(&source, &metadata, &token(), &DeliveryCancellation::new()),
-        Ok(())
-    );
+    same(resolver.revalidate_http(&source, &metadata, &token(), &DeliveryCancellation::new()));
     server.join().unwrap();
 }
 
@@ -199,10 +201,7 @@ fn new_resource_uses_a_full_representation_digest_without_forwarding_old_validat
         let digest = STANDARD.encode(sha.as_ref());
         write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\nContent-Length: 3\r\nRepr-Digest: sha-256=:{digest}:\r\nConnection: close\r\n\r\n").unwrap();
     });
-    assert_eq!(
-        resolver.revalidate_http(&source, &metadata, &token(), &DeliveryCancellation::new()),
-        Ok(())
-    );
+    same(resolver.revalidate_http(&source, &metadata, &token(), &DeliveryCancellation::new()));
     server.join().unwrap();
 }
 
@@ -239,6 +238,17 @@ fn scoped_source(
     object: &str,
     bitrate: u32,
 ) -> RemotePlaybackSource {
+    scoped_timestamp(listener, host, path, object, bitrate, "0002")
+}
+
+fn scoped_timestamp(
+    listener: &TcpListener,
+    host: &str,
+    path: &str,
+    object: &str,
+    bitrate: u32,
+    timestamp: &str,
+) -> RemotePlaybackSource {
     let origin = format!("http://{}/", listener.local_addr().unwrap());
     RemotePlaybackSource::from_test_resolver(
         &format!("{origin}get-mp3/current/fixture"),
@@ -249,53 +259,178 @@ fn scoped_source(
         host,
         path,
         bitrate,
-        "0002",
+        timestamp,
         &format!("{origin}download-info/group/{object}"),
     ))
 }
 
 #[test]
-fn logical_object_scopes_strong_validators_across_changed_physical_cdn_placement() {
+fn logical_object_replicas_never_receive_old_conditionals_or_compare_opaque_tags() {
+    for tag in ["\"scoped-version\"", "\"different-replica-validator\""] {
+        let (listener, resolver, _, _) = setup();
+        let before = scoped_source(
+            &listener,
+            "s123.storage.yandex.net",
+            "/physical-a",
+            "object",
+            192,
+        );
+        let now = scoped_source(
+            &listener,
+            "server-2026.storage.yandex.net",
+            "/physical-b",
+            "object",
+            192,
+        );
+        let policy = ResponsePolicy::parse(
+            200,
+            [
+                ("content-type", "audio/mpeg"),
+                ("content-length", "3"),
+                ("etag", "\"scoped-version\""),
+            ]
+            .map(|(a, b)| (a.into(), b.into())),
+        )
+        .unwrap();
+        let metadata = policy.record_source(&before, [3; 32], 3).unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let request = read_request(&mut stream);
+            assert!(request.starts_with("head "));
+            assert!(!request.contains("if-none-match:") && !request.contains("if-modified-since:"));
+            write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\nContent-Length: 3\r\nETag: {tag}\r\nConnection: close\r\n\r\n").unwrap();
+        });
+        assert_eq!(
+            resolver.revalidate_http(&now, &metadata, &token(), &DeliveryCancellation::new()),
+            Ok(Validation::Unproven(Reason::ValidatorsIncomparable))
+        );
+        server.join().unwrap();
+    }
+}
+
+#[test]
+fn distinct_replica_last_modified_does_not_establish_changed_audio() {
     let (listener, resolver, _, _) = setup();
     let before = scoped_source(
         &listener,
         "s123.storage.yandex.net",
-        "/physical-a-offset-1-size-3",
+        "/physical-a",
         "object",
         192,
     );
     let now = scoped_source(
         &listener,
-        "server-2026.storage.yandex.net",
-        "/physical-b-offset-2-size-3",
+        "s123.storage.yandex.net",
+        "/physical-b",
         "object",
         192,
-    );
-    assert_ne!(before.http_cache_uri_hash(), now.http_cache_uri_hash());
-    assert_ne!(
-        before.http_cache_resource_hash(),
-        now.http_cache_resource_hash()
     );
     let policy = ResponsePolicy::parse(
         200,
         [
-            ("content-type".into(), "audio/mpeg".into()),
-            ("content-length".into(), "3".into()),
-            ("etag".into(), "\"scoped-version\"".into()),
-        ],
+            ("content-type", "audio/mpeg"),
+            ("content-length", "3"),
+            ("last-modified", "Tue, 01 Dec 2020 09:00:00 GMT"),
+            ("date", "Tue, 01 Dec 2020 09:02:00 GMT"),
+        ]
+        .map(|(a, b)| (a.into(), b.into())),
     )
     .unwrap();
     let metadata = policy.record_source(&before, [3; 32], 3).unwrap();
     let server = thread::spawn(move || {
         let (mut stream, _) = listener.accept().unwrap();
         let request = read_request(&mut stream);
-        assert!(request.starts_with("head "));
-        assert!(request.contains("if-none-match: \"scoped-version\"\r\n"));
-        stream.write_all(b"HTTP/1.1 304 Not Modified\r\nETag: \"scoped-version\"\r\nConnection: close\r\n\r\n").unwrap();
+        assert!(!request.contains("if-none-match:") && !request.contains("if-modified-since:"));
+        stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\nContent-Length: 3\r\nLast-Modified: Wed, 02 Dec 2020 09:00:00 GMT\r\nDate: Wed, 02 Dec 2020 09:02:00 GMT\r\nConnection: close\r\n\r\n").unwrap();
     });
     assert_eq!(
         resolver.revalidate_http(&now, &metadata, &token(), &DeliveryCancellation::new()),
-        Ok(())
+        Ok(Validation::Unproven(Reason::ValidatorsIncomparable))
+    );
+    server.join().unwrap();
+}
+
+#[test]
+fn full_digest_rebases_metadata_without_transplanting_previous_replica_etag() {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    let (listener, resolver, _, _) = setup();
+    let before = scoped_source(
+        &listener,
+        "s123.storage.yandex.net",
+        "/physical-a",
+        "object",
+        192,
+    );
+    let now = scoped_source(
+        &listener,
+        "server-2026.storage.yandex.net",
+        "/physical-b",
+        "object",
+        192,
+    );
+    let policy = ResponsePolicy::parse(
+        200,
+        [
+            ("content-type", "audio/mpeg"),
+            ("content-length", "3"),
+            ("etag", "\"old-replica\""),
+        ]
+        .map(|(a, b)| (a.into(), b.into())),
+    )
+    .unwrap();
+    let metadata = policy.record_source(&before, [3; 32], 3).unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let request = read_request(&mut stream);
+        assert!(!request.contains("if-none-match:") && !request.contains("if-modified-since:"));
+        write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\nContent-Length: 3\r\nETag: \"new-replica\"\r\nRepr-Digest: sha-256=:{}:\r\nConnection: close\r\n\r\n",STANDARD.encode([3;32])).unwrap();
+    });
+    let fresh =
+        same(resolver.revalidate_http(&now, &metadata, &token(), &DeliveryCancellation::new()));
+    assert_eq!(fresh.binding, now.http_cache_binding());
+    assert_eq!(fresh.uri_hash, now.http_cache_uri_hash());
+    assert_eq!(fresh.etag.as_deref(), Some("\"new-replica\""));
+    server.join().unwrap();
+}
+
+#[test]
+fn unsolicited_relocated_304_is_unproven_even_with_full_digest() {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    let (listener, resolver, _, _) = setup();
+    let before = scoped_source(
+        &listener,
+        "s123.storage.yandex.net",
+        "/physical-a",
+        "object",
+        192,
+    );
+    let now = scoped_source(
+        &listener,
+        "server-2026.storage.yandex.net",
+        "/physical-b",
+        "object",
+        192,
+    );
+    let policy = ResponsePolicy::parse(
+        200,
+        [
+            ("content-type", "audio/mpeg"),
+            ("content-length", "3"),
+            ("etag", "\"old\""),
+        ]
+        .map(|(a, b)| (a.into(), b.into())),
+    )
+    .unwrap();
+    let metadata = policy.record_source(&before, [3; 32], 3).unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let request = read_request(&mut stream);
+        assert!(!request.contains("if-none-match:") && !request.contains("if-modified-since:"));
+        write!(stream,"HTTP/1.1 304 Not Modified\r\nContent-Length: 3\r\nETag: \"old\"\r\nRepr-Digest: sha-256=:{}:\r\nConnection: close\r\n\r\n",STANDARD.encode([3;32])).unwrap();
+    });
+    assert_eq!(
+        resolver.revalidate_http(&now, &metadata, &token(), &DeliveryCancellation::new()),
+        Ok(Validation::Unproven(Reason::UnsupportedValidator))
     );
     server.join().unwrap();
 }
@@ -335,7 +470,7 @@ fn equal_etags_on_different_logical_objects_never_prove_byte_equivalence() {
     });
     assert_eq!(
         resolver.revalidate_http(&now, &metadata, &token(), &DeliveryCancellation::new()),
-        Err(Reason::IdentityUnverified)
+        Ok(Validation::Unproven(Reason::ValidatorsIncomparable))
     );
     server.join().unwrap();
 }
@@ -380,7 +515,74 @@ fn selected_encoding_change_cannot_use_even_a_matching_whole_digest() {
     });
     assert_eq!(
         resolver.revalidate_http(&now, &metadata, &token(), &DeliveryCancellation::new()),
-        Err(Reason::EncodingChanged)
+        Ok(Validation::Different(Reason::EncodingChanged))
+    );
+    server.join().unwrap();
+}
+
+#[test]
+fn changed_legacy_signed_uri_does_not_forward_an_old_validator() {
+    let (listener, resolver, _, _) = setup();
+    let before = scoped_timestamp(
+        &listener,
+        "s123.storage.yandex.net",
+        "/physical-a",
+        "object",
+        192,
+        "0001",
+    );
+    let now = scoped_timestamp(
+        &listener,
+        "s123.storage.yandex.net",
+        "/physical-a",
+        "object",
+        192,
+        "0002",
+    );
+    assert_ne!(before.http_cache_uri_hash(), now.http_cache_uri_hash());
+    assert_eq!(
+        before.http_cache_resource_hash(),
+        now.http_cache_resource_hash()
+    );
+    let policy = ResponsePolicy::parse(
+        200,
+        [
+            ("content-type", "audio/mpeg"),
+            ("content-length", "3"),
+            ("etag", "\"same-tag\""),
+        ]
+        .map(|(a, b)| (a.into(), b.into())),
+    )
+    .unwrap();
+    let metadata = policy.record_source(&before, [3; 32], 3).unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let request = read_request(&mut stream);
+        assert!(!request.contains("if-none-match:") && !request.contains("if-modified-since:"));
+        stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\nContent-Length: 3\r\nETag: \"same-tag\"\r\nConnection: close\r\n\r\n").unwrap();
+    });
+    assert_eq!(
+        resolver.revalidate_http(&now, &metadata, &token(), &DeliveryCancellation::new()),
+        Ok(Validation::Unproven(Reason::ValidatorsIncomparable))
+    );
+    server.join().unwrap();
+}
+
+#[test]
+fn exact_uri_digest_only_record_cannot_accept_an_unsolicited_304() {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    let (listener, resolver, source, mut metadata) = setup();
+    metadata.etag = None;
+    let sha = metadata.sha256;
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let request = read_request(&mut stream);
+        assert!(!request.contains("if-none-match:") && !request.contains("if-modified-since:"));
+        write!(stream,"HTTP/1.1 304 Not Modified\r\nContent-Length: 3\r\nRepr-Digest: sha-256=:{}:\r\nConnection: close\r\n\r\n",STANDARD.encode(sha)).unwrap();
+    });
+    assert_eq!(
+        resolver.revalidate_http(&source, &metadata, &token(), &DeliveryCancellation::new()),
+        Ok(Validation::Unproven(Reason::UnsupportedValidator))
     );
     server.join().unwrap();
 }

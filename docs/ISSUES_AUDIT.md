@@ -22,8 +22,9 @@ final-source checks and new desktop acceptance remain recorded in existing Draft
 [#26](https://github.com/tracerxbrhd/karin/pull/26).
 
 Audio-cache addendum, 2026-11-10: the owner confirmed first real playback and
-background saving at `31d873d`, but local replay/restart failed with
-`resource-changed`. The current #20 row reflects that report and ADR-0029's
+background saving at `31d873d`; at `cac4d78`, descriptor-path /
+representation-changed still caused repeated downloads, without a confirmed
+local hit. The current #20 row reflects that report and ADR-0029's
 private HTTP policy; this addendum does not claim a new repository-wide issue audit.
 
 | Issue | Disposition and remaining closure condition |
@@ -33,7 +34,7 @@ private HTTP policy; this addendum does not claim a new repository-wide issue au
 | [#17](https://github.com/tracerxbrhd/karin/issues/17) | Closed: confirmed Dislike and automatic Next merged through #27, new owner acceptance recorded separately from CI guards. |
 | [#18](https://github.com/tracerxbrhd/karin/issues/18) | Open future feature: independently establish permitted lyrics and related-track contracts, implement confirmed portions, then accept real content. Working Wave is not a related-track shelf. |
 | [#19](https://github.com/tracerxbrhd/karin/issues/19) | Open future feature: verified add/remove/reorder/rename/delete/visibility beyond existing confirmed playlist creation, with revision/conflict and ambiguous-write reconciliation. |
-| [#20](https://github.com/tracerxbrhd/karin/issues/20) | Open: first real playback/save confirmed at `31d873d`; corrected local replay/restart and cache indicators need Native/installed-Flatpak acceptance. Ordinary private HTTP admission, fresh resource/version checks and separate content/service rights apply under ADR-0029; no offline mode is claimed. |
+| [#20](https://github.com/tracerxbrhd/karin/issues/20) | Open: real first playback/save confirmed; at `cac4d78`, repeated representation invalidation still prevented a confirmed local hit. Corrected exact-URI/full-digest validation and retained indicators need Native/installed-Flatpak acceptance. Ordinary private HTTP admission, fresh resource/version checks and separate content/service rights apply under ADR-0029; no offline mode is claimed. |
 | [#21](https://github.com/tracerxbrhd/karin/issues/21) | Open future feature: bounded same-account playback-context/position restoration without stored media URLs, audio or radio session markers; deliberate fresh Play and desktop restart acceptance. Existing login/preferences restoration is acknowledged. |
 | [#22](https://github.com/tracerxbrhd/karin/issues/22) | Open release work: #5 permission decision, declared scope/version, reproducible artifacts/source/notices and target-platform checks. Wave and Dislike are shipped, not missing features. Future #18–#21 are not automatically mandatory release scope. |
 | [#23](https://github.com/tracerxbrhd/karin/issues/23) | Open technical debt: measured Cloud first-render stall, incomplete causal explanation/target-Wayland comparison. #24 is merged; ordinary tests and owner UI acceptance do not establish a cold-smoothness fix. |

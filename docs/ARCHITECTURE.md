@@ -226,24 +226,31 @@ sent to media hosts; signed URLs remain in memory. HTTP permission to store is
 separate from playback access and applicable content/distribution rights.
 
 Every later local play needs fresh Music access and successful representation
-validation. Separate the descriptor request's logical storage object and chosen
-encoding variant from its physical CDN host/path and signed address. The opaque
-logical binding retains the validated descriptor origin, full object path and
-semantic query; only documented `sign`/`ts` credentials are omitted. Unknown
-parameters remain significant. Published Yandex MDS code resolves that request
-to a namespace/file object, then chooses physical replicas/regions independently.
-Its ETag is a scoped timestamp/size version tag, not a global content checksum.
-A matching strong ETag/Last-Modified and length can therefore validate the same
-logical object/variant across physical delivery changes. A trusted full
-representation digest provides an independent saved-SHA-256/length proof.
-Track ID, address changes, equal size or a tag on another object do not.
-No-cache/must-revalidate never permit stale reuse. Unproved modern-object
-rotation, missing proof or temporary validation failure leaves playback online
-while retaining the valid record, without another cache-body download. Older
-records without the new logical binding can acquire it through one complete,
-validated replacement; the old copy remains until successful publication.
-Confirmed version/encoding changes, explicit refusals and corruption retain their
-invalidation and account/cache fences.
+validation. Logical descriptor object/encoding, physical delivery and byte
+version are separate facts. The logical request binding retains the validated
+origin, full object path and semantic query, excluding only documented signing
+fields. It identifies provenance, not a shared CDN validator namespace. Equal
+logical keys cannot make different replicas' ETags/Last-Modified comparable.
+
+A strong validator and matching full length can prove reuse only for the exact
+provider media URI, with no known logical/encoding mismatch. Opaque validators
+and old conditionals cannot cross to another URI, even when only a signed wrapper
+appears to change: legacy XML ts remains opaque. A trusted full Repr-Digest
+matching the retained SHA-256 and whole length can independently prove the
+selected bytes across locators. A
+complete-length/digest difference proves different bytes; a same-scope validator
+mismatch invalidates that representation version. Different replica validators
+alone prove neither sameness nor changed audio. Track ID, equal size, logical
+key or signed wrapper alone cannot admit a hit. A bare 304 cannot create scope.
+
+Keep the three outcomes distinct: Same admits the local file after current
+rights/final fences; Different declines it and permits the applicable update;
+Unknown keeps the good candidate and plays online, without another background
+body save. No-cache/must-revalidate never permit stale reuse. Legacy metadata
+may acquire a current binding only after positive Same proof, atomically and
+without a redundant media GET; missing binding alone cannot trigger a download.
+Only confirmed version/encoding changes, explicit refusals and corruption use
+their scoped retirement rules. Account/cache/cancellation fences remain separate.
 
 Compact GTK cache indicators use a derived view of AudioCache, not playback
 intent, HTTP200, usage totals or a second persisted track database. A bounded
@@ -265,8 +272,9 @@ rights. [ADR-0029](adr/0029-synthetic-audio-cache-foundation.md) and
 [AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md) record the policy and source influence.
 Cloud checks use original permitted audio/local HTTP through this ordinary
 application, not a second player or a mock provider grant. The owner confirmed
-real first playback/background save at `31d873d`, but replay and restart still
-failed with `resource-changed`. Those service results remain separate from the
+real first playback/background save at `31d873d`. At `cac4d78`, saving still
+worked while descriptor-path/representation-changed caused repeated downloads,
+with no confirmed local hit. Those service results remain separate from the
 new code and final Native/installed-Flatpak acceptance.
 
 ## GTK workspace, MPRIS and Flatpak

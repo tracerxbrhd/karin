@@ -356,6 +356,8 @@ struct Inner {
     shared: Option<Arc<crate::cache_budget::CacheBudget>>,
     #[cfg(test)]
     commit_gate: Mutex<Option<(ResourceKey, Arc<CommitGate>)>>,
+    #[cfg(test)]
+    rebase_gate: Mutex<Option<Arc<CommitGate>>>,
 }
 impl Drop for Inner {
     fn drop(&mut self) {
@@ -516,6 +518,17 @@ struct PartialRecord {
     path: PathBuf,
     owner: Weak<Inner>,
 }
+
+/// A proved current response may update only the existing HTTP sidecar. The
+/// pinned media and its verified stamp bind the deferred update to that exact
+/// record, not merely to a reusable account/track pathname.
+struct HttpRebase {
+    permit: StorageGrant,
+    media: Arc<File>,
+    stamp: fs::Metadata,
+    previous: http_policy::Metadata,
+    current: http_policy::Metadata,
+}
 impl Drop for PartialRecord {
     fn drop(&mut self) {
         let Some(owner) = self.owner.upgrade() else {
@@ -539,6 +552,150 @@ impl Drop for PartialRecord {
 }
 
 impl AudioCache {
+    /// Optional work on the existing lookup/LRU worker, after hit admission.
+    /// No body copy, GTK I/O or new download ticket is involved. A failed or
+    /// cancelled migration leaves the old good audio and sidecar available.
+    fn rebase_http_record(&self, lease: &Lease, update: HttpRebase) -> Result<bool> {
+        if update.previous == update.current {
+            return Ok(false);
+        }
+        if update.previous.sha256 != update.current.sha256
+            || update.previous.bytes != update.current.bytes
+        {
+            return Err(CacheError::InvalidInput);
+        }
+        let encoded = update
+            .current
+            .encode()
+            .map_err(|_| CacheError::InvalidInput)?;
+        if encoded.is_empty() || encoded.len() as u64 > MAX_HTTP_METADATA {
+            return Err(CacheError::Limit);
+        }
+        let _writer = self.0.writer.try_lock().map_err(|_| CacheError::Busy)?;
+        let _io = self.io()?;
+        let path = self.path(update.permit.identity.key());
+        let current = || {
+            self.check(lease, update.permit)?;
+            if !same_media_stamp(&update.media, &update.stamp)? {
+                return Err(CacheError::Cancelled);
+            }
+            let media = open_private(&path.join("media.bin"))?;
+            if !same_media_stamp(&media, &update.stamp)?
+                || read_http_record(&path)?.as_ref() != Some(&update.previous)
+            {
+                return Err(CacheError::Cancelled);
+            }
+            Ok(())
+        };
+        current()?;
+        let reservation = self
+            .0
+            .shared
+            .as_ref()
+            .map(|budget| {
+                budget
+                    .reserve_update(
+                        crate::cache_budget::Category::Audio,
+                        &path,
+                        encoded.len() as u64,
+                    )
+                    .map_err(budget_error)
+            })
+            .transpose()?;
+        if self.0.shared.is_none() {
+            let bytes = self.scan()?.iter().try_fold(0_u64, |bytes, entry| {
+                bytes.checked_add(entry.bytes).ok_or(CacheError::Limit)
+            })?;
+            // Account for both sidecars during the atomic exchange. Optional
+            // migration never evicts its candidate just to make room for itself.
+            if bytes.saturating_add(encoded.len() as u64) > self.0.budget.load(Ordering::Acquire) {
+                return Err(CacheError::Limit);
+            }
+        }
+        current()?;
+        let temporary = self
+            .0
+            .sandbox
+            .path
+            .join(format!(".part-{}", random_name()?));
+        fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&temporary)
+            .map_err(|_| CacheError::Unavailable)?;
+        let _stage = PartialRecord {
+            path: temporary.clone(),
+            owner: Arc::downgrade(&self.0),
+        };
+        self.0
+            .state
+            .lock()
+            .map_err(|_| CacheError::Unavailable)?
+            .active_stage = Some(temporary.clone());
+        let staged = temporary.join("http");
+        let target = path.join("http");
+        write_private(&staged, &encoded)?;
+        sync_dir(&temporary)?;
+        current()?;
+        let exchange = || {
+            rustix::fs::renameat_with(
+                rustix::fs::CWD,
+                &staged,
+                rustix::fs::CWD,
+                &target,
+                rustix::fs::RenameFlags::EXCHANGE,
+            )
+            .map_err(|_| CacheError::Unavailable)
+        };
+        // Keep the original sidecar in the staging directory until all final
+        // fences succeed, so a late Clear/Disable/account change can roll back
+        // without deleting an otherwise intact retained audio file.
+        exchange()?;
+        let published = (|| {
+            #[cfg(test)]
+            if let Some(gate) = self
+                .0
+                .rebase_gate
+                .lock()
+                .map_err(|_| CacheError::Unavailable)?
+                .take()
+            {
+                gate.wait()?;
+            }
+            sync_dir(&path)?;
+            sync_dir(&temporary)?;
+            self.check(lease, update.permit)?;
+            if !same_media_stamp(&update.media, &update.stamp)? {
+                return Err(CacheError::Cancelled);
+            }
+            if let Some(reservation) = reservation {
+                reservation
+                    .finish(encoded.len() as u64)
+                    .map_err(budget_error)?;
+            }
+            Ok(())
+        })();
+        if let Err(error) = published {
+            exchange()?;
+            sync_dir(&path)?;
+            sync_dir(&temporary)?;
+            return Err(error);
+        }
+        remove_record(&temporary)?;
+        sync_dir(&self.0.sandbox.path)?;
+        Ok(true)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_rebase_gate_for_test(&self) -> Arc<CommitGate> {
+        let gate = Arc::new(CommitGate {
+            entered: AtomicBool::new(false),
+            released: Mutex::new(false),
+            changed: std::sync::Condvar::new(),
+        });
+        *self.0.rebase_gate.lock().unwrap() = Some(gate.clone());
+        gate
+    }
+
     #[cfg(test)]
     pub(crate) fn set_commit_gate_for_test(&self, key: ResourceKey) -> Arc<CommitGate> {
         let gate = Arc::new(CommitGate {
@@ -657,6 +814,8 @@ impl AudioCache {
             shared,
             #[cfg(test)]
             commit_gate: Mutex::new(None),
+            #[cfg(test)]
+            rebase_gate: Mutex::new(None),
         }));
         {
             let _io = cache.io()?;
@@ -1760,6 +1919,20 @@ fn private_file(file: &File) -> Result<()> {
         return Err(CacheError::Unavailable);
     }
     Ok(())
+}
+
+fn same_media_stamp(file: &File, expected: &fs::Metadata) -> Result<bool> {
+    private_file(file)?;
+    let now = file.metadata().map_err(|_| CacheError::Unavailable)?;
+    Ok(now.dev() == expected.dev()
+        && now.ino() == expected.ino()
+        && now.len() == expected.len()
+        && now.mode() == expected.mode()
+        && now.uid() == expected.uid()
+        && now.mtime() == expected.mtime()
+        && now.mtime_nsec() == expected.mtime_nsec()
+        && now.ctime() == expected.ctime()
+        && now.ctime_nsec() == expected.ctime_nsec())
 }
 fn open_private(path: &Path) -> Result<File> {
     let file = OpenOptions::new()
