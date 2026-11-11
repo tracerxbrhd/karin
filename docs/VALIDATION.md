@@ -28,6 +28,26 @@ record does not announce a tagged or published release. PR #15 was merged into
 `master` as [`562596b`](https://github.com/tracerxbrhd/karin/commit/562596b990b5cd87c763af41120bad7830fda551).
 That merge does not automatically accept later stability changes on Fedora.
 
+## Owner acceptance of PR #26 — 2026-11-11
+
+The owner explicitly accepted [`c1de869`](https://github.com/tracerxbrhd/karin/commit/c1de869361f36f5c749dec2b283ce56a356f06f2)
+on real Yandex Music: Native playback, complete background MP3 saving, local
+cache hits and local playback after application restart; installed Flatpak
+playback, audio caching and local hits after restart. Downloading/Saved graphics
+are provisionally accepted; their later visual refinement belongs to the actual
+new design. This does not infer unreported per-device/failure/backend checks.
+
+The accepted HEAD had eight successful final-source CI jobs, no intervening
+unreviewed changes, and a clean merge base. PR #26 was made ready and normally
+merged at [`1fd4028`](https://github.com/tracerxbrhd/karin/commit/1fd40289771af5a627e05eaaa47d2e6381de4b89),
+preserving both parents and all development commits. `master` contains the accepted
+HEAD. Earlier FAIL/pending entries below remain revision-specific history; the
+real cache replay/restart requirement is now owner-confirmed in both packages.
+
+This technical acceptance does not establish public OAuth/service/content
+redistribution permission, offline lifetimes or a release. #5/#22 stay separate.
+The v0.7 restoration/playlist/style work has no inherited desktop acceptance.
+
 ## Automated coverage
 
 The [CI workflow](../.github/workflows/ci.yml) tests stable Rust and exact

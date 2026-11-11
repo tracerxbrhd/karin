@@ -67,54 +67,43 @@ not newly inferred owner tests. See the
 [procedure](BUILDING.md#track-reaction-acceptance) and
 [ADR-0028](adr/0028-confirmed-track-reactions.md).
 
-Audio storage is an independent branch/PR tracked in #20. A playable MP3 and
-synthetic cache tests establish no storage grant or online reuse contract;
-[the audio review](AUDIO_CACHE_REVIEW.md) retains that gate. No service audio
-is recorded by the Dislike change. Neither direction authorizes a release.
+## Completed v0.6 private audio cache
 
-## Next functional directions
+[PR #26](https://github.com/tracerxbrhd/karin/pull/26) merged with its development
+history at [`1fd4028`](https://github.com/tracerxbrhd/karin/commit/1fd40289771af5a627e05eaaa47d2e6381de4b89).
+The owner accepted `c1de869` on 2026-11-11: real Native playback/background MP3
+saving/local hits/restart-local playback, and installed Flatpak playback/cache/
+restart-local hits. Downloading/Saved graphics are provisionally accepted, with
+further visual refinement reserved for the incoming design. [Issue #20](https://github.com/tracerxbrhd/karin/issues/20)
+is technically complete; public service/content distribution #5/#22 is separate.
 
-The existing v0.6 [Draft PR #26](https://github.com/tracerxbrhd/karin/pull/26)
-contains the production store/player bridge under
-[ADR-0029](adr/0029-synthetic-audio-cache-foundation.md): account isolation,
-atomic integrity-checked records, quota/LRU, current-authority checks, cleanup
-and restart recovery. The owner accepted the available functions and tests of
-`707539b` on Fedora Native and installed Flatpak. That does not establish real
-service-audio storage or acceptance of the subsequent unified-cache revision.
+One enabled-by-default 2 GiB budget covers metadata, artwork and eligible private
+HTTP audio. The six limits, measured usage, LRU, Clear/Retry and disk headroom
+remain shared. Current Music access/selection, integrity and reuse policy decide
+local-first playback; the existing GStreamer player and independent downloader
+remain. See [ADR-0029](adr/0029-synthetic-audio-cache-foundation.md),
+[AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md) and [VALIDATION](VALIDATION.md).
+This acceptance does not establish offline access lifetimes, a public service
+license, a release/version/tag or every unreported failure/backend case.
 
-The current revision combines metadata, artwork and authority-gated audio under
-one enabled policy, a shared disk budget/usage and Clear. Preferences use six
-choices: 500 MiB, 1/2/3/4 GiB and Unlimited, with 2 GiB by default. Internal formats
-and permission rules stay distinct. Concurrent reservations and bounded background
-eviction enforce the common budget; Unlimited still needs free-space protection.
-New revision-specific tests and desktop acceptance remain separately recorded.
+## v0.7: playback restoration, playlist editing and appearance
 
-PR #26 now admits ordinary private HTTP caching for eligible MP3 responses and
-saves them with one bounded full-response background download alongside the
-existing player. Local replay still requires fresh Music access and representation
-validation; missing validators, explicit storage refusals and unsupported sources
-stay online. This is transparent reuse, not Downloads or offline mode. The
-[source/rights review](AUDIO_CACHE_REVIEW.md) separates HTTP policy from provider
-terms and content rights. The owner confirmed real first playback/background
-save at `31d873d`. At `cac4d78`, repeated descriptor-path /
-representation-changed downloads still prevented confirmed local replay.
-The corrected model separates same-version proof, confirmed change and unknown
-equivalence. Logical object equality does not share validator scope across CDN
-replicas; insufficient proof retains the candidate online without another body
-save. Native indicators derive downloading/complete status from AudioCache.
-PR #26 stays Draft and #20 stays open until local replay/restart and indicators
-are accepted. Cloud fixtures do not establish live CDN compatibility or desktop
-acceptance.
+One branch, `feature/v0.7-playback-playlists-appearance`, starts at the accepted
+merge and combines #21 and #19 with independent UI-style/color-scheme settings.
+Restore a bounded same-account queue/order/position without autoplay or saved
+media/Wave resources; confirm each enabled playlist write with current ownership,
+revision semantics and independent readback; keep the working System presentation
+and prepare the unavailable Karin Style for real designer materials. These new
+functions require their own final implementation/CI and one desktop acceptance.
+
+## Further directions
 
 - [Lyrics and related tracks](https://github.com/tracerxbrhd/karin/issues/18): confirm permitted endpoints/resources before
   exposing a user workflow; no extracted official-client signing material.
 - [Playlist editing](https://github.com/tracerxbrhd/karin/issues/19): extend beyond
   confirmed creation only with ownership/revision and ambiguous-write recovery.
-- [Audio storage and later offline audio](https://github.com/tracerxbrhd/karin/issues/20):
-  confirm the implemented first-save/local-replay/restart path on eligible real
-  responses and the applicable service/content terms. A later offline mode needs
-  separately confirmed access lifetimes and renewal rules; a working MP3 or
-  HTTP200 alone establishes neither permission nor unchanged bytes.
+- Later offline audio needs separately confirmed access lifetimes and renewal
+  rules. Accepted online-revalidated caching does not establish that feature.
 - [Restart playback state](https://github.com/tracerxbrhd/karin/issues/21): define
   bounded same-account context/position restoration without storing media URLs.
 - Whole-collection search/sorting: provide complete coverage or label a loaded

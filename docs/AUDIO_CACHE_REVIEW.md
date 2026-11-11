@@ -14,19 +14,18 @@ remain separate: HTTP cacheability does not create a provider entitlement or
 legal license. Protected formats, explicit restrictions and `no-store` reject
 storage. Stale/unproved representations require validation or remain online.
 
-**The owner confirmed real first playback and complete background saving on
-Fedora Native. At `cac4d78`, replay still caused descriptor-path /
-representation-changed downloads, without a confirmed local hit.** Corrected
-local-first selection, response freshness and retained graphical indicators need
-final Native/installed-Flatpak acceptance. Current real CDN freshness headers
-have not been measured in Cloud. The earlier `6ec2407`
-playback and `f2050b0` saving failures remain historical results. Cloud fixtures
-cannot establish a new real-CDN result. See
-[VALIDATION](VALIDATION.md#owner-result-at-cac4d78).
-Downloads, mass prefetch and offline mode remain outside this scope.
-Issue [#20](https://github.com/tracerxbrhd/karin/issues/20) remains open;
-public authorization/API distribution rights remain separately tracked in
-[#5](https://github.com/tracerxbrhd/karin/issues/5) and the
+**The owner accepted `c1de869` on 2026-11-11 on real Yandex Music:** Native
+playback, background MP3 saving, local hits and local playback after restart;
+installed Flatpak playback, caching and restart-local hits. Downloading/Saved
+indicators are provisionally accepted. PR #26 merged normally at `1fd4028` and
+#20's technical scope is complete. Prior playback/save/replay failures are
+historical, separately recorded in [VALIDATION](VALIDATION.md).
+
+Current real CDN headers have not been collected in Cloud; the owner acceptance
+establishes the working client path, not a universal header/byte-version contract.
+Downloads, mass prefetch and offline mode remain outside scope. Public
+OAuth/service/content distribution questions remain separately tracked in
+[#5](https://github.com/tracerxbrhd/karin/issues/5) and
 [release checklist #22](https://github.com/tracerxbrhd/karin/issues/22).
 
 ## Three distinct modes
@@ -429,12 +428,9 @@ cover first save, replay/restart, validators, changed representations, refusal,
 corruption, Clear and cancellation without a real account. Results belong in
 [VALIDATION](VALIDATION.md); they do not demonstrate live CDN behavior.
 
-The owner confirmed real playback/background saving, but at `cac4d78` repeated
-representation invalidation still prevented a confirmed local hit. **Corrected
-replay is not yet accepted on the real service.** The single final
-[Native/Flatpak procedure](BUILDING.md#pr-26-corrected-cache-acceptance) obtains only
-fixed cache/source/reason categories from the actual playback path. It never
-requests tokens, signed addresses, identifiers, response bodies or music files.
-PR #26/Issue #20 remain open until the requested live user scenario is accepted.
-Offline listening, official-cache import/decryption, downloads and mass prefetch
-are outside this implementation.
+The owner accepted real Native and installed-Flatpak local replay/restart at
+`c1de869`; PR #26 merged at `1fd4028`. The
+[Native/Flatpak procedure](BUILDING.md#pr-26-corrected-cache-acceptance) remains a
+regression check using only finite diagnostics, never tokens, addresses,
+identifiers, response bodies or music uploads. Public distribution and offline
+access remain separate; this technical acceptance is not a content license.

@@ -56,9 +56,9 @@ Wave event or recommendation-effect guarantee. See
 
 Other recommendation shelves/similar tracks and lyrics are not implemented.
 The v0.6 audio store, player bridge and cleanup are ordinary production code.
-The owner accepted the available functions/tests at `707539b` on Native and
-installed Flatpak. `0709729` remains the last fully accepted PR #26 revision;
-newer available functions and later acceptance are recorded separately. One shared policy/budget/usage
+The owner accepted `c1de869` real Native and installed-Flatpak playback,
+background saving, local hits and local replay after restart on 2026-11-11;
+PR #26 merged at `1fd4028`. Indicator graphics are provisionally accepted. One shared policy/budget/usage
 and Clear covers all permitted categories, with
 2 GiB by default and an explicit Unlimited choice guarded by available disk space.
 The private HTTP-cache path independently saves a complete supported MP3 while
@@ -73,27 +73,19 @@ rights nor a provider/content-distribution license; the API selection is not an
 immutable byte-version claim. Work remains off GTK and cache failure preserves
 permitted online playback.
 
-**Real first playback and complete background saving on Fedora Native are
-owner-confirmed. At `cac4d78`, replay still caused descriptor-path /
-representation-changed downloads; no local hit was confirmed.** The revised
-local-first path avoids renewed signed locators while a saved response remains
-fresh. Revalidation still cannot compare opaque validators across independent
-URI/replica scopes. An expired modern record can be replaced by a complete new
-response only when current probe and actual GET policy both allow fresh reuse;
-GET headers are checked before its body is read. No-cache/unproved freshness
-stays online without repeated body saves. Legacy records without receipt/schema-2 metadata first attempt strict
-validation; if inconclusive, a newly admitted complete response can migrate them
-through the existing background writer. Old bytes are never stamped fresh; only
-validated atomic publication replaces them, and refusal/no-store prevents it. Current real CDN freshness headers and successful service local replay
-remain unconfirmed. Graphical indicators describe complete presence, not local
-playback or offline availability.
+Real local replay/restart is owner-confirmed at `c1de869` on both Native and
+installed Flatpak. Earlier `cac4d78`/`6ec2407` failures remain historical results.
+A fresh local-first hit avoids renewed signed locators. Stale/no-cache responses
+still need scoped/full-digest validation or online fallback; independent replica
+validators are not global byte versions. Expired known selections can renew only
+through an eligible fresh response. Legacy records migrate only through a newly
+validated complete body, never by stamping old bytes fresh. A modern missing clock
+does not repeatedly trigger that migration. Downloading/Saved graphics indicate
+actual work/presence; they do not promise offline availability.
 
-The earlier `6ec2407` playback failure remains historical; the exact rejected
-host and the stage of its separately reported generic Wave error were not
-established in Cloud. The corrected replay and indicators require final owner
-acceptance. Local HTTP/generated-audio checks exercise production code, not the
-live CDN or installed Flatpak. A resource without a valid reuse lease or
-sufficient scoped/full-digest proof stays online with a finite reason. PR #26 and Issue #20 remain open.
+Cloud original-audio/HTTP checks and owner acceptance have separate scopes;
+real CDN headers remain unmeasured in Cloud. Issue #20's technical cache scope is
+complete, without inferring every optional error/backend case.
 Public client distribution questions remain separate in #5/#22. See
 [AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md) and the
 [single acceptance procedure](BUILDING.md#pr-26-corrected-cache-acceptance).

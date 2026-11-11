@@ -2,7 +2,7 @@
 
 # ADR-0029: Production audio-cache boundary and service admission
 
-Status: Private HTTP first save owner-confirmed; revised local replay and indicators await acceptance
+Status: Owner-accepted Native/installed-Flatpak cache at c1de869; normally merged in PR #26
 
 Date: 2026-11-05; independent-download/replay revisions 2026-11-10; local-first revision 2026-11-11
 
@@ -141,8 +141,10 @@ CDN behavior. At `31d873d` the owner confirmed first playback and complete
 background saving on Fedora Native. At `cac4d78`, descriptor-path /
 representation-changed still caused repeated downloads; no local hit was
 confirmed. Earlier failures remain historical results.
-The local-first revision has no real-CDN local-hit acceptance yet; actual CDN
-freshness headers remain unmeasured in Cloud. It needs the single final
-[Native/installed-Flatpak check](../BUILDING.md#pr-26-corrected-cache-acceptance).
-PR #26 stays Draft; offline listening and public client/content distribution are
-separate matters.
+On 2026-11-11 the owner accepted `c1de869` real Native and installed-Flatpak
+playback, complete saving, local hits and local replay after restart; graphics
+are provisionally accepted. PR #26 normally merged at `1fd4028`, preserving its
+history. Actual CDN headers remain unmeasured in Cloud. The
+[Native/installed-Flatpak check](../BUILDING.md#pr-26-corrected-cache-acceptance)
+remains a regression procedure. Technical acceptance does not establish public
+client/content distribution or offline lifetimes.

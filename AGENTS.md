@@ -108,12 +108,12 @@ reviewable and consistent with the accepted application.
 - Distinguish authored code, executed tests and owner acceptance. See
   [VALIDATION](docs/VALIDATION.md): native/UI and Flatpak at `97093ee` are accepted;
   Dislike→Next and available `707539b` Native/installed-Flatpak functions are
-  owner-accepted; `0709729` is the last fully accepted PR #26 revision. At
-  `31d873d` the owner confirmed real first playback/background saving on Native,
-  while local replay and restart failed with `resource-changed`. At `cac4d78`,
-  real saving still worked, but descriptor-path/representation-changed caused
-  repeated downloads; no local hit was confirmed. Revised validator scoping and
-  retained cache indicators need separate acceptance.
+  owner-accepted. The owner accepted `c1de869` real Native/installed-Flatpak MP3
+  playback, complete background saving, local hits and local replay after restart
+  on 2026-11-11; #26 merged normally at `1fd4028`. Downloading/Saved graphics are
+  provisionally accepted pending the designer's work. Prior cache failures remain
+  historical evidence, not the current technical status. #5/#22 distribution
+  questions remain independent; no public content rights are established.
   Unreported individual scenarios and unresolved Cloud cold gaps are not PASS.
   This is not a published release. Read [LIMITATIONS](docs/LIMITATIONS.md).
 
