@@ -28,11 +28,13 @@ pub(super) struct Mode {
     pub revision: u64,
     pub entries: Vec<(String, String)>,
     pub hold_restore: Option<PathBuf>,
+    pub restore_http_retry: Option<PathBuf>,
 }
 impl Default for Mode {
     fn default() -> Self {
         Self {
             hold_restore: None,
+            restore_http_retry: None,
             account: 1234,
             unavailable: false,
             deleted: false,
@@ -260,6 +262,19 @@ fn serve(
             }
             assert_eq!(method, "POST");
             counts.lock().unwrap().track_batches += 1;
+            if current
+                .restore_http_retry
+                .as_ref()
+                .is_some_and(|directory| !directory.join("restore-http-ready").exists())
+            {
+                write_response(
+                    &mut stream,
+                    "503 Service Unavailable",
+                    "application/json",
+                    b"{}",
+                );
+                return;
+            }
             let mut ids = values
                 .iter()
                 .filter(|(key, _)| key == "track-ids")

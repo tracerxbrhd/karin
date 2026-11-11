@@ -117,6 +117,7 @@ fn native_v07_playback_restore_playlist_appearance_process_restart() {
         "manual-login",
         "fast-close",
         "late-logout",
+        "restore-http-retry",
     ] {
         let profile = directory.0.join(name);
         copy_profile(&main, &profile);
@@ -165,6 +166,9 @@ fn native_v07_playback_restore_playlist_appearance_process_restart() {
             "corrupt" => mutate_snapshot(&profile, false),
             "version" => mutate_snapshot(&profile, true),
             "late-logout" => server.mode.lock().unwrap().hold_restore = Some(profile.clone()),
+            "restore-http-retry" => {
+                server.mode.lock().unwrap().restore_http_retry = Some(profile.clone())
+            }
             _ => {}
         }
         let before = server.counts();
@@ -691,6 +695,104 @@ fn child(input: &Input, phase: &str) {
                         .is_some_and(|message| message.contains("сохранённая очередь"))
                 );
             }
+        }
+        "restore-http-retry" => {
+            assert!(
+                this.playback_restore_retry_for_test(),
+                "503 during real track normalization must expose restoration Retry"
+            );
+            assert!(this.model.borrow().queue.items().is_empty());
+            assert!(this.restored_playback_position_for_test().is_none());
+            let scope = this
+                .persistence
+                .borrow()
+                .scope
+                .clone()
+                .expect("freshly validated account scope");
+            let before_scope = scope.clone();
+            let before = desktop(move || {
+                let store =
+                    crate::playback_session::PlaybackSessionStore::for_application().unwrap();
+                assert!(
+                    store.load(&before_scope).unwrap().snapshot.is_some(),
+                    "fixture must begin with a valid account-bound continuation"
+                );
+                fs::read(store.path_for_test(&before_scope)).unwrap()
+            });
+            // An earlier failed write can leave this flag set when a later
+            // restore loses its network response. Exercise the exact periodic
+            // save admission without forcing past its equality deduplication:
+            // unknown live state must never become a null tombstone.
+            this.seed_playback_write_retry_for_test();
+            this.save_playback_continuation(false);
+            pump_until(|| {
+                this.playback_storage_idle_for_test()
+                    && !WorkFence::active()
+                    && this
+                        .persistence
+                        .borrow()
+                        .durable_work
+                        .load(Ordering::Acquire)
+                        == 0
+            });
+            desktop(move || {
+                let store =
+                    crate::playback_session::PlaybackSessionStore::for_application().unwrap();
+                assert!(
+                    store.load(&scope).unwrap().snapshot.is_some(),
+                    "failed restoration plus periodic save must preserve the valid saved queue"
+                );
+                assert!(
+                    fs::read(store.path_for_test(&scope)).unwrap() == before,
+                    "failed restoration must leave the saved record byte-for-byte unchanged"
+                );
+            });
+            assert!(this.playback_restore_retry_for_test());
+            fs::write(input.directory.join("restore-http-ready"), b"ready").unwrap();
+            let retry = this.persistence.borrow().retry_button.clone();
+            pump_until(|| retry.is_visible() && retry.is_sensitive());
+            click(&ui.window, &retry);
+            pump_until(|| {
+                !this.playback_restore_retry_for_test()
+                    && this.playback_storage_idle_for_test()
+                    && !this.model.borrow().queue.items().is_empty()
+            });
+            let expected: Expected =
+                serde_json::from_slice(&fs::read(input.directory.join("expected.json")).unwrap())
+                    .unwrap();
+            let mut expected_queue = expected.queue;
+            expected_queue.partial = true;
+            assert_eq!(
+                QueueState::capture(this),
+                expected_queue,
+                "native Retry must recover the original exact queue"
+            );
+            position_ms = this
+                .restored_playback_position_for_test()
+                .unwrap()
+                .as_millis()
+                .try_into()
+                .unwrap();
+            assert!(position_ms.abs_diff(expected.position_ms) < 300);
+            restored_items = this.model.borrow().queue.items().len();
+            assert!(this.music_snapshot().is_none());
+            assert!(!this.music_requested());
+            let after = remote_counts(input);
+            assert_eq!(
+                (
+                    after.offers,
+                    after.descriptors,
+                    after.heads,
+                    after.media_gets
+                ),
+                (
+                    input.before.offers,
+                    input.before.descriptors,
+                    input.before.heads,
+                    input.before.media_gets
+                ),
+                "a restore Retry validates metadata only and must not prepare audio"
+            );
         }
         "unavailable" => {
             assert_eq!(QueueState::capture(this).ids, ["44"]);

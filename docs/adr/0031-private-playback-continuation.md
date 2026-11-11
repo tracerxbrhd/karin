@@ -58,5 +58,11 @@ serialized or restarted. A failed Wave startup does not erase ordinary state.
 This extends the memory-only policy of ADR-0018/0023 for ordinary playback only.
 The snapshot is private personal state, not encrypted credentials or an offline
 library. Restore still needs current online Music validation and track access.
+A failed current track lookup leaves the queue unknown, not empty. Periodic
+snapshot writes remain suspended while restoration awaits Retry, including an
+inherited storage retry, so an HTTP failure cannot publish a null tombstone.
+The native recovery test verifies unchanged private record bytes and restores
+the same queue/position through the real Retry action without audio requests.
+
 Process-restart tests use original permitted local audio and synthetic accounts;
 real service and installed Flatpak acceptance remain separate owner evidence.

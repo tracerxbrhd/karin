@@ -1375,7 +1375,10 @@ The same retained profile exercises restart, exact duplicate/current/order/mode/
 position, missing/deleted sources, unavailable/wrong-account/corrupt/version
 records, Stop/logout and honest partial views. Held credential-save fixtures
 cover manual sign-in and fast-close/restart; a held batch reply tests logout
-before late restoration can publish. Real native editor clicks while
+before late restoration can publish. A separate HTTP 503 phase seeds an inherited
+storage retry and invokes ordinary periodic saving without a forced flush: the
+valid record must remain byte-identical, then native Retry must recover its
+queue/position without an audio request. Real native editor clicks while
 cached audio plays cover each mutation, Cancel-default deletion and stale-row
 callbacks. Appearance changes must retain that exact queue and player worker.
 New dialog captures supplement measured GTK layout at compact/medium/wide,

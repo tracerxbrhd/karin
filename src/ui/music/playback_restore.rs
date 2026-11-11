@@ -438,6 +438,7 @@ impl Controller {
                 || p.playback.closing
                 || p.playback.loading
                 || p.playback.suppressed
+                || p.playback.retry
             {
                 return;
             }
@@ -548,5 +549,14 @@ impl Controller {
     #[cfg(test)]
     pub(super) fn restored_playback_position_for_test(&self) -> Option<Duration> {
         self.continuation_position()
+    }
+    #[cfg(test)]
+    pub(super) fn seed_playback_write_retry_for_test(&self) {
+        self.persistence.borrow_mut().playback.write_retry = true;
+    }
+    #[cfg(test)]
+    pub(super) fn playback_restore_retry_for_test(&self) -> bool {
+        let p = self.persistence.borrow();
+        p.playback.retry && !p.playback.delete_retry
     }
 }
