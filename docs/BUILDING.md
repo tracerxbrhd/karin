@@ -505,3 +505,46 @@ The output reports file declarations, not effective precedence or which process
 wrote them. It changes no preferences/files; do not delete GTK/KDE settings or
 force a theme to hide the warning. Continue to verify all three appearance modes
 and uninterrupted playback in the normal desktop session.
+
+## v07 final Fedora acceptance
+
+PR #26 cache acceptance at `c1de869` is recorded separately and was merged with
+its history. The v0.7 Draft PR adds continuation, playlist editing and independent
+style/color preferences; Cloud fixtures do not accept these against a real account.
+Use the final PR-head `karin-fedora-prototype-1.98.1` CI artifact, verify
+`BUILD-INFO.txt` and its checksum, and run `./karin` without diagnostic flags.
+The same commit's Flatpak source is prepared with
+`python3 packaging/flatpak/prepare-source.py`; build/install the existing manifest
+as described above. Keep the exact scoped permissions; do not grant the session
+bus or host filesystem. No tokens, personal logs or screenshots need uploading.
+
+Perform this **one combined check** first Native and then installed Flatpak:
+
+1. Sign in normally with remembering enabled. Play a liked track; use a disposable
+   playlist containing duplicates and manually append one track. Select a duplicate,
+   enable Shuffle and a Repeat mode, seek, pause and close normally. Reopen: the
+   same occurrence, saved queue order/modes and position should appear **Stopped**,
+   with no music until Play. Press Play: current access is checked and the existing
+   cache may supply local audio; saved seek is applied where supported. Repeat
+   once with uncached media. Check Next/Previous and KDE MPRIS against that queue.
+2. In that disposable owned playlist, use “Управление плейлистом”: add a track,
+   remove one exact duplicate, move a track both ways, rename and change the
+   known public/private state. Confirm each after Refresh; verify the playing
+   queue and audio were not rewritten. Cancel deletion first, then confirm a
+   deliberate deletion with its title visible. A saved queue remains saved
+   provenance even if the original playlist was renamed/deleted. Do not use an
+   important playlist for the initial mutation acceptance.
+3. Switch System/Light/Dark during playback and restart. Check compact/medium/
+   wide layouts, 1×/2×, keyboard/focus, desktop high contrast and reduced motion.
+   “Стиль интерфейса” remains System; Karin is visibly “В разработке” and cannot
+   be activated. Cache, account, current audio/queue and MPRIS must remain intact.
+4. Explicit Stop through MPRIS, close/reopen: no saved continuation should revive.
+   Play again, then turn remembering off (active audio continues), close/reopen:
+   no login/queue should revive. Repeat with Logout. Start My Wave deliberately,
+   close/reopen: neither the radio session nor the replaced ordinary queue should
+   auto-resume. A failed/unsupported source or network failure must offer honest
+   retry without autoplay or write replay.
+
+Record Native/installed-Flatpak PASS/FAIL by action and commit, without exporting
+identifiers, tokens, playlist contents or signed URLs. Public distribution rights
+and unresolved cold-frame issue #23 remain separate from this functional check.

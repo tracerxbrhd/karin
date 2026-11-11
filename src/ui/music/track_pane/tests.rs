@@ -136,6 +136,10 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
                     assert_eq!(track.id, "42");
                     "enqueue"
                 }
+                PaneAction::AddToPlaylist(track) => {
+                    assert_eq!(track.id, "42");
+                    "add_playlist"
+                }
                 PaneAction::Details(track) => {
                     assert_eq!(track.id, "42");
                     "details"
@@ -181,6 +185,7 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
     assert!(pane.play.label().is_none());
     assert!(pane.details.label().is_none());
     assert_eq!(pane.play.parent(), pane.enqueue.parent());
+    assert_eq!(pane.play.parent(), pane.add_to_playlist.parent());
     assert_eq!(pane.play.parent(), pane.details.parent());
     let host = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
@@ -221,6 +226,11 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
     pane.details.grab_focus();
     input(&["key", "Return"]);
     pump_until(|| events.borrow().len() == 3);
+    click(&window, id, &pane.add_to_playlist);
+    pump_until(|| events.borrow().len() == 4);
+    pane.add_to_playlist.grab_focus();
+    input(&["key", "space"]);
+    pump_until(|| events.borrow().len() == 5);
     pane.album.grab_focus();
     settle();
     click(&window, id, &pane.album);
@@ -235,7 +245,15 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
     click(&window, id, &artist);
     assert_eq!(
         events.borrow().as_slice(),
-        &["play", "enqueue", "details", "album", "artist"]
+        &[
+            "play",
+            "enqueue",
+            "details",
+            "add_playlist",
+            "add_playlist",
+            "album",
+            "artist",
+        ]
     );
 
     pane.set_track(Some(&selected), None);
@@ -359,7 +377,7 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
     artist.emit_clicked();
     assert_eq!(
         events.borrow().len(),
-        5,
+        7,
         "late old link must not navigate a new selection"
     );
 
@@ -375,6 +393,16 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
     assert!(!pane.play.is_sensitive());
     assert!(pane.title.tooltip_text().is_none());
     assert!(pane.state.context.borrow().is_none());
+    assert!(!pane.add_to_playlist.is_sensitive());
+    // Add-to-playlist is another synchronous controller action. A render which
+    // clears the selection must not reborrow the dispatcher's selected track.
+    pane.set_track(Some(&short), None);
+    pane.set_playback("", true, true);
+    pane.add_to_playlist.grab_focus();
+    input(&["key", "space"]);
+    pump_until(|| pane.selected().is_none());
+    assert_eq!(events.borrow().last(), Some(&"add_playlist"));
+    assert!(!pane.add_to_playlist.is_sensitive());
     reenter.set(false);
     click(&window, id, &pane.close);
     assert_eq!(events.borrow().last(), Some(&"close"));

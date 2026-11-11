@@ -181,6 +181,7 @@ jobs:
               'native_playlist_creation_confirmation_refresh_refusal_and_late_widgets',
               'native_persistent_session_restore_settings_forget_and_close',
               'native_audio_cache_application_process_restart',
+              'native_v07_playback_restore_playlist_appearance_process_restart',
               'native_catalog_cache_provenance_interleaving_and_retired_replies',
           ]
           compiled = {line.rsplit('::', 1)[-1].removesuffix(': test')
@@ -272,6 +273,18 @@ jobs:
           G_DEBUG: fatal-warnings
           KARIN_TEST_CAPTURE_DIR: ${{ github.workspace }}/build/ui-captures/fixtures/audio-cache-application
         run: dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_audio_cache_application_process_restart -- --ignored --test-threads=1 --nocapture
+      - name: Playback continuation, confirmed playlist edits and live appearance in the normal app
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+          G_DEBUG: fatal-warnings
+        run: |
+          for scale in 1 2; do
+            export GDK_SCALE="$scale"
+            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/v07-application/scale-$scale"
+            if [ "$scale" = 2 ]; then screen=3840x2160; else screen=1920x1080; fi
+            dbus-run-session -- xvfb-run -a -s "-screen 0 ${screen}x24 -dpi 96" cargo test --lib --all-features --locked native_v07_playback_restore_playlist_appearance_process_restart -- --ignored --test-threads=1 --nocapture
+          done
       - name: Persistent session and catalog cache integration at HiDPI
         env:
           GTK_A11Y: none
@@ -628,7 +641,7 @@ jobs:
           Preserve GPL and third-party notices. Shared OAuth public-distribution/service permission remains unresolved separately.
           Do not enable network/GStreamer logs or share tokens, URLs, account data, private screenshots or audio.
           Private HTTP audio caching uses the current validated Legacy MP3 session, actual response directives and fresh representation validation; it is not a provider entitlement or an offline mode.
-          Follow docs/BUILDING.md#pr-26-corrected-cache-acceptance for the one final Native/Flatpak check. Verify automatic saved indicators and local replay/restart; fixed cache diagnostics are optional for source proof. The owner confirmed Native first playback/save at 31d873d; corrected local replay and installed Flatpak remain unverified until this check.
+          The owner accepted real Native and installed Flatpak playback, complete saving, local hits and replay after restart at c1de869 on 2026-11-11. Follow docs/BUILDING.md#v07-final-fedora-acceptance for one final check of this build: playback continuation, disposable playlist edits, independent appearance, and preserved AudioCache/MPRIS/Wave behavior. Cloud original-audio fixtures do not replace that real-service acceptance.
           Settings has one enabled-by-default 2GiB shared cache allowance, six-position slider (500MiB/1/2/3/4GiB/Unlimited), measured total and Clear; no download/offline or permission-override controls.
           Active-footer Like and Dislike require independent live membership confirmation; Dislike stays hidden if unavailable, while fresh Like-only remains supported.
           Test separate marks, their removal/opposite clearing, pending/error GET recovery and exactly one Next after confirmed current Dislike; removal/Like/errors never advance or add new Wave events.
@@ -666,6 +679,17 @@ jobs:
             build/ui-captures/fixtures/audio-cache-application/audio-cache-saved-*.png
             build/ui-captures/fixtures/audio-cache-application/audio-cache-presence-*.png
             build/ui-captures/fixtures/audio-cache-application/audio-cache-application-*.log
+          retention-days: 14
+          if-no-files-found: error
+      - name: Retain integrated playback, playlist and appearance contract evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6, Node.js 24
+        with:
+          name: karin-v07-application-${{ matrix.lane }}-${{ github.sha }}
+          path: |
+            build/ui-captures/fixtures/v07-application/scale-*/v07-application-receipt.json
+            build/ui-captures/fixtures/v07-application/scale-*/v07-application-*.log
+            build/ui-captures/fixtures/v07-application/scale-*/v07-playlist-editor-*.png
           retention-days: 14
           if-no-files-found: error
       - name: Retain Ubuntu functional UI evidence
@@ -769,7 +793,7 @@ jobs:
                       and item.get('target', {}).get('kind') == ['lib']
                       and item.get('profile', {}).get('test') and item.get('executable')]
           assert len(binaries) == 1, 'Expected one compiled visual fixture executable'
-          sources = subprocess.check_output(['git', 'ls-files', '-z', '--', 'src', 'Cargo.toml', 'Cargo.lock']).decode().split('\0')
+          sources = subprocess.check_output(['git', 'ls-files', '-z', '--', 'src', 'resources', 'Cargo.toml', 'Cargo.lock']).decode().split('\0')
           record = {'source_commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
                     'source_head_sha': os.environ['SOURCE_HEAD_SHA'],
                     'rustc': subprocess.check_output(['rustc', '--version'], text=True).strip(),

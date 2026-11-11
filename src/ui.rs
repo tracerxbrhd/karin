@@ -310,6 +310,7 @@ fn build_with_music_pane(
         .height_request(480)
         .build();
     window.add_css_class("music-shell");
+    style::attach(&window);
     let toolbar = adw::ToolbarView::new();
     {
         let saved_focus: Rc<RefCell<Option<glib::WeakRef<gtk::Widget>>>> = Rc::default();

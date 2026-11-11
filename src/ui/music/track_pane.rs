@@ -18,6 +18,7 @@ pub(super) enum PaneAction {
     Close,
     Play(Track),
     Enqueue(Track),
+    AddToPlaylist(Track),
     Details(Track),
     Album(String),
     Artist(Artist),
@@ -40,6 +41,7 @@ pub(super) struct TrackPane {
     pub close: gtk::Button,
     pub play: gtk::Button,
     pub enqueue: gtk::Button,
+    pub add_to_playlist: gtk::Button,
     pub details: gtk::Button,
     pub album: gtk::Button,
     pub artists: gtk::Box,
@@ -185,6 +187,21 @@ impl TrackPane {
             }
         });
         transport.append(&enqueue);
+        let add_to_playlist = gtk::Button::with_label("В плейлист");
+        add_to_playlist.set_widget_name("music-track-pane-add-playlist");
+        add_to_playlist.set_tooltip_text(Some("Добавить трек в свой плейлист"));
+        add_to_playlist.add_css_class("flat");
+        add_to_playlist.set_sensitive(false);
+        add_to_playlist.connect_clicked({
+            let state = Rc::clone(&state);
+            move |_| {
+                let selected = state.selected.borrow().clone();
+                if let Some(track) = selected {
+                    (state.action)(PaneAction::AddToPlaylist(track));
+                }
+            }
+        });
+        transport.append(&add_to_playlist);
         let details = button("view-more-symbolic", "Все действия с треком");
         details.set_widget_name("music-track-pane-details");
         details.add_css_class("flat");
@@ -259,6 +276,7 @@ impl TrackPane {
             close,
             play,
             enqueue,
+            add_to_playlist,
             details,
             album,
             artists,
@@ -353,6 +371,7 @@ impl TrackPane {
         self.content.set_visible(track.is_some());
         self.play.set_sensitive(false);
         self.enqueue.set_sensitive(false);
+        self.add_to_playlist.set_sensitive(track.is_some());
         self.status.set_visible(false);
         self.state.playback_status.borrow_mut().clear();
         self.state.context.replace(None);

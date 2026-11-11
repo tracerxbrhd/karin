@@ -24,13 +24,15 @@ flowchart LR
 | Authentication | `auth`, `auth::cassette`, `ui::auth`, `oauth` | Ordinary sign-in and independent PKCE diagnostic |
 | Session | `session`, `credentials`, `session_lifecycle`, `settings` | Live tokens, protected persistence and non-secret preferences |
 | Data | `cache_budget`, `cache`, `catalog_cache`, `artwork`, `audio_cache` | One shared resource policy; typed metadata/artwork and separately policy-admitted audio stores |
-| Playback | `queue`, `stream`, `audio_cache::bridge`, `playback` | Context/order policy, resource/cache admission and one media worker |
+| Playback | `queue`, `playback_session`, `stream`, `audio_cache::bridge`, `playback` | Context/order policy, private continuation, resource/cache admission and one media worker |
 | Desktop | `mpris`, `ui::music::system_media` | Session D-Bus commands and actual snapshots |
 | Presentation | `ui::music` and its view modules | Native views, user intents and guarded result admission |
 
 GIO workers perform bounded blocking work; main-context futures admit results
-under current account/request/source generations. Twelve lanes each retain one
-running and one latest pending job. The Wave lifecycle uses a separate
+under current account/request/source generations. Thirteen lanes each retain one
+running and one latest pending job. Playlist mutations additionally use a shared service write gate and a dedicated
+request lane; GTK rejects concurrent write intents before submission. Their
+read-only native editor has one bounded worker. The Wave lifecycle uses a separate
 bounded FIFO lane because feedback must not be coalesced or retried. Source
 changes, logout and close retire old work. GTK textures/updates stay on the main thread; deferred Like reads use weak
 ownership outside render-time borrows. Reqwest owns its HTTP runtime.
@@ -120,7 +122,9 @@ completion, without GTK joining the worker.
 MusicQueue owns Shuffle, Repeat Off/Queue/One, upcoming order and actual history.
 Repeat One handles natural EOS; explicit Next/Previous still navigate. Queue
 repeat covers admitted items only, without library autofetch or error retry loops.
-Modes survive normal clear/context replacement and reset on logout or close.
+Modes survive normal clear/context replacement. Logout resets live modes;
+ordinary close saves them with the account-bound continuation, restored without
+autoplay after current Music validation.
 [ADR-0023](adr/0023-local-playback-order-and-mpris-modes.md) defines the policy
 shared by native controls and MPRIS.
 
@@ -319,3 +323,25 @@ temporary cover PNGs, never credentials, account IDs or media URLs. Flatpak keep
 `org.mpris.MediaPlayer2.io.github.tracerxbrhd.Karin` own-name permission and uses
 portal storage rather than broad session-bus access. See [BUILDING.md](BUILDING.md),
 [VALIDATION.md](VALIDATION.md) and [LIMITATIONS.md](LIMITATIONS.md).
+
+## Ordinary playback continuation and playlist editing
+
+[ADR-0031](adr/0031-private-playback-continuation.md) extends the memory-only
+queue contract with private, bounded IDs-only XDG snapshots. Current account and
+batch track validation precede selection restoration; a fresh explicit Play
+uses the existing cache/resolver/player and saved seek. Stop/forget/logout
+tombstone continuation; Wave state is never persisted. Typed source provenance
+survives view eviction without claiming current server collection membership.
+
+`music::playlist_management` owns exact revision/occurrence-bound edits and
+independent readback; widgets never construct transport diffs. See
+[playlist management](PLAYLIST_MANAGEMENT.md) and [ADR-0032](adr/0032-playlist-management.md).
+Edits never rewrite the active queue. Metadata/delete endpoints have no proven
+revision CAS; fresh preflight/readback do not promise external-writer atomicity.
+
+`UiStyle` is independent of the existing System/Light/Dark color scheme. Settings
+schema 3 migrates v1/v2 without losing protected-session/cache/pane preferences.
+System is supported; Karin remains explicitly unavailable until designer assets
+exist. Scoped presentation CSS never owns application state.
+[ADR-0033](adr/0033-independent-ui-style-and-color-scheme.md) and
+[designer handoff](design/KARIN_STYLE_INTEGRATION.md) define that boundary.

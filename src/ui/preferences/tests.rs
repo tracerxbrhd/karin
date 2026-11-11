@@ -74,6 +74,7 @@ fn unavailable_storage_allows_forget_intent_but_not_enabling() {
 fn preference_edits_preserve_nonvisible_lifecycle_and_pane_fields() {
     let changes = Rc::new(RefCell::new(Vec::new()));
     let values = Preferences {
+        ui_style: UiStyle::Karin,
         forget_pending: true,
         track_info_open: false,
         ..Preferences::default()
@@ -104,12 +105,125 @@ fn preference_edits_preserve_nonvisible_lifecycle_and_pane_fields() {
     assert!(changed.forget_pending);
     assert!(!changed.track_info_open);
     assert_eq!(changed.remember_login, values.remember_login);
+    assert_eq!(changed.ui_style, UiStyle::Karin);
     state.updating.set(true);
     state.change(|value| value.remember_login = false);
     state.updating.set(false);
     state.ready.set(false);
     state.change(|value| value.cache_enabled = false);
     assert_eq!(changes.borrow().len(), 1);
+}
+
+// Adwaita reads its documented debug settings once, at initialization. Isolate
+// them in fresh processes rather than mutating GTK/global environment in a
+// running test. These are synthetic system settings, not a KDE portal claim.
+fn appearance_system_matrix() -> bool {
+    const SELECTOR: &str = "ui::preferences::tests::native_preferences_persistent_controls_snapshot_updates_and_cleanup";
+    if let Ok(mode) = std::env::var("KARIN_TEST_APPEARANCE_MODE") {
+        native_system_appearance(&mode);
+        return true;
+    }
+    for (mode, scheme, contrast) in [
+        ("system-light", "prefer-light", "0"),
+        ("system-dark", "prefer-dark", "0"),
+        ("contrast-light", "prefer-light", "1"),
+        ("contrast-dark", "prefer-dark", "1"),
+    ] {
+        let output = Command::new("timeout")
+            .arg("20")
+            .arg(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                SELECTOR,
+                "--ignored",
+                "--test-threads=1",
+                "--nocapture",
+            ])
+            .env("KARIN_TEST_APPEARANCE_MODE", mode)
+            .env("ADW_DEBUG_COLOR_SCHEME", scheme)
+            .env("ADW_DEBUG_HIGH_CONTRAST", contrast)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "native appearance {mode}: {}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    false
+}
+
+fn native_system_appearance(mode: &str) {
+    gtk::init().unwrap();
+    adw::init().unwrap();
+    let dark = mode.ends_with("dark");
+    let high_contrast = mode.starts_with("contrast-");
+    let manager = adw::StyleManager::default();
+    assert_eq!(manager.is_high_contrast(), high_contrast);
+    let window = adw::ApplicationWindow::builder()
+        .title("Karin native appearance fixture")
+        .default_width(420)
+        .default_height(720)
+        .build();
+    window.add_css_class("music-shell");
+    let label = gtk::Label::new(Some("Системное оформление · Native appearance"));
+    window.set_content(Some(&label));
+    let parent = label.parent();
+    let settings = gtk::Settings::default().unwrap();
+    settings.set_gtk_enable_animations(false);
+    let font = settings.gtk_font_name();
+    let values = Preferences::default();
+    let applied = super::super::style::apply(&values, &window);
+    assert_eq!(applied.requested, UiStyle::System);
+    assert_eq!(applied.effective, UiStyle::System);
+    assert_eq!(manager.color_scheme(), adw::ColorScheme::Default);
+    pump_until(|| manager.is_dark() == dark);
+    window.present();
+    pump_until(|| window.is_mapped());
+    assert_eq!(window.has_css_class("karin-high-contrast"), high_contrast);
+    if let Ok(scale) = std::env::var("GDK_SCALE") {
+        assert_eq!(window.scale_factor(), scale.parse::<i32>().unwrap());
+    }
+    for color in [Appearance::Light, Appearance::Dark, Appearance::System] {
+        let mut next = values.clone();
+        next.ui_style = UiStyle::Karin;
+        next.appearance = color;
+        let selected = super::super::style::apply(&next, &window);
+        assert_eq!(selected.requested, UiStyle::Karin);
+        assert_eq!(selected.effective, UiStyle::System);
+        assert!(window.has_css_class("karin-style-system"));
+        assert!(!window.has_css_class("karin-style-custom"));
+        pump_until(|| {
+            manager.is_dark()
+                == match color {
+                    Appearance::System => dark,
+                    Appearance::Light => false,
+                    Appearance::Dark => true,
+                }
+        });
+        assert_eq!(manager.is_high_contrast(), high_contrast);
+        assert_eq!(
+            settings.gtk_font_name(),
+            font,
+            "appearance must inherit system font"
+        );
+        assert!(
+            !settings.is_gtk_enable_animations(),
+            "appearance must preserve reduced motion"
+        );
+        assert_eq!(
+            label.parent(),
+            parent,
+            "a scheme change does not rebuild the view"
+        );
+    }
+    // Returning to System picks the settings source again after both overrides.
+    assert_eq!(manager.color_scheme(), adw::ColorScheme::Default);
+    window.close();
+    eprintln!(
+        "Karin synthetic appearance: mode={mode} system-return=pass overrides=pass font=preserved reduced-motion=preserved"
+    );
 }
 
 fn pump_until(mut condition: impl FnMut() -> bool) {
@@ -311,6 +425,9 @@ fn capture(window_id: &str, name: &str) {
 #[test]
 #[ignore = "requires isolated Xvfb, xdotool and GTK; synthetic snapshots only"]
 fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
+    if appearance_system_matrix() {
+        return;
+    }
     gtk::init().unwrap();
     adw::init().unwrap();
     let app = adw::Application::builder()
@@ -390,6 +507,18 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
         "initial render must not save settings"
     );
     assert!(view.remember.is_active());
+    assert!(view.style_system.is_active());
+    assert!(view.style_system.is_sensitive());
+    assert!(!view.style_karin.is_active());
+    assert!(!view.style_karin.is_sensitive());
+    assert!(matches!(
+        view.style_system.accessible_role(),
+        gtk::AccessibleRole::Radio | gtk::AccessibleRole::Checkbox
+    ));
+    assert_eq!(
+        view.style_system.accessible_role(),
+        view.style_karin.accessible_role()
+    );
     assert_eq!(view.cache_limit.value(), 2.0);
     assert_eq!(view.cache_limit_label.label(), "2 ГБ");
     assert_eq!(view.cache_limit.adjustment().lower(), 0.0);
@@ -713,6 +842,41 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
         changes.borrow().len(),
         count + 2,
         "reentrant update must not loop"
+    );
+    // A persisted future design is an explicit fallback, not a fake active
+    // theme. A real keyboard activation confirms System exactly once and
+    // preserves the independent color, auth/barrier, pane and cache choices.
+    {
+        let mut next = snapshot.borrow_mut();
+        next.values.ui_style = UiStyle::Karin;
+        next.values.forget_pending = true;
+        next.values.cache_limit = CacheLimit::GiB4;
+        next.values.track_info_open = false;
+    }
+    view.update(&snapshot.borrow());
+    assert_eq!(changes.borrow().len(), count + 2);
+    assert!(view.style_system.is_active());
+    assert!(!view.style_karin.is_active());
+    assert!(!view.style_karin.is_sensitive());
+    assert!(
+        view.system_style_row
+            .subtitle()
+            .unwrap()
+            .contains("пока недоступен")
+    );
+    click(&window, id, &view.system_style_row);
+    pump_until(|| changes.borrow().len() == count + 3);
+    let confirmed = changes.borrow().last().unwrap().clone();
+    let mut expected = snapshot.borrow().values.clone();
+    expected.ui_style = UiStyle::System;
+    assert_eq!(confirmed, expected);
+    assert!(view.style_system.grab_focus());
+    input(&["key", "--window", id, "space"]);
+    settle();
+    assert_eq!(
+        changes.borrow().len(),
+        count + 3,
+        "already selected native radio is idempotent"
     );
     view.dialog.close();
     pump_until(|| !view.dialog.is_mapped());

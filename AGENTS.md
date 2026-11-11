@@ -77,6 +77,14 @@ reviewable and consistent with the accepted application.
   actual new current occurrences resume following. Footer: hidden before Play,
   retained through Pause/retryable active failure, hidden on Stop/clear/logout.
   No visible Stop. Keep local Shuffle/Repeat and existing system controls.
+- Ordinary continuation is IDs-only, account-bound, bounded and worker-written.
+  Restore only after fresh Music validation, without autoplay/player preparation;
+  preserve duplicate occurrences and shuffle history. Stop/forget/logout delete
+  continuation, Wave never persists. Keep UiStyle independent of color scheme;
+  unavailable Karin presentation must remain visibly unavailable.
+- Playlist writes use exact complete positions/revision, one POST per intent and
+  independent readback. Unknown results permit GET-only reconciliation, never
+  write replay; metadata endpoints have no proven server revision CAS.
 - Mutations need server confirmation; never replay an ambiguous write. Use clear
   loading/empty/error/Retry states. No fake radio, recommendations, lyrics,
   offline mode or inert controls. My Wave is available in the ordinary signed-in
@@ -88,7 +96,7 @@ reviewable and consistent with the accepted application.
   bounded serialized feedback and no replay after an ambiguous POST.
 - Cache metadata, artwork and policy-admitted audio under one shared budget
   (default on/2 GiB, six discrete choices including Unlimited). Preserve worker
-  reservations, disk headroom, generation fences and the v1 settings migration;
+  reservations, disk headroom, generation fences and v1/v2 settings migration to schema 3;
   do not reintroduce separate user quotas or run disk scans while dragging.
 - Catalog refusals fence key epochs before cache I/O; cached UI replies recheck
   those leases. Cold metadata stays Stale until a current positive write. Never

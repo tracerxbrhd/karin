@@ -11,6 +11,11 @@ impl Controller {
         self.widgets.queue_rows.add_css_class("music-track-list");
         let radio_playable = self.wave_current_allowed();
         let model = self.model.borrow();
+        let restored = model
+            .queue
+            .context()
+            .and_then(PlaybackContext::source_id)
+            .is_some_and(|source| source.starts_with("restored:"));
         let source = model
             .queue
             .context()
@@ -30,9 +35,16 @@ impl Controller {
             .context()
             .is_some_and(PlaybackContext::is_partial);
         self.widgets.queue_count.set_text(&format!(
-            "{source} · {}{}",
+            "{} · {}{}",
+            if restored {
+                "Сохранённая очередь"
+            } else {
+                source
+            },
             track_count_text(model.queue.items().len() as u64),
-            if partial {
+            if restored {
+                " · исходный раздел мог измениться"
+            } else if partial {
                 " · загруженная часть"
             } else {
                 ""
@@ -273,13 +285,27 @@ impl Controller {
             menu.update_property(&[gtk::accessible::Property::Label(
                 "Действия с позицией очереди",
             )]);
-            let actions = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+            let add_playlist = gtk::Button::with_label("Добавить в плейлист");
+            add_playlist.set_widget_name("music-queue-add-playlist");
+            add_playlist.add_css_class("flat");
+            let weak = Rc::downgrade(self);
+            let selected = track.clone();
+            let expected = queue_snapshot.clone();
+            add_playlist.connect_clicked(move |_| {
+                if let Some(this) = weak.upgrade()
+                    && queue_action_is_current(&this, generation, &expected)
+                {
+                    this.present_add_to_playlist(selected.clone());
+                }
+            });
+            let actions = gtk::Box::new(gtk::Orientation::Vertical, 4);
             actions.append(&details);
+            actions.append(&add_playlist);
             actions.append(&remove);
             let popover = gtk::Popover::new();
             popover.set_child(Some(&actions));
             menu.set_popover(Some(&popover));
-            for button in [&details, &remove] {
+            for button in [&details, &add_playlist, &remove] {
                 let weak = popover.downgrade();
                 button.connect_clicked(move |_| {
                     if let Some(popover) = weak.upgrade() {

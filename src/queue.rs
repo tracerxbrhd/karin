@@ -3,13 +3,19 @@
 //! Selection records an occurrence, not the first matching track identifier.
 
 use crate::music::Track;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 mod policy;
 use policy::OrderPolicy;
+mod persistence;
+pub(crate) use persistence::QueueSnapshot;
+mod origin;
+pub(crate) use origin::PlaybackOrigin;
 
 /// Local playback behavior. It never changes the source collection order.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum RepeatMode {
     #[default]
     Off,
@@ -64,7 +70,8 @@ pub struct MusicQueue {
 
 /// Provenance of the loaded ordered items, never a network request or a claim
 /// that a complete remote collection has been fetched.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum ContextKind {
     Search,
     LikedTracks,
@@ -82,6 +89,7 @@ pub enum ContextKind {
 pub struct PlaybackContext {
     source_kind: ContextKind,
     source_id: Option<String>,
+    origin: PlaybackOrigin,
     items: Arc<Vec<Track>>,
     // Original loaded occurrence positions survive queue edits. Manual extras
     // have no source position; track IDs cannot identify duplicate occurrences.
@@ -134,6 +142,7 @@ impl PlaybackContext {
         let loaded_items = items.len();
         Ok(Self {
             source_kind,
+            origin: PlaybackOrigin::from_source(source_kind, source_id.as_deref()),
             source_id,
             source_positions: Arc::new((0..loaded_items).map(Some).collect()),
             items: Arc::new(items),
@@ -167,6 +176,14 @@ impl PlaybackContext {
 
     pub fn source_kind(&self) -> ContextKind {
         self.source_kind
+    }
+    pub(crate) fn origin(&self) -> &PlaybackOrigin {
+        &self.origin
+    }
+    /// The server origin is distinct from a view's ephemeral highlight binding.
+    pub(crate) fn with_origin(mut self, origin: PlaybackOrigin) -> Self {
+        self.origin = origin;
+        self
     }
     pub fn source_id(&self) -> Option<&str> {
         self.source_id.as_deref()
@@ -270,6 +287,7 @@ impl MusicQueue {
             self.context = Some(PlaybackContext {
                 source_kind: ContextKind::Queue,
                 source_id: None,
+                origin: PlaybackOrigin::Queue,
                 items: Arc::new(vec![track]),
                 source_positions: Arc::new(vec![None]),
                 current_index: 0,

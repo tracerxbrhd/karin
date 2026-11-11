@@ -68,30 +68,24 @@ lyrics and offline audio are not implemented. Cold first-player appearance in Cl
 still has unresolved frame gaps; desktop acceptance does not establish their
 cause or resolution. See [known limitations](docs/LIMITATIONS.md).
 
-PR #26 provides one cache policy: enabled by default, one 2 GiB allowance,
-combined usage and Clear, with a native slider for 500 MiB, 1/2/3/4 GiB or
-Unlimited. Metadata, artwork and policy-admitted audio share one disk coordinator,
-including in-flight writes. The owner confirmed real first playback/background
-saving on Fedora Native. At `cac4d78`, replay still repeated descriptor-path /
-representation-changed downloads; no local hit was confirmed. Acceptance of
-earlier available functions is recorded separately.
-Private HTTP caching queues one bounded complete-response MP3 download alongside
-the existing GStreamer player, independently of Next, Seek and EOS. Only verified
-complete files are published. Each replay obtains fresh Music
-access and delivery information and validates the saved representation before
-selecting its local file. A logical object does not make different CDN replicas'
-ETags or modification dates comparable. Conditional validators require the exact
-provider media URI and compatible provenance/encoding; a full digest can prove the
-saved bytes. Missing proof keeps playback online and retains the valid candidate
-without another cache-body download. Legacy binding metadata is updated only
-after positive representation proof, without downloading the same audio again.
-Compact track indicators show actual downloading/complete local records; they
-do not promise offline playback. `no-store`, explicit restrictions and failed
-access retain their fences. This policy does not manufacture a provider
-entitlement or establish public-distribution rights. PR #26 remains Draft;
-**the revised local replay and indicators need real-service acceptance**, and
-local fixtures are not Music acceptance. See the [cache policy](docs/AUDIO_CACHE_REVIEW.md)
-and the [single final Native/Flatpak check](docs/BUILDING.md#pr-26-corrected-cache-acceptance).
+[PR #26](https://github.com/tracerxbrhd/karin/pull/26) merged normally at
+`1fd4028`. The owner accepted `c1de869` real Native and installed-Flatpak MP3
+playback, background saving, local hits and local replay after restart. One
+policy covers metadata, artwork and eligible private HTTP audio: enabled by
+default, 2 GiB, measured combined usage, Clear/Retry and six discrete limits.
+Current Music access, offer selection, integrity and response freshness decide
+local-first reuse before XML/CDN resolution. Stale/no-cache data requires strict
+revalidation; failed caching preserves online audio. Downloading/Saved graphics
+are provisionally accepted pending future design refinement. This is private
+online-revalidated caching, not an offline library or a public distribution
+license. See [cache policy](docs/AUDIO_CACHE_REVIEW.md).
+
+[Draft PR #28](https://github.com/tracerxbrhd/karin/pull/28) combines bounded
+account-bound playback continuation without autoplay, server-confirmed owned
+playlist editing and independent System style/color settings. Karin Style is
+explicitly unavailable until approved designer materials arrive. These additions
+await their own final desktop acceptance; the accepted audio path stays shared.
+See the [single Native/Flatpak check](docs/BUILDING.md#v07-final-fedora-acceptance).
 
 ## Build and run
 

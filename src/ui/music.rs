@@ -28,10 +28,12 @@ mod interactions;
 #[cfg(test)]
 mod navigation_tests;
 mod persistence;
+mod playback_restore;
 mod player;
 mod player_bar;
 mod playlist_creation;
 mod playlist_grid;
+mod playlist_management;
 mod queue_view;
 mod radio;
 mod reactions;
@@ -205,6 +207,7 @@ struct Controller {
     detail_like_controls: RefCell<Vec<interactions::DetailLike>>,
     catalog: RefCell<Option<crate::catalog_cache::CachedCatalog>>,
     playlist_dialog: RefCell<Option<adw::Dialog>>,
+    playlist_management: RefCell<playlist_management::State>,
     can_create_playlist: Cell<bool>,
     detail_refresh: RefCell<Option<DetailRefresh>>,
     music_surface_visible: Cell<bool>,
@@ -711,6 +714,7 @@ impl MusicPane {
             detail_like_controls: RefCell::new(Vec::new()),
             catalog: RefCell::new(None),
             playlist_dialog: RefCell::new(None),
+            playlist_management: RefCell::new(playlist_management::State::default()),
             can_create_playlist: Cell::new(true),
             detail_refresh: RefCell::new(None),
             music_surface_visible: Cell::new(true),
@@ -731,6 +735,7 @@ impl MusicPane {
         controller.connect(window);
         controller.connect_workspace();
         controller.connect_music_player();
+        controller.connect_playlist_management();
         controller.connect_system_media();
         controller.render_controls();
         controller.render_queue();
@@ -1706,6 +1711,8 @@ impl Controller {
         if self.model.borrow().closed {
             return;
         }
+        self.close_playback_restore();
+        self.retire_playlist_management();
         self.cancel_radio();
         self.close_persistence();
         self.clear_cache_presence();
@@ -1753,6 +1760,7 @@ impl Controller {
     }
 
     fn logout(self: &Rc<Self>) {
+        self.retire_playlist_management();
         self.clear_cache_presence();
         self.cancel_radio();
         self.begin_forget_session();
@@ -1943,8 +1951,10 @@ impl Controller {
             }
             let result = result.unwrap_or(Err(MusicError::Configuration));
             if current {
-                if !matches!(operation, Operation::LikeRead | Operation::Mutation)
-                    && (operation != Operation::Search || result.is_err())
+                if !matches!(
+                    operation,
+                    Operation::LikeRead | Operation::Mutation | Operation::PlaylistMutation
+                ) && (operation != Operation::Search || result.is_err())
                 {
                     catalog_diagnostic(operation, result.as_ref().err().copied());
                 }
@@ -2036,6 +2046,7 @@ impl Controller {
         if !self.wave_manual_append_allowed() {
             return;
         }
+        self.note_playback_intent();
         self.cancel_pending_wave_for_ordinary_action();
         let result = self.model.borrow_mut().queue.append(track);
         match result {
@@ -2156,6 +2167,8 @@ impl Controller {
             token.invalidate();
             return;
         }
+        self.retire_playback_restore();
+        self.retire_playlist_management();
         self.clear_cache_presence();
         self.cancel_radio();
         self.cancel_music_cache(crate::audio_cache::diagnostic::Cause::AccountChanged);
@@ -2172,6 +2185,8 @@ impl Controller {
             model.account_valid = false;
             model.auth_busy = false;
             model.busy = false;
+            model.queue.clear();
+            model.queue.reset_modes();
         }
         if self.service.is_none() {
             self.auth_failed(AuthError::Configuration);

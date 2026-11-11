@@ -88,24 +88,21 @@ license, a release/version/tag or every unreported failure/backend case.
 
 ## v0.7: playback restoration, playlist editing and appearance
 
-One branch, `feature/v0.7-playback-playlists-appearance`, starts at the accepted
+[Draft PR #28](https://github.com/tracerxbrhd/karin/pull/28), branch
+`feature/v0.7-playback-playlists-appearance`, starts at the accepted
 merge and combines #21 and #19 with independent UI-style/color-scheme settings.
-Restore a bounded same-account queue/order/position without autoplay or saved
-media/Wave resources; confirm each enabled playlist write with current ownership,
-revision semantics and independent readback; keep the working System presentation
-and prepare the unavailable Karin Style for real designer materials. These new
-functions require their own final implementation/CI and one desktop acceptance.
+It implements bounded same-account queue/order/position restoration without
+autoplay or saved media/Wave resources, owned playlist edits with exact occurrence/
+revision semantics and independent readback, and independent System presentation/
+color settings. Karin Style remains unavailable until real designer materials
+arrive. Issues #19/#21 remain open for final CI and one desktop acceptance.
 
 ## Further directions
 
 - [Lyrics and related tracks](https://github.com/tracerxbrhd/karin/issues/18): confirm permitted endpoints/resources before
   exposing a user workflow; no extracted official-client signing material.
-- [Playlist editing](https://github.com/tracerxbrhd/karin/issues/19): extend beyond
-  confirmed creation only with ownership/revision and ambiguous-write recovery.
 - Later offline audio needs separately confirmed access lifetimes and renewal
   rules. Accepted online-revalidated caching does not establish that feature.
-- [Restart playback state](https://github.com/tracerxbrhd/karin/issues/21): define
-  bounded same-account context/position restoration without storing media URLs.
 - Whole-collection search/sorting: provide complete coverage or label a loaded
   prefix honestly without silently changing the playing queue.
 

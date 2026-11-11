@@ -12,7 +12,7 @@ use crate::{
     playback::{
         PlaybackController, PlaybackError, PlaybackOutput, PlaybackSnapshot, PlaybackState,
     },
-    queue::PlaybackContext,
+    queue::{OccurrenceId, PlaybackContext},
     stream::{DeliveryCancellation, DeliveryReport, StreamResolver},
 };
 
@@ -41,6 +41,11 @@ pub(super) struct MusicPlayback {
     cancellation: Option<DeliveryCancellation>,
     pending: Option<Intent>,
     preparing: Option<(bool, Option<Duration>)>,
+    // A restored continuation is presentation only, never a fabricated native
+    // player state. The occurrence binding keeps duplicate service IDs distinct.
+    restored_position: Option<Duration>,
+    restored_occurrence: Option<OccurrenceId>,
+    requested_position: Option<Duration>,
     play_intent: bool,
     cache_retry_used: bool,
     failure: Option<Failure>,
@@ -71,6 +76,9 @@ impl Default for MusicPlayback {
             cancellation: None,
             pending: None,
             preparing: None,
+            restored_position: None,
+            restored_occurrence: None,
+            requested_position: None,
             play_intent: false,
             cache_retry_used: false,
             failure: None,
@@ -166,6 +174,7 @@ impl Controller {
             }
             this.tick_music();
             this.tick_cache_presence();
+            this.tick_playback_restore();
             glib::ControlFlow::Continue
         });
     }
@@ -346,7 +355,7 @@ impl Controller {
         }
         let snapshot = self.music_snapshot();
         match snapshot.as_ref().map(|snapshot| snapshot.state) {
-            Some(PlaybackState::Playing) => self.music_command(PlaybackController::pause),
+            Some(PlaybackState::Playing) => self.pause_music(),
             Some(PlaybackState::Paused) => self.music_command(PlaybackController::resume),
             Some(PlaybackState::Ready) => {
                 if let Some(snapshot) = &snapshot {
@@ -354,7 +363,12 @@ impl Controller {
                 }
             }
             Some(PlaybackState::Loading) => {}
-            _ => self.request_music(true, snapshot.and_then(|snapshot| snapshot.position)),
+            _ => self.request_music(
+                true,
+                snapshot
+                    .and_then(|snapshot| snapshot.position)
+                    .or_else(|| self.continuation_position()),
+            ),
         }
     }
 
@@ -382,7 +396,12 @@ impl Controller {
                     self.play_prepared_music(snapshot);
                 }
             }
-            _ => self.request_music(true, snapshot.and_then(|snapshot| snapshot.position)),
+            _ => self.request_music(
+                true,
+                snapshot
+                    .and_then(|snapshot| snapshot.position)
+                    .or_else(|| self.continuation_position()),
+            ),
         }
     }
 
@@ -392,6 +411,7 @@ impl Controller {
             .is_some_and(|snapshot| snapshot.state == PlaybackState::Playing)
         {
             self.music_command(PlaybackController::pause);
+            self.note_playback_intent();
         }
     }
 
@@ -414,6 +434,11 @@ impl Controller {
             && snapshot.duration.is_none_or(|duration| position < duration)
         {
             self.seek_music(position);
+        } else if position.is_some_and(|value| !value.is_zero()) {
+            self.persistence.borrow_mut().playback.message = Some(
+                "Этот источник не поддерживает сохранённую позицию. Воспроизведение начнётся сначала.",
+            );
+            self.render_persistence();
         }
     }
 
@@ -431,6 +456,7 @@ impl Controller {
             // Acceptance only arms the bridge. It emits Seeked after a later
             // actual worker snapshot acknowledges this position/track binding.
             self.note_music_seek_from(position, before);
+            self.note_playback_intent();
         }
     }
 
@@ -473,6 +499,7 @@ impl Controller {
             }
             (model.generation, track.id.clone())
         };
+        self.allow_playback_continuation();
         self.stop_music_engine();
         self.widgets.status.set_title("Получаем источник аудио…");
         self.widgets.status.set_subtitle("");
@@ -481,6 +508,7 @@ impl Controller {
             player.serial = player.serial.wrapping_add(1);
             player.track = Some(track.clone());
             player.play_intent = autoplay;
+            player.requested_position = position;
             player.pending = Some(Intent {
                 serial: player.serial,
                 session,
@@ -646,6 +674,7 @@ impl Controller {
     }
 
     pub(super) fn stop_music(&self) {
+        self.stop_playback_continuation();
         self.leave_wave_for_stop();
         self.cancel_music_cache(crate::audio_cache::diagnostic::Cause::UserStop);
         self.stop_music_engine();
@@ -725,6 +754,9 @@ impl Controller {
             player.track = None;
             player.requested = false;
             player.preparing = None;
+            player.restored_position = None;
+            player.restored_occurrence = None;
+            player.requested_position = None;
             player.play_intent = false;
             player.cache_retry_used = false;
             player.failure = None;
@@ -818,6 +850,25 @@ impl Controller {
             .controller
             .as_ref()
             .map(PlaybackController::snapshot)
+    }
+
+    pub(super) fn continuation_position(&self) -> Option<Duration> {
+        let model = self.model.borrow();
+        let player = self.player.borrow();
+        player.requested_position.or_else(|| {
+            (player.restored_occurrence.as_ref() == model.queue.current_occurrence_id())
+                .then_some(player.restored_position)
+                .flatten()
+        })
+    }
+
+    pub(super) fn present_restored_playback(&self, position: Duration) {
+        let model = self.model.borrow();
+        let mut player = self.player.borrow_mut();
+        player.restored_position = model.queue.current().map(|_| position);
+        player.restored_occurrence = model.queue.current_occurrence_id().cloned();
+        player.track = model.queue.current().map(|track| track.id.clone());
+        player.stopped = model.queue.current().is_none();
     }
 
     pub(super) fn music_requested(&self) -> bool {
@@ -1076,6 +1127,18 @@ impl Controller {
     }
 
     pub(super) fn guard_music_binding(&self) {
+        {
+            let model = self.model.borrow();
+            let mut player = self.player.borrow_mut();
+            if player.restored_position.is_some()
+                && player.restored_occurrence.as_ref() != model.queue.current_occurrence_id()
+            {
+                player.restored_occurrence = model.queue.current_occurrence_id().cloned();
+                player.restored_position = model.queue.current().map(|_| Duration::ZERO);
+                player.track = model.queue.current().map(|track| track.id.clone());
+                player.stopped = model.queue.current().is_none();
+            }
+        }
         // This method also runs from render_queue, before the periodic poll.
         // Binding repair stops only the player, never independent cache work.
         let mismatched = {
@@ -1105,6 +1168,7 @@ impl Controller {
         if self.is_wave_queue() && !self.wave_current_allowed() {
             return;
         }
+        self.note_playback_intent();
         self.observe_wave_snapshot(self.music_snapshot().as_ref());
         let (active, autoplay) = self.continuation();
         let (advanced, changed_occurrence) = {
@@ -1164,6 +1228,7 @@ impl Controller {
         if index >= self.model.borrow().queue.items().len() {
             return;
         }
+        self.note_playback_intent();
         self.cancel_pending_wave_for_ordinary_action();
         let was_wave = self.is_wave_queue();
         self.observe_wave_snapshot(self.music_snapshot().as_ref());
@@ -1198,9 +1263,10 @@ impl Controller {
     }
 
     pub(super) fn set_music_shuffle(self: &Rc<Self>, enabled: bool) {
-        if self.is_wave_queue() {
+        if self.is_wave_queue() || self.model.borrow().closed {
             return;
         }
+        self.note_playback_intent();
         let mut model = self.model.borrow_mut();
         if model.closed || model.queue.shuffle() == enabled {
             return;
@@ -1212,9 +1278,10 @@ impl Controller {
     }
 
     pub(super) fn set_music_repeat(self: &Rc<Self>, mode: crate::queue::RepeatMode) {
-        if self.is_wave_queue() {
+        if self.is_wave_queue() || self.model.borrow().closed {
             return;
         }
+        self.note_playback_intent();
         let mut model = self.model.borrow_mut();
         if model.closed || model.queue.repeat_mode() == mode {
             return;
@@ -1286,7 +1353,8 @@ impl Controller {
                 || player.pending.is_some()
                 || player.preparing.is_some()
                 || player.failure.is_some()
-                || player.controller.is_some());
+                || player.controller.is_some()
+                || player.restored_position.is_some());
         self.widgets.player_revealer.set_reveal_child(active_footer);
         let caption = if let Some(failure) = player.failure {
             match failure {
@@ -1306,6 +1374,8 @@ impl Controller {
                 .any(|controller| controller.snapshot().worker_running)
         {
             "Останавливаем…"
+        } else if player.restored_position.is_some() {
+            "Сохранённая очередь · нажмите «Воспроизвести», чтобы продолжить"
         } else {
             match state {
                 PlaybackState::Loading => "Буферизация…",
@@ -1359,9 +1429,9 @@ impl Controller {
                         PlaybackState::Ready | PlaybackState::Playing | PlaybackState::Paused
                     )),
         );
-        self.widgets
-            .stop
-            .set_sensitive(player.requested || player.controller.is_some());
+        self.widgets.stop.set_sensitive(
+            player.requested || player.controller.is_some() || player.restored_position.is_some(),
+        );
         self.widgets
             .volume
             .set_sensitive(ready && player.controller.is_some() && state != PlaybackState::Error);
@@ -1444,14 +1514,23 @@ impl Controller {
                 duration.map_or_else(|| "—".into(), music_time)
             ));
         } else {
-            self.widgets.progress.set_range(0.0, 1.0);
-            self.widgets.progress.set_value(0.0);
-            self.widgets.position.set_text(
-                &selected.and_then(|track| track.duration_ms).map_or_else(
-                    || "— / —".into(),
-                    |duration| format!("— / {}", format_duration(duration)),
-                ),
+            let position = player.restored_position;
+            self.widgets.progress.set_range(
+                0.0,
+                selected
+                    .and_then(|track| track.duration_ms)
+                    .map_or(1.0, |ms| (ms as f64 / 1000.0).max(0.1)),
             );
+            self.widgets
+                .progress
+                .set_value(position.map_or(0.0, |value| value.as_secs_f64()));
+            self.widgets.position.set_text(&format!(
+                "{} / {}",
+                position.map_or_else(|| "—".into(), music_time),
+                selected
+                    .and_then(|track| track.duration_ms)
+                    .map_or_else(|| "—".into(), format_duration)
+            ));
         }
         drop(player);
         drop(model);

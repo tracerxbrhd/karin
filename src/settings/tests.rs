@@ -46,6 +46,7 @@ fn persistent_preferences_roundtrip_preserves_private_modes_and_all_choices() {
     assert!(!fixture.file().exists());
     assert!(!fixture.file().parent().unwrap().exists());
     let preferences = Preferences {
+        ui_style: UiStyle::Karin,
         appearance: Appearance::Dark,
         remember_login: false,
         forget_pending: true,
@@ -81,7 +82,7 @@ fn malformed_oversized_unknown_and_out_of_range_settings_recover_with_defaults()
     let invalid = [
         b"{".to_vec(),
         b"null".to_vec(),
-        br#"{"version":3,"preferences":{}}"#.to_vec(),
+        br#"{"version":4,"preferences":{}}"#.to_vec(),
         br#"{"version":1,"preferences":{"appearance":"unsupported"}}"#.to_vec(),
         br#"{"version":1,"preferences":{"access_token":"synthetic-never-accepted"}}"#.to_vec(),
         vec![b' '; MAX_FILE_BYTES as usize + 1],
@@ -117,6 +118,122 @@ fn omitted_new_preferences_use_safe_defaults_without_accepting_unknown_fields() 
     assert!(loaded.preferences.remember_login && loaded.preferences.cache_enabled);
     assert!(!loaded.preferences.forget_pending);
     assert_eq!(loaded.preferences.cache_limit, CacheLimit::GiB2);
+}
+
+#[test]
+fn adding_ui_style_migrates_both_old_schemas_without_losing_color_or_private_choices() {
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    store.save(&Preferences::default()).unwrap();
+    for (wire_color, color) in [
+        ("system", ColorScheme::System),
+        ("light", ColorScheme::Light),
+        ("dark", ColorScheme::Dark),
+    ] {
+        for version in [1, 2] {
+            let mut values = serde_json::json!({
+                "appearance": wire_color,
+                "remember_login": false,
+                "forget_pending": true,
+                "cache_enabled": false,
+                "track_info_open": false
+            });
+            if version == 1 {
+                values["cache_limit_bytes"] = serde_json::json!(1024 * 1024 * 1024_u64);
+                values["audio_cache_limit_bytes"] = serde_json::json!(2 * 1024 * 1024 * 1024_u64);
+            } else {
+                values["cache_limit"] = serde_json::to_value(CacheLimit::GiB3).unwrap();
+            }
+            let wire = serde_json::to_vec(&serde_json::json!({
+                "version": version, "preferences": values
+            }))
+            .unwrap();
+            fixture.replace(&wire);
+            let loaded = store.load().unwrap();
+            assert_eq!(loaded.status, LoadStatus::Loaded);
+            assert_eq!(
+                loaded.preferences,
+                Preferences {
+                    ui_style: UiStyle::System,
+                    appearance: color,
+                    remember_login: false,
+                    forget_pending: true,
+                    cache_enabled: false,
+                    cache_limit: CacheLimit::GiB3,
+                    track_info_open: false,
+                }
+            );
+            // Ordinary save upgrades the envelope, not another store or cache.
+            store.save(&loaded.preferences).unwrap();
+            assert_eq!(store.load().unwrap().preferences, loaded.preferences);
+            let saved: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(fixture.file()).unwrap()).unwrap();
+            assert_eq!(saved["version"], 3);
+        }
+    }
+}
+
+#[test]
+fn unknown_or_malformed_style_never_resets_session_deletion_barrier_or_cache_policy() {
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    let expected = Preferences {
+        ui_style: UiStyle::System,
+        appearance: Appearance::Dark,
+        remember_login: false,
+        forget_pending: true,
+        cache_enabled: false,
+        cache_limit: CacheLimit::GiB4,
+        track_info_open: false,
+    };
+    store.save(&expected).unwrap();
+    for style in [
+        serde_json::json!("future-style"),
+        serde_json::json!(false),
+        serde_json::json!({"access_token":"synthetic-untrusted-field"}),
+        serde_json::Value::Null,
+    ] {
+        let mut values = serde_json::to_value(&expected).unwrap();
+        values["ui_style"] = style;
+        fixture.replace(
+            &serde_json::to_vec(&serde_json::json!({"version":3,"preferences":values})).unwrap(),
+        );
+        let loaded = store.load().unwrap();
+        assert_eq!(loaded.status, LoadStatus::Loaded);
+        assert_eq!(loaded.preferences, expected);
+        store.save(&loaded.preferences).unwrap();
+        assert!(
+            !std::fs::read_to_string(fixture.file())
+                .unwrap()
+                .contains("synthetic-untrusted-field")
+        );
+    }
+}
+
+#[test]
+fn color_scheme_and_reserved_style_roundtrip_independently() {
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    assert_eq!(Preferences::default().ui_style, UiStyle::System);
+    assert_eq!(Preferences::default().appearance, ColorScheme::System);
+    for color in [ColorScheme::System, ColorScheme::Light, ColorScheme::Dark] {
+        let values = Preferences {
+            ui_style: UiStyle::Karin,
+            appearance: color,
+            ..Preferences::default()
+        };
+        store.save(&values).unwrap();
+        assert_eq!(fixture.store().load().unwrap().preferences, values);
+        assert_eq!(values.ui_style.effective(), UiStyle::System);
+        // A color edit does not silently turn an unavailable design into a
+        // ready theme or erase that persisted future request.
+        store
+            .update(|values| values.appearance = ColorScheme::Dark)
+            .unwrap();
+        let edited = store.load().unwrap().preferences;
+        assert_eq!(edited.ui_style, UiStyle::Karin);
+        assert_eq!(edited.appearance, ColorScheme::Dark);
+    }
 }
 
 #[test]
@@ -220,7 +337,7 @@ fn unified_limit_choices_roundtrip_and_legacy_allowances_migrate_without_session
         assert_eq!(store.load().unwrap().preferences, preferences);
         let envelope: serde_json::Value =
             serde_json::from_slice(&std::fs::read(fixture.file()).unwrap()).unwrap();
-        assert_eq!(envelope["version"], 2);
+        assert_eq!(envelope["version"], 3);
         assert!(envelope["preferences"].get("cache_limit_bytes").is_none());
         assert!(
             envelope["preferences"]

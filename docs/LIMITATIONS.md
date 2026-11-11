@@ -157,3 +157,19 @@ setting loaded before Adwaita initialization, using the unchanged earlier
 binary. The specific writer/source on the owner's Fedora remains unestablished.
 Karin does not suppress this warning or overwrite desktop settings. See the
 [read-only theme check](BUILDING.md#theme-input-check).
+
+## v0.7 additions awaiting desktop acceptance
+
+[Draft PR #28](https://github.com/tracerxbrhd/karin/pull/28) implements ordinary
+playback continuation and owned playlist editing. They remain pending one final
+Native/installed-Flatpak acceptance against the real service. Restore needs
+current account/track validation and explicit Play; radio and offline sessions
+are not restored. Saved queue provenance is independent of later playlist edits.
+Playlist edit snapshots require complete server positions and revision, at most
+2,000 entries. Rename/visibility/delete endpoints have no confirmed server
+revision CAS; fresh preflight/readback cannot prevent every external-writer race.
+Ambiguous writes remain Unknown with GET-only reconciliation.
+
+System presentation uses Libadwaita and supported desktop preferences, not KDE's
+Qt theme/CSS. Karin Style is reserved and unavailable until designer assets exist;
+its visual acceptance is not claimed. See [designer handoff](design/KARIN_STYLE_INTEGRATION.md).

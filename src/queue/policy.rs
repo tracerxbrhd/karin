@@ -8,10 +8,10 @@ use ring::rand::{SecureRandom, SystemRandom};
 pub(super) struct OrderPolicy {
     pub shuffle: bool,
     pub repeat: RepeatMode,
-    random: u64,
-    remaining: Vec<usize>,
-    history: Vec<usize>,
-    cursor: usize,
+    pub(super) random: u64,
+    pub(super) remaining: Vec<usize>,
+    pub(super) history: Vec<usize>,
+    pub(super) cursor: usize,
 }
 impl Default for OrderPolicy {
     fn default() -> Self {
