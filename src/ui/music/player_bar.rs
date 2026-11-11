@@ -9,6 +9,7 @@ pub(super) struct PlayerBarParts {
     pub player_main: gtk::Box,
     pub current: gtk::Label,
     pub current_artist: gtk::Label,
+    pub current_cache: gtk::Box,
     pub current_art: gtk::Box,
     pub current_art_button: gtk::Button,
     pub current_like_slot: gtk::Box,
@@ -108,7 +109,11 @@ impl PlayerBarParts {
         player_status.set_margin_end(4);
         player_status.set_margin_bottom(4);
         player_status.set_visible(false);
-        labels.append(&current);
+        let title_line = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        let current_cache = cache_presence::indicator("music-current-cache");
+        title_line.append(&current);
+        title_line.append(&current_cache);
+        labels.append(&title_line);
         labels.append(&current_artist);
         // The bottom bar grows upward only while feedback is visible; the
         // transport and timeline keep their existing bottom anchoring.
@@ -376,6 +381,7 @@ impl PlayerBarParts {
             player_main,
             current,
             current_artist,
+            current_cache,
             current_art,
             current_art_button,
             current_like_slot,

@@ -2,7 +2,7 @@
 
 # ADR-0028: Distinct, server-confirmed track reactions
 
-Status: Live server reactions confirmed at `1877a6c`; revised Next/Flatpak acceptance pending
+Status: Live reactions and revised Dislike→Next owner-accepted on Native/installed Flatpak
 Date: 2026-11-05
 Extends: ADR-0014 and ADR-0027
 
@@ -114,8 +114,10 @@ no Next for removal/Like/refused/uncertain outcomes, changed occurrences includi
 duplicate IDs, cancellation and logout. Executed results belong in
 [VALIDATION](../VALIDATION.md); merely registering a test is not a pass.
 
-The owner's `1877a6c` result confirms live server reactions. Repeat the revised
-Next workflow in Native and installed Flatpak, recording revision, environment
-and PASS/FAIL/not-tested without account identifiers, tokens, wire data, signed
-URLs, personal screenshots or recordings. Issue #17 retains any unreported
-acceptance; public-distribution conditions remain separate Issue #5.
+The owner's `1877a6c` result confirms live server reactions. The subsequent
+report accepts revised Dislike→Next, ordinary queue and Wave on Fedora Native
+and installed Flatpak; Issue #17 is closed. Special race/failure cases remain
+automated evidence, not invented owner checks. Repeat the local procedure for
+changed revisions, reporting only revision/environment/PASS/FAIL/not-tested; no
+private identifiers, tokens, signed URLs, screenshots or recordings are needed.
+Public-distribution conditions remain separate Issue #5.

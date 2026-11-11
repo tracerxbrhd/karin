@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Fresh, account-bound legacy MP3 resolution. This module never fetches media.
+//! Fresh, account-bound legacy MP3 resolution for the shared player.
 
 use std::{fmt, time::Instant};
 
@@ -16,6 +16,297 @@ const LEGACY_CHECKSUM_PREFIX: &[u8] = b"XGRlBW9FXlekgbPrRHuSiA";
 // Local admission freshness, deliberately conservative. It does not interpret
 // XML `ts` or claim an authoritative server expiry / renew playback rights.
 const SOURCE_FRESHNESS: Duration = Duration::from_secs(60);
+
+/// Constructible only in this resolver after the descriptor has passed the
+/// existing legacy URI validation. This names a file/encoding, not immutable
+/// bytes and not a provider entitlement. No path or signing data is retained.
+pub(crate) struct HttpResourceIdentity {
+    request: [u8; 32],
+    locator: [u8; 32],
+    binding: crate::audio_cache::http_policy::ResourceBinding,
+}
+
+impl HttpResourceIdentity {
+    #[cfg(test)]
+    fn from_validated_descriptor(
+        parts: &xml::LegacyParts,
+        bitrate: u32,
+        uri: &str,
+        logical: Option<[u8; 32]>,
+    ) -> Self {
+        Self::from_selected_descriptor(
+            parts,
+            bitrate,
+            uri,
+            logical,
+            identity_hash(
+                b"Karin selected MP3 encoding v1\0",
+                &[b"audio/mpeg;codec=mp3", &bitrate.to_be_bytes()],
+            ),
+            1,
+        )
+    }
+
+    fn from_selected_descriptor(
+        parts: &xml::LegacyParts,
+        bitrate: u32,
+        uri: &str,
+        logical: Option<[u8; 32]>,
+        variant: [u8; 32],
+        schema: u8,
+    ) -> Self {
+        let host = parts.host.to_ascii_lowercase();
+        let bitrate = bitrate.to_be_bytes();
+        // Retain the v1 locator recipe so existing complete records remain
+        // candidates. Locator changes are not assertions about changed bytes.
+        let locator = identity_hash(
+            b"Karin resolved legacy MP3 file locator v1\0",
+            &[
+                b"https",
+                host.as_bytes(),
+                parts.path.as_bytes(),
+                b"audio/mpeg;codec=mp3",
+                &bitrate,
+            ],
+        );
+        let binding = crate::audio_cache::http_policy::ResourceBinding {
+            logical,
+            host: identity_hash(b"Karin MP3 authority v1\0", &[b"https", host.as_bytes()]),
+            path: identity_hash(b"Karin MP3 descriptor path v1\0", &[parts.path.as_bytes()]),
+            variant,
+            schema,
+        };
+        let mut request = ring::digest::Context::new(&ring::digest::SHA256);
+        request.update(b"Karin private HTTP media request v1\0");
+        request.update(uri.as_bytes());
+        let mut request_hash = [0; 32];
+        request_hash.copy_from_slice(request.finish().as_ref());
+        Self {
+            request: request_hash,
+            locator,
+            binding,
+        }
+    }
+
+    pub(crate) fn hash(&self) -> [u8; 32] {
+        self.locator
+    }
+    pub(crate) fn request_hash(&self) -> [u8; 32] {
+        self.request
+    }
+    pub(crate) fn binding(&self) -> crate::audio_cache::http_policy::ResourceBinding {
+        self.binding
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_test_object(
+        host: &str,
+        path: &str,
+        bitrate: u32,
+        timestamp: &str,
+        descriptor: &str,
+    ) -> Self {
+        let mut identity = Self::for_test(host, path, bitrate, timestamp);
+        identity.binding.logical =
+            logical_descriptor_object(&Url::parse(descriptor).expect("synthetic descriptor URL"));
+        identity
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_test(host: &str, path: &str, bitrate: u32, timestamp: &str) -> Self {
+        let body = format!(
+            "<download-info><host>{host}</host><path>{path}</path><ts>{timestamp}</ts><s>synthetic-private-value</s></download-info>"
+        );
+        let parts = xml::parse(body.as_bytes()).expect("synthetic descriptor");
+        let uri = legacy_uri(&parts).expect("synthetic admitted provider URI");
+        Self::from_validated_descriptor(&parts, bitrate, &uri, None)
+    }
+}
+
+fn identity_hash(domain: &[u8], components: &[&[u8]]) -> [u8; 32] {
+    let mut context = ring::digest::Context::new(&ring::digest::SHA256);
+    context.update(domain);
+    for component in components {
+        context.update(&(component.len() as u64).to_be_bytes());
+        context.update(component);
+    }
+    let mut result = [0; 32];
+    result.copy_from_slice(context.finish().as_ref());
+    result
+}
+
+fn selected_variant(bitrate: u32, gain: Option<bool>) -> [u8; 32] {
+    let gain = match gain {
+        None => b"unknown".as_slice(),
+        Some(false) => b"unapplied".as_slice(),
+        Some(true) => b"applied".as_slice(),
+    };
+    identity_hash(
+        b"Karin selected full MP3 encoding v2\0",
+        &[b"audio/mpeg;codec=mp3", &bitrate.to_be_bytes(), gain],
+    )
+}
+
+/// A fresh authenticated API selection, before resolving its temporary CDN
+/// location. A logical object plus encoding is not an immutable byte digest:
+/// local reuse additionally needs the saved response's valid reuse policy and
+/// integrity. The private descriptor URL is never serialized or displayed.
+pub(crate) struct PreparedAudioOffer {
+    url: Url,
+    bitrate: u32,
+    logical: Option<[u8; 32]>,
+    variant: [u8; 32],
+    session: crate::music::MusicSessionBinding,
+    report: DeliveryReport,
+    expires_at: Instant,
+}
+
+impl fmt::Debug for PreparedAudioOffer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("PreparedAudioOffer([redacted])")
+    }
+}
+
+impl PreparedAudioOffer {
+    /// The original process-only admission deadline; local preparation must
+    /// not extend it while waiting for disk work or the GTK/worker handoff.
+    pub(crate) fn expires_at(&self) -> Instant {
+        self.expires_at
+    }
+
+    pub(crate) fn cache_identity(
+        &self,
+    ) -> Option<crate::audio_cache::http_policy::ApplicationIdentity> {
+        // Preserve online support for an offer whose optional bitrate is
+        // absent, but do not claim an identified cached quality for it.
+        if self.bitrate == 0 {
+            return None;
+        }
+        self.logical.map(
+            |logical| crate::audio_cache::http_policy::ApplicationIdentity {
+                logical,
+                variant: self.variant,
+                schema: 2,
+            },
+        )
+    }
+
+    /// Recheck the exact accepted account generation, token, cancellation and
+    /// original offer deadline after disk/network work and before local use.
+    pub(crate) fn validate(
+        &self,
+        service: &MusicService,
+        token: &AccessToken,
+        cancellation: &DeliveryCancellation,
+    ) -> Result<(), DeliveryReport> {
+        let category = if cancellation.cancelled(token) {
+            Some(DeliveryCategory::Cancelled)
+        } else if service.validate_binding(token, &self.session).is_err() {
+            Some(DeliveryCategory::SessionRequired)
+        } else if Instant::now() >= self.expires_at {
+            Some(DeliveryCategory::SourceExpired)
+        } else {
+            None
+        };
+        match category {
+            Some(category) => Err(DeliveryReport {
+                stage: DeliveryStage::Resolution,
+                category,
+                ..self.report
+            }),
+            None => Ok(()),
+        }
+    }
+
+    pub(crate) fn is_current(
+        &self,
+        service: &MusicService,
+        token: &AccessToken,
+        cancellation: &DeliveryCancellation,
+    ) -> bool {
+        self.validate(service, token, cancellation).is_ok()
+    }
+}
+
+/// The published MDS proxy looks up a logical object from the descriptor
+/// request's namespace/group/file path. Its XML host/path are physical placement
+/// and may be rewritten by regional delivery. Keep the complete opaque path;
+/// neither a basename nor the legacy MD5 address checksum identifies bytes.
+fn logical_descriptor_object(url: &Url) -> Option<[u8; 32]> {
+    let trusted = url.scheme() == "https"
+        && url.host_str() == Some("storage.mds.yandex.net")
+        && url.port_or_known_default() == Some(443);
+    #[cfg(test)]
+    let trusted = trusted
+        || (url.scheme() == "http"
+            && url.host_str() == Some("127.0.0.1")
+            && url.port().is_some_and(|port| port != 0));
+    if !trusted
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.fragment().is_some()
+    {
+        return None;
+    }
+    let path = url.path();
+    let mut parts = path.strip_prefix('/')?.split('/');
+    if !matches!(
+        parts.next()?,
+        "get-download-info" | "download-info" | "file-download-info"
+    ) {
+        return None;
+    }
+    let object = parts.collect::<Vec<_>>();
+    if object.len() < 2
+        || object
+            .iter()
+            .any(|part| part.is_empty() || *part == "." || *part == "..")
+    {
+        return None;
+    }
+    let mut context = ring::digest::Context::new(&ring::digest::SHA256);
+    context.update(b"Karin MDS logical descriptor object v1\0");
+    let mut component = |value: &[u8]| {
+        context.update(&(value.len() as u64).to_be_bytes());
+        context.update(value);
+    };
+    component(url.origin().ascii_serialization().as_bytes());
+    component(path.as_bytes());
+    let (mut sign, mut timestamp) = (false, false);
+    for pair in url.query().into_iter().flat_map(|query| query.split('&')) {
+        let (name, value) = pair.split_once('=').unwrap_or((pair, ""));
+        match name {
+            "sign" => {
+                if sign || value.len() != 64 || !value.bytes().all(|byte| byte.is_ascii_hexdigit())
+                {
+                    return None;
+                }
+                sign = true;
+            }
+            "ts" => {
+                if timestamp
+                    || value.is_empty()
+                    || value.len() > 32
+                    || !value.bytes().all(|byte| byte.is_ascii_hexdigit())
+                {
+                    return None;
+                }
+                timestamp = true;
+            }
+            // Keep unknown names, escapes, pair ordering and duplicates exactly.
+            // Their semantics do not belong to the known authentication wrapper.
+            _ => component(pair.as_bytes()),
+        }
+    }
+    // The published wrapper is a credential pair. A lone similarly named
+    // parameter is not assumed to be transient object-independent signing.
+    if sign != timestamp {
+        return None;
+    }
+    let mut result = [0; 32];
+    result.copy_from_slice(context.finish().as_ref());
+    Some(result)
+}
 
 #[derive(Clone)]
 pub struct StreamResolver {
@@ -49,12 +340,59 @@ impl StreamResolver {
         track_id: &str,
         cancellation: &DeliveryCancellation,
     ) -> Result<RemotePlaybackSource, DeliveryReport> {
-        // Start before requesting offers: a slow descriptor cannot reset the
-        // lifetime documented by legacy clients as about one minute per offer.
-        let expires_at = Instant::now() + SOURCE_FRESHNESS;
-        self.resolve_until(service, token, track_id, cancellation, expires_at)
+        let offer = self.prepare_offer(service, token, track_id, cancellation)?;
+        self.resolve_offer(service, token, offer, cancellation)
     }
 
+    /// Check current authenticated delivery access and select the exact full
+    /// MP3 variant before consulting AudioCache. This small API request does
+    /// not request XML, create a signed media URI, or contact the CDN.
+    pub(crate) fn prepare_offer(
+        &self,
+        service: &MusicService,
+        token: &AccessToken,
+        track_id: &str,
+        cancellation: &DeliveryCancellation,
+    ) -> Result<PreparedAudioOffer, DeliveryReport> {
+        // Start before requesting offers: descriptor latency and a local-file
+        // check must not reset the legacy offer's original admission deadline.
+        self.prepare_offer_until(
+            service,
+            token,
+            track_id,
+            cancellation,
+            Instant::now() + SOURCE_FRESHNESS,
+        )
+    }
+
+    /// Only a previously stored HTTP candidate needs this extra request. First
+    /// play remains the existing resolution followed immediately by GStreamer.
+    /// This method checks metadata only and is called on the resolution worker.
+    pub(crate) fn revalidate_http(
+        &self,
+        remote: &RemotePlaybackSource,
+        stored: &crate::audio_cache::http_policy::Metadata,
+        token: &AccessToken,
+        cancellation: &DeliveryCancellation,
+    ) -> Result<crate::audio_cache::http_policy::Validation, crate::audio_cache::http_policy::Reason>
+    {
+        super::revalidation::revalidate(&self.transport.client, remote, stored, token, cancellation)
+    }
+
+    /// One bounded credential-free full response for a selected-source cache
+    /// job. Its worker owns cancellation and complete staged publication; the
+    /// player lifecycle does not own this request and no bytes are joined.
+    pub(crate) fn download_response(
+        &self,
+        remote: &RemotePlaybackSource,
+        token: &AccessToken,
+        cancellation: &DeliveryCancellation,
+    ) -> Result<(Response, crate::audio_cache::http_policy::ResponsePolicy), super::DownloadError>
+    {
+        super::download::response(&self.transport.client, remote, token, cancellation)
+    }
+
+    #[cfg(test)]
     fn resolve_until(
         &self,
         service: &MusicService,
@@ -63,12 +401,30 @@ impl StreamResolver {
         cancellation: &DeliveryCancellation,
         expires_at: Instant,
     ) -> Result<RemotePlaybackSource, DeliveryReport> {
+        let offer = self.prepare_offer_until(service, token, track_id, cancellation, expires_at)?;
+        self.resolve_offer(service, token, offer, cancellation)
+    }
+
+    fn prepare_offer_until(
+        &self,
+        service: &MusicService,
+        token: &AccessToken,
+        track_id: &str,
+        cancellation: &DeliveryCancellation,
+        expires_at: Instant,
+    ) -> Result<PreparedAudioOffer, DeliveryReport> {
         if Instant::now() >= expires_at {
             return Err(DeliveryReport {
                 stage: DeliveryStage::Resolution,
                 ..DeliveryReport::new(DeliveryCategory::SourceExpired, None)
             });
         }
+        if cancellation.cancelled(token) {
+            return Err(DeliveryReport::new(DeliveryCategory::Cancelled, None));
+        }
+        let session = service
+            .bind_session(token)
+            .map_err(|_| DeliveryReport::new(DeliveryCategory::SessionRequired, None))?;
         let (body, status) =
             self.transport
                 .delivery_info(service, token, track_id, cancellation)?;
@@ -82,14 +438,46 @@ impl StreamResolver {
             report.category = DeliveryCategory::NoDeliveryOptions;
             return Err(report);
         }
-        let url = self
-            .select_mp3(envelope.result)
+        let (url, bitrate, gain) = self
+            .select_mp3_details(envelope.result)
             .map_err(|category| DeliveryReport { category, ..report })?;
         if Instant::now() >= expires_at {
             report.stage = DeliveryStage::Resolution;
             report.category = DeliveryCategory::SourceExpired;
             return Err(report);
         }
+        let offer = PreparedAudioOffer {
+            logical: logical_descriptor_object(&url),
+            url,
+            bitrate,
+            variant: selected_variant(bitrate, gain),
+            session,
+            report,
+            expires_at,
+        };
+        offer.validate(service, token, cancellation)?;
+        Ok(offer)
+    }
+
+    /// Resolve only a cache miss/revalidation. The accepted offer is consumed
+    /// exactly once; it does not repeat the authenticated offer-list request.
+    pub(crate) fn resolve_offer(
+        &self,
+        service: &MusicService,
+        token: &AccessToken,
+        offer: PreparedAudioOffer,
+        cancellation: &DeliveryCancellation,
+    ) -> Result<RemotePlaybackSource, DeliveryReport> {
+        offer.validate(service, token, cancellation)?;
+        let PreparedAudioOffer {
+            url,
+            bitrate,
+            logical,
+            variant,
+            session,
+            report,
+            expires_at,
+        } = offer;
         let (descriptor, mut report) =
             self.transport
                 .descriptor_body(report, url, token, cancellation)?;
@@ -112,7 +500,7 @@ impl StreamResolver {
             report.category = DeliveryCategory::Cancelled;
             return Err(report);
         }
-        if service.validate_session(token).is_err() {
+        if service.validate_binding(token, &session).is_err() {
             report.category = DeliveryCategory::SessionRequired;
             return Err(report);
         }
@@ -121,6 +509,9 @@ impl StreamResolver {
             return Err(report);
         }
         let uri = legacy_uri(&parts).map_err(|category| DeliveryReport { category, ..report })?;
+        let identity = HttpResourceIdentity::from_selected_descriptor(
+            &parts, bitrate, &uri, logical, variant, 2,
+        );
         #[cfg(test)]
         if let Some(origin) = &self.media_fixture_origin {
             let parsed = Url::parse(&uri).map_err(|_| DeliveryReport {
@@ -132,24 +523,34 @@ impl StreamResolver {
                 origin.as_str().trim_end_matches('/'),
                 parsed.path()
             ));
-            return RemotePlaybackSource::from_test_resolver(&resource, expires_at).map_err(|_| {
-                DeliveryReport {
+            return RemotePlaybackSource::from_test_resolver(&resource, expires_at)
+                .map(|source| source.with_http_cache_resource(identity))
+                .map_err(|_| DeliveryReport {
                     category: DeliveryCategory::SourceExpired,
                     ..report
-                }
-            });
+                });
         }
-        RemotePlaybackSource::from_resolver(&uri, expires_at).map_err(|_| DeliveryReport {
-            category: if Instant::now() >= expires_at {
-                DeliveryCategory::SourceExpired
-            } else {
-                DeliveryCategory::UnsafeResource
-            },
-            ..report
-        })
+        RemotePlaybackSource::from_resolver(&uri, expires_at)
+            .map(|source| source.with_http_cache_resource(identity))
+            .map_err(|_| DeliveryReport {
+                category: if Instant::now() >= expires_at {
+                    DeliveryCategory::SourceExpired
+                } else {
+                    DeliveryCategory::UnsafeResource
+                },
+                ..report
+            })
     }
 
+    #[cfg(test)]
     fn select_mp3(&self, options: Vec<DeliveryOption>) -> Result<Url, DeliveryCategory> {
+        self.select_mp3_details(options).map(|(url, _, _)| url)
+    }
+
+    fn select_mp3_details(
+        &self,
+        options: Vec<DeliveryOption>,
+    ) -> Result<(Url, u32, Option<bool>), DeliveryCategory> {
         // A declared transport changes the protocol contract. Do not silently
         // ignore protected/unknown declarations by selecting another entry.
         if options
@@ -180,7 +581,9 @@ impl StreamResolver {
             if option.download_info_url.is_some()
                 && mp3.iter().skip(index + 1).any(|other| {
                     option.download_info_url == other.download_info_url
-                        && option.preview != other.preview
+                        && (option.preview != other.preview
+                            || (option.bitrate_in_kbps == other.bitrate_in_kbps
+                                && option.gain != other.gain))
                 })
             {
                 return Err(DeliveryCategory::UnsupportedResponse);
@@ -213,12 +616,14 @@ impl StreamResolver {
             let bitrate = option.bitrate_in_kbps.unwrap_or(0);
             if selected
                 .as_ref()
-                .is_none_or(|(selected_bitrate, _)| bitrate > *selected_bitrate)
+                .is_none_or(|(selected_bitrate, _, _)| bitrate > *selected_bitrate)
             {
-                selected = Some((bitrate, url));
+                selected = Some((bitrate, url, option.gain));
             }
         }
-        selected.map(|(_, url)| url).ok_or(failure)
+        selected
+            .map(|(bitrate, url, gain)| (url, bitrate, gain))
+            .ok_or(failure)
     }
 
     #[cfg(test)]

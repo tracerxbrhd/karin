@@ -13,6 +13,7 @@ use gtk::{gio, glib};
 mod account;
 #[cfg(test)]
 mod artwork_tests;
+mod cache_presence;
 mod catalog_layout;
 mod catalog_view;
 mod collection_filter;
@@ -152,6 +153,7 @@ struct Widgets {
     queue_count: gtk::Label,
     current: gtk::Label,
     current_artist: gtk::Label,
+    current_cache: gtk::Box,
     current_art: gtk::Box,
     current_art_button: gtk::Button,
     current_like_slot: gtk::Box,
@@ -214,6 +216,7 @@ struct Controller {
     playlist_refreshing: Cell<[bool; 2]>,
     content_scroll: RefCell<glib::WeakRef<gtk::ScrolledWindow>>,
     liked_playlist_grid: playlist_grid::PlaylistGrid,
+    cache_presence: RefCell<cache_presence::State>,
 }
 
 struct OfflineProvider;
@@ -553,6 +556,7 @@ impl MusicPane {
             player_main,
             current,
             current_artist,
+            current_cache,
             current_art,
             current_art_button,
             current_like_slot,
@@ -636,6 +640,7 @@ impl MusicPane {
             queue_count,
             current,
             current_artist,
+            current_cache,
             current_art,
             current_art_button,
             current_like_slot,
@@ -717,6 +722,7 @@ impl MusicPane {
             playlist_refreshing: Cell::new([false, false]),
             content_scroll: RefCell::new(glib::WeakRef::new()),
             liked_playlist_grid,
+            cache_presence: RefCell::new(cache_presence::State::default()),
         });
         *controller_link.borrow_mut() = Rc::downgrade(&controller);
         if let (Some(artwork), Some(cache)) = (&controller.artwork, controller.persistent_cache()) {
@@ -1369,7 +1375,10 @@ impl Controller {
     }
 
     fn auth_failed(&self, error: AuthError) {
+        self.clear_cache_presence();
         self.cancel_radio();
+        self.cancel_music_cache(crate::audio_cache::diagnostic::Cause::AccountChanged);
+        self.stop_music_engine();
         {
             let mut model = self.model.borrow_mut();
             model.generation += 1;
@@ -1699,6 +1708,7 @@ impl Controller {
         }
         self.cancel_radio();
         self.close_persistence();
+        self.clear_cache_presence();
         self.dismiss_logout_confirmation();
         self.stop_music();
         self.clear_system_media();
@@ -1743,11 +1753,13 @@ impl Controller {
     }
 
     fn logout(self: &Rc<Self>) {
+        self.clear_cache_presence();
         self.cancel_radio();
         self.begin_forget_session();
         self.set_info_open(false);
         self.dismiss_logout_confirmation();
-        self.stop_music();
+        self.cancel_music_cache(crate::audio_cache::diagnostic::Cause::AccountChanged);
+        self.stop_music_engine();
         self.clear_system_media();
         self.mutation_busy.set(false);
         self.detail_like_controls.borrow_mut().clear();
@@ -2140,7 +2152,14 @@ fn item(title: &str, subtitle: &str) -> (gtk::ListBoxRow, gtk::Box) {
 
 impl Controller {
     fn authenticate(self: &Rc<Self>, token: AccessToken) {
+        if self.model.borrow().closed {
+            token.invalidate();
+            return;
+        }
+        self.clear_cache_presence();
         self.cancel_radio();
+        self.cancel_music_cache(crate::audio_cache::diagnostic::Cause::AccountChanged);
+        self.stop_music_engine();
         {
             let mut model = self.model.borrow_mut();
             if model.closed {

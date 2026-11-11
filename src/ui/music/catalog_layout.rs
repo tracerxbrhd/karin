@@ -49,7 +49,10 @@ pub(super) fn catalog_item(title: &str, subtitle: &str) -> (gtk::ListBoxRow, gtk
     labels.set_valign(gtk::Align::Center);
     let title = compact_label(title, "music-track-title");
     title.add_css_class("heading");
-    labels.append(&title);
+    let title_line = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    title_line.set_widget_name("music-track-title-line");
+    title_line.append(&title);
+    labels.append(&title_line);
     if !subtitle.is_empty() {
         let artist = compact_label(subtitle, "music-track-artist");
         artist.add_css_class("dim-label");
@@ -605,6 +608,15 @@ impl Controller {
         song_list(list);
         let subtitle = track.artists.join(", ");
         let (row, body) = catalog_item(&track.title, &subtitle);
+        if let Some(line) = body
+            .first_child()
+            .and_then(|labels| labels.first_child())
+            .and_downcast::<gtk::Box>()
+        {
+            let cache = cache_presence::indicator("music-track-cache");
+            line.append(&cache);
+            self.register_cache_indicator(&track.id, &cache);
+        }
         row.set_tooltip_text(Some(if track.available {
             "Воспроизвести трек"
         } else {

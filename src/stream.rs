@@ -23,13 +23,16 @@ use std::{
 use reqwest::{
     Url,
     blocking::{Client, Response},
-    header::{ACCEPT, AUTHORIZATION, HeaderValue},
+    header::{ACCEPT, AUTHORIZATION, CACHE_CONTROL, HeaderValue},
     redirect::Policy,
 };
 use serde::{Deserialize, Deserializer, de::IgnoredAny};
 use zeroize::Zeroizing;
 
 use crate::{music::MusicService, session::AccessToken};
+
+mod download;
+pub(crate) use download::DownloadError;
 
 const ORIGIN: &str = "https://api.music.yandex.net/";
 const MAX_BODY: usize = 128 * 1024;
@@ -51,7 +54,7 @@ impl DeliveryCancellation {
         self.0.store(true, Ordering::Release);
     }
 
-    fn cancelled(&self, token: &AccessToken) -> bool {
+    pub(crate) fn cancelled(&self, token: &AccessToken) -> bool {
         self.0.load(Ordering::Acquire) || token.is_expired()
     }
 }
@@ -364,6 +367,9 @@ impl DeliveryProbe {
             .get(url)
             .header(ACCEPT, "application/json")
             .header(AUTHORIZATION, header)
+            // Each selection needs a current authenticated offer, even when
+            // an intermediary retained a cacheable API response.
+            .header(CACHE_CONTROL, "no-cache")
             .send();
         if cancellation.cancelled(token) {
             return Err(DeliveryReport::new(DeliveryCategory::Cancelled, None));
@@ -650,6 +656,9 @@ struct DeliveryOption {
     direct: bool,
     preview: Option<bool>,
     bitrate_in_kbps: Option<u32>,
+    // Published legacy DownloadInfo models distinguish applied gain. Absence
+    // remains unknown and cannot equal either explicitly selected variant.
+    gain: Option<bool>,
     #[serde(default)]
     transport: DeliveryTransport,
     // These values are skipped, not copied, displayed or used for decryption.
@@ -882,4 +891,6 @@ mod tests;
 mod xml;
 
 mod resolver;
+pub(crate) use resolver::HttpResourceIdentity;
 pub use resolver::StreamResolver;
+mod revalidation;

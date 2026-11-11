@@ -39,7 +39,23 @@ reviewable and consistent with the accepted application.
 - Treat the API as unofficial and unstable. Metadata is not playback entitlement.
   Follow [STREAM_DELIVERY_REVIEW](docs/STREAM_DELIVERY_REVIEW.md); never bypass
   DRM/access controls, import extracted keys, redistribute music, forward OAuth/
-  cookies to a CDN, or persist signed media URLs/audio.
+  cookies to a CDN, or persist signed media URLs. Private audio caching separates
+  current playback access, HTTP storage policy, representation revalidation and
+  explicit content restrictions under [AUDIO_CACHE_REVIEW](docs/AUDIO_CACHE_REVIEW.md).
+  Do not invent a provider entitlement or treat HTTP caching as a legal license.
+  Do not use the absence of a bespoke storage-grant API as a blanket HTTP-cache
+  rejection. Reject protected/unsupported resources and explicit storage refusals;
+  honor `no-store` and current online Music access. Select a retained complete
+  MP3 before XML/CDN resolution when its authenticated API offer/variant matches,
+  integrity passes and its private HTTP reuse lease is fresh. Do not equate
+  logical storage identity with an immutable byte version. `no-cache` requires
+  revalidation; `must-revalidate` applies once stale. Missing receipt clocks
+  require strict validation, not automatic migration. Only pre-schema-2 records
+  or upgrades with unknown original response status may migrate after inconclusive
+  proof through a complete new response; never stamp old bytes fresh.
+  For an expired known selection, only fresh current probe and actual GET policy
+  can admit a complete replacement; no-cache/unproved policy stays conservative.
+  Protect retained records through quota reservation and atomic publication.
 - Preserve attribution and explicit OAuth-identity uncertainties. Code licensing
   does not grant service/distribution permission or prove a provider ban.
   Follow [LICENSING](docs/LICENSING.md); keep standard GPL and third-party notices.
@@ -70,6 +86,10 @@ reviewable and consistent with the accepted application.
   and batch markers. The legacy Wave CLI flag is a no-op compatibility alias.
   Preserve its original occurrence/batch markers, actual worker Playing ledger,
   bounded serialized feedback and no replay after an ambiguous POST.
+- Cache metadata, artwork and policy-admitted audio under one shared budget
+  (default on/2 GiB, six discrete choices including Unlimited). Preserve worker
+  reservations, disk headroom, generation fences and the v1 settings migration;
+  do not reintroduce separate user quotas or run disk scans while dragging.
 - Catalog refusals fence key epochs before cache I/O; cached UI replies recheck
   those leases. Cold metadata stays Stale until a current positive write. Never
   hold the cache state mutex used by GTK over filesystem operations.
@@ -87,7 +107,14 @@ reviewable and consistent with the accepted application.
   immutable commits/PRs, not expiring artifacts alone. Retain SPDX/provenance.
 - Distinguish authored code, executed tests and owner acceptance. See
   [VALIDATION](docs/VALIDATION.md): native/UI and Flatpak at `97093ee` are accepted;
-  unreported individual scenarios and unresolved Cloud cold gaps are not PASS.
+  Dislike→Next and available `707539b` Native/installed-Flatpak functions are
+  owner-accepted; `0709729` is the last fully accepted PR #26 revision. At
+  `31d873d` the owner confirmed real first playback/background saving on Native,
+  while local replay and restart failed with `resource-changed`. At `cac4d78`,
+  real saving still worked, but descriptor-path/representation-changed caused
+  repeated downloads; no local hit was confirmed. Revised validator scoping and
+  retained cache indicators need separate acceptance.
+  Unreported individual scenarios and unresolved Cloud cold gaps are not PASS.
   This is not a published release. Read [LIMITATIONS](docs/LIMITATIONS.md).
 
 ## Verification

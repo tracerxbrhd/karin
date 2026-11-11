@@ -65,8 +65,11 @@ restriction/identity fallback.
 
 Return an opaque `RemotePlaybackSource`, never a displayable address. Its narrow
 media policy is HTTPS 443, canonical `/get-mp3/`, no userinfo/query/fragment, and
-the restricted generated `s` + 1–5 digits + 3 lowercase letters single-label
-family under `storage.yandex.net`. This conservative policy is not an exhaustive
+one canonical DNS label under the dedicated `storage.yandex.net` zone, with
+1–63 lowercase ASCII letters, digits or internal hyphens. The earlier generated
+`s` + 1–5 digits + 3 letters rule was a historical naming assumption, not an
+origin boundary; it rejected otherwise valid labels in that same zone. No
+additional CDN zone, nested label, unsafe URL or redirect is admitted. This is not an exhaustive
 current CDN inventory. Its 60-second monotonic admission deadline starts before
 the offer request and is not reset by descriptor latency. XML `ts` is an opaque
 hexadecimal-like path component, not an expiry/entitlement grant.

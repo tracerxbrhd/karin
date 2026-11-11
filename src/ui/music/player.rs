@@ -2,6 +2,7 @@
 //! Music transport controls. Provider resolution and native media stay off GTK.
 
 use std::{
+    collections::VecDeque,
     thread,
     time::{Duration, Instant},
 };
@@ -9,8 +10,7 @@ use std::{
 use super::*;
 use crate::{
     playback::{
-        PlaybackController, PlaybackError, PlaybackOutput, PlaybackSnapshot, PlaybackSource,
-        PlaybackState,
+        PlaybackController, PlaybackError, PlaybackOutput, PlaybackSnapshot, PlaybackState,
     },
     queue::PlaybackContext,
     stream::{DeliveryCancellation, DeliveryReport, StreamResolver},
@@ -22,6 +22,7 @@ struct Intent {
     track: String,
     autoplay: bool,
     position: Option<Duration>,
+    force_online: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -40,6 +41,8 @@ pub(super) struct MusicPlayback {
     cancellation: Option<DeliveryCancellation>,
     pending: Option<Intent>,
     preparing: Option<(bool, Option<Duration>)>,
+    play_intent: bool,
+    cache_retry_used: bool,
     failure: Option<Failure>,
     owned_error: Option<String>,
     reported_error: Option<(u64, PlaybackError)>,
@@ -47,6 +50,11 @@ pub(super) struct MusicPlayback {
     stopped: bool,
     volume: f64,
     output: PlaybackOutput,
+    cache_fill_running: bool,
+    cache_fill_cancel: Option<crate::audio_cache::bridge::FillControl>,
+    cache_fill_pending: VecDeque<crate::audio_cache::bridge::Fill>,
+    // Prepared without a Play intent: never start a background download yet.
+    cache_fill_prepared: Option<crate::audio_cache::bridge::Fill>,
     #[cfg(test)]
     fixture_resolver: Option<StreamResolver>,
 }
@@ -63,6 +71,8 @@ impl Default for MusicPlayback {
             cancellation: None,
             pending: None,
             preparing: None,
+            play_intent: false,
+            cache_retry_used: false,
             failure: None,
             owned_error: None,
             reported_error: None,
@@ -70,6 +80,10 @@ impl Default for MusicPlayback {
             stopped: false,
             volume: 0.7,
             output: PlaybackOutput::System,
+            cache_fill_running: false,
+            cache_fill_cancel: None,
+            cache_fill_pending: VecDeque::new(),
+            cache_fill_prepared: None,
             #[cfg(test)]
             fixture_resolver: None,
         }
@@ -151,6 +165,7 @@ impl Controller {
                 return glib::ControlFlow::Break;
             }
             this.tick_music();
+            this.tick_cache_presence();
             glib::ControlFlow::Continue
         });
     }
@@ -344,6 +359,17 @@ impl Controller {
     }
 
     pub(super) fn play_music(self: &Rc<Self>) {
+        {
+            let mut player = self.player.borrow_mut();
+            player.play_intent = true;
+            if let Some(intent) = &mut player.pending {
+                intent.autoplay = true;
+            }
+            if let Some((autoplay, _)) = &mut player.preparing {
+                *autoplay = true;
+            }
+        }
+        self.arm_prepared_cache_fill();
         if self.music_requested() {
             return;
         }
@@ -369,7 +395,8 @@ impl Controller {
         }
     }
 
-    fn play_prepared_music(&self, snapshot: &PlaybackSnapshot) {
+    fn play_prepared_music(self: &Rc<Self>, snapshot: &PlaybackSnapshot) {
+        self.arm_prepared_cache_fill();
         // The worker can reach Ready between GUI polls. Explicit Play must
         // consume that preparation before the worker leaves Ready; otherwise
         // its already-completed preparation would keep the UI buffering. Apply
@@ -453,12 +480,14 @@ impl Controller {
             let mut player = self.player.borrow_mut();
             player.serial = player.serial.wrapping_add(1);
             player.track = Some(track.clone());
+            player.play_intent = autoplay;
             player.pending = Some(Intent {
                 serial: player.serial,
                 session,
                 track,
                 autoplay,
                 position,
+                force_online: false,
             });
             player.requested = true;
             player.stopped = false;
@@ -499,6 +528,14 @@ impl Controller {
         let fixture_resolver = self.player.borrow().fixture_resolver.clone();
         #[cfg(not(test))]
         let fixture_resolver: Option<StreamResolver> = None;
+        // A failed local-first source gets one lazy online replacement. It
+        // must not select the same cached candidate again or start another
+        // background copy of it, and it must not resolve a CDN URL on GTK.
+        let cache_binding = if intent.force_online {
+            None
+        } else {
+            self.audio_cache_binding()
+        };
         let hold = app.hold();
         let weak = Rc::downgrade(self);
         let track = intent.track.clone();
@@ -514,10 +551,15 @@ impl Controller {
                     Some(resolver) => resolver,
                     None => StreamResolver::new().map_err(Failure::Delivery)?,
                 };
-                resolver
-                    .resolve(&service, &token, &track, &cancellation)
-                    .map(PlaybackSource::remote)
-                    .map_err(Failure::Delivery)
+                crate::audio_cache::bridge::resolve(
+                    resolver,
+                    &service,
+                    &token,
+                    &track,
+                    &cancellation,
+                    cache_binding,
+                )
+                .map_err(Failure::Delivery)
             })
             .await
             .unwrap_or(Err(Failure::Engine(PlaybackError::WorkerUnavailable)));
@@ -552,7 +594,19 @@ impl Controller {
             }
             if current {
                 match result {
-                    Ok(source) => {
+                    Ok(selection) => {
+                        let source = selection.source.admit_cache_or_online();
+                        if source.cache_needs_online_resolution()
+                            && this.retry_cached_music_online(intent.position)
+                        {
+                            crate::audio_cache::diagnostic::report(
+                                crate::audio_cache::diagnostic::Event::Stale,
+                                crate::audio_cache::diagnostic::Cause::AdmissionRevoked,
+                            );
+                            this.render_music_player();
+                            this.begin_music_resolution();
+                            return;
+                        }
                         let output = this.player.borrow().output;
                         let volume = this.player.borrow().volume;
                         let prepared = PlaybackController::new(output).and_then(|controller| {
@@ -564,10 +618,14 @@ impl Controller {
                             Ok(controller) => {
                                 let mut player = this.player.borrow_mut();
                                 player.controller = Some(controller);
-                                player.preparing = Some((intent.autoplay, intent.position));
+                                let autoplay = intent.autoplay || player.play_intent;
+                                player.preparing = Some((autoplay, intent.position));
                                 player.failure = None;
                                 player.ended_handled = false;
                                 drop(player);
+                                if let Some(fill) = selection.fill {
+                                    this.queue_cache_fill(fill, autoplay);
+                                }
                                 if this.widgets.status.title() == "Получаем источник аудио…"
                                 {
                                     this.widgets
@@ -589,13 +647,77 @@ impl Controller {
 
     pub(super) fn stop_music(&self) {
         self.leave_wave_for_stop();
+        self.cancel_music_cache(crate::audio_cache::diagnostic::Cause::UserStop);
         self.stop_music_engine();
     }
 
+    /// Keep the queue occurrence, player serial and Wave cycle unchanged. The
+    /// failed cached worker never reached actual Playing, so replacing it here
+    /// cannot reset an audible listening interval. All network work still runs
+    /// through begin_music_resolution after the old native worker is cleaned up.
+    fn retry_cached_music_online(self: &Rc<Self>, position: Option<Duration>) -> bool {
+        let model = self.model.borrow();
+        if model.closed
+            || !model.account_valid
+            || model.token.as_ref().is_none_or(AccessToken::is_expired)
+        {
+            return false;
+        }
+        let Some(track) = model.queue.current().filter(|track| track.available) else {
+            return false;
+        };
+        let mut player = self.player.borrow_mut();
+        if player.cache_retry_used
+            || player.resolving
+            || player.track.as_deref() != Some(track.id.as_str())
+        {
+            return false;
+        }
+        if let Some(controller) = &player.controller
+            && !controller.snapshot().playing_time.is_zero()
+        {
+            return false;
+        }
+        player.cache_retry_used = true;
+        if let Some(old) = player.controller.take() {
+            old.shutdown();
+            player.retired.push(old);
+        }
+        let autoplay = player.play_intent;
+        player.preparing = None;
+        player.pending = Some(Intent {
+            serial: player.serial,
+            session: model.generation,
+            track: track.id.clone(),
+            autoplay,
+            position,
+            force_online: true,
+        });
+        player.requested = true;
+        player.failure = None;
+        player.reported_error = None;
+        player.ended_handled = false;
+        drop(player);
+        drop(model);
+        self.widgets.status.set_title("Получаем источник аудио…");
+        self.widgets.status.set_subtitle("");
+        true
+    }
+
+    /// Ordinary source replacement stops only the one native player. Already
+    /// requested independent cache downloads retain their bounded tickets.
     pub(super) fn stop_music_engine(&self) {
         let (old, owned_error) = {
             let mut player = self.player.borrow_mut();
             player.serial = player.serial.wrapping_add(1);
+            // An unarmed preparation belongs only to this player selection.
+            // Armed downloads are independent and survive ordinary changes.
+            if let Some(fill) = player.cache_fill_prepared.take() {
+                fill.control()
+                    .cancel(crate::audio_cache::diagnostic::Cause::Policy(
+                        crate::audio_cache::http_policy::Reason::Cancelled,
+                    ));
+            }
             if let Some(cancellation) = player.cancellation.take() {
                 cancellation.cancel();
             }
@@ -603,6 +725,8 @@ impl Controller {
             player.track = None;
             player.requested = false;
             player.preparing = None;
+            player.play_intent = false;
+            player.cache_retry_used = false;
             player.failure = None;
             let owned_error = player.owned_error.take();
             player.reported_error = None;
@@ -641,6 +765,47 @@ impl Controller {
         }
         self.render_controls();
         self.render_music_player();
+    }
+
+    /// Explicit global retirement never touches the native audio pipeline.
+    /// Keep the running flag until its worker has actually returned, so a new
+    /// selection cannot create a second background HTTP writer in parallel.
+    pub(super) fn cancel_music_cache(&self, why: crate::audio_cache::diagnostic::Cause) {
+        let mut player = self.player.borrow_mut();
+        if let Some(control) = &player.cache_fill_cancel {
+            control.cancel(why);
+        }
+        for fill in player.cache_fill_pending.drain(..) {
+            fill.control().cancel(why);
+        }
+        if let Some(fill) = player.cache_fill_prepared.take() {
+            fill.control().cancel(why);
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn cache_work_settled_for_test(&self) -> bool {
+        let player = self.player.borrow();
+        !player.resolving && !player.cache_fill_running && player.cache_fill_pending.is_empty()
+    }
+
+    #[cfg(test)]
+    pub(super) fn music_cleanup_observer_for_test(&self) -> impl Fn() -> bool {
+        let player = self.player.borrow();
+        let controllers = player
+            .controller
+            .iter()
+            .chain(player.retired.iter())
+            .cloned()
+            .collect::<Vec<_>>();
+        move || {
+            let player = self.player.borrow();
+            !player.resolving
+                && !player.cache_fill_running
+                && controllers
+                    .iter()
+                    .all(|controller| !controller.snapshot().worker_running)
+        }
     }
 
     pub(super) fn music_serial(&self) -> u64 {
@@ -755,6 +920,23 @@ impl Controller {
             return;
         }
         let snapshot = self.music_snapshot();
+        if snapshot.as_ref().is_some_and(|snapshot| {
+            snapshot.state == PlaybackState::Error
+                && snapshot.last_error == Some(PlaybackError::CachedSourceUnavailable)
+                && snapshot.playing_time.is_zero()
+        }) {
+            let position = self
+                .player
+                .borrow()
+                .preparing
+                .and_then(|(_, position)| position)
+                .or_else(|| snapshot.as_ref().and_then(|snapshot| snapshot.position));
+            if self.retry_cached_music_online(position) {
+                self.render_music_player();
+                self.begin_music_resolution();
+                return;
+            }
+        }
         // Confirm native listening and EOS before the ordinary queue advances.
         self.tick_radio(snapshot.as_ref());
         let mut ready = None;
@@ -795,10 +977,87 @@ impl Controller {
         if let Some(failure) = failure {
             self.music_failure(failure);
         }
+        self.begin_cache_fill();
         if ended {
             self.skip_music(true, true);
         }
         self.render_music_player();
+    }
+
+    fn queue_cache_fill(self: &Rc<Self>, fill: crate::audio_cache::bridge::Fill, armed: bool) {
+        let mut player = self.player.borrow_mut();
+        let contexts = usize::from(player.cache_fill_running)
+            + player.cache_fill_pending.len()
+            + usize::from(player.cache_fill_prepared.is_some());
+        if contexts >= 4 {
+            fill.control()
+                .cancel(crate::audio_cache::diagnostic::Cause::Limit);
+            return;
+        }
+        if armed {
+            crate::audio_cache::diagnostic::report(
+                crate::audio_cache::diagnostic::Event::Queued,
+                crate::audio_cache::diagnostic::Cause::PlayRequested,
+            );
+            player.cache_fill_pending.push_back(fill);
+        } else {
+            player.cache_fill_prepared = Some(fill);
+        }
+        drop(player);
+        if armed {
+            self.begin_cache_fill();
+        }
+    }
+
+    fn arm_prepared_cache_fill(self: &Rc<Self>) {
+        let mut player = self.player.borrow_mut();
+        if let Some(fill) = player.cache_fill_prepared.take() {
+            crate::audio_cache::diagnostic::report(
+                crate::audio_cache::diagnostic::Event::Queued,
+                crate::audio_cache::diagnostic::Cause::PlayRequested,
+            );
+            player.cache_fill_pending.push_back(fill);
+        }
+        drop(player);
+        self.begin_cache_fill();
+    }
+
+    fn begin_cache_fill(self: &Rc<Self>) {
+        if self.model.borrow().closed || !self.model.borrow().account_valid {
+            return;
+        }
+        let fill = {
+            let mut player = self.player.borrow_mut();
+            if player.cache_fill_running {
+                return;
+            }
+            let Some(fill) = player.cache_fill_pending.pop_front() else {
+                return;
+            };
+            player.cache_fill_cancel = Some(fill.control());
+            player.cache_fill_running = true;
+            fill
+        };
+        let Some(app) = self.app.upgrade() else {
+            let mut player = self.player.borrow_mut();
+            player.cache_fill_running = false;
+            player.cache_fill_cancel = None;
+            return;
+        };
+        let hold = app.hold();
+        let weak = Rc::downgrade(self);
+        glib::spawn_future_local(async move {
+            let _hold = hold;
+            // Cache failures never mutate the online player, queue or Wave.
+            let _result = gio::spawn_blocking(move || fill.run()).await;
+            if let Some(this) = weak.upgrade() {
+                let mut player = this.player.borrow_mut();
+                player.cache_fill_running = false;
+                player.cache_fill_cancel = None;
+                drop(player);
+                this.begin_cache_fill();
+            }
+        });
     }
 
     fn continuation(&self) -> (bool, bool) {
@@ -817,6 +1076,8 @@ impl Controller {
     }
 
     pub(super) fn guard_music_binding(&self) {
+        // This method also runs from render_queue, before the periodic poll.
+        // Binding repair stops only the player, never independent cache work.
         let mismatched = {
             let model = self.model.borrow();
             let player = self.player.borrow();
@@ -1196,6 +1457,8 @@ impl Controller {
         drop(model);
         self.publish_mpris();
         self.sync_track_pane();
+        self.sync_cache_presence_targets();
+        self.sync_cache_source_tooltip();
         self.sync_catalog_rows();
         self.sync_wave_queue_controls();
     }
@@ -1239,6 +1502,7 @@ fn music_playback_error(error: PlaybackError) -> &'static str {
         }
         PlaybackError::Playback
         | PlaybackError::SourceUnavailable
+        | PlaybackError::CachedSourceUnavailable
         | PlaybackError::DiagnosticMedia => {
             "Не удалось прочитать аудио или открыть аудиовыход. Нажмите воспроизведение для повторной попытки."
         }
@@ -1264,6 +1528,7 @@ fn music_playback_category(error: PlaybackError) -> &'static str {
         PlaybackError::Pipeline | PlaybackError::Initialization => "audio-component-unavailable",
         PlaybackError::Playback
         | PlaybackError::SourceUnavailable
+        | PlaybackError::CachedSourceUnavailable
         | PlaybackError::DiagnosticMedia => "media-or-output-failed",
         PlaybackError::InvalidState => "invalid-state",
         PlaybackError::WorkerUnavailable | PlaybackError::ShuttingDown => "worker-unavailable",

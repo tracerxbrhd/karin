@@ -93,6 +93,163 @@ for visual checks, themes, HiDPI and the separate cold-start measurement.
 `--ui-fixture` is an offline capture mode, not ordinary sign-in; never use real
 accounts in Cloud/CI or point capture tools at a personal desktop.
 
+<a id="synthetic-audio-cache-checks"></a>
+
+## Unified cache checks and private HTTP policy
+
+The production stores share one coordinator, enabled by default with a 2 GiB
+allowance. Preferences → **Кеширование** offers exactly 500 МБ (500 MiB),
+1/2/3/4 ГБ (GiB), and **Без ограничений**, one measured total and **Очистить кеш**.
+Mouse and keyboard changes snap to those six choices. Settings/trim coalesce
+for 200 ms; Disable and Clear fence old work immediately. Clear preserves the
+live account, queue and already admitted playback.
+
+```sh
+cargo +1.98.1 test --lib --all-features --locked audio_cache
+cargo +stable test --lib --locked audio_cache
+cargo +1.98.1 test --lib --all-features --locked cache_budget
+cargo +stable test --lib --locked settings
+```
+
+Tests use private isolated directories, original generated audio and local HTTP
+responses, not your application cache or account. They exercise the ordinary
+private HTTP policy and shared store/player, including validators, changed
+representations, refusals and restart. This does not establish live Music results.
+The disk guard requires free space for the reserved write plus 1% of filesystem
+capacity, clamped to 64–512 MiB; tests must have that headroom too. Unlimited
+removes the user byte quota, not this guard or format/work bounds.
+
+Existing v1 settings migrate without resetting sign-in: the two old default
+256 MiB limits become 2 GiB; custom valid limits are summed and rounded up to
+the next offered choice, with sums above 4 GiB becoming Unlimited. Corrupt cache
+values recover independently of valid session/forget/appearance fields. Existing
+records without usable HTTP validation metadata are refreshed online rather
+than trusted as private HTTP hits.
+
+A resource is stored only when its actual supported MP3 response allows it.
+Every replay checks current Music account/track access and the authenticated
+full-MP3 offer. A matching saved selection with intact bytes and a fresh private
+response lease plays locally before XML/CDN resolution. Otherwise strict
+revalidation or online playback applies. `no-store` and explicit restrictions
+decline storage; absent freshness and unusable validation evidence decline reuse. Storage failure leaves admitted
+network playback available. HTTP cache admission is not a provider entitlement,
+legal license, Offline Mode or permission to distribute content. See
+[AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md) and
+[ADR-0030](adr/0030-unified-cache-budget-and-preferences.md).
+
+## PR #26 corrected-cache acceptance
+
+Real first playback and independent background saving on Fedora Native are
+owner-confirmed. At `cac4d78`, replay still repeated descriptor-path /
+representation-changed downloads without a confirmed local hit. Corrected
+local-first selection, response freshness and retained indicators need this
+**one final sequence**, first
+Native and then the installed Flatpak built from the same final PR HEAD.
+The earlier `6ec2407` playback failure remains a historical result.
+
+Build and start the ordinary Native app:
+
+```sh
+cargo +1.98.1 build --release --locked --no-default-features --features cassette-auth
+ulimit -c 0
+./target/release/karin
+```
+
+After closing Native, build/install the same source with the Flatpak instructions
+below and start it normally:
+
+```sh
+ulimit -c 0
+flatpak run io.github.tracerxbrhd.Karin
+```
+
+1. Sign in normally or restore protected sign-in with the default enabled **2 GiB**
+   cache. Play a real track; confirm audible sound and ordinary Pause/Resume,
+   Seek, queue, My Wave and MPRIS/media controls. No developer credentials,
+   changed application identity or technical login input are needed.
+2. Observe the small downloading indicator, then the saved symbolic icon without
+   refreshing the page. The icon must agree in Liked, playlist/search rows,
+   Queue (including Wave), the footer and Track Info. Its tooltip reads
+   **«Аудио сохранено в кеше. При воспроизведении проверяется доступ.»**
+   It means a complete local record, not offline availability or a local hit.
+3. Replay that track and confirm actual local use: the current-player tooltip
+   additionally says **«Воспроизводится из локального кеша»**, or the optional
+   finite diagnostic below reports `cache=hit source=local`. The saved icon must
+   stay through current-access/selection checking. A fresh saved response with
+   matching authenticated MP3 selection must be chosen before XML/CDN resolution,
+   without another complete media download. A saved file alone is not a PASS.
+   Pre-schema-2 metadata or upgrades with unknown original response status first
+   attempt strict validation; if inconclusive, a new complete response can migrate
+   it atomically. It must then stop taking that migration path. A modern record
+   without a receipt clock stays strict, without repeated migration downloads. After a modern
+   lease expires, fresh probe and actual GET policy may authorize one complete
+   renewal; subsequent replay must again use its fresh local file. No-cache or
+   unproved freshness stays on strict validation/online fallback. Report that fallback as such, separately from
+   a fresh local hit; no fixed retention window is promised for every CDN response.
+4. Close normally without logout, reopen the same build and confirm the saved
+   indicator is recovered before playing. Replay with current-access/selection
+   checking and require the same actual-local cue while its response lease is
+   still fresh. Expired/no-cache responses require successful revalidation. A
+   saved icon, increased usage, HTTP200 or hearing sound alone does not prove reuse.
+5. During local playback use Preferences → **Очистить кеш**. Saved indicators must
+   disappear across views while already admitted audio and sign-in continue;
+   later replay must miss. Disable/account changes must not show stale or foreign
+   cache status. The existing six limit choices, LRU and Retry remain; automated
+   tests cover eviction, failed/partial writes and the large-list path. Repeat
+   this same sequence in installed Flatpak and report revision/installation plus
+   fixed PASS/FAIL/not-assessed outcomes, without private music or screenshots.
+
+Diagnostics are optional; no terminal or size inspection is required to see
+saved tracks. If exact cache-source proof or a failure category is needed, start
+only this bounded diagnostic instead of network/WebKit/GStreamer tracing:
+
+```sh
+KARIN_AUDIO_CACHE_DIAGNOSTICS=1 ./target/release/karin 2>&1 |
+  grep --line-buffered -E '^cache=[a-z-]+ source=(local|remote) reason=[a-z0-9-]+$'
+# Or, after closing Native:
+flatpak run --env=KARIN_AUDIO_CACHE_DIAGNOSTICS=1 io.github.tracerxbrhd.Karin 2>&1 |
+  grep --line-buffered -E '^cache=[a-z-]+ source=(local|remote) reason=[a-z0-9-]+$'
+```
+
+| Fixed diagnostic | Meaning |
+| --- | --- |
+| `cache=queued source=remote reason=play-requested` | A selected Play intent queued its independent job. |
+| `cache=downloading source=remote reason=full-response` | The bounded whole-response worker started. |
+| `cache=downloaded source=remote reason=download-complete` | Body receipt finished; publication may still fail. |
+| `cache=write-confirmed source=remote reason=complete-response` | The complete checked file was atomically published. |
+| `cache=checking source=remote reason=binding-rebased` | A proved binding was updated in metadata; no audio download occurred. |
+| `cache=checking source=remote reason=fresh-current-offer` / `heuristic-fresh-current-offer` | Current authenticated selection and stored fresh policy admitted local-first preparation; actual Playing still establishes the hit. |
+| `cache=stale source=remote reason=legacy-response-refresh` | A legacy record needs a new complete admitted response, without stamping old bytes fresh. |
+| `cache=checking source=remote reason=expired-response-refresh` | An expired modern lease can be renewed only with fresh current probe and actual GET policy. |
+| `cache=hit source=local reason=representation-validated` | Current access and sufficient saved-response proof admitted the local file. |
+
+Finite checking reasons include `signed-url-changed`, `cdn-host-changed`,
+`descriptor-path-changed`, `encoding-changed` and `logical-object-changed`.
+They describe the strict revalidation path and do not themselves establish
+changed audio. A fresh matching selection takes the local-first path before
+there is a newly resolved CDN URI to compare. The fixed proof reasons are:
+
+| Reason | Established fact |
+| --- | --- |
+| `content-digest-changed` | The full Repr-Digest differs from the measured saved audio hash. |
+| `representation-length-changed` | The complete selected representation has a different length. |
+| `scoped-validator-changed` | A compatible exact-URI validator invalidates the stored representation version. |
+| `cdn-validators-incomparable` | Validators from different URI/replica scopes cannot establish equivalence or a byte change. |
+| `resource-identity-unverified` / `validators-missing` | No sufficient proof admits the candidate. |
+| `record-retained` | The good candidate remains without a redundant cache-body save. |
+| `representation-validated` | Current access and representation proof admit the local source. |
+
+A `binding-rebased` migration updates only metadata after positive proof.
+Legacy/expired-response refresh downloads a complete newly admitted response;
+protected quota reservation and atomic exchange retain the old valid file until
+final fences pass, and roll back late failure. No actual hostname, path, URL, identifiers, headers, response bodies,
+token or music belong in logs or shared evidence. Preserve the first failure category. A real resource
+without a valid freshness lease or sufficient scoped/full-digest proof stays
+online; do not count its
+saved icon as successful replay. This procedure is the final owner check, not a
+new diagnostic-only acceptance stage. Public distribution and offline mode remain
+separate questions under [AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md).
+
 ## Flatpak source build
 
 Karin is not published on Flathub. The Flathub remote below supplies only the
@@ -126,7 +283,8 @@ preserve [Karin and third-party licensing obligations](LICENSING.md).
 PipeWire desktop audio uses the existing PulseAudio-compatible socket; Wave
 adds no filesystem, session-bus or other sandbox permission. Source preparation
 and offline Cargo checks are not a complete installed GNOME 50 Flatpak test.
-The installed v0.5 build still needs the separate owner acceptance below.
+The owner has accepted the ordinary Native and installed Flatpak baseline;
+use the procedure below for regression checks of a changed revision.
 
 ## Troubleshooting
 
@@ -214,7 +372,8 @@ Use the focused My Wave Native/Flatpak acceptance below for the v0.5 integration
 
 The owner retested corrected candidate `2e4b978` on Fedora without reporting new
 problems, following earlier real audio, four-event feedback and continuation.
-The final ordinary-startup and installed v0.5 Flatpak checks remain separate.
+The owner later accepted ordinary Native and installed Flatpak use; Issue #16
+is closed. The sequence below remains a revision-specific regression procedure.
 Quit any running Karin instance so an older binary cannot handle activation.
 From the current PR checkout, build and run as the normal desktop user:
 

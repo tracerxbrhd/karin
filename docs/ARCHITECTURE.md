@@ -23,8 +23,8 @@ flowchart LR
 | Catalog | `music`, `api`, `application` | Typed service access and separate anonymous diagnostics |
 | Authentication | `auth`, `auth::cassette`, `ui::auth`, `oauth` | Ordinary sign-in and independent PKCE diagnostic |
 | Session | `session`, `credentials`, `session_lifecycle`, `settings` | Live tokens, protected persistence and non-secret preferences |
-| Data | `cache`, `catalog_cache`, `artwork` | Account-scoped metadata, provenance and bounded art loading |
-| Playback | `queue`, `stream`, `playback` | Context/order policy, resource admission and one media worker |
+| Data | `cache_budget`, `cache`, `catalog_cache`, `artwork`, `audio_cache` | One shared resource policy; typed metadata/artwork and separately policy-admitted audio stores |
+| Playback | `queue`, `stream`, `audio_cache::bridge`, `playback` | Context/order policy, resource/cache admission and one media worker |
 | Desktop | `mpris`, `ui::music::system_media` | Session D-Bus commands and actual snapshots |
 | Presentation | `ui::music` and its view modules | Native views, user intents and guarded result admission |
 
@@ -111,7 +111,9 @@ PlaybackController sends commands through a 32-entry channel to one worker-owned
 `playbin`. Snapshots supply actual state, position/duration, seekability, volume
 and safe errors. A worker-owned cumulative Playing clock excludes pause and seek
 distance independently of GTK scheduling. Commands alone do not imply Playing; Seeked requires worker
-acknowledgement. Local-file diagnostics remain; service audio is not persisted.
+acknowledgement. Local-file diagnostics remain. Supported online MP3 resources
+can use the shared private HTTP cache when storage and version checks succeed;
+otherwise the same player uses the admitted network source.
 Shutdown bypasses channel capacity and releases the pipeline in `Null` before
 completion, without GTK joining the worker.
 
@@ -149,9 +151,10 @@ identities and listening payloads never enter those logs. See
 
 The private account cache stores reduced metadata/permitted normalized art, never
 credentials, raw responses, signed resources or audio. Hashed paths are not
-encryption. Defaults: 256 MiB, metadata fifteen minutes, art seven days; size
-16 MiB–4 GiB. Records have bounds/integrity checks, atomic writes and eviction.
-HTTP restrictions can shorten or forbid art persistence.
+encryption. Metadata retains its fifteen-minute freshness and art its seven-day
+maximum; HTTP restrictions can shorten or forbid art persistence. Records keep
+bounds/integrity checks, atomic writes and eviction. Their resource budget is
+shared with the separately admitted audio store as described below.
 
 Stable reads can use fresh data; mutable pages are network-first. Only eligible
 network/timeout errors allow labelled saved-data fallback. Cached values never
@@ -168,6 +171,129 @@ session/audio/textures, while logout purges personal records.
 [ADR-0019](adr/0019-bounded-account-cache.md) defines the cache contract;
 [ADR-0026](adr/0026-refusal-fences-and-queue-occurrence-identity.md) defines the
 refusal fence and stable queue identity extensions.
+
+### Audio storage and playback selection
+
+`cache_budget` coordinates metadata, artwork and audio under one enabled-by-default
+**2 GiB** policy. Preferences retain 500 MiB, 1/2/3/4 GiB or Unlimited, total
+measured usage, LRU, Clear and Retry. Reservations, metadata fairness and disk
+headroom remain active in every mode. Limit maintenance is worker-only and
+coalesced while dragging; Disable/Clear fences are immediate. Version-1 settings
+migrate without resetting credentials or saved records; see [ADR-0030](adr/0030-unified-cache-budget-and-preferences.md).
+
+AudioCache retains private XDG storage, account-scoped opaque keys, integrity,
+atomic publication, crash recovery and exclusive namespace ownership. A separate
+one-writer gate spans each complete download; its short I/O gate covers staging
+initialization and commit, not network waits. Stats preserve live staging;
+Clear fences and unlinks it without waiting for more bytes. Initialization,
+commit and Clear retry short I/O contention on workers for at most 250 ms, with
+generation/cancellation checks. Keep the existing 64 MiB resource, 1024-record
+and four-job-context bounds. There is no whole-response capture buffer.
+Whole-response reservations protect an existing target from LRU throughout the
+copy. A validated replacement exchanges complete directories atomically and
+retains the original at the registered stage until final permission, generation,
+quota and publication checks succeed. A late failure restores it; the reservation
+protects both publication and rollback from concurrent shared-budget eviction.
+
+A playback intent checks current account access and the authenticated full-MP3
+API offer before looking up local audio. A complete matching selection with
+verified integrity and a fresh private HTTP reuse lease passes its pinned
+read-only file to the existing PlaybackController **before XML/CDN resolution**.
+The selection binds the logical descriptor object and codec/bitrate/gain/fullness
+(schema 2); it is not an immutable provider byte-version claim. Missing, slow,
+busy, corrupt or unverified candidates leave the play online. Cache failure
+cannot turn a valid source into a playback error.
+
+On a miss, the selected network source starts immediately and one independent
+worker saves a complete supported response through the existing HTTP client.
+Autoplay intent can schedule it before native Playing; a preparation without
+autoplay waits for explicit Play. No unselected-track prefetch is implied.
+The released Cassette orchestration informed this independent Rust design;
+Karin retains its own protected streaming writer and checks rather than copying
+whole-body memory loading or reversible cache encoding.
+
+The cache job has its own one-use write ticket, separate from latest-playback
+admission. Registration lasts at most 30 minutes; activation starts a
+nonrenewable 30-second write admission, with a 15-second HTTP request timeout. Ordinary Next,
+Previous, source changes, manual Skip, Pause, Seek and Wave rollover do not
+cancel it. Explicit Stop, application close, Clear, Disable, logout and account
+change cancel or fence unfinished work. No GStreamer probe, compressed-byte
+channel, Playing admission latch, EOS finalizer or range-joining downloader
+controls the save. Queue/Wave still use actual playback snapshots for their
+own listening ledger and MPRIS.
+
+The worker streams to protected staging, screens bounded MP3 structure, verifies
+complete response length and SHA-256, and publishes atomically. It checks actual response policy,
+including no-store, encoding and supported Vary dimensions. A fresh source may
+be resolved when its short-lived admission expires. A first CDN403/410 can
+resolve once more and retry only a changed sealed URI. A new private response
+needs usable freshness or scoped validation evidence before body storage.
+Token/account/cache cancellation is checked throughout reads and publication. Credentials are not
+sent to media hosts; signed URLs remain in memory. HTTP permission to store is
+separate from playback access and applicable content/distribution rights.
+
+Local-first reuse separates Music account/track access, selected recording and
+variant, saved-file integrity, HTTP freshness and the temporary delivery locator.
+The authenticated offer's opaque fingerprint retains the validated descriptor
+origin, full logical object path and semantic query, excluding only recognized
+sign/ts signing fields. Exact selected MP3 bitrate/gain/fullness and account/token
+epochs must match. Known selection changes retire/refill; renewed signed CDN
+URLs alone do not invalidate an otherwise fresh record. Track ID alone never
+selects a hit. Logical storage keys are mutable; equality is not a content hash
+or permission to compare independent replicas' validators.
+
+A saved response can be reused within explicit max-age/Expires, accounting for
+Date, Age, request/response time and residence across restart. Without explicit
+expiration, a valid Date/Last-Modified pair allows conservative RFC9111 heuristic
+freshness of ten percent of the interval, capped at one hour. `no-cache` always
+requires validation; `must-revalidate` prevents stale reuse; `no-store` forbids
+storage. Invalid clocks/directives and missing receipt metadata do not acquire
+a fresh lease.
+
+Outside that lease, strict representation validation remains available: exact
+compatible media URI for opaque ETag/Last-Modified and whole length, or a trusted
+full Repr-Digest matching the saved SHA-256 and length across locators. Legacy
+XML ts remains opaque. Same can update metadata atomically after final fences;
+Different follows the applicable retirement/update policy; Unknown preserves a
+modern candidate and online playback without a redundant body save. Legacy
+records with pre-schema-2 selection, or upgraded records whose original response
+status is unknown, first attempt strict validation. If inconclusive, a current
+authenticated offer can admit one complete
+response through the existing background writer to migrate them. Only successful
+atomic publication replaces the old file; its bytes/mtime never gain a fabricated
+lease. Missing clocks on an otherwise modern record do not make it legacy or
+authorize repeated migration. For an expired modern selection with incomparable replica validators, a
+fresh current probe may admit one replacement only if the actual GET headers
+also permit fresh reuse, checked before reading its body. A successful save
+starts the measured new lease, avoiding repeated refresh downloads; no-cache or
+unproved current freshness stays online. Actual access
+refusal, no-store, corruption and encoding changes retain their separate fences.
+No second database, audio engine or invented offline right is introduced.
+
+Compact GTK cache indicators use a derived view of AudioCache, not playback
+intent, HTTP200, usage totals or a second persisted track database. A bounded
+worker batch verifies requested local records and publishes account-scoped
+Missing/Downloading/Stored states; unchanged-file fingerprints avoid repeated
+hashing. GTK only updates weakly registered slots, with no file or HTTP work per
+row. Downloading follows an actual cache writer; Stored follows verified complete
+publication or disk recovery. Clear/Disable, LRU eviction, corruption and account
+changes remove the corresponding indication. A Stored icon promises a completed
+local record, not offline rights or a successful future local hit.
+Final descriptor admission is memory-only; LRU updates are deferred. An early
+local decoder failure before actual Playing may fall back once to its admitted
+online source in the same worker; later errors remain normal playback errors.
+
+Clear may unlink an entry without interrupting the already admitted playback
+file descriptor. Normal close can retain completed records for revalidation
+after restart. Storage and access failures never become fabricated offline
+rights. [ADR-0029](adr/0029-synthetic-audio-cache-foundation.md) and
+[AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md) record the policy and source influence.
+Cloud checks use original permitted audio/local HTTP through this ordinary
+application, not a second player or a mock provider grant. The owner confirmed
+real first playback/background save at `31d873d`. At `cac4d78`, saving still
+worked while descriptor-path/representation-changed caused repeated downloads,
+with no confirmed local hit. Those service results remain separate from the
+new code and final Native/installed-Flatpak acceptance.
 
 ## GTK workspace, MPRIS and Flatpak
 

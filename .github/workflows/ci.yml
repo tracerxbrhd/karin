@@ -42,6 +42,24 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6, Node.js 24
       - name: Install native development dependencies
         run: |
+          # Avoid prolonged downloads from the runner's regional Azure mirror.
+          # Retain Ubuntu suites, package signatures and Signed-By configuration.
+          sudo python3 - <<'PYTHON'
+          from pathlib import Path
+          # Hosted Ubuntu also uses mirror+file:/etc/apt/apt-mirrors.txt.
+          sources = [Path('/etc/apt/sources.list'), Path('/etc/apt/apt-mirrors.txt')]
+          changed = 0
+          sources += list(Path('/etc/apt/sources.list.d').glob('*.sources'))
+          sources += list(Path('/etc/apt/sources.list.d').glob('*.list'))
+          for source in sources:
+              if source.is_file():
+                  original = source.read_text()
+                  updated = original.replace('://azure.archive.ubuntu.com/', '://archive.ubuntu.com/')
+                  if updated != original:
+                      source.write_text(updated)
+                      changed += 1
+          print(f'Ubuntu archive selection: {changed} source files updated')
+          PYTHON
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential pkg-config libgtk-4-dev libadwaita-1-dev \
@@ -162,6 +180,7 @@ jobs:
               'native_preferences_persistent_controls_snapshot_updates_and_cleanup',
               'native_playlist_creation_confirmation_refresh_refusal_and_late_widgets',
               'native_persistent_session_restore_settings_forget_and_close',
+              'native_audio_cache_application_process_restart',
               'native_catalog_cache_provenance_interleaving_and_retired_replies',
           ]
           compiled = {line.rsplit('::', 1)[-1].removesuffix(': test')
@@ -246,6 +265,13 @@ jobs:
           fi
           dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_persistent_session_restore_settings_forget_and_close -- --ignored --test-threads=1
           dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_catalog_cache_provenance_interleaving_and_retired_replies -- --ignored --test-threads=1
+      - name: Audio cache through the normal app and real process restart
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+          G_DEBUG: fatal-warnings
+          KARIN_TEST_CAPTURE_DIR: ${{ github.workspace }}/build/ui-captures/fixtures/audio-cache-application
+        run: dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_audio_cache_application_process_restart -- --ignored --test-threads=1 --nocapture
       - name: Persistent session and catalog cache integration at HiDPI
         env:
           GTK_A11Y: none
@@ -568,7 +594,7 @@ jobs:
             printf 'Binary SHA256: '; sha256sum target/release/karin
           } > "$artifact/BUILD-INFO.txt"
           cat > "$artifact/README.txt" <<'EOF'
-          Karin native music: v0.6 confirmed-track-reaction candidate for Fedora 44 acceptance.
+          Karin native music: v0.6 audio-cache development after confirmed Dislike integration.
           Verify SHA256SUMS and BUILD-INFO.txt against this PR's exact head.
           This is an Ubuntu 24.04 x86_64 native prototype, not a Flatpak/public release.
           Fedora runtime: sudo dnf install gtk4 libadwaita gstreamer1 gstreamer1-plugins-base gstreamer1-plugins-good webkitgtk6.0 librsvg2 libsecret
@@ -601,8 +627,11 @@ jobs:
           Native and current Flatpak acceptance require separate local checks; no broad bus grants.
           Preserve GPL and third-party notices. Shared OAuth public-distribution/service permission remains unresolved separately.
           Do not enable network/GStreamer logs or share tokens, URLs, account data, private screenshots or audio.
+          Private HTTP audio caching uses the current validated Legacy MP3 session, actual response directives and fresh representation validation; it is not a provider entitlement or an offline mode.
+          Follow docs/BUILDING.md#pr-26-corrected-cache-acceptance for the one final Native/Flatpak check. Verify automatic saved indicators and local replay/restart; fixed cache diagnostics are optional for source proof. The owner confirmed Native first playback/save at 31d873d; corrected local replay and installed Flatpak remain unverified until this check.
+          Settings has one enabled-by-default 2GiB shared cache allowance, six-position slider (500MiB/1/2/3/4GiB/Unlimited), measured total and Clear; no download/offline or permission-override controls.
           Active-footer Like and Dislike require independent live membership confirmation; Dislike stays hidden if unavailable, while fresh Like-only remains supported.
-          Test separate marks, their removal/opposite clearing, pending/error GET recovery and unchanged playback; a reaction never implies an automatic skip or new Wave feedback.
+          Test separate marks, their removal/opposite clearing, pending/error GET recovery and exactly one Next after confirmed current Dislike; removal/Like/errors never advance or add new Wave events.
           My Wave is available in ordinary ./karin; no experimental flag is required and radio never starts automatically.
           Sign in normally or use the existing protected session, then Home -> Моя волна -> Слушать.
           Read docs/BUILDING.md#my-wave-local-acceptance for the complete bounded acceptance sequence.
@@ -620,6 +649,23 @@ jobs:
           path: |
             build/karin-fedora-prototype-1.98.1.tar.gz
             build/SHA256SUMS
+          retention-days: 14
+          if-no-files-found: error
+      - name: Retain normal-app audio cache contract evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6, Node.js 24
+        with:
+          name: karin-audio-cache-application-${{ matrix.lane }}-${{ github.sha }}
+          path: |
+            build/ui-captures/fixtures/audio-cache-application/audio-cache-application-receipt.json
+            build/ui-captures/fixtures/audio-cache-application/audio-cache-lifecycle-receipt.json
+            build/ui-captures/fixtures/audio-cache-application/audio-cache-completion-receipt.json
+            build/ui-captures/fixtures/audio-cache-application/audio-cache-identity-receipt.json
+            build/ui-captures/fixtures/audio-cache-application/audio-cache-presence-receipt.json
+            build/ui-captures/fixtures/audio-cache-application/audio-cache-localfirst-receipt.json
+            build/ui-captures/fixtures/audio-cache-application/audio-cache-saved-*.png
+            build/ui-captures/fixtures/audio-cache-application/audio-cache-presence-*.png
+            build/ui-captures/fixtures/audio-cache-application/audio-cache-application-*.log
           retention-days: 14
           if-no-files-found: error
       - name: Retain Ubuntu functional UI evidence

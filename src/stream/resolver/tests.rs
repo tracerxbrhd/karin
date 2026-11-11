@@ -12,6 +12,265 @@ use std::{net::TcpListener, thread};
 const PRIVATE: &str = "synthetic-private-delivery-value";
 const XML: &str = "<download-info><host>s268myt.storage.yandex.net</host><path>/synthetic-resource/track.mp3</path><ts>000592c073d58600</ts><s>synthetic-private-delivery-value</s></download-info>";
 
+#[test]
+fn preparing_a_current_offer_does_not_resolve_xml_and_a_miss_reuses_the_same_offer() {
+    let token = token();
+    let service = validated_service(&token);
+    let api = TcpListener::bind("127.0.0.1:0").unwrap();
+    let descriptor = TcpListener::bind("127.0.0.1:0").unwrap();
+    let media = TcpListener::bind("127.0.0.1:0").unwrap();
+    let api_origin = format!("http://{}/", api.local_addr().unwrap());
+    let metadata_origin = format!("http://{}/", descriptor.local_addr().unwrap());
+    let media_origin = format!("http://{}/", media.local_addr().unwrap());
+    let resolver = StreamResolver::for_test(&api_origin, &metadata_origin, &media_origin);
+    let target = format!("{metadata_origin}download-info/synthetic-group/synthetic-object");
+    let retained_api = api.try_clone().unwrap();
+    let api_server = thread::spawn(move || {
+        let mut stream = accepted(&api);
+        let request = receive(&mut stream);
+        let mut body: serde_json::Value = serde_json::from_str(&legacy_body(&target)).unwrap();
+        body["result"][0]["gain"] = json!(false);
+        respond(&mut stream, 200, &body.to_string());
+        request
+    });
+    let cancellation = DeliveryCancellation::new();
+    let offer = resolver
+        .prepare_offer(&service, &token, "42:7", &cancellation)
+        .unwrap();
+    let current = offer.cache_identity().unwrap();
+    assert_eq!(current.schema, 2);
+    assert!(offer.is_current(&service, &token, &cancellation));
+    assert_eq!(format!("{offer:?}"), "PreparedAudioOffer([redacted])");
+    let api_request = api_server.join().unwrap().to_ascii_lowercase();
+    assert!(api_request.starts_with("get /tracks/42:7/download-info "));
+    assert!(api_request.contains("cache-control: no-cache\r\n"));
+    check_no_second_request(descriptor.try_clone().unwrap());
+    check_no_second_request(media.try_clone().unwrap());
+
+    let descriptor_server = thread::spawn(move || {
+        let mut stream = accepted(&descriptor);
+        let request = receive(&mut stream);
+        respond(&mut stream, 200, XML);
+        request
+    });
+    let remote = resolver
+        .resolve_offer(&service, &token, offer, &cancellation)
+        .unwrap();
+    let binding = remote.http_cache_binding().unwrap();
+    assert_eq!(binding.logical, Some(current.logical));
+    assert_eq!(binding.variant, current.variant);
+    assert_eq!(binding.schema, current.schema);
+    let request = descriptor_server.join().unwrap().to_ascii_lowercase();
+    for forbidden in ["authorization:", "cookie:", "oauth "] {
+        assert!(!request.contains(forbidden));
+    }
+    check_no_second_request(retained_api);
+    check_no_second_request(media);
+}
+
+#[test]
+fn selected_variant_distinguishes_gain_quality_and_known_from_unknown() {
+    let resolver = StreamResolver::new().unwrap();
+    let make = |gain: Option<bool>, bitrate| {
+        let mut body = json!({"result":[{
+            "codec":"mp3", "bitrateInKbps":bitrate, "preview":false,
+            "downloadInfoUrl":"https://storage.mds.yandex.net/download-info/group/object"
+        }]});
+        if let Some(gain) = gain {
+            body["result"][0]["gain"] = json!(gain);
+        }
+        let (_, bitrate, selected_gain) = resolver
+            .select_mp3_details(options(&body.to_string()))
+            .unwrap();
+        selected_variant(bitrate, selected_gain)
+    };
+    let unknown = make(None, 192);
+    let plain = make(Some(false), 192);
+    let normalized = make(Some(true), 192);
+    assert_ne!(unknown, plain);
+    assert_ne!(unknown, normalized);
+    assert_ne!(plain, normalized);
+    assert_ne!(plain, make(Some(false), 320));
+    let malformed = json!({"result":[{
+        "codec":"mp3", "preview":false, "gain":"synthetic-private-field",
+        "downloadInfoUrl":"https://storage.mds.yandex.net/download-info/group/object"
+    }]});
+    assert!(serde_json::from_value::<Envelope>(malformed).is_err());
+    let conflicting = json!({"result":[
+        {"codec":"mp3","bitrateInKbps":192,"gain":false,"preview":false,
+         "downloadInfoUrl":"https://storage.mds.yandex.net/download-info/group/object"},
+        {"codec":"mp3","bitrateInKbps":192,"gain":true,"preview":false,
+         "downloadInfoUrl":"https://storage.mds.yandex.net/download-info/group/object"}
+    ]});
+    assert_eq!(
+        resolver.select_mp3(options(&conflicting.to_string())),
+        Err(DeliveryCategory::UnsupportedResponse)
+    );
+}
+
+#[test]
+fn application_identity_requires_a_known_quality_and_bounded_logical_object() {
+    let token = token();
+    let service = validated_service(&token);
+    let make = |bitrate, logical| PreparedAudioOffer {
+        url: Url::parse("https://storage.mds.yandex.net/download-info/group/object").unwrap(),
+        bitrate,
+        logical,
+        variant: selected_variant(bitrate, None),
+        session: service.bind_session(&token).unwrap(),
+        report: DeliveryReport::new(DeliveryCategory::LegacyNegotiationRequired, Some(200)),
+        expires_at: Instant::now() + SOURCE_FRESHNESS,
+    };
+    assert!(make(192, Some([1; 32])).cache_identity().is_some());
+    assert!(make(0, Some([1; 32])).cache_identity().is_none());
+    assert!(make(192, None).cache_identity().is_none());
+}
+
+#[test]
+fn a_prepared_offer_cannot_survive_cancel_logout_account_retirement_or_expiry() {
+    for mode in 0..4 {
+        let token = token();
+        let service = validated_service(&token);
+        let api = TcpListener::bind("127.0.0.1:0").unwrap();
+        let descriptor = TcpListener::bind("127.0.0.1:0").unwrap();
+        let media = TcpListener::bind("127.0.0.1:0").unwrap();
+        let api_origin = format!("http://{}/", api.local_addr().unwrap());
+        let metadata_origin = format!("http://{}/", descriptor.local_addr().unwrap());
+        let media_origin = format!("http://{}/", media.local_addr().unwrap());
+        let resolver = StreamResolver::for_test(&api_origin, &metadata_origin, &media_origin);
+        let target = format!("{metadata_origin}download-info/group/object");
+        let retained_api = api.try_clone().unwrap();
+        let server = thread::spawn(move || {
+            let mut stream = accepted(&api);
+            receive(&mut stream);
+            respond(&mut stream, 200, &legacy_body(&target));
+        });
+        let cancellation = DeliveryCancellation::new();
+        let mut offer = resolver
+            .prepare_offer(&service, &token, "42", &cancellation)
+            .unwrap();
+        server.join().unwrap();
+        match mode {
+            0 => cancellation.cancel(),
+            1 => token.invalidate(),
+            2 => service.clear_session(),
+            _ => offer.expires_at = Instant::now() - Duration::from_secs(1),
+        }
+        assert!(!offer.is_current(&service, &token, &cancellation));
+        let report = resolver
+            .resolve_offer(&service, &token, offer, &cancellation)
+            .unwrap_err();
+        assert_eq!(
+            report.category,
+            match mode {
+                0 | 1 => DeliveryCategory::Cancelled,
+                2 => DeliveryCategory::SessionRequired,
+                _ => DeliveryCategory::SourceExpired,
+            }
+        );
+        check_redacted(report);
+        check_no_second_request(retained_api);
+        check_no_second_request(descriptor);
+        check_no_second_request(media);
+    }
+}
+
+#[test]
+fn descriptor_binding_distinguishes_file_and_encoding_from_temporary_signature_address() {
+    let source = |path: &str, timestamp: &str, bitrate: u32| {
+        let xml = format!(
+            "<download-info><host>s268myt.storage.yandex.net</host><path>{path}</path><ts>{timestamp}</ts><s>synthetic-private-delivery-value</s></download-info>"
+        );
+        let parts = xml::parse(xml.as_bytes()).unwrap();
+        let uri = legacy_uri(&parts).unwrap();
+        RemotePlaybackSource::from_resolver(&uri, Instant::now() + SOURCE_FRESHNESS)
+            .unwrap()
+            .with_http_cache_resource(HttpResourceIdentity::from_validated_descriptor(
+                &parts, bitrate, &uri, None,
+            ))
+    };
+    let first = source("/synthetic-resource/track.mp3", "000592c073d58600", 192);
+    let renewed = source("/synthetic-resource/track.mp3", "000592c073d58601", 192);
+    let other = source("/synthetic-resource/other.mp3", "000592c073d58601", 192);
+    let encoding = source("/synthetic-resource/track.mp3", "000592c073d58601", 320);
+    assert_ne!(first.http_cache_uri_hash(), renewed.http_cache_uri_hash());
+    assert_eq!(
+        first.http_cache_resource_hash(),
+        renewed.http_cache_resource_hash()
+    );
+    assert_ne!(
+        first.http_cache_resource_hash(),
+        other.http_cache_resource_hash()
+    );
+    assert_ne!(
+        first.http_cache_resource_hash(),
+        encoding.http_cache_resource_hash()
+    );
+    let headers = || {
+        [
+            ("content-type", "audio/mpeg"),
+            ("content-length", "3"),
+            ("etag", "\"synthetic-version\""),
+        ]
+        .map(|(name, value)| (name.into(), value.into()))
+    };
+    let policy = crate::audio_cache::http_policy::ResponsePolicy::parse(200, headers()).unwrap();
+    let stored = policy
+        .record(
+            first.http_cache_uri_hash(),
+            first.http_cache_resource_hash(),
+            [3; 32],
+            3,
+        )
+        .unwrap();
+    // The URI includes an opaque legacy timestamp. A stable physical locator
+    // is not permission to compare its ETag across distinct signed requests.
+    assert_eq!(
+        policy.revalidate(
+            &stored,
+            renewed.http_cache_uri_hash(),
+            renewed.http_cache_resource_hash()
+        ),
+        Err(crate::audio_cache::http_policy::Reason::ResourceChanged)
+    );
+    assert_eq!(
+        policy.revalidate(
+            &stored,
+            other.http_cache_uri_hash(),
+            other.http_cache_resource_hash()
+        ),
+        Err(crate::audio_cache::http_policy::Reason::ResourceChanged)
+    );
+    assert_eq!(
+        policy.revalidate(
+            &stored,
+            encoding.http_cache_uri_hash(),
+            encoding.http_cache_resource_hash()
+        ),
+        Err(crate::audio_cache::http_policy::Reason::ResourceChanged)
+    );
+    let replacement = crate::audio_cache::http_policy::ResponsePolicy::parse(
+        200,
+        [
+            ("content-type", "audio/mpeg"),
+            ("content-length", "3"),
+            ("etag", "\"synthetic-replacement\""),
+        ]
+        .map(|(name, value)| (name.into(), value.into())),
+    )
+    .unwrap();
+    assert_eq!(
+        replacement.revalidate(
+            &stored,
+            renewed.http_cache_uri_hash(),
+            renewed.http_cache_resource_hash()
+        ),
+        Err(crate::audio_cache::http_policy::Reason::ResourceChanged)
+    );
+    let visible = format!("{renewed:?}");
+    assert!(!visible.contains("synthetic-resource") && !visible.contains("get-mp3"));
+}
+
 fn options(body: &str) -> Vec<DeliveryOption> {
     serde_json::from_str::<Envelope>(body).unwrap().result
 }
@@ -32,6 +291,39 @@ fn legacy_source_uses_the_canonical_checksum_path_without_grant_time_guessing() 
     );
     let visible = format!("{parts:?}");
     assert!(!visible.contains(PRIVATE) && !visible.contains("s268myt"));
+}
+
+#[test]
+fn legacy_descriptor_server_labels_are_canonicalized_without_collapsing_resource_identity() {
+    // Names deliberately exercise the former naming-layout rejection. They
+    // are fixtures within the existing trusted zone, not live CDN assertions.
+    let source = |host: &str| {
+        let body = XML.replace("s268myt.storage.yandex.net", host);
+        let parts = xml::parse(body.as_bytes()).unwrap();
+        let uri = legacy_uri(&parts).unwrap();
+        RemotePlaybackSource::from_resolver(&uri, Instant::now() + SOURCE_FRESHNESS)
+            .unwrap()
+            .with_http_cache_resource(HttpResourceIdentity::from_validated_descriptor(
+                &parts, 192, &uri, None,
+            ))
+    };
+    let lower = source("s123.storage.yandex.net");
+    let upper = source("S123.STORAGE.YANDEX.NET");
+    let other = source("server-2026.storage.yandex.net");
+    assert_eq!(lower.http_cache_uri_hash(), upper.http_cache_uri_hash());
+    assert_eq!(
+        lower.http_cache_resource_hash(),
+        upper.http_cache_resource_hash()
+    );
+    assert_ne!(
+        lower.http_cache_resource_hash(),
+        other.http_cache_resource_hash()
+    );
+    for item in [lower, upper, other] {
+        assert!(!item.is_expired());
+        let visible = format!("{item:?}");
+        assert!(!visible.contains(PRIVATE) && !visible.contains("storage.yandex.net"));
+    }
 }
 
 #[test]
@@ -261,7 +553,11 @@ fn invalid_media_origins_and_path_components_never_escape_the_resolver() {
 
 #[test]
 fn full_resolution_for_all_paths_sends_credentials_only_to_music_and_never_fetches_media() {
-    for prefix in ["get-download-info", "download-info", "file-download-info"] {
+    for (prefix, host) in [
+        ("get-download-info", "s268myt.storage.yandex.net"),
+        ("download-info", "s123.storage.yandex.net"),
+        ("file-download-info", "server-2026.storage.yandex.net"),
+    ] {
         let token = token();
         let service = validated_service(&token);
         let api = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -278,20 +574,21 @@ fn full_resolution_for_all_paths_sends_credentials_only_to_music_and_never_fetch
         )))
         .unwrap();
         // Cover legacy omission, optional null, and the known unprotected raw
-        // declaration without changing acquisition or admitting any new host.
+        // declaration without changing acquisition or credential boundaries.
         if prefix == "download-info" {
             body["result"][0]["transport"] = json!(null);
         } else if prefix == "file-download-info" {
             body["result"][0]["transport"] = json!("raw");
         }
         let body = body.to_string();
+        let xml = XML.replace("s268myt.storage.yandex.net", host);
         let xml = if prefix == "file-download-info" {
-            XML.replace(
+            xml.replace(
                 "</download-info>",
                 "<transport>raw</transport></download-info>",
             )
         } else {
-            XML.to_owned()
+            xml
         };
         let api_server = thread::spawn(move || {
             let mut stream = accepted(&api);
@@ -638,4 +935,108 @@ fn cancel_logout_and_cache_invalidation_during_descriptor_never_return_a_source(
         metadata_server.join().unwrap();
         check_no_second_request(media);
     }
+}
+
+#[test]
+fn logical_mds_object_scope_excludes_only_valid_signing_fields_and_keeps_semantics() {
+    let url = |path: &str, query: &str| {
+        Url::parse(&format!("https://storage.mds.yandex.net/{path}?{query}")).unwrap()
+    };
+    let sign_a = "a".repeat(64);
+    let sign_b = "b".repeat(64);
+    let first = logical_descriptor_object(&url(
+        "download-info/synthetic-group/object",
+        &format!("ns=fixture&sign={sign_a}&ts=0001"),
+    ))
+    .unwrap();
+    let fresh = logical_descriptor_object(&url(
+        "download-info/synthetic-group/object",
+        &format!("ns=fixture&sign={sign_b}&ts=0002"),
+    ))
+    .unwrap();
+    assert_eq!(first, fresh);
+    for changed in [
+        url(
+            "download-info/synthetic-group/other",
+            &format!("ns=fixture&sign={sign_b}&ts=0002"),
+        ),
+        url(
+            "download-info/other-group/object",
+            &format!("ns=fixture&sign={sign_b}&ts=0002"),
+        ),
+        url(
+            "download-info/synthetic-group/object",
+            &format!("ns=other&sign={sign_b}&ts=0002"),
+        ),
+        url(
+            "download-info/synthetic-group/object",
+            &format!("ns=fixture&version=other&sign={sign_b}&ts=0002"),
+        ),
+    ] {
+        assert_ne!(first, logical_descriptor_object(&changed).unwrap());
+    }
+    for query in [
+        "sign=unknown&ts=0002".into(),
+        format!("sign={sign_a}"),
+        "ts=0002".into(),
+        format!("sign={sign_a}&sign={sign_b}&ts=0002"),
+        format!("sign={sign_a}&ts=0002&ts=0003"),
+        format!("sign={sign_a}&ts=not-a-timestamp"),
+    ] {
+        assert_eq!(
+            logical_descriptor_object(&url("download-info/synthetic-group/object", &query)),
+            None
+        );
+    }
+    assert!(logical_descriptor_object(&url("download-info/short", "")).is_none());
+}
+
+#[test]
+fn logical_mds_scope_stays_stable_across_physical_region_and_append_location_changes() {
+    let make = |host, path, bitrate, timestamp| {
+        HttpResourceIdentity::for_test_object(
+            host,
+            path,
+            bitrate,
+            timestamp,
+            "https://storage.mds.yandex.net/file-download-info/synthetic-group/opaque-object?ns=fixture",
+        )
+    };
+    let first = make(
+        "s123.storage.yandex.net",
+        "/physical-a-offset-10-size-123",
+        192,
+        "0001",
+    );
+    let region = make(
+        "server-2026.storage.yandex.net",
+        "/s123/physical-b-offset-20-size-123",
+        192,
+        "0002",
+    );
+    assert_eq!(first.binding.logical, region.binding.logical);
+    assert_eq!(first.binding.variant, region.binding.variant);
+    assert_ne!(first.binding.host, region.binding.host);
+    assert_ne!(first.binding.path, region.binding.path);
+    assert_ne!(first.request_hash(), region.request_hash());
+    assert_ne!(first.hash(), region.hash());
+    let encoding = make(
+        "server-2026.storage.yandex.net",
+        "/s123/physical-b-offset-20-size-123",
+        320,
+        "0002",
+    );
+    assert_ne!(first.binding.variant, encoding.binding.variant);
+}
+
+#[test]
+fn sealed_request_hash_keeps_the_previous_exact_uri_hash_recipe() {
+    let parts = xml::parse(XML.as_bytes()).unwrap();
+    let uri = legacy_uri(&parts).unwrap();
+    let old = RemotePlaybackSource::from_resolver(&uri, Instant::now() + SOURCE_FRESHNESS).unwrap();
+    let old_hash = old.http_cache_uri_hash();
+    let sealed = old.with_http_cache_resource(HttpResourceIdentity::from_validated_descriptor(
+        &parts, 192, &uri, None,
+    ));
+    assert_eq!(old_hash, sealed.http_cache_uri_hash());
 }

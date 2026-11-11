@@ -51,6 +51,12 @@ bounds do not justify skipping containment or guessing coordinates.
 - Exercise queue edits, unavailable items, Next/Previous/EOS, Shuffle/Repeat and
   MPRIS transport/seek/volume/modes on the same player. Check session restore,
   cache clear/off and teardown for stale callbacks/private views.
+- Cache indicators must follow actual complete AudioCache records across Liked,
+  playlists/search, Queue/Wave, footer and Info. Check downloading → stored,
+  replay/restart, multiple occurrences, Clear/LRU, failures and account/off fences.
+  Stored means a local record; only actual cached-file playback can show the
+  local-source cue. Inspect compact/light/dark/HiDPI density and accessibility,
+  preserve row/Like/menu keyboard actions, and exclude per-row HTTP or GTK file I/O.
 
 ## Pinned panel and motion
 
@@ -81,9 +87,9 @@ animation and test environment. Static uses full redraw; motion/cold use ordinar
 GTK damage. Render-node snapshots are not framebuffer-damage or physical-GPU proof.
 Record Mesa worker limits explicitly.
 
-Retain all native registrations: currently 30 functional and three modern visual/
-raw selectors in both Rust lanes, with sandboxed WebKit, actual input, fatal
-warnings and strict motion. Report namespace/SDK limits; do not disable sandbox
+Retain every native registration in both Rust lanes, including functional and
+modern visual/raw selectors, sandboxed WebKit, actual input, fatal warnings and
+strict motion. Record the final registered/executed counts with its source. Report namespace/SDK limits; do not disable sandbox
 or remove tests. Commands/platform placement live in
 [BUILDING.md](BUILDING.md) and the [workflow](../.github/workflows/ci.yml).
 

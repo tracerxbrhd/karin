@@ -4,12 +4,20 @@
 use super::super::preferences::{PreferencesCallbacks, PreferencesSnapshot, PreferencesView};
 use super::*;
 use crate::{
+    audio_cache::{
+        AudioCache, CacheError as AudioError, CachePolicy as AudioPolicy, Lease as AudioLease,
+        OnlineStreamAuthority, PrivateHttpCachePolicy, Stats as AudioStats, StorageAuthority,
+    },
     cache::{AccountScope, Cache, CachePolicy, CacheStats},
+    cache_budget::CacheBudget,
     credentials::{BackendKind, CredentialStore, StorageError},
     session_lifecycle::{PersistenceTicket, SessionPersistence},
     settings::{Appearance, LoadStatus, Preferences, SettingsError, SettingsLoad, SettingsStore},
 };
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::{
+    path::PathBuf,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 thread_local! {
     // A reopened native window may otherwise create independent stores while
@@ -97,10 +105,23 @@ pub(super) struct State {
     settings_dirty: bool,
     settings_operation: u64,
     cache: Option<Cache>,
+    cache_budget: Option<Arc<CacheBudget>>,
+    cache_policy_revision: u64,
+    cache_policy_pending: bool,
+    cache_retry: Option<CacheTask>,
+    cache_message: Option<String>,
+    audio_root: Option<PathBuf>,
+    audio_cache: Option<AudioCache>,
+    // Trusted assembly policy; service metadata/streaming never populates it.
+    audio_permission: Arc<dyn StorageAuthority>,
+    audio_cache_stats: Option<AudioStats>,
+    audio_purge_pending: bool,
+    audio_purge_generation: u64,
     scope: Option<AccountScope>,
     cache_busy: bool,
     cache_operation: u64,
     cache_trim_pending: bool,
+    cache_clear_pending: bool,
     cache_stats: Option<CacheStats>,
     purge_after_forget: bool,
     barrier_confirmed: bool,
@@ -134,17 +155,23 @@ impl State {
         group.add(&row);
         banner.append(&group);
         banner.set_visible(false);
-        let cache = if enabled {
-            Cache::new(
-                glib::user_cache_dir()
-                    .join(crate::config::APP_ID)
-                    .join("persistent"),
-                CachePolicy::default(),
-            )
-            .ok()
-        } else {
-            None
-        };
+        let root = glib::user_cache_dir().join(crate::config::APP_ID);
+        let metadata_root = root.join("persistent");
+        let audio_root = root.join("audio");
+        let budget = enabled
+            .then(|| {
+                CacheBudget::new(
+                    metadata_root.clone(),
+                    audio_root.clone(),
+                    true,
+                    Preferences::default().cache_limit.bytes(),
+                )
+                .ok()
+            })
+            .flatten();
+        let cache = budget.as_ref().and_then(|budget| {
+            Cache::new_with_budget(metadata_root, CachePolicy::default(), budget.clone()).ok()
+        });
         Self {
             banner,
             row,
@@ -172,10 +199,22 @@ impl State {
             settings_dirty: false,
             settings_operation: 0,
             cache,
+            cache_budget: budget,
+            cache_policy_revision: 0,
+            cache_policy_pending: false,
+            cache_retry: None,
+            cache_message: None,
+            audio_root: enabled.then_some(audio_root),
+            audio_cache: None,
+            audio_permission: Arc::new(PrivateHttpCachePolicy),
+            audio_cache_stats: None,
+            audio_purge_pending: false,
+            audio_purge_generation: 0,
             scope: None,
             cache_busy: false,
             cache_operation: 0,
             cache_trim_pending: false,
+            cache_clear_pending: false,
             cache_stats: None,
             purge_after_forget: false,
             barrier_confirmed: false,
@@ -197,7 +236,9 @@ impl State {
     ) -> Self {
         let mut state = Self::new(true);
         state.injected = Some((settings, credentials));
+        state.cache_budget = cache.as_ref().and_then(Cache::shared_budget);
         state.cache = cache;
+        state.audio_root = None;
         state
     }
     fn snapshot(&self) -> PreferencesSnapshot {
@@ -209,20 +250,40 @@ impl State {
             session_busy: self.phase != Phase::Idle,
             can_retry_session: self.retry != Retry::None && !self.critical,
             cache_stats: self.cache_stats,
-            cache_busy: self.cache_busy || self.critical,
-            message: self.message.clone(),
+            cache_busy: self.cache_busy || self.cache_policy_pending || self.critical,
+            can_retry_cache: self.cache_retry.is_some(),
+            message: self.cache_message.clone().or_else(|| self.message.clone()),
         }
+    }
+    fn request_audio_purge(&mut self) {
+        self.audio_purge_pending = true;
+        self.audio_purge_generation = self.audio_purge_generation.wrapping_add(1);
+        if let Some(audio) = &self.audio_cache {
+            let _ = audio.fence();
+        }
+    }
+    fn cache_admission_enabled(&self) -> bool {
+        self.values.cache_enabled
+            && self.ready
+            && !self.values.forget_pending
+            && !self.audio_purge_pending
+            && !self.closed
+    }
+    fn audio_policy(&self) -> AudioPolicy {
+        // The shared coordinator owns the byte budget. This fallback policy
+        // exists only for isolated standalone stores used by diagnostics.
+        AudioPolicy::default()
     }
     fn policy(&self) -> CachePolicy {
         CachePolicy {
-            enabled: self.values.cache_enabled && self.ready && !self.values.forget_pending,
-            max_bytes: self.values.cache_limit_bytes,
+            enabled: self.cache_admission_enabled(),
             ..CachePolicy::default()
         }
     }
 }
 
 struct Initial {
+    audio_cache: Result<Option<AudioCache>, AudioError>,
     settings: Option<SettingsStore>,
     loaded: Result<SettingsLoad, SettingsError>,
     manager: SessionPersistence,
@@ -232,6 +293,41 @@ struct Forgotten {
     deletion: Result<(), StorageError>,
     cache: Result<(), ()>,
     settings: Result<(), SettingsError>,
+}
+
+/// Called only by persistence workers. Opening/scanning the namespace never
+/// occupies GTK, and an unavailable existing namespace is not reported as empty.
+fn open_audio_store(
+    current: Option<AudioCache>,
+    root: Option<PathBuf>,
+    policy: AudioPolicy,
+    budget: Option<Arc<CacheBudget>>,
+    permission: Arc<dyn StorageAuthority>,
+) -> Result<Option<AudioCache>, AudioError> {
+    if let Some(cache) = current {
+        cache.configure(policy)?;
+        return Ok(Some(cache));
+    }
+    root.map(|root| match budget {
+        Some(budget) => AudioCache::open_with_budget(
+            root,
+            Arc::new(OnlineStreamAuthority::with_storage_permission(permission)),
+            policy,
+            budget,
+        ),
+        None => AudioCache::open(
+            root,
+            Arc::new(OnlineStreamAuthority::with_storage_permission(permission)),
+            policy,
+        ),
+    })
+    .transpose()
+}
+
+struct CacheOutcome {
+    total: Result<CacheStats, ()>,
+    metadata: Result<CacheStats, ()>,
+    audio: Result<Option<(AudioCache, AudioStats)>, AudioError>,
 }
 
 impl Controller {
@@ -297,7 +393,13 @@ impl Controller {
             p.operation = p.operation.wrapping_add(1);
             p.retry = Retry::None;
             p.status = "Загружаем настройки…".into();
-            (p.operation, p.injected.take())
+            (
+                p.operation,
+                p.injected.take(),
+                p.audio_root.clone(),
+                p.cache_budget.clone(),
+                p.audio_permission.clone(),
+            )
         };
         if !self.persistence.borrow().retry_connected {
             self.persistence.borrow_mut().retry_connected = true;
@@ -322,7 +424,14 @@ impl Controller {
                     Ok(settings) => settings.load(),
                     Err(error) => Err(*error),
                 };
+                let values = loaded.as_ref().map(|loaded| loaded.preferences.clone()).unwrap_or_default();
+                if let Some(budget) = &inputs.3 {
+                    let _ = budget.configure(values.cache_enabled, values.cache_limit.bytes());
+                }
+                let audio_policy = AudioPolicy::default();
+                let audio_cache = open_audio_store(None, inputs.2, audio_policy, inputs.3, inputs.4);
                 Initial {
+                    audio_cache,
                     settings: settings.ok(),
                     loaded,
                     manager: SessionPersistence::new(credentials),
@@ -339,6 +448,13 @@ impl Controller {
                             let mut p = this.persistence.borrow_mut();
                             p.settings = initial.settings;
                             p.manager = Some(initial.manager);
+                            match initial.audio_cache {
+                                Ok(cache) => p.audio_cache = cache,
+                                Err(_) => {
+                                    p.cache_message = Some("Кеш недоступен. Проверку можно повторить в настройках; онлайн-воспроизведение продолжает работать.".into());
+                                    p.cache_retry = Some(CacheTask::Usage);
+                                }
+                            }
                             p.phase = Phase::Idle;
                             match loaded {
                                 Ok(loaded) => {
@@ -535,6 +651,9 @@ impl Controller {
             if !p.enabled || p.closed {
                 return;
             }
+            if p.scope.as_ref().is_some_and(|old| old != &scope) {
+                p.request_audio_purge();
+            }
             p.scope = Some(scope.clone());
             if let Some(cache) = &p.cache {
                 cache.bind(Some(scope));
@@ -568,6 +687,10 @@ impl Controller {
         self.reload_cache_stats();
     }
     pub(super) fn session_validation_failed(self: &Rc<Self>, error: MusicError) {
+        let revoked = matches!(
+            error,
+            MusicError::Unauthenticated | MusicError::AccessDenied | MusicError::Http(401)
+        );
         let restored = {
             let mut p = self.persistence.borrow_mut();
             if !p.enabled {
@@ -580,19 +703,25 @@ impl Controller {
             if let Some(cache) = &p.cache {
                 cache.bind(None);
             }
+            if revoked {
+                p.request_audio_purge();
+            } else if let Some(audio) = &p.audio_cache {
+                let _ = audio.bind(None);
+            }
             p.scope = None;
             p.cache_operation = p.cache_operation.wrapping_add(1);
             p.cache_busy = false;
             p.cache_trim_pending = false;
+            p.cache_clear_pending = false;
             restored
         };
         if !restored {
+            if revoked {
+                self.reload_cache_stats();
+            }
             return;
         }
-        if matches!(
-            error,
-            MusicError::Unauthenticated | MusicError::AccessDenied | MusicError::Http(401)
-        ) {
+        if revoked {
             let mut p = self.persistence.borrow_mut();
             p.status =
                 "Сохранённый вход больше не принят Яндекс Музыкой. Удаляем его с устройства."
@@ -771,6 +900,7 @@ impl Controller {
                 return;
             }
             p.scope = None;
+            p.request_audio_purge();
             if let Some(cache) = &p.cache {
                 cache.bind(None);
             }
@@ -786,6 +916,9 @@ impl Controller {
             p.values.forget_pending = true;
             p.barrier_confirmed = false;
             p.purge_after_forget |= purge;
+            if purge {
+                p.request_audio_purge();
+            }
             p.critical = true;
             p.operation = p.operation.wrapping_add(1);
             p.settings_operation = p.settings_operation.wrapping_add(1);
@@ -795,6 +928,7 @@ impl Controller {
             p.cache_operation = p.cache_operation.wrapping_add(1);
             p.cache_busy = false;
             p.cache_trim_pending = false;
+            p.cache_clear_pending = false;
             p.phase = Phase::Forget;
             p.retry = Retry::None;
             p.status = if purge {
@@ -805,6 +939,13 @@ impl Controller {
             .into();
             if let Some(cache) = &p.cache {
                 let _ = cache.configure(p.policy());
+            }
+            if let Some(audio) = &p.audio_cache {
+                if p.audio_purge_pending {
+                    let _ = audio.fence();
+                } else {
+                    let _ = audio.bind(None);
+                }
             }
             let manager = p.manager.clone();
             let ticket = manager.as_ref().map(SessionPersistence::begin);
@@ -819,6 +960,12 @@ impl Controller {
                 p.cache.clone(),
                 p.purge_after_forget,
                 p.operation,
+                p.audio_cache.clone(),
+                p.audio_root.clone(),
+                p.audio_policy(),
+                p.audio_purge_pending,
+                p.cache_budget.clone(),
+                p.audio_permission.clone(),
             )
         };
         self.render_persistence();
@@ -835,13 +982,24 @@ impl Controller {
                     (Some(manager), Some(ticket)) => manager.delete(ticket),
                     _ => Err(StorageError::Unavailable),
                 };
-                let cache = if task.6 {
+                let metadata = if task.6 {
                     task.5.as_ref().map_or(Ok(()), |cache| {
                         cache.clear().map(|_| ()).map_err(|_| ())
                     })
                 } else {
                     Ok(())
                 };
+                // A remember-off barrier can supersede a pending Cache Clear.
+                // Complete that audio intent rather than leaving its fence
+                // stranded or reporting an unfinished deletion as successful.
+                let audio = if task.6 || task.11 {
+                    open_audio_store(task.8, task.9, task.10, task.12, task.13)
+                        .and_then(|cache| cache.map_or(Ok(()), |cache| cache.logout().map(|_| ())))
+                        .map_err(|_| ())
+                } else {
+                    Ok(())
+                };
+                let cache = metadata.and(audio);
                 let mut final_values = task.4;
                 final_values.forget_pending = false;
                 let settings = if deletion.is_ok() && cache.is_ok() {
@@ -882,6 +1040,8 @@ impl Controller {
                     p.values.forget_pending = !success;
                     if success {
                         p.purge_after_forget = false;
+                        p.audio_purge_pending = false;
+                        p.audio_cache_stats = None;
                         p.retry = if this.model.borrow().account_valid && p.values.remember_login {
                             Retry::Save
                         } else {
@@ -951,8 +1111,41 @@ impl Controller {
     pub(super) fn persistent_cache(&self) -> Option<Cache> {
         self.persistence.borrow().cache.clone()
     }
+    #[cfg(test)]
+    pub(super) fn install_audio_cache_for_test(&self, cache: AudioCache, scope: AccountScope) {
+        let mut p = self.persistence.borrow_mut();
+        assert!(!p.enabled && p.settings.is_none() && p.manager.is_none());
+        assert!(!p.closed && p.audio_cache.is_none() && self.model.borrow().account_valid);
+        cache.bind(Some(scope.clone())).unwrap();
+        // Enable the real logout/close fences without constructing a host
+        // wallet, XDG store or setup worker. Tests own the injected namespace.
+        p.enabled = true;
+        p.started = true;
+        p.ready = true;
+        p.scope = Some(scope);
+        p.audio_cache = Some(cache);
+    }
+    pub(super) fn audio_cache_binding(&self) -> Option<(AudioCache, AudioLease)> {
+        let p = self.persistence.borrow();
+        if p.closed
+            || !p.ready
+            || !p.values.cache_enabled
+            || p.values.forget_pending
+            || p.audio_purge_pending
+        {
+            return None;
+        }
+        let cache = p.audio_cache.clone()?;
+        let lease = cache.lease()?;
+        lease
+            .matches_scope(p.scope.as_ref()?)
+            .then_some((cache, lease))
+    }
     fn apply_persistence_policy(&self) {
         let p = self.persistence.borrow();
+        if let Some(budget) = &p.cache_budget {
+            let _ = budget.configure(p.cache_admission_enabled(), p.values.cache_limit.bytes());
+        }
         if let Some(cache) = &p.cache {
             let _ = cache.configure(p.policy());
             if !p.values.forget_pending
@@ -960,6 +1153,25 @@ impl Controller {
                 && cache.lease().is_none()
             {
                 cache.bind(Some(scope.clone()));
+            }
+        }
+        if let Some(cache) = &p.audio_cache {
+            let _ = cache.configure(p.audio_policy());
+            if p.audio_purge_pending {
+                // request_audio_purge owns this fence. Reapplying appearance
+                // or other preferences must not refence a completed worker
+                // before GTK receives its successful cleanup result.
+            } else if !p.ready || !p.values.cache_enabled || p.values.forget_pending {
+                let _ = cache.bind(None);
+            } else {
+                let current = match (cache.lease(), p.scope.as_ref()) {
+                    (Some(lease), Some(scope)) => lease.matches_scope(scope),
+                    (None, None) => true,
+                    _ => false,
+                };
+                if !current {
+                    let _ = cache.bind(p.scope.clone());
+                }
             }
         }
     }
@@ -1004,6 +1216,7 @@ impl Controller {
             let clear = Rc::downgrade(self);
             let retry = Rc::downgrade(self);
             let stats = Rc::downgrade(self);
+            let cache_retry = Rc::downgrade(self);
             let callbacks = PreferencesCallbacks {
                 changed: Rc::new(move |values| {
                     if let Some(this) = changed.upgrade() {
@@ -1023,6 +1236,11 @@ impl Controller {
                 reload_stats: Rc::new(move || {
                     if let Some(this) = stats.upgrade() {
                         this.reload_cache_stats();
+                    }
+                }),
+                retry_cache: Rc::new(move || {
+                    if let Some(this) = cache_retry.upgrade() {
+                        this.retry_cache_operation();
                     }
                 }),
             };
@@ -1046,51 +1264,118 @@ impl Controller {
         self.reload_cache_stats();
     }
     fn preferences_changed(self: &Rc<Self>, values: Preferences) {
-        let (remember_changed, old_limit, enabled) = {
+        let (remember_changed, cache_changed, limit_only, enabled) = {
             let mut p = self.persistence.borrow_mut();
-            if p.closed || p.critical || !p.ready {
+            if p.closed || p.critical || !p.ready || values.validate().is_err() {
                 return;
             }
-            if values.validate().is_err() {
-                return;
-            }
-            let previous_remember = p.values.remember_login;
-            let old_limit = p.values.cache_limit_bytes;
+            let previous = p.values.clone();
             p.values.appearance = values.appearance;
             p.values.track_info_open = values.track_info_open;
             p.values.cache_enabled = values.cache_enabled;
-            p.values.cache_limit_bytes = values.cache_limit_bytes;
+            p.values.cache_limit = values.cache_limit;
             if !values.remember_login || (p.supported && !p.values.forget_pending) {
                 p.values.remember_login = values.remember_login;
             }
             p.settings_dirty = p.enabled;
+            let cache_changed = previous.cache_limit != p.values.cache_limit
+                || previous.cache_enabled != p.values.cache_enabled;
+            let limit_only = previous.cache_limit != p.values.cache_limit
+                && previous.cache_enabled == p.values.cache_enabled
+                && previous.appearance == p.values.appearance
+                && previous.remember_login == p.values.remember_login
+                && previous.track_info_open == p.values.track_info_open;
+            if cache_changed {
+                if let Some(budget) = &p.cache_budget {
+                    let _ =
+                        budget.configure(p.cache_admission_enabled(), p.values.cache_limit.bytes());
+                }
+                // Local generations must retire even when a shared quota
+                // change leaves the child's legacy standalone policy equal.
+                if let Some(cache) = &p.cache {
+                    cache.bind(p.scope.clone());
+                }
+                if !p.audio_purge_pending
+                    && let Some(audio) = &p.audio_cache
+                {
+                    let _ = audio.bind(
+                        p.cache_admission_enabled()
+                            .then(|| p.scope.clone())
+                            .flatten(),
+                    );
+                }
+            }
             (
-                previous_remember != p.values.remember_login,
-                old_limit,
+                previous.remember_login != p.values.remember_login,
+                cache_changed,
+                limit_only,
                 p.enabled,
             )
         };
+        if cache_changed && !self.persistence.borrow().values.cache_enabled {
+            self.clear_cache_presence();
+            self.cancel_music_cache(crate::audio_cache::diagnostic::Cause::CacheDisabled);
+        }
         self.apply_appearance();
+        // Admission changes are memory-only and immediate; no in-flight writer
+        // may bypass Disable while the latest disk maintenance is debounced.
         self.apply_persistence_policy();
         self.sync_info_visibility();
         if !enabled {
             self.render_persistence();
             return;
         }
+        if cache_changed {
+            self.schedule_cache_policy();
+        }
         let remember = self.persistence.borrow().values.remember_login;
         if remember_changed && !remember {
             self.forget_persistent_session(false);
         } else {
-            self.flush_preferences();
+            if !limit_only {
+                self.flush_preferences();
+            }
             if remember_changed && remember && self.model.borrow().account_valid {
                 self.persist_current_session();
             }
-            if self.persistence.borrow().values.cache_enabled
-                && self.persistence.borrow().values.cache_limit_bytes < old_limit
-            {
-                self.trim_persistent_cache();
-            }
             self.render_persistence();
+        }
+    }
+    fn schedule_cache_policy(self: &Rc<Self>) {
+        let revision = {
+            let mut p = self.persistence.borrow_mut();
+            p.cache_policy_revision = p.cache_policy_revision.wrapping_add(1);
+            p.cache_policy_pending = true;
+            p.cache_policy_revision
+        };
+        let weak = Rc::downgrade(self);
+        glib::timeout_add_local_once(std::time::Duration::from_millis(200), move || {
+            let Some(this) = weak.upgrade() else {
+                return;
+            };
+            let critical = {
+                let mut p = this.persistence.borrow_mut();
+                if p.closed || p.cache_policy_revision != revision {
+                    return;
+                }
+                if !p.critical {
+                    p.cache_policy_pending = false;
+                }
+                p.critical
+            };
+            if critical {
+                this.schedule_cache_policy();
+                return;
+            }
+            this.flush_preferences();
+            this.trim_persistent_cache();
+            this.render_persistence();
+        });
+    }
+    fn retry_cache_operation(self: &Rc<Self>) {
+        let task = self.persistence.borrow().cache_retry;
+        if let Some(task) = task {
+            self.cache_operation(task);
         }
     }
     fn flush_preferences(self: &Rc<Self>) {
@@ -1148,6 +1433,7 @@ impl Controller {
         self.cache_operation(CacheTask::Trim);
     }
     fn clear_persistent_cache(self: &Rc<Self>) {
+        self.clear_cache_presence();
         self.cache_operation(CacheTask::Clear);
     }
     fn cache_operation(self: &Rc<Self>, kind: CacheTask) {
@@ -1156,56 +1442,144 @@ impl Controller {
             if !p.enabled || p.closed || p.critical {
                 return;
             }
+            if matches!(kind, CacheTask::Clear) {
+                self.cancel_music_cache(crate::audio_cache::diagnostic::Cause::CacheCleared);
+                // Fence admission before scheduling filesystem work. An old
+                // writer or returned hit cannot race a successful UI clear.
+                p.request_audio_purge();
+                if let Some(cache) = &p.cache {
+                    let _ = cache.configure(p.policy());
+                }
+                if let Some(budget) = &p.cache_budget {
+                    let _ = budget.configure(false, p.values.cache_limit.bytes());
+                }
+            }
             if p.cache_busy {
-                if matches!(kind, CacheTask::Trim) {
+                p.cache_clear_pending |= matches!(kind, CacheTask::Clear);
+                if matches!(kind, CacheTask::Trim) || p.audio_purge_pending {
                     p.cache_trim_pending = true;
                 }
                 return;
             }
-            let Some(cache) = p.cache.clone() else {
+            if p.cache.is_none() && p.audio_root.is_none() && p.audio_cache.is_none() {
                 return;
-            };
+            }
             p.cache_busy = true;
+            p.cache_retry = None;
             p.cache_operation = p.cache_operation.wrapping_add(1);
             if matches!(kind, CacheTask::Clear) {
-                p.message = Some("Очищаем кеш. Текущий вход и воспроизведение сохраняются.".into());
+                p.cache_message =
+                    Some("Очищаем кеш. Текущий вход и воспроизведение сохраняются.".into());
             }
-            (cache, p.cache_operation)
+            (
+                p.cache.clone(),
+                p.cache_operation,
+                p.audio_cache.clone(),
+                p.audio_root.clone(),
+                p.audio_policy(),
+                p.audio_purge_pending,
+                p.audio_purge_generation,
+                p.cache_budget.clone(),
+                p.audio_permission.clone(),
+            )
         };
+        let operation = task.1;
+        let audio_clear = task.5;
+        let audio_purge_generation = task.6;
         self.render_persistence();
         self.persistence_job(
-            move || match kind {
-                CacheTask::Usage => task.0.usage(),
-                CacheTask::Trim => task.0.trim(),
-                CacheTask::Clear => task.0.clear(),
+            move || {
+                let metadata = task.0.as_ref().ok_or(()).and_then(|cache| match kind {
+                    CacheTask::Usage => cache.usage().map_err(|_| ()),
+                    CacheTask::Trim => cache.trim().map_err(|_| ()),
+                    CacheTask::Clear => cache.clear().map_err(|_| ()),
+                });
+                let audio = open_audio_store(task.2, task.3, task.4, task.7.clone(), task.8).and_then(|cache| {
+                    cache.map(|cache| {
+                        let stats = if audio_clear {
+                            cache.clear()?
+                        } else {
+                            match kind {
+                                CacheTask::Usage => cache.stats()?,
+                                CacheTask::Trim => cache.trim()?,
+                                CacheTask::Clear => cache.clear()?,
+                            }
+                        };
+                        Ok((cache, stats))
+                    }).transpose()
+                });
+                let total = if let (Ok(metadata_stats), Ok(audio_result)) = (&metadata, &audio) {
+                    if let Some(budget) = task.7 {
+                        match kind {
+                            CacheTask::Trim => budget.trim(),
+                            _ => budget.usage(),
+                        }.map_err(|_| ())
+                    } else {
+                        // Isolated injected legacy stores still report the
+                        // measured sum, never a separate user-facing quota.
+                        let metadata = metadata_stats;
+                        let audio = audio_result.as_ref().map(|(_, stats)| *stats);
+                        metadata.bytes.checked_add(audio.map_or(0, |s| s.bytes))
+                            .zip(metadata.entries.checked_add(audio.map_or(0, |s| s.entries)))
+                            .map(|(bytes, entries)| CacheStats { bytes, entries }).ok_or(())
+                    }
+                } else { Err(()) };
+                CacheOutcome { total, metadata, audio }
             },
             move |this, result| {
                 let mut p = this.persistence.borrow_mut();
-                if p.cache_operation != task.1 {
+                if p.cache_operation != operation {
                     return;
                 }
                 p.cache_busy = false;
-                match result {
-                    Ok(Ok(stats)) => {
-                        p.cache_stats = Some(stats);
-                        if matches!(kind, CacheTask::Clear) {
-                            p.message = Some("Кеш очищен. Текущий вход и воспроизведение продолжаются.".into());
+                let success = match result {
+                    Ok(outcome) => {
+                        let success = outcome.total.is_ok() && outcome.metadata.is_ok() && outcome.audio.is_ok();
+                        p.cache_stats = outcome.total.ok();
+                        match outcome.audio {
+                            Ok(value) => {
+                                if audio_clear && p.audio_purge_generation == audio_purge_generation {
+                                    p.audio_purge_pending = false;
+                                }
+                                if let Some((cache, stats)) = value {
+                                    p.audio_cache = Some(cache);
+                                    p.audio_cache_stats = Some(stats);
+                                } else {
+                                    p.audio_cache_stats = None;
+                                }
+                            }
+                            Err(_) => p.audio_cache_stats = None,
                         }
+                        success
                     }
-                    _ => {
+                    Err(()) => {
                         p.cache_stats = None;
-                        p.message = Some(match kind {
-                            CacheTask::Usage => "Не удалось определить размер приватного кеша.",
-                            CacheTask::Trim => "Не удалось применить ограничение размера кеша. Повторите проверку хранилища.",
-                            CacheTask::Clear => "Не удалось полностью очистить кеш. Повторите попытку.",
-                        }.into());
+                        p.audio_cache_stats = None;
+                        false
                     }
+                };
+                p.cache_retry = (!success).then_some(kind);
+                if success {
+                    p.cache_message = if audio_clear && !p.audio_purge_pending {
+                        Some("Кеш очищен. Текущий вход и воспроизведение продолжаются.".into())
+                    } else { None };
+                } else {
+                    p.cache_message = Some(match kind {
+                        CacheTask::Usage => "Не удалось определить размер приватного кеша. Повторите проверку хранилища.",
+                        CacheTask::Trim => "Не удалось применить ограничение размера кеша. Повторите проверку хранилища.",
+                        CacheTask::Clear => "Не удалось полностью очистить кеш. Повторите попытку.",
+                    }.into());
                 }
                 let trim = p.cache_trim_pending;
+                let clear = p.cache_clear_pending;
                 p.cache_trim_pending = false;
+                p.cache_clear_pending = false;
                 drop(p);
+                this.apply_persistence_policy();
                 this.render_persistence();
-                if trim {
+                if clear {
+                    this.clear_persistent_cache();
+                } else if trim {
                     this.trim_persistent_cache();
                 }
             },
@@ -1232,6 +1606,9 @@ impl Controller {
                 return;
             }
             p.closed = true;
+            if let Some(cache) = p.audio_cache.take() {
+                let _ = cache.fence();
+            }
             if let Some(cache) = &p.cache {
                 cache.bind(None);
             }

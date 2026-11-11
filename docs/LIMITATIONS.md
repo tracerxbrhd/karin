@@ -21,11 +21,11 @@ rights. Public service/distribution conditions remain unresolved. See [LICENSING
 [STREAM_DELIVERY_REVIEW.md](STREAM_DELIVERY_REVIEW.md).
 
 My Wave is an ordinary Home action after Music-validated sign-in, using the
-existing player. The owner retested corrected candidate `2e4b978` on Fedora
-without reporting new problems, after earlier confirmed real audio, all four
-feedback events and continued batches. This general report is not a per-scenario
-matrix or installed v0.5 Flatpak acceptance; the final ordinary-native/Flatpak
-[procedure](BUILDING.md#my-wave-local-acceptance) remains pending.
+existing player. Corrected feedback, real audio and continued batches were
+confirmed on Fedora; PR #25 then merged at `860672b` with ordinary Native and
+installed Flatpak owner acceptance. Issue #16 is closed. This overall report does
+not certify each optional failure scenario, portal backend or physical media key.
+The [procedure](BUILDING.md#my-wave-local-acceptance) remains available for regressions.
 
 Only **Слушать** starts a radio session. Startup, restored sign-in and Home
 navigation do not issue Wave requests, and session IDs/batch markers remain
@@ -45,17 +45,62 @@ mutation retry. A fresh independent Like membership read can still enable the
 existing Like/Unlike path and its confirmation; a Dislike refusal must not
 disable working Like. The fallback never establishes Dislike state.
 The owner confirmed live server reactions and opposite-mark interaction at
-`1877a6c`; the revised automatic Next and installed Flatpak acceptance remain
-separate. Unlike is not Dislike; opposite marks are confirmed independently.
+`1877a6c`, then explicitly accepted the corrected Dislike→Next, ordinary queue and
+Wave behavior on Fedora Native and installed Flatpak after #27 merged at `ddf93ea`.
+Issue #17 is closed. Individual race/failure cases are covered by automated guards,
+not inferred as special owner tests. Unlike is not Dislike; opposite marks are confirmed independently.
 Only confirmed Dislike addition on the unchanged current occurrence invokes Next.
 For Wave this reuses its existing listening/Skip lifecycle, with no new negative
 Wave event or recommendation-effect guarantee. See
 [ADR-0028](adr/0028-confirmed-track-reactions.md).
 
-Other recommendation shelves/similar tracks, lyrics and persistent/offline audio
-are not implemented. A working short-lived MP3 stream does not
-establish persistent download rights or an offline entitlement lifecycle; see
-[AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md).
+Other recommendation shelves/similar tracks and lyrics are not implemented.
+The v0.6 audio store, player bridge and cleanup are ordinary production code.
+The owner accepted the available functions/tests at `707539b` on Native and
+installed Flatpak. `0709729` remains the last fully accepted PR #26 revision;
+newer available functions and later acceptance are recorded separately. One shared policy/budget/usage
+and Clear covers all permitted categories, with
+2 GiB by default and an explicit Unlimited choice guarded by available disk space.
+The private HTTP-cache path independently saves a complete supported MP3 while
+online playback starts immediately. Current Music access and authenticated offer
+selection are checked before reuse. A matching logical object/MP3 variant,
+verified integrity and valid response-freshness lease select local audio before
+XML/CDN resolution. Explicit freshness or bounded RFC9111 Date/Last-Modified
+heuristics can admit reuse; no-cache, stale leases and old metadata without
+receipt clocks retain strict validation. No-store and explicit refusals are
+honored. Account/token epochs remain separate. This supplies neither offline
+rights nor a provider/content-distribution license; the API selection is not an
+immutable byte-version claim. Work remains off GTK and cache failure preserves
+permitted online playback.
+
+**Real first playback and complete background saving on Fedora Native are
+owner-confirmed. At `cac4d78`, replay still caused descriptor-path /
+representation-changed downloads; no local hit was confirmed.** The revised
+local-first path avoids renewed signed locators while a saved response remains
+fresh. Revalidation still cannot compare opaque validators across independent
+URI/replica scopes. An expired modern record can be replaced by a complete new
+response only when current probe and actual GET policy both allow fresh reuse;
+GET headers are checked before its body is read. No-cache/unproved freshness
+stays online without repeated body saves. Legacy records without receipt/schema-2 metadata first attempt strict
+validation; if inconclusive, a newly admitted complete response can migrate them
+through the existing background writer. Old bytes are never stamped fresh; only
+validated atomic publication replaces them, and refusal/no-store prevents it. Current real CDN freshness headers and successful service local replay
+remain unconfirmed. Graphical indicators describe complete presence, not local
+playback or offline availability.
+
+The earlier `6ec2407` playback failure remains historical; the exact rejected
+host and the stage of its separately reported generic Wave error were not
+established in Cloud. The corrected replay and indicators require final owner
+acceptance. Local HTTP/generated-audio checks exercise production code, not the
+live CDN or installed Flatpak. A resource without a valid reuse lease or
+sufficient scoped/full-digest proof stays online with a finite reason. PR #26 and Issue #20 remain open.
+Public client distribution questions remain separate in #5/#22. See
+[AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md) and the
+[single acceptance procedure](BUILDING.md#pr-26-corrected-cache-acceptance).
+The [post-acceptance audit](PR26_REVISION_AUDIT.md) remains historical evidence. Downloads,
+mass prefetch and offline playback are outside this iteration. A later offline
+mode needs its own actual lifetime/revalidation rules; it is not a prerequisite
+invented for transparent online-revalidated caching.
 
 ## Catalog, workspace and playback
 

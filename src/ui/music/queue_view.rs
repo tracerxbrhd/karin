@@ -134,6 +134,15 @@ impl Controller {
             let track = &model.queue.items()[index];
             let (row, body) = catalog_layout::catalog_item(&track.title, &track.artists.join(", "));
             body.set_spacing(4);
+            if let Some(line) = body
+                .first_child()
+                .and_then(|labels| labels.first_child())
+                .and_downcast::<gtk::Box>()
+            {
+                let cache = cache_presence::indicator("music-queue-cache");
+                line.append(&cache);
+                self.register_cache_indicator(&track.id, &cache);
+            }
             // Even setting GtkActionable's target without an action-name
             // creates GtkActionHelper and bypasses ListBox::row-activated.
             // Keep the sole dispatcher above intact; tests use a presentation-

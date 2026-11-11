@@ -43,6 +43,7 @@ pub(super) struct TrackPane {
     pub details: gtk::Button,
     pub album: gtk::Button,
     pub artists: gtk::Box,
+    pub cache_indicator: gtk::Box,
     header: gtk::Box,
     pub(super) heading: gtk::Label,
     pages: gtk::Stack,
@@ -126,7 +127,12 @@ impl TrackPane {
         title.set_justify(gtk::Justification::Center);
         title.set_widget_name("music-track-pane-title");
         title.set_selectable(true);
-        metadata.append(&title);
+        let title_line = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        title_line.set_halign(gtk::Align::Center);
+        let cache_indicator = super::cache_presence::indicator("music-track-pane-cache");
+        title_line.append(&title);
+        title_line.append(&cache_indicator);
+        metadata.append(&title_line);
         let credits = label("", "dim-label");
         credits.set_xalign(0.5);
         credits.set_justify(gtk::Justification::Center);
@@ -216,7 +222,7 @@ impl TrackPane {
         let artists = gtk::Box::new(gtk::Orientation::Vertical, 0);
         artists.set_widget_name("music-track-pane-artist-links");
         artists.set_visible(false);
-        metadata.insert_child_after(&artists, Some(&title));
+        metadata.insert_child_after(&artists, Some(&title_line));
         content.append(&transport);
         content.append(&status);
         body.append(&content);
@@ -256,6 +262,7 @@ impl TrackPane {
             details,
             album,
             artists,
+            cache_indicator,
             header,
             heading,
             pages,
@@ -332,7 +339,12 @@ impl TrackPane {
         self.state
             .serial
             .set(self.state.serial.get().wrapping_add(1));
+        let cache_track_changed = self.state.selected.borrow().as_ref().map(|track| &track.id)
+            != track.map(|track| &track.id);
         self.state.selected.replace(track.cloned());
+        if cache_track_changed {
+            self.cache_indicator.set_visible(false);
+        }
         self.state.artists.borrow_mut().clear();
         clear(&self.cover);
         clear(&self.artists);

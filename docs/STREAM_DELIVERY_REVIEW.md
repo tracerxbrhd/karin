@@ -25,10 +25,26 @@ job. [`src/stream.rs`](../src/stream.rs) and
    bounded host/path/ts/server-input components and reject protection/preview
    indications. The historical checksum uses public framing plus fresh server
    components, without modern extracted signing or decryption material.
-4. Admit only canonical HTTPS `/get-mp3/` resources on the single-label family
-   `s` + 1–5 decimal digits + 3 lowercase letters + `.storage.yandex.net`.
+4. Admit only canonical HTTPS `/get-mp3/` resources on one canonical DNS label
+   below the existing dedicated `.storage.yandex.net` CDN zone. Labels contain
+   1–63 lowercase ASCII letters, digits or internal hyphens; nested labels,
+   lookalike zones, IP addresses and malformed names remain refused. The earlier
+   `s` + 1–5 digits + exactly 3 letters rule inferred trust from a historical
+   server naming convention, which Cassette's descriptor contract does not impose.
    No arbitrary Yandex subdomain, query, fragment or caller-supplied URI is allowed.
    Check account/token validity and cancellation again before returning the source.
+
+The owner reported `media-origin-unverified` at `6ec2407` with successful offer
+and descriptor HTTP responses. That category is emitted specifically when the
+descriptor host fails this policy; expiry, XML and path failures have other
+categories. The old naming rule also exists in earlier working revisions, so
+this is not evidence that `6ec2407` introduced it. The actual rejected host is
+not available in Cloud. The correction preserves the existing trusted zone and
+does not invent a newly observed CDN domain or authorize arbitrary HTTPS origins.
+The subsequent owner run at `31d873d` confirmed real first playback and background
+saving on Fedora Native. At `cac4d78`, repeated representation invalidation
+still prevented a confirmed local hit; [AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md)
+separates that cache validator-scope correction from the working stream path.
 
 The monotonic 60-second admission deadline begins before the offer request and
 is not reset by descriptor latency. XML `ts` is opaque, not an entitlement or
@@ -53,8 +69,10 @@ cross the boundary as fixed categories or trusted numeric HTTP status.
 Worker snapshots drive the existing controls, queue and MPRIS. One-running/
 latest-pending resolution and track/session/intent generations retire stale work.
 Stop, replacement, logout and close cancel intent and release its worker. Bounded
-in-flight HTTP can settle until its deadline without blocking GTK. Audio is not
-recorded or persistently cached.
+in-flight HTTP can settle until its deadline without blocking GTK. Optional
+[audio caching](AUDIO_CACHE_REVIEW.md) saves a complete selected resource in an
+independent bounded worker; ordinary source changes do not cancel that job.
+Cache failure cannot block the admitted online player.
 
 `--delivery-diagnostic` is a separate owner-local metadata-only probe. It reads
 offers and at most one descriptor, reports safe stage/category/HTTP results, then
@@ -78,6 +96,7 @@ yamu signer explicitly uses extracted official-client material and is excluded.
 Keep the [Cassette copyright/provenance](../packaging/third-party-licenses/cassette-auth/PROVENANCE.md)
 and [ADR-0015](adr/0015-guarded-legacy-mp3-playback.md). Technical playback and GPL
 reuse do not establish public registration/service-distribution or content rights.
-[Persistent audio](AUDIO_CACHE_REVIEW.md) requires a separate permission and
-rights-lifecycle contract. Real-token/resource/recording checks belong only on
+[Private audio caching](AUDIO_CACHE_REVIEW.md) separately checks current access,
+HTTP storage policy, retained version and content restrictions. Its HTTP policy
+is not a service entitlement or a content/distribution license. Real-token/resource/recording checks belong only on
 the consenting owner's local desktop, never in Cloud/CI/GitHub.

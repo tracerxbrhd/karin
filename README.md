@@ -38,7 +38,8 @@ Actual GTK captures with synthetic library data and original test artwork.
 - My Wave personal radio from Home, using the same queue, player and MPRIS.
 - A pinned track information / queue panel, responsive layouts, light/dark themes and HiDPI.
 - MPRIS media controls and metadata for KDE Plasma and other Linux desktops.
-- Protected remembered sign-in and an account-scoped metadata/artwork cache.
+- Protected remembered sign-in and one account-scoped cache for metadata,
+  artwork and eligible online-revalidated MP3 responses.
 
 ## Status
 
@@ -54,20 +55,43 @@ Music-validated sign-in. Press **Слушать** to start it; launching Karin,
 restoring sign-in or opening Home creates no radio session. The owner retested
 the corrected `2e4b978` candidate on Fedora without reporting new problems,
 following earlier confirmed real audio, feedback and batch continuation.
-Final acceptance of ordinary startup and the installed v0.5 Flatpak remains
-separate; follow the [Native/Flatpak procedure](docs/BUILDING.md#my-wave-local-acceptance).
+Later owner acceptance includes the installed Flatpak; follow the [Native/Flatpak procedure](docs/BUILDING.md#my-wave-local-acceptance).
 
-The owner confirmed real account Dislike/removal and Like/Dislike interaction at
-`1877a6c`. A confirmed Dislike on the same current playback occurrence now invokes
-Next; removing Dislike or changing Like does not. Unavailable Dislike stays hidden
-while an independently confirmed Like remains usable. The revised
-[Native/Flatpak acceptance](docs/BUILDING.md#track-reaction-acceptance) is separate
-from that earlier live result.
+The owner accepted confirmed Dislike→Next, the ordinary queue and My Wave on
+Fedora Native and installed Flatpak after [PR #27](https://github.com/tracerxbrhd/karin/pull/27)
+merged at `ddf93ea`. Removal and Like do not advance playback; late confirmations
+are guarded by queue occurrence and session generations. See the
+[backlog audit](docs/ISSUES_AUDIT.md) for remaining independent work.
 
 The Music API is unofficial and may change. Separate recommendation shelves,
 lyrics and offline audio are not implemented. Cold first-player appearance in Cloud
 still has unresolved frame gaps; desktop acceptance does not establish their
 cause or resolution. See [known limitations](docs/LIMITATIONS.md).
+
+PR #26 provides one cache policy: enabled by default, one 2 GiB allowance,
+combined usage and Clear, with a native slider for 500 MiB, 1/2/3/4 GiB or
+Unlimited. Metadata, artwork and policy-admitted audio share one disk coordinator,
+including in-flight writes. The owner confirmed real first playback/background
+saving on Fedora Native. At `cac4d78`, replay still repeated descriptor-path /
+representation-changed downloads; no local hit was confirmed. Acceptance of
+earlier available functions is recorded separately.
+Private HTTP caching queues one bounded complete-response MP3 download alongside
+the existing GStreamer player, independently of Next, Seek and EOS. Only verified
+complete files are published. Each replay obtains fresh Music
+access and delivery information and validates the saved representation before
+selecting its local file. A logical object does not make different CDN replicas'
+ETags or modification dates comparable. Conditional validators require the exact
+provider media URI and compatible provenance/encoding; a full digest can prove the
+saved bytes. Missing proof keeps playback online and retains the valid candidate
+without another cache-body download. Legacy binding metadata is updated only
+after positive representation proof, without downloading the same audio again.
+Compact track indicators show actual downloading/complete local records; they
+do not promise offline playback. `no-store`, explicit restrictions and failed
+access retain their fences. This policy does not manufacture a provider
+entitlement or establish public-distribution rights. PR #26 remains Draft;
+**the revised local replay and indicators need real-service acceptance**, and
+local fixtures are not Music acceptance. See the [cache policy](docs/AUDIO_CACHE_REVIEW.md)
+and the [single final Native/Flatpak check](docs/BUILDING.md#pr-26-corrected-cache-acceptance).
 
 ## Build and run
 

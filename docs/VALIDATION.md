@@ -439,6 +439,776 @@ Issue #17 retains unreported acceptance. Issue #20's audio-storage permission/
 lifecycle and Issue #5's public-distribution conditions are independent. No Cloud
 fixture establishes service recommendation effect or grants audio-storage rights.
 
+<a id="v06-unified-cache"></a>
+
+## v0.6 unified cache and backlog audit
+
+The owner subsequently confirmed Dislike→Next, ordinary queue and My Wave on
+Fedora Native and installed Flatpak after PR #27 merged at `ddf93ea`. The owner
+also accepted builds, tests and available functions of cache revision `707539b`
+in both environments. Issue #17 is closed using that reported scope; special
+race/failure behavior remains supported by CI, not an invented desktop test.
+The owner now identifies `0709729` as the last accepted PR #26 revision. This
+does not establish service-audio saving, acceptance of later direct changes or
+cold-first-frame smoothness in Issue #23.
+
+The new revision uses one enabled-by-default 2 GiB policy, six discrete native
+Scale choices and a shared coordinator across actual metadata/artwork/audio
+stores. It replaces two user quotas rather than hiding one. Tests cover shared
+reservations, cross-store eviction, the protected small-metadata floor, restart,
+corruption accounting, staged files, disk headroom/Unlimited, cancellation,
+disable→enable fencing and v1/v2 settings repair without resetting valid
+remember-login/forget fields. The new ordinary Music authority still returns
+NoGrant, so no service audio is saved or replayed from disk.
+
+The first local cross-store run was refused by the new disk guard: the Cloud
+root filesystem had about 330 MiB free, below its headroom plus a bounded audio
+reservation. After two obsolete generated Flatpak source snapshots were removed,
+the unchanged tests passed. This is a resource safeguard, not a disabled test.
+The first native Preferences runs exposed a Generic accessible role on GtkScale
+with this GTK configuration. Assigning the required Slider role explicitly
+preserves the assertion; the original failures are retained with the test logs.
+
+Both stable **1.99.1** and exact **1.98.1** passed strict Clippy in default/all/
+minimal configurations, **485 / 493 / 471** library tests and **4 CLI tests** per
+configuration, debug builds, ordinary locked/offline release builds, silent
+GStreamer/generated-WAV transport, GTK smoke and isolated startup/cleanup. The
+MSRV all-feature release and hidden-input regressions passed too. An initial
+local launcher invocation omitted Xvfb and failed; the corrected isolated Xvfb
+invocation passed. The original failure remains in its log.
+
+Fresh all-feature test executables (`fresh=false` Cargo receipts) passed **12
+actual native executions**: Preferences at 1×/2× with capture on/off and protected
+session/settings persistence at both scales, on each compiler. There were no
+ignored tests in those selected executions; ordinary library commands still
+leave **36 / 36 / 33** native registrations ignored. The unchanged registration
+set and complete hosted native/motion/WebKit coverage remain required.
+
+The shorter unified section no longer clips the remember-login switch at
+420×720. That separate clipping regression now establishes its original
+precondition at 420×520; standard 420×720/900×650/1440×900 checks remain. Original
+native failures are retained, with no deadline/hit/focus assertion relaxed.
+**112 captures** supplement structural/input checks; [safe current images](design/cache-v06/README.md)
+cover light/dark, Unlimited/default, compact/wide and HiDPI. No personal screenshot
+or real account was used. Source/vendor/license preparation passed with unchanged
+GNOME 50/scoped permissions and **208 packages / 207 notice directories**; it
+is not an installed SDK/runtime build.
+
+Separately, the ordinary MSRV release ran with fresh XDG directories, a private
+session bus and Openbox under Xvfb. Both EWMH maximize atoms and actual 1920×1080
+geometry were confirmed before/after real Ctrl+comma opened Preferences. Native
+wheel input exposed the cache group, a framebuffer capture was inspected, and
+Escape/window close exited cleanly. No account, authorization attempt or service
+audio was used. This is actual maximization, separate from the twelve Rust fixture
+executions and from Fedora/KDE acceptance.
+
+Current-source results and final-head Actions/artifact links are recorded in
+[PR #26](https://github.com/tracerxbrhd/karin/pull/26). Neither Cloud/generated
+media nor source preparation establishes a new installed-Flatpak/Fedora PASS.
+[The procedure](BUILDING.md#synthetic-audio-cache-checks) specifies the next owner
+check. [ADR-0030](adr/0030-unified-cache-budget-and-preferences.md) records the
+migration and resource policy; [the audit](ISSUES_AUDIT.md) records all twelve
+Issues and the distinct remaining gates. [Provider questions](AUDIO_CACHE_PROVIDER_REQUEST.md)
+were prepared, not sent. The primary-source research is recorded in [AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md);
+the fresh completion review obtained HTTP200 for the previously rate-limited Plus page.
+
+## v0.6 audio-cache foundation
+
+### Original candidate and Fedora failure
+
+The audio-cache branch started at v0.5 squash baseline `860672b`. Its original
+candidate `0ce9ea0` compiled the store only under `cfg(test)`, with sealed generated
+WAV input and a fake authority. No real Music audio, account, token, cache,
+descriptor/CDN address or official-client cache was used. Ordinary builds kept
+online-only service playback and unchanged Flatpak permissions.
+
+That candidate's Cloud verification passed on stable **1.99.1** and exact **1.98.1**: formatting,
+strict Clippy/tests/builds in default/all/minimal configurations, **438 / 446 /
+424** library tests plus **4** CLI tests per configuration, locked offline
+ordinary/all-feature release builds, hidden terminal boundaries and ordinary GTK
+and generated-media GStreamer smoke tests. All **16** synthetic-cache tests ran
+in each configuration; the restart case also executed a meaningful child test
+in a separate process. Actual cached generated WAV playback exercised the
+existing worker with Pause/Resume, Volume, Clear, Seek, EOS and cleanup. Review
+found and corrected independent-owner generation and orphan-part quota gaps
+before this matrix. No service cache adapter is inferred from that test.
+
+The owner subsequently reported **15 PASS / 1 FAIL** on Fedora for both
+`cargo +1.98.1 test --lib --all-features --locked audio_cache` and
+`cargo +stable test --lib --locked audio_cache`. Reopening in
+`one_namespace_owner_and_retired_tickets_survive_clear_and_reopen` returned `Busy`.
+The original Cloud pass does not supersede that failure.
+
+### Namespace lifetime correction
+
+On 2026-11-05 the unchanged sixteen-test Cloud run passed again. A deterministic
+regression then retained a duplicate of the lock's open file description, dropped
+both strong cache owners and verified that the weak owner had expired. Reopen
+failed with `Busy` before the fix. Linux `flock` belongs to that open file
+description, so a dup/fork-retained descriptor can outlive the Rust owner even with
+close-on-exec. This establishes a code defect; the exact retaining process/event
+on the owner's Fedora machine was not traced.
+
+Final-owner destruction now explicitly unlocks the namespace, guarded by owner
+process identity. Acquisition remains exclusive. Live strong clones still exclude
+another owner, old Hit/Lease/Request remain retired, and closing an old retained
+descriptor cannot unlock the new owner. Before the production conversion, all
+**17** focused tests passed on exact 1.98.1/all-features and stable/default. Five
+sequential repetitions per compiler, each with eight test threads, yielded
+**170 PASS / 0 FAIL / 0 ignored**. These results concern that focused correction,
+not a claim that the later complete production revision was already validated.
+
+### Production conversion and service gate
+
+After PR #27 merged at `ddf93ea`, the audio branch incorporated master through
+normal merge `142a364`. The store now compiles into ordinary builds, with a
+worker-owned XDG namespace, account/generation authority, shared playback bridge,
+separate audio quota/usage and combined Clear/logout cleanup. Generated fixtures
+exercise these paths; only their fake authority/audio inputs remain test-only.
+The real service authority declines storage/reuse admission. Consequently real
+Music still uses the accepted online path without saved service audio.
+
+The six pinned Cassette sources (`9d34251`) and primary service pages were
+reviewed again on 2026-11-05. Music terms, application license and offline help
+were fetched successfully; Plus uses the complete earlier same-day copy plus a
+fresh bounded response, with a later HTTP429. Published account schemas expose
+`permissions.until/values/default` and `cacheLimit` but do not define Karin's
+storage/reuse permission or the online cache-hit authorization contract.
+[AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md) separates that concrete evidence gap
+from a supposed general third-party ban and from later offline requirements.
+
+The production revision passed formatting, strict Clippy, default/all/minimal
+tests and debug builds on stable **1.99.1** and exact **1.98.1**. Each compiler ran
+**469 / 477 / 455** library tests and **4** CLI tests per configuration, with no
+failures. The ordinary test commands leave **36 / 36 / 33** native tests ignored;
+those are not counted as executed by the library matrix.
+
+All **31** shared audio-cache tests execute in that matrix: the original sixteen,
+the lock-lifetime regression, six production-store cases and eight bridge cases.
+They cover fresh online resolution before a granted cached MP3 hit, bounded
+background publication, restart/current-authority checks, corruption and online
+fallback, cancellation, account isolation, quota/LRU and cleanup. Generated media
+and a fake authority drive the real PlaybackController/GStreamer worker; this
+does not establish live service storage permission or heard Music.
+
+Separately, three native selectors ran at scales 1 and 2: the existing player
+scenario with granted cache fill/reuse/retirement, Preferences and persistent
+session/settings/forget/close. All **6 actual executions passed** on the final
+runtime sources, without disabling the WebKit sandbox. **36 synthetic Preferences
+captures** supplement their structural checks. Flatpak source/license preparation
+passed with **208 packages / 207 notice directories**, unchanged license inventory,
+GNOME 50 runtime and scoped permissions. The documentation check covered **47
+Markdown files / 221 local and Git targets** without missing targets.
+
+Both ordinary locked/offline release builds, the MSRV all-feature release,
+hidden terminal regressions, silent GStreamer, generated-WAV transport, GTK smoke
+and ordinary/legacy-alias single-instance startup/cleanup passed. The final 31
+cache/bridge tests also passed three sequential repetitions per compiler:
+**186 PASS / 0 FAIL / 0 ignored**, separately from the earlier lock-only repetitions.
+
+The first hosted Ubuntu jobs at `09cfe2d` failed the Preferences fixture when its
+second remember-login switch was clipped above the viewport. The internal
+`GtkSwitch` rejected focus. A controlled clipped-target regression reproduced
+the eight-second timeout. Focusing its owning `AdwSwitchRow` passed four local
+stable/MSRV executions, but at `ec20d88` the PR stable job still timed out after
+the row accepted focus: accepted focus did not establish a visible pointer target.
+
+The final helper explicitly scrolls the native viewport adjustment to the target
+and observes frames on the mapped window rather than the clipped child. A
+permanent regression keeps the row focused while scrolling its switch out of view.
+The actual native hit test, two stable frames, real mouse click, callback counts
+and original deadline remain required. Production UI is unchanged. Full-feature
+fixtures passed on stable and exact 1.98.1 at both scales, with strict Clippy.
+A separate widget-only minimal build used verified Ubuntu GTK **4.14.5** and
+Libadwaita **1.5.0** libraries in the existing container: the unchanged `ec20d88`
+helper reproduced the timeout, and the correction passed at 1× and 2×. This
+controlled widget test does not replace the full hosted WebKit/sandbox checks.
+
+The no-capture MSRV jobs at `c76bef4` then exposed an unacknowledged error-focus
+callback before the next focus assertion. Capturing a screenshot happened to drain
+that idle callback; the test now explicitly observes the new inline error gaining
+focus before setting up the clipped-switch scenario. The focus assertion remains.
+Both compilers passed all eight full-feature combinations of scale 1×/2× and
+capture on/off. Four additional minimal-profile runs with the older Ubuntu
+libraries passed the same combinations. A one-off unchanged local no-capture run
+did not reproduce that intermittent ordering failure; the original
+[push](https://github.com/tracerxbrhd/karin/actions/runs/42180027292) and
+[PR](https://github.com/tracerxbrhd/karin/actions/runs/42180033054) failures are retained.
+
+The original [push](https://github.com/tracerxbrhd/karin/actions/runs/42072546505)
+and [PR](https://github.com/tracerxbrhd/karin/actions/runs/42072557868) failures,
+and the later [PR Preferences failure](https://github.com/tracerxbrhd/karin/actions/runs/42074992147),
+remain separate evidence. The `ec20d88`
+[push stable job](https://github.com/tracerxbrhd/karin/actions/runs/42074981666)
+failed earlier in the unchanged workspace fixture with an initial **0×0**
+allocation. That matches the already recorded startup-failure class, not the
+Preferences failure. The unchanged workspace selector passed locally on both
+compilers; the original hosted event's cause remains unestablished. No rendering,
+geometry, timing, sandbox or production gate was relaxed to obtain these results.
+
+Complete final-head hosted/native results are recorded in
+[PR #26 and its checks](https://github.com/tracerxbrhd/karin/pull/26/checks). No new
+Fedora/installed-Flatpak acceptance or real Music cache reuse is established here.
+PR #26 remains Draft and Issue #20 stays open; #5 and #23 remain separate.
+Synthetic expiry/revocation tests cannot establish external rights.
+
+## PR26 post-acceptance correction
+
+The following results describe `53eb05d`, before the single-transfer completion below.
+
+The owner's new task identifies `0709729` as the accepted baseline and
+`0f9257f` as the unverified direct-edit head. The
+[commit-by-commit audit](PR26_REVISION_AUDIT.md) covers all eight intervening
+commits. At `0f9257f` exact-head formatting and Clippy passed, but both compilers
+failed the expired-source test's obsolete `fill.unwrap()`. The correction keeps
+the early rejection and asserts that no copy is scheduled.
+
+The production coordinator now requires independent storage permission and
+fresh online admission. Its safe default delegates to `MissingStorageContract`.
+A per-owner/session/budget context and one-use attempt prevent old or replayed
+permission results from replacing current state. Failure before HTTP, current
+resource refusal, cancellation/token expiry during permission lookup and aged
+source admission cannot reuse an earlier grant. Permission lookup does not hold
+the state mutex used by GTK. The shared quota, six choices, disk format,
+authentication, single player/queue and ordinary network playback are preserved.
+
+The new original-media fixtures exercise the actual production coordinator and
+existing application/PlaybackController, not a second player. Service-source
+availability still supplies no storage permission. The fresh Cassette audit and
+primary pages did not establish an applicable Karin storage/reuse contract or
+the provider's fresh cached-hit rule. Real-account caching remains incomplete;
+no service tokens/content were used in Cloud.
+
+The corrective runtime passed on stable **1.99.1** and exact **1.98.1**:
+
+- Formatting and strict Clippy in default/all/minimal configurations.
+- **499 / 507 / 485** library tests plus **4 CLI tests** per configuration,
+  with no failures. All **47** audio-cache/coordinator/bridge tests executed;
+  ordinary commands still leave **36 / 36 / 33** native tests ignored.
+- Debug builds in all three configurations, locked/offline ordinary release
+  builds with the Flatpak Cargo options, and the MSRV all-feature release.
+  Silent GStreamer, generated-WAV transport, GTK smoke, hidden terminal tests
+  and ordinary/legacy-alias startup/cleanup passed.
+- **16 actual native executions** using newly compiled (`fresh=false`), hashed
+  test binaries: player/cache, Preferences and persistent-session fixtures at
+  1×/2×, plus MPRIS/playerctl and WebKit construction/shutdown on each compiler.
+  All passed with fatal warnings and without disabling the WebKit sandbox.
+  **112 generated Preferences captures** supplement structure/input checks;
+  compact light and wide dark images were inspected. These are Xvfb checks.
+
+The first navigating WebKit attempt in the local Docker container terminated
+before page load: bubblewrap reported that it could not create a namespace and
+its D-Bus proxy failed (exit133). `unshare -Ur` is also denied there. This is
+recorded as a local environment limitation, not a successful navigation test or
+a claimed product regression. The sandbox was not disabled. Complete navigating
+WebKit/callback/cookie/cancellation and modern visual coverage remain mandatory
+in the unchanged hosted workflow, using its exact-test-binary namespace policy.
+
+Flatpak-source preparation passed with **208 packages / 207 notice directories**,
+unchanged dependency-license inventory, GNOME50 runtime and scoped permissions.
+The matching corrective Rust sources also built **offline/locked on 1.98.1**
+from that vendored snapshot using a new empty `CARGO_HOME` and the manifest Cargo
+flags. That build uses the container native libraries, not an installed GNOME SDK.
+
+Local corrective-source checks are recorded here. Consult
+[PR #26 and its checks](https://github.com/tracerxbrhd/karin/pull/26/checks) for
+the final-head hosted CI status; earlier-head results do not validate this correction.
+The [Fedora procedure](BUILDING.md#pr-26-corrected-cache-acceptance) separates
+original-media production-path verification from owner Native/installed-Flatpak
+and real-service acceptance. The Cloud has Flatpak/Builder but no installed
+GNOME50 SDK/runtime; source/vendor validation is not a full installed Flatpak
+result. PR #26 remains Draft and Issue #20 remains open. No merge is authorized.
+
+## Historical afd3ce4 single-transfer application cache
+
+This section records the preceding revision. Its ordinary `NoGrant` assembly is
+superseded by the private HTTP integration below; its service-cache limitation
+must not be read as the behavior of the new implementation.
+
+The follow-up replaces the duplicate cache download with capture of the existing
+guarded GStreamer source. Exact independently licensed SHA-256/length claims are
+checked before publication/reuse; ordinary Yandex assembly still declines storage.
+Permission/file verification overlaps source resolution and never delays it for a
+slow cache. One writer streams without holding the read/Clear gate; staging,
+cancellation, atomic commit, shared quota and deferred LRU remain bounded.
+
+The normal-application fixture executes six separate OS processes through the
+existing MainWindow, protected-session lifecycle, ordinary audio-store factory,
+shared budget, queue and player. Its HTTP account/credentials are isolated, and
+the original generated audio is expressly CC0. It does not install a test cache or
+use `SyntheticAuthority`. Actual worker `source_kind`, inode, payload SHA/length,
+HTTP counts and child cleanup are recorded in a machine-readable receipt:
+
+| Completed scenario | Actual source | Cumulative media GETs | Cumulative media bytes |
+| --- | --- | ---: | ---: |
+| First play, then keyboard replay | Remote, then cached file | 1 | 24,546 |
+| New application process and fresh account/resource check | Same cached inode | 1 | 24,546 |
+| HTTP403 on fresh resource validation | Refused, without cached bypass | 1 | 24,546 |
+| Deliberately corrupted cache | Online repair and complete publication | 2 | 49,092 |
+| Native Clear while cached track is Playing | Existing FD continues Playing | 2 | 49,092 |
+| Actual HTTP `no-store` response after Clear | Online, without a saved record | 3 | 73,638 |
+
+These bytes describe the original fixture on this encoder; receipt expectations
+use its measured length/hash, not a hardcoded media size. Each run requires
+**6 account validations, 7 resource checks and 6 descriptors**. First/replay/restart
+share one audio body; only corruption repair and the explicitly uncached play
+request further bodies. Clear preserves the active generation and advancing
+Playing clock. No Yandex account, service audio or live rights result is involved.
+
+The final runtime passed stable **1.99.1** and exact **1.98.1** formatting, strict
+Clippy and tests in default/all/minimal configurations: **522 / 530 / 508 library
+PASS plus 4 CLI PASS** per configuration, with no failures. All **68** focused
+audio-cache tests execute; ordinary commands leave **37 / 37 / 34** native tests
+ignored, which are not counted as executed by that matrix. Debug and locked/offline
+release builds, GTK smoke, GStreamer transport, hidden-input boundaries and
+ordinary/legacy-alias startup cleanup passed on both compilers.
+
+Fresh, hashed test ELFs passed **22 actual native selections** across both
+compilers: player/cache, Preferences and persistent-session cases at 1×/2×,
+MPRIS/playerctl, Wave, WebKit construction/shutdown and the six-process application
+case at both scales. The latter accounts for **24 child application processes**;
+all four receipts agree on the request/byte/source invariants above. **112 generated
+Preferences captures** supplement structural/input checks. This is Cloud/Xvfb,
+not Fedora/KDE acceptance. Local navigating WebKit retains the previously recorded
+container namespace limitation; complete sandboxed navigation remains required in
+hosted CI, without disabling that sandbox or weakening existing native gates.
+
+Flatpak-source preparation retained **208 packages / 207 notice directories**,
+the unchanged license inventory and scoped permissions. With an empty Cargo home,
+the vendored snapshot passed locked/offline metadata resolution and the exact
+MSRV release feature set (`--no-default-features --features cassette-auth`). Its
+actual ELF passed GStreamer diagnostics, playback transport and GTK smoke. These
+use host libraries: GNOME50 SDK/runtime is not installed in this Cloud and no new
+installed-Flatpak or Fedora result is claimed.
+
+The existing CI now registers and executes the new process-level selector in
+both Rust lanes and retains its safe receipt and child logs. Current-head hosted
+status and downloadable Native build are published in
+[PR #26](https://github.com/tracerxbrhd/karin/pull/26/checks). Earlier-head checks do
+not validate this runtime. The single final owner procedure is in
+[BUILDING](BUILDING.md#pr-26-corrected-cache-acceptance).
+
+The first hosted attempt at `1dcb2b7` failed waiting for the new fixture's Clear
+operation on GTK4.14; allocation-only pointer coordinates did not establish a
+native button hit. The fixture now reuses Preferences' viewport reveal and
+two-frame native hit checks, and asserts exactly one delivered mouse click.
+No wait limit or product behavior was relaxed; the full matrix is repeated for
+the corrected test sources. The earlier failed run remains failure evidence.
+
+Real Yandex Music saving/reuse is **not completed or accepted**: the exact local
+stop is `MissingStorageContract::authorize → NoGrant`. The affirmative service
+terms and reviewed wire contracts establish neither Karin's applicable storage
+permission nor a confirmed mapping from a fresh signed resource to the retained
+representation. This is not a measured CDN failure or proof of a categorical
+third-party ban. [AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md) separates those facts
+from HTTP cacheability and the genuine CC0 rightsholder declaration used here.
+PR #26 stays Draft and #20 stays open. No repeated owner test is requested to
+rediscover a gate that remains closed.
+
+## PR26 private HTTP integration — 2026-11-08
+
+The following integration/fixture record describes
+[`f8a85b8`](https://github.com/tracerxbrhd/karin/commit/f8a85b8775b8176f008023e500c8888c2e293c52),
+before the owner's Fedora failure and the lifecycle correction below. Its
+automated results are not live Music acceptance.
+
+At that head the ordinary application selects `PrivateHttpCachePolicy` rather than the
+blanket missing-provider-contract gate. Its typed candidate is not a provider
+entitlement or copyright license: direct ordinary writes/reads cannot bypass
+HTTP response checks and current representation validation. Playback access,
+response storage policy, retained byte version and explicit content restrictions
+remain separate. The existing single GStreamer source supplies the cache bytes.
+
+Complete media and bounded checksummed HTTP metadata publish in one transaction,
+under the existing shared budget. Each local hit first refreshes Music delivery
+and validates a strong representation proof through the existing HTTP client.
+The sealed Legacy file-locator/encoding binding can survive a renewed signature;
+it is not an immutability assumption. Changed validators/locators, refusals,
+unsupported variants and failed checks fall back online. No-store on validation
+retires the old record; actual streamed no-store cannot publish its replacement.
+Missing validators may permit storage, but never an unverified local hit.
+
+The existing ordinary-application fixture now uses the production HTTP policy,
+without injecting a CC0 or mock storage authority. Its original generated media
+remains CC0 for provenance. Eleven separate processes cover first/replay/restart,
+rotating signed wrappers, refusal, corruption, changed audio/ETag, HEAD no-store,
+restoration, GET-only no-store, restoration, active Clear and missing validators.
+It checks the actual player source, completed bytes/hash, conditional requests,
+whole-media GET counts and the restricted diagnostic grammar. These local HTTP
+results are not a live Yandex Music or Fedora result.
+
+The controlled first/replay/restart sequence needs one whole-media GET in total.
+The complete scenario's cumulative GET counts are
+`1 / 1 / 1 / 2 / 3 / 4 / 5 / 6 / 7 / 7 / 9`: later GETs deliberately exercise
+repair, changed representations, no-store and unverifiable versions. Fresh
+account/delivery checks are not counted as media downloads.
+
+Final-head compiler, native, packaging and CI results belong to
+[PR #26 checks](https://github.com/tracerxbrhd/karin/pull/26/checks); an earlier
+head does not validate new runtime code. The one final owner procedure is
+[BUILDING](BUILDING.md#pr-26-corrected-cache-acceptance). It uses only fixed
+`cache`, `source` and `reason` diagnostics, without sharing user credentials,
+identifiers, signed URLs, response bodies or music files.
+
+**Cloud did not verify the real service. The later owner result was FAIL**, as
+recorded below. Public-distribution/content questions remain separate in #5/#22.
+Installed Flatpak and Fedora acceptance are not inferred from fixtures, source
+preparation or Xvfb. PR #26 remains Draft.
+
+## PR26 completed-capture lifecycle correction — f2050b0
+
+This section records the previous correction, whose later real-service result
+is **FAIL** below. Its controlled complete-body regressions do not establish
+successful capture of the whole response during real sequential playback.
+
+### Owner evidence at f8a85b8
+
+The owner built `f8a85b8775b8176f008023e500c8888c2e293c52` on Fedora 44,
+KDE Plasma, Wayland and PipeWire with Rust 1.98.1. Ordinary sign-in and audible
+Music worked. Real Liked and My Wave playback repeatedly reported:
+
+```text
+cache=miss source=remote reason=record-absent
+cache=not-cacheable source=remote reason=cancelled
+```
+
+No `write-confirmed` or `hit source=local` was observed. This is **service-cache
+FAIL**, irrespective of the earlier 8/8 CI result. The generic cancellation pair
+does not identify the first rejected event, body size, Playing transition,
+pipeline drop or writer/commit ordering on that machine. The exact Fedora event
+must not be inferred from a local fixture or described as an HTTP/storage refusal
+without the corresponding evidence.
+
+### Revised lifecycle contract
+
+Code inspection identified independently actionable cancellation paths: the
+writer waited for a GTK-observed positive Playing clock while the source could
+fill its 2 MiB channel; full byte receipt still depended on an EOS event for
+completion; normal track teardown could cancel pending publication; and the
+next online check retired a previous `current` admission still used by the
+writer. The new contract separates those events:
+
+- Drain during preparation, before Playing. Latch actual GStreamer Playing
+  separately and require it before publication. Never publish an unplayed body;
+  pipeline retirement before Playing also releases a complete preroll reader.
+- Complete capture at the exact validated HTTP byte count, without waiting for
+  pipeline EOS. Keep complete queued bytes readable after source teardown.
+- Bound retained media to 64 MiB per capture, four pending captures and one
+  staging writer. Allocation follows incoming bytes, with a worst-case retained
+  body bound of 256 MiB; the GStreamer queue2 transport limit remains 2 MiB.
+- A completed, played write can seal its own admission for at most 30 seconds of
+  finalization. Natural EOS, automatic Next, Wave rollover or a new online check
+  do not revoke that finalization merely by replacing the current track. This
+  does not admit any later playback without fresh access/version checks.
+- Partial replacement, seek/discontinuity, overflow and failed capture cannot
+  publish. Explicit Stop, account/logout, Clear and Disable still cancel/fence
+  writes. Capture, actual Playing, final hash/metadata and atomic commit remain
+  distinct gates; HTTP no-store and validator rules are unchanged.
+- Preserve the first finite failure cause. `cache=captured` reports full-body
+  progress, including allowed EOS/replacement finalization, rather than a saved
+  record. Only `cache=write-confirmed` reports successful publication.
+
+These are lifecycle defects identified in the code and correction invariants,
+not a claim that the owner's ambiguous `cancelled` line proves one particular race.
+
+### Verification and remaining service acceptance
+
+The `f2050b0` ordinary-application regressions exercised complete capture through
+automatic Next/EOS and a held publication boundary, fast source before Playing,
+partial Skip/Seek, consecutive Wave tracks, admission replacement, Clear/logout
+and fresh refusal/changed-resource checks. Those controlled complete-body
+scenarios did not establish behavior when decoder EOS precedes complete HTTP
+receipt on a real source.
+
+At `f2050b0`, stable 1.99.1 and exact 1.98.1 passed the default/all/minimal
+matrix (563/571/549 library tests plus four CLI tests per configuration),
+22 native selections and both CI workflows: [push](https://github.com/tracerxbrhd/karin/actions/runs/42481898361)
+and [PR](https://github.com/tracerxbrhd/karin/actions/runs/42481904320), eight jobs
+in total. These executed results remain valid for that immutable source, but
+do not override the later real-service failure below. No installed-Flatpak
+acceptance for this correction was reported.
+
+## PR26 incomplete-source completion correction
+
+This section records the historical design tested through `6ec2407`. The
+independent-download correction below supersedes its capture/EOS contract;
+its original executions and owner failures remain evidence for those revisions.
+
+### Owner evidence at f2050b0
+
+The owner repeated Native acceptance at
+`f2050b06c99b28ca1bdb4a839ee6d2b1e4c24e1b` on Fedora 44, KDE Plasma,
+Wayland and PipeWire. Sign-in and audible real Music remained working. Liked
+and My Wave produced the following pair at least six times:
+
+```text
+cache=miss source=remote reason=record-absent
+cache=not-cacheable source=remote reason=track-replaced-incomplete
+```
+
+No `captured`, `write-confirmed` or `hit source=local` appeared. This remains
+**service-cache FAIL**; the earlier complete-body lifecycle fix and 8/8 CI do
+not override the observation. The category establishes incomplete capture at
+retirement, but does not identify whether the native source had finished, why
+the track changed or which HTTP/body state prevented completion. Those missing
+observations must not be invented from a Cloud fixture.
+
+### Completion contract and evidence boundary
+
+The revised path carries the actual queue/Wave transition origin and observes
+native source/pipeline EOS separately. Complete capture retains the one-transfer
+fast path. Only confirmed native pipeline EOS plus actual Playing can keep an
+incomplete source's bounded completion operation alive while the next track
+starts. A worker can then discard partial staging, check the live account/token
+scope, resolve fresh delivery and request one complete replacement response; no partial ranges are
+joined and no new audio engine is created. The sealed resource binding, known
+original version evidence, response policy, size/hash and publication fences
+still apply. Missing original headers require an independently complete fresh
+response; they do not allow an old prefix to be guessed or joined. Manual incomplete Skip/Seek does not admit that request; Stop, Clear,
+Disable and account/logout close pending publication immediately.
+
+New fixed categories expose probe attachment, response status/length, body
+progress buckets, source/pipeline EOS, Playing and transition origin. They do
+not include exact private response values, URLs, identifiers or credentials.
+`captured` remains distinct from `write-confirmed` and `hit source=local`.
+
+Final-head compiler/native/packaging/CI results must be recorded from actual
+executions at [PR #26 checks](https://github.com/tracerxbrhd/karin/pull/26/checks).
+Earlier-head results do not validate this correction. Original local audio
+and HTTP fixtures must exercise incomplete natural completion, auto-Next/Wave,
+fresh full GET, changed/expired sources, refusals and cancellation through the
+ordinary application, then prove local replay and restart without another media
+GET. The held-tail fixture explicitly identifies injected native source/pipeline
+EOS while the HTTP tail is gated: it controls event order rather than claiming
+that the local decoder or real CDN naturally produced that order. A separate
+`native-byte-segment-eos-with-partial-http-response` case bounds the actual Soup
+source's byte segment at the MP3 prefix. It obtains a real 206/Content-Range and
+native pipeline EOS without injecting EOS, then requires a complete conditional
+GET and validated local replay. This source constraint is test-controlled; it
+is not evidence that the real CDN caused the same event. Another case closes
+the replacement response after 8192 bytes despite a full declared length and
+requires no partial or published file. These remain Cloud evidence rather than
+a real Music result. One
+[final Native/installed-Flatpak procedure](BUILDING.md#pr-26-corrected-cache-acceptance)
+is reserved for the finished revision; no intermediate owner runs are requested.
+
+At `64019ca`, both compiler matrices, 22 Native executions/140 child processes
+and both offline source releases passed locally. Its first push CI nevertheless
+failed: the new Wave fixture rejected a later original batch outside its three
+intended completion cases. Its fourth response was fully served and cleanup
+released HTTP gates before stopping playback. The correction holds that fourth
+response and settles/stops the player before releasing gates, retaining the
+three exact payloads, original `1,1,2` markers, request counts and deadlines.
+The same push also missed a distinct intermediate animation phase in the
+existing HiDPI motion gate (66,668 µs native frame gap); the paired PR job passed.
+That observation is retained without changing motion, renderer or acceptance
+thresholds. Neither failure is erased by later source checks or service claims.
+
+## PR26 independent background cache and playback correction
+
+### Owner evidence and established defect
+
+The owner reported **Native playback FAIL at `6ec2407`** on Fedora: real tracks
+no longer played and resolution reported `media-origin-unverified`, with
+HTTP200 for offers and the descriptor. Cache then reported
+`playback-access-unavailable`. My Wave displayed a response-processing error;
+no specific Wave response/stage was supplied, so it is not evidence of a shared
+cause. Earlier playback acceptance is historical, not acceptance of this source.
+
+The media-origin category is emitted when the XML descriptor's host fails the
+playback host policy. The old `s` + limited digits + exactly three letters rule
+also exists in earlier working revisions; it was not introduced by `6ec2407`.
+Commit `3692f39` replaces this naming convention with one canonical DNS label
+under the existing dedicated `.storage.yandex.net` zone. Exact zone, HTTPS,
+port, path, redirect, credential and expiry restrictions remain. No actual
+rejected owner hostname is available in Cloud and no newly observed domain is
+claimed. Tests exercise old and newly supported label shapes, normalization
+and hostile origins; they do not reproduce the owner's actual CDN response.
+
+### Independent-download correction
+
+The selected source starts on the existing player immediately; one bounded job
+can stream its full MP3 response into the existing private AudioCache. Explicit
+Play/autoplay intent starts the job, while preparation without autoplay waits
+for Play. There is no source-pad capture, compressed-body queue, physical-Playing
+permission, EOS finalizer or partial-byte reconstruction. Ordinary Next/Previous,
+manual Skip, Seek, Pause, source replacement and Wave rollover preserve that
+job. Stop/close, Clear/Disable and logout/account changes fence unfinished work.
+Current access, HTTP restrictions, whole-response size/hash/format and atomic
+publication remain necessary; each local replay still requires fresh access and
+representation validation. See [ADR-0029](adr/0029-synthetic-audio-cache-foundation.md).
+
+The application fixtures use original permitted audio/local HTTP through the
+ordinary account, resolver, store, player and queue path. They distinguish a
+complete saved file, the actual GStreamer local-file source, restart/revalidation
+and media-body request counts. They also exercise full downloads across track
+changes, refused/truncated/slow responses, corruption, Clear and scope fences.
+Any executed results recorded for this correction must name its actual immutable
+source; earlier-head CI and these test descriptions are not a new PASS.
+Final compiler/native/packaging/CI results belong with the final PR #26 revision
+and [checks](https://github.com/tracerxbrhd/karin/pull/26/checks).
+
+At the initial handoff, real playback/cache acceptance of this correction was
+unconfirmed. The subsequent `31d873d` owner result below confirms first playback
+and saving, while local replay/restart failed. Local fixtures did not establish
+that CDN result or installed-Flatpak operation. The current final
+[Native/installed-Flatpak procedure](BUILDING.md#pr-26-corrected-cache-acceptance)
+applies to the revised replay/indicator build. PR #26 remains Draft and unmerged.
+
+## PR26 locator revalidation and cache indicators — 2026-11-10
+
+### Owner result at 31d873d
+
+The owner tested real Yandex Music on Fedora Native at
+`31d873dc1b7f2349d5900dd895c4afc4be479678` and confirmed:
+
+| Scenario | Owner result |
+| --- | --- |
+| First real MP3 playback | PASS |
+| Independent background save | PASS: miss → queued → downloading → downloaded → write-confirmed; measured cache usage increased |
+| Same-track local replay | FAIL: stale/resource-changed, followed by another download/write; no local hit |
+| Local replay after application restart | FAIL: the same resource-changed/refill sequence; no local hit |
+| New graphical cache indicators | Not yet accepted |
+| This revision installed as Flatpak, or individual Wave/MPRIS/source combinations | Not established by this report |
+
+This supersedes the earlier unconfirmed first-save result for that revision; it
+does not relabel the `6ec2407` playback failure or earlier incomplete-cache
+failures. The [31d873d push](https://github.com/tracerxbrhd/karin/actions/runs/42772868403)
+and [PR](https://github.com/tracerxbrhd/karin/actions/runs/42772875846) Cloud checks
+passed, but their permitted fixtures did not establish the real CDN's local hit.
+
+### Correction and acceptance boundary
+
+The old aggregate resource hash combined descriptor host/path with codec/bitrate.
+A changed field entered the same resource-changed branch, deleted a valid record
+and scheduled a replacement without establishing that its MP3 bytes changed.
+The owner's finite log establishes that aggregate mismatch, not which address or
+encoding component changed. No host, path or signed resource is requested here.
+
+At `cac4d78`, the attempted correction separated logical object/variant from
+physical placement, but incorrectly treated logical equality as a common
+validator scope across CDN replicas. Different replica ETags/modification dates
+could therefore enter the destructive representation-changed branch even for
+equivalent audio. This was an unsupported inference from historical MDS source,
+not confirmed current CDN byte-version semantics.
+
+The current correction requires the exact compatible provider media URI before
+using old conditionals or comparing opaque validators. A changed signed URI,
+including an opaque legacy XML ts, is not presumed equivalent. Logical keys are
+provenance, not global byte/version IDs. A trusted full representation digest can prove the
+saved payload independently; complete-length/full-digest differences and
+same-scope representation invalidation remain distinct. Same, Different and
+Unknown have separate outcomes; Unknown retains the valid file and streams
+online without another body save. Legacy metadata rebases only after positive
+Same proof, without a download just to add binding fields. Actual version/
+encoding changes, refusals, no-store and corrupt records keep their fences.
+
+Native indicators derive Missing/Downloading/Stored from the account-scoped
+AudioCache and its complete records, with worker-only integrity/file work and
+no per-row HTTP. A Stored icon describes retained local data; it does not prove
+that the next playback is local or available offline. Clear/Disable, LRU,
+corruption and account changes must remove obsolete indications; normal restart
+must recover them from actual records.
+
+### Owner result at cac4d78
+
+The owner reports that Fedora Native still downloads and atomically saves real
+audio. Repeating the same tracks produced
+`descriptor-path-changed → representation-changed → queued/downloading → write-confirmed`.
+A binding-upgrade/resource-identity-unverified sequence was also observed.
+**No cache=hit/source=local is confirmed.** These fixed categories do not expose
+the actual CDN addresses or validator values, so their exact current behavior
+must not be invented. Installed-Flatpak replay and individual indicator/Wave/MPRIS
+combinations are not established by this report.
+
+Automated correction coverage must include identical original MP3 bytes on
+different replicas with different ETags or Last-Modified dates, equal tags on
+unrelated scopes, signed-wrapper renewal, full Repr-Digest, actual audio/encoding
+changes, repeated Unknown without another body write, proof-based legacy binding
+migration and process restart. Preserve the original refusal/no-store/Clear/
+logout/integrity tests and all worker-derived indicator checks. Fixtures use the
+ordinary application and GStreamer with permitted original audio/local HTTP;
+they do not demonstrate the real service.
+
+The successful `cac4d78` Cloud checks remain historical evidence for what those
+fixtures asserted; their logical-object/304 assumption was not a valid test of
+independent replicas. Current immutable-head compiler/native/packaging/CI results
+belong with PR #26. **Current real local replay remains unconfirmed** until the
+single final [Native/installed-Flatpak procedure](BUILDING.md#pr-26-corrected-cache-acceptance).
+
+
+## PR26 local-first selection and freshness revision — 2026-11-11
+
+The owner confirms complete real MP3 background saving, but repeat playback at
+`126b5a2` still selected the network source with `descriptor-path-changed` /
+`cdn-validators-incomparable`; retained records did not establish a local hit.
+This is a repeat-playback FAIL, not a demonstrated Music access refusal or byte
+change. Previous compiler/fixture passes remain evidence only for their source.
+
+The production correction checks current Music access and authenticated full-MP3
+offers, then saved selection/integrity and private response freshness before
+XML/CDN resolution. Selection schema 2 includes logical object and codec/bitrate/
+gain/fullness; it is not an immutable provider content version. Explicit
+max-age/Expires or conservative RFC9111 Date−Last-Modified freshness can admit a
+local file. No-cache, stale or unclocked records retain strict validation.
+Pre-schema-2 records and upgrades with unknown original response status can
+migrate after inconclusive proof only through a complete
+newly admitted response and atomic publication, never by renewing old bytes;
+modern unknown/unclocked records do not repeatedly migrate. An expired modern lease can
+renew through one complete response only when both probe and actual GET policy
+permit fresh reuse. Protected quota reservation and atomic exchange retain the
+old record until final publication fences, with rollback on failure. Account/
+token epochs and storage/cancellation fences remain. Known selection changes retire/refill; a renewed CDN locator alone cannot retire
+a fresh record.
+
+Runtime [`2dc03b9`](https://github.com/tracerxbrhd/karin/commit/2dc03b9372a4a860be185de85bf7e40c1772ea1a)
+passed the complete local matrix on stable **1.99.1** and exact **1.98.1**:
+formatting, strict Clippy and **630 / 638 / 616 library tests plus 4 CLI tests**
+per default/all/minimal configuration, locked debug builds, offline ordinary
+release builds and the MSRV all-feature release. GTK/GStreamer/playback smokes,
+four ordinary/legacy-alias Wave launch cases and fifteen hidden-input terminal
+cases passed. Ignored tests are not included in those library PASS counts.
+
+Fresh, source-hashed native test ELFs passed **22 explicit executions**, including
+the ordinary application at 1×/2× on both compilers: **296 distinct child
+processes and 24 receipts**. The original 55 cases remain, with 19 local-first
+cases per application run. Independent audits checked actual `CachedFile`
+Playing, source transitions, file identity/full SHA-256, HTTP counts, MPRIS and
+cleanup. **168 synthetic PNGs** cover the retained Preferences and cache-indicator
+geometry, themes and HiDPI checks; Cloud/Xvfb is not Fedora desktop acceptance.
+
+For two original permitted MP3 resources, each **24,546 bytes**, all four
+application runs recorded the following deltas:
+
+| Operation | Actual source | XML | CDN HEAD | Full media GETs | Media bytes |
+| --- | --- | ---: | ---: | ---: | ---: |
+| First selection/save of both resources, including local replays | Remote, then CachedFile | 2 | 0 | 4: 2 native + 2 independent saves | 98,184 |
+| Distinct application process; MPRIS Pause/Play/Seek/Volume/Next/Previous | CachedFile | 0 | 0 | 0 | 0 |
+| Further process with rotated signed wrapper/CDN host/path | CachedFile | 0 | 0 | 0 | 0 |
+
+The latter processes retain the same payload SHA-256 and file identities after
+current authenticated offer checks. Expired-policy refresh publishes one newly
+admitted complete response and then returns to local playback. Tests also cover
+logical/quality/gain changes, preview/protection/access refusals, missing timing,
+origin clock skew versus local clock rollback, stale/no-cache/304 policy,
+partial/corrupt files, account changes, Clear and quota/concurrency failures.
+The ordinary UI test confirms a rejected local decoder triggers exactly one
+online resolution while preserving the queue occurrence and Wave cycle.
+
+Both vendored Flatpak-source lanes passed locked/offline release builds from
+empty Cargo homes and smoke tests of their actual pinned ELFs. All **229 tracked
+source files**, the manifest, **208 packages / 207 notice directories**, SPDX and
+Markdown links passed independent checks. These builds use host libraries;
+GNOME50 SDK execution and installed Flatpak are separate checks. The final
+documentation-only commit changes no compiled source, workflow or packaging;
+exact current-head hosted results and the Native build are available in
+[PR #26 checks](https://github.com/tracerxbrhd/karin/pull/26/checks).
+
+Original local HTTP/MP3 fixtures do not reproduce current Yandex CDN headers or
+prove audible service local replay. No new real Music local-hit or installed
+Flatpak acceptance is claimed; use the single final
+[Native/installed-Flatpak procedure](BUILDING.md#pr-26-corrected-cache-acceptance).
+
 ## Known unresolved checks
 
 ### Cold Player Bar rendering in Cloud
