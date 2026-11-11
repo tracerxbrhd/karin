@@ -41,9 +41,11 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6, Node.js 24
       - name: Install native development dependencies
+        timeout-minutes: 10
         run: |
-          # Avoid prolonged downloads from the runner's regional Azure mirror.
-          # Retain Ubuntu suites, package signatures and Signed-By configuration.
+          # The archive/Azure mirror DNS failures exhausted the whole job on
+          # 1fd4028. Use the reachable Ubuntu mirror over verified HTTPS, keeping
+          # the exact suites, package signatures and Signed-By configuration.
           sudo python3 - <<'PYTHON'
           from pathlib import Path
           # Hosted Ubuntu also uses mirror+file:/etc/apt/apt-mirrors.txt.
@@ -54,14 +56,23 @@ jobs:
           for source in sources:
               if source.is_file():
                   original = source.read_text()
-                  updated = original.replace('://azure.archive.ubuntu.com/', '://archive.ubuntu.com/')
+                  updated = original
+                  for host in ('azure.archive.ubuntu.com', 'archive.ubuntu.com',
+                               'security.ubuntu.com', 'us.archive.ubuntu.com'):
+                      for scheme in ('http', 'https'):
+                          updated = updated.replace(f'{scheme}://{host}/',
+                                                    'https://mirrors.edge.kernel.org/')
                   if updated != original:
                       source.write_text(updated)
                       changed += 1
           print(f'Ubuntu archive selection: {changed} source files updated')
           PYTHON
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          # An unsuccessful index refresh must not silently use stale indexes
+          # and then spend 45 minutes retrying every unavailable package.
+          sudo apt-get -o APT::Update::Error-Mode=any -o Acquire::Retries=2 \
+            -o Acquire::https::Timeout=20 update
+          sudo apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=20 \
+            install -y --no-install-recommends \
             build-essential pkg-config libgtk-4-dev libadwaita-1-dev \
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
             gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
