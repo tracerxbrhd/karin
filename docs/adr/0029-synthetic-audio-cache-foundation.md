@@ -4,7 +4,7 @@
 
 Status: Private HTTP first save owner-confirmed; revised local replay and indicators await acceptance
 
-Date: 2026-11-05; independent-download and replay/presence revisions 2026-11-10
+Date: 2026-11-05; independent-download/replay revisions 2026-11-10; local-first revision 2026-11-11
 
 Extends: ADR-0015, ADR-0019, ADR-0026 and ADR-0030
 
@@ -19,10 +19,12 @@ local audio lookup, immediate online URI on a miss, and a separate complete-file
 save. Karin implements this independently in Rust and retains its stronger
 storage, cancellation and revalidation checks; see [AUDIO_CACHE_REVIEW](../AUDIO_CACHE_REVIEW.md).
 
-A user playback intent resolves the current account-bound MP3 source. A verified
-cache hit supplies its pinned read-only file to the existing PlaybackController.
-Otherwise the player receives the network source immediately and a bounded
-worker can save one complete response. Preparation without autoplay does not
+A user playback intent checks current Music access and selects an authenticated
+full-MP3 API offer. It tries the saved recording before fetching XML or resolving
+its signed CDN URI. A matching selection with verified integrity and a fresh
+private HTTP reuse lease supplies its pinned read-only file to the existing
+PlaybackController. Otherwise ordinary source resolution supplies the network
+source immediately and a bounded worker can save one complete response. Preparation without autoplay does not
 start a cache download until Play. There is no unselected-track prefetch,
 GStreamer source probe, compressed-body channel, native-Playing admission latch,
 or EOS-triggered retry downloader.
@@ -62,39 +64,53 @@ recovery. Keep the existing 64 MiB resource, 1024-record, four-job-context and
 single-writer bounds; remove complete-body capture buffers. CacheBudget retains
 one enabled-by-default 2 GiB quota, six choices, shared metadata/artwork/audio
 LRU, disk headroom, reservations and Clear/Retry under [ADR-0030](0030-unified-cache-budget-and-preferences.md).
-Neither GTK nor the audio worker waits for storage or a background download.
+Whole-response quota reservations protect a valid replacement target while
+counting the complete staged copy as well. Atomic directory exchange keeps the
+original until final fences succeed; late failure rolls back instead of deleting
+it. The reservation remains live through cleanup, protecting this transaction
+from another store's LRU. Neither GTK nor the audio worker waits for storage or a background download.
 
 ## Local replay and failure
 
-Every replay resolves fresh Music access and verifies the saved representation
-through a bounded credential-free HTTP check. Keep the logical descriptor
-request/encoding as provenance separately from physical delivery and byte version.
-A logical MDS key does not establish a shared ETag/Last-Modified namespace across
-replicas. The earlier `cac4d78` model overextended that assumption; published
-MDS timestamp/size tags are not global body hashes. See the
-[primary-source analysis](../AUDIO_CACHE_REVIEW.md#private-http-admission-and-resource-validation).
+Every replay obtains current Music access and an authenticated supported API
+offer, independently of a signed CDN locator. Schema-2 selection metadata binds
+the validated logical descriptor object, MP3 codec/bitrate/gain and full/preview
+classification. Account/token epochs, cancellation and integrity checks remain
+separate. Known selection changes retire/refill the selected record; a new signed
+CDN URL alone does not invalidate a fresh saved representation.
 
-Only the exact provider media URI, without a known logical/encoding mismatch,
-permits opaque conditional strong-validator/length validation. Legacy XML ts is
-opaque, so even a changed signed wrapper cannot borrow the former URI's tag or
-date. A valid full Repr-Digest plus whole length can independently prove equal
-bytes across locators. Complete-length/full-digest differences, same-scope representation
-version invalidation and a different encoding must be distinguished from mere
-uncomparable replica validators. A bare 304, Track ID, equal size, logical key
-or file presence alone cannot establish a hit.
+The selection is not an immutable provider content version. Public models expose
+storage directory/size and canonical Track ID, but no inspected contract makes
+them a byte-generation identifier. Karin combines selection equality with a
+bounded private HTTP reuse lease and the measured saved SHA-256. It does not
+copy Cassette's Track-ID-only admission or share validators between replicas.
 
-Model Same, Different and Unknown separately. Same admits only after current
-access and final fences; Different follows the applicable update policy; Unknown
-retains the valid record online without a repeated body refill. Legacy binding
-metadata is rebased only after positive Same proof, atomically, without another
-full media GET. Missing binding or uncomparable replica metadata cannot authorize
-blind replacement. Confirmed representation/variant changes,
-no-store, explicit access/content refusals and corruption retain their scoped
-retirement rules. `no-cache` and `must-revalidate` never permit stale local
-fallback. Cache failure must not turn an admitted stream into a playback error.
-New private copies without useful version evidence are still declined before
-body storage. Existing records are not discarded just for missing new optional
-binding metadata; they need sufficient current proof before reuse.
+Use explicit valid max-age/Expires with corrected response Age and persisted
+receipt clocks. Without explicit expiration, a valid Date/Last-Modified pair can
+provide conservative RFC9111 heuristic freshness: ten percent of their interval,
+capped at one hour. Clock rollback, malformed/conflicting directives and missing
+receipt metadata cannot grant freshness. `private` permits private storage;
+`must-revalidate` forbids reuse once stale; `no-cache` always requires validation;
+`no-store` forbids storage. These rules do not create content/distribution rights.
+
+When the lease is stale or validation is required, retain bounded credential-free
+HTTP validation. Opaque ETag/Last-Modified preconditions remain scoped to the exact
+compatible media URI; a valid full Repr-Digest and length can prove bytes across
+locators. Same, Different and Unknown remain distinct: positive proof can rebase
+metadata atomically, confirmed changes follow retirement policy, and Unknown
+retains modern records while playing online without redundant refills. Old
+records without receipt metadata or schema-2 selection first use this strict
+path. If proof remains inconclusive after a current authenticated offer, the
+existing background writer can migrate them with one complete newly admitted
+response. Atomic replacement occurs only after full validation/publication; the
+old file/mtime is never relabeled fresh. Successful schema-2 publication ends
+this migration, and refusals/no-store cannot trigger it. An expired modern lease
+with incomparable replicas may seed a fresh replacement only when both the
+current probe and the actual GET response authorize fresh reuse; the GET gate
+runs before its body is read. No-cache or unproved freshness stays online. This
+renews measured policy without asserting that the old bytes changed. A bare 304, Track ID,
+equal size or file presence alone cannot admit local playback. Cache failure
+must not turn an admitted stream into a playback error.
 
 GTK displays a bounded, worker-derived AudioCache presence view in existing
 track rows and current-track surfaces. Missing hides the indicator; actual
@@ -106,8 +122,9 @@ HTTP storage, current playback access and provider/content rights remain separat
 
 Only completed, admitted local data reaches the single GStreamer engine through
 its pinned file descriptor. Clear may unlink a record without interrupting that
-already admitted descriptor. Normal close can retain completed records for fresh
-online validation after restart; account switches fence the old scope and logout
+already admitted descriptor. Normal close retains completed records and their
+reuse leases; restart still checks current access, selection and integrity before
+local playback. Account switches fence the old scope and logout
 purges it. Queue, Wave's actual-playing ledger and MPRIS remain playback concerns.
 
 ## Verification and remaining acceptance
@@ -121,7 +138,8 @@ CDN behavior. At `31d873d` the owner confirmed first playback and complete
 background saving on Fedora Native. At `cac4d78`, descriptor-path /
 representation-changed still caused repeated downloads; no local hit was
 confirmed. Earlier failures remain historical results.
-The revised proof/presence behavior needs the single final
+The local-first revision has no real-CDN local-hit acceptance yet; actual CDN
+freshness headers remain unmeasured in Cloud. It needs the single final
 [Native/installed-Flatpak check](../BUILDING.md#pr-26-corrected-cache-acceptance).
 PR #26 stays Draft; offline listening and public client/content distribution are
 separate matters.

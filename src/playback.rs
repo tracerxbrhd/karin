@@ -27,6 +27,8 @@ use reqwest::Url;
 use thiserror::Error;
 use zeroize::Zeroizing;
 
+#[cfg(test)]
+mod cache_tests;
 mod remote;
 #[cfg(test)]
 mod remote_tests;
@@ -121,6 +123,10 @@ pub enum PlaybackError {
     Initialization,
     #[error("The media source is unavailable or is not supported.")]
     SourceUnavailable,
+    /// A local-first candidate failed before actual Playing. The application
+    /// may resolve one online replacement on its existing resolution worker.
+    #[error("The cached source needs a fresh online replacement.")]
+    CachedSourceUnavailable,
     #[error("The playback source admission has expired; resolve it again.")]
     SourceExpired,
     #[error("The remote playback source violates its transport policy.")]
@@ -216,6 +222,17 @@ impl PlaybackSource {
         if fallback.is_expired() {
             return Err(PlaybackError::SourceExpired);
         }
+        let mut source = Self::cached_file_local(hit)?;
+        source.cache_fallback = Some(fallback);
+        Ok(source)
+    }
+
+    /// A current application-level access/selection check and a fresh private
+    /// response can admit a cache hit without first obtaining another CDN URI.
+    /// A later admission/decoder failure is reported to the application's
+    /// existing resolution worker; neither GTK nor this media worker resolves
+    /// network sources.
+    pub(crate) fn cached_file_local(hit: crate::audio_cache::Hit) -> Result<Self, PlaybackError> {
         let file = hit
             .admit_file()
             .map_err(|_| PlaybackError::SourceUnavailable)?;
@@ -224,8 +241,18 @@ impl PlaybackSource {
             remote: None,
             cached_file: Some(file),
             cache_admission: Some(Arc::new(hit)),
-            cache_fallback: Some(fallback),
+            cache_fallback: None,
         })
+    }
+
+    /// Memory-only final admission, also repeated before the native open. This
+    /// never reopens a path or hashes a file on GTK/the playback worker.
+    pub(crate) fn cache_needs_online_resolution(&self) -> bool {
+        self.cache_fallback.is_none()
+            && self
+                .cache_admission
+                .as_ref()
+                .is_some_and(|hit| hit.admit_file().is_err())
     }
 
     /// Memory-only final GTK admission, repeated by the playback worker before
@@ -780,12 +807,16 @@ impl Worker {
         self.pipeline = None;
         self.pending = None;
         // A queued cached result can be retired between GTK admission and
-        // this worker. Fall back to the separately resolved online source.
+        // this worker. Use an already admitted fallback, or ask the ordinary
+        // application resolution worker for one without opening retired data.
         self.source = self
             .source
             .take()
             .map(PlaybackSource::admit_cache_or_online);
         let source = self.source.as_ref().ok_or(PlaybackError::InvalidState)?;
+        if source.cache_needs_online_resolution() {
+            return Err(PlaybackError::CachedSourceUnavailable);
+        }
         // Native decoder/debug messages can contain private resource or tag
         // data. Keep the existing service-source redaction for cached media too.
         if source.remote.is_some() || source.cached_file.is_some() {
@@ -1077,6 +1108,24 @@ impl Worker {
 
     fn fail(&mut self, mut error: PlaybackError) {
         self.account_playing(false);
+        // Fresh local-first hits intentionally have no eagerly resolved CDN
+        // fallback. Signal only a pre-Playing failure: after audible progress
+        // we must preserve Wave's actual listening ledger and normal errors.
+        if self.playing.total.is_zero()
+            && self.source.as_ref().is_some_and(|source| {
+                source.cached_file.is_some() && source.cache_fallback.is_none()
+            })
+        {
+            crate::audio_cache::diagnostic::report(
+                crate::audio_cache::diagnostic::Event::Stale,
+                if error == PlaybackError::CachedSourceUnavailable {
+                    crate::audio_cache::diagnostic::Cause::AdmissionRevoked
+                } else {
+                    crate::audio_cache::diagnostic::Cause::Decode
+                },
+            );
+            error = PlaybackError::CachedSourceUnavailable;
+        }
         // A corrupt/unsupported cache body may fail only when the native
         // decoder inspects it. Retry once with the independently admitted
         // online source before any actual Playing, within this same worker.

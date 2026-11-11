@@ -23,7 +23,7 @@ use std::{
 use reqwest::{
     Url,
     blocking::{Client, Response},
-    header::{ACCEPT, AUTHORIZATION, HeaderValue},
+    header::{ACCEPT, AUTHORIZATION, CACHE_CONTROL, HeaderValue},
     redirect::Policy,
 };
 use serde::{Deserialize, Deserializer, de::IgnoredAny};
@@ -367,6 +367,9 @@ impl DeliveryProbe {
             .get(url)
             .header(ACCEPT, "application/json")
             .header(AUTHORIZATION, header)
+            // Each selection needs a current authenticated offer, even when
+            // an intermediary retained a cacheable API response.
+            .header(CACHE_CONTROL, "no-cache")
             .send();
         if cancellation.cancelled(token) {
             return Err(DeliveryReport::new(DeliveryCategory::Cancelled, None));
@@ -653,6 +656,9 @@ struct DeliveryOption {
     direct: bool,
     preview: Option<bool>,
     bitrate_in_kbps: Option<u32>,
+    // Published legacy DownloadInfo models distinguish applied gain. Absence
+    // remains unknown and cannot equal either explicitly selected variant.
+    gain: Option<bool>,
     #[serde(default)]
     transport: DeliveryTransport,
     // These values are skipped, not copied, displayed or used for decryption.

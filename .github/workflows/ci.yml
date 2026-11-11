@@ -662,6 +662,7 @@ jobs:
             build/ui-captures/fixtures/audio-cache-application/audio-cache-completion-receipt.json
             build/ui-captures/fixtures/audio-cache-application/audio-cache-identity-receipt.json
             build/ui-captures/fixtures/audio-cache-application/audio-cache-presence-receipt.json
+            build/ui-captures/fixtures/audio-cache-application/audio-cache-localfirst-receipt.json
             build/ui-captures/fixtures/audio-cache-application/audio-cache-saved-*.png
             build/ui-captures/fixtures/audio-cache-application/audio-cache-presence-*.png
             build/ui-captures/fixtures/audio-cache-application/audio-cache-application-*.log

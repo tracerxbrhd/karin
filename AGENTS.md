@@ -45,8 +45,16 @@ reviewable and consistent with the accepted application.
   Do not invent a provider entitlement or treat HTTP caching as a legal license.
   Do not use the absence of a bespoke storage-grant API as a blanket HTTP-cache
   rejection. Reject protected/unsupported resources and explicit storage refusals;
-  honor `no-store`, require online validation before reuse and fall back online
-  when the saved representation cannot be verified.
+  honor `no-store` and current online Music access. Select a retained complete
+  MP3 before XML/CDN resolution when its authenticated API offer/variant matches,
+  integrity passes and its private HTTP reuse lease is fresh. Do not equate
+  logical storage identity with an immutable byte version. `no-cache` requires
+  revalidation; `must-revalidate` applies once stale. Older metadata without a
+  receipt clock keeps strict validation; if its proof is inconclusive, migrate
+  through a complete newly admitted response, never by stamping old bytes fresh.
+  For an expired known selection, only fresh current probe and actual GET policy
+  can admit a complete replacement; no-cache/unproved policy stays conservative.
+  Protect retained records through quota reservation and atomic publication.
 - Preserve attribution and explicit OAuth-identity uncertainties. Code licensing
   does not grant service/distribution permission or prove a provider ban.
   Follow [LICENSING](docs/LICENSING.md); keep standard GPL and third-party notices.

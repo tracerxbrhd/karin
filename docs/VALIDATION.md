@@ -1136,6 +1136,41 @@ independent replicas. Current immutable-head compiler/native/packaging/CI result
 belong with PR #26. **Current real local replay remains unconfirmed** until the
 single final [Native/installed-Flatpak procedure](BUILDING.md#pr-26-corrected-cache-acceptance).
 
+
+## PR26 local-first selection and freshness revision — 2026-11-11
+
+The owner confirms complete real MP3 background saving, but repeat playback at
+`126b5a2` still selected the network source with `descriptor-path-changed` /
+`cdn-validators-incomparable`; retained records did not establish a local hit.
+This is a repeat-playback FAIL, not a demonstrated Music access refusal or byte
+change. Previous compiler/fixture passes remain evidence only for their source.
+
+The production correction checks current Music access and authenticated full-MP3
+offers, then saved selection/integrity and private response freshness before
+XML/CDN resolution. Selection schema 2 includes logical object and codec/bitrate/
+gain/fullness; it is not an immutable provider content version. Explicit
+max-age/Expires or conservative RFC9111 Date−Last-Modified freshness can admit a
+local file. No-cache, stale or legacy records without receipt clocks retain
+strict validation. Legacy inconclusive proof can migrate only through a complete
+newly admitted response and atomic publication, never by renewing old bytes;
+modern unknown records do not repeatedly migrate. An expired modern lease can
+renew through one complete response only when both probe and actual GET policy
+permit fresh reuse. Protected quota reservation and atomic exchange retain the
+old record until final publication fences, with rollback on failure. Account/
+token epochs and storage/cancellation fences remain. Known selection changes retire/refill; a renewed CDN locator alone cannot retire
+a fresh record.
+
+**Validation of this revision is pending.** Record exact final source, stable and
+1.98.1 matrix/CI results and ordinary-application HTTP counters here after they
+execute. Required evidence: a complete saved file, matching SHA-256, actual
+GStreamer local source, same-record replay and process restart with zero new
+full-media GETs; selection/quality change, stale/no-cache, partial/corrupt files,
+account/refusal, Clear and concurrent operations must retain their safeguards.
+Original local HTTP/MP3 fixtures do not reproduce current Yandex CDN headers or
+prove audible service local replay. No new real Music local-hit or installed
+Flatpak acceptance is claimed; use the single final
+[Native/installed-Flatpak procedure](BUILDING.md#pr-26-corrected-cache-acceptance).
+
 ## Known unresolved checks
 
 ### Cold Player Bar rendering in Cloud

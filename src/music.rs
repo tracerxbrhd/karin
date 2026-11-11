@@ -364,6 +364,16 @@ struct SearchBinding {
     token_key: [u8; 32],
     uid: String,
 }
+/// A process-only receipt for a currently validated Music account. Transport
+/// work must recheck it before admitting a late result; it is not a permission
+/// grant and contains no persistable catalog or playback identity.
+pub(crate) struct MusicSessionBinding(SearchBinding);
+
+impl fmt::Debug for MusicSessionBinding {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("MusicSessionBinding([redacted])")
+    }
+}
 impl AccountCache {
     fn invalidate(&mut self) -> u64 {
         self.epoch = self.epoch.wrapping_add(1);
@@ -462,6 +472,19 @@ impl MusicService {
     /// A successful Yandex ID grant alone never opens authenticated operations.
     pub(crate) fn validate_session(&self, token: &AccessToken) -> Result<(), MusicError> {
         self.account_id(token).map(|_| ())
+    }
+    pub(crate) fn bind_session(
+        &self,
+        token: &AccessToken,
+    ) -> Result<MusicSessionBinding, MusicError> {
+        self.search_binding(token).map(MusicSessionBinding)
+    }
+    pub(crate) fn validate_binding(
+        &self,
+        token: &AccessToken,
+        binding: &MusicSessionBinding,
+    ) -> Result<(), MusicError> {
+        self.check_search_binding(token, &binding.0)
     }
     fn search_binding(&self, token: &AccessToken) -> Result<SearchBinding, MusicError> {
         if token.is_expired() {

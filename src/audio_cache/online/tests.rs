@@ -467,7 +467,7 @@ fn explicit_resource_refusal_revokes_write_and_cannot_reregister_old_revision() 
     let grant = current_grant(&f, 101);
     f.authority.retain_write(&grant).unwrap();
     f.authority.activate_write(&grant).unwrap();
-    f.authority.revoke_writes(&grant.identity, grant.revision);
+    assert!(f.authority.revoke_writes(&grant.identity, grant.revision));
     assert_eq!(f.authority.check_write(&grant), Err(CacheError::Revoked));
     assert_eq!(f.authority.retain_write(&grant), Err(CacheError::Revoked));
     assert_eq!(f.authority.activate_write(&grant), Err(CacheError::Revoked));
@@ -494,14 +494,34 @@ fn late_refusal_cannot_revoke_a_newer_same_resource_write() {
     let latest = current_grant(&f, 101);
     f.authority.retain_write(&latest).unwrap();
     f.authority.activate_write(&latest).unwrap();
-    f.authority.revoke_writes(&old.identity, old.revision);
+    assert!(!f.authority.revoke_writes(&old.identity, old.revision));
+    assert_eq!(
+        f.cache
+            .fence_resource_refusal(&f.lease, old.identity, old.revision),
+        Ok(false)
+    );
+    f.cache.lease_current(&f.lease).unwrap();
     f.authority.check_write(&old).unwrap();
     f.authority.check_write(&latest).unwrap();
 
     let next = f.cache.begin_online_check(&f.lease, 101u64.into()).unwrap();
-    f.authority.revoke_writes(&next.identity, next.sequence);
+    assert!(f.authority.revoke_writes(&next.identity, next.sequence));
     assert_eq!(f.authority.check_write(&old), Err(CacheError::Revoked));
     assert_eq!(f.authority.check_write(&latest), Err(CacheError::Revoked));
+}
+
+#[test]
+fn current_refusal_cleanup_failure_fences_admission_without_filesystem_work() {
+    let f = Fixture::new();
+    f.observe(101);
+    let current = current_grant(&f, 101);
+    assert_eq!(
+        f.cache
+            .fence_resource_refusal(&f.lease, current.identity, current.revision),
+        Ok(true)
+    );
+    assert_eq!(f.cache.lease_current(&f.lease), Err(CacheError::Cancelled));
+    assert!(f.cache.0.state.lock().unwrap().clearing);
 }
 
 #[test]

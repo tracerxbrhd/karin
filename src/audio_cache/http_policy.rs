@@ -1,14 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Private HTTP response policy, independent of playback access and copyright.
 //!
-//! All hits require a new online validation, even when a response advertises a
-//! freshness lifetime. Only selected bounded validators are persisted; neither
-//! URLs nor complete response/request headers belong in a cache record.
+//! Current account/offer admission is independent from HTTP reuse. A fresh,
+//! integrity-checked representation of the same offered object/variant can be
+//! reused before resolving another temporary CDN address. Stale/no-cache data
+//! still needs representation validation. No URLs or complete headers persist.
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use ring::digest::{SHA256, digest};
 use serde::{Deserialize, Serialize};
-use std::fmt;
+use std::{
+    fmt,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 pub(crate) const MAX_METADATA: usize = 8 * 1024;
 const MAX_MEDIA: u64 = 64 * 1024 * 1024;
@@ -45,6 +49,12 @@ pub(crate) enum Reason {
     ContentRestricted,
     AccessDenied,
     UnsupportedValidator,
+    FreshnessMissing,
+    FreshnessExpired,
+    FreshnessNoCache,
+    ClockUncertain,
+    ApplicationUnverified,
+    ApplicationChanged,
 }
 impl Reason {
     pub(crate) fn as_str(self) -> &'static str {
@@ -79,6 +89,12 @@ impl Reason {
             Self::ContentRestricted => "content-restricted",
             Self::AccessDenied => "access-refused",
             Self::UnsupportedValidator => "validator-unsupported",
+            Self::FreshnessMissing => "freshness-unavailable",
+            Self::FreshnessExpired => "freshness-expired",
+            Self::FreshnessNoCache => "http-revalidation-required",
+            Self::ClockUncertain => "freshness-clock-uncertain",
+            Self::ApplicationUnverified => "application-identity-unverified",
+            Self::ApplicationChanged => "selected-representation-changed",
         }
     }
 }
@@ -117,6 +133,8 @@ pub(crate) struct ResponsePolicy {
     mp3: bool,
     weak_etag: bool,
     range: Option<(u64, u64, u64)>,
+    observed: Option<Observation>,
+    cache_control_present: bool,
 }
 impl fmt::Debug for ResponsePolicy {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -129,11 +147,54 @@ impl fmt::Debug for ResponsePolicy {
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ResourceBinding {
+    #[serde(default = "legacy_binding_schema")]
+    pub schema: u8,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub logical: Option<[u8; 32]>,
     pub host: [u8; 32],
     pub path: [u8; 32],
     pub variant: [u8; 32],
+}
+fn legacy_binding_schema() -> u8 {
+    1
+}
+
+/// Current authenticated Music offer identity, independent of temporary CDN
+/// placement/signatures. This is a selected object/encoding, not an assertion
+/// that its bytes are immutable. HTTP freshness is a separate required proof.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ApplicationIdentity {
+    pub logical: [u8; 32],
+    pub variant: [u8; 32],
+    pub schema: u8,
+}
+impl fmt::Debug for ApplicationIdentity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("ApplicationAudioIdentity([opaque])")
+    }
+}
+
+/// RFC9111 corrected initial age at header receipt. Wall time permits restart;
+/// the request delay was measured monotonically, rounded upward. No saved
+/// response clock in legacy records means no shortcut, rather than a new TTL.
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Observation {
+    pub response_unix: u64,
+    pub corrected_initial_age: u64,
+    pub response_status: u16,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Freshness {
+    Explicit,
+    Heuristic,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct FreshReuse {
+    pub kind: Freshness,
+    pub remaining: Duration,
 }
 impl fmt::Debug for ResourceBinding {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -155,6 +216,8 @@ pub(crate) struct Metadata {
     pub modified_unix: Option<u64>,
     pub date_unix: Option<u64>,
     pub directives: Directives,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observed: Option<Observation>,
 }
 impl fmt::Debug for Metadata {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -170,6 +233,9 @@ pub(crate) enum Validation {
     Same(Box<Metadata>),
     Different(Reason),
     Unproven(Reason),
+    /// The old bytes are unproved, but the current metadata permits a new
+    /// complete fresh response. This never authorizes reading the old file.
+    RefreshFresh(Reason),
 }
 
 impl ResponsePolicy {
@@ -178,6 +244,65 @@ impl ResponsePolicy {
     /// independent requirements; no validator is an offline entitlement.
     pub(crate) fn has_validator(&self) -> bool {
         self.etag.is_some() || self.strong_modified() || self.repr_sha256.is_some()
+    }
+
+    /// Bind actual header receipt to the monotonic request duration. This must
+    /// be called by the HTTP transport, not at the later end of an audio copy.
+    pub(crate) fn observed_at(mut self, elapsed: Duration, response_unix: u64) -> Self {
+        let delay = elapsed
+            .as_secs()
+            .checked_add(u64::from(elapsed.subsec_nanos() != 0));
+        let apparent_age = match self.date_unix {
+            Some(date) => response_unix.checked_sub(date),
+            None => Some(0),
+        };
+        self.observed = delay
+            .and_then(|delay| self.directives.age.unwrap_or(0).checked_add(delay))
+            .zip(apparent_age)
+            .map(|(age, apparent)| Observation {
+                response_unix,
+                corrected_initial_age: age.max(apparent),
+                response_status: self.status,
+            });
+        self
+    }
+
+    pub(crate) fn observed_now(self, elapsed: Duration) -> Self {
+        match SystemTime::now().duration_since(UNIX_EPOCH) {
+            Ok(now) => self.observed_at(elapsed, now.as_secs()),
+            Err(_) => self,
+        }
+    }
+
+    /// Fresh responses need no validator until their reuse lease expires.
+    /// Revalidation-capable responses may still be stored without freshness.
+    pub(crate) fn reusable(&self) -> bool {
+        self.has_validator() || self.fresh_reusable()
+    }
+
+    pub(crate) fn fresh_reusable(&self) -> bool {
+        matches!(self.status, 200 | 206)
+            && self.mp3
+            && self.length.is_some_and(|bytes| bytes > 0)
+            && !self.directives.no_cache
+            && self.observed.is_some_and(|observed| {
+                freshness_lifetime(
+                    &self.directives,
+                    self.date_unix,
+                    self.modified_unix,
+                    self.strong_modified(),
+                    observed,
+                )
+                .is_some_and(|(seconds, _)| seconds > observed.corrected_initial_age)
+            })
+    }
+
+    fn unproven(&self, reason: Reason) -> Validation {
+        if self.fresh_reusable() {
+            Validation::RefreshFresh(reason)
+        } else {
+            Validation::Unproven(reason)
+        }
     }
 
     pub(crate) fn parse(
@@ -205,6 +330,8 @@ impl ResponsePolicy {
             mp3: false,
             weak_etag: false,
             range: None,
+            observed: None,
+            cache_control_present: false,
         };
         let mut seen = std::collections::BTreeSet::new();
         let mut total = 0usize;
@@ -281,7 +408,10 @@ impl ResponsePolicy {
                     result.directives.expires_unix = Some(http_date(value).unwrap_or(0));
                 }
                 "age" => result.directives.age = Some(decimal(value)?),
-                "cache-control" => cache_control(value, &mut result.directives)?,
+                "cache-control" => {
+                    result.cache_control_present = true;
+                    cache_control(value, &mut result.directives)?;
+                }
                 "pragma" => {
                     for item in directives(value)? {
                         if item.trim().eq_ignore_ascii_case("no-cache") {
@@ -356,6 +486,7 @@ impl ResponsePolicy {
                 .flatten(),
             date_unix: self.date_unix,
             directives: self.directives.clone(),
+            observed: self.observed,
         })
     }
 
@@ -386,7 +517,9 @@ impl ResponsePolicy {
         if stored
             .binding
             .zip(remote.http_cache_binding())
-            .is_some_and(|(before, now)| before.variant != now.variant)
+            .is_some_and(|(before, now)| {
+                before.schema == now.schema && before.variant != now.variant
+            })
         {
             return Ok(Validation::Different(Reason::EncodingChanged));
         }
@@ -419,10 +552,13 @@ impl ResponsePolicy {
             Validation::Different(
                 Reason::ContentChanged | Reason::LengthChanged | Reason::ScopedValidatorChanged,
             ) => Err(Reason::RepresentationChanged),
-            Validation::Unproven(Reason::IdentityUnverified | Reason::ValidatorsIncomparable) => {
-                Err(Reason::ResourceChanged)
-            }
-            Validation::Different(reason) | Validation::Unproven(reason) => Err(reason),
+            Validation::Unproven(Reason::IdentityUnverified | Reason::ValidatorsIncomparable)
+            | Validation::RefreshFresh(
+                Reason::IdentityUnverified | Reason::ValidatorsIncomparable,
+            ) => Err(Reason::ResourceChanged),
+            Validation::Different(reason)
+            | Validation::Unproven(reason)
+            | Validation::RefreshFresh(reason) => Err(reason),
         }
     }
 
@@ -497,7 +633,7 @@ impl ResponsePolicy {
         if !comparable {
             let old_opaque = stored.etag.is_some() || stored.last_modified.is_some();
             let new_opaque = self.etag.is_some() || self.last_modified.is_some();
-            return Ok(Validation::Unproven(if old_opaque && new_opaque {
+            return Ok(self.unproven(if old_opaque && new_opaque {
                 Reason::ValidatorsIncomparable
             } else {
                 Reason::IdentityUnverified
@@ -513,7 +649,7 @@ impl ResponsePolicy {
             // strong Last-Modified inference and share the proven resource.
             self.modified_unix == stored.modified_unix
         } else {
-            return Ok(Validation::Unproven(Reason::ValidatorsMissing));
+            return Ok(self.unproven(Reason::ValidatorsMissing));
         };
         if !same {
             return Ok(if self.status == 304 {
@@ -559,13 +695,28 @@ impl ResponsePolicy {
                 .flatten(),
             date_unix: self.date_unix,
             directives: self.directives.clone(),
+            observed: self.observed,
         };
         if self.status == 304 {
+            if let Some(observed) = &mut current.observed {
+                // A validated 304 refreshes an existing representation, rather
+                // than changing its original cacheable response status.
+                observed.response_status =
+                    stored.observed.map_or(0, |before| before.response_status);
+            }
             current.etag = current.etag.or_else(|| stored.etag.clone());
             if current.last_modified.is_none() {
                 current.last_modified = stored.last_modified.clone();
                 current.modified_unix = stored.modified_unix;
-                current.date_unix = stored.date_unix;
+            }
+            current.date_unix = current.date_unix.or(stored.date_unix);
+            if let Some(mut observed) = current.observed
+                && let Some(date) = current.date_unix
+            {
+                current.observed = observed.response_unix.checked_sub(date).map(|apparent| {
+                    observed.corrected_initial_age = observed.corrected_initial_age.max(apparent);
+                    observed
+                });
             }
             // Preserve stricter absent metadata on a 304; never turn an old
             // revalidation requirement into a fresh/offline permission.
@@ -573,9 +724,15 @@ impl ResponsePolicy {
             current.directives.must_revalidate |= stored.directives.must_revalidate;
             current.directives.private |= stored.directives.private;
             current.directives.vary_accept_encoding |= stored.directives.vary_accept_encoding;
-            current.directives.max_age = current.directives.max_age.or(stored.directives.max_age);
-            current.directives.s_maxage =
-                current.directives.s_maxage.or(stored.directives.s_maxage);
+            // A present304 Cache-Control replaces the stored header as a
+            // whole (RFC9111 §3.2). Its omission of max-age must not silently
+            // revive an old freshness lifetime over an explicit stale Expires.
+            if !self.cache_control_present {
+                current.directives.max_age =
+                    current.directives.max_age.or(stored.directives.max_age);
+                current.directives.s_maxage =
+                    current.directives.s_maxage.or(stored.directives.s_maxage);
+            }
             current.directives.expires_unix = current
                 .directives
                 .expires_unix
@@ -591,13 +748,73 @@ impl ResponsePolicy {
 }
 
 impl Metadata {
+    pub(crate) fn needs_initial_refresh(&self) -> bool {
+        self.observed
+            .is_none_or(|observed| observed.response_status == 0)
+            || self.binding.is_none_or(|binding| binding.schema != 2)
+    }
+
+    /// A changed current offered object/encoding is a new application
+    /// selection. Legacy schemas are unknown, not proof of a version change.
+    pub(crate) fn application_match(&self, current: ApplicationIdentity) -> Result<(), Reason> {
+        let before = self.binding.ok_or(Reason::ApplicationUnverified)?;
+        let logical = before.logical.ok_or(Reason::ApplicationUnverified)?;
+        if before.schema != 2 || current.schema != 2 {
+            return Err(Reason::ApplicationUnverified);
+        }
+        if logical != current.logical || before.variant != current.variant {
+            return Err(Reason::ApplicationChanged);
+        }
+        Ok(())
+    }
+
+    /// RFC9111 freshness authorizes bounded reuse of the same selected
+    /// representation, not permanent/offline rights or immutable object names.
+    pub(crate) fn fresh_for(
+        &self,
+        current: ApplicationIdentity,
+        now_unix: u64,
+    ) -> Result<FreshReuse, Reason> {
+        self.validate()?;
+        self.application_match(current)?;
+        if self.directives.no_cache {
+            return Err(Reason::FreshnessNoCache);
+        }
+        let observed = self.observed.ok_or(Reason::FreshnessMissing)?;
+        let resident = now_unix
+            .checked_sub(observed.response_unix)
+            .ok_or(Reason::ClockUncertain)?;
+        let age = observed
+            .corrected_initial_age
+            .checked_add(resident)
+            .ok_or(Reason::ClockUncertain)?;
+        let (lifetime, kind) = self.freshness_lifetime().ok_or(Reason::FreshnessMissing)?;
+        if age >= lifetime {
+            return Err(Reason::FreshnessExpired);
+        }
+        Ok(FreshReuse {
+            kind,
+            remaining: Duration::from_secs(lifetime - age),
+        })
+    }
+
+    fn freshness_lifetime(&self) -> Option<(u64, Freshness)> {
+        freshness_lifetime(
+            &self.directives,
+            self.date_unix,
+            self.modified_unix,
+            self.strong_modified(),
+            self.observed?,
+        )
+    }
+
     /// A logical object or physical locator does not establish one validator
     /// namespace across different request URIs. The deployed legacy signing
     /// timestamp is opaque; only an exact provider request may carry the old
     /// conditional. Resource/variant checks additionally protect legacy records.
     pub(crate) fn validator_scope(&self, remote: &crate::playback::RemotePlaybackSource) -> bool {
         if let Some((before, now)) = self.binding.zip(remote.http_cache_binding())
-            && (before.variant != now.variant
+            && (before.schema == now.schema && before.variant != now.variant
                 || before
                     .logical
                     .zip(now.logical)
@@ -652,6 +869,34 @@ impl Metadata {
         result.validate()?;
         Ok(result)
     }
+}
+
+fn freshness_lifetime(
+    directives: &Directives,
+    date: Option<u64>,
+    modified: Option<u64>,
+    strong_modified: bool,
+    observed: Observation,
+) -> Option<(u64, Freshness)> {
+    // s-maxage governs shared caches only. Karin is account-private.
+    if let Some(seconds) = directives.max_age {
+        return Some((seconds, Freshness::Explicit));
+    }
+    if let Some(expires) = directives.expires_unix {
+        return Some((
+            expires.saturating_sub(date.unwrap_or(observed.response_unix)),
+            Freshness::Explicit,
+        ));
+    }
+    // RFC9111 §4.2.2 permits a conservative heuristic when no explicit
+    // expiration exists. Use only valid origin Date/strong Last-Modified on an
+    // ordinary complete200, <=10% of age, capped at one hour. Never manufacture
+    // a track-based TTL or override explicit stale metadata.
+    if observed.response_status == 200 && strong_modified {
+        let age = date?.checked_sub(modified?)?;
+        return Some(((age / 10).min(3600), Freshness::Heuristic));
+    }
+    None
 }
 
 fn strong_modified(modified: Option<u64>, date: Option<u64>) -> bool {

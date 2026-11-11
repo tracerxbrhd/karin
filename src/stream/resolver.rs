@@ -27,28 +27,39 @@ pub(crate) struct HttpResourceIdentity {
 }
 
 impl HttpResourceIdentity {
+    #[cfg(test)]
     fn from_validated_descriptor(
         parts: &xml::LegacyParts,
         bitrate: u32,
         uri: &str,
         logical: Option<[u8; 32]>,
     ) -> Self {
+        Self::from_selected_descriptor(
+            parts,
+            bitrate,
+            uri,
+            logical,
+            identity_hash(
+                b"Karin selected MP3 encoding v1\0",
+                &[b"audio/mpeg;codec=mp3", &bitrate.to_be_bytes()],
+            ),
+            1,
+        )
+    }
+
+    fn from_selected_descriptor(
+        parts: &xml::LegacyParts,
+        bitrate: u32,
+        uri: &str,
+        logical: Option<[u8; 32]>,
+        variant: [u8; 32],
+        schema: u8,
+    ) -> Self {
         let host = parts.host.to_ascii_lowercase();
         let bitrate = bitrate.to_be_bytes();
-        let hash = |domain: &[u8], components: &[&[u8]]| {
-            let mut context = ring::digest::Context::new(&ring::digest::SHA256);
-            context.update(domain);
-            for component in components {
-                context.update(&(component.len() as u64).to_be_bytes());
-                context.update(component);
-            }
-            let mut result = [0; 32];
-            result.copy_from_slice(context.finish().as_ref());
-            result
-        };
         // Retain the v1 locator recipe so existing complete records remain
         // candidates. Locator changes are not assertions about changed bytes.
-        let locator = hash(
+        let locator = identity_hash(
             b"Karin resolved legacy MP3 file locator v1\0",
             &[
                 b"https",
@@ -60,12 +71,10 @@ impl HttpResourceIdentity {
         );
         let binding = crate::audio_cache::http_policy::ResourceBinding {
             logical,
-            host: hash(b"Karin MP3 authority v1\0", &[b"https", host.as_bytes()]),
-            path: hash(b"Karin MP3 descriptor path v1\0", &[parts.path.as_bytes()]),
-            variant: hash(
-                b"Karin selected MP3 encoding v1\0",
-                &[b"audio/mpeg;codec=mp3", &bitrate],
-            ),
+            host: identity_hash(b"Karin MP3 authority v1\0", &[b"https", host.as_bytes()]),
+            path: identity_hash(b"Karin MP3 descriptor path v1\0", &[parts.path.as_bytes()]),
+            variant,
+            schema,
         };
         let mut request = ring::digest::Context::new(&ring::digest::SHA256);
         request.update(b"Karin private HTTP media request v1\0");
@@ -111,6 +120,111 @@ impl HttpResourceIdentity {
         let parts = xml::parse(body.as_bytes()).expect("synthetic descriptor");
         let uri = legacy_uri(&parts).expect("synthetic admitted provider URI");
         Self::from_validated_descriptor(&parts, bitrate, &uri, None)
+    }
+}
+
+fn identity_hash(domain: &[u8], components: &[&[u8]]) -> [u8; 32] {
+    let mut context = ring::digest::Context::new(&ring::digest::SHA256);
+    context.update(domain);
+    for component in components {
+        context.update(&(component.len() as u64).to_be_bytes());
+        context.update(component);
+    }
+    let mut result = [0; 32];
+    result.copy_from_slice(context.finish().as_ref());
+    result
+}
+
+fn selected_variant(bitrate: u32, gain: Option<bool>) -> [u8; 32] {
+    let gain = match gain {
+        None => b"unknown".as_slice(),
+        Some(false) => b"unapplied".as_slice(),
+        Some(true) => b"applied".as_slice(),
+    };
+    identity_hash(
+        b"Karin selected full MP3 encoding v2\0",
+        &[b"audio/mpeg;codec=mp3", &bitrate.to_be_bytes(), gain],
+    )
+}
+
+/// A fresh authenticated API selection, before resolving its temporary CDN
+/// location. A logical object plus encoding is not an immutable byte digest:
+/// local reuse additionally needs the saved response's valid reuse policy and
+/// integrity. The private descriptor URL is never serialized or displayed.
+pub(crate) struct PreparedAudioOffer {
+    url: Url,
+    bitrate: u32,
+    logical: Option<[u8; 32]>,
+    variant: [u8; 32],
+    session: crate::music::MusicSessionBinding,
+    report: DeliveryReport,
+    expires_at: Instant,
+}
+
+impl fmt::Debug for PreparedAudioOffer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("PreparedAudioOffer([redacted])")
+    }
+}
+
+impl PreparedAudioOffer {
+    /// The original process-only admission deadline; local preparation must
+    /// not extend it while waiting for disk work or the GTK/worker handoff.
+    pub(crate) fn expires_at(&self) -> Instant {
+        self.expires_at
+    }
+
+    pub(crate) fn cache_identity(
+        &self,
+    ) -> Option<crate::audio_cache::http_policy::ApplicationIdentity> {
+        // Preserve online support for an offer whose optional bitrate is
+        // absent, but do not claim an identified cached quality for it.
+        if self.bitrate == 0 {
+            return None;
+        }
+        self.logical.map(
+            |logical| crate::audio_cache::http_policy::ApplicationIdentity {
+                logical,
+                variant: self.variant,
+                schema: 2,
+            },
+        )
+    }
+
+    /// Recheck the exact accepted account generation, token, cancellation and
+    /// original offer deadline after disk/network work and before local use.
+    pub(crate) fn validate(
+        &self,
+        service: &MusicService,
+        token: &AccessToken,
+        cancellation: &DeliveryCancellation,
+    ) -> Result<(), DeliveryReport> {
+        let category = if cancellation.cancelled(token) {
+            Some(DeliveryCategory::Cancelled)
+        } else if service.validate_binding(token, &self.session).is_err() {
+            Some(DeliveryCategory::SessionRequired)
+        } else if Instant::now() >= self.expires_at {
+            Some(DeliveryCategory::SourceExpired)
+        } else {
+            None
+        };
+        match category {
+            Some(category) => Err(DeliveryReport {
+                stage: DeliveryStage::Resolution,
+                category,
+                ..self.report
+            }),
+            None => Ok(()),
+        }
+    }
+
+    pub(crate) fn is_current(
+        &self,
+        service: &MusicService,
+        token: &AccessToken,
+        cancellation: &DeliveryCancellation,
+    ) -> bool {
+        self.validate(service, token, cancellation).is_ok()
     }
 }
 
@@ -226,10 +340,29 @@ impl StreamResolver {
         track_id: &str,
         cancellation: &DeliveryCancellation,
     ) -> Result<RemotePlaybackSource, DeliveryReport> {
-        // Start before requesting offers: a slow descriptor cannot reset the
-        // lifetime documented by legacy clients as about one minute per offer.
-        let expires_at = Instant::now() + SOURCE_FRESHNESS;
-        self.resolve_until(service, token, track_id, cancellation, expires_at)
+        let offer = self.prepare_offer(service, token, track_id, cancellation)?;
+        self.resolve_offer(service, token, offer, cancellation)
+    }
+
+    /// Check current authenticated delivery access and select the exact full
+    /// MP3 variant before consulting AudioCache. This small API request does
+    /// not request XML, create a signed media URI, or contact the CDN.
+    pub(crate) fn prepare_offer(
+        &self,
+        service: &MusicService,
+        token: &AccessToken,
+        track_id: &str,
+        cancellation: &DeliveryCancellation,
+    ) -> Result<PreparedAudioOffer, DeliveryReport> {
+        // Start before requesting offers: descriptor latency and a local-file
+        // check must not reset the legacy offer's original admission deadline.
+        self.prepare_offer_until(
+            service,
+            token,
+            track_id,
+            cancellation,
+            Instant::now() + SOURCE_FRESHNESS,
+        )
     }
 
     /// Only a previously stored HTTP candidate needs this extra request. First
@@ -259,6 +392,7 @@ impl StreamResolver {
         super::download::response(&self.transport.client, remote, token, cancellation)
     }
 
+    #[cfg(test)]
     fn resolve_until(
         &self,
         service: &MusicService,
@@ -267,12 +401,30 @@ impl StreamResolver {
         cancellation: &DeliveryCancellation,
         expires_at: Instant,
     ) -> Result<RemotePlaybackSource, DeliveryReport> {
+        let offer = self.prepare_offer_until(service, token, track_id, cancellation, expires_at)?;
+        self.resolve_offer(service, token, offer, cancellation)
+    }
+
+    fn prepare_offer_until(
+        &self,
+        service: &MusicService,
+        token: &AccessToken,
+        track_id: &str,
+        cancellation: &DeliveryCancellation,
+        expires_at: Instant,
+    ) -> Result<PreparedAudioOffer, DeliveryReport> {
         if Instant::now() >= expires_at {
             return Err(DeliveryReport {
                 stage: DeliveryStage::Resolution,
                 ..DeliveryReport::new(DeliveryCategory::SourceExpired, None)
             });
         }
+        if cancellation.cancelled(token) {
+            return Err(DeliveryReport::new(DeliveryCategory::Cancelled, None));
+        }
+        let session = service
+            .bind_session(token)
+            .map_err(|_| DeliveryReport::new(DeliveryCategory::SessionRequired, None))?;
         let (body, status) =
             self.transport
                 .delivery_info(service, token, track_id, cancellation)?;
@@ -286,7 +438,7 @@ impl StreamResolver {
             report.category = DeliveryCategory::NoDeliveryOptions;
             return Err(report);
         }
-        let (url, bitrate) = self
+        let (url, bitrate, gain) = self
             .select_mp3_details(envelope.result)
             .map_err(|category| DeliveryReport { category, ..report })?;
         if Instant::now() >= expires_at {
@@ -294,7 +446,38 @@ impl StreamResolver {
             report.category = DeliveryCategory::SourceExpired;
             return Err(report);
         }
-        let logical = logical_descriptor_object(&url);
+        let offer = PreparedAudioOffer {
+            logical: logical_descriptor_object(&url),
+            url,
+            bitrate,
+            variant: selected_variant(bitrate, gain),
+            session,
+            report,
+            expires_at,
+        };
+        offer.validate(service, token, cancellation)?;
+        Ok(offer)
+    }
+
+    /// Resolve only a cache miss/revalidation. The accepted offer is consumed
+    /// exactly once; it does not repeat the authenticated offer-list request.
+    pub(crate) fn resolve_offer(
+        &self,
+        service: &MusicService,
+        token: &AccessToken,
+        offer: PreparedAudioOffer,
+        cancellation: &DeliveryCancellation,
+    ) -> Result<RemotePlaybackSource, DeliveryReport> {
+        offer.validate(service, token, cancellation)?;
+        let PreparedAudioOffer {
+            url,
+            bitrate,
+            logical,
+            variant,
+            session,
+            report,
+            expires_at,
+        } = offer;
         let (descriptor, mut report) =
             self.transport
                 .descriptor_body(report, url, token, cancellation)?;
@@ -317,7 +500,7 @@ impl StreamResolver {
             report.category = DeliveryCategory::Cancelled;
             return Err(report);
         }
-        if service.validate_session(token).is_err() {
+        if service.validate_binding(token, &session).is_err() {
             report.category = DeliveryCategory::SessionRequired;
             return Err(report);
         }
@@ -326,8 +509,9 @@ impl StreamResolver {
             return Err(report);
         }
         let uri = legacy_uri(&parts).map_err(|category| DeliveryReport { category, ..report })?;
-        let identity =
-            HttpResourceIdentity::from_validated_descriptor(&parts, bitrate, &uri, logical);
+        let identity = HttpResourceIdentity::from_selected_descriptor(
+            &parts, bitrate, &uri, logical, variant, 2,
+        );
         #[cfg(test)]
         if let Some(origin) = &self.media_fixture_origin {
             let parsed = Url::parse(&uri).map_err(|_| DeliveryReport {
@@ -360,13 +544,13 @@ impl StreamResolver {
 
     #[cfg(test)]
     fn select_mp3(&self, options: Vec<DeliveryOption>) -> Result<Url, DeliveryCategory> {
-        self.select_mp3_details(options).map(|(url, _)| url)
+        self.select_mp3_details(options).map(|(url, _, _)| url)
     }
 
     fn select_mp3_details(
         &self,
         options: Vec<DeliveryOption>,
-    ) -> Result<(Url, u32), DeliveryCategory> {
+    ) -> Result<(Url, u32, Option<bool>), DeliveryCategory> {
         // A declared transport changes the protocol contract. Do not silently
         // ignore protected/unknown declarations by selecting another entry.
         if options
@@ -397,7 +581,9 @@ impl StreamResolver {
             if option.download_info_url.is_some()
                 && mp3.iter().skip(index + 1).any(|other| {
                     option.download_info_url == other.download_info_url
-                        && option.preview != other.preview
+                        && (option.preview != other.preview
+                            || (option.bitrate_in_kbps == other.bitrate_in_kbps
+                                && option.gain != other.gain))
                 })
             {
                 return Err(DeliveryCategory::UnsupportedResponse);
@@ -430,12 +616,14 @@ impl StreamResolver {
             let bitrate = option.bitrate_in_kbps.unwrap_or(0);
             if selected
                 .as_ref()
-                .is_none_or(|(selected_bitrate, _)| bitrate > *selected_bitrate)
+                .is_none_or(|(selected_bitrate, _, _)| bitrate > *selected_bitrate)
             {
-                selected = Some((bitrate, url));
+                selected = Some((bitrate, url, option.gain));
             }
         }
-        selected.map(|(bitrate, url)| (url, bitrate)).ok_or(failure)
+        selected
+            .map(|(bitrate, url, gain)| (url, bitrate, gain))
+            .ok_or(failure)
     }
 
     #[cfg(test)]

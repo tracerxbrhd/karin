@@ -488,10 +488,17 @@ fn run_phase(input: &Path, phase: &str, directory: &Path) -> PhaseReport {
         .lines()
         .filter(|line| line.starts_with("cache="))
         .collect::<Vec<_>>();
-    assert!(
-        !diagnostics.is_empty(),
-        "each application phase must expose a safe cache outcome"
-    );
+    if phase == "localfirst-unavailable" {
+        assert!(
+            diagnostics.is_empty(),
+            "disabled unavailable rows cannot select any audio source"
+        );
+    } else {
+        assert!(
+            !diagnostics.is_empty(),
+            "each selected application phase must expose a safe cache outcome"
+        );
+    }
     for line in diagnostics {
         let fields = line.split_whitespace().collect::<Vec<_>>();
         assert_eq!(
@@ -530,7 +537,10 @@ fn native_audio_cache_application_process_restart() {
         let input: Input =
             serde_json::from_slice(&fs::read(std::env::var_os(INPUT_ENV).unwrap()).unwrap())
                 .unwrap();
-        if phase.starts_with("identity-") || phase.starts_with("presence-") {
+        if phase.starts_with("identity-")
+            || phase.starts_with("presence-")
+            || phase.starts_with("localfirst-")
+        {
             identity::run_child(&input, &phase);
             return;
         }

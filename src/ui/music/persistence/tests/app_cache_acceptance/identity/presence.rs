@@ -17,7 +17,7 @@ pub(super) fn run_parent() {
             .create(directory.0.join(kind))
             .unwrap();
     }
-    let input = Input {
+    let mut input = Input {
         directory: directory.0.clone(),
         origin: String::new(),
         sha256: [0; 32],
@@ -29,12 +29,33 @@ pub(super) fn run_parent() {
     let mut cases = Vec::new();
     for phase in CASES {
         let report = run_phase(&path, phase, &directory.0);
-        let details: serde_json::Value =
+        let mut details: serde_json::Value =
             serde_json::from_slice(&fs::read(directory.0.join("presence-result.json")).unwrap())
                 .unwrap();
         assert_eq!(details["pid"], report.pid);
         assert_eq!(details["phase"], phase);
         assert_eq!(details["passed"], true);
+        let port = u16::try_from(
+            details
+                .as_object_mut()
+                .unwrap()
+                .remove("fixture_port")
+                .unwrap()
+                .as_u64()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_ne!(port, 0);
+        let origin = format!("http://127.0.0.1:{port}/");
+        if phase == "presence-live" {
+            input.origin = origin;
+            fs::write(&path, serde_json::to_vec(&input).unwrap()).unwrap();
+        } else {
+            assert_eq!(
+                input.origin, origin,
+                "the process restart reuses the same logical API object origin"
+            );
+        }
         cases.push(details);
     }
     assert_ne!(cases[0]["pid"], cases[1]["pid"]);
@@ -89,7 +110,11 @@ impl Drop for WindowManager {
 
 pub(super) fn run_child(original: &Input, phase: &str) {
     let _manager = WindowManager::start();
-    let server = Server::new(&original.directory);
+    let server = if original.origin.is_empty() {
+        Server::new(&original.directory)
+    } else {
+        Server::new_on_origin(&original.directory, &original.origin)
+    };
     server.mode.lock().unwrap().digest = true;
     let input = make_input(&original.directory, &server);
     if phase == "presence-live" {
@@ -469,10 +494,15 @@ fn fresh_primary(ui: &crate::ui::MainWindow, this: &Controller, kind: PlaybackSo
 fn finish(
     input: &Input,
     phase: &str,
-    details: serde_json::Value,
+    mut details: serde_json::Value,
     source: &str,
     replay: Option<&str>,
 ) {
+    details["fixture_port"] = reqwest::Url::parse(&input.origin)
+        .unwrap()
+        .port()
+        .unwrap()
+        .into();
     fs::write(
         input.directory.join("presence-result.json"),
         serde_json::to_vec(&details).unwrap(),

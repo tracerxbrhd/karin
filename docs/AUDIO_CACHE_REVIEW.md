@@ -3,20 +3,23 @@
 # Audio caching and offline access
 
 Karin implements a private HTTP cache for supported, already authorized full-MP3
-playback, with **fresh online access and representation validation before reuse**.
-The player receives its online source immediately; an independent bounded job
-can save a complete supported response to protected staging. This is not a
+playback, with **current Music access, matching selection, integrity and a valid
+private HTTP reuse lease before local playback**. A fresh local hit is selected
+before XML/CDN resolution. On a miss the player receives its online source
+immediately; an independent bounded job can save a complete supported response
+to protected staging. This is not a
 GStreamer capture, a Playing/EOS prerequisite or a second audio engine.
 Playback access, HTTP storage policy, version validation and applicable rights
 remain separate: HTTP cacheability does not create a provider entitlement or
 legal license. Protected formats, explicit restrictions and `no-store` reject
-storage; unverifiable versions reject local reuse.
+storage. Stale/unproved representations require validation or remain online.
 
 **The owner confirmed real first playback and complete background saving on
 Fedora Native. At `cac4d78`, replay still caused descriptor-path /
 representation-changed downloads, without a confirmed local hit.** Corrected
-validator scoping and retained graphical indicators need final
-Native/installed-Flatpak acceptance. The earlier `6ec2407`
+local-first selection, response freshness and retained graphical indicators need
+final Native/installed-Flatpak acceptance. Current real CDN freshness headers
+have not been measured in Cloud. The earlier `6ec2407`
 playback and `f2050b0` saving failures remain historical results. Cloud fixtures
 cannot establish a new real-CDN result. See
 [VALIDATION](VALIDATION.md#owner-result-at-cac4d78).
@@ -31,7 +34,7 @@ public authorization/API distribution rights remain separately tracked in
 | Mode | Current result | Additional condition |
 | --- | --- | --- |
 | Active streaming buffer | Transient pipeline memory; no saved media or cross-play reuse | Preserve online-resource admission |
-| Reusable audio while online | Ordinary playback can save an eligible complete MP3 response and reuse a validated local record | Fresh account/resource access, acceptable HTTP/content policy and verified retained representation before each hit |
+| Reusable audio while online | Ordinary playback saves an eligible complete MP3 and selects fresh local data before XML/CDN | Current account/track access, matching authenticated API selection, integrity and fresh response lease; otherwise strict validation or online fallback |
 | Offline audio | Outside this initial cache scope; no offline switch or badge | A separate contract for permitted resources, applicable account/device scope, expiry, renewal, revocation and offline checks |
 
 Automatic cleanup does not turn a disk recording into an in-memory stream.
@@ -44,11 +47,17 @@ content/distribution rights remain separate decisions.
 
 ## Cassette source audit
 
-Rechecked **2026-11-10** at Cassette v0.2.4, commit
+Rechecked **2026-11-11** at Cassette v0.2.4, commit
 [`9d34251`](https://github.com/Rirusha/Cassette/tree/9d34251d01bcd414ffbec2bef7931090d33c9124).
 All six files below carry Vladimir Vaskov's copyright and GPL-3.0-or-later.
 They are technical references; no cache implementation, obfuscation or
 official-client material is copied into Karin's store.
+The reviewed cachier/storager/player files are byte-identical in v0.2.5
+[`b1c55e5`](https://github.com/Rirusha/Cassette/tree/b1c55e5fb71e60c9ff5421db42695f4dd5526a26).
+Cassette's audio key is only Track ID; quality is selected on a miss, with no
+fresh account, version or HTTP-policy check on the local-hit path. Karin adopts
+its local-before-network ordering, while retaining account/variant/integrity and
+freshness safeguards.
 
 | Pinned source | Observed mechanism and limit of the evidence |
 | --- | --- |
@@ -171,9 +180,9 @@ The downloaded response establishes its own storage policy and complete version;
 no bytes from the player's response are reused. A complete newer representation
 is not spliced onto an older prefix. No-store, unsupported/protected content,
 access refusal, malformed metadata, timeout and incomplete transfer leave
-permitted online playback available. A new private response must provide a
-strong ETag, conservatively usable Last-Modified or full Repr-Digest; without
-one, the worker declines its body/store as `validators-missing`. A stale source
+permitted online playback available. A new private response needs a usable
+response-freshness lease or scoped ETag/Last-Modified/Repr-Digest evidence;
+otherwise the worker declines its body/store as `validators-missing`. A stale source
 can be refreshed through the existing account-bound resolver. A first CDN403/410
 permits one fresh resolution and a retry only if the sealed URI changed; an
 unchanged refusal, network/body error or a second refusal is not retried. No new
@@ -181,11 +190,12 @@ client identity or region is attempted. Tokens/cookies never reach CDN, and
 signed addresses remain in memory.
 
 A saved file is optional data, not playback entitlement. Every local replay
-resolves current Music access and verifies the retained representation with a
-bounded metadata request. A proven hit supplies its pinned read-only file to the
-same GStreamer worker; slow/corrupt/unverifiable cache falls back online. Clear
-can unlink the record while an admitted playback FD remains usable. Completed
-records survive normal close/restart, subject to fresh validation on reuse.
+checks current Music access and authenticated offer selection. Saved integrity
+and fresh response policy can admit a local source before descriptor/CDN
+resolution; otherwise a bounded representation check or online fallback applies.
+The pinned read-only file goes to the same GStreamer worker. Clear can unlink
+the record while its admitted playback FD remains usable. Completed records and
+reuse policy survive normal close/restart; access is checked again on reuse.
 The separate LicensedResourceAuthority exact-content policy is retained for
 trusted CC0 declarations; it is not a mock Music grant in the ordinary app.
 
@@ -264,28 +274,44 @@ representation identity.
 ## Private HTTP admission and resource validation
 
 The 2026-11-08 implementation revision supersedes the blanket
-`MissingStorageContract → NoGrant` decision for ordinary playback. Four checks
+`MissingStorageContract → NoGrant` decision for ordinary playback. These checks
 remain distinct:
 
 | Check | Required evidence and behavior |
 | --- | --- |
-| Current playback access | The existing account-bound Music session and a fresh supported, non-preview Legacy MP3 delivery resolution. A refusal never becomes a local cache hit. |
-| HTTP storage eligibility | Inspect the independent complete-download response. Require a usable version validator and bounded, complete `audio/mpeg` representation; allow identity encoding and `Vary: Accept-Encoding` with matching identity requests; reject other encodings/variant dimensions, `no-store`, partial transfer, malformed metadata and explicit storage restrictions such as HTTP451. |
-| Retained version | Validate an existing record against the currently admitted source without another full media GET. A track ID, equal size or changed signed URL alone is insufficient. |
-| Content constraints | Refuse protected/unsupported content and explicit restrictions. Private HTTP admission is a local engineering policy, not a fabricated provider entitlement or declaration of legal distribution rights. |
+| Current playback access | The existing account-bound Music session and a current authenticated offer for supported, full Legacy MP3. An API refusal never becomes a local cache hit. |
+| HTTP storage eligibility | Inspect the independent complete-download response. Require a bounded, complete `audio/mpeg` representation and usable freshness or validation evidence; allow identity encoding and supported Vary only; reject no-store, unsupported/protected types, partial transfers, malformed policy and explicit restrictions. |
+| Retained selection and integrity | Compare schema-2 logical descriptor object plus MP3 codec/bitrate/gain/fullness from the API offer, independently of its temporary CDN locator. Recheck the account/token epoch, complete length and SHA-256; Track ID alone is insufficient. |
+| Reuse window | Use an unexpired private response lease; otherwise require strict representation validation. A selection fingerprint is not an immutable byte-generation guarantee. |
+| Content constraints | Refuse protected/unsupported content and explicit restrictions. Private HTTP admission is an engineering policy, not a fabricated provider entitlement or legal distribution license. |
 
-[RFC9111](https://www.rfc-editor.org/rfc/rfc9111.html) permits private response
-caching subject to its rules. `no-cache` permits storage with revalidation;
-`must-revalidate` cannot permit stale fallback. Karin requires a new successful
-online access/version check before **every** local play, even within an indicated
-freshness lifetime. A network failure therefore preserves a permitted online
-playback attempt but does not authorize stale local reuse. If fresh validation
-returns `no-store`, the completed record is removed before selecting the online
-source; an existing active playback descriptor remains valid. HTTP itself does
-not require a validator for every stored response, but Karin conservatively
-declines a new private copy without usable ETag/Last-Modified/Repr-Digest evidence,
-so an unreusable body is not downloaded solely for cache storage. Any older
-record still needs successful current-version proof before a local hit.
+The local-first order is current access → authenticated offer → local integrity
+and freshness → local URI. XML descriptor/CDN resolution is reserved for a miss
+or required validation. The offer's logical object and selected format identify
+what was requested; the retained SHA-256 identifies the saved bytes. Neither
+claims a provider-issued immutable content version. Public Track.storageDir,
+fileSize, realId and descriptive version fields have no inspected byte-version
+contract. A known logical selection/encoding change retires/refills the record;
+a refreshed signed media URI alone is irrelevant to the fresh-hit path.
+
+[RFC9111 §4.2](https://www.rfc-editor.org/rfc/rfc9111.html#section-4.2)
+permits reuse of fresh stored responses. Calculate freshness from explicit valid
+max-age or Expires, corrected Date/Age and persisted request/response clocks.
+Without explicit expiration, §4.2.2 permits heuristic freshness for eligible
+HTTP200 responses: Karin requires Date at least 60 seconds after Last-Modified
+and uses ten percent of that interval, capped at one hour. This is a bounded heuristic, not an immutable-recording or
+rights claim. Invalid/conflicting policy, clock rollback and old sidecars without
+receipt metadata do not acquire this shortcut.
+
+`private` permits a private cache; `no-cache` always requires successful
+validation; `must-revalidate` prevents reuse once stale; `no-store` forbids
+storage. Current Music access is still checked on every playback, including
+after restart. A stale or unproved file cannot bypass a refusal or network
+failure. If validation returns no-store, remove the retained record while
+preserving any already admitted playback descriptor. The presence of max-age
+or a validator is not a copyright license. Actual deployed CDN freshness headers
+remain unknown until the owner's service acceptance; absent explicit max-age is
+not itself proof that standard freshness is impossible.
 
 A changed download address is not itself a new audio representation. The old
 aggregate hash invalidated host/path relocation. The `cac4d78` correction then
@@ -298,8 +324,8 @@ inventing unavailable CDN headers or addresses.
 
 The opaque logical binding retains the descriptor origin, full object path and
 semantic query, excluding only documented `sign`/`ts` signing fields. It supplies
-object provenance, not a content/version fingerprint or permission to compare
-independent CDN validators. Unknown query dimensions remain significant.
+object provenance for the selected format, not an immutable byte version or
+permission to compare independent CDN validators. Unknown query dimensions remain significant.
 
 Primary evidence from Yandex's public
 [mediastorage-proxy `d7102c4`](https://github.com/yandex/mediastorage-proxy/tree/d7102c46252275e702ba5bbf62c73f581e1497d5):
@@ -314,10 +340,11 @@ Cassette and the pinned [Music client](https://github.com/MarshalX/yandex-music-
 copy XML `ts` into the legacy request. That field remains opaque in Karin; it is
 not promoted to a version fingerprint or used to grant expiry/rights. No
 independent provider body/version identifier has been confirmed in the consumed
-API/XML contract. If the actual CDN rotates its media URI and provides no valid
-full representation digest, Karin cannot safely establish a local hit without
-transferring the body; this correction instead retains the candidate online and
-prevents redundant cache refills. Historical source is evidence about its
+API/XML contract. This does not forbid fresh local reuse: a matching current
+selection and valid response lease avoid a new media URI entirely. Once
+revalidation is required, a rotated URI without a full representation digest
+may leave the retained candidate unproved; that strict path stays online without
+redundant cache refills. Historical source is evidence about its
 implementation, not a claim that the owner's 2026 CDN is identical.
 
 [RFC9110 §8.8.1](https://www.rfc-editor.org/rfc/rfc9110.html#section-8.8.1)
@@ -347,15 +374,24 @@ Content-Digest for a HEAD message or a partial response is not that proof.
 A complete new length or full-content digest mismatch proves different bytes;
 encoding changes, explicit restrictions and invalid records remain separate.
 
-The production outcomes are distinct: Same admits a verified local file after
-fresh access/final fences; Different follows the applicable retirement/update
-policy; Unknown keeps the valid candidate and plays online without a new body
-save. Legacy metadata can acquire a fresh binding only after positive Same proof,
-atomically on the existing deferred lookup/LRU worker without re-downloading
-the payload; old validator values are not relabeled as belonging to a new replica.
-Only a successful sidecar update emits `binding-rebased`, not a downloading or
-write-confirmed event. Missing binding is not a full-download migration trigger. No second track-state database or stale local fallback is
-introduced. Saved continues to mean an actual complete file, not offline access.
+Required revalidation retains three distinct outcomes: Same admits a verified
+local file after current access/final fences; Different follows retirement/update
+policy; Unknown keeps a modern candidate and plays online without a new body save.
+The fresh local-first path needs no new CDN validation request. Legacy records
+without receipt metadata or schema-2 selection first attempt strict validation.
+Positive Same may update the sidecar atomically without downloading audio. If
+proof remains inconclusive, a current authenticated offer can admit a complete
+response through the existing background writer to migrate that legacy record.
+Only full validation and atomic publication replace the old bytes; old mtime,
+opaque validators or an old file never become a fabricated fresh response.
+Refusal/no-store prevents migration; successful schema-2 publication ends it.
+An expired modern lease with incomparable replicas can admit one replacement
+when current probe policy is fresh and the actual GET headers independently
+permit fresh reuse. The latter gate runs before the body is read. Successful
+publication renews the measured lease; no-cache/unproved freshness cannot enter
+this path, so it does not redownload on every unchanged selection. Only a successful metadata rebase emits `binding-rebased`; a complete new
+migration save emits normal publication events. No second track-state database
+or stale local fallback is introduced. Saved continues to mean an actual complete file, not offline access.
 Finite diagnostics distinguish content/length differences, scoped validator
 invalidation, uncomparable replicas, missing proof, retention and verified local
 use without exposing underlying values.
@@ -364,8 +400,11 @@ Only bounded cache metadata, opaque identity, measured length/hash and validator
 are retained beside the completed record. OAuth tokens, cookies, signed URLs,
 raw responses and personal account fields are never serialized. The existing
 shared budget accounts for storage; Clear, logout, account changes and
-cancellation fence both payload and metadata. Partial or corrupt records are not
-hits. A storage or validation failure must not break otherwise admitted network
+cancellation fence both payload and metadata. Whole-response quota reservations
+protect an existing target while counting staging. Atomic directory exchange
+keeps the original through final fences and rolls back on failure; the pending
+reservation stays live through rollback/cleanup against cross-store LRU. Partial
+or corrupt records are not hits. A storage or validation failure must not break otherwise admitted network
 playback.
 
 ## Rights, distribution and verification scope

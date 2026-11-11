@@ -72,7 +72,7 @@ fn no_store_and_malformed_directives_decline_only_caching() {
 }
 
 #[test]
-fn private_no_cache_must_revalidate_and_freshness_never_skip_validation() {
+fn private_no_cache_requires_validation_even_with_a_freshness_lifetime() {
     let policy = response(200, &[
         ("Cache-Control", "private, no-cache=\"set-cookie, x-private\", must-revalidate, max-age=\"3600\", s-maxage=7200"),
         ("Age", "30"),
@@ -98,6 +98,427 @@ fn private_no_cache_must_revalidate_and_freshness_never_skip_validation() {
             .directives
             .no_cache
     );
+}
+
+fn application() -> ApplicationIdentity {
+    ApplicationIdentity {
+        logical: [10; 32],
+        variant: [11; 32],
+        schema: 2,
+    }
+}
+
+fn selected(mut metadata: Metadata) -> Metadata {
+    let identity = application();
+    metadata.binding = Some(ResourceBinding {
+        schema: identity.schema,
+        logical: Some(identity.logical),
+        host: [12; 32],
+        path: [13; 32],
+        variant: identity.variant,
+    });
+    metadata
+}
+
+fn observed(extra: &[(&str, &str)], elapsed: Duration, receipt: u64) -> Metadata {
+    selected(
+        response(200, extra)
+            .unwrap()
+            .observed_at(elapsed, receipt)
+            .record([1; 32], [2; 32], [3; 32], 4)
+            .unwrap(),
+    )
+}
+
+#[test]
+fn fresh_private_response_reuses_current_application_selection_without_any_validator() {
+    let policy = response(200, &[("Cache-Control", "private, max-age=3600")])
+        .unwrap()
+        .observed_at(Duration::from_millis(20), 1000);
+    assert!(!policy.has_validator());
+    assert!(policy.reusable());
+    let metadata = selected(policy.record([1; 32], [2; 32], [3; 32], 4).unwrap());
+    assert_eq!(
+        metadata.fresh_for(application(), 1010),
+        Ok(FreshReuse {
+            kind: Freshness::Explicit,
+            remaining: Duration::from_secs(3589),
+        })
+    );
+    let reopened = Metadata::decode(&metadata.encode().unwrap()).unwrap();
+    assert_eq!(
+        reopened.fresh_for(application(), 4600),
+        Err(Reason::FreshnessExpired)
+    );
+    assert!(!reopened.needs_initial_refresh());
+    // Physical placement is deliberately absent from application admission.
+    let relocated = Metadata {
+        binding: metadata.binding.map(|before| ResourceBinding {
+            host: [90; 32],
+            path: [91; 32],
+            ..before
+        }),
+        ..metadata.clone()
+    };
+    assert_eq!(
+        relocated.fresh_for(application(), 1010),
+        metadata.fresh_for(application(), 1010)
+    );
+    for changed in [
+        ApplicationIdentity {
+            logical: [99; 32],
+            ..application()
+        },
+        ApplicationIdentity {
+            variant: [99; 32],
+            ..application()
+        },
+    ] {
+        assert_eq!(
+            metadata.fresh_for(changed, 1010),
+            Err(Reason::ApplicationChanged)
+        );
+    }
+    assert_eq!(
+        metadata.fresh_for(
+            ApplicationIdentity {
+                schema: 1,
+                ..application()
+            },
+            1010
+        ),
+        Err(Reason::ApplicationUnverified)
+    );
+}
+
+#[test]
+fn no_cache_is_always_revalidated_but_must_revalidate_allows_only_fresh_reuse() {
+    let no_cache = observed(
+        &[("Cache-Control", "no-cache, max-age=3600")],
+        Duration::ZERO,
+        1000,
+    );
+    assert_eq!(
+        no_cache.fresh_for(application(), 1001),
+        Err(Reason::FreshnessNoCache)
+    );
+    assert!(
+        !response(200, &[("Cache-Control", "no-cache, max-age=3600")])
+            .unwrap()
+            .observed_at(Duration::ZERO, 1000)
+            .reusable()
+    );
+    let must = observed(
+        &[("Cache-Control", "must-revalidate, max-age=60")],
+        Duration::ZERO,
+        1000,
+    );
+    assert!(must.fresh_for(application(), 1059).is_ok());
+    assert_eq!(
+        must.fresh_for(application(), 1060),
+        Err(Reason::FreshnessExpired)
+    );
+    let shared_only = observed(&[("Cache-Control", "s-maxage=3600")], Duration::ZERO, 1000);
+    assert_eq!(
+        shared_only.fresh_for(application(), 1001),
+        Err(Reason::FreshnessMissing)
+    );
+}
+
+#[test]
+fn age_receipt_request_delay_restart_and_clock_uncertainty_bound_reuse() {
+    let metadata = observed(
+        &[("Cache-Control", "max-age=60"), ("Age", "20")],
+        Duration::from_millis(1201),
+        1000,
+    );
+    assert_eq!(metadata.observed.unwrap().corrected_initial_age, 22);
+    assert_eq!(
+        metadata.fresh_for(application(), 1010).unwrap().remaining,
+        Duration::from_secs(28)
+    );
+    assert_eq!(
+        metadata.fresh_for(application(), 1038),
+        Err(Reason::FreshnessExpired)
+    );
+    assert_eq!(
+        metadata.fresh_for(application(), 999),
+        Err(Reason::ClockUncertain)
+    );
+    let overflow = observed(
+        &[
+            ("Cache-Control", "max-age=60"),
+            ("Age", "18446744073709551615"),
+        ],
+        Duration::from_secs(1),
+        1000,
+    );
+    assert_eq!(
+        overflow.fresh_for(application(), 1000),
+        Err(Reason::FreshnessMissing)
+    );
+    let legacy = Metadata {
+        observed: None,
+        ..metadata
+    };
+    assert!(legacy.needs_initial_refresh());
+    assert_eq!(
+        legacy.fresh_for(application(), 1001),
+        Err(Reason::FreshnessMissing)
+    );
+}
+
+#[test]
+fn expires_max_age_precedence_apparent_age_and_future_dates_are_conservative() {
+    let date = "Mon, 01 Jan 2024 00:00:00 GMT";
+    let now = http_date(date).unwrap();
+    let metadata = observed(
+        &[("Date", date), ("Expires", "Mon, 01 Jan 2024 00:10:00 GMT")],
+        Duration::ZERO,
+        now + 100,
+    );
+    assert_eq!(metadata.observed.unwrap().corrected_initial_age, 100);
+    assert_eq!(
+        metadata
+            .fresh_for(application(), now + 200)
+            .unwrap()
+            .remaining,
+        Duration::from_secs(400)
+    );
+    let maximum = observed(
+        &[
+            ("Date", date),
+            ("Expires", "Mon, 01 Jan 2024 00:10:00 GMT"),
+            ("Cache-Control", "max-age=30"),
+        ],
+        Duration::ZERO,
+        now,
+    );
+    assert_eq!(
+        maximum.fresh_for(application(), now + 30),
+        Err(Reason::FreshnessExpired)
+    );
+    let future = observed(
+        &[("Date", date), ("Cache-Control", "max-age=60")],
+        Duration::ZERO,
+        now - 1,
+    );
+    assert_eq!(
+        future.fresh_for(application(), now),
+        Err(Reason::FreshnessMissing)
+    );
+}
+
+#[test]
+fn heuristic_is_ten_percent_capped_and_never_overrides_explicit_staleness() {
+    let date = "Mon, 01 Jan 2024 00:00:00 GMT";
+    let now = http_date(date).unwrap();
+    let headers = [
+        ("Date", date),
+        ("Last-Modified", "Sun, 31 Dec 2023 23:50:00 GMT"),
+    ];
+    let metadata = observed(&headers, Duration::ZERO, now);
+    assert_eq!(
+        metadata.fresh_for(application(), now).unwrap(),
+        FreshReuse {
+            kind: Freshness::Heuristic,
+            remaining: Duration::from_secs(60),
+        }
+    );
+    assert_eq!(
+        metadata.fresh_for(application(), now + 60),
+        Err(Reason::FreshnessExpired)
+    );
+    let old = observed(
+        &[
+            ("Date", date),
+            ("Last-Modified", "Sat, 30 Dec 2023 00:00:00 GMT"),
+        ],
+        Duration::ZERO,
+        now,
+    );
+    assert_eq!(
+        old.fresh_for(application(), now).unwrap().remaining,
+        Duration::from_secs(3600)
+    );
+    for explicit in [("Cache-Control", "max-age=0"), ("Expires", "0")] {
+        let mut headers = headers.to_vec();
+        headers.push(explicit);
+        assert_eq!(
+            observed(&headers, Duration::ZERO, now).fresh_for(application(), now),
+            Err(Reason::FreshnessExpired)
+        );
+    }
+    let incomplete_status = Metadata {
+        observed: metadata.observed.map(|before| Observation {
+            response_status: 206,
+            ..before
+        }),
+        ..metadata
+    };
+    assert_eq!(
+        incomplete_status.fresh_for(application(), now),
+        Err(Reason::FreshnessMissing)
+    );
+}
+
+#[test]
+fn legacy_schema_is_not_a_proved_encoding_change_and_refresh_is_one_time() {
+    let mut metadata = observed(&[("Cache-Control", "max-age=60")], Duration::ZERO, 1000);
+    metadata.binding.as_mut().unwrap().schema = 1;
+    assert!(metadata.needs_initial_refresh());
+    assert_eq!(
+        metadata.fresh_for(application(), 1001),
+        Err(Reason::ApplicationUnverified)
+    );
+    metadata.binding.as_mut().unwrap().schema = 2;
+    assert!(!metadata.needs_initial_refresh());
+    assert!(metadata.fresh_for(application(), 1001).is_ok());
+    let encoded = metadata.encode().unwrap();
+    assert!(!Metadata::decode(&encoded).unwrap().needs_initial_refresh());
+}
+
+#[test]
+fn not_modified_uses_new_date_for_inherited_expires_and_missing_date_cannot_reset_age() {
+    let date = "Mon, 01 Jan 2024 00:00:00 GMT";
+    let now = http_date(date).unwrap();
+    let stored = observed(
+        &[
+            ("Date", date),
+            ("Last-Modified", "Sun, 31 Dec 2023 23:50:00 GMT"),
+            ("Expires", "Mon, 01 Jan 2024 00:01:00 GMT"),
+            ("ETag", "\"same\""),
+        ],
+        Duration::ZERO,
+        now,
+    );
+    let headers = [
+        ("Date", "Mon, 01 Jan 2024 00:02:00 GMT"),
+        ("ETag", "\"same\""),
+    ];
+    let policy = response(304, &headers)
+        .unwrap()
+        .observed_at(Duration::ZERO, now + 120);
+    let fresh = same(policy.revalidate_scoped(
+        &stored,
+        stored.uri_hash,
+        stored.resource_hash,
+        stored.binding,
+        true,
+    ));
+    assert_eq!(fresh.date_unix, Some(now + 120));
+    assert_eq!(
+        fresh.fresh_for(application(), now + 120),
+        Err(Reason::FreshnessExpired)
+    );
+    let no_date = response(304, &[("ETag", "\"same\"")])
+        .unwrap()
+        .observed_at(Duration::ZERO, now + 120);
+    let fresh = same(no_date.revalidate_scoped(
+        &stored,
+        stored.uri_hash,
+        stored.resource_hash,
+        stored.binding,
+        true,
+    ));
+    assert_eq!(fresh.observed.unwrap().corrected_initial_age, 120);
+    assert_eq!(
+        fresh.fresh_for(application(), now + 120),
+        Err(Reason::FreshnessExpired)
+    );
+}
+
+#[test]
+fn not_modified_replaces_present_cache_control_instead_of_reviving_old_max_age() {
+    let date = "Mon, 01 Jan 2024 00:00:00 GMT";
+    let now = http_date(date).unwrap();
+    let stored = observed(
+        &[
+            ("Date", date),
+            ("Cache-Control", "max-age=3600"),
+            ("ETag", "\"same\""),
+        ],
+        Duration::ZERO,
+        now,
+    );
+    let policy = response(
+        304,
+        &[
+            ("Date", "Mon, 01 Jan 2024 00:02:00 GMT"),
+            ("ETag", "\"same\""),
+            ("Cache-Control", "private"),
+            ("Expires", "0"),
+        ],
+    )
+    .unwrap()
+    .observed_at(Duration::ZERO, now + 120);
+    let fresh = same(policy.revalidate_scoped(
+        &stored,
+        stored.uri_hash,
+        stored.resource_hash,
+        stored.binding,
+        true,
+    ));
+    assert_eq!(fresh.directives.max_age, None);
+    assert_eq!(
+        fresh.fresh_for(application(), now + 120),
+        Err(Reason::FreshnessExpired)
+    );
+    let omitted = response(
+        304,
+        &[
+            ("Date", "Mon, 01 Jan 2024 00:02:00 GMT"),
+            ("ETag", "\"same\""),
+        ],
+    )
+    .unwrap()
+    .observed_at(Duration::ZERO, now + 120);
+    let fresh = same(omitted.revalidate_scoped(
+        &stored,
+        stored.uri_hash,
+        stored.resource_hash,
+        stored.binding,
+        true,
+    ));
+    assert_eq!(fresh.directives.max_age, Some(3600));
+    assert!(fresh.fresh_for(application(), now + 120).is_ok());
+}
+
+#[test]
+fn expired_replica_refresh_needs_actual_fresh_policy_not_just_new_opaque_validators() {
+    let stored = observed(
+        &[("Cache-Control", "max-age=60"), ("ETag", "\"old-replica\"")],
+        Duration::ZERO,
+        1000,
+    );
+    assert_eq!(
+        stored.fresh_for(application(), 1060),
+        Err(Reason::FreshnessExpired)
+    );
+    for (control, refresh) in [
+        ("max-age=3600", true),
+        ("no-cache, max-age=3600", false),
+        ("max-age=0", false),
+        ("private", false),
+    ] {
+        let current = response(
+            200,
+            &[("Cache-Control", control), ("ETag", "\"new-replica\"")],
+        )
+        .unwrap()
+        .observed_at(Duration::ZERO, 1060);
+        let validation = current
+            .revalidate_scoped(&stored, [9; 32], [8; 32], stored.binding, false)
+            .unwrap();
+        assert_eq!(
+            validation,
+            if refresh {
+                Validation::RefreshFresh(Reason::ValidatorsIncomparable)
+            } else {
+                Validation::Unproven(Reason::ValidatorsIncomparable)
+            }
+        );
+    }
 }
 
 #[test]

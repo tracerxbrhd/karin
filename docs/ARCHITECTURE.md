@@ -189,11 +189,19 @@ Clear fences and unlinks it without waiting for more bytes. Initialization,
 commit and Clear retry short I/O contention on workers for at most 250 ms, with
 generation/cancellation checks. Keep the existing 64 MiB resource, 1024-record
 and four-job-context bounds. There is no whole-response capture buffer.
+Whole-response reservations protect an existing target from LRU throughout the
+copy. A validated replacement exchanges complete directories atomically and
+retains the original at the registered stage until final permission, generation,
+quota and publication checks succeed. A late failure restores it; the reservation
+protects both publication and rollback from concurrent shared-budget eviction.
 
-A playback intent resolves a current account-bound MP3 and overlaps cache
-integrity work on bounded workers. An already-ready, freshly validated hit passes
-its pinned read-only file to the existing PlaybackController. A missing, slow,
-busy, corrupt or unverified candidate leaves that play online. Cache failure
+A playback intent checks current account access and the authenticated full-MP3
+API offer before looking up local audio. A complete matching selection with
+verified integrity and a fresh private HTTP reuse lease passes its pinned
+read-only file to the existing PlaybackController **before XML/CDN resolution**.
+The selection binds the logical descriptor object and codec/bitrate/gain/fullness
+(schema 2); it is not an immutable provider byte-version claim. Missing, slow,
+busy, corrupt or unverified candidates leave the play online. Cache failure
 cannot turn a valid source into a playback error.
 
 On a miss, the selected network source starts immediately and one independent
@@ -219,38 +227,46 @@ complete response length and SHA-256, and publishes atomically. It checks actual
 including no-store, encoding and supported Vary dimensions. A fresh source may
 be resolved when its short-lived admission expires. A first CDN403/410 can
 resolve once more and retry only a changed sealed URI. A new private response
-without usable ETag/Last-Modified/Repr-Digest is declined before body storage.
-Token/account/cache
-cancellation is checked throughout reads and publication. Credentials are not
+needs usable freshness or scoped validation evidence before body storage.
+Token/account/cache cancellation is checked throughout reads and publication. Credentials are not
 sent to media hosts; signed URLs remain in memory. HTTP permission to store is
 separate from playback access and applicable content/distribution rights.
 
-Every later local play needs fresh Music access and successful representation
-validation. Logical descriptor object/encoding, physical delivery and byte
-version are separate facts. The logical request binding retains the validated
-origin, full object path and semantic query, excluding only documented signing
-fields. It identifies provenance, not a shared CDN validator namespace. Equal
-logical keys cannot make different replicas' ETags/Last-Modified comparable.
+Local-first reuse separates Music account/track access, selected recording and
+variant, saved-file integrity, HTTP freshness and the temporary delivery locator.
+The authenticated offer's opaque fingerprint retains the validated descriptor
+origin, full logical object path and semantic query, excluding only recognized
+sign/ts signing fields. Exact selected MP3 bitrate/gain/fullness and account/token
+epochs must match. Known selection changes retire/refill; renewed signed CDN
+URLs alone do not invalidate an otherwise fresh record. Track ID alone never
+selects a hit. Logical storage keys are mutable; equality is not a content hash
+or permission to compare independent replicas' validators.
 
-A strong validator and matching full length can prove reuse only for the exact
-provider media URI, with no known logical/encoding mismatch. Opaque validators
-and old conditionals cannot cross to another URI, even when only a signed wrapper
-appears to change: legacy XML ts remains opaque. A trusted full Repr-Digest
-matching the retained SHA-256 and whole length can independently prove the
-selected bytes across locators. A
-complete-length/digest difference proves different bytes; a same-scope validator
-mismatch invalidates that representation version. Different replica validators
-alone prove neither sameness nor changed audio. Track ID, equal size, logical
-key or signed wrapper alone cannot admit a hit. A bare 304 cannot create scope.
+A saved response can be reused within explicit max-age/Expires, accounting for
+Date, Age, request/response time and residence across restart. Without explicit
+expiration, a valid Date/Last-Modified pair allows conservative RFC9111 heuristic
+freshness of ten percent of the interval, capped at one hour. `no-cache` always
+requires validation; `must-revalidate` prevents stale reuse; `no-store` forbids
+storage. Invalid clocks/directives and legacy sidecars without receipt metadata
+do not acquire a fresh lease.
 
-Keep the three outcomes distinct: Same admits the local file after current
-rights/final fences; Different declines it and permits the applicable update;
-Unknown keeps the good candidate and plays online, without another background
-body save. No-cache/must-revalidate never permit stale reuse. Legacy metadata
-may acquire a current binding only after positive Same proof, atomically and
-without a redundant media GET; missing binding alone cannot trigger a download.
-Only confirmed version/encoding changes, explicit refusals and corruption use
-their scoped retirement rules. Account/cache/cancellation fences remain separate.
+Outside that lease, strict representation validation remains available: exact
+compatible media URI for opaque ETag/Last-Modified and whole length, or a trusted
+full Repr-Digest matching the saved SHA-256 and length across locators. Legacy
+XML ts remains opaque. Same can update metadata atomically after final fences;
+Different follows the applicable retirement/update policy; Unknown preserves a
+modern candidate and online playback without a redundant body save. Legacy
+records lacking receipt metadata or schema-2 selection first attempt strict
+validation. If inconclusive, a current authenticated offer can admit one complete
+response through the existing background writer to migrate them. Only successful
+atomic publication replaces the old file; its bytes/mtime never gain a fabricated
+lease. For an expired modern selection with incomparable replica validators, a
+fresh current probe may admit one replacement only if the actual GET headers
+also permit fresh reuse, checked before reading its body. A successful save
+starts the measured new lease, avoiding repeated refresh downloads; no-cache or
+unproved current freshness stays online. Actual access
+refusal, no-store, corruption and encoding changes retain their separate fences.
+No second database, audio engine or invented offline right is introduced.
 
 Compact GTK cache indicators use a derived view of AudioCache, not playback
 intent, HTTP200, usage totals or a second persisted track database. A bounded

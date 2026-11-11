@@ -7,7 +7,8 @@ const WRITE_LIMIT: Duration = Duration::from_secs(30);
 
 /// Production coordinator. A delegate can provide an independently licensed
 /// admission or a private HTTP candidate; the latter still needs actual response
-/// policy before publication and fresh representation validation before a hit.
+/// policy before publication and current offer + HTTP freshness or strict
+/// representation validation before a hit. These are separate from permission.
 pub struct OnlineStreamAuthority {
     permission: Arc<dyn StorageAuthority>,
     state: Mutex<OnlineState>,
@@ -298,7 +299,7 @@ impl StorageAuthority for OnlineStreamAuthority {
         }
     }
 
-    fn revoke_writes(&self, identity: &ResourceIdentity, sequence: u64) {
+    fn revoke_writes(&self, identity: &ResourceIdentity, sequence: u64) -> bool {
         if let Ok(mut state) = self.state.lock() {
             if state.sequence != sequence
                 || !(state
@@ -308,7 +309,7 @@ impl StorageAuthority for OnlineStreamAuthority {
                         current.identity == *identity && current.revision == sequence
                     }))
             {
-                return;
+                return false;
             }
             state
                 .writes
@@ -318,7 +319,9 @@ impl StorageAuthority for OnlineStreamAuthority {
             {
                 state.consumed_write = Some(current);
             }
+            return true;
         }
+        false
     }
 }
 

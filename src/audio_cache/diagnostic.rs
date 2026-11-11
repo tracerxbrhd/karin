@@ -35,6 +35,10 @@ pub(crate) enum Cause {
     LogicalObjectChanged,
     BindingRebased,
     RecordRetained,
+    FreshResponse,
+    HeuristicFreshResponse,
+    LegacyRefresh,
+    ExpiredResponseRefresh,
     UserStop,
     AccountChanged,
     CacheCleared,
@@ -68,6 +72,10 @@ impl Cause {
             Self::LogicalObjectChanged => "logical-object-changed",
             Self::BindingRebased => "binding-rebased",
             Self::RecordRetained => "record-retained",
+            Self::FreshResponse => "fresh-current-offer",
+            Self::HeuristicFreshResponse => "heuristic-fresh-current-offer",
+            Self::LegacyRefresh => "legacy-response-refresh",
+            Self::ExpiredResponseRefresh => "expired-response-refresh",
             Self::UserStop => "user-stop",
             Self::AccountChanged => "account-changed",
             Self::CacheCleared => "cache-cleared",
@@ -127,7 +135,7 @@ pub(crate) fn identity(
         if before.path != now.path {
             report(Event::Checking, Cause::DescriptorPathChanged);
         }
-        if before.variant != now.variant {
+        if before.schema == now.schema && before.variant != now.variant {
             report(Event::Checking, Cause::EncodingChanged);
         }
     }
@@ -158,6 +166,7 @@ mod tests {
     #[test]
     fn signing_only_never_masks_a_logical_object_or_variant_change() {
         let binding = ResourceBinding {
+            schema: 1,
             logical: Some([1; 32]),
             host: [2; 32],
             path: [3; 32],

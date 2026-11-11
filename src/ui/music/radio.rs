@@ -356,6 +356,15 @@ impl Controller {
             .as_ref()
             .map(|active| active.session.clone())
     }
+
+    #[cfg(test)]
+    pub(super) fn wave_cycle_for_test(&self) -> Option<u64> {
+        self.radio
+            .borrow()
+            .active
+            .as_ref()
+            .and_then(|active| active.cycle)
+    }
     #[cfg(test)]
     pub(super) fn poison_wave_session_for_test(&self) {
         self.radio

@@ -127,9 +127,11 @@ records without usable HTTP validation metadata are refreshed online rather
 than trusted as private HTTP hits.
 
 A resource is stored only when its actual supported MP3 response allows it.
-Every replay obtains fresh account/resource access and verifies the retained
-representation. `no-store` and explicit restrictions decline storage; absent or
-unusable version evidence declines local reuse. Storage failure leaves admitted
+Every replay checks current Music account/track access and the authenticated
+full-MP3 offer. A matching saved selection with intact bytes and a fresh private
+response lease plays locally before XML/CDN resolution. Otherwise strict
+revalidation or online playback applies. `no-store` and explicit restrictions
+decline storage; absent freshness and unusable validation evidence decline reuse. Storage failure leaves admitted
 network playback available. HTTP cache admission is not a provider entitlement,
 legal license, Offline Mode or permission to distribute content. See
 [AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md) and
@@ -140,7 +142,8 @@ legal license, Offline Mode or permission to distribute content. See
 Real first playback and independent background saving on Fedora Native are
 owner-confirmed. At `cac4d78`, replay still repeated descriptor-path /
 representation-changed downloads without a confirmed local hit. Corrected
-validator scoping and retained indicators need this **one final sequence**, first
+local-first selection, response freshness and retained indicators need this
+**one final sequence**, first
 Native and then the installed Flatpak built from the same final PR HEAD.
 The earlier `6ec2407` playback failure remains a historical result.
 
@@ -172,17 +175,21 @@ flatpak run io.github.tracerxbrhd.Karin
 3. Replay that track and confirm actual local use: the current-player tooltip
    additionally says **«Воспроизводится из локального кеша»**, or the optional
    finite diagnostic below reports `cache=hit source=local`. The saved icon must
-   stay through access/version checking. A legacy record receives binding
-   metadata only after positive representation proof, without another full audio
-   GET. Uncomparable CDN validators must retain the candidate and stay online,
-   without repeated background downloads. Missing proof is not a local-replay
-   PASS; identical logical keys alone cannot turn different replicas into a hit.
-   Renewed media URIs require full representation proof; if the actual CDN offers
-   none, report online fallback as such, without counting Saved as local replay.
+   stay through current-access/selection checking. A fresh saved response with
+   matching authenticated MP3 selection must be chosen before XML/CDN resolution,
+   without another complete media download. A saved file alone is not a PASS.
+   Old metadata without receipt/schema-2 selection first attempts strict
+   validation; if inconclusive, one newly admitted complete response can migrate
+   it atomically. It must then stop taking that migration path. After a modern
+   lease expires, fresh probe and actual GET policy may authorize one complete
+   renewal; subsequent replay must again use its fresh local file. No-cache or
+   unproved freshness stays on strict validation/online fallback. Report that fallback as such, separately from
+   a fresh local hit; no fixed retention window is promised for every CDN response.
 4. Close normally without logout, reopen the same build and confirm the saved
-   indicator is recovered before playing. Replay with fresh access/version
-   checking and require the same actual-local cue. A saved icon, increased usage,
-   HTTP200 or hearing sound alone does not prove local reuse.
+   indicator is recovered before playing. Replay with current-access/selection
+   checking and require the same actual-local cue while its response lease is
+   still fresh. Expired/no-cache responses require successful revalidation. A
+   saved icon, increased usage, HTTP200 or hearing sound alone does not prove reuse.
 5. During local playback use Preferences → **Очистить кеш**. Saved indicators must
    disappear across views while already admitted audio and sign-in continue;
    later replay must miss. Disable/account changes must not show stale or foreign
@@ -210,11 +217,16 @@ flatpak run --env=KARIN_AUDIO_CACHE_DIAGNOSTICS=1 io.github.tracerxbrhd.Karin 2>
 | `cache=downloaded source=remote reason=download-complete` | Body receipt finished; publication may still fail. |
 | `cache=write-confirmed source=remote reason=complete-response` | The complete checked file was atomically published. |
 | `cache=checking source=remote reason=binding-rebased` | A proved binding was updated in metadata; no audio download occurred. |
-| `cache=hit source=local reason=representation-validated` | Fresh access/version proof admitted the local file. |
+| `cache=checking source=remote reason=fresh-current-offer` / `heuristic-fresh-current-offer` | Current authenticated selection and stored fresh policy admitted local-first preparation; actual Playing still establishes the hit. |
+| `cache=stale source=remote reason=legacy-response-refresh` | A legacy record needs a new complete admitted response, without stamping old bytes fresh. |
+| `cache=checking source=remote reason=expired-response-refresh` | An expired modern lease can be renewed only with fresh current probe and actual GET policy. |
+| `cache=hit source=local reason=representation-validated` | Current access and sufficient saved-response proof admitted the local file. |
 
 Finite checking reasons include `signed-url-changed`, `cdn-host-changed`,
 `descriptor-path-changed`, `encoding-changed` and `logical-object-changed`.
-They do not themselves establish changed audio. The fixed proof reasons are:
+They describe the strict revalidation path and do not themselves establish
+changed audio. A fresh matching selection takes the local-first path before
+there is a newly resolved CDN URI to compare. The fixed proof reasons are:
 
 | Reason | Established fact |
 | --- | --- |
@@ -226,10 +238,13 @@ They do not themselves establish changed audio. The fixed proof reasons are:
 | `record-retained` | The good candidate remains without a redundant cache-body save. |
 | `representation-validated` | Current access and representation proof admit the local source. |
 
-Binding migration is a positive-proof metadata update, not permission to replace
-the body. No actual hostname, path, URL, identifiers, headers, response bodies,
+A `binding-rebased` migration updates only metadata after positive proof.
+Legacy/expired-response refresh downloads a complete newly admitted response;
+protected quota reservation and atomic exchange retain the old valid file until
+final fences pass, and roll back late failure. No actual hostname, path, URL, identifiers, headers, response bodies,
 token or music belong in logs or shared evidence. Preserve the first failure category. A real resource
-without sufficient scoped or full-digest proof stays online; do not count its
+without a valid freshness lease or sufficient scoped/full-digest proof stays
+online; do not count its
 saved icon as successful replay. This procedure is the final owner check, not a
 new diagnostic-only acceptance stage. Public distribution and offline mode remain
 separate questions under [AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md).

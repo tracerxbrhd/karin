@@ -997,6 +997,156 @@ fn native_music_playback_resolver_queue_controls_and_logout() {
         "ordinary ungranted playback creates no storage-copy HTTP"
     );
     native_granted_audio_cache_fill_reuse_and_retirement();
+    native_local_first_cached_handoff_retries_online_once();
+}
+
+// Exercise the actual UI retry after the cache-selection handoff. The bounded
+// synthetic authority deliberately admits a decoder-invalid body here; normal
+// private HTTP publication screens MP3 structure before publishing a record.
+// This tests recovery rather than asserting any real service entitlement.
+fn native_local_first_cached_handoff_retries_online_once() {
+    use crate::audio_cache::{
+        AudioCache, CachePolicy, ResourceKey, test_support::SyntheticAuthority,
+    };
+    use crate::playback::{PlaybackSource, PlaybackSourceKind};
+
+    let fixture = Fixture::new();
+    let (_app, ui) = player_window(&fixture);
+    let this = &ui.music.controller;
+    this.model.borrow_mut().queue.replace_context(
+        PlaybackContext::new(
+            crate::queue::ContextKind::Playlist,
+            Some("synthetic-lazy-cache-recovery".into()),
+            vec![track("42"), track("43")],
+            0,
+            false,
+        )
+        .unwrap(),
+    );
+    this.render_queue();
+    this.request_music(false, None);
+    eprintln!("Karin synthetic local-first recovery: phase=initial-ready");
+    pump_until(|| {
+        this.music_snapshot()
+            .is_some_and(|snapshot| snapshot.state == PlaybackState::Ready)
+            && this.player.borrow().preparing.is_none()
+    });
+    let serial = this.music_serial();
+    let occurrence = this.model.borrow().queue.current_occurrence_id().cloned();
+    let cycle = this.wave_cycle_for_test();
+    let original = this.player.borrow_mut().controller.take().unwrap();
+    original.shutdown();
+    this.player.borrow_mut().retired.push(original.clone());
+    eprintln!("Karin synthetic local-first recovery: phase=initial-worker-cleanup");
+    pump_until(|| !original.snapshot().worker_running);
+
+    let directory = std::env::temp_dir().join(format!(
+        "karin-native-lazy-cache-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&directory)
+        .unwrap();
+    let directory = GeneratedDirectory(directory);
+    let token = this.model.borrow().token.as_ref().unwrap().clone();
+    let scope = this.service.as_ref().unwrap().cache_scope(&token).unwrap();
+    let key = ResourceKey::track("42").unwrap();
+    let authority = Arc::new(SyntheticAuthority::default());
+    authority.allow(&scope, &key);
+    let cache =
+        AudioCache::open(directory.0.join("audio"), authority, CachePolicy::default()).unwrap();
+    this.install_audio_cache_for_test(cache.clone(), scope);
+    let lease = cache.lease().unwrap();
+    cache
+        .put_reader(
+            cache.begin(&lease, key).unwrap(),
+            b"#EXTM3U\nhttp://127.0.0.1:1/unrequested\n".as_slice(),
+        )
+        .unwrap();
+    let source =
+        PlaybackSource::cached_file_local(cache.get(&lease, key).unwrap().unwrap()).unwrap();
+    let before = {
+        let counts = fixture.counts.lock().unwrap();
+        (counts.offers[0], counts.descriptors[0], counts.media[0])
+    };
+    let rejected = PlaybackController::new(PlaybackOutput::Fakesink).unwrap();
+    rejected.prepare(source).unwrap();
+    {
+        let mut player = this.player.borrow_mut();
+        player.controller = Some(rejected.clone());
+        player.preparing = Some((true, None));
+        player.play_intent = true;
+    }
+    eprintln!("Karin synthetic local-first recovery: phase=online-playing");
+    wait_playing(this, 0);
+    eprintln!("Karin synthetic local-first recovery: phase=online-settled");
+    pump_until(|| {
+        !rejected.snapshot().worker_running
+            && this.music_snapshot().is_some_and(|snapshot| {
+                snapshot.source_kind == PlaybackSourceKind::RemoteHttps
+                    && snapshot.playing_time >= Duration::from_millis(40)
+            })
+    });
+    assert_eq!(rejected.snapshot().playing_time, Duration::ZERO);
+    assert!(this.player.borrow().cache_retry_used);
+    assert_eq!(this.music_serial(), serial);
+    assert_eq!(
+        this.model.borrow().queue.current_occurrence_id(),
+        occurrence.as_ref()
+    );
+    assert_eq!(this.model.borrow().queue.items().len(), 2);
+    assert_eq!(this.wave_cycle_for_test(), cycle);
+    {
+        let counts = fixture.counts.lock().unwrap();
+        assert_eq!(
+            counts.offers[0],
+            before.0 + 1,
+            "one lazy access/resolution request"
+        );
+        assert_eq!(counts.descriptors[0], before.1 + 1);
+        assert_eq!(
+            counts.media[0],
+            before.2 + 1,
+            "one native remote replacement"
+        );
+        assert_eq!(
+            counts.cache_reads, [0; 4],
+            "a rejected cache never loops/refills here"
+        );
+    }
+    assert!(
+        !this.retry_cached_music_online(None),
+        "the same intent cannot retry twice"
+    );
+    assert_eq!(fixture.offers(0), before.0 + 1);
+    this.widgets.logout.emit_clicked();
+    eprintln!("Karin synthetic local-first recovery: phase=logout-ready");
+    pump_until(|| {
+        this.logout_confirmation
+            .borrow()
+            .as_ref()
+            .is_some_and(|confirmation| {
+                confirmation.dialog.is_mapped() && confirmation.dialog.can_close()
+            })
+    });
+    this.respond_logout_for_test("logout");
+    eprintln!("Karin synthetic local-first recovery: phase=logged-out");
+    pump_until(|| this.model.borrow().token.is_none());
+    assert!(
+        !this.retry_cached_music_online(None),
+        "logout fences a late cached failure"
+    );
+    assert!(this.player.borrow().controller.is_none());
+    assert!(this.player.borrow().pending.is_none());
+    assert_eq!(fixture.offers(0), before.0 + 1);
+    this.close();
+    ui.window.close();
+    eprintln!("Karin synthetic local-first recovery: phase=complete");
 }
 
 // Executes inside the existing native player selector. The positive authority

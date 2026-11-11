@@ -179,7 +179,9 @@ pub trait StorageAuthority: Send + Sync {
     #[doc(hidden)]
     fn release_write(&self, _: &StorageGrant) {}
     #[doc(hidden)]
-    fn revoke_writes(&self, _: &ResourceIdentity, _: u64) {}
+    fn revoke_writes(&self, _: &ResourceIdentity, _: u64) -> bool {
+        false
+    }
     /// Whether callers must validate actual HTTP response/reuse policy. This
     /// flag does not grant a provider content license or permission to play.
     fn private_http(&self) -> bool {
@@ -475,11 +477,20 @@ pub struct Hit {
     lease: Lease,
     permit: StorageGrant,
     file: Arc<File>,
+    // Limits handoff of a fresh local representation; already opened playback
+    // is independent and may continue through expiry/Clear on its pinned FD.
+    admission_deadline: Option<Instant>,
 }
 impl Hit {
     /// Return the same read-only, integrity-checked inode, not a reopened path.
     /// An already admitted FD survives Clear; old unadmitted handles are fenced.
     pub fn admit_file(&self) -> Result<Arc<File>> {
+        if self
+            .admission_deadline
+            .is_some_and(|deadline| Instant::now() >= deadline)
+        {
+            return Err(CacheError::Expired);
+        }
         let cache = AudioCache(self.owner.upgrade().ok_or(CacheError::Cancelled)?);
         cache.check(&self.lease, self.permit)?;
         Ok(self.file.clone())
@@ -1093,12 +1104,41 @@ impl AudioCache {
         }
         self.0.authority.check_write(&permit)
     }
-    fn revoke_resource_writes(&self, lease: &Lease, identity: ResourceIdentity, sequence: u64) {
-        if self.lease_current(lease).is_ok()
+    fn revoke_resource_writes(
+        &self,
+        lease: &Lease,
+        identity: ResourceIdentity,
+        sequence: u64,
+    ) -> bool {
+        let Ok(state) = self.0.state.lock() else {
+            return false;
+        };
+        self.lease_current_locked(lease, &state).is_ok()
             && self.identity(lease, identity.track).ok() == Some(identity)
+            && self.0.authority.revoke_writes(&identity, sequence)
+    }
+    /// Cleanup failure may fence admission only while this exact refusal is
+    /// current. The state lock also serializes begin_online_check: a late old
+    /// downloader must not retire a newer playback/account context.
+    fn fence_resource_refusal(
+        &self,
+        lease: &Lease,
+        identity: ResourceIdentity,
+        sequence: u64,
+    ) -> Result<bool> {
+        let mut state = self.0.state.lock().map_err(|_| CacheError::Unavailable)?;
+        self.lease_current_locked(lease, &state)?;
+        if self.identity(lease, identity.track)? != identity
+            || !self.0.authority.revoke_writes(&identity, sequence)
         {
-            self.0.authority.revoke_writes(&identity, sequence);
+            return Ok(false);
         }
+        state.generation = state.generation.checked_add(1).ok_or(CacheError::Limit)?;
+        state.clearing = true;
+        state.retirement = diagnostic::Cause::AdmissionRevoked;
+        state.pending.clear();
+        state.downloading.clear();
+        Ok(true)
     }
     fn retired_lease_cause(&self, lease: &Lease) -> Option<diagnostic::Cause> {
         let state = self.0.state.lock().ok()?;
@@ -1215,8 +1255,7 @@ impl AudioCache {
                 .as_ref()
                 .map(|budget| {
                     budget
-                        .reserve(
-                            crate::cache_budget::Category::Audio,
+                        .reserve_audio(
                             &self.path(key),
                             HEADER as u64
                                 + metadata_reserve
@@ -1373,10 +1412,53 @@ impl AudioCache {
         if let Some(write) = &request.write {
             write.phase.store(2, Ordering::Release);
         }
-        fs::rename(&temporary, &path).map_err(|_| CacheError::Unavailable)?;
-        sync_dir(&self.0.sandbox.path)?;
-        if let Err(error) = self.request_current(request) {
-            if remove_record(&path).is_err() {
+        let replacing = match fs::symlink_metadata(&path) {
+            Ok(_) => {
+                private_dir(&path)?;
+                true
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+            Err(_) => return Err(CacheError::Unavailable),
+        };
+        let exchange = || {
+            rustix::fs::renameat_with(
+                rustix::fs::CWD,
+                &temporary,
+                rustix::fs::CWD,
+                &path,
+                rustix::fs::RenameFlags::EXCHANGE,
+            )
+            .map_err(|_| CacheError::Unavailable)
+        };
+        // Replacement keeps the original complete directory at the registered
+        // stage until every publication fence succeeds. Readers see either
+        // complete version; a late refusal can restore the old one atomically.
+        if replacing {
+            exchange()?;
+        } else {
+            fs::rename(&temporary, &path).map_err(|_| CacheError::Unavailable)?;
+        }
+        let published = (|| {
+            sync_dir(&self.0.sandbox.path)?;
+            self.request_current(request)?;
+            if let Some(reservation) = reservation.as_ref() {
+                // Keep the pending target protected from another store's LRU
+                // until final fences, rollback and old-stage cleanup finish.
+                reservation.validate(record_bytes).map_err(budget_error)?;
+            }
+            self.touch(&path)?;
+            self.request_current(request)
+        })();
+        if let Err(error) = published {
+            let restored = if replacing {
+                exchange().and_then(|()| sync_dir(&self.0.sandbox.path))
+            } else {
+                remove_record(&path)
+            };
+            if restored.is_err() {
+                // Do not erase the only retained original if rollback itself
+                // fails. Explicit Clear/Retry owns recovery of this fenced stage.
+                std::mem::forget(guard);
                 self.0
                     .state
                     .lock()
@@ -1386,13 +1468,10 @@ impl AudioCache {
             }
             return Err(error);
         }
-        if let Some(reservation) = reservation
-            && let Err(error) = reservation.finish(record_bytes)
-        {
-            remove_record(&path)?;
-            return Err(budget_error(error));
+        if replacing {
+            remove_record(&temporary)?;
+            sync_dir(&self.0.sandbox.path)?;
         }
-        self.touch(&path)?;
         drop(guard);
         Ok(())
     }
@@ -1460,6 +1539,7 @@ impl AudioCache {
             lease: lease.clone(),
             permit,
             file: Arc::new(file),
+            admission_deadline: None,
         }))
     }
     /// Invalidates immediately; Busy/failure leaves reads fenced until an
@@ -1653,12 +1733,10 @@ impl AudioCache {
         replacement: Option<Key>,
     ) -> Result<()> {
         if let Some(key) = replacement {
+            // Compute the final quota/count with the incoming version in place
+            // of this record. Publication exchanges it only after validation;
+            // eviction must not destroy a useful rollback version beforehand.
             entries.retain(|entry| entry.key != key);
-            // Remove an older version before allocating its replacement's bytes.
-            let old = self.path(key);
-            if old.exists() {
-                remove_record(&old)?;
-            }
         }
         entries.sort_by_key(|entry| entry.access);
         let mut bytes: u64 = entries.iter().map(|entry| entry.bytes).sum();
@@ -2036,5 +2114,7 @@ mod selection;
 pub(crate) mod test_support;
 #[cfg(test)]
 use test_support::*;
+#[cfg(test)]
+mod replacement_tests;
 #[cfg(test)]
 mod tests;

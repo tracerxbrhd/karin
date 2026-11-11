@@ -6,6 +6,7 @@ use super::*;
 use crate::audio_cache::{Presence, http_policy::Metadata};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 
+mod localfirst;
 mod presence;
 
 const CASES: [&str; 17] = [
@@ -42,6 +43,14 @@ struct Mode {
     denied: bool,
     broken_background: bool,
     account: u64,
+    cache_policy: &'static str,
+    current_dates: bool,
+    offer_denied: bool,
+    preview: bool,
+    protection: bool,
+    unavailable: bool,
+    gain: bool,
+    omit_validators: bool,
 }
 impl Default for Mode {
     fn default() -> Self {
@@ -58,12 +67,21 @@ impl Default for Mode {
             denied: false,
             broken_background: false,
             account: 1234,
+            cache_policy: "private, no-cache, must-revalidate",
+            current_dates: false,
+            offer_denied: false,
+            preview: false,
+            protection: false,
+            unavailable: false,
+            gain: false,
+            omit_validators: false,
         }
     }
 }
 #[derive(Clone, Default, serde::Serialize)]
 struct Wire {
     account: u64,
+    tracks: u64,
     offers: u64,
     descriptors: u64,
     heads: u64,
@@ -95,12 +113,43 @@ struct Server {
 }
 impl Server {
     fn new(directory: &Path) -> Self {
+        Self::new_on_port(directory, 0)
+    }
+
+    fn new_on_origin(directory: &Path, origin: &str) -> Self {
+        let origin = reqwest::Url::parse(origin).unwrap();
+        assert_eq!(origin.scheme(), "http");
+        assert_eq!(origin.host_str(), Some("127.0.0.1"));
+        assert!(origin.username().is_empty() && origin.password().is_none());
+        assert!(origin.query().is_none() && origin.fragment().is_none());
+        assert_eq!(origin.path(), "/");
+        let port = origin.port().filter(|port| *port != 0).unwrap();
+        Self::new_on_port(directory, port)
+    }
+
+    fn new_on_port(directory: &Path, port: u16) -> Self {
+        use std::os::fd::AsFd;
+
         let media = Arc::new(vec![
             permitted_audio(directory, 440.0),
             permitted_audio(directory, 880.0),
             encode_audio_with_bitrate(directory, 660.0, 600, 192),
         ]);
-        let socket = TcpListener::bind("127.0.0.1:0").unwrap();
+        // Preserve the exact fixture object origin across isolated application
+        // restarts. SO_REUSEADDR handles closed connections in TIME_WAIT; an
+        // active listener still prevents accidental reuse by another fixture.
+        let listener = gio::Socket::new(
+            gio::SocketFamily::Ipv4,
+            gio::SocketType::Stream,
+            gio::SocketProtocol::Tcp,
+        )
+        .unwrap();
+        let address =
+            gio::InetSocketAddress::new(&gio::InetAddress::from_string("127.0.0.1").unwrap(), port);
+        listener.bind(&address, true).unwrap();
+        listener.listen().unwrap();
+        let socket = TcpListener::from(listener.as_fd().try_clone_to_owned().unwrap());
+        drop(listener);
         socket.set_nonblocking(true).unwrap();
         let origin = format!("http://{}/", socket.local_addr().unwrap());
         let mode = Arc::new(Mutex::new(Mode::default()));
@@ -200,11 +249,11 @@ impl Drop for Server {
         self.worker.take().unwrap().join().unwrap();
     }
 }
-fn track(id: &str) -> serde_json::Value {
-    json!({"id":id,"title":format!("Original permitted audio {id}"),"durationMs":6000,"available":true,"artists":[{"id":7,"name":"Karin original fixture"}]})
+fn track(id: &str, mode: &Mode) -> serde_json::Value {
+    json!({"id":id,"title":format!("Original permitted audio {id}"),"durationMs":6000,"available":!mode.unavailable,"artists":[{"id":7,"name":"Karin original fixture"}]})
 }
 fn replica_etag(mode: &Mode) -> Option<String> {
-    (!mode.modified_only).then(|| {
+    (!mode.modified_only && !mode.omit_validators).then(|| {
         // A replica-local opaque tag is deliberately independent of the audio
         // hash. Identical bytes on another placement have a different tag.
         format!(
@@ -300,9 +349,10 @@ fn serve(
         }
         "/users/1234/likes/playlists" | "/users/5678/likes/playlists" => json!({"result":[]}),
         "/users/1234/playlists/77" | "/users/5678/playlists/77" => {
-            json!({"result":{"uid":m.account,"kind":77,"title":"Original fixture playlist","trackCount":2,"revision":1,"tracks":[{"id":42,"track":track("42")},{"id":43,"track":track("43")}]}})
+            json!({"result":{"uid":m.account,"kind":77,"title":"Original fixture playlist","trackCount":2,"revision":1,"tracks":[{"id":42,"track":track("42", &m)},{"id":43,"track":track("43", &m)}]}})
         }
         "/tracks" => {
+            counts.lock().unwrap().tracks += 1;
             assert_eq!(first[0], "POST");
             let form = reqwest::Url::parse(&format!("http://127.0.0.1/?{post}")).unwrap();
             let ids = form
@@ -311,9 +361,9 @@ fn serve(
                 .map(|(_, id)| id.into_owned())
                 .collect::<Vec<_>>();
             assert!(!ids.is_empty());
-            json!({"result":ids.iter().map(|id|track(id)).collect::<Vec<_>>()})
+            json!({"result":ids.iter().map(|id|track(id, &m)).collect::<Vec<_>>()})
         }
-        "/tracks/42" => json!({"result":[track("42")]}),
+        "/tracks/42" => json!({"result":[track("42", &m)]}),
         "/tracks/42/supplement" => json!({"result":{}}),
         "/search" => {
             let kind = url
@@ -337,12 +387,18 @@ fn serve(
         }
         "/tracks/42/download-info" | "/tracks/43/download-info" => {
             counts.lock().unwrap().offers += 1;
+            if m.offer_denied {
+                let _ = stream.write_all(
+                    b"HTTP/1.1 403 Forbidden\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+                );
+                return;
+            }
             let object = if m.object {
                 "other-object"
             } else {
                 "original-object"
             };
-            json!({"result":[{"codec":m.codec,"bitrateInKbps":m.bitrate,"preview":false,"direct":false,"downloadInfoUrl":format!("{origin}download-info/original-group/{object}?ns=original-audio&sign={:064x}&ts={:x}",m.timestamp,m.timestamp)}]})
+            json!({"result":[{"codec":m.codec,"bitrateInKbps":m.bitrate,"gain":m.gain,"preview":m.preview,"drm":m.protection,"direct":false,"downloadInfoUrl":format!("{origin}download-info/original-group/{object}?ns=original-audio&sign={:064x}&ts={:x}",m.timestamp,m.timestamp)}]})
         }
         path if path.starts_with("/download-info/original-group/") => {
             counts.lock().unwrap().descriptors += 1;
@@ -369,7 +425,11 @@ fn serve(
             let background = !is_head && header("cache-control") == Some("no-cache");
             let bytes = &media[usize::from(m.version - 1)];
             let etag = replica_etag(&m);
-            let modified = replica_modified(&m);
+            let modified = if m.current_dates {
+                localfirst::http_date(86_400)
+            } else {
+                replica_modified(&m).to_owned()
+            };
             {
                 let mut c = counts.lock().unwrap();
                 if is_head {
@@ -401,7 +461,7 @@ fn serve(
                 && if let Some(condition) = header("if-none-match") {
                     etag.as_deref() == Some(condition)
                 } else {
-                    header("if-modified-since") == Some(modified)
+                    header("if-modified-since") == Some(modified.as_str())
                 };
             counts.lock().unwrap().not_modified += u64::from(not_modified);
             let status = if not_modified {
@@ -409,11 +469,20 @@ fn serve(
             } else {
                 "200 OK"
             };
+            let date = if m.current_dates {
+                localfirst::http_date(0)
+            } else {
+                "Wed, 10 Jan 2024 00:00:00 GMT".to_owned()
+            };
             let _ = write!(
                 stream,
-                "HTTP/1.1 {status}\r\nContent-Type: audio/mpeg\r\nContent-Length: {}\r\nLast-Modified: {modified}\r\nDate: Wed, 10 Jan 2024 00:00:00 GMT\r\nCache-Control: private, no-cache, must-revalidate\r\nAccept-Ranges: bytes\r\nConnection: close\r\n",
-                bytes.len()
+                "HTTP/1.1 {status}\r\nContent-Type: audio/mpeg\r\nContent-Length: {}\r\nDate: {date}\r\nCache-Control: {}\r\nAccept-Ranges: bytes\r\nConnection: close\r\n",
+                bytes.len(),
+                m.cache_policy
             );
+            if !m.omit_validators {
+                let _ = write!(stream, "Last-Modified: {modified}\r\n");
+            }
             if let Some(etag) = etag {
                 let _ = write!(stream, "ETag: {etag}\r\n");
             }
@@ -479,31 +548,34 @@ fn cached_metadata(input: &Input) -> Option<Metadata> {
     })
 }
 
+fn same_validator_policy(before: &Option<Metadata>, after: &Option<Metadata>) -> bool {
+    // A real successful validation can renew the persisted reuse clock without
+    // changing the validator, its resource scope or the storage policy.
+    let without_clock = |value: &Option<Metadata>| {
+        value.clone().map(|mut value| {
+            value.observed = None;
+            value
+        })
+    };
+    without_clock(before) == without_clock(after)
+}
+
 fn retained_candidate(phase: &str) -> bool {
     matches!(
         phase,
-        "identity-legacy-unproved"
-            | "identity-host"
-            | "identity-path"
-            | "identity-unknown"
-            | "identity-unknown-restart"
-            | "identity-lm-replica"
+        "identity-host" | "identity-path" | "identity-unknown-restart" | "identity-lm-replica"
     )
 }
 fn cached_phase(phase: &str) -> bool {
     matches!(
         phase,
-        "identity-legacy-upgrade"
-            | "identity-rebased"
-            | "identity-signed"
-            | "identity-digest"
-            | "identity-lm-repeat"
+        "identity-legacy-upgrade" | "identity-rebased" | "identity-signed" | "identity-lm-repeat"
     )
 }
 fn first_save(phase: &str) -> bool {
     matches!(phase, "identity-first" | "identity-lm-first")
 }
-fn repeat_unproved(phase: &str) -> bool {
+fn repeat_after_refresh(phase: &str) -> bool {
     matches!(phase, "identity-legacy-unproved" | "identity-unknown")
 }
 
@@ -521,7 +593,10 @@ pub(super) fn run_parent() {
     let mut original_inode = 0;
     let mut stored_mode: Option<Mode> = None;
     for phase in CASES {
-        if phase == "identity-legacy-unproved" {
+        if matches!(
+            phase,
+            "identity-legacy-unproved" | "identity-legacy-upgrade"
+        ) {
             let input = make_input(&directory.0, &server);
             let http = record(&input).parent().unwrap().join("http");
             let mut metadata = Metadata::decode(&fs::read(&http).unwrap()).unwrap();
@@ -551,8 +626,8 @@ pub(super) fn run_parent() {
                 }
                 "identity-path" => m.path = 2,
                 "identity-unknown" => {
-                    // Same opaque tag as the saved replica, but a different
-                    // logical object and a new signed URI prove nothing.
+                    // A different current logical object selects a different
+                    // application representation despite equal opaque tags.
                     let saved = stored_mode.as_ref().unwrap();
                     m.host = saved.host;
                     m.path = saved.path;
@@ -625,7 +700,8 @@ pub(super) fn run_parent() {
             "identity-first" | "identity-version" | "identity-variant" | "identity-lm-first" => {
                 (1, 1)
             }
-            "identity-legacy-unproved" | "identity-unknown" => (2, 0),
+            "identity-legacy-unproved" => (1, 1),
+            "identity-unknown" | "identity-digest" => (1, 1),
             "identity-host"
             | "identity-path"
             | "identity-unknown-restart"
@@ -643,10 +719,16 @@ pub(super) fn run_parent() {
             background,
             "background transfer count for {phase}"
         );
-        let offers = if repeat_unproved(phase) { 2 } else { 1 };
+        let offers = if repeat_after_refresh(phase) { 2 } else { 1 };
         let descriptors = if phase == "identity-codec" { 0 } else { offers };
-        let heads = if first_save(phase) || phase == "identity-codec" {
+        let heads = if first_save(phase)
+            || matches!(
+                phase,
+                "identity-codec" | "identity-variant" | "identity-digest"
+            ) {
             0
+        } else if phase == "identity-unknown" {
+            1
         } else {
             offers
         };
@@ -656,7 +738,7 @@ pub(super) fn run_parent() {
         assert_eq!(
             after.heads - before.heads,
             heads,
-            "every reused candidate needs a real current HTTP validation for {phase}"
+            "strict no-cache candidates require HTTP validation; changed selections are replaced for {phase}"
         );
         let media_bytes = if phase == "identity-denied" {
             0
@@ -669,12 +751,19 @@ pub(super) fn run_parent() {
             "exact audio response bytes for {phase}"
         );
         let after_metadata = cached_metadata(&input);
-        let metadata_unchanged = before_metadata == after_metadata;
+        let metadata_unchanged = same_validator_policy(&before_metadata, &after_metadata);
         if phase == "identity-denied" {
             assert!(media_files(&audio_root(&input)).is_empty());
         } else {
-            let unchanged =
-                !first_save(phase) && !matches!(phase, "identity-version" | "identity-variant");
+            let unchanged = !first_save(phase)
+                && !matches!(
+                    phase,
+                    "identity-version"
+                        | "identity-variant"
+                        | "identity-legacy-unproved"
+                        | "identity-unknown"
+                        | "identity-digest"
+                );
             assert_saved(&input, unchanged.then_some(original_inode));
             if !unchanged {
                 original_inode = fs::metadata(record(&input)).unwrap().ino();
@@ -716,13 +805,19 @@ pub(super) fn run_parent() {
                 "a confirmed legacy migration is idempotent"
             );
         }
-        if matches!(phase, "identity-signed" | "identity-digest") {
+        if phase == "identity-signed" {
             assert!(
                 !metadata_unchanged,
                 "full representation proof rebases validators to the proven current resource"
             );
         }
-        let etag_conditions = u64::from(matches!(phase, "identity-rebased" | "identity-version"));
+        let etag_conditions = u64::from(matches!(
+            phase,
+            "identity-rebased"
+                | "identity-version"
+                | "identity-legacy-unproved"
+                | "identity-unknown"
+        ));
         let modified_conditions = u64::from(phase == "identity-lm-repeat");
         assert_eq!(
             after.etag_conditionals - before.etag_conditionals,
@@ -738,7 +833,13 @@ pub(super) fn run_parent() {
             after.conditional_heads - before.conditional_heads,
             etag_conditions + modified_conditions
         );
-        let not_modified = u64::from(matches!(phase, "identity-rebased" | "identity-lm-repeat"));
+        let not_modified = u64::from(matches!(
+            phase,
+            "identity-rebased"
+                | "identity-lm-repeat"
+                | "identity-legacy-unproved"
+                | "identity-unknown"
+        ));
         assert_eq!(
             after.not_modified - before.not_modified,
             not_modified,
@@ -762,9 +863,14 @@ pub(super) fn run_parent() {
         fs::write(PathBuf::from(path).join("audio-cache-identity-receipt.json"),serde_json::to_vec_pretty(&json!({"scope":"ordinary-application-replica-validator-replay","real_yandex_service":false,"cases":reports,"processes":CASES.len()})).unwrap()).unwrap();
     }
     presence::run_parent();
+    localfirst::run_parent();
 }
 
 pub(super) fn run_child(input: &Input, phase: &str) {
+    if phase.starts_with("localfirst-") {
+        localfirst::run_child(input, phase);
+        return;
+    }
     if phase.starts_with("presence-") {
         presence::run_child(input, phase);
         return;
@@ -810,20 +916,27 @@ pub(super) fn run_child(input: &Input, phase: &str) {
     }
     if matches!(
         phase,
-        "identity-first" | "identity-version" | "identity-variant" | "identity-lm-first"
+        "identity-first"
+            | "identity-version"
+            | "identity-variant"
+            | "identity-lm-first"
+            | "identity-legacy-unproved"
+            | "identity-unknown"
+            | "identity-digest"
     ) {
         wait_publication(this, input);
     }
     pump_until(|| this.cache_work_settled_for_test());
     let mut replay = None;
-    if repeat_unproved(phase) {
+    if repeat_after_refresh(phase) {
         let serial = this.music_serial();
         assert!(row.grab_focus());
         key(&ui.window, "Return");
         pump_until(|| this.music_serial() > serial);
-        wait_source(this, PlaybackSourceKind::RemoteHttps);
+        let source = PlaybackSourceKind::CachedFile;
+        wait_source(this, source);
         pump_until(|| this.cache_work_settled_for_test());
-        replay = Some("remote-https".to_owned());
+        replay = Some(source_name(source).to_owned());
     }
     // Same proofs rebase HTTP metadata on the existing lookup/LRU worker.
     // Observe that actual worker completion before AppClose can fence its

@@ -195,6 +195,39 @@ fn verified_local_candidate_needs_a_current_fresh_admission_before_becoming_play
 }
 
 #[test]
+fn delayed_unopened_local_hit_expires_but_an_already_pinned_file_survives() {
+    use std::os::unix::fs::FileExt;
+
+    let f = Fixture::new();
+    f.existing_record();
+    let mut candidate = f.prepared(&f.lease);
+    candidate.admission_deadline = Some(Instant::now() + Duration::from_millis(40));
+    let hit = candidate.admit(|| true).unwrap().unwrap();
+    let active = hit.admit_file().unwrap();
+    thread::sleep(Duration::from_millis(60));
+    assert!(matches!(hit.admit_file(), Err(CacheError::Expired)));
+    f.wait_idle();
+    f.cache.clear().unwrap();
+    let mut bytes = vec![0; f.audio.0.len()];
+    active.read_exact_at(&mut bytes, 0).unwrap();
+    assert_eq!(bytes, f.audio.0);
+}
+
+#[test]
+fn bounded_offer_lookup_honors_cancellation_without_waiting_for_permission_io() {
+    let f = Fixture::new();
+    let released = f.hold_next();
+    let lookup = f.cache.lookup(f.lease.clone(), f.begin(&f.lease)).unwrap();
+    f.entered.recv_timeout(Duration::from_secs(2)).unwrap();
+    let began = Instant::now();
+    assert!(lookup.wait(|| false).is_none());
+    assert!(began.elapsed() < Duration::from_millis(100));
+    assert!(f.cache.0.lookup_running.load(Ordering::Acquire));
+    drop(released);
+    f.wait_idle();
+}
+
+#[test]
 fn lease_replacement_retires_inflight_lookup_without_destroying_healthy_bytes() {
     let f = Fixture::new();
     f.existing_record();

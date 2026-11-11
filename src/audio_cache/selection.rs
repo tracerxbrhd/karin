@@ -1,18 +1,45 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Speculative, bounded cache work overlaps fresh online resolution. The audio
-//! selection never waits for permission I/O, disk hashing or LRU bookkeeping.
+//! Bounded cache work overlaps authenticated offer admission. Disk/integrity
+//! checks run off GTK; source selection may await this single worker briefly
+//! before deciding whether a fresh local representation avoids CDN resolution.
 use super::*;
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::time::SystemTime;
 
 pub(crate) struct Lookup {
     result: Receiver<Result<PreparedSelection>>,
     abandoned: Arc<AtomicBool>,
+    deadline: Instant,
 }
 impl Lookup {
     /// No wait or later switch: a slow/unavailable cache leaves this selection
     /// online. Dropping the receiver retires unused prepared work.
+    #[cfg(test)]
     pub(crate) fn ready(self) -> Option<PreparedSelection> {
         self.result.try_recv().ok()?.ok()
+    }
+
+    /// Called only on the existing resolution worker after the API request.
+    /// Most reads have already finished in parallel. A busy/slow cache has a
+    /// small bounded allowance, then ordinary online resolution continues.
+    pub(crate) fn wait(self, current: impl Fn() -> bool) -> Option<PreparedSelection> {
+        loop {
+            if !current() {
+                return None;
+            }
+            let remaining = self.deadline.saturating_duration_since(Instant::now());
+            match self
+                .result
+                .recv_timeout(remaining.min(Duration::from_millis(10)))
+            {
+                Ok(result) => return result.ok(),
+                Err(mpsc::RecvTimeoutError::Disconnected) => return None,
+                Err(mpsc::RecvTimeoutError::Timeout) if Instant::now() >= self.deadline => {
+                    return None;
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+            }
+        }
     }
 }
 impl Drop for Lookup {
@@ -27,6 +54,7 @@ pub(crate) struct PreparedSelection {
     file: Option<Arc<File>>,
     http: Option<http_policy::Metadata>,
     http_verified: bool,
+    admission_deadline: Option<Instant>,
     rebase: Option<http_policy::Metadata>,
     touch: Option<Sender<Used>>,
 }
@@ -35,6 +63,7 @@ pub(crate) enum Revalidation {
     Same,
     Different(http_policy::Reason),
     Unproven(http_policy::Reason),
+    RefreshFresh(http_policy::Reason),
 }
 struct Used {
     permit: StorageGrant,
@@ -55,6 +84,7 @@ impl AudioCache {
     /// One cache worker per namespace, including abandoned or slow reads. New
     /// selections skip a busy cache; they cannot accumulate threads/jobs.
     pub(crate) fn lookup(&self, lease: Lease, check: OnlineCheck) -> Option<Lookup> {
+        let deadline = Instant::now() + Duration::from_millis(250);
         self.lease_current(&lease).ok()?;
         self.0
             .lookup_running
@@ -116,6 +146,7 @@ impl AudioCache {
                             file: file.map(Arc::new),
                             http,
                             http_verified: false,
+                            admission_deadline: None,
                             rebase: None,
                             touch: Some(touch),
                         },
@@ -181,12 +212,59 @@ impl AudioCache {
                 drop(cache);
             })
             .ok()?;
-        Some(Lookup { result, abandoned })
+        Some(Lookup {
+            result,
+            abandoned,
+            deadline,
+        })
     }
 }
 impl PreparedSelection {
     pub(crate) fn has_file(&self) -> bool {
         self.file.is_some()
+    }
+
+    pub(crate) fn needs_initial_refresh(&self) -> bool {
+        self.http
+            .as_ref()
+            .is_some_and(http_policy::Metadata::needs_initial_refresh)
+    }
+
+    /// Current authenticated offer and private HTTP freshness, not an old
+    /// signed locator, admit this exact integrity-checked representation.
+    pub(crate) fn reuse_fresh(
+        &mut self,
+        identity: http_policy::ApplicationIdentity,
+        offer_expires: Instant,
+    ) -> std::result::Result<http_policy::Freshness, http_policy::Reason> {
+        let checked_at = Instant::now();
+        self.cache
+            .lease_current(&self.lease)
+            .map_err(|_| http_policy::Reason::Cancelled)?;
+        if !self.cache.0.authority.private_http() || self.file.is_none() {
+            return Err(http_policy::Reason::ApplicationUnverified);
+        }
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| http_policy::Reason::ClockUncertain)?;
+        // Round resident wall time upward, complementing the conservative
+        // monotonic request-delay rounding at receipt.
+        let now = now
+            .as_secs()
+            .checked_add(u64::from(now.subsec_nanos() != 0))
+            .ok_or(http_policy::Reason::ClockUncertain)?;
+        let result = self
+            .http
+            .as_ref()
+            .ok_or(http_policy::Reason::FreshnessMissing)?
+            .fresh_for(identity, now)?;
+        self.http_verified = true;
+        self.admission_deadline = Some(
+            checked_at
+                .checked_add(result.remaining)
+                .map_or(offer_expires, |http| http.min(offer_expires)),
+        );
+        Ok(result.kind)
     }
 
     pub(crate) fn revalidate_http(
@@ -223,6 +301,7 @@ impl PreparedSelection {
                     || metadata.last_modified != fresh.last_modified
                     || metadata.modified_unix != fresh.modified_unix
                     || metadata.directives != fresh.directives
+                    || metadata.observed != fresh.observed
                 {
                     self.rebase = Some(*fresh);
                 }
@@ -230,6 +309,7 @@ impl PreparedSelection {
             }
             http_policy::Validation::Different(reason) => Revalidation::Different(reason),
             http_policy::Validation::Unproven(reason) => Revalidation::Unproven(reason),
+            http_policy::Validation::RefreshFresh(reason) => Revalidation::RefreshFresh(reason),
         })
     }
 
@@ -237,6 +317,7 @@ impl PreparedSelection {
         self.file = None;
         self.http = None;
         self.http_verified = false;
+        self.admission_deadline = None;
         self.rebase = None;
     }
 
@@ -275,6 +356,7 @@ impl PreparedSelection {
             touch,
             http: _,
             http_verified,
+            admission_deadline,
             rebase,
         } = self;
         if cache.0.authority.private_http() && file.is_some() && !http_verified {
@@ -299,6 +381,7 @@ impl PreparedSelection {
             lease,
             permit,
             file,
+            admission_deadline,
         });
         if hit.is_some()
             && let Some(touch) = touch

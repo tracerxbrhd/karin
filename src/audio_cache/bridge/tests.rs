@@ -1008,7 +1008,7 @@ fn speculative_lookup_contention_retains_complete_records_without_another_media_
         let fill = selected
             .fill
             .expect("speculative worker must distinguish miss from a retained record");
-        assert!(fill.speculative);
+        assert!(fill.mode == FillMode::Speculative);
         assert_eq!(fill.download(&mut None).unwrap(), !already_stored);
         assert_eq!(http.requested(), before + usize::from(!already_stored));
         assert_eq!(cache.stats().unwrap().entries, 1);

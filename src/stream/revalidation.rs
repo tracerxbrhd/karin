@@ -12,6 +12,7 @@ use reqwest::{
         USER_AGENT,
     },
 };
+use std::time::Instant;
 
 use super::{DeliveryCancellation, Duration};
 use crate::{
@@ -36,7 +37,7 @@ pub(super) fn revalidate(
         .http_cache_probe_url()
         .map_err(|_| Reason::UnsupportedStatus)?;
     let request = conditionals(client.head(url.clone()), stored, remote)?;
-    let response = send(request, remote, token, cancellation)?;
+    let (response, started) = send(request, remote, token, cancellation)?;
     let status = response.status().as_u16();
     let validation = if matches!(status, 405 | 501) {
         // A range probe is useful only when HEAD is unsupported. A conforming
@@ -45,7 +46,7 @@ pub(super) fn revalidate(
         drop(response);
         current(remote, token, cancellation)?;
         let request = conditionals(client.get(url).header(RANGE, "bytes=0-0"), stored, remote)?;
-        let response = send(request, remote, token, cancellation)?;
+        let (response, started) = send(request, remote, token, cancellation)?;
         let status = response.status().as_u16();
         if !matches!(status, 206 | 304) {
             return Err(if status == 451 {
@@ -56,7 +57,7 @@ pub(super) fn revalidate(
                 Reason::RangeUnsupported
             });
         }
-        validate_response(response, stored, remote)?
+        validate_response(response, started, stored, remote)?
     } else {
         if status == 451 {
             return Err(Reason::ContentRestricted);
@@ -67,7 +68,7 @@ pub(super) fn revalidate(
         if !matches!(status, 200 | 304) {
             return Err(Reason::UnsupportedStatus);
         }
-        validate_response(response, stored, remote)?
+        validate_response(response, started, stored, remote)?
     };
     current(remote, token, cancellation)?;
     Ok(validation)
@@ -135,11 +136,12 @@ fn send(
     remote: &RemotePlaybackSource,
     token: &AccessToken,
     cancellation: &DeliveryCancellation,
-) -> Result<Response, Reason> {
+) -> Result<(Response, Instant), Reason> {
     current(remote, token, cancellation)?;
+    let started = Instant::now();
     let result = request.send();
     current(remote, token, cancellation)?;
-    result.map_err(|error| {
+    result.map(|response| (response, started)).map_err(|error| {
         if error.is_timeout() {
             Reason::Timeout
         } else {
@@ -150,6 +152,7 @@ fn send(
 
 fn validate_response(
     response: Response,
+    started: Instant,
     stored: &Metadata,
     remote: &RemotePlaybackSource,
 ) -> Result<Validation, Reason> {
@@ -158,7 +161,9 @@ fn validate_response(
     // In particular, do not call bytes/text/read, even when a broken HEAD or
     // Range implementation has attached an entire media body to the response.
     drop(response);
-    ResponsePolicy::parse(status, headers)?.revalidate_source(stored, remote)
+    ResponsePolicy::parse(status, headers)?
+        .observed_now(started.elapsed())
+        .revalidate_source(stored, remote)
 }
 
 pub(super) fn selected_headers(response: &Response) -> Result<Vec<(String, String)>, Reason> {

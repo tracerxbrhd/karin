@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Worker-side online playback selection and a separately admitted cache fill.
 //!
-//! A fresh stream resolution is required before every online-only cache hit or
-//! fill. Cached bytes never bypass the current Music account/source validation.
-//! Storage permission is independent: a resolved stream alone cannot admit writes.
+//! Current Music account/offer admission precedes every selection. Fresh local
+//! representations avoid XML/CDN resolution; stale/no-cache data still follows
+//! strict HTTP validation. A resolved stream alone cannot admit storage writes.
 
 use super::diagnostic::{self, Cause, Event};
 use super::{AudioCache, CacheError, Cancellation, Lease, OnlineCheck, Request, ResourceKey};
@@ -26,8 +26,8 @@ pub(crate) struct Selection {
     pub fill: Option<Fill>,
 }
 
-/// Resolve against the current Music session before considering a local hit.
-/// Every cache failure falls back to this already validated online source.
+/// Admit the current Music offer before considering a local hit, resolving its
+/// temporary CDN source only on a miss or when HTTP revalidation is required.
 /// Call on the existing bounded resolution worker, never on GTK.
 pub(crate) fn resolve(
     resolver: StreamResolver,
@@ -47,8 +47,7 @@ pub(crate) fn resolve(
         ),
         Err(_) => (binding, false),
     };
-    // Permission lookup and integrity verification overlap network resolution.
-    // A slow cache never holds the already admitted online playback hostage.
+    // Permission/integrity work overlaps the lightweight authenticated offer.
     let check = start_check(&binding, track);
     // This projection can only retire the same still-current attempt. It
     // cannot authorize/commit a replay of the one-use online ticket.
@@ -57,27 +56,87 @@ pub(crate) fn resolve(
         let (cache, lease) = binding.as_ref()?;
         cache.lookup(lease.clone(), check)
     });
-    let remote = resolver
-        .resolve(service, token, track, cancellation)
-        .inspect_err(|report| {
-            if matches!(report.http_status, Some(401 | 403 | 451))
-                && let (Some((cache, lease)), Some((identity, sequence))) = (&binding, refusal)
-            {
-                cache.revoke_resource_writes(lease, identity, sequence);
+    let refused = |report: &DeliveryReport| {
+        if matches!(report.http_status, Some(401 | 403 | 451))
+            && let (Some((cache, lease)), Some((identity, sequence))) = (&binding, refusal)
+        {
+            cache.revoke_resource_writes(lease, identity, sequence);
+        }
+        let reason = match report.http_status {
+            Some(401 | 403) => Cause::Policy(super::http_policy::Reason::AccessDenied),
+            Some(451) => Cause::Policy(super::http_policy::Reason::ContentRestricted),
+            _ if cancellation.cancelled(token) => {
+                Cause::Policy(super::http_policy::Reason::Cancelled)
             }
-            let reason = match report.http_status {
-                Some(401 | 403) => Cause::Policy(super::http_policy::Reason::AccessDenied),
-                Some(451) => Cause::Policy(super::http_policy::Reason::ContentRestricted),
-                _ if cancellation.cancelled(token) => {
-                    Cause::Policy(super::http_policy::Reason::Cancelled)
+            _ if report.category == crate::stream::DeliveryCategory::MediaOriginUnverified => {
+                Cause::SourceOriginUnverified
+            }
+            _ => Cause::AccessUnavailable,
+        };
+        diagnostic::report(Event::NotCacheable, reason);
+    };
+    let offer = resolver
+        .prepare_offer(service, token, track, cancellation)
+        .inspect_err(refused)?;
+    let mut prepared =
+        lookup.and_then(|lookup| lookup.wait(|| offer.is_current(service, token, cancellation)));
+    let mut freshness_expired = false;
+    if authenticated
+        && offer.cache_identity().is_none()
+        && prepared
+            .as_ref()
+            .is_some_and(|candidate| candidate.has_file())
+    {
+        diagnostic::report(
+            Event::Checking,
+            Cause::Policy(Reason::ApplicationUnverified),
+        );
+    }
+    if authenticated
+        && let (Some(identity), Some(candidate)) = (offer.cache_identity(), prepared.as_mut())
+        && candidate.has_file()
+    {
+        match candidate.reuse_fresh(identity, offer.expires_at()) {
+            Ok(kind) => {
+                diagnostic::report(
+                    Event::Checking,
+                    match kind {
+                        super::http_policy::Freshness::Explicit => Cause::FreshResponse,
+                        super::http_policy::Freshness::Heuristic => Cause::HeuristicFreshResponse,
+                    },
+                );
+                // The hit's own memory-only deadline also fences delayed
+                // GTK/player admission without resolving a URL speculatively.
+                let hit = prepared.take().and_then(|candidate| {
+                    candidate
+                        .admit(|| offer.is_current(service, token, cancellation))
+                        .ok()
+                        .flatten()
+                });
+                if let Some(source) =
+                    hit.and_then(|hit| PlaybackSource::cached_file_local(hit).ok())
+                {
+                    return Ok(Selection { source, fill: None });
                 }
-                _ if report.category == crate::stream::DeliveryCategory::MediaOriginUnverified => {
-                    Cause::SourceOriginUnverified
+            }
+            Err(Reason::ApplicationChanged) => {
+                // This is a changed selection/quality, not an assertion that
+                // every new physical CDN locator contains different bytes.
+                diagnostic::report(Event::Stale, Cause::Policy(Reason::ApplicationChanged));
+                if candidate.retire_record().is_err() {
+                    diagnostic::report(Event::NotCacheable, Cause::Busy);
                 }
-                _ => Cause::AccessUnavailable,
-            };
-            diagnostic::report(Event::NotCacheable, reason);
-        })?;
+                candidate.discard_file();
+            }
+            Err(reason) => {
+                freshness_expired = reason == Reason::FreshnessExpired;
+                diagnostic::report(Event::Checking, Cause::Policy(reason));
+            }
+        }
+    }
+    let remote = resolver
+        .resolve_offer(service, token, offer, cancellation)
+        .inspect_err(refused)?;
     let online = || Selection {
         source: PlaybackSource::remote(remote.clone()),
         fill: None,
@@ -85,7 +144,7 @@ pub(crate) fn resolve(
     let Some((cache, lease)) = binding.filter(|_| authenticated) else {
         return Ok(online());
     };
-    let Some(mut prepared) = lookup.and_then(|lookup| lookup.ready()) else {
+    let Some(mut prepared) = prepared else {
         // Speculative disk work is optional. A freshly authenticated source
         // still admits a bounded private HTTP write through memory-only state.
         let admitted = ResourceKey::track(track).ok().is_some_and(|key| {
@@ -106,14 +165,16 @@ pub(crate) fn resolve(
                 track,
                 resolver,
                 service.clone(),
-                true,
+                FillMode::Speculative,
             )
         } else {
             online()
         });
     };
     let mut preserve_record = false;
+    let mut fill_mode = FillMode::Ordinary;
     if prepared.has_file() {
+        let initial_refresh = prepared.needs_initial_refresh();
         match prepared.revalidate_http(&resolver, &remote, token, cancellation) {
             Ok(Revalidation::Same) => {}
             Ok(Revalidation::Different(reason)) => {
@@ -125,12 +186,28 @@ pub(crate) fn resolve(
                 }
                 prepared.discard_file();
             }
-            Ok(Revalidation::Unproven(reason)) => {
+            Ok(Revalidation::RefreshFresh(reason)) if freshness_expired && !initial_refresh => {
+                // A new replica's tag does not validate the old bytes. Its
+                // actual fresh response can instead seed one new complete
+                // copy, retaining the old record until successful publication.
+                fill_mode = FillMode::FreshnessRefresh;
+                diagnostic::report(Event::Stale, Cause::Policy(reason));
+                diagnostic::report(Event::Checking, Cause::ExpiredResponseRefresh);
+                prepared.discard_file();
+            }
+            Ok(Revalidation::Unproven(reason) | Revalidation::RefreshFresh(reason)) => {
                 // Independent replica tags, missing proof and legacy binding
                 // uncertainty are not evidence of changed or corrupt bytes.
-                preserve_record = true;
+                preserve_record = !initial_refresh;
                 diagnostic::report(Event::Stale, Cause::Policy(reason));
-                diagnostic::report(Event::Stale, Cause::RecordRetained);
+                diagnostic::report(
+                    Event::Stale,
+                    if initial_refresh {
+                        Cause::LegacyRefresh
+                    } else {
+                        Cause::RecordRetained
+                    },
+                );
                 prepared.discard_file();
             }
             Err(reason) => {
@@ -169,7 +246,7 @@ pub(crate) fn resolve(
             track,
             resolver,
             service.clone(),
-            false,
+            fill_mode,
         )),
         Err(_) => Ok(online()),
     }
@@ -194,7 +271,7 @@ fn fill_selection(
     track: &str,
     resolver: StreamResolver,
     service: MusicService,
-    speculative: bool,
+    mode: FillMode,
 ) -> Selection {
     let online = || PlaybackSource::remote(remote.clone());
     if cancellation.cancelled(token) || remote.is_expired() {
@@ -251,10 +328,17 @@ fn fill_selection(
             service,
             remote,
             track: track.to_owned(),
-            speculative,
+            mode,
             control,
         }),
     }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FillMode {
+    Ordinary,
+    Speculative,
+    FreshnessRefresh,
 }
 
 pub(crate) struct Fill {
@@ -266,7 +350,7 @@ pub(crate) struct Fill {
     service: MusicService,
     remote: RemotePlaybackSource,
     track: String,
-    speculative: bool,
+    mode: FillMode,
     control: FillControl,
 }
 #[derive(Clone)]
@@ -310,6 +394,18 @@ impl Fill {
                     .reason
                     .get()
                     .copied()
+                    .or_else(|| {
+                        rejection
+                            .filter(|reason| {
+                                matches!(
+                                    reason,
+                                    Reason::NoStore
+                                        | Reason::AccessDenied
+                                        | Reason::ContentRestricted
+                                )
+                            })
+                            .map(Cause::Policy)
+                    })
                     .or_else(|| self.cache.retired_lease_cause(&self.request.lease))
                     .or_else(|| {
                         self.token
@@ -338,7 +434,7 @@ impl Fill {
     /// Verify the candidate on this worker before issuing any media GET; modern
     /// complete records are retained until selection can revalidate them.
     fn retain_speculative_record(&self) -> Result<bool, CacheError> {
-        if !self.speculative {
+        if self.mode != FillMode::Speculative {
             return Ok(false);
         }
         let current = || {
@@ -382,10 +478,11 @@ impl Fill {
             None
         };
         current()?;
-        // Missing optional binding metadata is not permission to download the
-        // same whole audio again. Legacy sidecars migrate only after positive
-        // equivalence, on the existing read/LRU worker without another GET.
-        Ok(metadata.is_some())
+        // Modern complete records do not trigger duplicate whole downloads.
+        // Legacy records lack a measured reuse lease/selection schema: one
+        // normal authorized full response can replace them after completion,
+        // without pretending that an old file was proved byte-equivalent.
+        Ok(metadata.is_some_and(|metadata| !metadata.needs_initial_refresh()))
     }
 
     fn download(&self, rejection: &mut Option<Reason>) -> Result<bool, CacheError> {
@@ -394,13 +491,26 @@ impl Fill {
         }
         self.cache.start_write(&self.request)?;
         diagnostic::report(Event::Downloading, Cause::FullResponse);
-        let fetched = self.fetch();
-        let (response, policy, remote) = fetched.map_err(|reason| {
-            *rejection = Some(reason);
-            CacheError::HttpPolicyRequired
-        })?;
+        let (response, policy, remote) = match self.fetch() {
+            Ok(fetched) => fetched,
+            Err(reason) => {
+                if matches!(
+                    reason,
+                    Reason::NoStore | Reason::AccessDenied | Reason::ContentRestricted
+                ) {
+                    self.retire_refused_record();
+                }
+                *rejection = Some(reason);
+                return Err(CacheError::HttpPolicyRequired);
+            }
+        };
+        if self.mode == FillMode::FreshnessRefresh && !policy.fresh_reusable() {
+            // Metadata on a previous HEAD never overrides the actual complete
+            // response. Drop its unread body and keep the original record.
+            return Ok(false);
+        }
         let private_http = self.cache.0.authority.private_http();
-        if private_http && !policy.has_validator() {
+        if private_http && !policy.reusable() {
             *rejection = Some(Reason::ValidatorsMissing);
             return Err(CacheError::HttpPolicyRequired);
         }
@@ -431,6 +541,39 @@ impl Fill {
             *rejection = failure.get();
         }
         result.map(|_| true)
+    }
+
+    /// An explicit refusal from the actual complete-response request must not
+    /// leave an old record eligible. Fence writes before worker-only deletion;
+    /// failed cleanup fences cache admission instead of silently retaining it.
+    fn retire_refused_record(&self) {
+        let identity = self.request.permit.identity;
+        if !self.cache.revoke_resource_writes(
+            &self.request.lease,
+            identity,
+            self.request.permit.revision,
+        ) {
+            return;
+        }
+        let retired = (|| {
+            self.cache.lease_current(&self.request.lease)?;
+            let _io = self.cache.io()?;
+            if !self.cache.revoke_resource_writes(
+                &self.request.lease,
+                identity,
+                self.request.permit.revision,
+            ) {
+                return Ok(());
+            }
+            super::remove_record(&self.cache.path(identity.key()))
+        })();
+        if retired.is_err() {
+            let _ = self.cache.fence_resource_refusal(
+                &self.request.lease,
+                identity,
+                self.request.permit.revision,
+            );
+        }
     }
 
     fn fetch(

@@ -135,7 +135,17 @@ impl CacheBudget {
             return Err(BudgetError::InvalidInput);
         }
         let _io = self.io.lock().map_err(|_| BudgetError::Unavailable)?;
-        self.reserve_locked(category, path, upper, false)
+        self.reserve_locked(category, path, upper, false, false)
+    }
+    /// Reserve a whole audio response while protecting a completed target
+    /// throughout the download. Replacement staging counts in full alongside
+    /// the old record: if both cannot fit, keep the old data and skip this save.
+    pub(crate) fn reserve_audio(self: &Arc<Self>, path: &Path, upper: u64) -> Result<Reservation> {
+        if upper == 0 || upper > MAX_RECORD || !self.record_path(Category::Audio, path) {
+            return Err(BudgetError::InvalidInput);
+        }
+        let _io = self.io.lock().map_err(|_| BudgetError::Unavailable)?;
+        self.reserve_locked(Category::Audio, path, upper, true, false)
     }
     /// Opportunistic replacement of an existing audio HTTP sidecar. Reserve
     /// only its bounded temporary bytes, while retaining the completed record
@@ -156,7 +166,7 @@ impl CacheBudget {
             return Err(BudgetError::InvalidInput);
         }
         let _io = self.io.try_lock().map_err(|_| BudgetError::Unavailable)?;
-        self.reserve_locked(category, path, upper, true)
+        self.reserve_locked(category, path, upper, true, true)
     }
     fn reserve_locked(
         self: &Arc<Self>,
@@ -164,6 +174,7 @@ impl CacheBudget {
         path: &Path,
         upper: u64,
         protect_existing: bool,
+        require_existing: bool,
     ) -> Result<Reservation> {
         let (generation, limit, pending) = {
             let s = self.state.lock().map_err(|_| BudgetError::Unavailable)?;
@@ -185,7 +196,7 @@ impl CacheBudget {
             .ok_or(BudgetError::Limit)?;
         self.disk_room(reserved)?;
         let mut scan = self.scan()?;
-        if protect_existing
+        if require_existing
             && !scan
                 .records
                 .iter()
@@ -585,6 +596,11 @@ impl CacheBudget {
 }
 impl Reservation {
     pub fn finish(self, actual: u64) -> Result<()> {
+        self.validate(actual)
+    }
+    /// Check publication without releasing target protection. Atomic audio
+    /// replacement retains this ticket through final fences and rollback.
+    pub(crate) fn validate(&self, actual: u64) -> Result<()> {
         if actual > self.upper || actual == 0 {
             return Err(BudgetError::InvalidInput);
         }

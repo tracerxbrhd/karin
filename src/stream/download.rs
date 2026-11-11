@@ -9,6 +9,7 @@ use reqwest::{
     blocking::{Client, Response},
     header::{ACCEPT_ENCODING, CACHE_CONTROL, USER_AGENT},
 };
+use std::time::Instant;
 
 use super::DeliveryCancellation;
 use crate::{
@@ -38,6 +39,7 @@ pub(super) fn response(
         reason: Reason::UnsupportedStatus,
         status: None,
     })?;
+    let started = Instant::now();
     let sent = client
         .get(url)
         .header(
@@ -66,7 +68,9 @@ pub(super) fn response(
         status: Some(status),
     };
     let headers = super::revalidation::selected_headers(&response).map_err(fail)?;
-    let policy = ResponsePolicy::parse(status, headers).map_err(fail)?;
+    let policy = ResponsePolicy::parse(status, headers)
+        .map_err(fail)?
+        .observed_now(started.elapsed());
     // Only an entire selected representation is eligible. Never append a tail,
     // reinterpret a manifest, decode transfer content or accept gzip here.
     policy.complete_mp3().map_err(fail)?;

@@ -61,34 +61,39 @@ installed Flatpak. `0709729` remains the last fully accepted PR #26 revision;
 newer available functions and later acceptance are recorded separately. One shared policy/budget/usage
 and Clear covers all permitted categories, with
 2 GiB by default and an explicit Unlimited choice guarded by available disk space.
-The private HTTP-cache path independently downloads the selected source while the
-existing player starts immediately. It saves only complete MP3 responses whose HTTP and
-content restrictions allow storage. It does not issue a provider entitlement or
-call HTTP cacheability a copyright license. Every local replay requires fresh
-Music access and a verified representation; a track ID or renewed signed URL
-alone cannot prove unchanged bytes. Unusable validators, an explicit refusal,
-`no-store`, cancellation or a failed cache leave permitted network playback
-available. Cache lookup and bookkeeping remain off GTK.
+The private HTTP-cache path independently saves a complete supported MP3 while
+online playback starts immediately. Current Music access and authenticated offer
+selection are checked before reuse. A matching logical object/MP3 variant,
+verified integrity and valid response-freshness lease select local audio before
+XML/CDN resolution. Explicit freshness or bounded RFC9111 Date/Last-Modified
+heuristics can admit reuse; no-cache, stale leases and old metadata without
+receipt clocks retain strict validation. No-store and explicit refusals are
+honored. Account/token epochs remain separate. This supplies neither offline
+rights nor a provider/content-distribution license; the API selection is not an
+immutable byte-version claim. Work remains off GTK and cache failure preserves
+permitted online playback.
 
 **Real first playback and complete background saving on Fedora Native are
 owner-confirmed. At `cac4d78`, replay still caused descriptor-path /
-representation-changed downloads; no local hit was confirmed.** The corrected
-model does not compare independent CDN validators merely because a logical
-object matches. Opaque conditional validation requires the exact compatible
-provider media URI; a full representation digest can independently establish
-reuse across locators. A renewed signed URI without full-byte proof remains
-unproved, not a hit. An unknown result retains the valid candidate and
-plays online without another cache-body write. Legacy binding metadata can be
-rebased only after positive representation proof; missing binding is not a
-reason to replace the audio. Graphical indicators describe complete local
-presence, not offline availability or current playback permission.
+representation-changed downloads; no local hit was confirmed.** The revised
+local-first path avoids renewed signed locators while a saved response remains
+fresh. Revalidation still cannot compare opaque validators across independent
+URI/replica scopes. An expired modern record can be replaced by a complete new
+response only when current probe and actual GET policy both allow fresh reuse;
+GET headers are checked before its body is read. No-cache/unproved freshness
+stays online without repeated body saves. Legacy records without receipt/schema-2 metadata first attempt strict
+validation; if inconclusive, a newly admitted complete response can migrate them
+through the existing background writer. Old bytes are never stamped fresh; only
+validated atomic publication replaces them, and refusal/no-store prevents it. Current real CDN freshness headers and successful service local replay
+remain unconfirmed. Graphical indicators describe complete presence, not local
+playback or offline availability.
 
 The earlier `6ec2407` playback failure remains historical; the exact rejected
 host and the stage of its separately reported generic Wave error were not
 established in Cloud. The corrected replay and indicators require final owner
 acceptance. Local HTTP/generated-audio checks exercise production code, not the
-live CDN or installed Flatpak. A resource without sufficient scoped/full-digest
-proof stays online with a finite reason. PR #26 and Issue #20 remain open.
+live CDN or installed Flatpak. A resource without a valid reuse lease or
+sufficient scoped/full-digest proof stays online with a finite reason. PR #26 and Issue #20 remain open.
 Public client distribution questions remain separate in #5/#22. See
 [AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md) and the
 [single acceptance procedure](BUILDING.md#pr-26-corrected-cache-acceptance).

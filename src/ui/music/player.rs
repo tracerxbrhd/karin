@@ -22,6 +22,7 @@ struct Intent {
     track: String,
     autoplay: bool,
     position: Option<Duration>,
+    force_online: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -41,6 +42,7 @@ pub(super) struct MusicPlayback {
     pending: Option<Intent>,
     preparing: Option<(bool, Option<Duration>)>,
     play_intent: bool,
+    cache_retry_used: bool,
     failure: Option<Failure>,
     owned_error: Option<String>,
     reported_error: Option<(u64, PlaybackError)>,
@@ -70,6 +72,7 @@ impl Default for MusicPlayback {
             pending: None,
             preparing: None,
             play_intent: false,
+            cache_retry_used: false,
             failure: None,
             owned_error: None,
             reported_error: None,
@@ -484,6 +487,7 @@ impl Controller {
                 track,
                 autoplay,
                 position,
+                force_online: false,
             });
             player.requested = true;
             player.stopped = false;
@@ -524,7 +528,14 @@ impl Controller {
         let fixture_resolver = self.player.borrow().fixture_resolver.clone();
         #[cfg(not(test))]
         let fixture_resolver: Option<StreamResolver> = None;
-        let cache_binding = self.audio_cache_binding();
+        // A failed local-first source gets one lazy online replacement. It
+        // must not select the same cached candidate again or start another
+        // background copy of it, and it must not resolve a CDN URL on GTK.
+        let cache_binding = if intent.force_online {
+            None
+        } else {
+            self.audio_cache_binding()
+        };
         let hold = app.hold();
         let weak = Rc::downgrade(self);
         let track = intent.track.clone();
@@ -585,6 +596,17 @@ impl Controller {
                 match result {
                     Ok(selection) => {
                         let source = selection.source.admit_cache_or_online();
+                        if source.cache_needs_online_resolution()
+                            && this.retry_cached_music_online(intent.position)
+                        {
+                            crate::audio_cache::diagnostic::report(
+                                crate::audio_cache::diagnostic::Event::Stale,
+                                crate::audio_cache::diagnostic::Cause::AdmissionRevoked,
+                            );
+                            this.render_music_player();
+                            this.begin_music_resolution();
+                            return;
+                        }
                         let output = this.player.borrow().output;
                         let volume = this.player.borrow().volume;
                         let prepared = PlaybackController::new(output).and_then(|controller| {
@@ -629,6 +651,59 @@ impl Controller {
         self.stop_music_engine();
     }
 
+    /// Keep the queue occurrence, player serial and Wave cycle unchanged. The
+    /// failed cached worker never reached actual Playing, so replacing it here
+    /// cannot reset an audible listening interval. All network work still runs
+    /// through begin_music_resolution after the old native worker is cleaned up.
+    fn retry_cached_music_online(self: &Rc<Self>, position: Option<Duration>) -> bool {
+        let model = self.model.borrow();
+        if model.closed
+            || !model.account_valid
+            || model.token.as_ref().is_none_or(AccessToken::is_expired)
+        {
+            return false;
+        }
+        let Some(track) = model.queue.current().filter(|track| track.available) else {
+            return false;
+        };
+        let mut player = self.player.borrow_mut();
+        if player.cache_retry_used
+            || player.resolving
+            || player.track.as_deref() != Some(track.id.as_str())
+        {
+            return false;
+        }
+        if let Some(controller) = &player.controller
+            && !controller.snapshot().playing_time.is_zero()
+        {
+            return false;
+        }
+        player.cache_retry_used = true;
+        if let Some(old) = player.controller.take() {
+            old.shutdown();
+            player.retired.push(old);
+        }
+        let autoplay = player.play_intent;
+        player.preparing = None;
+        player.pending = Some(Intent {
+            serial: player.serial,
+            session: model.generation,
+            track: track.id.clone(),
+            autoplay,
+            position,
+            force_online: true,
+        });
+        player.requested = true;
+        player.failure = None;
+        player.reported_error = None;
+        player.ended_handled = false;
+        drop(player);
+        drop(model);
+        self.widgets.status.set_title("Получаем источник аудио…");
+        self.widgets.status.set_subtitle("");
+        true
+    }
+
     /// Ordinary source replacement stops only the one native player. Already
     /// requested independent cache downloads retain their bounded tickets.
     pub(super) fn stop_music_engine(&self) {
@@ -651,6 +726,7 @@ impl Controller {
             player.requested = false;
             player.preparing = None;
             player.play_intent = false;
+            player.cache_retry_used = false;
             player.failure = None;
             let owned_error = player.owned_error.take();
             player.reported_error = None;
@@ -844,6 +920,23 @@ impl Controller {
             return;
         }
         let snapshot = self.music_snapshot();
+        if snapshot.as_ref().is_some_and(|snapshot| {
+            snapshot.state == PlaybackState::Error
+                && snapshot.last_error == Some(PlaybackError::CachedSourceUnavailable)
+                && snapshot.playing_time.is_zero()
+        }) {
+            let position = self
+                .player
+                .borrow()
+                .preparing
+                .and_then(|(_, position)| position)
+                .or_else(|| snapshot.as_ref().and_then(|snapshot| snapshot.position));
+            if self.retry_cached_music_online(position) {
+                self.render_music_player();
+                self.begin_music_resolution();
+                return;
+            }
+        }
         // Confirm native listening and EOS before the ordinary queue advances.
         self.tick_radio(snapshot.as_ref());
         let mut ready = None;
@@ -1409,6 +1502,7 @@ fn music_playback_error(error: PlaybackError) -> &'static str {
         }
         PlaybackError::Playback
         | PlaybackError::SourceUnavailable
+        | PlaybackError::CachedSourceUnavailable
         | PlaybackError::DiagnosticMedia => {
             "Не удалось прочитать аудио или открыть аудиовыход. Нажмите воспроизведение для повторной попытки."
         }
@@ -1434,6 +1528,7 @@ fn music_playback_category(error: PlaybackError) -> &'static str {
         PlaybackError::Pipeline | PlaybackError::Initialization => "audio-component-unavailable",
         PlaybackError::Playback
         | PlaybackError::SourceUnavailable
+        | PlaybackError::CachedSourceUnavailable
         | PlaybackError::DiagnosticMedia => "media-or-output-failed",
         PlaybackError::InvalidState => "invalid-state",
         PlaybackError::WorkerUnavailable | PlaybackError::ShuttingDown => "worker-unavailable",

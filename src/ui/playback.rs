@@ -453,9 +453,9 @@ fn error_text(error: PlaybackError) -> &'static str {
         }
         PlaybackError::InvalidState => "Дождитесь готовности файла и повторите действие.",
         PlaybackError::InvalidVolume => "Громкость должна быть от 0 до 100%.",
-        PlaybackError::SourceUnavailable | PlaybackError::DiagnosticMedia => {
-            "Не удалось подготовить локальный тестовый файл."
-        }
+        PlaybackError::SourceUnavailable
+        | PlaybackError::CachedSourceUnavailable
+        | PlaybackError::DiagnosticMedia => "Не удалось подготовить локальный тестовый файл.",
         PlaybackError::SourceExpired => "Срок действия источника истёк; выберите трек снова.",
         PlaybackError::SourcePolicy => "Источник не прошёл проверку безопасного воспроизведения.",
         PlaybackError::RemoteHttp(_) => "Медиасервер отклонил запрос воспроизведения.",

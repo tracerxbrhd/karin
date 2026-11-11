@@ -412,6 +412,97 @@ impl AdmittedAudio {
 }
 
 #[test]
+fn full_audio_replacement_reservation_preserves_old_bytes_on_quota_or_reader_failure() {
+    use crate::audio_cache::CacheError;
+    use std::sync::atomic::AtomicBool;
+
+    struct Truncated {
+        read: Arc<AtomicBool>,
+        first: bool,
+    }
+    impl Read for Truncated {
+        fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+            self.read.store(true, Ordering::Release);
+            if std::mem::take(&mut self.first) {
+                out[..4].copy_from_slice(b"data");
+                Ok(4)
+            } else {
+                Err(std::io::ErrorKind::UnexpectedEof.into())
+            }
+        }
+    }
+
+    let f = AdmittedAudio::new();
+    let original = fs::read(f.record.join("media.bin")).unwrap();
+    let before = f.budget.usage().unwrap();
+    // The full bounded stage and the protected metadata floor fit alone, but
+    // preserving the completed target at the same time does not. A previous
+    // unprotected reservation evicted that target before invoking the reader.
+    let upper = 64 * MIB + 112;
+    let floor = 8 * MIB;
+    f.budget
+        .configure(true, Some(upper + floor + before.bytes / 2))
+        .unwrap();
+    let lease = f.cache.lease().unwrap();
+    let read = Arc::new(AtomicBool::new(false));
+    assert_eq!(
+        f.cache.put_reader(
+            f.cache.begin(&lease, f.key).unwrap(),
+            Truncated {
+                read: read.clone(),
+                first: true
+            },
+        ),
+        Err(CacheError::Limit)
+    );
+    assert!(!read.load(Ordering::Acquire));
+    assert_eq!(fs::read(f.record.join("media.bin")).unwrap(), original);
+    assert_eq!(f.budget.usage().unwrap(), before);
+
+    // With room for both, the normal production writer reaches a genuinely
+    // incomplete body. Unwinding the stage/reservation must preserve the old
+    // record too, rather than turning a failed migration into data loss.
+    f.budget
+        .configure(true, Some(upper + floor + before.bytes + 1))
+        .unwrap();
+    let lease = f.cache.lease().unwrap();
+    assert_eq!(
+        f.cache.put_reader(
+            f.cache.begin(&lease, f.key).unwrap(),
+            Truncated {
+                read: read.clone(),
+                first: true
+            },
+        ),
+        Err(CacheError::Unavailable)
+    );
+    assert!(read.load(Ordering::Acquire));
+    assert_eq!(fs::read(f.record.join("media.bin")).unwrap(), original);
+    assert_eq!(f.budget.usage().unwrap(), before);
+    assert!(f.budget.state.lock().unwrap().pending.is_empty());
+}
+
+#[test]
+fn full_audio_reservation_protects_target_while_other_records_remain_lru_candidates() {
+    let f = Fixture::new();
+    let budget = f.budget(Some(500));
+    let target = f.audio(1, 100);
+    let victim = f.audio(2, 100);
+    File::open(&target)
+        .unwrap()
+        .set_times(fs::FileTimes::new().set_modified(SystemTime::UNIX_EPOCH))
+        .unwrap();
+    let ticket = budget.reserve_audio(&target, 100).unwrap();
+    assert!(target.exists());
+    assert!(!victim.exists());
+    budget.configure(true, Some(1)).unwrap();
+    assert!(matches!(budget.trim(), Err(BudgetError::Limit)));
+    assert!(target.exists());
+    drop(ticket);
+    assert_eq!(budget.trim().unwrap().bytes, 0);
+}
+
+#[test]
 fn admitted_audio_hit_does_not_wait_behind_shared_budget_bookkeeping() {
     use std::{sync::mpsc, thread, time::Duration};
     let f = AdmittedAudio::new();

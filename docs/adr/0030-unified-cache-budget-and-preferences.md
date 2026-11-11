@@ -95,8 +95,8 @@ additional daemon or wider Flatpak permission.
 The later private HTTP policy in ADR-0029 supersedes the original blanket
 MissingStorageContract refusal for ordinary supported audio. Shared quota,
 Unlimited, a subscription or HTTP200 still supplies no content license. Actual
-response policy, fresh playback access and scoped representation proof remain
-required; [AUDIO_CACHE_REVIEW](../AUDIO_CACHE_REVIEW.md) records that boundary.
+response policy, fresh playback access and matching selection with a valid reuse
+lease or scoped representation proof remain required; [AUDIO_CACHE_REVIEW](../AUDIO_CACHE_REVIEW.md) records that boundary.
 The prepared provider questions are historical context, not an invented cache-hit
 API prerequisite. Audio presence indicators read the same store and disappear on
 shared LRU eviction; they neither reserve a second quota nor authorize local use.
