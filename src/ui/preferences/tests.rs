@@ -167,6 +167,8 @@ fn native_system_appearance(mode: &str) {
         .default_height(720)
         .build();
     window.add_css_class("music-shell");
+    crate::ui::style::attach(&window);
+    assert!(window.has_css_class("karin-style-system"));
     let label = gtk::Label::new(Some("Системное оформление · Native appearance"));
     window.set_content(Some(&label));
     let parent = label.parent();
@@ -430,6 +432,7 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
     }
     gtk::init().unwrap();
     adw::init().unwrap();
+    crate::ui::style::install();
     let app = adw::Application::builder()
         .application_id("io.github.tracerxbrhd.Karin.PreferencesFixture")
         .flags(gio::ApplicationFlags::NON_UNIQUE)
@@ -441,6 +444,8 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
         .default_width(900)
         .default_height(650)
         .build();
+    crate::ui::style::attach(&window);
+    assert!(window.has_css_class("karin-style-system"));
     window.set_content(Some(&gtk::Box::new(gtk::Orientation::Vertical, 0)));
     let changes = Rc::new(RefCell::new(Vec::<Preferences>::new()));
     let clear = Rc::new(Cell::new(0));

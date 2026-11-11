@@ -201,6 +201,8 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
         .default_height(980)
         .content(&host)
         .build();
+    crate::ui::style::attach(&window);
+    assert!(window.has_css_class("karin-style-system"));
     window.present();
     pump_until(|| pane.play.is_mapped() && pane.play.width() > 0);
     settle();
