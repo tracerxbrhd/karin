@@ -1161,12 +1161,49 @@ old record until final publication fences, with rollback on failure. Account/
 token epochs and storage/cancellation fences remain. Known selection changes retire/refill; a renewed CDN locator alone cannot retire
 a fresh record.
 
-**Validation of this revision is pending.** Record exact final source, stable and
-1.98.1 matrix/CI results and ordinary-application HTTP counters here after they
-execute. Required evidence: a complete saved file, matching SHA-256, actual
-GStreamer local source, same-record replay and process restart with zero new
-full-media GETs; selection/quality change, stale/no-cache, partial/corrupt files,
-account/refusal, Clear and concurrent operations must retain their safeguards.
+Runtime [`2dc03b9`](https://github.com/tracerxbrhd/karin/commit/2dc03b9372a4a860be185de85bf7e40c1772ea1a)
+passed the complete local matrix on stable **1.99.1** and exact **1.98.1**:
+formatting, strict Clippy and **630 / 638 / 616 library tests plus 4 CLI tests**
+per default/all/minimal configuration, locked debug builds, offline ordinary
+release builds and the MSRV all-feature release. GTK/GStreamer/playback smokes,
+four ordinary/legacy-alias Wave launch cases and fifteen hidden-input terminal
+cases passed. Ignored tests are not included in those library PASS counts.
+
+Fresh, source-hashed native test ELFs passed **22 explicit executions**, including
+the ordinary application at 1×/2× on both compilers: **296 distinct child
+processes and 24 receipts**. The original 55 cases remain, with 19 local-first
+cases per application run. Independent audits checked actual `CachedFile`
+Playing, source transitions, file identity/full SHA-256, HTTP counts, MPRIS and
+cleanup. **168 synthetic PNGs** cover the retained Preferences and cache-indicator
+geometry, themes and HiDPI checks; Cloud/Xvfb is not Fedora desktop acceptance.
+
+For two original permitted MP3 resources, each **24,546 bytes**, all four
+application runs recorded the following deltas:
+
+| Operation | Actual source | XML | CDN HEAD | Full media GETs | Media bytes |
+| --- | --- | ---: | ---: | ---: | ---: |
+| First selection/save of both resources, including local replays | Remote, then CachedFile | 2 | 0 | 4: 2 native + 2 independent saves | 98,184 |
+| Distinct application process; MPRIS Pause/Play/Seek/Volume/Next/Previous | CachedFile | 0 | 0 | 0 | 0 |
+| Further process with rotated signed wrapper/CDN host/path | CachedFile | 0 | 0 | 0 | 0 |
+
+The latter processes retain the same payload SHA-256 and file identities after
+current authenticated offer checks. Expired-policy refresh publishes one newly
+admitted complete response and then returns to local playback. Tests also cover
+logical/quality/gain changes, preview/protection/access refusals, missing timing,
+origin clock skew versus local clock rollback, stale/no-cache/304 policy,
+partial/corrupt files, account changes, Clear and quota/concurrency failures.
+The ordinary UI test confirms a rejected local decoder triggers exactly one
+online resolution while preserving the queue occurrence and Wave cycle.
+
+Both vendored Flatpak-source lanes passed locked/offline release builds from
+empty Cargo homes and smoke tests of their actual pinned ELFs. All **229 tracked
+source files**, the manifest, **208 packages / 207 notice directories**, SPDX and
+Markdown links passed independent checks. These builds use host libraries;
+GNOME50 SDK execution and installed Flatpak are separate checks. The final
+documentation-only commit changes no compiled source, workflow or packaging;
+exact current-head hosted results and the Native build are available in
+[PR #26 checks](https://github.com/tracerxbrhd/karin/pull/26/checks).
+
 Original local HTTP/MP3 fixtures do not reproduce current Yandex CDN headers or
 prove audible service local replay. No new real Music local-hit or installed
 Flatpak acceptance is claimed; use the single final
