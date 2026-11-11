@@ -98,13 +98,16 @@ HTTP validation. Opaque ETag/Last-Modified preconditions remain scoped to the ex
 compatible media URI; a valid full Repr-Digest and length can prove bytes across
 locators. Same, Different and Unknown remain distinct: positive proof can rebase
 metadata atomically, confirmed changes follow retirement policy, and Unknown
-retains modern records while playing online without redundant refills. Old
-records without receipt metadata or schema-2 selection first use this strict
-path. If proof remains inconclusive after a current authenticated offer, the
+retains modern records while playing online without redundant refills. Records
+with pre-schema-2 selection or an upgraded unknown original response status
+first use this strict path. If proof remains inconclusive after a current
+authenticated offer, the
 existing background writer can migrate them with one complete newly admitted
 response. Atomic replacement occurs only after full validation/publication; the
 old file/mtime is never relabeled fresh. Successful schema-2 publication ends
-this migration, and refusals/no-store cannot trigger it. An expired modern lease
+this migration, and refusals/no-store cannot trigger it. An otherwise modern
+record with no receipt clock stays strict; that absence alone cannot repeatedly
+trigger migration. An expired modern lease
 with incomparable replicas may seed a fresh replacement only when both the
 current probe and the actual GET response authorize fresh reuse; the GET gate
 runs before its body is read. No-cache or unproved freshness stays online. This

@@ -178,9 +178,10 @@ flatpak run io.github.tracerxbrhd.Karin
    stay through current-access/selection checking. A fresh saved response with
    matching authenticated MP3 selection must be chosen before XML/CDN resolution,
    without another complete media download. A saved file alone is not a PASS.
-   Old metadata without receipt/schema-2 selection first attempts strict
-   validation; if inconclusive, one newly admitted complete response can migrate
-   it atomically. It must then stop taking that migration path. After a modern
+   Pre-schema-2 metadata or upgrades with unknown original response status first
+   attempt strict validation; if inconclusive, a new complete response can migrate
+   it atomically. It must then stop taking that migration path. A modern record
+   without a receipt clock stays strict, without repeated migration downloads. After a modern
    lease expires, fresh probe and actual GET policy may authorize one complete
    renewal; subsequent replay must again use its fresh local file. No-cache or
    unproved freshness stays on strict validation/online fallback. Report that fallback as such, separately from

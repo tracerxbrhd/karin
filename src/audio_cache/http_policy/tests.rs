@@ -257,13 +257,14 @@ fn age_receipt_request_delay_restart_and_clock_uncertainty_bound_reuse() {
         overflow.fresh_for(application(), 1000),
         Err(Reason::FreshnessMissing)
     );
-    let legacy = Metadata {
+    let unclocked = Metadata {
         observed: None,
         ..metadata
     };
-    assert!(legacy.needs_initial_refresh());
+    assert!(!unclocked.needs_initial_refresh());
+    assert!(!overflow.needs_initial_refresh());
     assert_eq!(
-        legacy.fresh_for(application(), 1001),
+        unclocked.fresh_for(application(), 1001),
         Err(Reason::FreshnessMissing)
     );
 }
@@ -303,9 +304,19 @@ fn expires_max_age_precedence_apparent_age_and_future_dates_are_conservative() {
         Duration::ZERO,
         now - 1,
     );
+    // RFC9111 apparent_age clamps negative origin clock skew to zero.
+    assert_eq!(future.observed.unwrap().corrected_initial_age, 0);
     assert_eq!(
-        future.fresh_for(application(), now),
-        Err(Reason::FreshnessMissing)
+        future.fresh_for(application(), now).unwrap(),
+        FreshReuse {
+            kind: Freshness::Explicit,
+            remaining: Duration::from_secs(59),
+        }
+    );
+    assert_eq!(
+        future.fresh_for(application(), now - 2),
+        Err(Reason::ClockUncertain),
+        "an actual local clock rollback before receipt remains ineligible"
     );
 }
 
@@ -376,6 +387,16 @@ fn legacy_schema_is_not_a_proved_encoding_change_and_refresh_is_one_time() {
     assert!(metadata.fresh_for(application(), 1001).is_ok());
     let encoded = metadata.encode().unwrap();
     assert!(!Metadata::decode(&encoded).unwrap().needs_initial_refresh());
+    let mut unclocked = metadata.clone();
+    unclocked.observed = None;
+    assert!(!unclocked.needs_initial_refresh());
+    unclocked.binding.as_mut().unwrap().schema = 1;
+    assert!(unclocked.needs_initial_refresh());
+    metadata.observed.as_mut().unwrap().response_status = 0;
+    assert!(
+        metadata.needs_initial_refresh(),
+        "legacy304 provenance still needs one complete response"
+    );
 }
 
 #[test]
@@ -1174,5 +1195,68 @@ fn qualified_last_modified_304_requires_the_actual_matching_conditional_kind() {
     assert_eq!(
         not_modified.revalidate_source(&strong_etag_stored, &remote),
         Ok(Validation::Unproven(Reason::ValidatorsMissing))
+    );
+}
+
+#[test]
+fn not_modified_future_origin_date_keeps_bounded_freshness_without_hiding_local_rollback() {
+    let date = "Mon, 01 Jan 2024 00:00:00 GMT";
+    let now = http_date(date).unwrap();
+    let stored = observed(
+        &[
+            ("Date", date),
+            ("ETag", "\"same\""),
+            ("Cache-Control", "max-age=60"),
+        ],
+        Duration::ZERO,
+        now,
+    );
+    let headers = [
+        ("Date", "Mon, 01 Jan 2024 00:00:02 GMT"),
+        ("ETag", "\"same\""),
+    ];
+    let policy = response(304, &headers)
+        .unwrap()
+        .observed_at(Duration::from_millis(20), now + 1);
+    let fresh = same(policy.revalidate_scoped(
+        &stored,
+        stored.uri_hash,
+        stored.resource_hash,
+        stored.binding,
+        true,
+    ));
+    assert_eq!(fresh.observed.unwrap().corrected_initial_age, 1);
+    assert_eq!(
+        fresh.fresh_for(application(), now + 1).unwrap().remaining,
+        Duration::from_secs(59)
+    );
+    assert_eq!(
+        fresh.fresh_for(application(), now),
+        Err(Reason::ClockUncertain)
+    );
+    let reopened = Metadata::decode(&fresh.encode().unwrap()).unwrap();
+    assert_eq!(
+        reopened.fresh_for(application(), now + 60),
+        Err(Reason::FreshnessExpired)
+    );
+
+    // A future Date cannot override an explicitly already expired response.
+    let mut expired_headers = headers.to_vec();
+    expired_headers.push(("Expires", "0"));
+    expired_headers.push(("Cache-Control", "private"));
+    let expired = response(304, &expired_headers)
+        .unwrap()
+        .observed_at(Duration::ZERO, now + 1);
+    let expired = same(expired.revalidate_scoped(
+        &stored,
+        stored.uri_hash,
+        stored.resource_hash,
+        stored.binding,
+        true,
+    ));
+    assert!(expired.observed.is_some());
+    assert_eq!(
+        expired.fresh_for(application(), now + 1),
+        Err(Reason::FreshnessExpired)
     );
 }

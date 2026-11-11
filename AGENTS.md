@@ -49,9 +49,10 @@ reviewable and consistent with the accepted application.
   MP3 before XML/CDN resolution when its authenticated API offer/variant matches,
   integrity passes and its private HTTP reuse lease is fresh. Do not equate
   logical storage identity with an immutable byte version. `no-cache` requires
-  revalidation; `must-revalidate` applies once stale. Older metadata without a
-  receipt clock keeps strict validation; if its proof is inconclusive, migrate
-  through a complete newly admitted response, never by stamping old bytes fresh.
+  revalidation; `must-revalidate` applies once stale. Missing receipt clocks
+  require strict validation, not automatic migration. Only pre-schema-2 records
+  or upgrades with unknown original response status may migrate after inconclusive
+  proof through a complete new response; never stamp old bytes fresh.
   For an expired known selection, only fresh current probe and actual GET policy
   can admit a complete replacement; no-cache/unproved policy stays conservative.
   Protect retained records through quota reservation and atomic publication.

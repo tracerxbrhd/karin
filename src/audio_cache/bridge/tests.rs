@@ -66,6 +66,8 @@ type LookupBarrier = Arc<Mutex<Option<(AudioCache, u64)>>>;
 struct Http {
     origin: String,
     media_requests: Arc<AtomicUsize>,
+    media_get_requests: Arc<AtomicUsize>,
+    descriptor_version: Arc<AtomicUsize>,
     delivery_requests: Arc<AtomicUsize>,
     stop: Arc<AtomicBool>,
     lookup_barrier: LookupBarrier,
@@ -76,17 +78,30 @@ impl Http {
         Self::with_account(body, status, extra_headers, 1234)
     }
     fn with_account(body: Vec<u8>, status: u16, extra_headers: &str, account: u64) -> Self {
+        Self::with_delivery_profile(body, status, extra_headers, account, false)
+    }
+    fn with_delivery_profile(
+        body: Vec<u8>,
+        status: u16,
+        extra_headers: &str,
+        account: u64,
+        clock_profile: bool,
+    ) -> Self {
         let extra_headers = extra_headers.to_owned();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let origin = format!("http://{}/", listener.local_addr().unwrap());
         let media_requests = Arc::new(AtomicUsize::new(0));
+        let media_get_requests = Arc::new(AtomicUsize::new(0));
+        let descriptor_version = Arc::new(AtomicUsize::new(0));
         let delivery_requests = Arc::new(AtomicUsize::new(0));
         let stop = Arc::new(AtomicBool::new(false));
         let lookup_barrier: LookupBarrier = Arc::new(Mutex::new(None));
         let server = {
             let origin = origin.clone();
             let media_requests = media_requests.clone();
+            let media_get_requests = media_get_requests.clone();
+            let descriptor_version = descriptor_version.clone();
             let delivery_requests = delivery_requests.clone();
             let stop = stop.clone();
             let lookup_barrier = lookup_barrier.clone();
@@ -137,12 +152,32 @@ impl Http {
                             // it is not a guarantee that a cache worker is ready.
                             thread::sleep(Duration::from_millis(15));
                         }
-                        (200, "application/json", "", format!(r#"{{"result":[{{"codec":"mp3","preview":false,"downloadInfoUrl":"{origin}download-info/original"}}]}}"#).into_bytes())
-                    } else if path == "/download-info/original" {
+                        let offer = if clock_profile {
+                            format!(
+                                r#"{{"result":[{{"codec":"mp3","preview":false,"bitrateInKbps":192,"downloadInfoUrl":"{origin}download-info/cache/original"}}]}}"#
+                            )
+                        } else {
+                            format!(
+                                r#"{{"result":[{{"codec":"mp3","preview":false,"downloadInfoUrl":"{origin}download-info/original"}}]}}"#
+                            )
+                        };
+                        (200, "application/json", "", offer.into_bytes())
+                    } else if path == "/download-info/original"
+                        || path == "/download-info/cache/original"
+                    {
                         assert!(!lower.contains("authorization:") && !lower.contains("cookie:"));
-                        (200, "application/xml", "", b"<download-info><host>s268myt.storage.yandex.net</host><path>/original/track.mp3</path><ts>000592c073d58600</ts><s>synthetic-value</s></download-info>".to_vec())
+                        let descriptor = if clock_profile {
+                            let version = descriptor_version.load(Ordering::Acquire);
+                            format!("<download-info><host>s268myt.storage.yandex.net</host><path>/original/replica-{version}/track.mp3</path><ts>000592c073d58600</ts><s>synthetic-value</s></download-info>").into_bytes()
+                        } else {
+                            b"<download-info><host>s268myt.storage.yandex.net</host><path>/original/track.mp3</path><ts>000592c073d58600</ts><s>synthetic-value</s></download-info>".to_vec()
+                        };
+                        (200, "application/xml", "", descriptor)
                     } else if path.starts_with("/get-mp3/") {
                         media_requests.fetch_add(1, Ordering::AcqRel);
+                        if request.starts_with("GET ") {
+                            media_get_requests.fetch_add(1, Ordering::AcqRel);
+                        }
                         assert!(!lower.contains("authorization:") && !lower.contains("cookie:"));
                         (status, "audio/mpeg", extra_headers.as_str(), body.clone())
                     } else {
@@ -160,6 +195,8 @@ impl Http {
         Self {
             origin,
             media_requests,
+            media_get_requests,
+            descriptor_version,
             delivery_requests,
             stop,
             lookup_barrier,
@@ -1299,4 +1336,78 @@ fn metadata_rebase_skips_an_active_writer_without_waiting_for_its_completion() {
         fs::read(path.join("http")).unwrap() == old,
         "the original policy is preserved"
     );
+}
+
+#[test]
+fn modern_unclocked_records_do_not_repeat_full_downloads_across_rotating_replicas() {
+    for overflow in [false, true] {
+        let directory = Directory::new();
+        let headers = if overflow {
+            "ETag: \"original-clock-profile\"\r\nCache-Control: private, max-age=3600\r\nAge: 18446744073709551615\r\n"
+        } else {
+            "ETag: \"original-clock-profile\"\r\nCache-Control: private, max-age=3600\r\n"
+        };
+        let http = Http::with_delivery_profile(media(), 200, headers, 1234, true);
+        let cache = AudioCache::open(
+            directory.0.join("audio"),
+            Arc::new(OnlineStreamAuthority::with_storage_permission(Arc::new(
+                crate::audio_cache::PrivateHttpCachePolicy,
+            ))),
+            CachePolicy::default(),
+        )
+        .unwrap();
+        let lease = cache.bind(Some(scope())).unwrap().unwrap();
+        cache_from_playback(http.select(&cache, &lease)).unwrap();
+        assert_eq!(http.media_get_requests.load(Ordering::Acquire), 2);
+        let identity = cache.identity(&lease, key()).unwrap();
+        let path = cache.path(identity.key());
+        let original = fs::read(path.join("media.bin")).unwrap();
+        let mut metadata = crate::audio_cache::read_http_record(&path)
+            .unwrap()
+            .unwrap();
+        assert_eq!(metadata.binding.unwrap().schema, 2);
+        assert!(metadata.binding.unwrap().logical.is_some());
+        if overflow {
+            assert!(
+                metadata.observed.is_none(),
+                "real overflowing Age arithmetic leaves an unclocked modern record"
+            );
+        } else {
+            // A current-writer record without reliable receipt timing must not
+            // be confused with a pre-schema2 migration on every next play.
+            metadata.observed = None;
+            fs::write(path.join("http"), metadata.encode().unwrap()).unwrap();
+        }
+        let policy = fs::read(path.join("http")).unwrap();
+        let initial_requests = http.requested();
+        let initial_offers = http.delivery_requests.load(Ordering::Acquire);
+        for replica in 1..=2 {
+            // The actual XML response changes physical placement and therefore
+            // the signed request URI, while authenticated object/quality stay
+            // the same. Opaque replica ETags do not prove byte equivalence.
+            http.descriptor_version.store(replica, Ordering::Release);
+            let selected = http.select_ready(&cache, &lease);
+            assert!(
+                !selected.source.is_cached(),
+                "unclocked bytes cannot bypass strict validation"
+            );
+            assert!(
+                selected.fill.is_none(),
+                "modern uncertainty must not schedule another complete background GET"
+            );
+            assert_eq!(http.media_get_requests.load(Ordering::Acquire), 2);
+            assert_eq!(fs::read(path.join("media.bin")).unwrap(), original);
+            assert_eq!(fs::read(path.join("http")).unwrap(), policy);
+        }
+        assert_eq!(
+            http.delivery_requests.load(Ordering::Acquire),
+            initial_offers + 2
+        );
+        assert_eq!(
+            http.requested(),
+            initial_requests + 2,
+            "two strict metadata HEAD requests, no media GET"
+        );
+        assert_eq!(cache.stats().unwrap().entries, 1);
+    }
 }

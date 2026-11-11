@@ -1150,10 +1150,11 @@ offers, then saved selection/integrity and private response freshness before
 XML/CDN resolution. Selection schema 2 includes logical object and codec/bitrate/
 gain/fullness; it is not an immutable provider content version. Explicit
 max-age/Expires or conservative RFC9111 Date−Last-Modified freshness can admit a
-local file. No-cache, stale or legacy records without receipt clocks retain
-strict validation. Legacy inconclusive proof can migrate only through a complete
+local file. No-cache, stale or unclocked records retain strict validation.
+Pre-schema-2 records and upgrades with unknown original response status can
+migrate after inconclusive proof only through a complete
 newly admitted response and atomic publication, never by renewing old bytes;
-modern unknown records do not repeatedly migrate. An expired modern lease can
+modern unknown/unclocked records do not repeatedly migrate. An expired modern lease can
 renew through one complete response only when both probe and actual GET policy
 permit fresh reuse. Protected quota reservation and atomic exchange retain the
 old record until final publication fences, with rollback on failure. Account/

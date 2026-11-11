@@ -301,7 +301,9 @@ Without explicit expiration, §4.2.2 permits heuristic freshness for eligible
 HTTP200 responses: Karin requires Date at least 60 seconds after Last-Modified
 and uses ten percent of that interval, capped at one hour. This is a bounded heuristic, not an immutable-recording or
 rights claim. Invalid/conflicting policy, clock rollback and old sidecars without
-receipt metadata do not acquire this shortcut.
+receipt metadata do not acquire this shortcut. RFC9111 computes apparent Age as
+max(0, receipt time−origin Date): a future origin Date alone does not prove local
+clock rollback. A replay clock before its saved local receipt remains uncertain.
 
 `private` permits a private cache; `no-cache` always requires successful
 validation; `must-revalidate` prevents reuse once stale; `no-store` forbids
@@ -377,8 +379,10 @@ encoding changes, explicit restrictions and invalid records remain separate.
 Required revalidation retains three distinct outcomes: Same admits a verified
 local file after current access/final fences; Different follows retirement/update
 policy; Unknown keeps a modern candidate and plays online without a new body save.
-The fresh local-first path needs no new CDN validation request. Legacy records
-without receipt metadata or schema-2 selection first attempt strict validation.
+The fresh local-first path needs no new CDN validation request. Pre-schema-2
+records and upgrades with unknown original response status first attempt strict
+validation; missing clocks on an otherwise modern record do not classify it as
+legacy or authorize repeated full downloads.
 Positive Same may update the sidecar atomically without downloading audio. If
 proof remains inconclusive, a current authenticated offer can admit a complete
 response through the existing background writer to migrate that legacy record.

@@ -253,7 +253,7 @@ impl ResponsePolicy {
             .as_secs()
             .checked_add(u64::from(elapsed.subsec_nanos() != 0));
         let apparent_age = match self.date_unix {
-            Some(date) => response_unix.checked_sub(date),
+            Some(date) => Some(response_unix.saturating_sub(date)),
             None => Some(0),
         };
         self.observed = delay
@@ -713,10 +713,10 @@ impl ResponsePolicy {
             if let Some(mut observed) = current.observed
                 && let Some(date) = current.date_unix
             {
-                current.observed = observed.response_unix.checked_sub(date).map(|apparent| {
-                    observed.corrected_initial_age = observed.corrected_initial_age.max(apparent);
-                    observed
-                });
+                observed.corrected_initial_age = observed
+                    .corrected_initial_age
+                    .max(observed.response_unix.saturating_sub(date));
+                current.observed = Some(observed);
             }
             // Preserve stricter absent metadata on a 304; never turn an old
             // revalidation requirement into a fresh/offline permission.
@@ -749,8 +749,11 @@ impl ResponsePolicy {
 
 impl Metadata {
     pub(crate) fn needs_initial_refresh(&self) -> bool {
+        // Schema2 was already saved by the current complete-response writer.
+        // A missing clock is uncertainty, not permission to download it again
+        // on every play. Status0 retains the one-time legacy304 migration.
         self.observed
-            .is_none_or(|observed| observed.response_status == 0)
+            .is_some_and(|observed| observed.response_status == 0)
             || self.binding.is_none_or(|binding| binding.schema != 2)
     }
 

@@ -247,8 +247,8 @@ Date, Age, request/response time and residence across restart. Without explicit
 expiration, a valid Date/Last-Modified pair allows conservative RFC9111 heuristic
 freshness of ten percent of the interval, capped at one hour. `no-cache` always
 requires validation; `must-revalidate` prevents stale reuse; `no-store` forbids
-storage. Invalid clocks/directives and legacy sidecars without receipt metadata
-do not acquire a fresh lease.
+storage. Invalid clocks/directives and missing receipt metadata do not acquire
+a fresh lease.
 
 Outside that lease, strict representation validation remains available: exact
 compatible media URI for opaque ETag/Last-Modified and whole length, or a trusted
@@ -256,11 +256,13 @@ full Repr-Digest matching the saved SHA-256 and length across locators. Legacy
 XML ts remains opaque. Same can update metadata atomically after final fences;
 Different follows the applicable retirement/update policy; Unknown preserves a
 modern candidate and online playback without a redundant body save. Legacy
-records lacking receipt metadata or schema-2 selection first attempt strict
-validation. If inconclusive, a current authenticated offer can admit one complete
+records with pre-schema-2 selection, or upgraded records whose original response
+status is unknown, first attempt strict validation. If inconclusive, a current
+authenticated offer can admit one complete
 response through the existing background writer to migrate them. Only successful
 atomic publication replaces the old file; its bytes/mtime never gain a fabricated
-lease. For an expired modern selection with incomparable replica validators, a
+lease. Missing clocks on an otherwise modern record do not make it legacy or
+authorize repeated migration. For an expired modern selection with incomparable replica validators, a
 fresh current probe may admit one replacement only if the actual GET headers
 also permit fresh reuse, checked before reading its body. A successful save
 starts the measured new lease, avoiding repeated refresh downloads; no-cache or
