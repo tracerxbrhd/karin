@@ -240,6 +240,10 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
                     }
                     "/albums/7/with-tracks" => json!({"result":{"id":7,"title":"Synthetic input album","artists":[],"volumes":[[track]]}}),
                     "/artists/11/tracks" => json!({"result":{"tracks":[track],"pager":{"page":0,"perPage":20,"total":1}}}),
+                    path if request.starts_with("GET ")
+                        && super::tests::empty_similar_response(path).is_some() => {
+                        super::tests::empty_similar_response(path).unwrap()
+                    }
                     _ => panic!("unexpected synthetic input fixture route"),
                 }.to_string();
                 if let Err(error) = write!(
@@ -405,12 +409,32 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
         .unwrap();
     click(window, id, &details);
     pump_until(|| {
-        this.widgets.stack.visible_child_name().as_deref() == Some("detail")
+        this.widgets.stack.visible_child_name().as_deref() == Some("library")
+            && this.panel_mode.get() == workspace::PanelMode::TrackInfo
+            && this
+                .track_pane
+                .selected()
+                .is_some_and(|track| track.id == "42")
             && !this.model.borrow().busy
     });
-    assert_eq!(count("/tracks"), before + 1);
-    let delivery = named_button(this.widgets.detail.upcast_ref(), "music-delivery-probe")
-        .expect("explicit track details retain the opt-in metadata diagnostic");
+    assert_eq!(
+        count("/tracks"),
+        before,
+        "Info uses already normalized metadata"
+    );
+    click(window, id, &this.track_pane.menu);
+    pump_until(|| this.track_pane.menu.popover().unwrap().is_mapped());
+    let probe = super::test_input::menu_action_widget(
+        &this.track_pane.menu.popover().unwrap(),
+        "track-pane.delivery",
+    )
+    .expect("the opt-in diagnostic remains a real native track-menu action");
+    assert!(probe.grab_focus());
+    input(&["key", "--clearmodifiers", "Return"]);
+    pump_until(|| this.delivery_dialog.borrow().is_some());
+    let dialog = this.delivery_dialog.borrow().as_ref().unwrap().clone();
+    let delivery = named_button(dialog.upcast_ref(), "music-delivery-probe")
+        .expect("the separate opt-in diagnostic retains its metadata-only action");
     assert!(delivery.is_sensitive());
     for _ in 0..32 {
         if delivery.has_focus() {
@@ -424,17 +448,23 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
         "delivery diagnostic remains keyboard reachable"
     );
     pump_until(|| {
-        delivery
-            .compute_bounds(window)
-            .zip(pane.player_bar.compute_bounds(window))
-            .is_some_and(|(action, footer)| {
-                action.y() >= 0.0 && action.y() + action.height() <= footer.y() + 1.0
-            })
+        delivery.compute_bounds(window).is_some_and(|action| {
+            action.y() >= 0.0
+                && action.y() + action.height() <= window.height() as f32
+                && action.x() >= 0.0
+                && action.x() + action.width() <= window.width() as f32
+        })
     });
     // Do not activate the diagnostic: no provider session/media is used here.
     capture_native("input-track-detail-delivery");
-    input(&["key", "--clearmodifiers", "alt+Left"]);
-    pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("library"));
+    input(&["key", "--clearmodifiers", "Escape"]);
+    pump_until(|| dialog.parent().is_none() && this.delivery_dialog.borrow().is_none());
+    click(window, id, &this.track_pane.close);
+    pump_until(|| this.panel_mode.get() == workspace::PanelMode::Closed);
+    assert_eq!(
+        this.widgets.stack.visible_child_name().as_deref(),
+        Some("library")
+    );
 
     // Refresh replaces rows; the one parent dispatcher must not accumulate
     // handlers. Both owned and liked playlists keep their actual owner path.
@@ -556,10 +586,25 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
             let before = count(path);
             click(window, id, &details);
             pump_until(|| {
-                this.widgets.stack.visible_child_name().as_deref() == Some("detail")
+                this.widgets.stack.visible_child_name().as_deref() == Some("search")
+                    && this.panel_mode.get() == workspace::PanelMode::TrackInfo
+                    && this
+                        .track_pane
+                        .selected()
+                        .is_some_and(|track| track.id == "42")
                     && !this.model.borrow().busy
             });
-            assert_eq!(count(path), before + 1);
+            assert_eq!(
+                count(path),
+                before,
+                "opening Info is not a new canonical lookup"
+            );
+            assert!(contains_text(
+                this.track_pane.widget.upcast_ref(),
+                "Synthetic input track"
+            ));
+            click(window, id, &this.track_pane.close);
+            pump_until(|| this.panel_mode.get() == workspace::PanelMode::Closed);
         } else {
             let before = count(path);
             let name = if kind == SearchKind::Albums {
@@ -575,11 +620,13 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
             });
             assert_eq!(count(path), before + 1);
         }
-        assert!(contains_text(
-            this.widgets.detail.upcast_ref(),
-            "Synthetic input track"
-        ));
-        click(window, id, &this.widgets.detail.first_child().unwrap());
+        if kind != SearchKind::Tracks {
+            assert!(contains_text(
+                this.widgets.detail.upcast_ref(),
+                "Synthetic input track"
+            ));
+            click(window, id, &this.widgets.detail.first_child().unwrap());
+        }
         pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("search"));
     }
 

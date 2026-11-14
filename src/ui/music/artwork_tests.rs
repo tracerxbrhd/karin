@@ -510,6 +510,10 @@ impl Fixture {
                             json!({"result":{"id":8,"title":"Synthetic partial artwork album","coverUri":ALBUM_COVER,"artists":[],"volumes":[tracks]}})
                         },
                         "/tracks" => json!({"result":[track]}),
+                        path if request.starts_with("GET ")
+                            && super::tests::empty_similar_response(path).is_some() => {
+                            super::tests::empty_similar_response(path).unwrap()
+                        },
                         _ => panic!("unexpected synthetic artwork metadata route"),
                     }.to_string();
                     response(&mut stream, 200, "application/json", body.as_bytes());

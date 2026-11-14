@@ -54,7 +54,14 @@ For Wave this reuses its existing listening/Skip lifecycle, with no new negative
 Wave event or recommendation-effect guarantee. See
 [ADR-0028](adr/0028-confirmed-track-reactions.md).
 
-Other recommendation shelves/similar tracks and lyrics are not implemented.
+The v0.8 branch adds seed-bound Similar Tracks and two explicit lyrics sources;
+these new real-content workflows are not inherited v0.7 acceptance. Legacy Yandex
+plain text requires `hasRights == true` and `fullLyrics`; missing full text is
+unavailable, not a full song assembled from an excerpt. The modern extracted-key
+signer is excluded. LRCLIB TEXT/LRC is an explicitly disclosed external lookup
+by public metadata with no Music credentials/IDs and no content persistence.
+Catalog availability/matching and source/content rights remain independent.
+See [ADR-0034](adr/0034-bounded-track-lyrics-and-similar.md).
 The v0.6 audio store, player bridge and cleanup are ordinary production code.
 The owner accepted `c1de869` real Native and installed-Flatpak playback,
 background saving, local hits and local replay after restart on 2026-11-11;
@@ -96,13 +103,21 @@ invented for transparent online-revalidated caching.
 
 ## Catalog, workspace and playback
 
-- Collection filtering searches admitted title/artist/album metadata only.
-  Views stop at 2,000 positions or 100 pages; a new playback context contains at
-  most 500 matching occurrences. Partial coverage is labelled. Loading more data
-  does not grow an active queue, and no complete remote sort is offered.
-- Queue occurrence identity now survives reindexing for both loaded and manual
-  duplicates; original source positions remain provenance. Queue/current-position
-  restoration after application restart is not implemented.
+- Ordinary display loading retains its 2,000-position/100-page bound. Explicit
+  v0.8 indexing supports complete admitted liked/playlist membership up to 20,000
+  original positions/4 MiB, with canonical batches of 50, final membership recheck
+  and 200-row result windows. Larger/changed/incomplete data is labelled, never
+  called full-library coverage. Added-date sorting requires valid timestamps;
+  provider sequence is not an invented date. No startup/per-key index drain or
+  persistent second database is introduced.
+- Playback contexts still contain at most 500 occurrences. Filtering, sorting,
+  indexing and server edits do not grow or rewrite active playback. Source
+  positions survive sorting and exact queue moves, including duplicate IDs.
+  Ordinary queue/current-position restoration was owner-accepted at `949d1f9`;
+  it needs fresh Music validation and explicit Play, not an offline session.
+  v0.8 manual future edits preserve current audio/history and persist through
+  that existing path. Wave reorder/Play Next is unsupported to preserve its
+  established batch/feedback protocol.
 - Refusal fences prevent rejected metadata from returning as fresh despite
   Busy/I/O failure. A complete disk failure cannot durably record a new refusal:
   after restart, inherited metadata is therefore Stale until a successful new
@@ -158,11 +173,12 @@ binary. The specific writer/source on the owner's Fedora remains unestablished.
 Karin does not suppress this warning or overwrite desktop settings. See the
 [read-only theme check](BUILDING.md#theme-input-check).
 
-## v0.7 additions awaiting desktop acceptance
+## v0.7 accepted scope and retained boundaries
 
-[Draft PR #28](https://github.com/tracerxbrhd/karin/pull/28) implements ordinary
-playback continuation and owned playlist editing. They remain pending one final
-Native/installed-Flatpak acceptance against the real service. Restore needs
+[PR #28](https://github.com/tracerxbrhd/karin/pull/28) normally merged at `2ab6d28`.
+The owner accepted exact `949d1f9`: 68/68 Fedora checks, Native 34/34 and
+installed Flatpak 34/34, including restoration and real playlist edits. This
+does not remove the following contract bounds or accept future v0.8 features. Restore needs
 current account/track validation and explicit Play; radio and offline sessions
 are not restored. Saved queue provenance is independent of later playlist edits.
 Playlist edit snapshots require complete server positions and revision, at most

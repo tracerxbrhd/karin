@@ -413,6 +413,10 @@ fn serve(
             counts.lock().unwrap().sent_bytes[n] += (end - start + 1) as u64;
         }
         return;
+    } else if first[0] == "GET"
+        && let Some(response) = crate::ui::music::tests::empty_similar_response(path)
+    {
+        response
     } else {
         panic!("unexpected lifecycle route")
     };

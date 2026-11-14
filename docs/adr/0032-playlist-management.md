@@ -2,7 +2,8 @@
 
 # ADR-0032: Confirmed, occurrence-aware playlist management
 
-Status: implemented; live Fedora acceptance pending.
+Status: accepted and normally merged through PR #28 at `2ab6d28`; exact
+`949d1f9` passed real playlist operations in the owner's 68/68 v0.7 matrix.
 
 ## Context
 
@@ -62,5 +63,7 @@ existing upstream attribution and GPL notices remain intact.
 Local HTTP and ordinary-window tests cover contracts and races without a live
 account. Executed results belong in [VALIDATION](../VALIDATION.md); these tests
 do not establish provider acceptance or public service/content distribution
-rights. The owner's one disposable-playlist Native/Flatpak acceptance remains
-required before claiming real-service completion of issue #19.
+rights. The owner separately accepted the real playlist workflows on Native
+and installed Flatpak at `949d1f9`; issue #19 is technically complete. The
+metadata-endpoint CAS limitation remains. See
+[VALIDATION](../VALIDATION.md#owner-acceptance-of-pr-28--2026-11-14).

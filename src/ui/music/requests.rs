@@ -16,6 +16,9 @@ pub(super) enum Operation {
     LikedPlaylistsMore,
     Mutation,
     PlaylistMutation,
+    Lyrics,
+    Similar,
+    CollectionIndex,
 }
 impl Operation {
     fn index(self) -> usize {
@@ -36,6 +39,9 @@ impl Operation {
             Self::LikedPlaylistsMore => "liked_playlists_more",
             Self::Mutation => "library_mutation",
             Self::PlaylistMutation => "playlist_mutation",
+            Self::Lyrics => "lyrics",
+            Self::Similar => "similar",
+            Self::CollectionIndex => "collection_index",
         }
     }
 }
@@ -56,7 +62,7 @@ impl<J> Default for Slot<J> {
 }
 
 pub(super) struct Requests<J> {
-    slots: [Slot<J>; 13],
+    slots: [Slot<J>; 16],
 }
 impl<J> Default for Requests<J> {
     fn default() -> Self {
@@ -115,6 +121,9 @@ impl<J> Requests<J> {
             Operation::LikedPlaylistsMore,
             Operation::Mutation,
             Operation::PlaylistMutation,
+            Operation::Lyrics,
+            Operation::Similar,
+            Operation::CollectionIndex,
         ] {
             self.invalidate(operation);
         }

@@ -2,11 +2,14 @@
 //! A bounded, occurrence-preserving loaded view, separate from the live queue.
 
 use super::*;
+use crate::music::library_index::{CollectionSnapshot, CollectionSource, IndexedBatch};
 use std::time::Duration;
+mod index;
 
 pub(super) const VIEW_LIMIT: usize = 2_000;
 const CONTEXT_LIMIT: usize = 500;
 const PAGE_LIMIT: u32 = 100;
+const RESULT_WINDOW: usize = 200;
 
 #[derive(Default)]
 pub(super) struct PageOrigins(
@@ -58,6 +61,8 @@ pub(super) struct LoadedTracks {
     source_key: String,
     origin: crate::queue::PlaybackOrigin,
     pub filter: collection_filter::CollectionFilter,
+    positions: Vec<usize>,
+    indexed: bool,
     applied: std::collections::BTreeSet<u32>,
     contexts: RefCell<std::collections::BTreeMap<usize, PlaybackContext>>,
 }
@@ -86,6 +91,8 @@ impl LoadedTracks {
             source_key: format!("continuous:{epoch}:{opaque}"),
             origin: crate::queue::PlaybackOrigin::from_source(kind, source.as_deref()),
             filter: collection_filter::CollectionFilter::default(),
+            positions: Vec::new(),
+            indexed: false,
             applied: Default::default(),
             contexts: RefCell::new(Default::default()),
         }
@@ -104,6 +111,7 @@ impl LoadedTracks {
         let room = VIEW_LIMIT.saturating_sub(start);
         let truncated = result.items.len() > room;
         self.items.extend(result.items.into_iter().take(room));
+        self.positions.extend(start..self.items.len());
         self.filter.append(&self.items[start..]);
         self.next_page = page.saturating_add(1);
         self.has_more = result.has_more || truncated;
@@ -111,7 +119,7 @@ impl LoadedTracks {
     }
 
     pub(super) fn can_request(&self) -> bool {
-        !self.loading && self.error.is_none() && self.has_more && !self.at_limit()
+        !self.indexed && !self.loading && self.error.is_none() && self.has_more && !self.at_limit()
     }
 
     pub(super) fn at_limit(&self) -> bool {
@@ -125,6 +133,24 @@ impl LoadedTracks {
         self.contexts.borrow_mut().clear();
         true
     }
+    fn append_indexed(&mut self, batch: &IndexedBatch, snapshot: Option<&CollectionSnapshot>) {
+        let new_tracks = batch
+            .tracks
+            .iter()
+            .map(|(_, track)| track.clone())
+            .collect::<Vec<_>>();
+        let dates = batch
+            .tracks
+            .iter()
+            .map(|(position, _)| snapshot.and_then(|snapshot| snapshot.added_at(*position)))
+            .collect::<Vec<_>>();
+        self.filter.append_dated(&new_tracks, &dates);
+        self.positions
+            .extend(batch.tracks.iter().map(|(position, _)| *position));
+        self.items.extend(new_tracks);
+        self.incomplete |= batch.omitted > 0;
+        self.contexts.borrow_mut().clear();
+    }
     pub(super) fn first_playable(&self) -> Option<usize> {
         self.filter
             .visible()
@@ -136,7 +162,8 @@ impl LoadedTracks {
         self.filter.rank(index).is_some()
             && current.source_kind() == self.kind
             && current.source_id() == Some(self.source_key.as_str())
-            && current.source_position(current.current_index()) == Some(index)
+            && current.source_position(current.current_index())
+                == self.positions.get(index).copied()
             && self.items.get(index).map(|track| track.id.as_str())
                 == current
                     .items()
@@ -158,11 +185,12 @@ impl LoadedTracks {
         {
             return context.with_current_index(rank - start);
         }
-        let positions = visible[start..end].to_vec();
-        let tracks = positions
+        let indices = &visible[start..end];
+        let tracks = indices
             .iter()
             .map(|position| self.items[*position].clone())
             .collect();
+        let positions = indices.iter().map(|index| self.positions[*index]).collect();
         let context = PlaybackContext::with_source_positions(
             self.kind,
             Some(self.source_key.clone()),
@@ -173,7 +201,14 @@ impl LoadedTracks {
         )
         .ok()?
         .with_origin(self.origin.clone());
-        self.contexts.borrow_mut().insert(start, context.clone());
+        let mut contexts = self.contexts.borrow_mut();
+        if !contexts.contains_key(&start)
+            && contexts.len() >= 4
+            && let Some(oldest) = contexts.keys().next().copied()
+        {
+            contexts.remove(&oldest);
+        }
+        contexts.insert(start, context.clone());
         context.with_current_index(rank - start)
     }
 }
@@ -201,6 +236,23 @@ pub(super) struct TrackFeed {
     pub filter_ui: Option<collection_filter::FilterBar>,
     pub hero: RefCell<Option<collection_hero::LikedCollectionHero>>,
     adjustment_guard: Cell<bool>,
+    windowed: Cell<bool>,
+    window_start: Cell<usize>,
+    rendered_positions: RefCell<Vec<usize>>,
+    index: RefCell<CollectionIndex>,
+    saved_scroll: Cell<f64>,
+}
+
+#[derive(Default)]
+struct CollectionIndex {
+    snapshot: Option<CollectionSnapshot>,
+    cursor: usize,
+    running: bool,
+    busy: bool,
+    complete: bool,
+    changed: bool,
+    serial: u64,
+    error: Option<MusicError>,
 }
 
 pub(super) type Feed = Rc<TrackFeed>;
@@ -287,6 +339,11 @@ impl Controller {
                 .then(collection_filter::FilterBar::new),
             hero: RefCell::new(None),
             adjustment_guard: Cell::new(false),
+            windowed: Cell::new(false),
+            window_start: Cell::new(0),
+            rendered_positions: RefCell::new(Vec::new()),
+            index: RefCell::new(CollectionIndex::default()),
+            saved_scroll: Cell::new(0.0),
         });
         if matches!(feed.source, FeedSource::Album(_))
             && let Some((origin, error)) = self.detail_cache.get()
@@ -305,6 +362,45 @@ impl Controller {
             .borrow_mut()
             .retain(|old| old.rows.root().is_some() && old.rows != *rows);
         self.track_feeds.borrow_mut().push(feed.clone());
+        let weak = Rc::downgrade(self);
+        let weak_feed = Rc::downgrade(&feed);
+        rows.connect_unmap(move |_| {
+            if let (Some(this), Some(feed)) = (weak.upgrade(), weak_feed.upgrade())
+                && let Some(scroll) = this.content_scroll.borrow().upgrade()
+            {
+                feed.saved_scroll.set(scroll.vadjustment().value());
+            }
+        });
+        let weak = Rc::downgrade(self);
+        let weak_feed = Rc::downgrade(&feed);
+        rows.connect_map(move |rows| {
+            let weak = weak.clone();
+            let weak_feed = weak_feed.clone();
+            rows.add_tick_callback(move |rows, _| {
+                if !rows.is_mapped() {
+                    return glib::ControlFlow::Break;
+                }
+                if let (Some(this), Some(feed)) = (weak.upgrade(), weak_feed.upgrade())
+                    && this.feed_is_current(&feed)
+                    && let Some(scroll) = this.content_scroll.borrow().upgrade()
+                {
+                    let adjustment = scroll.vadjustment();
+                    // Mapping precedes allocation. A previous short tab's
+                    // adjustment must not clamp the retained long-list offset.
+                    if adjustment.page_size() <= 0.0
+                        || adjustment.upper() + 1.0 < f64::from(rows.height())
+                    {
+                        return glib::ControlFlow::Continue;
+                    }
+                    adjustment.set_value(
+                        feed.saved_scroll
+                            .get()
+                            .min((adjustment.upper() - adjustment.page_size()).max(0.0)),
+                    );
+                }
+                glib::ControlFlow::Break
+            });
+        });
         clear_list(rows);
         self.attach_filter_bar(&feed);
         self.render_feed_status(&feed);
@@ -343,10 +439,15 @@ impl Controller {
         }
     }
     pub(super) fn reset_collection_filters(&self) {
-        let feeds = self.track_feeds.borrow().clone();
-        for feed in feeds {
-            if let Some(bar) = &feed.filter_ui {
-                bar.search.set_text("");
+        // Ordinary navigation retains each surviving collection's projection.
+        // New source/refresh/account feeds still construct an empty projection.
+        // Pause background work in hidden views; an explicit Resume is required.
+        for feed in self.track_feeds.borrow().iter() {
+            if !feed.rows.is_mapped() {
+                let mut index = feed.index.borrow_mut();
+                index.running = false;
+                index.busy = false;
+                index.serial = index.serial.wrapping_add(1);
             }
         }
     }
@@ -354,6 +455,12 @@ impl Controller {
     pub(super) fn clear_track_feeds(&self) {
         let feeds = std::mem::take(&mut *self.track_feeds.borrow_mut());
         for feed in feeds {
+            {
+                let mut index = feed.index.borrow_mut();
+                index.serial = index.serial.wrapping_add(1);
+                index.running = false;
+                index.busy = false;
+            }
             Self::set_liked_markers(&feed, false);
             Self::remove_filter_bar(&feed);
         }
@@ -400,13 +507,17 @@ impl Controller {
                         glib::ControlFlow::Continue
                     }
                 });
-                let data = feed.data.borrow();
-                for index in 0..data.items.len() {
-                    if let Some(row) = feed.rows.row_at_index(index as i32) {
-                        row.set_visible(data.filter.rank(index).is_some());
+                feed.window_start.set(0);
+                if feed.windowed.get() {
+                    this.render_collection_window(&feed);
+                } else {
+                    let data = feed.data.borrow();
+                    for index in 0..data.items.len() {
+                        if let Some(row) = feed.rows.row_at_index(index as i32) {
+                            row.set_visible(data.filter.rank(index).is_some());
+                        }
                     }
                 }
-                drop(data);
                 this.render_feed_status(&feed);
                 this.sync_catalog_rows();
             }
@@ -418,12 +529,75 @@ impl Controller {
                 this.request_track_feed(&feed, false);
             }
         });
+        let weak = Rc::downgrade(self);
+        let weak_feed = Rc::downgrade(feed);
+        bar.sort.connect_selected_notify(move |sort| {
+            if let (Some(this), Some(feed)) = (weak.upgrade(), weak_feed.upgrade())
+                && this.feed_is_current(&feed)
+            {
+                let changed = feed
+                    .data
+                    .borrow_mut()
+                    .filter
+                    .set_sort(index::sort_choice(sort.selected()));
+                if changed {
+                    feed.data.borrow_mut().contexts.borrow_mut().clear();
+                    feed.windowed.set(true);
+                    feed.window_start.set(0);
+                    this.render_collection_window(&feed);
+                    this.render_feed_status(&feed);
+                    this.sync_catalog_rows();
+                }
+            }
+        });
+        let weak = Rc::downgrade(self);
+        let weak_feed = Rc::downgrade(feed);
+        bar.index_all.connect_clicked(move |_| {
+            if let (Some(this), Some(feed)) = (weak.upgrade(), weak_feed.upgrade()) {
+                this.start_collection_index(&feed);
+            }
+        });
+        let weak = Rc::downgrade(self);
+        let weak_feed = Rc::downgrade(feed);
+        bar.cancel_index.connect_clicked(move |_| {
+            if let (Some(this), Some(feed)) = (weak.upgrade(), weak_feed.upgrade()) {
+                this.pause_collection_index(&feed);
+            }
+        });
+        for (button, forward) in [(&bar.previous, false), (&bar.next, true)] {
+            let weak = Rc::downgrade(self);
+            let weak_feed = Rc::downgrade(feed);
+            button.connect_clicked(move |_| {
+                if let (Some(this), Some(feed)) = (weak.upgrade(), weak_feed.upgrade())
+                    && this.feed_is_current(&feed)
+                {
+                    let count = feed.data.borrow().filter.visible().len();
+                    let next = if forward {
+                        (feed.window_start.get() + RESULT_WINDOW)
+                            .min(count.saturating_sub(1) / RESULT_WINDOW * RESULT_WINDOW)
+                    } else {
+                        feed.window_start.get().saturating_sub(RESULT_WINDOW)
+                    };
+                    feed.window_start.set(next);
+                    this.render_collection_window(&feed);
+                    this.render_feed_status(&feed);
+                    this.sync_catalog_rows();
+                    if let Some(scroll) = this.content_scroll.borrow().upgrade() {
+                        scroll.vadjustment().set_value(0.0);
+                    }
+                }
+            });
+        }
     }
     fn update_filter_bar(&self, feed: &Feed) {
         let Some(bar) = &feed.filter_ui else {
             return;
         };
         let data = feed.data.borrow();
+        if data.indexed {
+            self.update_collection_index_bar(feed, bar, &data);
+            return;
+        }
         let active = data.filter.active();
         let partial =
             data.has_more || data.incomplete || data.error.is_some() || feed.restart_required.get();
@@ -457,6 +631,12 @@ impl Controller {
         );
         bar.more
             .set_sensitive(!data.loading && self.feed_is_current(feed));
+        bar.index_all
+            .set_visible(index::source(feed).is_some() && partial);
+        bar.index_all
+            .set_sensitive(!data.loading && self.feed_is_current(feed));
+        bar.cancel_index.set_visible(false);
+        index::update_window_buttons(feed, bar, count);
     }
     pub(super) fn install_liked_hero(self: &Rc<Self>, feed: &Feed) {
         clear_box(&self.widgets.library_hero);
@@ -503,6 +683,69 @@ impl Controller {
             .map(|feed| feed.origins.borrow().aggregate())
     }
 
+    fn append_feed_row(self: &Rc<Self>, feed: &Feed, index: usize) {
+        let track = feed.data.borrow().items[index].clone();
+        let source_key = feed.data.borrow().source_key.clone();
+        let marker_source_key = source_key.clone();
+        let data = feed.data.clone();
+        let weak = Rc::downgrade(self);
+        let generation = feed.generation;
+        let resolve: Rc<dyn Fn() -> Option<PlaybackContext>> = Rc::new(move || {
+            let this = weak.upgrade()?;
+            if this.model.borrow().generation != generation
+                || !this
+                    .track_feeds
+                    .borrow()
+                    .iter()
+                    .any(|feed| Rc::ptr_eq(&feed.data, &data))
+            {
+                return None;
+            }
+            let data = data.borrow();
+            (data.source_key == source_key)
+                .then(|| data.context(index))
+                .flatten()
+        });
+        let marker_data = feed.data.clone();
+        let marker_weak = Rc::downgrade(self);
+        let marker: Rc<dyn Fn(&PlaybackContext) -> bool> = Rc::new(move |current| {
+            marker_weak.upgrade().is_some_and(|this| {
+                this.model.borrow().generation == generation
+                    && this
+                        .track_feeds
+                        .borrow()
+                        .iter()
+                        .any(|feed| Rc::ptr_eq(&feed.data, &marker_data))
+            }) && {
+                let data = marker_data.borrow();
+                data.source_key == marker_source_key && data.matches_current(index, current)
+            }
+        });
+        self.track_row_bound(&feed.rows, track, resolve, Some(marker));
+        if matches!(feed.source, FeedSource::Liked)
+            && let Some(body) = feed
+                .rows
+                .last_child()
+                .and_downcast::<gtk::ListBoxRow>()
+                .and_then(|row| row.child())
+                .and_downcast::<gtk::Box>()
+        {
+            let heart = gtk::Image::from_icon_name(interactions::like_icon_name(Some(true)));
+            heart.set_widget_name("music-loaded-liked-marker");
+            heart.set_pixel_size(16);
+            heart.add_css_class("dim-label");
+            heart.set_tooltip_text(Some("В загруженной коллекции «Мне нравится»"));
+            heart.update_property(&[gtk::accessible::Property::Label(
+                "В загруженной коллекции «Мне нравится»",
+            )]);
+            let previous = body.last_child().and_then(|child| child.prev_sibling());
+            body.insert_child_after(&heart, previous.as_ref());
+        }
+        if let Some(row) = feed.rows.last_child().and_downcast::<gtk::ListBoxRow>() {
+            row.set_visible(feed.data.borrow().filter.rank(index).is_some());
+        }
+    }
+
     pub(super) fn append_track_feed(self: &Rc<Self>, feed: &Feed, page: u32, result: Page<Track>) {
         if !self.feed_is_current(feed) {
             return;
@@ -517,57 +760,11 @@ impl Controller {
             model.library_page = 0;
         }
         let range = feed.data.borrow_mut().append(page, result);
-        for index in range {
-            let track = feed.data.borrow().items[index].clone();
-            let data = feed.data.clone();
-            let weak = Rc::downgrade(self);
-            let generation = feed.generation;
-            let resolve: Rc<dyn Fn() -> Option<PlaybackContext>> = Rc::new(move || {
-                let this = weak.upgrade()?;
-                if this.model.borrow().generation != generation
-                    || !this
-                        .track_feeds
-                        .borrow()
-                        .iter()
-                        .any(|feed| Rc::ptr_eq(&feed.data, &data))
-                {
-                    return None;
-                }
-                data.borrow().context(index)
-            });
-            let marker_data = feed.data.clone();
-            let marker_weak = Rc::downgrade(self);
-            let marker: Rc<dyn Fn(&PlaybackContext) -> bool> = Rc::new(move |current| {
-                marker_weak.upgrade().is_some_and(|this| {
-                    this.model.borrow().generation == generation
-                        && this
-                            .track_feeds
-                            .borrow()
-                            .iter()
-                            .any(|feed| Rc::ptr_eq(&feed.data, &marker_data))
-                }) && marker_data.borrow().matches_current(index, current)
-            });
-            self.track_row_bound(&feed.rows, track, resolve, Some(marker));
-            if matches!(feed.source, FeedSource::Liked)
-                && let Some(body) = feed
-                    .rows
-                    .row_at_index(index as i32)
-                    .and_then(|row| row.child())
-                    .and_downcast::<gtk::Box>()
-            {
-                let heart = gtk::Image::from_icon_name(interactions::like_icon_name(Some(true)));
-                heart.set_widget_name("music-loaded-liked-marker");
-                heart.set_pixel_size(16);
-                heart.add_css_class("dim-label");
-                heart.set_tooltip_text(Some("В загруженной коллекции «Мне нравится»"));
-                heart.update_property(&[gtk::accessible::Property::Label(
-                    "В загруженной коллекции «Мне нравится»",
-                )]);
-                let previous = body.last_child().and_then(|child| child.prev_sibling());
-                body.insert_child_after(&heart, previous.as_ref());
-            }
-            if let Some(row) = feed.rows.row_at_index(index as i32) {
-                row.set_visible(feed.data.borrow().filter.rank(index).is_some());
+        if feed.windowed.get() {
+            self.render_collection_window(feed);
+        } else {
+            for index in range {
+                self.append_feed_row(feed, index);
             }
         }
         self.render_feed_status(feed);
@@ -643,6 +840,9 @@ impl Controller {
         let data = feed.data.borrow();
         if let Some(play) = feed.play_button.borrow().upgrade() {
             play.set_sensitive(self.feed_is_current(feed) && data.first_playable().is_some());
+        }
+        if data.indexed {
+            return;
         }
         if data.loading {
             let spinner = gtk::Spinner::new();
@@ -1100,6 +1300,14 @@ impl Controller {
             .collect::<Vec<_>>();
         for feed in feeds {
             feed.restart_required.set(true);
+            {
+                let mut index = feed.index.borrow_mut();
+                index.serial = index.serial.wrapping_add(1);
+                index.running = false;
+                index.busy = false;
+                index.complete = false;
+                index.changed = true;
+            }
             feed.data.borrow_mut().loading = false;
             feed.data.borrow_mut().error = Some(MusicError::Network);
             self.render_feed_status(&feed);

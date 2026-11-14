@@ -505,6 +505,11 @@ fn serve(
             }
             return;
         }
+        path if first[0] == "GET"
+            && crate::ui::music::tests::empty_similar_response(path).is_some() =>
+        {
+            crate::ui::music::tests::empty_similar_response(path).unwrap()
+        }
         _ => panic!("unexpected original replay fixture route"),
     };
     write_response(&mut stream, "application/json", json.to_string().as_bytes());

@@ -47,7 +47,9 @@ pub(in crate::ui) mod sliding_panel;
 mod system_media;
 #[cfg(test)]
 mod test_input;
+mod track_extras;
 mod track_pane;
+mod volume_scroll;
 mod workspace;
 use requests::{Operation, Requests};
 type PendingJob = Box<dyn FnOnce(&Rc<Controller>, u64)>;
@@ -168,8 +170,10 @@ struct Widgets {
     shuffle: gtk::ToggleButton,
     repeat: gtk::Button,
     queue: gtk::Button,
+    lyrics: gtk::ToggleButton,
     progress: gtk::Scale,
     volume: gtk::Scale,
+    volume_menu: gtk::MenuButton,
     previous: gtk::Button,
     next: gtk::Button,
     clear_queue: gtk::Button,
@@ -186,6 +190,7 @@ struct Controller {
     login_dialog: RefCell<Option<LoginDialog>>,
     retiring_logins: RefCell<Vec<glib::WeakRef<adw::Dialog>>>,
     logout_confirmation: RefCell<Option<account::LogoutConfirmation>>,
+    delivery_dialog: RefCell<Option<adw::Dialog>>,
     model: RefCell<Model>,
     widgets: Widgets,
     requests: RefCell<Requests<PendingJob>>,
@@ -202,7 +207,8 @@ struct Controller {
     info_observed: RefCell<Option<workspace::CurrentOccurrence>>,
     info_target_epoch: Cell<u64>,
     panel_mode: Cell<workspace::PanelMode>,
-    catalog_rows: RefCell<Vec<catalog_layout::CatalogRow>>,
+    catalog_rows: RefCell<catalog_layout::CatalogRows>,
+    current_art_cover: RefCell<Option<Option<CoverArt>>>,
     current_like_key: RefCell<Option<(u64, String)>>,
     detail_like_controls: RefCell<Vec<interactions::DetailLike>>,
     catalog: RefCell<Option<crate::catalog_cache::CachedCatalog>>,
@@ -570,10 +576,12 @@ impl MusicPane {
             previous,
             next,
             queue,
+            lyrics,
             shuffle,
             repeat,
             progress,
             volume,
+            volume_menu,
         } = player_bar::PlayerBarParts::new();
 
         let cache_notice = adw::Banner::builder()
@@ -656,8 +664,10 @@ impl MusicPane {
             shuffle,
             repeat,
             queue,
+            lyrics,
             progress,
             volume,
+            volume_menu,
             previous,
             next,
             clear_queue,
@@ -671,6 +681,7 @@ impl MusicPane {
             login_dialog: RefCell::new(None),
             retiring_logins: RefCell::new(Vec::new()),
             logout_confirmation: RefCell::new(None),
+            delivery_dialog: RefCell::new(None),
             model: RefCell::new(Model {
                 token: None,
                 account_valid: false,
@@ -709,7 +720,8 @@ impl MusicPane {
             info_observed: RefCell::new(None),
             info_target_epoch: Cell::new(0),
             panel_mode: Cell::new(workspace::PanelMode::Closed),
-            catalog_rows: RefCell::new(Vec::new()),
+            catalog_rows: RefCell::new(catalog_layout::CatalogRows::default()),
+            current_art_cover: RefCell::new(None),
             current_like_key: RefCell::new(None),
             detail_like_controls: RefCell::new(Vec::new()),
             catalog: RefCell::new(None),
@@ -735,6 +747,7 @@ impl MusicPane {
         controller.connect(window);
         controller.connect_workspace();
         controller.connect_music_player();
+        controller.connect_footer_extras();
         controller.connect_playlist_management();
         controller.connect_system_media();
         controller.render_controls();
@@ -1716,6 +1729,7 @@ impl Controller {
         self.cancel_radio();
         self.close_persistence();
         self.clear_cache_presence();
+        self.dismiss_delivery_probe();
         self.dismiss_logout_confirmation();
         self.stop_music();
         self.clear_system_media();
@@ -1760,6 +1774,7 @@ impl Controller {
     }
 
     fn logout(self: &Rc<Self>) {
+        self.dismiss_delivery_probe();
         self.retire_playlist_management();
         self.clear_cache_presence();
         self.cancel_radio();
@@ -1994,7 +2009,34 @@ impl Controller {
         self.widgets.status.set_subtitle(message);
     }
 
-    fn delivery_action(self: &Rc<Self>, id: String) {
+    fn dismiss_delivery_probe(&self) {
+        self.cancel_delivery();
+        let dialog = self.delivery_dialog.borrow_mut().take();
+        if let Some(dialog) = dialog {
+            dialog.close();
+        }
+    }
+
+    fn present_delivery_probe(self: &Rc<Self>, id: String) {
+        {
+            let model = self.model.borrow();
+            if model.closed || !model.account_valid || !model.delivery_diagnostic {
+                return;
+            }
+        }
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        self.dismiss_delivery_probe();
+        let dialog = adw::Dialog::builder()
+            .title("Диагностика доставки аудио")
+            .content_width(420)
+            .content_height(260)
+            .build();
+        let toolbar = adw::ToolbarView::new();
+        toolbar.add_top_bar(&adw::HeaderBar::new());
+        let body = gtk::Box::new(gtk::Orientation::Vertical, 12);
+        super::margins(&body, 20);
         let action = gtk::Button::with_label("Проверить доставку аудио без загрузки");
         action.set_widget_name("music-delivery-probe");
         action.set_halign(gtk::Align::Start);
@@ -2003,8 +2045,20 @@ impl Controller {
             "dim-label",
         );
         report.set_widget_name("music-delivery-report");
-        self.widgets.detail.append(&action);
-        self.widgets.detail.append(&report);
+        body.append(&report);
+        body.append(&action);
+        toolbar.set_content(Some(&body));
+        dialog.set_child(Some(&toolbar));
+        let weak = Rc::downgrade(self);
+        dialog.connect_closed(move |dialog| {
+            let Some(this) = weak.upgrade() else { return };
+            let current = this.delivery_dialog.borrow().as_ref() == Some(dialog);
+            if current {
+                this.delivery_dialog.borrow_mut().take();
+                this.cancel_delivery();
+            }
+        });
+        self.delivery_dialog.replace(Some(dialog.clone()));
         let weak = Rc::downgrade(self);
         action.connect_clicked(move |action| {
             let Some(this) = weak.upgrade() else {
@@ -2040,6 +2094,7 @@ impl Controller {
                 },
             );
         });
+        dialog.present(Some(&window));
     }
 
     fn enqueue(self: &Rc<Self>, track: Track) {
@@ -2049,14 +2104,40 @@ impl Controller {
         self.note_playback_intent();
         self.cancel_pending_wave_for_ordinary_action();
         let result = self.model.borrow_mut().queue.append(track);
-        match result {
-            Ok(_) => self.widgets.status.set_title("Трек добавлен в очередь."),
-            Err(_) => self
-                .widgets
-                .status
-                .set_title("Очередь заполнена. Удалите ненужные треки."),
-        }
+        self.show_queue_addition(result.is_ok(), "Трек добавлен в очередь.");
         self.render_queue();
+    }
+
+    fn enqueue_next(self: &Rc<Self>, track: Track) {
+        if !self.wave_manual_append_allowed() {
+            return;
+        }
+        self.note_playback_intent();
+        self.cancel_pending_wave_for_ordinary_action();
+        let result = self.model.borrow_mut().queue.insert_next(track);
+        self.show_queue_addition(result.is_ok(), "Трек будет воспроизведён следующим.");
+        self.render_queue();
+        self.publish_mpris();
+    }
+
+    fn show_queue_addition(&self, accepted: bool, title: &str) {
+        const FULL: &str =
+            "В очереди не более 500 треков. Удалите ненужный трек и повторите действие.";
+        if !accepted {
+            self.widgets.status.set_title("Очередь заполнена");
+            // The native status row is revealed by its subtitle, not title.
+            self.widgets.status.set_subtitle(FULL);
+        } else if self.widgets.status.subtitle().as_deref() == Some(FULL) {
+            self.widgets.status.set_title(title);
+            self.widgets.status.set_subtitle("");
+        } else if self
+            .widgets
+            .status
+            .subtitle()
+            .is_none_or(|message| message.is_empty())
+        {
+            self.widgets.status.set_title(title);
+        }
     }
 }
 
@@ -2399,6 +2480,17 @@ mod tests {
         time::{Duration, Instant},
     };
 
+    /// Empty related results for older focused native fixtures. Only the new
+    /// exact read-only route is admitted; all other server assertions remain.
+    pub(super) fn empty_similar_response(path: &str) -> Option<serde_json::Value> {
+        let id = path.strip_prefix("/tracks/")?.strip_suffix("/similar")?;
+        if id.is_empty() || id.len() > 20 || !id.bytes().all(|byte| byte.is_ascii_digit()) {
+            return None;
+        }
+        Some(json!({"result":{"track":{"id":id},"similarTracks":[]}}))
+    }
+
+    #[track_caller]
     pub(super) fn pump_until(mut condition: impl FnMut() -> bool) {
         let context = glib::MainContext::default();
         let deadline = Instant::now() + Duration::from_secs(8);
@@ -2814,7 +2906,6 @@ mod tests {
             ("GET /users/1234/playlists/3", playlist, false),
             ("POST /tracks", tracks.clone(), false),
             ("GET /search", search.clone(), false),
-            ("POST /tracks", tracks.clone(), false),
             ("POST /tracks", tracks, false),
             ("GET /albums/7/with-tracks", album, false),
             ("GET /search", search, true),
@@ -2862,7 +2953,12 @@ mod tests {
                 let independent_dislike = request.starts_with("GET /users/1234/dislikes/tracks");
                 let independent_membership = !request.starts_with(prefix)
                     && (request.starts_with("GET /users/1234/likes/tracks") || independent_dislike);
-                assert!(request.starts_with(prefix) || independent_membership);
+                let independent_similar = request
+                    .strip_prefix("GET ")
+                    .and_then(|line| line.split_whitespace().next())
+                    .and_then(empty_similar_response);
+                let independent_read = independent_membership || independent_similar.is_some();
+                assert!(request.starts_with(prefix) || independent_read);
                 assert!(
                     !request
                         .to_ascii_lowercase()
@@ -2879,13 +2975,15 @@ mod tests {
                     .unwrap_or(0);
                 assert!(length < 32 * 1024);
                 stream.read_exact(&mut vec![0; length]).unwrap();
-                if *delayed && !independent_membership {
+                if *delayed && !independent_read {
                     server_late_started.store(true, Ordering::Release);
                     wait_for_release
                         .recv_timeout(Duration::from_secs(8))
                         .unwrap();
                 }
-                let body = if independent_dislike {
+                let body = if let Some(response) = independent_similar {
+                    response.to_string()
+                } else if independent_dislike {
                     dislike_body.clone()
                 } else if independent_membership {
                     membership_body.clone()
@@ -2893,7 +2991,7 @@ mod tests {
                     response.to_string()
                 };
                 write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
-                if !independent_membership {
+                if !independent_read {
                     responses.next();
                 }
             }
@@ -3239,15 +3337,53 @@ mod tests {
         )
         .unwrap()
         .emit_clicked();
-        pump_until(|| !this.model.borrow().busy);
-        this.widgets
-            .detail
-            .last_child()
-            .unwrap()
-            .downcast::<gtk::Button>()
-            .unwrap()
-            .emit_clicked();
-        pump_until(|| !this.model.borrow().busy);
+        pump_until(|| {
+            this.panel_mode.get() == workspace::PanelMode::TrackInfo
+                && !menu.popover().unwrap().is_mapped()
+                && this.track_pane.album.is_mapped()
+                && this.track_pane.album.is_sensitive()
+        });
+        assert_eq!(
+            this.widgets.stack.visible_child_name().as_deref(),
+            Some("search")
+        );
+        let native = std::process::Command::new("xdotool")
+            .args([
+                "search",
+                "--onlyvisible",
+                "--name",
+                "^Karin synthetic HTTP fixture$",
+            ])
+            .output()
+            .unwrap();
+        assert!(native.status.success());
+        let native = String::from_utf8(native.stdout).unwrap();
+        let native = native.lines().next().unwrap();
+        assert!(native.bytes().all(|byte| byte.is_ascii_digit()));
+        let (x, y) = super::test_input::pointer(
+            &window,
+            &this.track_pane.album,
+            super::test_input::Target::Center,
+        );
+        assert!(
+            std::process::Command::new("xdotool")
+                .args([
+                    "mousemove",
+                    "--window",
+                    native,
+                    &x.to_string(),
+                    &y.to_string(),
+                    "click",
+                    "1"
+                ])
+                .status()
+                .unwrap()
+                .success()
+        );
+        pump_until(|| {
+            this.widgets.stack.visible_child_name().as_deref() == Some("detail")
+                && !this.model.borrow().busy
+        });
         // A collection's Play action belongs inside its hero. Locate the
         // actual track list by type instead of an obsolete child position.
         let album_rows = {

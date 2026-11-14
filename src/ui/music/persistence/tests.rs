@@ -7,6 +7,7 @@ use crate::{
     cache::{CacheKey, EntryKind},
     credentials::{Cancellation, CredentialBackend},
     playback::PlaybackState,
+    playback_session::{PlaybackSessionStore, PlaybackSnapshot as SavedPlaybackSnapshot},
     settings::CacheLimit,
     stream::StreamResolver,
 };
@@ -220,11 +221,18 @@ fn serve(mut stream: TcpStream, origin: &str, media: &[u8]) {
         .unwrap()
         .split_whitespace()
         .collect::<Vec<_>>();
+    let url = reqwest::Url::parse(&format!("http://127.0.0.1{}", first[1])).unwrap();
+    let category = if first[0] == "POST" && url.path() == "/tracks" {
+        "canonical-track-lookup"
+    } else if first[0] == "POST" && url.path().starts_with("/rotor/") {
+        "wave-mutation"
+    } else {
+        "unsupported-method"
+    };
     assert!(
         matches!(first[0], "GET" | "HEAD"),
-        "startup/restore/preferences must not automatically POST a Wave session"
+        "startup/restore/preferences rejected unexpected request: category={category}"
     );
-    let url = reqwest::Url::parse(&format!("http://127.0.0.1{}", first[1])).unwrap();
     let header = |name: &str| {
         request.lines().skip(1).find_map(|line| {
             let (key, value) = line.split_once(':')?;
@@ -268,6 +276,9 @@ fn serve(mut stream: TcpStream, origin: &str, media: &[u8]) {
             let _ = stream.write_all(b"\r\n");
             if first[0]!="HEAD" {let _ = stream.write_all(&media[start..=end]);}
             return;
+        }
+        path if first[0] == "GET" && crate::ui::music::tests::empty_similar_response(path).is_some() => {
+            crate::ui::music::tests::empty_similar_response(path).unwrap()
         }
         _ => panic!("unexpected synthetic persistence API route"),
     }.to_string();
@@ -353,6 +364,10 @@ fn window(
         Some(cache.clone()),
     );
     state.audio_root = Some(api.audio_root.clone());
+    state.playback.set_store_for_test(
+        PlaybackSessionStore::at_directory(api.audio_root.parent().unwrap().join("playback"))
+            .unwrap(),
+    );
     let ui = crate::ui::build_with_music_pane(
         &app,
         crate::application::ConnectionService::new(crate::api::YandexApi::new().unwrap()),
@@ -411,11 +426,88 @@ fn track() -> Track {
     }
 }
 
+/// A different fixture may leave an ordinary, same-account continuation in
+/// shared XDG application data. This fixture must neither read nor mutate it.
+/// Require an explicitly isolated data home before writing the synthetic seed,
+/// and restore any previous test record when the regression scope ends.
+struct AmbientPlaybackSeed {
+    store: PlaybackSessionStore,
+    scope: AccountScope,
+    previous: Option<SavedPlaybackSnapshot>,
+    expected: SavedPlaybackSnapshot,
+}
+impl AmbientPlaybackSeed {
+    fn new() -> Self {
+        let data_home = PathBuf::from(
+            std::env::var_os("XDG_DATA_HOME")
+                .expect("native persistence regression requires explicit isolated XDG_DATA_HOME"),
+        );
+        assert!(data_home.is_absolute());
+        assert!(
+            gtk::glib::user_data_dir() == data_home,
+            "the isolated data home must be set before GLib initializes"
+        );
+        let scope = AccountScope::from_account_id("1234").unwrap();
+        let store = PlaybackSessionStore::for_application().unwrap();
+        let mut queue = crate::queue::MusicQueue::default();
+        queue.append(track()).unwrap();
+        let expected = SavedPlaybackSnapshot::capture(&queue, Duration::from_secs(7))
+            .unwrap()
+            .unwrap();
+        let (worker, account, snapshot) = (store.clone(), scope.clone(), expected.clone());
+        let previous = thread::spawn(move || {
+            let previous = worker.load(&account).unwrap().snapshot;
+            let ticket = worker.reserve_save(&account).unwrap();
+            assert!(worker.save_if_current(&ticket, Some(&snapshot)).unwrap());
+            assert!(worker.load(&account).unwrap().snapshot == Some(snapshot));
+            previous
+        })
+        .join()
+        .unwrap();
+        Self {
+            store,
+            scope,
+            previous,
+            expected,
+        }
+    }
+    fn assert_unchanged(&self) {
+        let (store, scope, expected) = (
+            self.store.clone(),
+            self.scope.clone(),
+            self.expected.clone(),
+        );
+        thread::spawn(move || {
+            assert!(
+                store.load(&scope).unwrap().snapshot == Some(expected),
+                "the private fixture must not overwrite ambient playback intent"
+            );
+        })
+        .join()
+        .unwrap();
+    }
+}
+impl Drop for AmbientPlaybackSeed {
+    fn drop(&mut self) {
+        let (store, scope, previous) =
+            (self.store.clone(), self.scope.clone(), self.previous.take());
+        // A failed regression must not contaminate the next native selector.
+        // Do not replace an original panic with a cleanup panic.
+        let _ = thread::spawn(move || {
+            if let Ok(ticket) = store.reserve_save(&scope) {
+                let _ = store.save_if_current(&ticket, previous.as_ref());
+            }
+        })
+        .join();
+    }
+}
+
 #[test]
 #[ignore = "requires isolated GTK/X11/GStreamer and original MP3 plugins; synthetic accounts only"]
 fn native_persistent_session_restore_settings_forget_and_close() {
     gtk::init().unwrap();
     adw::init().unwrap();
+    let ambient = AmbientPlaybackSeed::new();
     let directory = Directory::new();
     let api = Api::new(&directory.0);
     let settings = SettingsStore::at_directory(directory.0.join("settings")).unwrap();
@@ -437,6 +529,11 @@ fn native_persistent_session_restore_settings_forget_and_close() {
     let (_app, ui) = window(&api, &settings, &backend, &cache);
     let this = &ui.music.controller;
     pump_until(|| this.model.borrow().account_valid && settled(this));
+    pump_until(|| !this.persistence.borrow().playback.loading());
+    assert!(
+        !this.playback_restore_retry_for_test(),
+        "private empty playback state must not normalize ambient continuation"
+    );
     pump_until(|| this.widgets.home_wave.primary.is_mapped());
     assert_idle_wave_after_startup(this, true);
     // The ordinary production store opens on the persistence worker and binds
@@ -882,6 +979,7 @@ fn native_persistent_session_restore_settings_forget_and_close() {
     );
     fifth.close();
     ui5.window.close();
+    ambient.assert_unchanged();
     adw::StyleManager::default().set_color_scheme(adw::ColorScheme::Default);
 }
 

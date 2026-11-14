@@ -876,22 +876,74 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
         this.render_music_player();
     }
 
-    // Details navigation preserves the pane and audio context. Compact Back is
-    // an explicit close, and a later occurrence must not reopen that intent.
+    // Native menu actions switch Info/Lyrics/Queue inside the same surface.
+    // The central destination and exact queue occurrence never become a
+    // redundant track-details page or another audio context.
     resize(&ui, 420, 720);
     assert_idle_footer_has_no_horizontal_minimum(&ui);
-    this.track_pane.details.grab_focus();
+    let central = this.widgets.stack.visible_child_name();
+    let surface = reveal.surface().unwrap();
+    let occurrence = this
+        .model
+        .borrow()
+        .queue
+        .current_occurrence_id()
+        .unwrap()
+        .clone();
+    let queue_context = this.model.borrow().queue.context().unwrap().clone();
+    click(&ui.window, id, &this.track_pane.menu);
+    let popover = this.track_pane.menu.popover().unwrap();
+    pump_until(|| {
+        test_input::menu_action_widget(&popover, "track-pane.lyrics")
+            .is_some_and(|item| item.is_mapped())
+    });
+    let lyrics = test_input::menu_action_widget(&popover, "track-pane.lyrics").unwrap();
+    assert!(lyrics.grab_focus());
     input(&["key", "--clearmodifiers", "Return"]);
-    pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("detail"));
-    assert!(this.info_is_open());
-    assert_eq!(this.model.borrow().queue.current().unwrap().id, "42");
+    pump_until(|| {
+        this.panel_mode.get() == PanelMode::Lyrics && this.track_pane.back_info.is_mapped()
+    });
+    assert_eq!(this.widgets.stack.visible_child_name(), central);
+    assert_eq!(reveal.surface().as_ref(), Some(&surface));
+    assert!(this.info_is_open() && reveal.is_child_revealed());
+    assert_eq!(this.track_pane.heading.text(), "Текст песни");
+    assert_eq!(
+        this.model.borrow().queue.current_occurrence_id(),
+        Some(&occurrence)
+    );
+    assert_eq!(
+        this.model.borrow().queue.context().unwrap().items(),
+        queue_context.items()
+    );
+    assert!(
+        this.music_snapshot().is_none(),
+        "view changes cannot create a player"
+    );
+    capture_native("workspace-shell-compact-lyrics-mode");
+    click(&ui.window, id, &this.track_pane.back_info);
+    pump_until(|| {
+        this.panel_mode.get() == PanelMode::TrackInfo && this.track_pane.menu.is_mapped()
+    });
+    assert_eq!(reveal.surface().as_ref(), Some(&surface));
+    assert!(reveal.is_child_revealed());
+    input(&["key", "--clearmodifiers", "ctrl+j"]);
+    pump_until(|| this.panel_mode.get() == PanelMode::Queue);
+    assert_eq!(reveal.surface().as_ref(), Some(&surface));
+    input(&["key", "--clearmodifiers", "ctrl+i"]);
+    pump_until(|| this.panel_mode.get() == PanelMode::TrackInfo);
+    assert_eq!(reveal.surface().as_ref(), Some(&surface));
+    assert_eq!(this.widgets.stack.visible_child_name(), central);
+    assert_eq!(
+        this.model.borrow().queue.current_occurrence_id(),
+        Some(&occurrence)
+    );
     click(&ui.window, id, &this.track_pane.close);
     pump_until(|| !this.info_is_open() && content.is_visible());
     assert!(!this.track_info_preference());
     this.model.borrow_mut().queue.select(0);
     this.render_music_player();
     assert!(!this.info_is_open());
-    capture_native("workspace-shell-compact-detail-explicit-back");
+    capture_native("workspace-shell-compact-info-explicit-back");
     ui.show_page("music-home");
     input(&["key", "--clearmodifiers", "ctrl+i"]);
     pump_until(|| this.info_is_open());

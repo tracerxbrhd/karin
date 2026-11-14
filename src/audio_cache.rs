@@ -482,6 +482,14 @@ pub struct Hit {
     admission_deadline: Option<Instant>,
 }
 impl Hit {
+    /// Memory-only admission age for explicit same-track resume. Already
+    /// opened playback keeps its inode through expiry/Clear; a later explicit
+    /// resume can request fresh access without reopening this path on GTK.
+    pub(crate) fn admission_expired_at(&self, now: Instant) -> bool {
+        self.admission_deadline
+            .is_some_and(|deadline| now >= deadline)
+    }
+
     /// Return the same read-only, integrity-checked inode, not a reopened path.
     /// An already admitted FD survives Clear; old unadmitted handles are fenced.
     pub fn admit_file(&self) -> Result<Arc<File>> {

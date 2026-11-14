@@ -77,8 +77,42 @@ impl OrderPolicy {
     }
     pub(super) fn append(&mut self, index: usize, available: bool) {
         if available && self.shuffle {
-            let position = self.random_below(self.remaining.len() + 1);
-            self.remaining.insert(position, index);
+            // A deliberate append means the end of the current future plan,
+            // including under Shuffle; it is not another randomization request.
+            self.remaining.push(index);
+        }
+    }
+    pub(super) fn insert_next(&mut self, inserted: usize, available: bool) {
+        for index in self.remaining.iter_mut().chain(&mut self.history) {
+            if *index >= inserted {
+                *index += 1;
+            }
+        }
+        if self.shuffle && available {
+            let mut future = self
+                .history
+                .iter()
+                .skip(self.cursor + 1)
+                .copied()
+                .chain(self.remaining.iter().copied())
+                .collect::<Vec<_>>();
+            future.retain(|index| *index != inserted);
+            future.insert(0, inserted);
+            self.replace_future(future);
+        }
+    }
+    pub(super) fn remap(&mut self, mapping: &[usize]) {
+        for index in self.remaining.iter_mut().chain(&mut self.history) {
+            *index = mapping[*index];
+        }
+    }
+    pub(super) fn replace_future(&mut self, future: Vec<usize>) {
+        self.history.truncate(self.cursor + 1);
+        self.remaining.clear();
+        for index in future {
+            if self.history.get(self.cursor) != Some(&index) && !self.remaining.contains(&index) {
+                self.remaining.push(index);
+            }
         }
     }
     pub(super) fn record(&mut self, index: usize) {

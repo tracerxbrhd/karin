@@ -115,6 +115,43 @@ fn captured_shuffle_plan_forward_history_repeat_and_rng_survive_repeated_cycles(
 }
 
 #[test]
+fn interleaved_manual_next_reorder_and_shuffle_history_survive_restart() {
+    for shuffle in [false, true] {
+        let mut original = queue();
+        original.set_shuffle(shuffle);
+        original.set_repeat_mode(RepeatMode::Queue);
+        original.next_track();
+        original.previous_track();
+        original.insert_next(track("manual-next")).unwrap();
+        let future = original.editable_upcoming();
+        let source = original
+            .occurrence_id(*future.last().unwrap())
+            .unwrap()
+            .clone();
+        let target = original.occurrence_id(future[0]).unwrap().clone();
+        assert!(original.move_upcoming(&source, &target, false));
+        let snapshot = QueueSnapshot::capture(&original).unwrap().unwrap();
+        let mut normalized = fresh();
+        normalized.push(track("manual-next"));
+        let mut restored = snapshot.restore(&normalized).unwrap().queue;
+        assert_eq!(original.items(), restored.items());
+        assert_eq!(
+            original.context().unwrap().source_positions,
+            restored.context().unwrap().source_positions
+        );
+        assert_eq!(original.context().unwrap().loaded_items_len(), 4);
+        assert_eq!(restored.context().unwrap().manual_items_len(), 2);
+        assert_eq!(original.history_indices(), restored.history_indices());
+        for _ in 0..14 {
+            assert_eq!(original.current_index(), restored.current_index());
+            assert_eq!(original.upcoming_indices(), restored.upcoming_indices());
+            original.next_track();
+            restored.next_track();
+        }
+    }
+}
+
+#[test]
 fn fresh_unavailability_prunes_exact_occurrences_and_preserves_survivor_provenance() {
     let snapshot = QueueSnapshot::capture(&queue()).unwrap().unwrap();
     let mut normalized = fresh();

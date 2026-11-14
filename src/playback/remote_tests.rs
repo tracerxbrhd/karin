@@ -3,6 +3,8 @@
 //! contact a service/CDN or establish real Yandex Music audibility.
 
 use super::*;
+#[path = "renewal_tests.rs"]
+mod renewal_tests;
 use std::{
     io::{BufRead, BufReader, Read},
     net::{SocketAddr, TcpListener, TcpStream},
@@ -644,9 +646,13 @@ fn expired_admission_never_opens_network_and_active_playback_outlives_admission(
     .unwrap();
     controller.resume().unwrap();
     assert_eq!(
-        wait_error(&controller).last_error,
+        wait_for(&controller, |snapshot| snapshot.last_error
+            == Some(PlaybackError::SourceExpired))
+        .unwrap()
+        .last_error,
         Some(PlaybackError::SourceExpired)
     );
+    assert_eq!(controller.snapshot().state, PlaybackState::Paused);
     shutdown(&controller);
 }
 

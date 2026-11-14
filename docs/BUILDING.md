@@ -509,8 +509,10 @@ and uninterrupted playback in the normal desktop session.
 ## v07 final Fedora acceptance
 
 PR #26 cache acceptance at `c1de869` is recorded separately and was merged with
-its history. The v0.7 Draft PR adds continuation, playlist editing and independent
-style/color preferences; Cloud fixtures do not accept these against a real account.
+its history. The owner completed this v0.7 procedure at `949d1f9`: 68/68 PASS,
+Native 34/34 and installed Flatpak 34/34; #28 normally merged at `2ab6d28`.
+The procedure is retained for reproducible regression checks, not an outstanding
+v0.7 acceptance request. Cloud fixtures remain distinct from that owner report.
 Use the final PR-head `karin-fedora-prototype-1.98.1` CI artifact, verify
 `BUILD-INFO.txt` and its checksum, and run `./karin` without diagnostic flags.
 The same commit's Flatpak source is prepared with
@@ -548,3 +550,93 @@ Perform this **one combined check** first Native and then installed Flatpak:
 Record Native/installed-Flatpak PASS/FAIL by action and commit, without exporting
 identifiers, tokens, playlist contents or signed URLs. Public distribution rights
 and unresolved cold-frame issue #23 remain separate from this functional check.
+
+## v08 final Fedora acceptance
+
+Use **one final v0.8 commit** for the Native CI package and the installed Flatpak
+built from this repository's unchanged manifest. Verify `BUILD-INFO.txt` and
+`SHA256SUMS`, then launch ordinary `./karin` / the installed Flatpak without
+experimental flags. Keep the normal sandbox; do not grant host filesystem or
+session-bus access. The v0.7 acceptance at `949d1f9` is already recorded and is
+not a request to repeat intermediate builds.
+
+Perform this combined check once Native, then repeat the key actions in the
+installed Flatpak. Use a disposable owned playlist for mutations and keep all
+account data, lyrics, media, tokens and signed URLs on Fedora.
+
+1. **Track Info and navigation.** Open information from Liked, a playlist, search,
+   a related row, Queue and the footer. Every track-information action must use
+   the existing pinned panel, with no separate track page. Album, artist and
+   playlist pages still open independently. Inspect the cover/metadata, compact
+   Play/Append/`⋮` row and related tracks under a normal heading. Use the real
+   menu for Play Next, Append, Add to Playlist and Lyrics; inspect keyboard
+   focus, disabled states, Show More, loading/error/Retry and confirmed reactions.
+   Outside input and ordinary navigation must not dismiss the panel.
+2. **Lyrics.** Open a selected track's Lyrics from its menu, then use the in-panel
+   Back control to return to Track Info. Inspect another track and press the
+   footer “Текст песни”: it must select the actual playing occurrence instead.
+   Switch Track Info ↔ Lyrics ↔ Queue without a new outer reveal or audio restart.
+   Check available Yandex plain text separately from an LRCLIB TEXT/LRC match;
+   read the external-source disclosure before explicitly submitting public
+   metadata. Plain text has readable stanzas and “Без синхронизации”, not fake
+   timestamps or an editable text field. Use Copy and, where selectable, Ctrl+C
+   with Cyrillic/Unicode; do not upload the copied text. For LRC, inspect the
+   active/past/future lines and centered following, Pause, forward/backward Seek,
+   Next/Previous and EOS. Wheel, scrollbar, keyboard and touchpad scrolling must
+   suspend Follow until requested again. Check no-text, loading, error/Retry and
+   rapid-track/logout retirement. Repeat the motion check with Reduced Motion.
+3. **Footer controls.** Reach Lyrics, Queue and Volume by Tab/Enter/Space at
+   compact, medium and wide sizes. Lyrics shows its active mode. Scroll over
+   Volume: one wheel step changes five percentage points, clamps at 0–100%,
+   updates the normal slider and KDE/playerctl volume, and neither opens the
+   popover nor scrolls the page. Smooth touchpad input must remain controlled;
+   clicking Volume still opens its slider.
+4. **Long Pause and the same occurrence.** Start a real entitled track, seek to a
+   nonzero position, select a duplicate occurrence and note Shuffle/Repeat and
+   volume. Pause briefly and Resume once as a baseline. Then leave it paused for
+   at least ten minutes (record the actual interval; a normal 30/60-minute or
+   longer pause is also useful), and press Play **once**. Pause must not turn into
+   an expiry error while idle. With current access/network, a short “Возобновляем
+   воспроизведение…” state may appear, then heard audio must resume near the last
+   confirmed position with the same occurrence, queue/modes/volume and KDE
+   metadata. It must reach real EOS and advance through the existing queue.
+   Cover an uncached remote track and a previously completed cache record across
+   the Native/Flatpak checks; a Saved icon alone does not prove a local hit.
+   Real time on Fedora is separate from Cloud's controlled 10/30/60-minute expiry
+   fixtures; record only durations actually tested.
+5. **Recovery cancellation and honest failures.** Where the loading state is
+   observable, try double Play, Play→Pause, Seek, Next/Previous and MPRIS Stop
+   during renewal. The latest explicit intent wins; no late response may play
+   after Stop, logout, account retirement or close. Check that an offline or
+   refused renewal gives a normal error/Retry, without a request loop or a
+   fabricated zero-position success. If a replacement cannot seek, inspect its
+   explicit message rather than assuming the old position was restored.
+   Deliberately start My Wave, then check normal Pause/Resume/Next; renewal must
+   preserve the current radio context instead of creating a new session or
+   switching tracks. Controlled races and feedback counts are automated fixtures;
+   do not enable network tracing to inspect them on a real account.
+6. **Collection and queue regressions.** Explicitly index a large liked collection
+   or playlist and find a known title beyond 2,000 positions, also by artist/album.
+   Check progress, cancellation, Retry, changed queries, title/artist/provider
+   sorts and added date only when supplied by valid timestamps. Retain filter/
+   scroll across navigation without rewriting active playback. Use duplicate
+   queue items for Play Next, Append, DnD, keyboard moves and exact removal while
+   playing/paused. At 500 items check the visible refusal and retry after removing
+   one future item. Close/reopen: edited order, occurrence/modes and position
+   restore **Stopped**; explicit Play performs the normal access/cache path.
+7. **Layout and accepted regressions.** Check approximately 420×720, 900×650,
+   1440×900 and maximized, Light/Dark, 1×/2×, keyboard/focus, high contrast and
+   Reduced Motion. Compare ordinary Wayland first/repeated Player Bar appearance,
+   scrolling, tabs, pane switches and artwork separately from Cloud rendering.
+   Verify normal sign-in/restore, heard music, transport/seek/volume/EOS, local
+   cache replay after restart, Clear without interrupting admitted audio, confirmed
+   playlist edits and MPRIS. Stop/logout/remembering-off must not revive playback
+   or Wave. System remains the interface style; Karin remains visibly unavailable
+   until designer materials arrive.
+
+Record action-level Native/installed-Flatpak PASS/FAIL with the exact commit.
+Report TEXT and LRC, live related results and full-library coverage independently;
+a missing lyric for one track is not a claim that all providers are unavailable.
+No private payload, account/track IDs, lyrics, screenshots or credentials need
+uploading. Issues #5/#22 and the unresolved physical-GPU/Wayland boundary of
+cold-rendering #23 are separate from this functional acceptance.

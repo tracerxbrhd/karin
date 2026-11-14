@@ -46,7 +46,29 @@ real cache replay/restart requirement is now owner-confirmed in both packages.
 
 This technical acceptance does not establish public OAuth/service/content
 redistribution permission, offline lifetimes or a release. #5/#22 stay separate.
-The v0.7 restoration/playlist/style work has no inherited desktop acceptance.
+The separate v0.7 acceptance is recorded below; it was not inferred from this
+earlier cache report.
+
+## Owner acceptance of PR #28 — 2026-11-14
+
+In the v0.8 task, the owner explicitly accepted exact revision
+[`949d1f9315b210a118e02762a24d7747ff8e5321`](https://github.com/tracerxbrhd/karin/commit/949d1f9315b210a118e02762a24d7747ff8e5321)
+with **68/68 Fedora checks: Native 34/34 and installed Flatpak 34/34**.
+The reported scope includes playback/position/queue restoration, real playlist
+server mutations, appearance/scaling/adaptivity, authentication, MPRIS, Stop,
+Logout and My Wave; no regressions were found in the checked scenarios. The
+report was received on 2026-11-14 (Europe/Samara); no private account data or
+per-action logs were requested or published.
+
+All eight exact-head CI jobs had succeeded, and the current PR contained no
+intervening unaccepted changes. The owner authorized a normal merge: #28 was
+made ready and merged at
+[`2ab6d28`](https://github.com/tracerxbrhd/karin/commit/2ab6d280af9ee6c5a1d5cb0107a30149f7d87a8d),
+preserving both parents and development history. `master` contains the accepted
+revision. Issues #19/#21 are technically complete. This accepts the reported
+v0.7 workflows, not future v0.8 features, the unavailable Karin design, every
+unreported failure/backend case, public distribution #5/#22 or the unresolved
+Cloud first-render cause in #23. No release or tag was created.
 
 ## Automated coverage
 
@@ -1349,11 +1371,12 @@ UI changes, and retain the exact source revision and environment with results.
 
 ## v0.7 combined continuation, playlist and appearance change
 
-[Draft PR #28](https://github.com/tracerxbrhd/karin/pull/28), branch
-`feature/v0.7-playback-playlists-appearance`, starts at the accepted normal
-PR #26 merge `1fd4028`. Issues #19/#21 remain open pending the one final owner
-Native/installed-Flatpak acceptance; the new functions are not accepted merely
-because the earlier audio/cache path was accepted.
+[PR #28](https://github.com/tracerxbrhd/karin/pull/28), branch
+`feature/v0.7-playback-playlists-appearance`, started at the accepted normal
+PR #26 merge `1fd4028` and normally merged at `2ab6d28`. The owner separately
+accepted `949d1f9` with 68/68 Native/installed-Flatpak checks, as recorded above.
+The following Cloud fixtures remain distinct evidence of their individual
+synthetic scenarios; acceptance was not inherited from the earlier audio/cache path.
 
 The changes add account-bound IDs-only ordinary playback snapshots, exact
 occurrence/Shuffle continuation without autoplay, fresh batch normalization and
@@ -1365,7 +1388,7 @@ no confirmed server revision CAS. System presentation and color scheme are
 independent; schema 3 migrates old preferences, while Karin Style remains visibly
 unavailable. See ADR-0031/0032/0033 and [the implementation boundary](ARCHITECTURE.md).
 
-The native registration now includes 38 selectors: the original 37 plus
+The v0.7 native registration included 38 selectors: the original 37 plus
 `native_v07_playback_restore_playlist_appearance_process_restart`. Its real OS
 subprocesses use the ordinary MainWindow factory, a synthetic protected-store
 backend, current account HTTP validation, production cache/resolver policy,
@@ -1392,3 +1415,223 @@ Wave, MPRIS, native cache-process and archived visual-baseline gates remain.
 Cloud original-audio/HTTP fixtures establish no real service mutation, physical
 PipeWire output, KDE portal behavior, installed Flatpak or future Karin design
 acceptance. Use the [single final procedure](BUILDING.md#v07-final-fedora-acceptance).
+
+## v0.8 combined music, library and performance integration
+
+The `feature/v0.8-music-library-performance` branch starts at the accepted normal
+PR #28 merge `2ab6d28`. It combines lyrics/related tracks, whole supported-library
+search/sort, exact upcoming-queue edits and narrow GTK marker work reductions in
+one proposed change. The owner acceptance above is v0.7 evidence, not acceptance
+of these new content, coverage or gesture workflows.
+
+### Owner review of `927e5e9` and the Track Info/resume refinement
+
+The owner supplied Fedora Track Info captures showing plain text attributed to
+Yandex Music and populated similar-track rows. This confirms those displayed
+real-content paths for the reviewed run; it does not accept every related action,
+LRCLIB/LRC match, whole-library index or Native/installed-Flatpak combination.
+The owner rejected the overloaded action row, expander-based sections and small
+embedded lyric view. The separate long-pause report identifies a visible
+`SourceExpired` error after Resume. It is not evidence of lost Music rights,
+an invalid account or a failed CDN request on Cloud. No owner image, lyric,
+account field or real recording is copied into the repository.
+
+The continuing PR #29 refinement moves Lyrics into the same permanent panel as
+Track Info and Queue, replaces expander sections with direct related rows,
+removes the separate track page, and adds native menu/footer/copy/volume-wheel
+actions. Automatic same-occurrence source renewal is a separate player lifecycle
+change: its expiry/position/cancellation/Wave/MPRIS contracts require controlled
+original-audio fixtures as well as the final real desktop check. Authoring those
+fixtures or adding their CI selectors is not execution evidence. Current-head
+results belong to [PR #29 checks](https://github.com/tracerxbrhd/karin/pull/29/checks);
+the preceding `927e5e9` checks do not validate the new revision. The
+[single combined Fedora procedure](BUILDING.md#v08-final-fedora-acceptance)
+covers both UI and heard long-pause continuation on Native and installed Flatpak.
+
+The earlier Cloud cache/EOS timeout retained in the `927e5e9` handoff remains an
+unexplained sample despite successful focused/full repeats and its green CI.
+It is distinct from the owner's reproducible long-pause source-expiry defect;
+neither is assigned a service/access cause without corresponding evidence.
+
+On 2026-11-14 the development Rust 1.98.1 fixtures executed four real GStreamer
+renewal tests and the integrated ordinary-application Resume scenario, including
+controlled 10/30/60-minute source ages, current-occurrence/position/mode/volume
+preservation, access/cache resolution, cancellation, Wave and MPRIS. The full
+native Lyrics scenario passed selectable Unicode/Copy, safe LRCLIB consent,
+actual-position LRC centering, manual scroll/Follow and retired replies. Native
+menu, search and volume-wheel/MPRIS scenarios also ran successfully. These are
+original local audio/text and HTTP fixtures; no real account, elapsed-hour pause
+or Fedora acceptance is inferred. Final-source/compiler-matrix and Actions
+results remain separately identified in PR #29's execution receipts.
+
+At `8c651c8`, all four modern UI jobs passed, but the four main CI jobs stopped
+at the strict v0.7 fixture's unhandled request. Admitting only the exact numeric
+GET Similar route made that unchanged twenty-process scenario pass. The index,
+interaction and ordered session fixtures were likewise updated for the new
+passive related read and the common Info-to-Album action; unknown requests,
+authorization, media counters and pagination assertions remain strict.
+
+At `56e4aad`, the complete local 62-selection matrix and both vendored offline
+source/release lanes passed. All four modern CI jobs also passed; the four main
+jobs later exposed ambient playback state in the legacy persistence fixture at
+HiDPI. A deterministic regression seeded a real valid ordinary continuation for
+the synthetic account in the explicitly isolated XDG profile. Without injection,
+startup rejected a canonical track-lookup POST; the old assertion had incorrectly
+labelled every POST as a Wave session. This was not evidence of an automatic
+radio request. A test-only private playback-store injection made the same seeded
+case pass on both compilers at both scales, while preserving the ambient record,
+empty-startup assertions and production continuation behavior. Dedicated v0.7
+restoration coverage remains intact. Final-head CI is required after this test
+isolation correction; earlier successful checks do not stand in for it.
+
+A separate local MSRV cache parent timed out in `completion-skip` while waiting
+for cached replay. Its first log lacks the native state needed to assign a
+cause. A later focused run and full 74-process parent passed with the original
+predicate and deadline. The failed sample is retained as unexplained, alongside
+the earlier `completion-eos` sample; test-only bounded state/HTTP-count receipts
+now preserve evidence if it recurs. Neither passing repeats nor the new receipt
+are described as a production cache fix.
+
+A retained development run also failed the unchanged NGL scale-2 motion gate
+for wide Track Info opening: five distinct quarter frames were unavailable
+(sampled progress 0, 0.368, 0.725, 0.802, 0.972, 0.987, 1). Its scale-1 static
+and motion runs passed. The observed binary SHA-256 is
+`8cbcba09abb08657b56351f8fb87282494c9c0165b70dc4b59da73551f751077`.
+This failed Cloud software-rendering sample is retained without changing phase,
+timing, renderer or geometry assertions. Later final-head results do not erase
+it or establish its cause; no physical Fedora smoothness or resolution of #23
+is inferred from repeats.
+
+### v08 implementation and Cloud evidence
+
+The prepared Cloud toolchains for this integration are exact Rust 1.98.1 and
+stable **1.100.0** (`rustc 0ef1bc386`, 2026-11-09; stable manifest 2026-11-12).
+Earlier v0.7 results retain their original compiler versions. Intermediate
+compilation/native runs are development evidence, not the final exact-head
+matrix; final executed results remain tied to their source and artifact identity.
+
+Anonymous public-provider research on 2026-11-14 returned HTTP 200 from LRCLIB
+for known public metadata with nonempty TEXT and LRC, non-instrumental status and
+numeric duration. The safe receipt records only those flags: no OAuth/cookies,
+private account or Music IDs were sent, no text was printed/saved and no response
+was persisted. The earlier nonexistent-metadata probe returned HTTP 404. These
+positive/negative observations establish public-provider behavior separately
+from local fixtures; they do not accept Yandex legacy text, a user's track match,
+Karin's complete UI flow or Fedora Native/installed Flatpak. Test fixtures still
+contain only original synthetic text.
+
+The text contract separates Yandex legacy full text with explicit rights from a
+user-requested, source-labelled LRCLIB plain/LRC lookup. Modern extracted signing
+material is excluded. Related-track normalization validates the seed, bounds raw
+candidates and uses one canonical batch. Original synthetic lyrics/local HTTP
+fixtures cover error/absence, matching, rights, response/parser bounds, offsets,
+multiple/simultaneous LRC tags, actual-position lookup and account retirement.
+The native `native_v08_lyrics_similar_seek_and_stale_selection` fixture covers
+Lyrics/Track Info presentation, external opt-in, paused player seek, manual scrolling, related
+row actions and late selection/logout replies. It is not a live lyric/catalog test.
+
+Explicit collection-index fixtures use memberships beyond the old 2,000-position
+prefix, original duplicate/composite positions, missing canonical records,
+count/sequence/revision changes, date availability and cancellation. They must
+show 50-position worker batches, bounded 200-row display windows, no startup/
+per-key whole-library drain and no active queue/player change from filtering or
+sorting. Complete coverage is asserted only for the admitted rechecked supported
+manifest; larger/changed/incomplete collections remain explicit.
+
+The `native_v08_queue_next_drag_keyboard_and_restoration` fixture exercises actual
+native drag/drop and accessible keyboard moves over exact duplicate occurrences,
+playing/paused edits and continuation. A full 500-item queue reports a visible,
+actionable native status; removing a future item permits retry without changing
+the paused current occurrence or engine. Domain tests cover Play Next, append,
+current/history/provenance remapping, Shuffle/Repeat and snapshot round trips.
+Existing shared-player MPRIS/audio/cache/Wave/session regressions remain required;
+these additions neither introduce a second engine nor change radio markers.
+
+`native_v08_incremental_marker_updates_and_stable_ticks` observes matched original
+500/2,000-row construction and 24 unchanged-player update calls. The same fixture
+can run against an instrumented accepted production baseline and the candidate.
+Operation counts explain the eliminated repeated marker evaluations; wall times
+must retain source/binary/setup identities and disclosed instrumentation. No
+network/audio engine is created by that measurement. It is not a first-frame,
+physical-GPU or audible-playback benchmark and cannot itself close #23.
+
+### v08 matched application work measurement
+
+The paired native observer completed on 2026-11-14: six fresh processes,
+three samples per lane, interleaved baseline/candidate, fresh private profiles and
+no concurrent heavy work. Both lanes used exact Rust 1.98.1, unoptimized test
+ELFs, GTK 4.18.6, Cairo/full-redraw, Xvfb X11 1920×1080 at 96 dpi and scale 1.
+Medians below use all three samples; counts are actual context-marker callback
+invocations, not estimates from source complexity.
+
+| Rows | Append marker calls, before → after | Append median, µs | 24 unchanged updates: marker calls | 24 updates median, µs |
+| --- | ---: | ---: | ---: | ---: |
+| 500 | 125,250 → 500 | 584,515 → 366,038 | 12,000 → 0 | 21,634 → 9,296 |
+| 2,000 | 2,001,000 → 2,000 | 3,566,342 → 1,664,445 | 48,000 → 0 | 50,841 → 11,992 |
+
+Baseline production is immutable accepted `949d1f9315b210a118e02762a24d7747ff8e5321`;
+all 247 original tracked files were unchanged except the added declaration of
+the identical observation fixture. Fixture SHA-256 is
+`8138b2eef4754d8d3a9c28d571c7c38850196bde25387adf97622a13c39b1af4`.
+Baseline test ELF SHA-256 is
+`ca1fbecbdab95713c90179d778c6524de9788c1dbee608e92f91fb6bc2447b86`;
+candidate test ELF SHA-256 is
+`99921b14cd4574dedcb6623030b4c9c6c52f23882028daf71b5ae70131a21b52`.
+The candidate's 172-file compiled-source map in `dev4-source.json` has SHA-256
+`57e36c4b545debef8379243c353ed88af3f23d1c14e00debb7438f499ee34c8f`
+(canonical sorted-key compact JSON of its `sources` map); its receipt SHA-256 is
+`6585798a7c0b7ff7eebba3c7652781b06657471495dba18bf0de9690c77a5413`.
+This pins a development source set, not an uncommitted change falsely identified
+as the final PR HEAD. All compiled-source hashes still matched when recording
+these results. Safe execution receipts are `v08-catalog-perf/final-audit.json`
+and `runs.json` in the retained Cloud evidence.
+
+Both lanes passed real selection/future-edit reconciliation, duplicate/source
+window and stable current-occurrence assertions. No HTTP, audio engine or media
+was involved. Cache-presence weak-target pruning was also moved to its due
+500 ms batch; it is a structural reduction without an independently isolated
+timing result. Wall-time differences describe the measured combined workload;
+they are not scrolling FPS, release-performance guarantees or first-frame
+latency. The six new queue/lyrics-related/library native executions at 1×/2×
+also passed on this development source set using original synthetic fixtures;
+these do not replace the final Cargo/CI matrix or live Fedora acceptance.
+
+### v08 cold Player Bar observation remains unaccepted
+
+The unchanged control observer ran once per lane in separate fresh processes
+with actual `GskGLRenderer`/NGL under Cloud Xvfb and the existing strict 240 ms
+animation. The accepted-source baseline ELF was
+`096df6aa89734ac8564bcb31e4c1cd942521a00f1cf59ca8e26b911d77e409a2`;
+the candidate ELF was the `99921b14…` source-pinned development binary above.
+All transitions are retained, including the larger candidate repeat gap:
+
+| Transition | Baseline max gap, µs | Candidate max gap, µs | Baseline frames / intermediate | Candidate frames / intermediate |
+| --- | ---: | ---: | ---: | ---: |
+| `startup-first-start` | 1,050,021 | 950,019 | 6 / 1 | 6 / 1 |
+| `startup-explicit-stop` | 50,001 | 50,001 | 16 / 12 | 16 / 12 |
+| `startup-repeat-start` | 33,334 | 116,669 | 19 / 11 | 15 / 10 |
+| `startup-repeat-stop` | 50,001 | 16,667 | 16 / 12 | 18 / 14 |
+
+Both functional synthetic observers passed, while both explicitly recorded
+`cold_latency_accepted: false`. There was only one first-start intermediate
+frame in either lane. One sample per lane neither proves a speedup/fix nor a
+physical-desktop regression. Software rendering/LLVM remains a known contributor;
+no new complete cause or physical GPU/Wayland result is established. No renderer,
+animation, timing, geometry or sandbox guard was weakened and no prewarm added.
+Issue #23 remains **open**. These cold observations do not negate the separate
+measured application-work reductions above. Safe receipts are the respective
+`v08-cold-baseline/summary.json` and `v08-cold-candidate/summary.json`.
+
+Authored/ignored fixture registration is not an executed PASS. Final exact-head
+Cargo/native/CI results, measured before/after receipts and downloadable packages
+belong to the final PR checks and handoff report. Preserve existing timing,
+geometry, sandbox, renderer and cold-baseline gates. New layouts need real GTK
+captures plus structure/input checks in compact/medium/wide/maximized, both
+schemes and 1×/2×; System/Karin availability remains as accepted in v0.7.
+
+No real account, token, lyric or musical recording is used in Cloud fixtures.
+The final [single Fedora procedure](BUILDING.md#v08-final-fedora-acceptance)
+separately accepts real TEXT/LRC and similar results, full-library coverage,
+queue gestures/restoration, heard audio/cache/Wave/MPRIS and ordinary Wayland
+responsiveness in Native and installed Flatpak. #18/#23 and public-distribution
+#5/#22 retain their individual closure conditions. No new release/tag is implied.

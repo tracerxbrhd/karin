@@ -244,10 +244,17 @@ impl Controller {
         self.widgets.current_like_slot.append(&container);
     }
 
-    /// Called only for an actual loaded track detail. Membership is read when
-    /// these controls map; track metadata is never interpreted as a like.
+    /// Full-size presentation retained by native confirmation/retirement
+    /// fixtures; the ordinary selected-track menu uses the compact wrapper.
+    #[cfg(test)]
     pub(super) fn like_controls(self: &Rc<Self>, id: String) -> gtk::Box {
         self.like_controls_presentation(id, false)
+    }
+
+    /// The selected track's native action menu reuses the confirmed Like path;
+    /// opening metadata alone must not start membership reads for every row.
+    pub(super) fn selected_like_controls(self: &Rc<Self>, id: String) -> gtk::Box {
+        self.like_controls_presentation(id, true)
     }
 
     fn like_controls_presentation(self: &Rc<Self>, id: String, compact: bool) -> gtk::Box {

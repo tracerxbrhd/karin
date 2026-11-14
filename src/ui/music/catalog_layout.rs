@@ -11,24 +11,94 @@ pub(super) struct CatalogRow {
     marker: Option<CatalogMarker>,
 }
 
+#[derive(Default)]
+pub(super) struct CatalogRows {
+    bindings: Vec<CatalogRow>,
+    observed: Option<CatalogSelection>,
+}
+
+struct CatalogSelection {
+    generation: u64,
+    context: Option<PlaybackContext>,
+}
+
+impl CatalogSelection {
+    fn matches(&self, other: &Self) -> bool {
+        self.generation == other.generation
+            && match (&self.context, &other.context) {
+                (Some(first), Some(second)) => first.same_presentation_snapshot(second),
+                (None, None) => true,
+                _ => false,
+            }
+    }
+}
+
+impl CatalogRow {
+    fn sync(&self, current: Option<&PlaybackContext>) -> bool {
+        let Some(row) = self.row.upgrade() else {
+            return false;
+        };
+        let selected = current.is_some_and(|current| {
+            if let Some(marker) = &self.marker {
+                return marker(current);
+            }
+            self.context.as_ref()().is_some_and(|context| {
+                if context
+                    .source_id()
+                    .is_some_and(|id| id.starts_with("continuous:"))
+                {
+                    continuous_loading::same_loaded_occurrence(&context, current)
+                } else {
+                    same_context_occurrence(&context, current)
+                }
+            })
+        });
+        if row.has_css_class("music-current") != selected {
+            if selected {
+                row.add_css_class("music-current");
+            } else {
+                row.remove_css_class("music-current");
+            }
+            row.update_property(&[gtk::accessible::Property::Description(if selected {
+                "Текущий трек"
+            } else {
+                ""
+            })]);
+        }
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests;
 
 fn same_context_occurrence(row: &PlaybackContext, current: &PlaybackContext) -> bool {
-    row.source_kind() == current.source_kind()
-        && row.source_id() == current.source_id()
-        && row.current_index() == current.current_index()
-        && row.loaded_items_len() == current.loaded_items_len()
-        && row
-            .items()
-            .iter()
-            .take(row.loaded_items_len())
-            .map(|track| &track.id)
-            .eq(current
-                .items()
-                .iter()
-                .take(current.loaded_items_len())
-                .map(|track| &track.id))
+    if row.source_kind() != current.source_kind() || row.source_id() != current.source_id() {
+        return false;
+    }
+    let Some(position) = row.source_position(row.current_index()) else {
+        return false;
+    };
+    if current.source_position(current.current_index()) != Some(position)
+        || row.items()[row.current_index()].id != current.items()[current.current_index()].id
+    {
+        return false;
+    }
+    // Queue edits may interleave manual additions or move/remove source
+    // occurrences. Compare original source positions, not mutable physical
+    // indices or an assumed loaded prefix. Retained source identities must
+    // still match this exact admitted source window, including duplicates.
+    let source: std::collections::BTreeMap<_, _> = row
+        .items()
+        .iter()
+        .enumerate()
+        .filter_map(|(index, track)| row.source_position(index).map(|pos| (pos, &track.id)))
+        .collect();
+    current.items().iter().enumerate().all(|(index, track)| {
+        current
+            .source_position(index)
+            .is_none_or(|pos| source.get(&pos).is_some_and(|id| *id == &track.id))
+    })
 }
 
 /// A compact, keyboard-activatable song row. Metadata stays available through
@@ -142,46 +212,52 @@ pub(super) fn append_tile(grid: &gtk::FlowBox, tile: &gtk::Button) {
 }
 
 impl Controller {
+    pub(super) fn retire_catalog_rows(&self) {
+        let mut rows = self.catalog_rows.borrow_mut();
+        rows.bindings.clear();
+        rows.observed = None;
+    }
+
     /// Styling observes the existing queue occurrence, never controls playback.
     /// Weak rows are pruned on each refresh and cannot retain removed pages or
     /// private catalog widgets after logout.
     pub(super) fn sync_catalog_rows(&self) {
+        self.sync_catalog_rows_with_selection(self.catalog_selection());
+    }
+
+    fn catalog_selection(&self) -> CatalogSelection {
         let model = self.model.borrow();
-        let current = model.account_valid.then(|| model.queue.context()).flatten();
-        self.catalog_rows.borrow_mut().retain(|binding| {
-            let Some(row) = binding.row.upgrade() else {
-                return false;
-            };
-            let selected = current.is_some_and(|current| {
-                if let Some(marker) = &binding.marker {
-                    return marker(current);
-                }
-                binding.context.as_ref()().is_some_and(|context| {
-                    if context
-                        .source_id()
-                        .is_some_and(|id| id.starts_with("continuous:"))
-                    {
-                        continuous_loading::same_loaded_occurrence(&context, current)
-                    } else {
-                        same_context_occurrence(&context, current)
-                    }
-                })
-            });
-            if row.has_css_class("music-current") == selected {
-                return true;
-            }
-            if selected {
-                row.add_css_class("music-current");
-            } else {
-                row.remove_css_class("music-current");
-            }
-            row.update_property(&[gtk::accessible::Property::Description(if selected {
-                "Текущий трек"
-            } else {
-                ""
-            })]);
-            true
-        });
+        CatalogSelection {
+            generation: model.generation,
+            context: (model.account_valid && !model.closed)
+                .then(|| model.queue.context().cloned())
+                .flatten(),
+        }
+    }
+
+    fn sync_catalog_rows_with_selection(&self, selection: CatalogSelection) {
+        let mut rows = self.catalog_rows.borrow_mut();
+        rows.bindings
+            .retain(|binding| binding.sync(selection.context.as_ref()));
+        rows.observed = Some(selection);
+    }
+
+    /// Position polling does not change a catalog occurrence. Explicit feed,
+    /// filter and account updates still call the unconditional sync above.
+    /// Context identity also changes for queue edits, even if the current
+    /// occurrence and length happen to remain unchanged.
+    pub(super) fn sync_catalog_rows_if_current_changed(&self) {
+        let selection = self.catalog_selection();
+        if self
+            .catalog_rows
+            .borrow()
+            .observed
+            .as_ref()
+            .is_some_and(|observed| observed.matches(&selection))
+        {
+            return;
+        }
+        self.sync_catalog_rows_with_selection(selection);
     }
 
     fn render_home_collections(self: &Rc<Self>) {
@@ -669,18 +745,18 @@ impl Controller {
         play.add_css_class("flat");
         body.append(&play);
         body.append(&self.track_menu_source(&track, context.clone(), false));
-        self.catalog_rows
-            .borrow_mut()
-            .retain(|binding| binding.row.upgrade().is_some());
-        self.catalog_rows.borrow_mut().push(CatalogRow {
+        let binding = CatalogRow {
             row: row.downgrade(),
             context: context.clone(),
             marker,
-        });
+        };
         self.row_action(&row, RowAction::LoadedTrack(context));
         row.set_activatable(track.available);
         list.append(&row);
-        self.sync_catalog_rows();
+        // A new row needs its own current marker immediately. Re-evaluating
+        // every old row for each insertion made a page append quadratic.
+        binding.sync(self.catalog_selection().context.as_ref());
+        self.catalog_rows.borrow_mut().bindings.push(binding);
     }
 
     pub(super) fn row_action(self: &Rc<Self>, row: &gtk::ListBoxRow, action: RowAction) {
@@ -843,15 +919,6 @@ impl Controller {
         hero.prepend(&art);
     }
 
-    pub(super) fn track_menu_context(
-        self: &Rc<Self>,
-        track: &Track,
-        context: Option<PlaybackContext>,
-    ) -> gtk::MenuButton {
-        let allow_standalone = context.is_none();
-        self.track_menu_source(track, Rc::new(move || context.clone()), allow_standalone)
-    }
-
     fn track_menu_source(
         self: &Rc<Self>,
         track: &Track,
@@ -873,7 +940,7 @@ impl Controller {
         detail.add_css_class("flat");
         let weak = Rc::downgrade(self);
         let close = popover.downgrade();
-        let id = track.id.clone();
+        let inspected = track.clone();
         let detail_context = context.clone();
         detail.connect_clicked(move |_| {
             if let Some(popover) = close.upgrade() {
@@ -885,7 +952,7 @@ impl Controller {
             }) {
                 let selected_context = detail_context();
                 if allow_standalone || selected_context.is_some() {
-                    this.open_track_context(id.clone(), selected_context);
+                    this.open_loaded_track_info(inspected.clone(), selected_context);
                 }
             }
         });
@@ -913,6 +980,26 @@ impl Controller {
             }
         });
         actions.append(&play);
+        let next = gtk::Button::with_label("Воспроизвести следующим");
+        next.add_css_class("flat");
+        next.set_sensitive(track.available);
+        let weak = Rc::downgrade(self);
+        let close = popover.downgrade();
+        let queued = track.clone();
+        let next_context = context.clone();
+        next.connect_clicked(move |_| {
+            if let Some(popover) = close.upgrade() {
+                popover.popdown();
+            }
+            if let Some(this) = weak.upgrade().filter(|this| {
+                let model = this.model.borrow();
+                model.generation == generation && model.account_valid && !model.closed
+            }) && (allow_standalone || next_context().is_some())
+            {
+                this.enqueue_next(queued.clone());
+            }
+        });
+        actions.append(&next);
         let add = gtk::Button::with_label("Добавить в очередь");
         add.add_css_class("flat");
         let weak = Rc::downgrade(self);
@@ -1021,107 +1108,6 @@ impl Controller {
         });
         failure.set_child(Some(&button));
         self.widgets.detail.append(&failure);
-    }
-
-    pub(super) fn open_track_context(
-        self: &Rc<Self>,
-        id: String,
-        context: Option<PlaybackContext>,
-    ) {
-        self.open_track_policy(id, context, false);
-    }
-
-    pub(super) fn open_track_policy(
-        self: &Rc<Self>,
-        id: String,
-        context: Option<PlaybackContext>,
-        force: bool,
-    ) {
-        let retry_context = context.clone();
-        self.detail_loading("Сведения о треке", "Загрузка трека…");
-        let info_epoch = self.info_target_epoch();
-        let refresh_id = id.clone();
-        let refresh_context = context.clone();
-        self.detail_refresh.replace(Some(Rc::new(move |this| {
-            this.open_track_policy(refresh_id.clone(), refresh_context.clone(), true)
-        })));
-        let retry_id = id.clone();
-        self.run_catalog(
-            Operation::Detail,
-            None,
-            force,
-            move |service, token, catalog, force| match catalog {
-                Some(catalog) => catalog.track(&service, &token, &id, force),
-                None => service.track(&token, &id).map(catalog_view::network),
-            },
-            move |this, result| match result {
-                Ok(track) => {
-                    this.select_track_info_if_current(info_epoch, track.clone(), context.clone());
-                    let mut facts = track.artists.join(", ");
-                    if let Some(duration) = track.duration_ms.map(format_duration) {
-                        if !facts.is_empty() {
-                            facts.push_str(" · ");
-                        }
-                        facts.push_str(&duration);
-                    }
-                    this.detail_header(&track.title, &facts);
-                    this.detail_cover(track.cover.as_ref());
-                    if !track.available {
-                        this.widgets
-                            .detail
-                            .append(&text("Сервис пометил трек как недоступный.", "dim-label"));
-                    }
-                    let button = if let Some(context) = context.clone() {
-                        this.context_play_button(&track, false, context)
-                    } else {
-                        this.track_play_button(&track, false)
-                    };
-                    button.set_label("Слушать");
-                    let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-                    actions.add_css_class("music-collection-actions");
-                    actions.append(&button);
-                    let add = icon_button("list-add-symbolic", "Добавить в очередь");
-                    add.add_css_class("flat");
-                    let weak = Rc::downgrade(this);
-                    let queued = track.clone();
-                    add.connect_clicked(move |_| {
-                        if let Some(this) = weak.upgrade() {
-                            this.enqueue(queued.clone());
-                        }
-                    });
-                    actions.append(&add);
-                    actions.append(&this.track_menu_context(&track, context.clone()));
-                    this.place_detail_actions(&actions);
-                    this.widgets
-                        .detail
-                        .append(&this.like_controls(track.id.clone()));
-                    if this.model.borrow().delivery_diagnostic {
-                        this.delivery_action(track.id.clone());
-                    }
-                    if let Some(album_id) = track.album_id {
-                        let album = gtk::Button::with_label(
-                            track.album_title.as_deref().unwrap_or("Открыть альбом"),
-                        );
-                        album.set_halign(gtk::Align::Start);
-                        if let Some(label) = album.child().and_downcast::<gtk::Label>() {
-                            label.set_wrap(true);
-                            label.set_wrap_mode(gtk::pango::WrapMode::WordChar);
-                        }
-                        let weak = Rc::downgrade(this);
-                        album.connect_clicked(move |_| {
-                            if let Some(this) = weak.upgrade() {
-                                this.open_album(album_id.clone());
-                            }
-                        });
-                        this.widgets.detail.append(&album);
-                    }
-                    this.widgets.status.set_title("Сведения о треке получены.");
-                }
-                Err(error) => this.detail_error(error, move |this| {
-                    this.open_track_context(retry_id.clone(), retry_context.clone())
-                }),
-            },
-        );
     }
 
     pub(super) fn open_album(self: &Rc<Self>, id: String) {

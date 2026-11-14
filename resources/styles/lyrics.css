@@ -1,0 +1,27 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Scoped text presentation; constant row metrics prevent active-line jitter. */
+.karin-style-system .karin-lyrics-lines { background-color: transparent; }
+.karin-style-system .karin-lyrics-lines row { background-color: transparent; }
+.karin-style-system .karin-lyrics-line {
+  font-size: 1.2em;
+  font-weight: 600;
+  padding: 10px 8px;
+  border-left: 3px solid transparent;
+}
+.karin-style-system .karin-lyrics-line.lyrics-past { opacity: .55; }
+.karin-style-system .karin-lyrics-line.lyrics-future { opacity: .8; }
+.karin-style-system .karin-lyrics-line.lyrics-active {
+  opacity: 1;
+  color: @accent_color;
+  border-left-color: @accent_color;
+}
+.karin-style-system .karin-lyrics-stanza {
+  font-size: 1.1em;
+  padding: 12px 4px;
+  line-height: 1.5;
+}
+.karin-high-contrast .karin-lyrics-line { opacity: 1; }
+.karin-high-contrast .karin-lyrics-line.lyrics-active {
+  color: @window_fg_color;
+  border-left-color: @window_fg_color;
+}

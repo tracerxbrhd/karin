@@ -2,7 +2,7 @@
 
 # ADR-0022: One controlled music-information and queue surface
 
-Status: Accepted for the complete v0.4 redesign; execution and owner acceptance remain separate
+Status: Accepted v0.4 foundation; v0.8 Lyrics extension below has separate execution and owner acceptance
 Date: 2026-11-01
 Extends: ADR-0017's queue/controller ownership and ADR-0021's controlled intent and occurrence target
 Supersedes: ADR-0021's information-only presentation and the separate primary Queue route
@@ -35,13 +35,16 @@ native presentation and routing, not another service, engine or cloud queue.
 Use one permanent universal panel with an explicit user mode:
 
 ```text
-Closed | TrackInfo | Queue
+Closed | TrackInfo | Lyrics | Queue
 ```
+
+The original accepted v0.4 modes were Closed, TrackInfo and Queue. The v0.8
+extension adds Lyrics within that same host, not a second sidebar or window.
 
 Keep mode/open intent separate from availability, animation progress,
 wide/medium/compact presentation, information selection and actual playback.
 One outer surface owns the background, border, header, close/Back control and
-content. Track Info and the existing queue view occupy that same host; the queue
+content. Track Info, Lyrics and the existing queue view occupy that same host; the queue
 has one widget tree. There is no independently animated second pane or duplicate
 primary Queue page.
 
@@ -50,6 +53,10 @@ primary Queue page.
 | Current cover or explicit information, panel closed | Open TrackInfo |
 | Current cover, Queue open | Switch content to TrackInfo in place |
 | Current cover, TrackInfo open | Keep open and show current metadata |
+| Track Info menu → Lyrics | Switch to Lyrics for that inspected selection |
+| Footer Lyrics, another track inspected | Select the actual current occurrence and show its Lyrics |
+| Footer Lyrics, already following current in Lyrics | Explicitly close |
+| Lyrics Back | Return to Track Info in place, preserving selection |
 | Ctrl+I | Explicit information toggle |
 | Footer Queue / Ctrl+J, closed | Open Queue |
 | Footer Queue / Ctrl+J, TrackInfo open | Switch content to Queue in place |
@@ -94,7 +101,7 @@ the main view before a surface starts moving. The animation is native Adwaita
 timing, not a custom frame-clock scheduler. Compact final width derives from
 the available viewport rather than a desktop fixed width.
 
-Switching TrackInfo ↔ Queue while open changes content inside the fixed host.
+Switching TrackInfo ↔ Lyrics ↔ Queue while open changes content inside the fixed host.
 It does not replay opening, rebuild the outer panel, alter header/close position
 or create another playback state. A short 100 ms GtkStack crossfade changes
 content under the same fixed header/close controls. Use native GTK/Libadwaita animation and honor
@@ -112,6 +119,24 @@ information atomically and resume following without closing the panel.
 Pause/Seek/Volume and structural reindexing preserve explicit selection. A
 Repeat One restart at the same occurrence is not a different queue position.
 Old metadata/artwork completions remain epoch/session-checked.
+
+### v0.8 content refinement
+
+Track Info keeps the cover, title/artist/album and one primary row containing
+Play, compact Append and a native menu. Play Next, Add to Playlist and Lyrics
+reuse existing handlers from that menu. Details from search, collections, queue,
+related rows and the footer selects this panel; the old separate track page is
+removed. Album, artist and playlist pages keep their independent navigation.
+Related rows appear below a normal heading and separator, with bounded Show More;
+neither recommendations nor lyrics use GtkExpander.
+
+Lyrics occupies the panel's available body height and owns its one scroll area.
+Back returns to Track Info without closing/reopening the outer surface. A
+Track Info menu request retains explicit inspection; the footer Lyrics request
+always binds to the real current occurrence. New current occurrences update the
+target and text while retaining Lyrics mode. Hidden modes and Diagnostics do not
+start content requests. Source, parser, copy and playhead rules belong to
+[ADR-0034](0034-bounded-track-lyrics-and-similar.md).
 
 Queue reads the same MusicQueue/PlaybackContext used by transport and MPRIS.
 Current, upcoming and history presentation uses the local policy's exact

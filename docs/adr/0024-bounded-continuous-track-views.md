@@ -8,6 +8,10 @@ Extends: ADR-0016's bounded normalization and ADR-0017's exact PlaybackContext o
 Supersedes: Visible track-page navigation in the earlier v0.4 workspace
 Updated by: ADR-0025 for collection filtering, explicit filtered continuation and stable feed/absolute occurrence identity
 
+Extended by: [ADR-0035](0035-incremental-whole-collection-index.md) adds explicit
+complete supported-collection indexing and bounded result windows in v0.8; the
+following text records the original display-prefix decision.
+
 ## Context
 
 The latest owner request continues PR #15 from `a70bbf7`. Track lists must feel
