@@ -46,7 +46,29 @@ real cache replay/restart requirement is now owner-confirmed in both packages.
 
 This technical acceptance does not establish public OAuth/service/content
 redistribution permission, offline lifetimes or a release. #5/#22 stay separate.
-The v0.7 restoration/playlist/style work has no inherited desktop acceptance.
+The separate v0.7 acceptance is recorded below; it was not inferred from this
+earlier cache report.
+
+## Owner acceptance of PR #28 — 2026-11-14
+
+In the v0.8 task, the owner explicitly accepted exact revision
+[`949d1f9315b210a118e02762a24d7747ff8e5321`](https://github.com/tracerxbrhd/karin/commit/949d1f9315b210a118e02762a24d7747ff8e5321)
+with **68/68 Fedora checks: Native 34/34 and installed Flatpak 34/34**.
+The reported scope includes playback/position/queue restoration, real playlist
+server mutations, appearance/scaling/adaptivity, authentication, MPRIS, Stop,
+Logout and My Wave; no regressions were found in the checked scenarios. The
+report was received on 2026-11-14 (Europe/Samara); no private account data or
+per-action logs were requested or published.
+
+All eight exact-head CI jobs had succeeded, and the current PR contained no
+intervening unaccepted changes. The owner authorized a normal merge: #28 was
+made ready and merged at
+[`2ab6d28`](https://github.com/tracerxbrhd/karin/commit/2ab6d280af9ee6c5a1d5cb0107a30149f7d87a8d),
+preserving both parents and development history. `master` contains the accepted
+revision. Issues #19/#21 are technically complete. This accepts the reported
+v0.7 workflows, not future v0.8 features, the unavailable Karin design, every
+unreported failure/backend case, public distribution #5/#22 or the unresolved
+Cloud first-render cause in #23. No release or tag was created.
 
 ## Automated coverage
 
@@ -1349,11 +1371,12 @@ UI changes, and retain the exact source revision and environment with results.
 
 ## v0.7 combined continuation, playlist and appearance change
 
-[Draft PR #28](https://github.com/tracerxbrhd/karin/pull/28), branch
-`feature/v0.7-playback-playlists-appearance`, starts at the accepted normal
-PR #26 merge `1fd4028`. Issues #19/#21 remain open pending the one final owner
-Native/installed-Flatpak acceptance; the new functions are not accepted merely
-because the earlier audio/cache path was accepted.
+[PR #28](https://github.com/tracerxbrhd/karin/pull/28), branch
+`feature/v0.7-playback-playlists-appearance`, started at the accepted normal
+PR #26 merge `1fd4028` and normally merged at `2ab6d28`. The owner separately
+accepted `949d1f9` with 68/68 Native/installed-Flatpak checks, as recorded above.
+The following Cloud fixtures remain distinct evidence of their individual
+synthetic scenarios; acceptance was not inherited from the earlier audio/cache path.
 
 The changes add account-bound IDs-only ordinary playback snapshots, exact
 occurrence/Shuffle continuation without autoplay, fresh batch normalization and

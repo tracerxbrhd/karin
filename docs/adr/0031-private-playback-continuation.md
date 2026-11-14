@@ -2,7 +2,8 @@
 
 # ADR-0031: Private playback continuation
 
-Status: implemented; new Fedora acceptance pending.
+Status: accepted and normally merged through PR #28 at `2ab6d28`; exact
+`949d1f9` passed the owner's v0.7 Native/installed-Flatpak acceptance (68/68).
 
 ## Context
 
@@ -64,5 +65,7 @@ inherited storage retry, so an HTTP failure cannot publish a null tombstone.
 The native recovery test verifies unchanged private record bytes and restores
 the same queue/position through the real Retry action without audio requests.
 
-Process-restart tests use original permitted local audio and synthetic accounts;
-real service and installed Flatpak acceptance remain separate owner evidence.
+Process-restart tests use original permitted local audio and synthetic accounts.
+The owner separately accepted real Native/installed-Flatpak v0.7 behavior at
+`949d1f9`; that report does not turn each synthetic failure case into a live test.
+See [VALIDATION](../VALIDATION.md#owner-acceptance-of-pr-28--2026-11-14).

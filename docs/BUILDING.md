@@ -509,8 +509,10 @@ and uninterrupted playback in the normal desktop session.
 ## v07 final Fedora acceptance
 
 PR #26 cache acceptance at `c1de869` is recorded separately and was merged with
-its history. The v0.7 Draft PR adds continuation, playlist editing and independent
-style/color preferences; Cloud fixtures do not accept these against a real account.
+its history. The owner completed this v0.7 procedure at `949d1f9`: 68/68 PASS,
+Native 34/34 and installed Flatpak 34/34; #28 normally merged at `2ab6d28`.
+The procedure is retained for reproducible regression checks, not an outstanding
+v0.7 acceptance request. Cloud fixtures remain distinct from that owner report.
 Use the final PR-head `karin-fedora-prototype-1.98.1` CI artifact, verify
 `BUILD-INFO.txt` and its checksum, and run `./karin` without diagnostic flags.
 The same commit's Flatpak source is prepared with

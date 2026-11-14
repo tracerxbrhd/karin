@@ -86,16 +86,18 @@ remain. See [ADR-0029](adr/0029-synthetic-audio-cache-foundation.md),
 This acceptance does not establish offline access lifetimes, a public service
 license, a release/version/tag or every unreported failure/backend case.
 
-## v0.7: playback restoration, playlist editing and appearance
+## Completed v0.7: playback restoration, playlist editing and appearance
 
-[Draft PR #28](https://github.com/tracerxbrhd/karin/pull/28), branch
-`feature/v0.7-playback-playlists-appearance`, starts at the accepted
-merge and combines #21 and #19 with independent UI-style/color-scheme settings.
-It implements bounded same-account queue/order/position restoration without
-autoplay or saved media/Wave resources, owned playlist edits with exact occurrence/
-revision semantics and independent readback, and independent System presentation/
-color settings. Karin Style remains unavailable until real designer materials
-arrive. Issues #19/#21 remain open for final CI and one desktop acceptance.
+[PR #28](https://github.com/tracerxbrhd/karin/pull/28) normally merged at
+[`2ab6d28`](https://github.com/tracerxbrhd/karin/commit/2ab6d280af9ee6c5a1d5cb0107a30149f7d87a8d).
+The owner accepted exact `949d1f9` with **68/68 Fedora checks**: Native 34/34
+and installed Flatpak 34/34. This includes same-account queue/order/position
+restoration without autoplay or saved media/Wave resources; real owned-playlist
+edits with exact occurrence/revision semantics and independent readback; and
+System presentation/color settings. Existing auth, audio/cache, MPRIS, Stop,
+Logout and Wave passed the reported matrix. Issues #19/#21 are complete. Karin
+Style remains unavailable until designer materials arrive. This is no release
+or public-distribution decision; #23 remains separate.
 
 ## Further directions
 

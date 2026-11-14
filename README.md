@@ -32,7 +32,8 @@ Actual GTK captures with synthetic library data and original test artwork.
 ## Features
 
 - Yandex sign-in, liked tracks, personal playlists and catalog search.
-- Collection-local search, track details and server-confirmed playlist creation.
+- Collection-local search, track details and confirmed owned-playlist creation/editing.
+- Playback queue, position and Shuffle/Repeat restoration without autoplay.
 - Distinct Like/Dislike controls with account-bound read-after-write confirmation.
 - Contextual queues, Shuffle/Repeat, seek and volume through GStreamer.
 - My Wave personal radio from Home, using the same queue, player and MPRIS.
@@ -80,12 +81,13 @@ are provisionally accepted pending future design refinement. This is private
 online-revalidated caching, not an offline library or a public distribution
 license. See [cache policy](docs/AUDIO_CACHE_REVIEW.md).
 
-[Draft PR #28](https://github.com/tracerxbrhd/karin/pull/28) combines bounded
-account-bound playback continuation without autoplay, server-confirmed owned
-playlist editing and independent System style/color settings. Karin Style is
-explicitly unavailable until approved designer materials arrive. These additions
-await their own final desktop acceptance; the accepted audio path stays shared.
-See the [single Native/Flatpak check](docs/BUILDING.md#v07-final-fedora-acceptance).
+[PR #28](https://github.com/tracerxbrhd/karin/pull/28) merged normally at
+`2ab6d28`, preserving its development history. The owner accepted exact revision
+`949d1f9`: **68/68 Fedora checks, Native 34/34 and installed Flatpak 34/34**,
+including playback continuation, real owned-playlist edits, appearance/adaptivity
+and the existing auth/audio/MPRIS/Wave path. System style and color scheme stay
+independent; Karin Style remains unavailable until approved designer materials
+arrive. See [validation](docs/VALIDATION.md#owner-acceptance-of-pr-28--2026-11-14).
 
 ## Build and run
 

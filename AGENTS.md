@@ -122,6 +122,10 @@ reviewable and consistent with the accepted application.
   provisionally accepted pending the designer's work. Prior cache failures remain
   historical evidence, not the current technical status. #5/#22 distribution
   questions remain independent; no public content rights are established.
+  The owner separately accepted exact `949d1f9` for v0.7 with 68/68 Fedora checks
+  (Native 34/34, installed Flatpak 34/34); #28 normally merged at `2ab6d28`,
+  preserving history. Restoration, real playlist edits and System appearance
+  are accepted; future v0.8 features and unavailable Karin Style are not.
   Unreported individual scenarios and unresolved Cloud cold gaps are not PASS.
   This is not a published release. Read [LIMITATIONS](docs/LIMITATIONS.md).
 

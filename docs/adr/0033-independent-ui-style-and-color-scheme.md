@@ -2,7 +2,8 @@
 
 # ADR-0033: Independent UI style and color scheme
 
-Status: Accepted for the v0.7 implementation; external Karin design remains unavailable
+Status: Accepted; PR #28 normally merged at `2ab6d28` after owner v0.7
+Native/installed-Flatpak acceptance at `949d1f9`. External Karin design remains unavailable.
 Date: 2026-11-11
 Extends: ADR-0013, ADR-0018 and ADR-0030
 

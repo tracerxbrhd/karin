@@ -158,11 +158,12 @@ binary. The specific writer/source on the owner's Fedora remains unestablished.
 Karin does not suppress this warning or overwrite desktop settings. See the
 [read-only theme check](BUILDING.md#theme-input-check).
 
-## v0.7 additions awaiting desktop acceptance
+## v0.7 accepted scope and retained boundaries
 
-[Draft PR #28](https://github.com/tracerxbrhd/karin/pull/28) implements ordinary
-playback continuation and owned playlist editing. They remain pending one final
-Native/installed-Flatpak acceptance against the real service. Restore needs
+[PR #28](https://github.com/tracerxbrhd/karin/pull/28) normally merged at `2ab6d28`.
+The owner accepted exact `949d1f9`: 68/68 Fedora checks, Native 34/34 and
+installed Flatpak 34/34, including restoration and real playlist edits. This
+does not remove the following contract bounds or accept future v0.8 features. Restore needs
 current account/track validation and explicit Play; radio and offline sessions
 are not restored. Saved queue provenance is independent of later playlist edits.
 Playlist edit snapshots require complete server positions and revision, at most
