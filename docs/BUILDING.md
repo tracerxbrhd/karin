@@ -584,6 +584,8 @@ account data, lyrics, media, tokens and signed URLs on Fedora.
 3. **Queue editing and restoration.** From a disposable context with duplicate
    tracks, use Play Next, Append, drag-and-drop and the keyboard move controls.
    Remove one exact duplicate and edit future rows while playing and paused.
+   At the 500-item limit, check the visible explanation and retry after removing
+   one future item; the current track must remain unchanged.
    Check Next/Previous, Shuffle, Repeat, EOS and KDE MPRIS. Seek, close/reopen:
    the edited queue, occurrence/modes and position restore **Stopped**. Explicit
    Play resumes through the current-access/cache path; no startup autoplay.

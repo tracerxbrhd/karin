@@ -495,6 +495,90 @@ fn native_v08_queue_next_drag_keyboard_and_restoration() {
     assert!(this.shift_queue_occurrence(&manual, 1));
     assert_eq!(playing.snapshot().state, PlaybackState::Paused);
 
+    // A full queue must reject Play Next visibly, without evicting another
+    // occurrence or changing the paused engine. Fill the bounded model in one
+    // batch; the ordinary controller action performs its one native render.
+    let original_len = this.model.borrow().queue.items().len();
+    {
+        let mut model = this.model.borrow_mut();
+        while model.queue.items().len() < 500 {
+            model.queue.append(track(true)).unwrap();
+        }
+    }
+    let full_occurrences = {
+        let model = this.model.borrow();
+        (0..500)
+            .map(|index| model.queue.occurrence_id(index).unwrap().clone())
+            .collect::<Vec<_>>()
+    };
+    this.enqueue_next(track(true));
+    pump_until(|| {
+        this.widgets.status_revealer.is_child_revealed() && this.widgets.status.is_mapped()
+    });
+    assert_eq!(this.widgets.status.title(), "Очередь заполнена");
+    let message = this.widgets.status.subtitle().unwrap();
+    assert!(
+        message.contains("500") && message.contains("Удалите") && message.contains("повторите")
+    );
+    assert!(this.widgets.status.width() > 0 && this.widgets.status.height() > 0);
+    {
+        let model = this.model.borrow();
+        assert_eq!(model.queue.items().len(), 500);
+        assert_eq!(model.queue.current_occurrence_id(), Some(&current));
+        assert_eq!(
+            (0..500)
+                .map(|index| model.queue.occurrence_id(index).unwrap().clone())
+                .collect::<Vec<_>>(),
+            full_occurrences,
+            "capacity rejection cannot silently evict or replace any occurrence"
+        );
+    }
+    assert_eq!(playing.snapshot().state, PlaybackState::Paused);
+    assert_eq!(playing.snapshot().generation, generation);
+    assert!(playing.snapshot().worker_running);
+    assert_eq!(this.music_snapshot().unwrap().state, PlaybackState::Paused);
+    assert_eq!(this.music_snapshot().unwrap().generation, generation);
+
+    // The user makes one future slot, then deliberately retries the same action.
+    this.remove_music_queue(499);
+    assert_eq!(this.model.borrow().queue.items().len(), 499);
+    this.enqueue_next(track(true));
+    pump_until(|| {
+        !this.widgets.status_revealer.reveals_child() && !this.widgets.status.is_mapped()
+    });
+    assert!(
+        this.widgets
+            .status
+            .subtitle()
+            .is_none_or(|message| message.is_empty())
+    );
+    {
+        let model = this.model.borrow();
+        assert_eq!(model.queue.items().len(), 500);
+        assert_eq!(model.queue.current_occurrence_id(), Some(&current));
+        assert!(!full_occurrences.contains(model.queue.occurrence_id(1).unwrap()));
+        assert_eq!(model.queue.upcoming_indices().first(), Some(&1));
+    }
+    assert_eq!(playing.snapshot().state, PlaybackState::Paused);
+    assert_eq!(playing.snapshot().generation, generation);
+    assert!(playing.snapshot().worker_running);
+    assert_eq!(this.music_snapshot().unwrap().state, PlaybackState::Paused);
+    assert_eq!(this.music_snapshot().unwrap().generation, generation);
+    assert_eq!(
+        this.widgets.current_art.first_child().as_ref(),
+        Some(&artwork)
+    );
+    // Retire only the synthetic filler so the existing restart checks stay
+    // focused on the earlier edited occurrences plus the accepted new next.
+    {
+        let mut model = this.model.borrow_mut();
+        while model.queue.items().len() > original_len + 1 {
+            let last = model.queue.items().len() - 1;
+            model.queue.remove(last).unwrap();
+        }
+    }
+    this.render_queue();
+
     let snapshot = QueueSnapshot::capture(&this.model.borrow().queue)
         .unwrap()
         .unwrap();

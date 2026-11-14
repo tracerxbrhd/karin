@@ -1460,7 +1460,9 @@ manifest; larger/changed/incomplete collections remain explicit.
 
 The `native_v08_queue_next_drag_keyboard_and_restoration` fixture exercises actual
 native drag/drop and accessible keyboard moves over exact duplicate occurrences,
-playing/paused edits and continuation. Domain tests cover Play Next, append,
+playing/paused edits and continuation. A full 500-item queue reports a visible,
+actionable native status; removing a future item permits retry without changing
+the paused current occurrence or engine. Domain tests cover Play Next, append,
 current/history/provenance remapping, Shuffle/Repeat and snapshot round trips.
 Existing shared-player MPRIS/audio/cache/Wave/session regressions remain required;
 these additions neither introduce a second engine nor change radio markers.

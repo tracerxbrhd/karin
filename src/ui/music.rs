@@ -2052,13 +2052,7 @@ impl Controller {
         self.note_playback_intent();
         self.cancel_pending_wave_for_ordinary_action();
         let result = self.model.borrow_mut().queue.append(track);
-        match result {
-            Ok(_) => self.widgets.status.set_title("Трек добавлен в очередь."),
-            Err(_) => self
-                .widgets
-                .status
-                .set_title("Очередь заполнена. Удалите ненужные треки."),
-        }
+        self.show_queue_addition(result.is_ok(), "Трек добавлен в очередь.");
         self.render_queue();
     }
 
@@ -2069,18 +2063,29 @@ impl Controller {
         self.note_playback_intent();
         self.cancel_pending_wave_for_ordinary_action();
         let result = self.model.borrow_mut().queue.insert_next(track);
-        match result {
-            Ok(_) => self
-                .widgets
-                .status
-                .set_title("Трек будет воспроизведён следующим."),
-            Err(_) => self
-                .widgets
-                .status
-                .set_title("Очередь заполнена. Удалите ненужные треки."),
-        }
+        self.show_queue_addition(result.is_ok(), "Трек будет воспроизведён следующим.");
         self.render_queue();
         self.publish_mpris();
+    }
+
+    fn show_queue_addition(&self, accepted: bool, title: &str) {
+        const FULL: &str =
+            "В очереди не более 500 треков. Удалите ненужный трек и повторите действие.";
+        if !accepted {
+            self.widgets.status.set_title("Очередь заполнена");
+            // The native status row is revealed by its subtitle, not title.
+            self.widgets.status.set_subtitle(FULL);
+        } else if self.widgets.status.subtitle().as_deref() == Some(FULL) {
+            self.widgets.status.set_title(title);
+            self.widgets.status.set_subtitle("");
+        } else if self
+            .widgets
+            .status
+            .subtitle()
+            .is_none_or(|message| message.is_empty())
+        {
+            self.widgets.status.set_title(title);
+        }
     }
 }
 
