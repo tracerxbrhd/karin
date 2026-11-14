@@ -676,7 +676,7 @@ jobs:
             printf 'Binary SHA256: '; sha256sum target/release/karin
           } > "$artifact/BUILD-INFO.txt"
           cat > "$artifact/README.txt" <<'EOF'
-          Karin native music: v0.6 audio-cache development after confirmed Dislike integration.
+          Karin v0.8: integrated music, library and performance acceptance build.
           Verify SHA256SUMS and BUILD-INFO.txt against this PR's exact head.
           This is an Ubuntu 24.04 x86_64 native prototype, not a Flatpak/public release.
           Fedora runtime: sudo dnf install gtk4 libadwaita gstreamer1 gstreamer1-plugins-base gstreamer1-plugins-good webkitgtk6.0 librsvg2 libsecret
@@ -684,7 +684,7 @@ jobs:
           ulimit -c 0
           ./karin
           No experimental flag or developer credentials required. Keep the desktop keyring unlocked.
-          Follow docs/BUILDING.md#v04-native-music-acceptance-on-fedora at the source commit in BUILD-INFO.txt.
+          Follow docs/BUILDING.md#v08-final-fedora-acceptance at the source commit in BUILD-INFO.txt.
           Test the real account/library/search/playlists/context queue, audible Music playback and KDE MPRIS.
           Inspect light/dark, HiDPI, 420x720,850x750,720x650,900x650,1280x800,1440x900,1650x930,1920x1080 and maximized.
           Open Track Info or Queue in the same right panel; outside click/scroll/navigation must not close it.
@@ -695,9 +695,9 @@ jobs:
           Click cover/title/artist/metadata space or press Enter/Space to open Track Info; Like remains independent.
           Use Home (Wave Hero starts only on Listen after validated sign-in), Liked and Playlists tabs and the adjacent unified Search action.
           Scroll track collections continuously; exercise loading/end/error/Retry without manual track pages.
-          More than 2000 loaded source positions requires search or another source; new playback uses a bounded 500-position context.
+          Ordinary continuation is bounded at 2000 positions; explicit collection indexing admits up to 20000 source positions. Playback contexts stay bounded at 500.
           In Liked/opened playlists type title/artist/album locally; typing must not fetch collection pages or replace the playing Queue.
-          Partial coverage is explicit; search the next bounded part deliberately and verify duplicate occurrences in filtered playback.
+          Partial coverage is explicit; start collection indexing deliberately, verify its final membership check and retain exact duplicate occurrences in filtered playback.
           Inspect the heart hero/truthful duration, larger playlist covers and tight centered footer at 850x750 and compact/wide sizes.
           Direct Like must read membership and confirm the server result; unconfirmed Dislike is hidden.
           Next/Previous/EOS/MPRIS must follow the actual occurrence without closing/reopening.
