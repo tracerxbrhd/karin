@@ -521,11 +521,24 @@ fn primary_destination(ui: &crate::ui::MainWindow, route: &str) {
     pump(|| this.widgets.stack.visible_child_name().as_deref() == Some(route));
     settle();
     assert!(
-        descendants(ui.music.widget.upcast_ref())
+        descendants(this.widgets.primary_navigation.upcast_ref())
             .into_iter()
             .all(|widget| !widget.is::<gtk::DropDown>()),
         "primary navigation must not retain parented technical dropdowns"
     );
+    for widget in descendants(ui.music.widget.upcast_ref())
+        .into_iter()
+        .filter(|widget| widget.is::<gtk::DropDown>())
+    {
+        assert!(
+            widget.widget_name() == "music-collection-sort"
+                && widget.is_ancestor(&this.widgets.stack)
+                && widget
+                    .parent()
+                    .is_some_and(|parent| { parent.widget_name() == "music-collection-filter" }),
+            "a user sort dropdown must belong to collection content; other technical dropdowns remain forbidden"
+        );
+    }
 }
 fn resize(ui: &crate::ui::MainWindow, width: i32, height: i32) {
     ui.window.set_default_size(width, height);

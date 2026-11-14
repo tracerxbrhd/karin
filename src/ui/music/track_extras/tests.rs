@@ -486,6 +486,53 @@ fn menu_action(window: &adw::ApplicationWindow, id: &str, view: &ExtrasView, lab
     menu_action_at(window, id, view, 0, label);
 }
 
+/// GTK 4.14 can place a native popover below a bottom-edge anchor and outside
+/// the parent surface. Keep this fixture's actions inside the surface checked
+/// by the unchanged shared pointer helper: a user scrolls the anchor upward
+/// before opening the menu. This changes neither production popup placement
+/// nor the global geometry/native-input contract.
+fn center_menu_anchor(window: &adw::ApplicationWindow, id: &str, menu: &gtk::MenuButton) {
+    let mut parent = menu.parent();
+    let scroll = loop {
+        let current = parent.expect("related action belongs to the native pane scroller");
+        if let Ok(scroll) = current.clone().downcast::<gtk::ScrolledWindow>() {
+            break scroll;
+        }
+        parent = current.parent();
+    };
+    test_input::wait_for_layout(window, menu);
+    for _ in 0..32 {
+        let bounds = menu.compute_bounds(window).unwrap();
+        let viewport = scroll.compute_bounds(window).unwrap();
+        let lower = (viewport.y() + viewport.height() / 2.0).min(window.height() as f32 / 2.0);
+        if bounds.y() >= viewport.y() + 4.0 && bounds.y() + bounds.height() <= lower {
+            return;
+        }
+        let direction = if bounds.y() < viewport.y() + 4.0 {
+            "4"
+        } else {
+            "5"
+        };
+        let (dx, dy) = window.surface_transform();
+        let scale = f64::from(window.scale_factor());
+        let x = ((f64::from(viewport.x()) + 3.0 + dx) * scale).round() as i32;
+        let y = ((f64::from(viewport.y() + viewport.height() / 2.0) + dy) * scale).round() as i32;
+        input(&[
+            "mousemove",
+            "--window",
+            id,
+            &x.to_string(),
+            &y.to_string(),
+            "click",
+            direction,
+        ]);
+        settle();
+    }
+    panic!(
+        "actual wheel input must place the related menu in the upper half of its parent surface"
+    );
+}
+
 fn menu_action_at(
     window: &adw::ApplicationWindow,
     id: &str,
@@ -501,6 +548,7 @@ fn menu_action_at(
         .unwrap()
         .downcast::<gtk::MenuButton>()
         .unwrap();
+    center_menu_anchor(window, id, &menu);
     click(window, id, &menu, false);
     let popover = menu.popover().unwrap();
     pump_until(|| popover.is_mapped());
