@@ -20,10 +20,12 @@ pub(super) struct PlayerBarParts {
     pub previous: gtk::Button,
     pub next: gtk::Button,
     pub queue: gtk::Button,
+    pub lyrics: gtk::ToggleButton,
     pub shuffle: gtk::ToggleButton,
     pub repeat: gtk::Button,
     pub progress: gtk::Scale,
     pub volume: gtk::Scale,
+    pub volume_menu: gtk::MenuButton,
 }
 
 impl PlayerBarParts {
@@ -55,7 +57,9 @@ impl PlayerBarParts {
         // title's natural width exceeds its wing. GtkCenterBox may shift its
         // center in that case instead of reducing the side allocation.
         let columns = gtk::Grid::new();
-        columns.set_column_homogeneous(true);
+        // Three utility targets must fit a real 420px footer without shrinking
+        // their hit areas. Desktop alone needs equal wings around transport.
+        columns.set_column_homogeneous(false);
         columns.set_column_spacing(8);
         columns.set_row_spacing(4);
         columns.set_hexpand(true);
@@ -224,8 +228,18 @@ impl PlayerBarParts {
         columns.attach(&middle, 0, 1, 3, 1);
 
         let utilities = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+        utilities.set_widget_name("music-player-utilities");
         utilities.set_halign(gtk::Align::End);
         utilities.set_valign(gtk::Align::Center);
+        let lyrics = gtk::ToggleButton::new();
+        lyrics.set_icon_name("text-x-generic-symbolic");
+        lyrics.set_widget_name("music-lyrics-toggle");
+        lyrics.set_tooltip_text(Some("Текст песни"));
+        lyrics.update_property(&[gtk::accessible::Property::Label("Текст песни")]);
+        lyrics.add_css_class("flat");
+        lyrics.set_size_request(44, 44);
+        lyrics.set_sensitive(false);
+        utilities.append(&lyrics);
         let queue = icon_button("view-list-symbolic", "Показать очередь");
         queue.set_widget_name("music-queue-toggle");
         queue.set_action_name(Some("win.music-queue"));
@@ -310,6 +324,7 @@ impl PlayerBarParts {
                 return;
             };
             if compact {
+                columns.set_column_homogeneous(false);
                 metadata_cell.set_column_span(2);
                 transport_cell.set_column(0);
                 transport_cell.set_row(1);
@@ -319,6 +334,7 @@ impl PlayerBarParts {
                 bar.append(&timeline);
                 bar.add_css_class("music-player-compact");
             } else {
+                columns.set_column_homogeneous(true);
                 metadata_cell.set_column_span(1);
                 transport_cell.set_column(1);
                 transport_cell.set_row(0);
@@ -392,10 +408,12 @@ impl PlayerBarParts {
             previous,
             next,
             queue,
+            lyrics,
             shuffle,
             repeat,
             progress,
             volume,
+            volume_menu,
         }
     }
 }

@@ -7,6 +7,7 @@ use std::{
 };
 
 use adw::prelude::*;
+use gtk::gio;
 
 use crate::{
     artwork::ArtworkLoader,
@@ -16,11 +17,14 @@ use crate::{
 #[derive(Clone)]
 pub(super) enum PaneAction {
     Close,
+    BackInfo,
     Play(Track),
     Enqueue(Track),
     EnqueueNext(Track),
     AddToPlaylist(Track),
-    Details(Track),
+    Lyrics(Track),
+    OpenMenu(Track),
+    DeliveryProbe(Track),
     Album(String),
     Artist(Artist),
     Extras(super::track_extras::ExtrasAction),
@@ -32,6 +36,8 @@ struct State {
     playback_status: RefCell<String>,
     context: RefCell<Option<String>>,
     compact: Cell<bool>,
+    navigation_enabled: Cell<bool>,
+    mode: Cell<super::workspace::PanelMode>,
     serial: Cell<u64>,
     action: Rc<dyn Fn(PaneAction)>,
 }
@@ -41,17 +47,17 @@ struct State {
 pub(super) struct TrackPane {
     pub widget: gtk::Box,
     pub close: gtk::Button,
+    pub(super) back_info: gtk::Button,
     pub play: gtk::Button,
     pub enqueue: gtk::Button,
-    pub add_to_playlist: gtk::Button,
-    pub play_next: gtk::Button,
-    pub details: gtk::Button,
+    pub menu: gtk::MenuButton,
     pub album: gtk::Button,
     pub artists: gtk::Box,
     pub cache_indicator: gtk::Box,
     pub(super) extras: super::track_extras::ExtrasView,
     header: gtk::Box,
     pub(super) heading: gtk::Label,
+    compact_lyrics_spacer: gtk::Box,
     pages: gtk::Stack,
     state: Rc<State>,
     empty: gtk::Box,
@@ -67,6 +73,13 @@ pub(super) struct TrackPane {
     credits: gtk::Label,
     album_title: gtk::Label,
     status: gtk::Label,
+    next_action: gio::SimpleAction,
+    enqueue_action: gio::SimpleAction,
+    playlist_action: gio::SimpleAction,
+    lyrics_action: gio::SimpleAction,
+    delivery_action: gio::SimpleAction,
+    delivery_enabled: Cell<bool>,
+    reactions: gtk::Box,
 }
 
 impl TrackPane {
@@ -77,6 +90,8 @@ impl TrackPane {
             playback_status: RefCell::new(String::new()),
             context: RefCell::new(None),
             compact: Cell::new(false),
+            navigation_enabled: Cell::new(false),
+            mode: Cell::new(super::workspace::PanelMode::TrackInfo),
             serial: Cell::new(0),
             action,
         });
@@ -89,11 +104,26 @@ impl TrackPane {
         header.set_margin_start(12);
         header.set_margin_end(12);
         header.add_css_class("karin-track-pane-header");
+        let back_info = button("go-previous-symbolic", "Назад к сведениям о треке");
+        back_info.set_widget_name("music-lyrics-back-info");
+        back_info.add_css_class("flat");
+        back_info.add_css_class("circular");
+        back_info.set_visible(false);
+        back_info.connect_clicked({
+            let state = Rc::clone(&state);
+            move |_| (state.action)(PaneAction::BackInfo)
+        });
+        header.append(&back_info);
         let heading = label("О треке", "heading");
         heading.set_widget_name("music-panel-heading");
         heading.set_xalign(0.5);
         heading.set_hexpand(true);
         header.append(&heading);
+        let compact_lyrics_spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        compact_lyrics_spacer.set_widget_name("music-lyrics-header-spacer");
+        compact_lyrics_spacer.set_hexpand(true);
+        compact_lyrics_spacer.set_visible(false);
+        header.append(&compact_lyrics_spacer);
         let close = button("window-close-symbolic", "Закрыть сведения о треке");
         close.set_widget_name("music-panel-close");
         close.add_css_class("flat");
@@ -118,7 +148,7 @@ impl TrackPane {
         empty_title.set_xalign(0.5);
         empty.append(&empty_title);
         body.append(&empty);
-        let content = gtk::Box::new(gtk::Orientation::Vertical, 18);
+        let content = gtk::Box::new(gtk::Orientation::Vertical, 12);
         content.add_css_class("karin-track-pane-content");
         content.set_visible(false);
         let cover = gtk::Box::new(gtk::Orientation::Horizontal, 0);
@@ -191,35 +221,37 @@ impl TrackPane {
             }
         });
         transport.append(&enqueue);
-        let add_to_playlist = gtk::Button::with_label("В плейлист");
-        add_to_playlist.set_widget_name("music-track-pane-add-playlist");
-        add_to_playlist.set_tooltip_text(Some("Добавить трек в свой плейлист"));
-        add_to_playlist.add_css_class("flat");
-        add_to_playlist.set_sensitive(false);
-        add_to_playlist.connect_clicked({
+        let menu = gtk::MenuButton::builder()
+            .icon_name("view-more-symbolic")
+            .build();
+        menu.set_widget_name("music-track-pane-menu");
+        menu.set_tooltip_text(Some("Действия с треком"));
+        menu.update_property(&[gtk::accessible::Property::Label("Действия с треком")]);
+        menu.add_css_class("flat");
+        menu.add_css_class("circular");
+        menu.set_sensitive(false);
+        let group = gio::SimpleActionGroup::new();
+        let next_action = track_action(&group, &state, "next", PaneAction::EnqueueNext);
+        let enqueue_action = track_action(&group, &state, "enqueue", PaneAction::Enqueue);
+        let playlist_action = track_action(&group, &state, "playlist", PaneAction::AddToPlaylist);
+        let lyrics_action = track_action(&group, &state, "lyrics", PaneAction::Lyrics);
+        let delivery_action = track_action(&group, &state, "delivery", PaneAction::DeliveryProbe);
+        menu.insert_action_group("track-pane", Some(&group));
+        let popover = gtk::PopoverMenu::from_model(Some(&menu_model(false)));
+        let reactions = gtk::Box::new(gtk::Orientation::Vertical, 4);
+        reactions.set_widget_name("music-track-pane-reactions");
+        assert!(popover.add_child(&reactions, "track-reactions"));
+        popover.connect_map({
             let state = Rc::clone(&state);
             move |_| {
                 let selected = state.selected.borrow().clone();
                 if let Some(track) = selected {
-                    (state.action)(PaneAction::AddToPlaylist(track));
+                    (state.action)(PaneAction::OpenMenu(track));
                 }
             }
         });
-        transport.append(&add_to_playlist);
-        let details = button("view-more-symbolic", "Все действия с треком");
-        details.set_widget_name("music-track-pane-details");
-        details.add_css_class("flat");
-        details.add_css_class("circular");
-        details.connect_clicked({
-            let state = Rc::clone(&state);
-            move |_| {
-                let track = state.selected.borrow().clone();
-                if let Some(track) = track {
-                    (state.action)(PaneAction::Details(track));
-                }
-            }
-        });
-        transport.append(&details);
+        menu.set_popover(Some(&popover));
+        transport.append(&menu);
         let album = gtk::Button::new();
         album.set_widget_name("music-track-pane-album");
         album.set_visible(false);
@@ -245,26 +277,15 @@ impl TrackPane {
         artists.set_visible(false);
         metadata.insert_child_after(&artists, Some(&title_line));
         content.append(&transport);
-        let play_next = gtk::Button::with_label("Воспроизвести следующим");
-        play_next.set_widget_name("music-track-pane-next");
-        play_next.set_halign(gtk::Align::Center);
-        play_next.add_css_class("flat");
-        play_next.set_sensitive(false);
-        play_next.connect_clicked({
-            let state = Rc::clone(&state);
-            move |_| {
-                let selected = state.selected.borrow().clone();
-                if let Some(track) = selected {
-                    (state.action)(PaneAction::EnqueueNext(track));
-                }
-            }
-        });
-        content.append(&play_next);
         content.append(&status);
         let extras = super::track_extras::ExtrasView::new(Rc::new({
             let state = Rc::clone(&state);
             move |action| (state.action)(PaneAction::Extras(action))
         }));
+        let separator = gtk::Separator::new(gtk::Orientation::Horizontal);
+        separator.set_margin_top(4);
+        separator.set_margin_bottom(4);
+        content.append(&separator);
         content.append(&extras.widget);
         body.append(&content);
         // The same musical cluster remains bounded and centered when the
@@ -293,22 +314,23 @@ impl TrackPane {
         pages.set_transition_type(gtk::StackTransitionType::Crossfade);
         pages.set_transition_duration(100);
         pages.add_named(&scroll, Some("track"));
+        pages.add_named(&extras.lyrics_widget, Some("lyrics"));
         pages.set_vexpand(true);
         widget.append(&pages);
         Self {
             widget,
             close,
+            back_info,
             play,
             enqueue,
-            add_to_playlist,
-            play_next,
-            details,
+            menu,
             album,
             artists,
             cache_indicator,
             extras,
             header,
             heading,
+            compact_lyrics_spacer,
             pages,
             state,
             empty,
@@ -319,11 +341,18 @@ impl TrackPane {
             transport,
             #[cfg(test)]
             scroll,
-            art_size: Cell::new(256),
+            art_size: Cell::new(224),
             title,
             credits,
             album_title,
             status,
+            next_action,
+            enqueue_action,
+            playlist_action,
+            lyrics_action,
+            delivery_action,
+            delivery_enabled: Cell::new(false),
+            reactions,
         }
     }
 
@@ -332,40 +361,78 @@ impl TrackPane {
         self.pages.add_named(queue, Some("queue"));
     }
 
-    pub(super) fn set_queue_mode(&self, queue: bool) {
-        self.heading.set_text(if queue {
-            "Очередь"
-        } else {
-            "О треке"
+    pub(super) fn set_mode(&self, mode: super::workspace::PanelMode) {
+        use super::workspace::PanelMode;
+        if self.state.mode.replace(mode) == mode {
+            return;
+        }
+        self.back_info.set_visible(mode == PanelMode::Lyrics);
+        self.heading.set_text(match mode {
+            PanelMode::Lyrics => "Текст песни",
+            PanelMode::Queue => "Очередь",
+            PanelMode::Closed | PanelMode::TrackInfo => "О треке",
         });
-        self.pages
-            .set_visible_child_name(if queue { "queue" } else { "track" });
+        self.pages.set_visible_child_name(match mode {
+            PanelMode::Lyrics => "lyrics",
+            PanelMode::Queue => "queue",
+            PanelMode::Closed | PanelMode::TrackInfo => "track",
+        });
+        self.update_header();
     }
 
     pub fn selected(&self) -> Option<Track> {
         self.state.selected.borrow().clone()
     }
 
+    pub(super) fn set_delivery_enabled(&self, enabled: bool) {
+        if self.delivery_enabled.replace(enabled) != enabled
+            && let Some(popover) = self.menu.popover().and_downcast::<gtk::PopoverMenu>()
+        {
+            self.menu.popdown();
+            popover.remove_child(&self.reactions);
+            popover.set_menu_model(Some(&menu_model(enabled)));
+            assert!(popover.add_child(&self.reactions, "track-reactions"));
+        }
+        self.delivery_action.set_enabled(
+            enabled && self.state.navigation_enabled.get() && self.selected().is_some(),
+        );
+    }
+
+    pub(super) fn set_reaction_controls(&self, controls: &gtk::Box) {
+        clear(&self.reactions);
+        self.reactions.append(controls);
+    }
+
     pub fn set_compact(&self, compact: bool) {
         if self.state.compact.replace(compact) == compact {
             return;
         }
-        if compact {
+        self.update_header();
+    }
+
+    fn update_header(&self) {
+        let compact = self.state.compact.get();
+        let lyrics = self.state.mode.get() == super::workspace::PanelMode::Lyrics;
+        // Compact Lyrics has its own Back-to-Info action at the leading edge.
+        // The outer HeaderBar already supplies its title; an empty expanding
+        // slot keeps the distinct panel Close at the trailing edge.
+        self.compact_lyrics_spacer.set_visible(compact && lyrics);
+        if compact && !lyrics {
             self.header
                 .reorder_child_after(&self.close, gtk::Widget::NONE);
         } else {
             self.header
-                .reorder_child_after(&self.close, Some(&self.heading));
+                .reorder_child_after(&self.close, Some(&self.compact_lyrics_spacer));
         }
         // The compact native HeaderBar names this explicit subview. Keep one
         // moving Back control here, without repeating its title below it.
         self.heading.set_visible(!compact);
-        self.close.set_icon_name(if compact {
+        self.close.set_icon_name(if compact && !lyrics {
             "go-previous-symbolic"
         } else {
             "window-close-symbolic"
         });
-        let label = if compact {
+        let label = if compact && !lyrics {
             "Назад к музыке"
         } else {
             "Закрыть правую панель"
@@ -380,12 +447,16 @@ impl TrackPane {
         if self.state.selected.borrow().as_ref() == track {
             return;
         }
+        self.menu.popdown();
+        clear(&self.reactions);
         self.state
             .serial
             .set(self.state.serial.get().wrapping_add(1));
         let cache_track_changed = self.state.selected.borrow().as_ref().map(|track| &track.id)
             != track.map(|track| &track.id);
         self.state.selected.replace(track.cloned());
+        self.menu
+            .set_sensitive(track.is_some() && self.state.navigation_enabled.get());
         self.extras.set_track(track, loader);
         if cache_track_changed {
             self.cache_indicator.set_visible(false);
@@ -398,8 +469,15 @@ impl TrackPane {
         self.content.set_visible(track.is_some());
         self.play.set_sensitive(false);
         self.enqueue.set_sensitive(false);
-        self.play_next.set_sensitive(false);
-        self.add_to_playlist.set_sensitive(track.is_some());
+        self.next_action.set_enabled(false);
+        self.enqueue_action.set_enabled(false);
+        self.playlist_action
+            .set_enabled(track.is_some() && self.state.navigation_enabled.get());
+        self.lyrics_action
+            .set_enabled(track.is_some() && self.state.navigation_enabled.get());
+        self.delivery_action.set_enabled(
+            track.is_some() && self.state.navigation_enabled.get() && self.delivery_enabled.get(),
+        );
         self.status.set_visible(false);
         self.state.playback_status.borrow_mut().clear();
         self.state.context.replace(None);
@@ -463,7 +541,6 @@ impl TrackPane {
         for widget in [
             self.metadata.upcast_ref::<gtk::Widget>(),
             self.transport.upcast_ref(),
-            self.play_next.upcast_ref(),
             self.status.upcast_ref(),
         ] {
             if widget.is_visible() {
@@ -478,7 +555,7 @@ impl TrackPane {
             - self.body.margin_bottom()
             - non_art_height
             - gaps * self.content.spacing();
-        let maximum = inner_width.clamp(96, 256);
+        let maximum = inner_width.clamp(96, 224).min((height * 3 / 10).max(96));
         let size = available.clamp(96, maximum);
         if self.art_size.replace(size) != size {
             self.resize_existing_art();
@@ -516,7 +593,8 @@ impl TrackPane {
             .set_visible(selected && !available && !status.is_empty());
         self.play.set_sensitive(can_play && available);
         self.enqueue.set_sensitive(can_enqueue && selected);
-        self.play_next.set_sensitive(can_enqueue && available);
+        self.enqueue_action.set_enabled(can_enqueue && selected);
+        self.next_action.set_enabled(can_enqueue && available);
         self.update_description();
     }
 
@@ -545,7 +623,19 @@ impl TrackPane {
     }
 
     pub fn set_navigation_enabled(&self, enabled: bool) {
-        self.details.set_sensitive(enabled);
+        self.state.navigation_enabled.set(enabled);
+        if !enabled {
+            self.next_action.set_enabled(false);
+            self.enqueue_action.set_enabled(false);
+        }
+        self.menu
+            .set_sensitive(enabled && self.selected().is_some());
+        self.playlist_action
+            .set_enabled(enabled && self.selected().is_some());
+        self.lyrics_action
+            .set_enabled(enabled && self.selected().is_some());
+        self.delivery_action
+            .set_enabled(enabled && self.delivery_enabled.get() && self.selected().is_some());
         self.album.set_sensitive(enabled);
         self.artists.set_sensitive(enabled);
     }
@@ -608,6 +698,49 @@ impl TrackPane {
         self.credits.set_visible(!unlinked.is_empty());
         self.artists.set_visible(!artists.is_empty());
     }
+}
+
+fn track_action(
+    group: &gio::SimpleActionGroup,
+    state: &Rc<State>,
+    name: &str,
+    command: fn(Track) -> PaneAction,
+) -> gio::SimpleAction {
+    let action = gio::SimpleAction::new(name, None);
+    action.set_enabled(false);
+    action.connect_activate({
+        let state = Rc::clone(state);
+        move |_, _| {
+            let selected = state.selected.borrow().clone();
+            if let Some(track) = selected {
+                (state.action)(command(track));
+            }
+        }
+    });
+    group.add_action(&action);
+    action
+}
+
+fn menu_model(delivery: bool) -> gio::Menu {
+    let menu = gio::Menu::new();
+    let queue = gio::Menu::new();
+    queue.append(Some("Воспроизвести следующим"), Some("track-pane.next"));
+    queue.append(Some("Добавить в очередь"), Some("track-pane.enqueue"));
+    queue.append(Some("Добавить в плейлист"), Some("track-pane.playlist"));
+    menu.append_section(None, &queue);
+    let information = gio::Menu::new();
+    information.append(Some("Показать текст песни"), Some("track-pane.lyrics"));
+    if delivery {
+        information.append(
+            Some("Проверить доставку аудио"),
+            Some("track-pane.delivery"),
+        );
+    }
+    menu.append_section(None, &information);
+    let item = gio::MenuItem::new(None, None);
+    item.set_attribute_value("custom", Some(&"track-reactions".to_variant()));
+    menu.append_item(&item);
+    menu
 }
 
 fn label(value: &str, style: &str) -> gtk::Label {

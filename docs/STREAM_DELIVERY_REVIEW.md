@@ -49,9 +49,13 @@ separates that cache validator-scope correction from the working stream path.
 The monotonic 60-second admission deadline begins before the offer request and
 is not reset by descriptor latency. XML `ts` is opaque, not an entitlement or
 expiry grant. An already playing track may continue beyond admission freshness;
-new connections, resume or seek after expiry fail visibly and explicit retry
-resolves a fresh source. Do not expand host/path policy without verified evidence
-or turn a refusal into automatic identity/region/restriction retries.
+Pause also remains Paused as that admission ages. An explicit Resume retains the
+last trustworthy native position and renews a known-expired source through fresh
+Music access/offer and the existing local-first/resolver path. A late
+`SourceExpired` in that intent permits one bounded recovery, without requiring a
+second Play. No network timer refreshes idle Pause and the deadline is not extended.
+Do not expand host/path policy without verified evidence or turn an access
+refusal into automatic identity/region/restriction retries.
 
 ## Player boundary
 
@@ -68,6 +72,16 @@ cross the boundary as fixed categories or trusted numeric HTTP status.
 
 Worker snapshots drive the existing controls, queue and MPRIS. One-running/
 latest-pending resolution and track/session/intent generations retire stale work.
+Same-occurrence renewal has its own transient ticket and source revision, while
+keeping the queue occurrence, logical playback generation and actual-listening
+clock. The same worker retires old native transport, prerolls and restores the
+retained position before autoplay. A failed nonzero seek leaves playback paused
+with an honest explanation. Internal restoration is not a user Seeked or a new
+Wave track/session. Repeated Play coalesces; Seek supplies the latest target.
+Pause, Stop, source/account replacement and close fence stale Play results.
+Network/access errors retain normal Retry,
+without a repeated renewal loop. See
+[ADR-0038](adr/0038-same-occurrence-source-renewal.md).
 Stop, replacement, logout and close cancel intent and release its worker. Bounded
 in-flight HTTP can settle until its deadline without blocking GTK. Optional
 [audio caching](AUDIO_CACHE_REVIEW.md) saves a complete selected resource in an

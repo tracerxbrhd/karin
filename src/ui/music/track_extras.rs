@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Bounded native lyrics and related tracks. The existing player supplies time.
+//! Bounded lyrics and related tracks in separate modes of the existing pane.
 
 use std::{
     cell::{Cell, RefCell},
@@ -56,13 +56,17 @@ pub(super) enum ExtrasAction {
     },
 }
 
-/// State and widgets belong to one pane. Signal closures use Weak<Inner>, so
-/// retiring a pane does not retain its text, personal recommendations or widgets.
+// Both roots belong to the same TrackPane stack. Signal closures hold Weak;
+// lyrics, recommendations and copy state disappear with that pane/session.
 struct Inner {
     widget: gtk::Box,
+    lyrics_widget: gtk::Box,
     action: Rc<dyn Fn(ExtrasAction)>,
     selected: RefCell<Option<Track>>,
     epoch: Cell<u64>,
+    info_active: Cell<bool>,
+    lyrics_active: Cell<bool>,
+    visible_scheduled: Cell<bool>,
     lyrics_serial: Cell<u64>,
     similar_serial: Cell<u64>,
     lyrics_started: Cell<bool>,
@@ -71,20 +75,28 @@ struct Inner {
     similar_loading: Cell<bool>,
     lyrics_request: Cell<LyricsRequest>,
     lyrics: RefCell<Option<Lyrics>>,
+    synchronized: Cell<bool>,
     active: Cell<Option<u32>>,
     following: Cell<bool>,
+    follow_revision: Cell<u64>,
+    scroll_animation: RefCell<Option<adw::TimedAnimation>>,
     visible_lines: RefCell<Vec<(u32, glib::WeakRef<gtk::Label>)>>,
-    lyrics_expander: gtk::Expander,
+    lyrics_title: gtk::Label,
+    lyrics_artist: gtk::Label,
     lyrics_status: gtk::Label,
     lyrics_spinner: gtk::Spinner,
     source: gtk::Label,
     lyrics_retry: gtk::Button,
     external: gtk::Button,
+    external_action: gio::SimpleAction,
+    external_consent: RefCell<Option<adw::AlertDialog>>,
+    copy: gio::SimpleAction,
+    #[cfg(test)]
+    lyrics_actions: gtk::MenuButton,
     follow: gtk::Button,
     lyrics_model: gtk::StringList,
     lyrics_list: gtk::ListView,
     lyrics_scroll: gtk::ScrolledWindow,
-    similar_expander: gtk::Expander,
     similar_status: gtk::Label,
     similar_spinner: gtk::Spinner,
     similar_retry: gtk::Button,
@@ -96,95 +108,119 @@ struct Inner {
 }
 
 pub(super) struct ExtrasView {
+    /// Normal Track Info contains recommendations, never the song text.
     pub widget: gtk::Box,
+    pub(super) lyrics_widget: gtk::Box,
     inner: Rc<Inner>,
 }
 
 impl ExtrasView {
     pub(super) fn new(action: Rc<dyn Fn(ExtrasAction)>) -> Self {
-        let widget = gtk::Box::new(gtk::Orientation::Vertical, 12);
+        let widget = gtk::Box::new(gtk::Orientation::Vertical, 10);
         widget.set_widget_name("music-track-extras");
-        let lyrics_expander = gtk::Expander::new(Some("Текст песни"));
-        lyrics_expander.set_widget_name("music-lyrics-expander");
-        let lyrics_body = gtk::Box::new(gtk::Orientation::Vertical, 8);
-        lyrics_body.set_margin_top(10);
-        let (lyrics_status, lyrics_spinner, lyrics_retry) = feedback(
-            &lyrics_body,
-            "Откройте раздел, чтобы загрузить текст из Яндекс Музыки.",
-            "music-lyrics",
-        );
+        let similar_heading = wrap("Похожие треки", "heading");
+        similar_heading.set_widget_name("music-similar-heading");
+        widget.append(&similar_heading);
+        let (similar_status, similar_spinner, similar_retry) =
+            feedback(&widget, "Рекомендации Яндекс Музыки", "music-similar");
+        let similar_rows = super::list();
+        similar_rows.set_widget_name("music-similar-rows");
+        similar_rows.remove_css_class("boxed-list");
+        similar_rows.add_css_class("music-track-list");
+        widget.append(&similar_rows);
+        let similar_more = gtk::Button::with_label("Показать ещё");
+        similar_more.set_widget_name("music-similar-more");
+        similar_more.set_halign(gtk::Align::Start);
+        similar_more.set_visible(false);
+        widget.append(&similar_more);
+
+        let lyrics_widget = gtk::Box::new(gtk::Orientation::Vertical, 8);
+        lyrics_widget.set_widget_name("music-lyrics-view");
+        lyrics_widget.set_vexpand(true);
+        super::super::margins(&lyrics_widget, 16);
+        lyrics_widget.set_margin_top(8);
+        let lyrics_title = wrap("", "title-3");
+        lyrics_title.set_widget_name("music-lyrics-title");
+        lyrics_title.set_lines(2);
+        lyrics_title.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        lyrics_widget.append(&lyrics_title);
+        let lyrics_artist = wrap("", "dim-label");
+        lyrics_artist.set_widget_name("music-lyrics-artist");
+        lyrics_artist.set_lines(1);
+        lyrics_artist.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        lyrics_widget.append(&lyrics_artist);
+        let toolbar = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         let source = wrap("", "caption");
         source.set_widget_name("music-lyrics-source");
+        source.add_css_class("dim-label");
+        source.set_hexpand(true);
         source.set_visible(false);
-        lyrics_body.append(&source);
+        toolbar.append(&source);
+        let lyrics_actions = gtk::MenuButton::builder()
+            .icon_name("view-more-symbolic")
+            .build();
+        lyrics_actions.set_widget_name("music-lyrics-actions");
+        lyrics_actions.set_tooltip_text(Some("Действия с текстом"));
+        lyrics_actions.update_property(&[gtk::accessible::Property::Label("Действия с текстом")]);
+        lyrics_actions.add_css_class("flat");
+        let actions = gio::SimpleActionGroup::new();
+        let copy = gio::SimpleAction::new("copy", None);
+        copy.set_enabled(false);
+        actions.add_action(&copy);
+        let external_action = gio::SimpleAction::new("external", None);
+        external_action.set_enabled(false);
+        actions.add_action(&external_action);
+        lyrics_widget.insert_action_group("lyrics", Some(&actions));
+        let menu = gio::Menu::new();
+        menu.append(Some("Копировать текст"), Some("lyrics.copy"));
+        menu.append(Some("Искать в LRCLIB…"), Some("lyrics.external"));
+        lyrics_actions.set_menu_model(Some(&menu));
+        toolbar.append(&lyrics_actions);
+        lyrics_widget.append(&toolbar);
+        let (lyrics_status, lyrics_spinner, lyrics_retry) = feedback(
+            &lyrics_widget,
+            "Выберите композицию, чтобы загрузить текст.",
+            "music-lyrics",
+        );
         let factory = gtk::SignalListItemFactory::new();
         let lyrics_model = gtk::StringList::new(&[]);
         let selection = gtk::NoSelection::new(Some(lyrics_model.clone()));
         let lyrics_list = gtk::ListView::new(Some(selection), Some(factory.clone()));
         lyrics_list.set_widget_name("music-lyrics-lines");
+        lyrics_list.add_css_class("karin-lyrics-lines");
         lyrics_list.set_single_click_activate(false);
         let lyrics_scroll = gtk::ScrolledWindow::builder()
             .hscrollbar_policy(gtk::PolicyType::Never)
             .vscrollbar_policy(gtk::PolicyType::Automatic)
-            .min_content_height(120)
-            .max_content_height(280)
-            .propagate_natural_height(true)
+            .vexpand(true)
+            .hexpand(true)
             .child(&lyrics_list)
             .build();
         lyrics_scroll.set_widget_name("music-lyrics-scroll");
         lyrics_scroll.set_visible(false);
-        lyrics_body.append(&lyrics_scroll);
-        let follow = gtk::Button::with_label("Следовать за воспроизведением");
+        lyrics_widget.append(&lyrics_scroll);
+        let follow = gtk::Button::with_label("Вернуться к текущей строке");
         follow.set_widget_name("music-lyrics-follow");
-        follow.set_halign(gtk::Align::Start);
+        follow.set_halign(gtk::Align::Center);
         follow.set_visible(false);
-        lyrics_body.append(&follow);
-        let disclosure = wrap(
-            "Для поиска караоке в LRCLIB будут переданы название, исполнитель, альбом и длительность. Аккаунт и токен не передаются.",
-            "caption",
-        );
-        disclosure.set_widget_name("music-lyrics-external-disclosure");
-        disclosure.add_css_class("dim-label");
-        lyrics_body.append(&disclosure);
-        let external = gtk::Button::with_label("Искать текст и караоке в LRCLIB");
+        lyrics_widget.append(&follow);
+        let external = gtk::Button::with_label("Искать в LRCLIB");
         external.set_widget_name("music-lyrics-external");
+        external.set_tooltip_text(Some("Найти текст и караоке во внешнем источнике"));
         external.set_halign(gtk::Align::Start);
-        if let Some(label) = external.child().and_downcast::<gtk::Label>() {
-            label.set_wrap(true);
-            label.set_wrap_mode(gtk::pango::WrapMode::WordChar);
-            label.set_width_chars(1);
-        }
-        lyrics_body.append(&external);
-        lyrics_expander.set_child(Some(&lyrics_body));
-        widget.append(&lyrics_expander);
-
-        let similar_expander = gtk::Expander::new(Some("Похожие треки"));
-        similar_expander.set_widget_name("music-similar-expander");
-        let similar_body = gtk::Box::new(gtk::Orientation::Vertical, 8);
-        similar_body.set_margin_top(10);
-        let (similar_status, similar_spinner, similar_retry) = feedback(
-            &similar_body,
-            "Откройте раздел, чтобы загрузить рекомендации Яндекс Музыки.",
-            "music-similar",
-        );
-        let similar_rows = super::list();
-        similar_rows.set_widget_name("music-similar-rows");
-        similar_rows.remove_css_class("boxed-list");
-        similar_rows.add_css_class("music-track-list");
-        similar_body.append(&similar_rows);
-        let similar_more = gtk::Button::with_label("Показать ещё");
-        similar_more.set_widget_name("music-similar-more");
-        similar_more.set_halign(gtk::Align::Start);
-        similar_more.set_visible(false);
-        similar_body.append(&similar_more);
-        similar_expander.set_child(Some(&similar_body));
-        widget.append(&similar_expander);
+        external.add_css_class("flat");
+        external.set_sensitive(false);
+        lyrics_widget.append(&external);
 
         let inner = Rc::new(Inner {
             widget: widget.clone(),
+            lyrics_widget: lyrics_widget.clone(),
             action,
             selected: RefCell::new(None),
             epoch: Cell::new(0),
+            info_active: Cell::new(false),
+            lyrics_active: Cell::new(false),
+            visible_scheduled: Cell::new(false),
             lyrics_serial: Cell::new(0),
             similar_serial: Cell::new(0),
             lyrics_started: Cell::new(false),
@@ -193,20 +229,28 @@ impl ExtrasView {
             similar_loading: Cell::new(false),
             lyrics_request: Cell::new(LyricsRequest::Yandex),
             lyrics: RefCell::new(None),
+            synchronized: Cell::new(false),
             active: Cell::new(None),
             following: Cell::new(true),
+            follow_revision: Cell::new(0),
+            scroll_animation: RefCell::new(None),
             visible_lines: RefCell::new(Vec::new()),
-            lyrics_expander,
+            lyrics_title,
+            lyrics_artist,
             lyrics_status,
             lyrics_spinner,
             source,
             lyrics_retry,
             external,
+            external_action,
+            external_consent: RefCell::new(None),
+            copy,
+            #[cfg(test)]
+            lyrics_actions,
             follow,
             lyrics_model,
             lyrics_list,
             lyrics_scroll,
-            similar_expander,
             similar_status,
             similar_spinner,
             similar_retry,
@@ -222,10 +266,8 @@ impl ExtrasView {
             };
             let label = wrap("", "body");
             label.set_selectable(true);
-            label.set_margin_start(8);
-            label.set_margin_end(8);
-            label.set_margin_top(6);
-            label.set_margin_bottom(6);
+            label.set_margin_start(2);
+            label.set_margin_end(2);
             item.set_child(Some(&label));
         });
         factory.connect_bind({
@@ -243,7 +285,12 @@ impl ExtrasView {
                     return;
                 };
                 label.set_text(&value.string());
-                style_line(&label, this.active.get() == Some(item.position()));
+                style_line(
+                    &label,
+                    item.position(),
+                    this.active.get(),
+                    this.synchronized.get(),
+                );
                 let mut visible = this.visible_lines.borrow_mut();
                 visible.retain(|(_, old)| old.upgrade().is_some_and(|old| old != label));
                 visible.push((item.position(), label.downgrade()));
@@ -265,11 +312,27 @@ impl ExtrasView {
                         .retain(|(_, old)| old.upgrade().is_some_and(|old| old != label));
                 }
                 label.set_text("");
-                style_line(&label, false);
+                style_line(&label, 0, None, false);
             }
         });
         connect(&inner);
-        Self { widget, inner }
+        Self {
+            widget,
+            lyrics_widget,
+            inner,
+        }
+    }
+
+    pub(super) fn set_modes(&self, info_visible: bool, lyrics_visible: bool) {
+        let info_changed = self.inner.info_active.replace(info_visible) != info_visible;
+        let lyrics_changed = self.inner.lyrics_active.replace(lyrics_visible) != lyrics_visible;
+        if !lyrics_visible {
+            self.inner.stop_scroll_animation();
+            self.inner.dismiss_external_consent();
+        }
+        if info_changed || lyrics_changed {
+            schedule_visible(&self.inner);
+        }
     }
 
     pub(super) fn set_track(&self, track: Option<&Track>, loader: Option<&ArtworkLoader>) {
@@ -277,6 +340,8 @@ impl ExtrasView {
         if this.selected.borrow().as_ref() == track {
             return;
         }
+        this.stop_scroll_animation();
+        this.dismiss_external_consent();
         this.epoch.set(this.epoch.get().wrapping_add(1));
         this.selected.replace(track.cloned());
         this.loader.replace(loader.cloned());
@@ -285,9 +350,11 @@ impl ExtrasView {
         this.lyrics_loading.set(false);
         this.similar_loading.set(false);
         this.lyrics.borrow_mut().take();
+        this.synchronized.set(false);
         this.active.set(None);
         this.following.set(true);
         this.follow.set_visible(false);
+        this.copy.set_enabled(false);
         this.source.set_text("");
         this.source.set_visible(false);
         this.lyrics_model
@@ -300,14 +367,24 @@ impl ExtrasView {
         this.similar_spinner.stop();
         this.similar_spinner.set_visible(false);
         this.external.set_sensitive(track.is_some());
+        this.external_action.set_enabled(track.is_some());
         this.related.borrow_mut().clear();
         this.shown.set(0);
         super::clear_list(&this.similar_rows);
         this.similar_more.set_visible(false);
+        this.lyrics_title
+            .set_text(track.map_or("", |track| track.title.as_str()));
+        this.lyrics_title
+            .set_tooltip_text(track.map(|track| track.title.as_str()));
+        let artist = track
+            .map(|track| track.artists.join(", "))
+            .unwrap_or_default();
+        this.lyrics_artist.set_text(&artist);
+        this.lyrics_artist
+            .set_tooltip_text((!artist.is_empty()).then_some(artist.as_str()));
         this.lyrics_status
-            .set_text("Откройте раздел, чтобы загрузить текст из Яндекс Музыки.");
-        this.similar_status
-            .set_text("Откройте раздел, чтобы загрузить рекомендации Яндекс Музыки.");
+            .set_text("Загрузка текста из Яндекс Музыки…");
+        this.similar_status.set_text("Рекомендации Яндекс Музыки");
         this.widget.set_visible(track.is_some());
         schedule_visible(this);
     }
@@ -317,7 +394,6 @@ impl ExtrasView {
             && self.inner.lyrics_serial.get() == ticket.request
             && self.inner.selected.borrow().is_some()
     }
-
     pub(super) fn similar_is_current(&self, ticket: Ticket) -> bool {
         self.inner.epoch.get() == ticket.selection
             && self.inner.similar_serial.get() == ticket.request
@@ -333,18 +409,23 @@ impl ExtrasView {
         this.lyrics_spinner.stop();
         this.lyrics_spinner.set_visible(false);
         this.external.set_sensitive(true);
+        this.external_action.set_enabled(true);
         this.lyrics_retry.set_visible(result.is_err());
         match result {
             Ok(Some(lyrics)) => {
                 let synchronized = !lyrics.synchronized.is_empty();
+                let keep_manual = this.synchronized.get() && !this.following.get();
                 this.lyrics_status.set_text(if synchronized {
-                    "Караоке синхронизируется с позицией плеера."
+                    "Караоке"
                 } else {
-                    "Обычный текст · без синхронизации."
+                    "Без синхронизации"
                 });
                 this.source
                     .set_text(&format!("Источник: {}", lyrics.source.label()));
                 this.source.set_visible(true);
+                this.stop_scroll_animation();
+                this.active.set(None);
+                this.synchronized.set(synchronized);
                 let lines = if synchronized {
                     lyrics
                         .synchronized
@@ -352,25 +433,35 @@ impl ExtrasView {
                         .map(|line| line.text.as_str())
                         .collect::<Vec<_>>()
                 } else {
-                    lyrics.plain.lines().collect::<Vec<_>>()
+                    lyrics
+                        .plain
+                        .split("\n\n")
+                        .map(str::trim)
+                        .filter(|line| !line.is_empty())
+                        .collect::<Vec<_>>()
                 };
-                this.active.set(None);
                 this.lyrics_model
                     .splice(0, this.lyrics_model.n_items(), &lines);
                 this.lyrics_scroll.set_visible(true);
                 this.lyrics.replace(Some(lyrics));
-                this.following.set(true);
-                this.follow.set_visible(false);
+                this.copy.set_enabled(true);
+                this.following.set(!keep_manual);
+                this.follow.set_visible(synchronized && keep_manual);
+                if !keep_manual {
+                    this.lyrics_scroll.vadjustment().set_value(0.0);
+                }
             }
             Ok(None) => {
                 if this.lyrics_request.get() == LyricsRequest::Yandex {
                     this.lyrics.borrow_mut().take();
+                    this.synchronized.set(false);
                     this.active.set(None);
                     this.lyrics_model
                         .splice(0, this.lyrics_model.n_items(), &[]);
                     this.lyrics_scroll.set_visible(false);
                     this.source.set_visible(false);
                     this.follow.set_visible(false);
+                    this.copy.set_enabled(false);
                 }
                 this.lyrics_status
                     .set_text(if this.lyrics.borrow().is_some() {
@@ -416,18 +507,24 @@ impl ExtrasView {
         let next = position_ms
             .and_then(|position| this.lyrics.borrow().as_ref()?.active_line(position))
             .map(|line| line as u32);
-        if this.active.replace(next) == next {
+        let old = this.active.replace(next);
+        if old == next {
             return;
         }
         this.visible_lines.borrow_mut().retain(|(position, label)| {
             if let Some(label) = label.upgrade() {
-                style_line(&label, next == Some(*position));
+                style_line(&label, *position, next, this.synchronized.get());
                 true
             } else {
                 false
             }
         });
-        this.follow_active();
+        // A seek updates the line immediately; ordinary adjacent line movement
+        // animates only GTK scroll position, never an independent lyric clock.
+        let jump = old
+            .zip(next)
+            .is_none_or(|(old, next)| old.abs_diff(next) > 3);
+        this.follow_active(jump);
     }
 
     fn defer_unmapped_request(&self, action: &ExtrasAction) {
@@ -439,6 +536,7 @@ impl ExtrasView {
                 this.lyrics_spinner.stop();
                 this.lyrics_spinner.set_visible(false);
                 this.external.set_sensitive(true);
+                this.external_action.set_enabled(true);
             }
             ExtrasAction::Similar { ticket, .. } if self.similar_is_current(*ticket) => {
                 this.similar_started.set(false);
@@ -453,7 +551,11 @@ impl ExtrasView {
 
 impl Inner {
     fn request_lyrics(self: &Rc<Self>, request: LyricsRequest, force: bool) {
-        if self.lyrics_loading.get() || (!force && self.lyrics_started.get()) {
+        if !self.lyrics_active.get()
+            || !self.lyrics_widget.is_mapped()
+            || self.lyrics_loading.get()
+            || (!force && self.lyrics_started.get())
+        {
             return;
         }
         let Some(track) = self.selected.borrow().clone() else {
@@ -469,6 +571,7 @@ impl Inner {
         self.lyrics_spinner.set_visible(true);
         self.lyrics_spinner.start();
         self.external.set_sensitive(false);
+        self.external_action.set_enabled(false);
         (self.action)(ExtrasAction::Lyrics {
             track,
             ticket: Ticket {
@@ -480,7 +583,11 @@ impl Inner {
     }
 
     fn request_similar(self: &Rc<Self>, force: bool) {
-        if self.similar_loading.get() || (!force && self.similar_started.get()) {
+        if !self.info_active.get()
+            || !self.widget.is_mapped()
+            || self.similar_loading.get()
+            || (!force && self.similar_started.get())
+        {
             return;
         }
         let Some(track) = self.selected.borrow().clone() else {
@@ -503,28 +610,155 @@ impl Inner {
         });
     }
 
-    fn follow_active(&self) {
-        if self.following.get()
-            && self.lyrics_list.is_mapped()
-            && let Some(position) = self.active.get()
-        {
-            self.lyrics_list
-                .scroll_to(position, gtk::ListScrollFlags::NONE, None);
+    fn dismiss_external_consent(&self) {
+        let dialog = self.external_consent.borrow_mut().take();
+        if let Some(dialog) = dialog {
+            dialog.close();
         }
     }
 
-    fn suspend_following(&self) {
-        if self
-            .lyrics
-            .borrow()
-            .as_ref()
-            .is_some_and(|lyrics| !lyrics.synchronized.is_empty())
+    fn request_external_consent(self: &Rc<Self>) {
+        if !self.lyrics_active.get()
+            || self.lyrics_loading.get()
+            || self.external_consent.borrow().is_some()
+            || self.selected.borrow().is_none()
         {
+            return;
+        }
+        let Some(root) = self.lyrics_widget.root().and_downcast::<gtk::Window>() else {
+            return;
+        };
+        let epoch = self.epoch.get();
+        let dialog = adw::AlertDialog::new(
+            Some("Искать текст в LRCLIB?"),
+            Some(
+                "Во внешний сервис LRCLIB будут переданы название композиции, исполнитель, альбом и длительность. Токены, cookies и данные аккаунта не передаются.",
+            ),
+        );
+        dialog.add_responses(&[("cancel", "Отмена"), ("search", "Искать")]);
+        dialog.set_default_response(Some("cancel"));
+        dialog.set_close_response("cancel");
+        dialog.set_response_appearance("search", adw::ResponseAppearance::Suggested);
+        dialog.connect_response(None, {
+            let weak = Rc::downgrade(self);
+            move |dialog, response| {
+                let Some(this) = weak.upgrade() else {
+                    return;
+                };
+                if this.external_consent.borrow().as_ref() != Some(dialog) {
+                    return;
+                }
+                this.external_consent.borrow_mut().take();
+                if response == "search" && this.epoch.get() == epoch && this.lyrics_active.get() {
+                    this.request_lyrics(LyricsRequest::External, true);
+                }
+            }
+        });
+        self.external_consent.replace(Some(dialog.clone()));
+        dialog.present(Some(&root));
+    }
+
+    fn stop_scroll_animation(&self) {
+        self.follow_revision
+            .set(self.follow_revision.get().wrapping_add(1));
+        let animation = self.scroll_animation.borrow_mut().take();
+        if let Some(animation) = animation
+            && animation.state() == adw::AnimationState::Playing
+        {
+            animation.pause();
+        }
+    }
+
+    fn follow_active(self: &Rc<Self>, immediate: bool) {
+        self.stop_scroll_animation();
+        if !self.following.get() || !self.lyrics_active.get() || !self.lyrics_list.is_mapped() {
+            return;
+        }
+        let Some(position) = self.active.get() else {
+            return;
+        };
+        let revision = self.follow_revision.get();
+        // ListView prebinds rows outside the viewport. A bound Label may still
+        // be unmapped with a 0×0 allocation; its CSS bounds are not a usable
+        // row position. Materialize it before measuring the scroll target.
+        if !self.visible_lines.borrow().iter().any(|(index, label)| {
+            *index == position
+                && label.upgrade().is_some_and(|label| {
+                    label.is_mapped() && label.width() > 0 && label.height() > 0
+                })
+        }) {
+            self.lyrics_list
+                .scroll_to(position, gtk::ListScrollFlags::NONE, None);
+        }
+        let weak = Rc::downgrade(self);
+        let frames = Cell::new(0);
+        self.lyrics_list.add_tick_callback(move |_, _| {
+            let Some(this) = weak.upgrade() else {
+                return glib::ControlFlow::Break;
+            };
+            if this.follow_revision.get() != revision
+                || !this.following.get()
+                || !this.lyrics_active.get()
+            {
+                return glib::ControlFlow::Break;
+            }
+            frames.set(frames.get() + 1);
+            let label = this
+                .visible_lines
+                .borrow()
+                .iter()
+                .find(|(index, _)| *index == position)
+                .and_then(|(_, label)| label.upgrade())
+                .filter(|label| label.is_mapped() && label.width() > 0 && label.height() > 0);
+            let bounds = label
+                .and_then(|label| label.compute_bounds(&this.lyrics_scroll))
+                .filter(|bounds| bounds.height() > 0.0);
+            if let Some(bounds) = bounds.filter(|_| this.lyrics_scroll.height() > 0) {
+                let adjustment = this.lyrics_scroll.vadjustment();
+                let center = f64::from(bounds.y() + bounds.height() / 2.0);
+                let target = (adjustment.value() + center - adjustment.page_size() / 2.0).clamp(
+                    adjustment.lower(),
+                    (adjustment.upper() - adjustment.page_size()).max(adjustment.lower()),
+                );
+                if (target - adjustment.value()).abs() > 1.0 {
+                    if immediate {
+                        adjustment.set_value(target);
+                    } else {
+                        let weak = Rc::downgrade(&this);
+                        let target_callback = adw::CallbackAnimationTarget::new(move |value| {
+                            if let Some(this) = weak.upgrade() {
+                                this.lyrics_scroll.vadjustment().set_value(value);
+                            }
+                        });
+                        let animation = adw::TimedAnimation::new(
+                            &this.lyrics_scroll,
+                            adjustment.value(),
+                            target,
+                            180,
+                            target_callback,
+                        );
+                        animation.set_easing(adw::Easing::EaseOutCubic);
+                        animation.play();
+                        this.scroll_animation.replace(Some(animation));
+                    }
+                }
+                return glib::ControlFlow::Break;
+            }
+            if frames.get() >= 4 {
+                glib::ControlFlow::Break
+            } else {
+                glib::ControlFlow::Continue
+            }
+        });
+    }
+
+    fn suspend_following(&self) {
+        if self.synchronized.get() {
+            self.stop_scroll_animation();
             self.following.set(false);
             self.follow.set_visible(true);
         }
     }
-
     fn append_related(self: &Rc<Self>) {
         let start = self.shown.get();
         let selected = self.related.borrow();
@@ -610,15 +844,9 @@ impl Inner {
 }
 
 fn connect(this: &Rc<Inner>) {
-    for expander in [&this.lyrics_expander, &this.similar_expander] {
+    for widget in [&this.widget, &this.lyrics_widget] {
         let weak = Rc::downgrade(this);
-        expander.connect_expanded_notify(move |_| {
-            if let Some(this) = weak.upgrade() {
-                schedule_visible(&this);
-            }
-        });
-        let weak = Rc::downgrade(this);
-        expander.connect_map(move |_| {
+        widget.connect_map(move |_| {
             if let Some(this) = weak.upgrade() {
                 schedule_visible(&this);
             }
@@ -636,7 +864,25 @@ fn connect(this: &Rc<Inner>) {
         let weak = Rc::downgrade(this);
         move |_| {
             if let Some(this) = weak.upgrade() {
-                this.request_lyrics(LyricsRequest::External, true);
+                this.request_external_consent();
+            }
+        }
+    });
+    this.external_action.connect_activate({
+        let weak = Rc::downgrade(this);
+        move |_, _| {
+            if let Some(this) = weak.upgrade() {
+                this.request_external_consent();
+            }
+        }
+    });
+    this.copy.connect_activate({
+        let weak = Rc::downgrade(this);
+        move |_, _| {
+            if let Some(this) = weak.upgrade()
+                && let Some(lyrics) = this.lyrics.borrow().as_ref()
+            {
+                this.lyrics_widget.clipboard().set_text(&lyrics.plain);
             }
         }
     });
@@ -662,7 +908,7 @@ fn connect(this: &Rc<Inner>) {
             if let Some(this) = weak.upgrade() {
                 this.following.set(true);
                 this.follow.set_visible(false);
-                this.follow_active();
+                this.follow_active(false);
             }
         }
     });
@@ -684,7 +930,7 @@ fn connect(this: &Rc<Inner>) {
     keys.set_propagation_phase(gtk::PropagationPhase::Capture);
     keys.connect_key_pressed({
         let weak = Rc::downgrade(this);
-        move |_, key, _, _| {
+        move |_, key, _, modifiers| {
             if matches!(
                 key,
                 gtk::gdk::Key::Up
@@ -694,7 +940,8 @@ fn connect(this: &Rc<Inner>) {
                     | gtk::gdk::Key::Home
                     | gtk::gdk::Key::End
                     | gtk::gdk::Key::space
-            ) && let Some(this) = weak.upgrade()
+            ) && !modifiers.contains(gtk::gdk::ModifierType::CONTROL_MASK)
+                && let Some(this) = weak.upgrade()
             {
                 this.suspend_following();
             }
@@ -728,42 +975,59 @@ fn connect(this: &Rc<Inner>) {
         }
     });
     this.lyrics_scroll.add_controller(scrollbar_click);
+    this.lyrics_scroll.vadjustment().connect_page_size_notify({
+        let weak = Rc::downgrade(this);
+        move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.follow_active(true);
+            }
+        }
+    });
 }
 
 fn schedule_visible(this: &Rc<Inner>) {
+    if this.visible_scheduled.replace(true) {
+        return;
+    }
     let weak = Rc::downgrade(this);
     glib::idle_add_local_once(move || {
         let Some(this) = weak.upgrade() else { return };
-        if !this.widget.is_mapped() {
-            return;
-        }
-        if this.lyrics_expander.is_expanded() {
+        this.visible_scheduled.set(false);
+        if this.lyrics_active.get() && this.lyrics_widget.is_mapped() {
             this.request_lyrics(LyricsRequest::Yandex, false);
-            // The native position can change while this pane is unmapped.
-            // On a paused reopen the active index need not change again.
-            // Reconcile the existing active line without overriding manual
-            // scrolling or creating another playback clock.
-            this.follow_active();
+            this.follow_active(true);
         }
-        if this.similar_expander.is_expanded() {
+        if this.info_active.get() && this.widget.is_mapped() {
             this.request_similar(false);
         }
     });
 }
 
-fn style_line(label: &gtk::Label, active: bool) {
-    for class in ["accent", "heading"] {
-        if active {
-            label.add_css_class(class);
-        } else {
-            label.remove_css_class(class);
-        }
+fn style_line(label: &gtk::Label, position: u32, active: Option<u32>, synchronized: bool) {
+    for class in [
+        "karin-lyrics-line",
+        "karin-lyrics-stanza",
+        "lyrics-active",
+        "lyrics-past",
+        "lyrics-future",
+    ] {
+        label.remove_css_class(class);
     }
-    label.update_property(&[gtk::accessible::Property::Description(if active {
-        "Текущая строка"
+    if synchronized {
+        label.add_css_class("karin-lyrics-line");
+        let (class, description) = if active == Some(position) {
+            ("lyrics-active", "Текущая строка")
+        } else if active.is_some_and(|active| position < active) {
+            ("lyrics-past", "Прошедшая строка")
+        } else {
+            ("lyrics-future", "Следующая строка")
+        };
+        label.add_css_class(class);
+        label.update_property(&[gtk::accessible::Property::Description(description)]);
     } else {
-        ""
-    })]);
+        label.add_css_class("karin-lyrics-stanza");
+        label.update_property(&[gtk::accessible::Property::Description("Без синхронизации")]);
+    }
 }
 
 fn feedback(
@@ -820,7 +1084,14 @@ impl Controller {
             let model = self.model.borrow();
             model.account_valid && !model.closed
         };
-        if !ready || self.panel_mode.get() != super::workspace::PanelMode::TrackInfo {
+        let mode = self.panel_mode.get();
+        let appropriate = match &action {
+            ExtrasAction::Lyrics { .. } => mode == super::workspace::PanelMode::Lyrics,
+            ExtrasAction::Similar { .. } | ExtrasAction::Related { .. } => {
+                mode == super::workspace::PanelMode::TrackInfo
+            }
+        };
+        if !ready || !appropriate {
             self.track_pane.extras.defer_unmapped_request(&action);
             return;
         }
@@ -888,7 +1159,7 @@ impl Controller {
                     RelatedAction::Next if track.available => self.enqueue_next(track),
                     RelatedAction::Next => {}
                     RelatedAction::Enqueue => self.enqueue(track),
-                    RelatedAction::Details => self.open_track_context(track.id, None),
+                    RelatedAction::Details => self.open_loaded_track_info(track, None),
                     RelatedAction::Like => self.mark_related(track, ticket, TrackReaction::Like),
                     RelatedAction::Dislike => {
                         self.mark_related(track, ticket, TrackReaction::Dislike)
@@ -989,4 +1260,4 @@ impl Controller {
 }
 
 #[cfg(test)]
-mod tests;
+pub(in crate::ui::music) mod tests;

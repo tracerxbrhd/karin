@@ -85,6 +85,31 @@ fn click(window: &adw::ApplicationWindow, id: &str, widget: &impl IsA<gtk::Widge
     settle();
 }
 
+fn menu_action(pane: &TrackPane, name: &str) -> gtk::Widget {
+    let popover = pane.menu.popover().unwrap();
+    pump_until(|| {
+        test_input::menu_action_widget(&popover, name)
+            .is_some_and(|item| item.is_mapped() && item.width() > 0)
+    });
+    test_input::menu_action_widget(&popover, name).unwrap()
+}
+
+fn focus_menu_action(window: &adw::ApplicationWindow, pane: &TrackPane, name: &str) {
+    let item = menu_action(pane, name);
+    // Mapping alone precedes the popover's native initial-focus/pointer
+    // processing. Observe its real frames before selecting the keyboard
+    // destination, particularly after a preceding mouse menu action.
+    test_input::wait_for_layout(window, &item);
+    assert!(item.grab_focus());
+    pump_until(|| item.has_focus());
+}
+
+fn click_menu_action(window: &adw::ApplicationWindow, id: &str, pane: &TrackPane, name: &str) {
+    click(window, id, &pane.menu);
+    let item = menu_action(pane, name);
+    click(window, id, &item);
+}
+
 fn assert_centered_music_cluster(pane: &TrackPane) {
     let cover = pane.cover.compute_bounds(&pane.widget).unwrap();
     let expected = cover.x() + cover.width() / 2.0;
@@ -144,9 +169,15 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
                     assert_eq!(track.id, "42");
                     "add_playlist"
                 }
-                PaneAction::Details(track) => {
+                PaneAction::Lyrics(track) => {
                     assert_eq!(track.id, "42");
-                    "details"
+                    "lyrics"
+                }
+                PaneAction::BackInfo => "back_info",
+                PaneAction::OpenMenu(_) => return,
+                PaneAction::DeliveryProbe(track) => {
+                    assert_eq!(track.id, "42");
+                    "delivery"
                 }
                 PaneAction::Album(id) => {
                     assert_eq!(id, "7");
@@ -174,6 +205,7 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
     );
     pane.set_track(Some(&selected), None);
     pane.set_playback("Приостановлено", true, true);
+    pane.set_navigation_enabled(true);
     pane.set_context(Some("Понравившиеся треки · загруженная часть коллекции"));
     assert!(
         !pane.status.is_visible(),
@@ -188,10 +220,19 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
         "verified artist is shown once as a link"
     );
     assert!(pane.play.label().is_none());
-    assert!(pane.details.label().is_none());
+    assert!(pane.menu.label().is_none());
     assert_eq!(pane.play.parent(), pane.enqueue.parent());
-    assert_eq!(pane.play.parent(), pane.add_to_playlist.parent());
-    assert_eq!(pane.play.parent(), pane.details.parent());
+    assert_eq!(pane.play.parent(), pane.menu.parent());
+    let mut transport_children = 0;
+    let mut child = pane.transport.first_child();
+    while let Some(widget) = child {
+        transport_children += 1;
+        child = widget.next_sibling();
+    }
+    assert_eq!(
+        transport_children, 3,
+        "Play, compact enqueue and one native menu"
+    );
     let host = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     spacer.set_hexpand(true);
@@ -230,13 +271,18 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
     pane.enqueue.grab_focus();
     input(&["key", "space"]);
     pump_until(|| events.borrow().len() == 2);
-    pane.details.grab_focus();
+    pane.menu.grab_focus();
+    input(&["key", "space"]);
+    focus_menu_action(&window, &pane, "track-pane.next");
     input(&["key", "Return"]);
     pump_until(|| events.borrow().len() == 3);
-    click(&window, id, &pane.add_to_playlist);
+    assert!(!pane.menu.popover().unwrap().is_visible());
+    click_menu_action(&window, id, &pane, "track-pane.playlist");
     pump_until(|| events.borrow().len() == 4);
-    pane.add_to_playlist.grab_focus();
+    pane.menu.grab_focus();
     input(&["key", "space"]);
+    focus_menu_action(&window, &pane, "track-pane.lyrics");
+    input(&["key", "Return"]);
     pump_until(|| events.borrow().len() == 5);
     pane.album.grab_focus();
     settle();
@@ -255,9 +301,9 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
         &[
             "play",
             "enqueue",
-            "details",
+            "enqueue_next",
             "add_playlist",
-            "add_playlist",
+            "lyrics",
             "album",
             "artist",
         ]
@@ -268,10 +314,10 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
     assert_eq!(pane.status.text(), "Воспроизведение");
     assert_eq!(pane.selected().as_ref(), Some(&selected));
     let cover = pane.cover.first_child().unwrap();
-    assert_eq!(cover.width_request(), 256);
-    assert_eq!(cover.height_request(), 256);
+    assert_eq!(cover.width_request(), 224);
+    assert_eq!(cover.height_request(), 224);
     assert_eq!(cover.width(), cover.height());
-    assert!((224..=272).contains(&cover.width()));
+    assert!((196..=240).contains(&cover.width()));
     capture_native("workspace-track-info");
     resize(&window, &pane, 420, 720);
     pane.set_compact(true);
@@ -335,9 +381,13 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
         pane.close.icon_name().as_deref(),
         Some("window-close-symbolic")
     );
-    pane.details.grab_focus();
+    pane.menu.grab_focus();
     settle();
-    assert!(pane.details.has_focus());
+    assert!(
+        gtk::prelude::GtkWindowExt::focus(&window)
+            .is_some_and(|focus| focus == *pane.menu.upcast_ref::<gtk::Widget>()
+                || focus.is_ancestor(&pane.menu))
+    );
     capture_native("native-music-track-info-sidebar");
 
     // A short ordinary track must expose primary actions even in the smaller
@@ -400,16 +450,16 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
     assert!(!pane.play.is_sensitive());
     assert!(pane.title.tooltip_text().is_none());
     assert!(pane.state.context.borrow().is_none());
-    assert!(!pane.add_to_playlist.is_sensitive());
+    assert!(!pane.playlist_action.is_enabled());
     // Add-to-playlist is another synchronous controller action. A render which
     // clears the selection must not reborrow the dispatcher's selected track.
     pane.set_track(Some(&short), None);
     pane.set_playback("", true, true);
-    pane.add_to_playlist.grab_focus();
-    input(&["key", "space"]);
+    resize(&window, &pane, 420, 650);
+    click_menu_action(&window, id, &pane, "track-pane.playlist");
     pump_until(|| pane.selected().is_none());
     assert_eq!(events.borrow().last(), Some(&"add_playlist"));
-    assert!(!pane.add_to_playlist.is_sensitive());
+    assert!(!pane.playlist_action.is_enabled());
     reenter.set(false);
     click(&window, id, &pane.close);
     assert_eq!(events.borrow().last(), Some(&"close"));

@@ -65,7 +65,8 @@ reviewable and consistent with the accepted application.
 - Keep one queue/PlaybackController/GStreamer engine. MPRIS adapts actual snapshots
   and confirmed seek/volume; export supported capabilities, opaque track paths and
   decoded local covers only. Do not widen Flatpak D-Bus/filesystem permissions.
-- Row click/Enter/Space plays the exact occurrence; Details is separate. Preserve
+- Row click/Enter/Space plays the exact occurrence; the separate Info action opens
+  shared Track Info without playing, never a standalone track page. Preserve
   duplicates and original source positions. Ordinary views stay bounded at 2,000
   positions/100 pages; explicit collection indexing supports 20,000 original
   positions with 50-position batches and 200-row result windows. New contexts
@@ -77,10 +78,16 @@ reviewable and consistent with the accepted application.
   membership recheck; never start it on startup or typing. Date sorting requires
   valid occurrence timestamps; provider order is not an invented date. Total
   duration needs complete data with every duration known and a checked sum.
-- Preserve pinned Track Info/Queue intent across outside clicks/navigation/resize;
+- Preserve pinned Track Info/Lyrics/Queue intent across outside clicks/navigation/resize;
   actual new current occurrences resume following. Footer: hidden before Play,
   retained through Pause/retryable active failure, hidden on Stop/clear/logout.
   No visible Stop. Keep local Shuffle/Repeat and existing system controls.
+- An explicit Resume may renew an expired source for the same queue occurrence
+  through fresh access/cache/resolver admission. Preserve its confirmed position,
+  queue/modes/volume and Wave/MPRIS identity; bound recovery to one attempt and
+  fence late work after changed intent/account. Pause must stay Paused without
+  periodic network renewal or a visible technical expiry error. Keep true access,
+  network and unseekable failures honest; never extend signed URL lifetimes.
 - Ordinary continuation is IDs-only, account-bound, bounded and worker-written.
   Restore only after fresh Music validation, without autoplay/player preparation;
   preserve duplicate occurrences and shuffle history. Stop/forget/logout delete

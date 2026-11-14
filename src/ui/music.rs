@@ -49,6 +49,7 @@ mod system_media;
 mod test_input;
 mod track_extras;
 mod track_pane;
+mod volume_scroll;
 mod workspace;
 use requests::{Operation, Requests};
 type PendingJob = Box<dyn FnOnce(&Rc<Controller>, u64)>;
@@ -169,8 +170,10 @@ struct Widgets {
     shuffle: gtk::ToggleButton,
     repeat: gtk::Button,
     queue: gtk::Button,
+    lyrics: gtk::ToggleButton,
     progress: gtk::Scale,
     volume: gtk::Scale,
+    volume_menu: gtk::MenuButton,
     previous: gtk::Button,
     next: gtk::Button,
     clear_queue: gtk::Button,
@@ -187,6 +190,7 @@ struct Controller {
     login_dialog: RefCell<Option<LoginDialog>>,
     retiring_logins: RefCell<Vec<glib::WeakRef<adw::Dialog>>>,
     logout_confirmation: RefCell<Option<account::LogoutConfirmation>>,
+    delivery_dialog: RefCell<Option<adw::Dialog>>,
     model: RefCell<Model>,
     widgets: Widgets,
     requests: RefCell<Requests<PendingJob>>,
@@ -572,10 +576,12 @@ impl MusicPane {
             previous,
             next,
             queue,
+            lyrics,
             shuffle,
             repeat,
             progress,
             volume,
+            volume_menu,
         } = player_bar::PlayerBarParts::new();
 
         let cache_notice = adw::Banner::builder()
@@ -658,8 +664,10 @@ impl MusicPane {
             shuffle,
             repeat,
             queue,
+            lyrics,
             progress,
             volume,
+            volume_menu,
             previous,
             next,
             clear_queue,
@@ -673,6 +681,7 @@ impl MusicPane {
             login_dialog: RefCell::new(None),
             retiring_logins: RefCell::new(Vec::new()),
             logout_confirmation: RefCell::new(None),
+            delivery_dialog: RefCell::new(None),
             model: RefCell::new(Model {
                 token: None,
                 account_valid: false,
@@ -738,6 +747,7 @@ impl MusicPane {
         controller.connect(window);
         controller.connect_workspace();
         controller.connect_music_player();
+        controller.connect_footer_extras();
         controller.connect_playlist_management();
         controller.connect_system_media();
         controller.render_controls();
@@ -1719,6 +1729,7 @@ impl Controller {
         self.cancel_radio();
         self.close_persistence();
         self.clear_cache_presence();
+        self.dismiss_delivery_probe();
         self.dismiss_logout_confirmation();
         self.stop_music();
         self.clear_system_media();
@@ -1763,6 +1774,7 @@ impl Controller {
     }
 
     fn logout(self: &Rc<Self>) {
+        self.dismiss_delivery_probe();
         self.retire_playlist_management();
         self.clear_cache_presence();
         self.cancel_radio();
@@ -1997,7 +2009,34 @@ impl Controller {
         self.widgets.status.set_subtitle(message);
     }
 
-    fn delivery_action(self: &Rc<Self>, id: String) {
+    fn dismiss_delivery_probe(&self) {
+        self.cancel_delivery();
+        let dialog = self.delivery_dialog.borrow_mut().take();
+        if let Some(dialog) = dialog {
+            dialog.close();
+        }
+    }
+
+    fn present_delivery_probe(self: &Rc<Self>, id: String) {
+        {
+            let model = self.model.borrow();
+            if model.closed || !model.account_valid || !model.delivery_diagnostic {
+                return;
+            }
+        }
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        self.dismiss_delivery_probe();
+        let dialog = adw::Dialog::builder()
+            .title("Диагностика доставки аудио")
+            .content_width(420)
+            .content_height(260)
+            .build();
+        let toolbar = adw::ToolbarView::new();
+        toolbar.add_top_bar(&adw::HeaderBar::new());
+        let body = gtk::Box::new(gtk::Orientation::Vertical, 12);
+        super::margins(&body, 20);
         let action = gtk::Button::with_label("Проверить доставку аудио без загрузки");
         action.set_widget_name("music-delivery-probe");
         action.set_halign(gtk::Align::Start);
@@ -2006,8 +2045,20 @@ impl Controller {
             "dim-label",
         );
         report.set_widget_name("music-delivery-report");
-        self.widgets.detail.append(&action);
-        self.widgets.detail.append(&report);
+        body.append(&report);
+        body.append(&action);
+        toolbar.set_content(Some(&body));
+        dialog.set_child(Some(&toolbar));
+        let weak = Rc::downgrade(self);
+        dialog.connect_closed(move |dialog| {
+            let Some(this) = weak.upgrade() else { return };
+            let current = this.delivery_dialog.borrow().as_ref() == Some(dialog);
+            if current {
+                this.delivery_dialog.borrow_mut().take();
+                this.cancel_delivery();
+            }
+        });
+        self.delivery_dialog.replace(Some(dialog.clone()));
         let weak = Rc::downgrade(self);
         action.connect_clicked(move |action| {
             let Some(this) = weak.upgrade() else {
@@ -2043,6 +2094,7 @@ impl Controller {
                 },
             );
         });
+        dialog.present(Some(&window));
     }
 
     fn enqueue(self: &Rc<Self>, track: Track) {
@@ -2427,6 +2479,16 @@ mod tests {
         thread,
         time::{Duration, Instant},
     };
+
+    /// Empty related results for older focused native fixtures. Only the new
+    /// exact read-only route is admitted; all other server assertions remain.
+    pub(super) fn empty_similar_response(path: &str) -> Option<serde_json::Value> {
+        let id = path.strip_prefix("/tracks/")?.strip_suffix("/similar")?;
+        if id.is_empty() || id.len() > 20 || !id.bytes().all(|byte| byte.is_ascii_digit()) {
+            return None;
+        }
+        Some(json!({"result":{"track":{"id":id},"similarTracks":[]}}))
+    }
 
     #[track_caller]
     pub(super) fn pump_until(mut condition: impl FnMut() -> bool) {

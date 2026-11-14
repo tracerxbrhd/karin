@@ -113,13 +113,20 @@ ADR-0016 and ADR-0024 cover normalization/loading;
 `music::track_extras` owns legacy Yandex supplement full text, explicit external
 LRCLIB lookup and seed-bound similar-track reads. `lyrics` provides a bounded
 literal TEXT/LRC model and position lookup; it has no playback clock. The native
-Track Info extension uses the existing player snapshot only for the exact
-FollowingCurrent occurrence and retires old content with account/track/pane
-generations; another equal Track ID cannot borrow that playhead. A manually scrolled lyric stays under user
-control until following is requested again. External requests disclose public
+Lyrics mode of the existing universal panel uses the player snapshot only for
+the exact FollowingCurrent occurrence and retires old content with account/track/
+pane generations; another equal Track ID cannot borrow that playhead. A manually
+scrolled lyric stays under user control until following is requested again.
+External requests disclose public
 metadata sharing and never receive Music tokens/account or track IDs. Text is
-memory-only and source-labelled. Similar rows use one canonical batch and the
-existing Play/Next/Append/Details/reaction paths, without creating Wave.
+memory-only and source-labelled. TEXT uses selectable stanza/line labels; LRC
+uses virtualized lines, semantic past/current/future states and native scrolling
+that honors reduced motion. Copy exports only the displayed text to the local
+clipboard. Opening Lyrics starts the Yandex read; LRCLIB remains an explicitly
+disclosed user request. Track Info displays related tracks under an ordinary
+heading, without expanders or a nested lyrics viewport. Similar rows use one
+canonical batch and the existing Play/Next/Append/Info/reaction paths, without
+creating Wave.
 [ADR-0034](adr/0034-bounded-track-lyrics-and-similar.md) and
 [API_FEASIBILITY](API_FEASIBILITY.md#lyrics-and-related-tracks-in-v08) define
 bounds, source provenance and the exclusion of extracted modern signing keys.
@@ -130,8 +137,11 @@ StreamResolver admits the reviewed unprotected full-MP3 path as a sealed HTTPS
 source. OAuth stays at Music API; credentials never reach descriptor/CDN or worker.
 Exact origins/paths, TLS, bounded XML and no redirects exclude arbitrary URIs,
 manifests and protection/identity fallbacks. The sixty-second admission lease
-does not stop existing playback; later connection/resume/seek may require fresh
-Play. See [stream delivery](STREAM_DELIVERY_REVIEW.md) and
+does not stop existing playback or turn idle Pause into a visible expiry error.
+Explicit Resume can renew that same occurrence through current access and the
+existing local-first/resolver path, retaining position and intent. See
+[stream delivery](STREAM_DELIVERY_REVIEW.md),
+[ADR-0038](adr/0038-same-occurrence-source-renewal.md) and
 [ADR-0015](adr/0015-guarded-legacy-mp3-playback.md).
 
 PlaybackController sends commands through a 32-entry channel to one worker-owned
@@ -141,6 +151,12 @@ distance independently of GTK scheduling. Commands alone do not imply Playing; S
 acknowledgement. Local-file diagnostics remain. Supported online MP3 resources
 can use the shared private HTTP cache when storage and version checks succeed;
 otherwise the same player uses the admitted network source.
+Same-occurrence renewal replaces native transport on that worker using a source
+revision, preserving logical generation and cumulative confirmed Playing time.
+Preroll and internal seek precede autoplay; internal restoration does not invent
+MPRIS Seeked or a Wave cycle. The transient account/occurrence/intent-bound ticket
+has one expiry recovery budget and is cancelled by changed user/session intent.
+No request timer runs during Pause; failed/unseekable restoration remains honest.
 Shutdown bypasses channel capacity and releases the pipeline in `Null` before
 completion, without GTK joining the worker.
 
@@ -333,11 +349,17 @@ report establishes offline lifetimes or public service/content rights.
 
 Home/Liked/Playlists lead to native collections and catalog search. Total duration
 requires complete known data and a checked sum. Row mouse/Enter/Space plays its
-exact occurrence; Details is separate.
+exact occurrence; the separate Info action never starts playback.
 
-One surface holds `Closed`, `TrackInfo` or `Queue`. Outside clicks, navigation
-and resize preserve mode; current-occurrence changes resume following, while
-Details may inspect another track without playing. The entire surface translates
+One surface holds `Closed`, `TrackInfo`, `Lyrics` or `Queue`. Outside clicks,
+navigation and resize preserve mode; current-occurrence changes resume following.
+Info inspects another track without playing; there is no separate track-detail
+route. Album, artist and playlist pages remain separate. A native
+Track Info menu reuses Play Next, Append, Add to Playlist and Lyrics handlers;
+only Play, compact Append and that menu remain in the primary action row.
+The footer Lyrics action always selects the current opaque occurrence, while
+the Track Info menu may open text for its explicit inspected selection. Lyrics
+Back returns to Track Info in place. The entire surface translates
 under a native 240 ms animation; compact layout uses a nonmodal Back subview.
 See [ADR-0022](adr/0022-universal-music-panel.md).
 
@@ -347,6 +369,11 @@ to release hidden width. Metadata, Like and Dislike are separate focus/click
 targets; resize retains the same controls/controller. Reaction pending/error
 state never changes the current source or opens Track Info. Confirmed current
 Dislike addition alone delegates to Next after presenting the confirmed state.
+Its Lyrics toggle shares the existing panel and is independently keyboard
+accessible. Wheel input on Volume calls the same `set_music_volume` path as the
+slider and MPRIS: five percentage points per admitted step, clamped to 0–100%.
+Smooth input accumulates a bounded gesture step; it cannot scroll an ancestor
+or open the popover. No separate volume state is introduced.
 
 The in-process GIO MPRIS 2.2 adapter exposes actual state, opaque track paths and
 temporary cover PNGs, never credentials, account IDs or media URLs. Flatpak keeps

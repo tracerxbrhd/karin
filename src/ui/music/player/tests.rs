@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Original synthetic HTTP media; this is not a real Music/Fedora sound test.
 
+mod resume;
+
 use super::super::tests::{capture_native, contains_text, pump_until};
 use super::*;
 use gst::prelude::*;
@@ -361,7 +363,11 @@ fn serve(
             json!({"result":ids.into_iter().rev().map(|id| json!({"id":id,"title":"Synthetic remote player track","durationMs":4000,
             "available":!unavailable.contains(&id),"artists":[{"name":"Synthetic artist"}]})).collect::<Vec<_>>()}),
         );
-    } else if url.path().starts_with("/tracks/") {
+    } else if let Some(response) = crate::ui::music::tests::empty_similar_response(url.path()) {
+        json_response(&mut stream, response);
+    } else if url.path().starts_with("/tracks/") && url.path().ends_with("/supplement") {
+        json_response(&mut stream, json!({"result":{"lyrics":null}}));
+    } else if url.path().starts_with("/tracks/") && url.path().ends_with("/download-info") {
         let track: usize = url.path().split('/').nth(2).unwrap().parse().unwrap();
         assert!((42..=45).contains(&track));
         let rejected = {

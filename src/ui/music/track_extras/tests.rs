@@ -38,7 +38,7 @@ struct Counts {
     held_started: Option<u64>,
 }
 
-struct Fixture {
+pub(in crate::ui::music) struct Fixture {
     origin: String,
     counts: Arc<Mutex<Counts>>,
     gate: Arc<(Mutex<bool>, Condvar)>,
@@ -47,7 +47,7 @@ struct Fixture {
 }
 
 impl Fixture {
-    fn new() -> Self {
+    pub(in crate::ui::music) fn new() -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let origin = format!("http://{}/", listener.local_addr().unwrap());
@@ -116,7 +116,7 @@ fn canonical(id: u64) -> serde_json::Value {
     json!({"id":id,"title":format!("Original fixture {id}"),"available":true,"durationMs":4000,"artists":[{"id":11,"name":"Karin original fixture"}],"albums":[{"id":7,"title":"Original fixture collection"}]})
 }
 
-fn track(id: u64) -> Track {
+pub(in crate::ui::music) fn track(id: u64) -> Track {
     Track {
         id: id.to_string(),
         title: format!("Original fixture {id}"),
@@ -219,7 +219,7 @@ fn serve(
         let lrc = (0..100)
             .map(|i| {
                 format!(
-                    "[00:{:02}.{:03}]Original synthetic line {i}",
+                    "[00:{:02}.{:03}]Original synthetic line {i} · строка",
                     i * 40 / 1000,
                     i * 40 % 1000
                 )
@@ -248,7 +248,7 @@ fn serve(
         json_response(
             &mut stream,
             200,
-            json!({"result":{"lyrics":{"hasRights":true,"fullLyrics":format!("Original full synthetic text {id}\nOnly original permitted fixture content")}}}),
+            json!({"result":{"lyrics":{"hasRights":true,"fullLyrics":format!("Original full synthetic text {id}\nПервая строка: ёж и звёзды\n\nВторая строфа — только оригинальный тестовый текст")}}}),
         );
     } else if parts.len() == 4 && parts[1] == "tracks" && parts[3] == "similar" {
         let attempt = {
@@ -429,8 +429,8 @@ fn click(window: &adw::ApplicationWindow, id: &str, widget: &impl IsA<gtk::Widge
                 } else {
                     "5"
                 };
-                // Outer viewport padding avoids sending an intended outer
-                // scroll into the nested virtual lyrics scroller.
+                // Use real viewport wheel input when a normal Info action
+                // is outside its single scroll viewport.
                 let (dx, dy) = window.surface_transform();
                 let scale = f64::from(window.scale_factor());
                 let x = ((f64::from(viewport.x()) + 3.0 + dx) * scale).round() as i32;
@@ -560,18 +560,106 @@ fn menu_action_at(
             && button.label().as_deref() == Some(label)
         {
             click(window, id, &button, false);
+            pump_until(|| !popover.is_mapped());
             return;
         }
     }
     panic!("native recommendation action missing");
 }
 
-#[test]
-#[ignore = "requires isolated GTK/Xvfb, xdotool and actual GStreamer; original synthetic text/audio only"]
-fn native_v08_lyrics_similar_seek_and_stale_selection() {
-    gtk::init().unwrap();
-    adw::init().unwrap();
-    let fixture = Fixture::new();
+fn clipboard_text(widget: &impl IsA<gtk::Widget>) -> String {
+    let result = Rc::new(RefCell::new(None));
+    let copy = Rc::clone(&result);
+    let clipboard = widget.as_ref().clipboard();
+    // xdotool returning only confirms queued X events. Begin a Unicode read
+    // after GTK has actually acquired the selection and published its provider.
+    pump_until(|| clipboard.is_local() && clipboard.content().is_some());
+    glib::spawn_future_local(async move {
+        copy.replace(Some(
+            clipboard
+                .read_text_future()
+                .await
+                .unwrap()
+                .unwrap()
+                .to_string(),
+        ));
+    });
+    pump_until(|| result.borrow().is_some());
+    result.borrow_mut().take().unwrap()
+}
+
+fn find_button(root: &gtk::Widget, label: &str) -> Option<gtk::Button> {
+    if let Some(button) = root.downcast_ref::<gtk::Button>()
+        && button.label().as_deref() == Some(label)
+    {
+        return Some(button.clone());
+    }
+    let mut child = root.first_child();
+    while let Some(widget) = child {
+        if let Some(found) = find_button(&widget, label) {
+            return Some(found);
+        }
+        child = widget.next_sibling();
+    }
+    None
+}
+
+fn external_consent_ready(window: &adw::ApplicationWindow, view: &ExtrasView) -> adw::AlertDialog {
+    // Presenting creates the object before its modal focus and native layout
+    // are ready. Sending Enter at object creation can still reach the opener.
+    pump_until(|| {
+        view.inner
+            .external_consent
+            .borrow()
+            .as_ref()
+            .is_some_and(|dialog| {
+                dialog.is_mapped()
+                    && find_button(dialog.upcast_ref(), "Отмена")
+                        .is_some_and(|cancel| cancel.is_mapped() && cancel.has_focus())
+            })
+    });
+    let dialog = view
+        .inner
+        .external_consent
+        .borrow()
+        .as_ref()
+        .unwrap()
+        .clone();
+    let cancel = find_button(dialog.upcast_ref(), "Отмена").unwrap();
+    test_input::wait_for_layout(window, &cancel);
+    assert!(
+        cancel.has_focus(),
+        "the safe Cancel response owns native focus"
+    );
+    dialog
+}
+
+fn external_consent_closed(view: &ExtrasView, dialog: &adw::AlertDialog) {
+    pump_until(|| {
+        view.inner.external_consent.borrow().is_none()
+            && !dialog.is_mapped()
+            && dialog.parent().is_none()
+    });
+}
+
+fn copy_lyrics_menu(window: &adw::ApplicationWindow, id: &str, view: &ExtrasView) {
+    let clipboard = view.lyrics_widget.clipboard();
+    let changed = Rc::new(Cell::new(false));
+    let observed = Rc::clone(&changed);
+    let handler = clipboard.connect_changed(move |_| observed.set(true));
+    click(window, id, &view.inner.lyrics_actions, false);
+    let popover = view.inner.lyrics_actions.popover().unwrap();
+    pump_until(|| popover.is_mapped());
+    test_input::wait_for_layout(window, &popover);
+    input(&["key", "--clearmodifiers", "Home"]);
+    input(&["key", "--clearmodifiers", "Return"]);
+    pump_until(|| !popover.is_mapped() && changed.get());
+    clipboard.disconnect(handler);
+}
+
+pub(in crate::ui::music) fn fixture_window(
+    fixture: &Fixture,
+) -> (adw::Application, crate::ui::MainWindow) {
     let service = MusicService::for_native_input_test(&fixture.origin);
     let token = AccessToken::for_test(TOKEN, Duration::from_secs(300));
     service.account(&token).unwrap();
@@ -593,10 +681,9 @@ fn native_v08_lyrics_similar_seek_and_stale_selection() {
             )
         },
     );
-    let window = &ui.window;
-    window.set_title(Some("Karin synthetic HTTP fixture"));
-    window.set_default_size(1440, 900);
-    window.present();
+    ui.window.set_title(Some("Karin synthetic HTTP fixture"));
+    ui.window.set_default_size(1440, 900);
+    ui.window.present();
     let this = &ui.music.controller;
     this.set_fixture_resolver_for_test(crate::stream::StreamResolver::for_test(
         &fixture.origin,
@@ -609,6 +696,18 @@ fn native_v08_lyrics_similar_seek_and_stale_selection() {
         model.account_valid = true;
     }
     this.render_controls();
+    (app, ui)
+}
+
+#[test]
+#[ignore = "requires isolated GTK/Xvfb, xdotool and actual GStreamer; original synthetic text/audio only"]
+fn native_v08_lyrics_similar_seek_and_stale_selection() {
+    gtk::init().unwrap();
+    adw::init().unwrap();
+    let fixture = Fixture::new();
+    let (_app, ui) = fixture_window(&fixture);
+    let window = &ui.window;
+    let this = &ui.music.controller;
     let context = PlaybackContext::new(
         ContextKind::Queue,
         None,
@@ -628,7 +727,7 @@ fn native_v08_lyrics_similar_seek_and_stale_selection() {
             .is_some_and(|snapshot| snapshot.state == PlaybackState::Paused)
     });
     this.set_info_open(true);
-    pump_until(|| this.track_pane.extras.inner.lyrics_expander.is_mapped());
+    pump_until(|| this.track_pane.extras.widget.is_mapped());
     let output = Command::new("xdotool")
         .args([
             "search",
@@ -644,8 +743,13 @@ fn native_v08_lyrics_similar_seek_and_stale_selection() {
     input(&["windowfocus", id]);
     let view = &this.track_pane.extras;
     assert_eq!(fixture.counts.lock().unwrap().external, 0);
-    click(window, id, &view.inner.lyrics_expander, true);
-    pump_until(|| view.inner.lyrics.borrow().is_some());
+    assert!(!view.lyrics_widget.is_mapped());
+    assert!(
+        view.inner.lyrics.borrow().is_none(),
+        "normal Track Info never preloads lyrics"
+    );
+    click(window, id, &this.widgets.lyrics, false);
+    pump_until(|| view.lyrics_widget.is_mapped() && view.inner.lyrics.borrow().is_some());
     assert_eq!(view.inner.source.text(), "Источник: Яндекс Музыка");
     assert_eq!(
         fixture.counts.lock().unwrap().external,
@@ -661,9 +765,74 @@ fn native_v08_lyrics_similar_seek_and_stale_selection() {
             .synchronized
             .is_empty()
     );
+    // Ordinary TEXT is divided into selectable Unicode stanzas, not an
+    // editable TextView. Native Ctrl+C can copy a selected stanza fragment.
+    assert_eq!(view.inner.lyrics_status.text(), "Без синхронизации");
+    assert_eq!(view.inner.lyrics_model.n_items(), 2);
+    pump_until(|| {
+        view.inner
+            .visible_lines
+            .borrow()
+            .iter()
+            .any(|(position, label)| {
+                *position == 0
+                    && label
+                        .upgrade()
+                        .is_some_and(|label| label.is_mapped() && label.height() > 0)
+            })
+    });
+    let paragraph = view
+        .inner
+        .visible_lines
+        .borrow()
+        .iter()
+        .find(|(position, _)| *position == 0)
+        .and_then(|(_, label)| label.upgrade())
+        .unwrap();
+    assert!(paragraph.is_selectable());
+    assert_eq!(paragraph.text(), view.inner.lyrics_model.string(0).unwrap());
+    assert!(paragraph.grab_focus());
+    input(&["key", "--clearmodifiers", "ctrl+a"]);
+    input(&["key", "--clearmodifiers", "ctrl+c"]);
+    let clipboard = view.lyrics_widget.clipboard();
+    pump_until(|| clipboard.is_local() && clipboard.content().is_some());
+    let provider_text = clipboard
+        .content()
+        .and_then(|content| content.value(String::static_type()).ok())
+        .and_then(|value| value.get::<String>().ok());
+    assert_eq!(
+        provider_text.as_deref(),
+        view.inner.lyrics_model.string(0).as_deref()
+    );
+    assert_eq!(
+        clipboard_text(&view.lyrics_widget),
+        view.inner.lyrics_model.string(0).unwrap()
+    );
+    drop(paragraph);
+    copy_lyrics_menu(window, id, view);
+    assert_eq!(
+        clipboard_text(&view.lyrics_widget),
+        view.inner.lyrics.borrow().as_ref().unwrap().plain
+    );
+
     assert!(view.inner.external.grab_focus());
     settle();
     input(&["key", "space"]);
+    let dialog = external_consent_ready(window, view);
+    assert_eq!(dialog.default_response().as_deref(), Some("cancel"));
+    assert_eq!(fixture.counts.lock().unwrap().external, 0);
+    // The safe default genuinely cancels instead of sharing metadata.
+    input(&["key", "--clearmodifiers", "Return"]);
+    external_consent_closed(view, &dialog);
+    drop(dialog);
+    assert_eq!(fixture.counts.lock().unwrap().external, 0);
+    click(window, id, &view.inner.external, false);
+    let dialog = external_consent_ready(window, view);
+    let accept = find_button(dialog.upcast_ref(), "Искать").unwrap();
+    click(window, id, &accept, false);
+    external_consent_closed(view, &dialog);
+    drop(accept);
+    drop(dialog);
     pump_until(|| {
         view.inner
             .lyrics
@@ -672,11 +841,22 @@ fn native_v08_lyrics_similar_seek_and_stale_selection() {
             .is_some_and(|lyrics| !lyrics.synchronized.is_empty())
     });
     assert_eq!(fixture.counts.lock().unwrap().external, 1);
+    copy_lyrics_menu(window, id, view);
+    let copied = clipboard_text(&view.lyrics_widget);
+    assert_eq!(copied, view.inner.lyrics.borrow().as_ref().unwrap().plain);
+    assert!(
+        !copied.contains("[00:"),
+        "copy exports displayed text, not LRC timestamp metadata"
+    );
     assert!(
         view.inner
             .source
             .text()
             .contains("LRCLIB · внешний источник")
+    );
+    assert!(
+        view.inner.following.get(),
+        "Copy menu keyboard input must not suspend lyric following"
     );
     this.seek_music(Duration::from_millis(1200));
     pump_until(|| {
@@ -689,6 +869,29 @@ fn native_v08_lyrics_similar_seek_and_stale_selection() {
         this.music_snapshot()
             .is_some_and(|snapshot| snapshot.state == PlaybackState::Paused)
     );
+    pump_until(|| {
+        let active = view.inner.active.get();
+        view.inner
+            .visible_lines
+            .borrow()
+            .iter()
+            .any(|(index, label)| {
+                if Some(*index) != active {
+                    return false;
+                }
+                label.upgrade().is_some_and(|label| {
+                    label.has_css_class("lyrics-active")
+                        && label
+                            .compute_bounds(&view.inner.lyrics_scroll)
+                            .is_some_and(|bounds| {
+                                ((bounds.y() + bounds.height() / 2.0)
+                                    - view.inner.lyrics_scroll.height() as f32 / 2.0)
+                                    .abs()
+                                    < 40.0
+                            })
+                })
+            })
+    });
     let (x, y) = test_input::pointer(
         window,
         &view.inner.lyrics_scroll,
@@ -747,7 +950,7 @@ fn native_v08_lyrics_similar_seek_and_stale_selection() {
         this.music_snapshot()
             .is_some_and(|snapshot| snapshot.state == PlaybackState::Paused)
     );
-    click(window, id, &this.widgets.current_art_button, false);
+    click(window, id, &this.widgets.lyrics, false);
     pump_until(|| {
         view.inner.lyrics_list.is_mapped()
             && view.inner.lyrics_scroll.vadjustment().value() < old_scroll - 10.0
@@ -782,18 +985,40 @@ fn native_v08_lyrics_similar_seek_and_stale_selection() {
     assert!(!view.inner.following.get());
     click(window, id, &view.inner.follow, false);
     assert!(view.inner.following.get());
+    let settings = gtk::Settings::default().unwrap();
+    let animations = settings.is_gtk_enable_animations();
+    settings.set_gtk_enable_animations(false);
+    let seek = this.music_snapshot().unwrap().seek_serial;
+    this.seek_music(Duration::from_millis(2760));
+    pump_until(|| {
+        this.music_snapshot()
+            .is_some_and(|snapshot| snapshot.seek_serial > seek)
+    });
+    settle();
+    assert!(
+        view.inner
+            .scroll_animation
+            .borrow()
+            .as_ref()
+            .is_none_or(|animation| animation.state() != adw::AnimationState::Playing)
+    );
+    assert!(view.inner.following.get());
+    settings.set_gtk_enable_animations(animations);
     for (width, height, name) in [
         (420, 720, "v08-lyrics-compact"),
         (900, 650, "v08-lyrics-medium"),
         (1440, 900, "v08-lyrics-wide"),
     ] {
         super::super::player::tests::resize_player_window(&ui, width, height);
-        let (minimum, _, _, _) = view.widget.measure(gtk::Orientation::Horizontal, -1);
+        let (minimum, _, _, _) = view.lyrics_widget.measure(gtk::Orientation::Horizontal, -1);
         assert!(minimum <= 300, "lyrics cannot widen the native panel");
         capture_native(name);
     }
-    click(window, id, &view.inner.lyrics_expander, true);
-    click(window, id, &view.inner.similar_expander, true);
+    // The header Back action switches modes inside the same pinned container.
+    let before_modes = this.music_serial();
+    click(window, id, &this.track_pane.back_info, false);
+    pump_until(|| view.widget.is_mapped() && !view.lyrics_widget.is_mapped());
+    assert_eq!(this.music_serial(), before_modes);
     pump_until(|| view.inner.similar_retry.is_visible() && !view.inner.similar_loading.get());
     assert!(!view.inner.similar_status.text().contains("503"));
     click(window, id, &view.inner.similar_retry, false);
@@ -849,7 +1074,7 @@ fn native_v08_lyrics_similar_seek_and_stale_selection() {
             .is_some_and(|snapshot| snapshot.state == PlaybackState::Paused)
     });
     fixture.hold(43);
-    view.inner.lyrics_expander.set_expanded(true);
+    click(window, id, &this.widgets.lyrics, false);
     pump_until(|| {
         view.inner.lyrics_loading.get() && fixture.counts.lock().unwrap().held_started == Some(43)
     });
@@ -905,6 +1130,8 @@ fn native_v08_lyrics_similar_seek_and_stale_selection() {
         view.inner.active.get().is_none(),
         "inspecting another track cannot reuse the current track's clock"
     );
+    click(window, id, &this.track_pane.back_info, false);
+    pump_until(|| view.widget.is_mapped());
     pump_until(|| {
         view.inner
             .related
@@ -922,8 +1149,10 @@ fn native_v08_lyrics_similar_seek_and_stale_selection() {
             .queue
             .current()
             .is_some_and(|track| track.id == "45")
-            && view.inner.lyrics_loading.get()
-            && fixture.counts.lock().unwrap().held_started == Some(45)
+    });
+    click(window, id, &this.widgets.lyrics, false);
+    pump_until(|| {
+        view.inner.lyrics_loading.get() && fixture.counts.lock().unwrap().held_started == Some(45)
     });
     assert_eq!(
         fixture.counts.lock().unwrap().posts,

@@ -492,6 +492,10 @@ fn serve(
             });
         }
         return;
+    } else if first[0] == "GET"
+        && let Some(response) = crate::ui::music::tests::empty_similar_response(path)
+    {
+        response
     } else {
         panic!("unexpected completion fixture route")
     };

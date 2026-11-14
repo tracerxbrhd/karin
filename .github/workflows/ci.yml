@@ -31,6 +31,8 @@ jobs:
             rust-version: '1.98'
     env:
       CARGO_TERM_COLOR: always
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
       CARGO_BUILD_JOBS: 2
       RUST_BACKTRACE: 1
       RUSTUP_TOOLCHAIN: ${{ matrix.toolchain }}
@@ -222,6 +224,8 @@ jobs:
               'native_audio_cache_application_process_restart',
               'native_v07_playback_restore_playlist_appearance_process_restart',
               'native_v08_lyrics_similar_seek_and_stale_selection',
+              'native_v08_footer_lyrics_and_volume_scroll',
+              'native_music_resume_expired_source_preserves_occurrence_position_and_cancellation',
               'native_v08_whole_collection_index_search_sort_and_cancellation',
               'native_v08_queue_next_drag_keyboard_and_restoration',
               'native_v08_incremental_marker_updates_and_stable_ticks',
@@ -340,6 +344,8 @@ jobs:
             mkdir -p "$KARIN_TEST_CAPTURE_DIR"
             if [ "$scale" = 2 ]; then screen=3840x2160; else screen=1920x1080; fi
             dbus-run-session -- xvfb-run -a -s "-screen 0 ${screen}x24 -dpi 96" cargo test --lib --all-features --locked native_v08_lyrics_similar_seek_and_stale_selection -- --ignored --test-threads=1 --nocapture
+            dbus-run-session -- xvfb-run -a -s "-screen 0 ${screen}x24 -dpi 96" cargo test --lib --all-features --locked native_v08_footer_lyrics_and_volume_scroll -- --ignored --test-threads=1 --nocapture
+            dbus-run-session -- xvfb-run -a -s "-screen 0 ${screen}x24 -dpi 96" cargo test --lib --all-features --locked native_music_resume_expired_source_preserves_occurrence_position_and_cancellation -- --ignored --test-threads=1 --nocapture
             dbus-run-session -- xvfb-run -a -s "-screen 0 ${screen}x24 -dpi 96" cargo test --lib --all-features --locked native_v08_whole_collection_index_search_sort_and_cancellation -- --ignored --test-threads=1 --nocapture
             dbus-run-session -- xvfb-run -a -s "-screen 0 ${screen}x24 -dpi 96" cargo test --lib --all-features --locked native_v08_queue_next_drag_keyboard_and_restoration -- --ignored --test-threads=1 --nocapture
             dbus-run-session -- xvfb-run -a -s "-screen 0 ${screen}x24 -dpi 96" cargo test --lib --all-features --locked native_v08_incremental_marker_updates_and_stable_ticks -- --ignored --test-threads=1 --nocapture 2>&1 | tee "$KARIN_TEST_CAPTURE_DIR/marker-work.log"
@@ -687,8 +693,12 @@ jobs:
           Follow docs/BUILDING.md#v08-final-fedora-acceptance at the source commit in BUILD-INFO.txt.
           Test the real account/library/search/playlists/context queue, audible Music playback and KDE MPRIS.
           Inspect light/dark, HiDPI, 420x720,850x750,720x650,900x650,1280x800,1440x900,1650x930,1920x1080 and maximized.
-          Open Track Info or Queue in the same right panel; outside click/scroll/navigation must not close it.
-          Check the entire surface slides together and switching Track Info/Queue never closes/reopens it.
+          Open Track Info, Lyrics or Queue in the same right panel; outside click/scroll/navigation must not close it.
+          Check the entire surface slides together and switching Track Info/Lyrics/Queue never closes/reopens it.
+          Track Info has Play, compact Append and a native menu. Next, Add to Playlist and Lyrics belong to that menu; no separate track-detail page remains.
+          Footer Lyrics always opens the current occurrence, even after inspecting another track. Check Lyrics Back, Follow, manual scrolling, Copy, Unicode, plain text and real LRC separately.
+          Wheel over Volume changes it by five percentage points without opening the slider or scrolling the page; smooth touchpad input must remain controlled and MPRIS must agree.
+          After a long Pause, one Play must recheck access and resume the same occurrence/position/modes/volume automatically through the existing local-first/resolver path. No expiry-driven network timer or second Play is required.
           Test Shuffle, Repeat Queue/One, previous-history, actual upcoming order and external playerctl modes.
           Queue is reached from the Player Bar/Ctrl+J; no separate queue navigation or visible Stop remains.
           Before Play the footer is hidden; real Play reveals it from below, Pause retains it, Stop/clear/logout hides it.
@@ -807,6 +817,8 @@ jobs:
             toolchain: '1.98.1'
     env:
       CARGO_TERM_COLOR: always
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
       CARGO_BUILD_JOBS: 2
       CARGO_INCREMENTAL: 0
       RUST_BACKTRACE: 1

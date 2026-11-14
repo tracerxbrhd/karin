@@ -74,6 +74,9 @@ pub enum PlaybackSourceKind {
 pub struct PlaybackSnapshot {
     pub state: PlaybackState,
     pub source_kind: PlaybackSourceKind,
+    /// Memory-only age of the current source admission. It does not interrupt
+    /// Playing or Pause and carries no resource identity or URL.
+    pub source_expired: bool,
     /// Cumulative worker-observed Playing time for this prepared generation.
     /// Monotonic and independent of media position, seeks and GTK polling. It
     /// freezes outside confirmed Playing and resets only on source replacement.
@@ -88,6 +91,9 @@ pub struct PlaybackSnapshot {
     pub worker_running: bool,
     /// Changes when a source is replaced; old pipeline messages cannot apply.
     pub generation: u64,
+    /// Internal native-source replacement acknowledgement. Same-occurrence
+    /// renewals preserve generation while retiring the old pipeline/bus.
+    pub source_revision: u64,
     /// Monotonic per-controller count of seeks accepted by native GStreamer.
     /// Queue admission alone and failed seek commands do not advance it.
     pub seek_serial: u64,
@@ -101,6 +107,7 @@ impl Default for PlaybackSnapshot {
         Self {
             state: PlaybackState::Idle,
             source_kind: PlaybackSourceKind::None,
+            source_expired: false,
             playing_time: Duration::ZERO,
             position: None,
             duration: None,
@@ -109,6 +116,7 @@ impl Default for PlaybackSnapshot {
             last_error: None,
             worker_running: true,
             generation: 0,
+            source_revision: 0,
             seek_serial: 0,
             seek_position: None,
         }
@@ -183,6 +191,19 @@ impl fmt::Debug for PlaybackSource {
 }
 
 impl PlaybackSource {
+    fn admission_expired(&self, now: Instant) -> bool {
+        self.remote
+            .as_ref()
+            .is_some_and(RemotePlaybackSource::is_expired)
+            || self
+                .cache_fallback
+                .as_ref()
+                .is_some_and(RemotePlaybackSource::is_expired)
+            || self
+                .cache_admission
+                .as_ref()
+                .is_some_and(|hit| hit.admission_expired_at(now))
+    }
     /// This filesystem validation may block; perform it on a worker for GTK.
     pub fn local_file(path: impl AsRef<Path>) -> Result<Self, PlaybackError> {
         let path = fs::canonicalize(path).map_err(|_| PlaybackError::SourceUnavailable)?;
@@ -284,6 +305,8 @@ impl PlaybackSource {
 pub struct RemotePlaybackSource {
     uri: Zeroizing<String>,
     expires_at: Instant,
+    #[cfg(test)]
+    test_age: Arc<AtomicU64>,
     http_resource: Option<Arc<crate::stream::HttpResourceIdentity>>,
     #[cfg(test)]
     ca_file: Option<PathBuf>,
@@ -336,6 +359,8 @@ impl RemotePlaybackSource {
         Ok(Self {
             uri: Zeroizing::new(uri.to_owned()),
             expires_at,
+            #[cfg(test)]
+            test_age: Arc::new(AtomicU64::new(0)),
             http_resource: None,
             #[cfg(test)]
             ca_file: None,
@@ -343,7 +368,12 @@ impl RemotePlaybackSource {
     }
 
     pub fn is_expired(&self) -> bool {
-        Instant::now() >= self.expires_at
+        let now = Instant::now();
+        #[cfg(test)]
+        let now = now
+            .checked_add(Duration::from_nanos(self.test_age.load(Ordering::Acquire)))
+            .unwrap_or(self.expires_at);
+        now >= self.expires_at
     }
 
     /// Opaque exact-request binding for a private HTTP cache record. A renewed
@@ -471,6 +501,11 @@ enum Command {
     Stop,
     Volume(f64),
     Seek(Duration),
+    Renew(PlaybackSource, Option<Duration>, bool),
+    #[cfg(test)]
+    AdvanceSourceAge(Duration),
+    #[cfg(test)]
+    ExpireNextResume,
 }
 
 struct Shared {
@@ -507,6 +542,33 @@ pub struct PlaybackController {
 }
 
 impl PlaybackController {
+    /// Replace only this occurrence's temporary admission on the same worker.
+    /// Network/access work belongs to the caller's existing resolver. Native
+    /// preroll and position restoration complete before actual Playing.
+    pub(crate) fn renew_source(
+        &self,
+        source: PlaybackSource,
+        position: Option<Duration>,
+        autoplay: bool,
+    ) -> Result<(), PlaybackError> {
+        if position.is_some_and(|position| position.as_nanos() > i64::MAX as u128) {
+            return Err(PlaybackError::InvalidSeek);
+        }
+        if self.snapshot().generation == 0 {
+            return Err(PlaybackError::InvalidState);
+        }
+        self.send(Command::Renew(source, position, autoplay))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn advance_source_age_for_test(&self, age: Duration) -> Result<(), PlaybackError> {
+        self.send(Command::AdvanceSourceAge(age))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn expire_on_next_resume_for_test(&self) -> Result<(), PlaybackError> {
+        self.send(Command::ExpireNextResume)
+    }
     /// Spawns a worker; GStreamer initialization and media work happen there.
     pub fn new(output: PlaybackOutput) -> Result<Self, PlaybackError> {
         let shared = Arc::new(Shared {
@@ -604,6 +666,12 @@ struct Pending {
     started: Instant,
 }
 
+struct SourceRestore {
+    position: Option<Duration>,
+    autoplay: bool,
+    user_seek: bool,
+}
+
 /// Numeric telemetry owned by the existing worker, never a playback clock or
 /// scheduler. Only worker-confirmed Playing intervals are admitted; seeking and
 /// media duration are deliberately absent from the accounting inputs.
@@ -631,6 +699,12 @@ struct Worker {
     pipeline: Option<ActivePipeline>,
     pending: Option<Pending>,
     playing: PlayingClock,
+    restore: Option<SourceRestore>,
+    source_played: bool,
+    #[cfg(test)]
+    test_age: Duration,
+    #[cfg(test)]
+    expire_next_resume: bool,
 }
 
 struct WorkerLifecycle(Arc<Shared>);
@@ -643,6 +717,7 @@ impl Drop for WorkerLifecycle {
             // Worker, this guard runs after its pipeline has been dropped.
             snapshot.state = PlaybackState::Error;
             snapshot.source_kind = PlaybackSourceKind::None;
+            snapshot.source_expired = false;
             snapshot.last_error = Some(PlaybackError::WorkerUnavailable);
             snapshot.seekable = false;
             snapshot.worker_running = false;
@@ -651,6 +726,51 @@ impl Drop for WorkerLifecycle {
 }
 
 impl Worker {
+    fn source_expired(&self) -> bool {
+        let now = Instant::now();
+        #[cfg(test)]
+        let now = now.checked_add(self.test_age).unwrap_or(now);
+        self.source
+            .as_ref()
+            .is_some_and(|source| source.admission_expired(now))
+    }
+
+    #[cfg(test)]
+    fn advance_source_age(&mut self, age: Duration) {
+        self.test_age = self.test_age.saturating_add(age);
+        if let Some(remote) = self
+            .source
+            .as_ref()
+            .and_then(|source| source.remote.as_ref().or(source.cache_fallback.as_ref()))
+        {
+            let age = u64::try_from(age.as_nanos()).unwrap_or(u64::MAX);
+            let mut previous = remote.test_age.load(Ordering::Acquire);
+            loop {
+                match remote.test_age.compare_exchange_weak(
+                    previous,
+                    previous.saturating_add(age),
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                ) {
+                    Ok(_) => break,
+                    Err(current) => previous = current,
+                }
+            }
+        }
+    }
+
+    fn transport_refusal_error(&self) -> PlaybackError {
+        if self
+            .source
+            .as_ref()
+            .is_some_and(|source| source.remote.is_some())
+            && self.source_expired()
+        {
+            PlaybackError::SourceExpired
+        } else {
+            PlaybackError::SourcePolicy
+        }
+    }
     fn run(output: PlaybackOutput, receiver: Receiver<Command>, shared: Arc<Shared>) {
         let _lifecycle = WorkerLifecycle(shared.clone());
         if gst::init().is_err() {
@@ -667,6 +787,12 @@ impl Worker {
             pipeline: None,
             pending: None,
             playing: PlayingClock::default(),
+            restore: None,
+            source_played: false,
+            #[cfg(test)]
+            test_age: Duration::ZERO,
+            #[cfg(test)]
+            expire_next_resume: false,
         };
         while !worker.shared.shutdown.load(Ordering::Acquire) {
             // Bound each batch so rapid actions cannot starve bus/timeout work.
@@ -683,6 +809,12 @@ impl Worker {
                     }
                 }
             }
+            // Shutdown can arrive while a native command is completing. In
+            // particular, do not auto-play a renewed/prerolled source after
+            // its owning window or playback intent has already been retired.
+            if worker.shared.shutdown.load(Ordering::Acquire) {
+                break;
+            }
             worker.poll();
             thread::sleep(POLL_INTERVAL);
         }
@@ -693,6 +825,7 @@ impl Worker {
         let mut snapshot = worker.shared.snapshot();
         snapshot.state = PlaybackState::Stopped;
         snapshot.source_kind = PlaybackSourceKind::None;
+        snapshot.source_expired = false;
         snapshot.seekable = false;
         snapshot.worker_running = false;
     }
@@ -706,12 +839,20 @@ impl Worker {
                     self.pending = None;
                     self.source = Some(source);
                     self.playing = PlayingClock::default();
+                    self.restore = None;
+                    self.source_played = false;
+                    #[cfg(test)]
+                    {
+                        self.test_age = Duration::ZERO;
+                    }
                     {
                         let mut snapshot = self.shared.snapshot();
                         snapshot.generation += 1;
+                        snapshot.source_revision = snapshot.source_revision.saturating_add(1);
                         snapshot.playing_time = Duration::ZERO;
                         snapshot.state = PlaybackState::Loading;
                         snapshot.source_kind = PlaybackSourceKind::None;
+                        snapshot.source_expired = false;
                         snapshot.position = None;
                         snapshot.duration = None;
                         snapshot.seekable = false;
@@ -720,16 +861,24 @@ impl Worker {
                     self.start_pipeline(PlaybackState::Ready)
                 }
                 Command::Play | Command::Resume => {
-                    if self
-                        .source
-                        .as_ref()
-                        .and_then(|source| source.remote.as_ref())
-                        .is_some_and(RemotePlaybackSource::is_expired)
-                    {
-                        self.fail(PlaybackError::SourceExpired);
+                    if let Some(restore) = &mut self.restore {
+                        restore.autoplay = true;
                         return;
                     }
+                    #[cfg(test)]
+                    if self.expire_next_resume {
+                        self.expire_next_resume = false;
+                        self.advance_source_age(Duration::from_secs(121));
+                    }
                     let state = self.shared.snapshot().state;
+                    if state != PlaybackState::Playing && self.source_expired() {
+                        let mut snapshot = self.shared.snapshot();
+                        snapshot.source_expired = true;
+                        snapshot.last_error = Some(PlaybackError::SourceExpired);
+                        // Keep the paused source/position while the application
+                        // obtains fresh access; expiry alone is not playback.
+                        return;
+                    }
                     if matches!(state, PlaybackState::Stopped | PlaybackState::Ended) {
                         self.start_pipeline(PlaybackState::Playing)
                     } else if matches!(
@@ -745,6 +894,10 @@ impl Worker {
                     }
                 }
                 Command::Pause => {
+                    if let Some(restore) = &mut self.restore {
+                        restore.autoplay = false;
+                        return;
+                    }
                     let state = self.shared.snapshot().state;
                     if matches!(
                         state,
@@ -758,6 +911,7 @@ impl Worker {
                 Command::Stop => {
                     self.account_playing(false);
                     self.pending = None;
+                    self.restore = None;
                     self.pipeline = None;
                     if self.source.as_ref().is_some_and(|source| {
                         source.remote.is_some() || source.cached_file.is_some()
@@ -767,6 +921,7 @@ impl Worker {
                     let mut snapshot = self.shared.snapshot();
                     snapshot.state = PlaybackState::Stopped;
                     snapshot.source_kind = PlaybackSourceKind::None;
+                    snapshot.source_expired = false;
                     snapshot.position = Some(Duration::ZERO);
                     snapshot.seekable = false;
                     snapshot.last_error = None;
@@ -783,7 +938,54 @@ impl Worker {
                     }
                     Ok(())
                 }
-                Command::Seek(position) => self.seek(position),
+                Command::Seek(position) => {
+                    if let Some(restore) = &mut self.restore {
+                        restore.position = Some(position);
+                        restore.user_seek = true;
+                        return;
+                    }
+                    self.seek(position)
+                }
+                Command::Renew(source, position, autoplay) => {
+                    if self.shared.snapshot().generation == 0 {
+                        return;
+                    }
+                    self.account_playing(false);
+                    self.pipeline = None;
+                    self.pending = None;
+                    self.source = Some(source);
+                    self.source_played = false;
+                    #[cfg(test)]
+                    {
+                        self.test_age = Duration::ZERO;
+                    }
+                    self.restore = Some(SourceRestore {
+                        position,
+                        autoplay,
+                        user_seek: false,
+                    });
+                    {
+                        let mut snapshot = self.shared.snapshot();
+                        snapshot.source_revision = snapshot.source_revision.saturating_add(1);
+                        // The replacement acknowledgement and Loading are one
+                        // observation: an old Paused state must not look like
+                        // a completed renewal while playbin is being rebuilt.
+                        snapshot.state = PlaybackState::Loading;
+                        snapshot.source_expired = false;
+                        snapshot.last_error = None;
+                    }
+                    self.start_pipeline(PlaybackState::Ready)
+                }
+                #[cfg(test)]
+                Command::AdvanceSourceAge(age) => {
+                    self.advance_source_age(age);
+                    Ok(())
+                }
+                #[cfg(test)]
+                Command::ExpireNextResume => {
+                    self.expire_next_resume = true;
+                    Ok(())
+                }
             };
         if let Err(error) = result {
             if matches!(
@@ -902,7 +1104,7 @@ impl Worker {
         if pipeline.element.set_state(target).is_err() {
             if let Some(refused) = &pipeline.transport_refused {
                 if refused.load(Ordering::Acquire) {
-                    return Err(PlaybackError::SourcePolicy);
+                    return Err(self.transport_refusal_error());
                 }
                 // A synchronous native refusal can post its structured error
                 // before set_state returns. Retain only a documented numeric
@@ -930,11 +1132,19 @@ impl Worker {
         if self
             .source
             .as_ref()
-            .and_then(|source| source.remote.as_ref())
-            .is_some_and(RemotePlaybackSource::is_expired)
+            .is_some_and(|source| source.remote.is_some())
+            && self.source_expired()
         {
             return Err(PlaybackError::SourceExpired);
         }
+        self.seek_native(position, true)
+    }
+
+    fn seek_native(
+        &mut self,
+        position: Duration,
+        acknowledge_user: bool,
+    ) -> Result<(), PlaybackError> {
         let snapshot = self.shared.snapshot().clone();
         if !matches!(
             snapshot.state,
@@ -964,13 +1174,22 @@ impl Worker {
         // the command. Do not infer completion from queue admission or from an
         // old clock value which happens to be near the requested position.
         let mut snapshot = self.shared.snapshot();
-        snapshot.seek_serial = snapshot.seek_serial.saturating_add(1);
-        snapshot.seek_position = Some(position);
+        if acknowledge_user {
+            snapshot.seek_serial = snapshot.seek_serial.saturating_add(1);
+            snapshot.seek_position = Some(position);
+        }
+        snapshot.position = Some(position);
         snapshot.last_error = None;
         Ok(())
     }
 
     fn poll(&mut self) {
+        {
+            let expired = self.source_expired();
+            let mut snapshot = self.shared.snapshot();
+            snapshot.source_expired =
+                expired || snapshot.last_error == Some(PlaybackError::SourceExpired);
+        }
         let mut eos = false;
         let mut failure = None;
         if let Some(pipeline) = &self.pipeline {
@@ -979,7 +1198,7 @@ impl Worker {
                 .as_ref()
                 .is_some_and(|refused| refused.load(Ordering::Acquire))
             {
-                self.fail(PlaybackError::SourcePolicy);
+                self.fail(self.transport_refusal_error());
                 return;
             }
             for _ in 0..64 {
@@ -994,7 +1213,7 @@ impl Worker {
                                 .as_ref()
                                 .is_some_and(|refused| refused.load(Ordering::Acquire))
                             {
-                                PlaybackError::SourcePolicy
+                                self.transport_refusal_error()
                             } else if pipeline.transport_refused.is_some() {
                                 remote::error_http_status(error)
                                     .map(PlaybackError::RemoteHttp)
@@ -1034,6 +1253,7 @@ impl Worker {
         if eos {
             self.account_playing(false);
             self.pending = None;
+            self.restore = None;
             self.pipeline = None;
             if self
                 .source
@@ -1045,6 +1265,7 @@ impl Worker {
             let mut snapshot = self.shared.snapshot();
             snapshot.state = PlaybackState::Ended;
             snapshot.source_kind = PlaybackSourceKind::None;
+            snapshot.source_expired = false;
             snapshot.position = snapshot.duration;
             snapshot.seekable = false;
             return;
@@ -1085,20 +1306,53 @@ impl Worker {
             snapshot.state = state;
         }
         snapshot.seekable = seekable;
-        snapshot.position = position;
-        snapshot.duration = duration;
+        snapshot.position = position.or(snapshot.position);
+        snapshot.duration = duration.or(snapshot.duration);
         let playing = snapshot.state == PlaybackState::Playing
             && result.is_ok()
             && current == gst::State::Playing;
         let cached_playing = playing && snapshot.source_kind == PlaybackSourceKind::CachedFile;
         drop(snapshot);
-        if cached_playing && self.playing.since.is_none() && self.playing.total.is_zero() {
+        if cached_playing && !self.source_played {
             crate::audio_cache::diagnostic::report(
                 crate::audio_cache::diagnostic::Event::Hit,
                 crate::audio_cache::diagnostic::Cause::Validated,
             );
         }
+        self.source_played |= playing;
         self.account_playing(playing);
+        if completed_state == Some(PlaybackState::Ready)
+            && let Some(restore) = self.restore.take()
+        {
+            // An explicit user seek to zero still requires native acceptance
+            // and its normal acknowledgement; only an internal zero restore
+            // can omit a seek without creating a synthetic Seeked event.
+            let target = restore
+                .position
+                .filter(|position| restore.user_seek || !position.is_zero());
+            let restored = match target {
+                Some(position) => self.seek_native(position, restore.user_seek),
+                None => Ok(()),
+            };
+            match restored {
+                Ok(()) if restore.autoplay => {
+                    if let Err(error) = self.transition(gst::State::Playing, PlaybackState::Playing)
+                    {
+                        self.fail(error);
+                    }
+                }
+                Ok(()) => {
+                    self.shared.snapshot().state = PlaybackState::Paused;
+                }
+                Err(error) => {
+                    // Never silently start from zero when the retained position
+                    // cannot be restored. The next explicit Play is deliberate.
+                    let mut snapshot = self.shared.snapshot();
+                    snapshot.state = PlaybackState::Paused;
+                    snapshot.last_error = Some(error);
+                }
+            }
+        }
     }
 
     fn account_playing(&mut self, playing: bool) {
@@ -1108,10 +1362,20 @@ impl Worker {
 
     fn fail(&mut self, mut error: PlaybackError) {
         self.account_playing(false);
+        if error == PlaybackError::SourceExpired
+            && self.shared.snapshot().state == PlaybackState::Paused
+        {
+            self.pending = None;
+            self.pipeline = None;
+            let mut snapshot = self.shared.snapshot();
+            snapshot.source_expired = true;
+            snapshot.last_error = None;
+            return;
+        }
         // Fresh local-first hits intentionally have no eagerly resolved CDN
         // fallback. Signal only a pre-Playing failure: after audible progress
         // we must preserve Wave's actual listening ledger and normal errors.
-        if self.playing.total.is_zero()
+        if !self.source_played
             && self.source.as_ref().is_some_and(|source| {
                 source.cached_file.is_some() && source.cache_fallback.is_none()
             })
@@ -1130,7 +1394,7 @@ impl Worker {
         // decoder inspects it. Retry once with the independently admitted
         // online source before any actual Playing, within this same worker.
         // Never reset Wave's measured Playing ledger after audible progress.
-        if self.playing.total.is_zero()
+        if !self.source_played
             && let Some(fallback) = self
                 .source
                 .as_mut()
@@ -1151,6 +1415,7 @@ impl Worker {
             }
         }
         self.pending = None;
+        self.restore = None;
         self.pipeline = None;
         if self
             .source
@@ -1163,6 +1428,7 @@ impl Worker {
         snapshot.state = PlaybackState::Error;
         snapshot.source_kind = PlaybackSourceKind::None;
         snapshot.last_error = Some(error);
+        snapshot.source_expired = error == PlaybackError::SourceExpired;
         snapshot.seekable = false;
     }
 }
@@ -1800,6 +2066,10 @@ mod tests {
             output: PlaybackOutput::Fakesink,
             shared: shared.clone(),
             playing: PlayingClock::default(),
+            restore: None,
+            source_played: false,
+            test_age: Duration::ZERO,
+            expire_next_resume: false,
             source: Some(media.source()),
             pipeline: Some(ActivePipeline {
                 element,

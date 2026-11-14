@@ -464,6 +464,11 @@ fn native_search_retry_normalized_results_and_density() {
                         200,
                         json!({"result":{"tracks":[normalized_track("50")],"pager":{"page":0,"perPage":20,"total":1}}}),
                     ),
+                    path if request.starts_with("GET ")
+                        && super::tests::empty_similar_response(path).is_some() =>
+                    {
+                        (200, super::tests::empty_similar_response(path).unwrap())
+                    }
                     _ => panic!("unexpected synthetic search fixture route"),
                 };
                 let body = body.to_string();
@@ -820,18 +825,27 @@ fn native_search_retry_normalized_results_and_density() {
     );
     open_details(window, id, &result_rows[0]);
     pump_until(|| {
-        this.widgets.stack.visible_child_name().as_deref() == Some("detail")
+        this.widgets.stack.visible_child_name().as_deref() == Some("search")
+            && this.panel_mode.get() == workspace::PanelMode::TrackInfo
+            && this
+                .track_pane
+                .selected()
+                .is_some_and(|track| track.id == "50")
             && !this.model.borrow().busy
     });
     assert!(contains_text(
-        this.widgets.detail.upcast_ref(),
+        this.track_pane.widget.upcast_ref(),
         "Normalized synthetic track 50"
     ));
-    assert!(named_button(this.widgets.detail.upcast_ref(), "music-track-play").is_sensitive());
-    assert_eq!(counts.lock().unwrap().batches.len(), 4);
+    assert!(this.track_pane.play.is_sensitive());
+    assert_eq!(
+        counts.lock().unwrap().batches.len(),
+        3,
+        "opening normalized metadata uses the common Info pane without another batch"
+    );
     capture_native("search-normalized-track-detail");
-    input(&["key", "--clearmodifiers", "alt+Left"]);
-    pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("search"));
+    click(window, id, &this.track_pane.close);
+    pump_until(|| this.panel_mode.get() == workspace::PanelMode::Closed);
     for (width, height, name) in [(420, 720, "compact"), (1440, 900, "wide")] {
         window.set_default_size(width, height);
         pump_until(|| {
@@ -854,7 +868,11 @@ fn native_search_retry_normalized_results_and_density() {
     click(window, id, &this.widgets.search_all);
     pump_until(|| counts.lock().unwrap().searches.len() == 6 && !this.model.borrow().busy);
     assert!(this.model.borrow().search_scope.is_none());
-    assert_eq!(counts.lock().unwrap().batches.len(), 5);
+    assert_eq!(
+        counts.lock().unwrap().batches.len(),
+        4,
+        "returning to unified search adds one batch, without the removed track-page lookup"
+    );
     for (name, kind, _source) in [
         ("music-results-albums", ContextKind::Album, "7"),
         ("music-results-artists", ContextKind::Artist, "11"),

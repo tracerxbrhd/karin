@@ -35,6 +35,8 @@ Offer LRCLIB as a separately named, explicit user action. Before the request,
 the interface discloses that public title, first artist, optional album and
 known duration go to `https://lrclib.net/api/get`. Do not send Music account or
 track IDs, OAuth, cookies, headers, listening history or private collection names.
+The native confirmation dialog defaults to Cancel; only its explicit Search
+response submits metadata. Consent is per request, with no new saved preference.
 The existing no-redirect HTTP client supplies a truthful Karin User-Agent and
 accepts bounded JSON only. Require matching title/artist and compatible duration;
 404, instrumental or missing text are unavailable. Prefer admitted LRC over
@@ -54,8 +56,19 @@ of simultaneous lines. Reject invalid/control-heavy/oversized input. Metadata
 tags do not become fabricated lyric lines, and text is displayed literally,
 without HTML interpretation. Active-line lookup derives from the existing
 PlaybackController position, including backward seek and Pause; it owns no
-elapsed-time accumulator. The native lyrics expander loads lazily. Synchronized lines use GtkListView
-virtualization; wheel/keyboard/touch scrolling suspends following until the user
+elapsed-time accumulator. Lyrics is a distinct mode of the permanent universal
+panel, loaded lazily when that mode is visible. It has one full-height scroll
+area, not a GtkExpander or an embedded text field in Track Info. Plain TEXT uses
+selectable, spaced stanza/line labels and an honest “Без синхронизации” marker;
+no fabricated timestamps or editable TextView stand in for karaoke. A native
+Lyrics menu can copy the complete displayed Unicode text to the local clipboard,
+with LRC timestamps/metadata stripped by the existing parser. Selectable labels
+retain ordinary fragment selection and Ctrl+C. Synchronized lines use GtkListView
+virtualization and semantic past/current/future contrast. Automatic following
+centers the active area through a native 180 ms adjustment animation for adjacent
+lines, respecting reduced motion; a Seek jump moves immediately rather than
+replaying elapsed text. This animation changes only scroll position and owns no
+playback clock. Wheel/keyboard/touch scrolling suspends following until the user
 chooses “Следовать за воспроизведением”. Highlighting uses Playing/Paused/Ready
 position only while FollowingCurrent and the opaque inspected/current occurrence
 bindings agree. Explicit Details of another occurrence cannot borrow the playhead
@@ -68,7 +81,8 @@ track identity, admit at most 200 wire candidates and normalize at most 50 disti
 non-seed selectors in one existing canonical batch. Preserve provider order;
 malformed optional candidates, unavailable/missing rows and truncation count as
 omissions, never invented tracks. Account binding is checked around both reads.
-The independent Similar expander displays ten normalized results at a time,
+The independent Similar section is a normal heading in Track Info and loads
+when that information view is visible. It displays ten normalized results at a time,
 with user-requested Show More up to the admitted fifty and no new metadata query
 per display page. Use the ordinary artwork, Details, reaction, Play, Append and
 Play Next paths; recommendations neither start Wave nor acquire a separate

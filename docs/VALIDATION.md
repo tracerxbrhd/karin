@@ -1424,6 +1424,58 @@ search/sort, exact upcoming-queue edits and narrow GTK marker work reductions in
 one proposed change. The owner acceptance above is v0.7 evidence, not acceptance
 of these new content, coverage or gesture workflows.
 
+### Owner review of `927e5e9` and the Track Info/resume refinement
+
+The owner supplied Fedora Track Info captures showing plain text attributed to
+Yandex Music and populated similar-track rows. This confirms those displayed
+real-content paths for the reviewed run; it does not accept every related action,
+LRCLIB/LRC match, whole-library index or Native/installed-Flatpak combination.
+The owner rejected the overloaded action row, expander-based sections and small
+embedded lyric view. The separate long-pause report identifies a visible
+`SourceExpired` error after Resume. It is not evidence of lost Music rights,
+an invalid account or a failed CDN request on Cloud. No owner image, lyric,
+account field or real recording is copied into the repository.
+
+The continuing PR #29 refinement moves Lyrics into the same permanent panel as
+Track Info and Queue, replaces expander sections with direct related rows,
+removes the separate track page, and adds native menu/footer/copy/volume-wheel
+actions. Automatic same-occurrence source renewal is a separate player lifecycle
+change: its expiry/position/cancellation/Wave/MPRIS contracts require controlled
+original-audio fixtures as well as the final real desktop check. Authoring those
+fixtures or adding their CI selectors is not execution evidence. Current-head
+results belong to [PR #29 checks](https://github.com/tracerxbrhd/karin/pull/29/checks);
+the preceding `927e5e9` checks do not validate the new revision. The
+[single combined Fedora procedure](BUILDING.md#v08-final-fedora-acceptance)
+covers both UI and heard long-pause continuation on Native and installed Flatpak.
+
+The earlier Cloud cache/EOS timeout retained in the `927e5e9` handoff remains an
+unexplained sample despite successful focused/full repeats and its green CI.
+It is distinct from the owner's reproducible long-pause source-expiry defect;
+neither is assigned a service/access cause without corresponding evidence.
+
+On 2026-11-14 the development Rust 1.98.1 fixtures executed four real GStreamer
+renewal tests and the integrated ordinary-application Resume scenario, including
+controlled 10/30/60-minute source ages, current-occurrence/position/mode/volume
+preservation, access/cache resolution, cancellation, Wave and MPRIS. The full
+native Lyrics scenario passed selectable Unicode/Copy, safe LRCLIB consent,
+actual-position LRC centering, manual scroll/Follow and retired replies. Native
+menu, search and volume-wheel/MPRIS scenarios also ran successfully. These are
+original local audio/text and HTTP fixtures; no real account, elapsed-hour pause
+or Fedora acceptance is inferred. Final-source/compiler-matrix and Actions
+results remain separately identified in PR #29's execution receipts.
+
+A retained development run also failed the unchanged NGL scale-2 motion gate
+for wide Track Info opening: five distinct quarter frames were unavailable
+(sampled progress 0, 0.368, 0.725, 0.802, 0.972, 0.987, 1). Its scale-1 static
+and motion runs passed. The observed binary SHA-256 is
+`8cbcba09abb08657b56351f8fb87282494c9c0165b70dc4b59da73551f751077`.
+This failed Cloud software-rendering sample is retained without changing phase,
+timing, renderer or geometry assertions. Later final-head results do not erase
+it or establish its cause; no physical Fedora smoothness or resolution of #23
+is inferred from repeats.
+
+### v08 implementation and Cloud evidence
+
 The prepared Cloud toolchains for this integration are exact Rust 1.98.1 and
 stable **1.100.0** (`rustc 0ef1bc386`, 2026-11-09; stable manifest 2026-11-12).
 Earlier v0.7 results retain their original compiler versions. Intermediate
@@ -1446,8 +1498,8 @@ material is excluded. Related-track normalization validates the seed, bounds raw
 candidates and uses one canonical batch. Original synthetic lyrics/local HTTP
 fixtures cover error/absence, matching, rights, response/parser bounds, offsets,
 multiple/simultaneous LRC tags, actual-position lookup and account retirement.
-The native `native_v08_lyrics_similar_seek_and_stale_selection` fixture exercises
-real expanders, external opt-in, paused player seek, manual scrolling, related
+The native `native_v08_lyrics_similar_seek_and_stale_selection` fixture covers
+Lyrics/Track Info presentation, external opt-in, paused player seek, manual scrolling, related
 row actions and late selection/logout replies. It is not a live lyric/catalog test.
 
 Explicit collection-index fixtures use memberships beyond the old 2,000-position

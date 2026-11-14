@@ -111,6 +111,7 @@ fn serve(mut stream: TcpStream, counts: &Counts, release: &(Mutex<bool>, Condvar
         "/albums/7/with-tracks" => "album",
         "/artists/11/tracks" => "artist",
         path if path.starts_with("/tracks/") && path.ends_with("/download-info") => "delivery-info",
+        path if crate::ui::music::tests::empty_similar_response(path).is_some() => "similar",
         _ => "unexpected",
     };
     let total = counts.all.fetch_add(1, Ordering::AcqRel) + 1;
@@ -195,6 +196,14 @@ fn serve(mut stream: TcpStream, counts: &Counts, release: &(Mutex<bool>, Condvar
         path if path.starts_with("/tracks/") && path.ends_with("/download-info") => {
             counts.offers.fetch_add(1, Ordering::AcqRel);
             (200, json!({"result":[]}))
+        }
+        path if request.starts_with("GET ")
+            && crate::ui::music::tests::empty_similar_response(path).is_some() =>
+        {
+            (
+                200,
+                crate::ui::music::tests::empty_similar_response(path).unwrap(),
+            )
         }
         _ => panic!("unexpected synthetic collection-filter route"),
     };

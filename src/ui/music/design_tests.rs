@@ -430,6 +430,21 @@ impl Fixture {
                             "albums":{"total":1,"perPage":20,"page":0,"results":[{"id":7,"title":"Тихие улицы","coverUri":cover(1),"artists":[{"id":11,"name":"Aster Field"}]}]},
                             "artists":{"total":1,"perPage":20,"page":0,"results":[{"id":11,"name":"Aster Field","cover":{"uri":cover(0)}}]},
                             "playlists":{"total":3,"perPage":20,"page":0,"results":(0..3).map(playlist).collect::<Vec<_>>()}}}),
+                        path if headers.starts_with("GET ")
+                            && tests::empty_similar_response(path).is_some() =>
+                        {
+                            tests::empty_similar_response(path).unwrap()
+                        }
+                        path if headers.starts_with("GET ")
+                            && path
+                                .strip_prefix("/tracks/")
+                                .and_then(|id| id.strip_suffix("/supplement"))
+                                .and_then(|id| id.parse::<usize>().ok())
+                                .is_some_and(|id| (1..=8).contains(&id)) =>
+                        {
+                            json!({"result":{"lyrics":{"hasRights":true,
+                                "fullLyrics":(1..=18).map(|line| format!("Original lyric verse {line}\nОригинальная строка для проверки интерфейса")).collect::<Vec<_>>().join("\n\n")}}})
+                        }
                         _ => panic!("unexpected synthetic design API route"),
                     };
                     reply(
@@ -473,12 +488,19 @@ fn set_panel(ui: &crate::ui::MainWindow, mode: workspace::PanelMode) {
     let this = &ui.music.controller;
     let previous = this.panel_mode.get();
     if previous != mode {
-        let action = match (previous, mode) {
-            (PanelMode::Queue, PanelMode::Closed) => "win.music-queue",
-            (_, PanelMode::Queue) => "win.music-queue",
-            _ => "win.music-info",
-        };
-        gtk::prelude::WidgetExt::activate_action(&ui.window, action, None).unwrap();
+        if mode == PanelMode::Lyrics || (previous == PanelMode::Lyrics && mode == PanelMode::Closed)
+        {
+            // Lyrics is the existing footer's native toggle, not the Info
+            // action: using Info here would switch to a different mode.
+            native_click(ui, &this.widgets.lyrics);
+        } else {
+            let action = match (previous, mode) {
+                (PanelMode::Queue, PanelMode::Closed) => "win.music-queue",
+                (_, PanelMode::Queue) => "win.music-queue",
+                _ => "win.music-info",
+            };
+            gtk::prelude::WidgetExt::activate_action(&ui.window, action, None).unwrap();
+        }
     }
     pump(|| this.panel_mode.get() == mode);
     pump(|| {
@@ -804,7 +826,11 @@ fn assert_short_info_actions_visible(ui: &crate::ui::MainWindow) {
     let pane = &ui.music.controller.track_pane;
     let scroll = named_widget(&pane.widget, "music-track-pane-scroll");
     let viewport = scroll.compute_bounds(&ui.window).unwrap();
-    for action in [&pane.play, &pane.enqueue, &pane.details] {
+    for action in [
+        pane.play.upcast_ref::<gtk::Widget>(),
+        pane.enqueue.upcast_ref::<gtk::Widget>(),
+        pane.menu.upcast_ref::<gtk::Widget>(),
+    ] {
         assert!(
             action.is_mapped(),
             "normal TrackInfo action must actually map"
@@ -1270,8 +1296,8 @@ fn native_design_matched_matrix_and_populated_surfaces() {
         .set_gtk_enable_animations(true);
     activate_design_player_observed(&ui, &fixture, true);
     evidence(&ui, "surface-player-visible-paused");
-    // Nine geometries × three genuine panel modes × two themes × two
-    // separate scale processes =108 current images. The archived 2e3 baseline
+    // Nine geometries × four genuine panel modes × two themes × two
+    // separate scale processes =144 current images. The archived 2e3 baseline
     // adds only this reference-size tuple to its original test harness; its
     // application source and complete motion checks remain unchanged.
     for (width, height, name) in [
@@ -1289,6 +1315,7 @@ fn native_design_matched_matrix_and_populated_surfaces() {
         for (mode, label) in [
             (workspace::PanelMode::Closed, "closed"),
             (workspace::PanelMode::TrackInfo, "track"),
+            (workspace::PanelMode::Lyrics, "lyrics"),
             (workspace::PanelMode::Queue, "queue"),
         ] {
             set_panel(&ui, mode);
@@ -1297,6 +1324,13 @@ fn native_design_matched_matrix_and_populated_surfaces() {
                 assert_short_info_actions_visible(&ui);
             } else if mode == workspace::PanelMode::Queue {
                 pump(|| textures(&this.widgets.queue_rows) > 0);
+            } else if mode == workspace::PanelMode::Lyrics {
+                pump(|| {
+                    tests::contains_text(
+                        this.track_pane.extras.lyrics_widget.upcast_ref(),
+                        "Original lyric verse 1",
+                    )
+                });
             } else {
                 pump(|| textures(&this.widgets.library_rows) > 0);
             }
@@ -1324,6 +1358,7 @@ fn native_design_matched_matrix_and_populated_surfaces() {
     for (mode, label) in [
         (workspace::PanelMode::Closed, "closed"),
         (workspace::PanelMode::TrackInfo, "track"),
+        (workspace::PanelMode::Lyrics, "lyrics"),
         (workspace::PanelMode::Queue, "queue"),
     ] {
         set_panel(&ui, mode);
@@ -2448,6 +2483,16 @@ fn record_motion(
     save_motion_frames(ui, &frames, phases, name);
 }
 
+fn native_open_panel_mode(ui: &crate::ui::MainWindow, mode: workspace::PanelMode) {
+    let this = &ui.music.controller;
+    match mode {
+        workspace::PanelMode::TrackInfo => native_click(ui, &this.widgets.current_art_button),
+        workspace::PanelMode::Lyrics => native_click(ui, &this.widgets.lyrics),
+        workspace::PanelMode::Queue => native_click(ui, &this.widgets.queue),
+        workspace::PanelMode::Closed => panic!("this native action opens a panel mode"),
+    }
+}
+
 #[test]
 #[ignore = "real ordinary GTK animation after recorded graphics initialization; run at both scales"]
 fn native_universal_panel_whole_surface_motion_and_mode_switch() {
@@ -2481,6 +2526,7 @@ fn native_universal_panel_whole_surface_motion_and_mode_switch() {
             resize(&ui, width, height);
             for (mode, label) in [
                 (workspace::PanelMode::TrackInfo, "track"),
+                (workspace::PanelMode::Lyrics, "lyrics"),
                 (workspace::PanelMode::Queue, "queue"),
             ] {
                 let surface = panel.surface().unwrap();
@@ -2512,6 +2558,11 @@ fn native_universal_panel_whole_surface_motion_and_mode_switch() {
                     if this.track_pane.album.is_visible() {
                         children.push(this.track_pane.album.clone().upcast());
                     }
+                } else if mode == workspace::PanelMode::Lyrics {
+                    children.extend([
+                        this.track_pane.back_info.clone().upcast(),
+                        this.track_pane.extras.lyrics_widget.clone().upcast(),
+                    ]);
                 } else {
                     children.extend([
                         this.widgets.queue_count.clone().upcast(),
@@ -2524,16 +2575,7 @@ fn native_universal_panel_whole_surface_motion_and_mode_switch() {
                     &panel,
                     children.clone(),
                     &format!("{shape}-{theme}-{label}"),
-                    || {
-                        if mode == workspace::PanelMode::TrackInfo {
-                            native_click(&ui, &this.widgets.current_art_button);
-                        } else {
-                            native_click(
-                                &ui,
-                                &named_widget(&ui.music.player_bar, "music-queue-toggle"),
-                            );
-                        }
-                    },
+                    || native_open_panel_mode(&ui, mode),
                     || native_click(&ui, &this.track_pane.close),
                 );
                 assert_eq!(this.panel_mode.get(), workspace::PanelMode::Closed);
@@ -2543,16 +2585,7 @@ fn native_universal_panel_whole_surface_motion_and_mode_switch() {
                     children.clone(),
                     true,
                     &format!("{shape}-{theme}-{label}-opening"),
-                    || {
-                        if mode == workspace::PanelMode::TrackInfo {
-                            native_click(&ui, &this.widgets.current_art_button);
-                        } else {
-                            native_click(
-                                &ui,
-                                &named_widget(&ui.music.player_bar, "music-queue-toggle"),
-                            );
-                        }
-                    },
+                    || native_open_panel_mode(&ui, mode),
                 );
                 assert_eq!(this.panel_mode.get(), mode);
                 record_motion(
@@ -2572,6 +2605,31 @@ fn native_universal_panel_whole_surface_motion_and_mode_switch() {
             let surface = panel.surface().unwrap();
             let before = surface.compute_bounds(&ui.window).unwrap();
             let close = this.track_pane.close.compute_bounds(&ui.window).unwrap();
+            native_click(&ui, &this.widgets.lyrics);
+            pump(|| this.panel_mode.get() == workspace::PanelMode::Lyrics);
+            settle();
+            assert!(panel.is_child_revealed());
+            assert_eq!(surface, panel.surface().unwrap());
+            assert_eq!(before, surface.compute_bounds(&ui.window).unwrap());
+            let lyrics_close = this.track_pane.close.compute_bounds(&ui.window).unwrap();
+            if this.info_host.borrow().as_ref().unwrap().presentation()
+                == super::workspace::InfoPresentation::Compact
+            {
+                // Compact Info/Queue have Back to Music. Lyrics has the
+                // different Back to Info action in that same leading slot,
+                // plus an explicit Close at the trailing edge.
+                assert_eq!(
+                    close,
+                    this.track_pane
+                        .back_info
+                        .compute_bounds(&ui.window)
+                        .unwrap()
+                );
+                let trailing = before.x() + before.width();
+                assert!((trailing - lyrics_close.x() - lyrics_close.width()).abs() <= 24.0);
+            } else {
+                assert_eq!(close, lyrics_close);
+            }
             native_click(
                 &ui,
                 &named_widget(&ui.music.player_bar, "music-queue-toggle"),

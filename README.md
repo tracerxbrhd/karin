@@ -33,15 +33,19 @@ Actual GTK captures with synthetic library data and original test artwork.
 
 - Yandex sign-in, liked tracks, personal playlists and catalog search.
 - Explicit whole-collection indexing, Unicode title/artist/album search and sorting.
-- Track details and confirmed owned-playlist creation/editing.
-- Source-labelled plain/LRC lyrics in Track Info, with an explicit external option.
+- Track information in one pinned panel and confirmed owned-playlist creation/editing.
+- A dedicated plain/LRC Lyrics mode in that same panel, with copying, Follow
+  and an explicit external source option.
 - Similar tracks using ordinary playback, queue and reaction actions.
 - Playback queue, position and Shuffle/Repeat restoration without autoplay.
 - Distinct Like/Dislike controls with account-bound read-after-write confirmation.
 - Contextual queues, Play Next, exact drag/keyboard reordering, Shuffle/Repeat,
   seek and volume through GStreamer.
+- Explicit Resume renews expired source admission for the same occurrence and
+  restores its position through the existing cache/resolver path.
 - My Wave personal radio from Home, using the same queue, player and MPRIS.
-- A pinned track information / queue panel, responsive layouts, light/dark themes and HiDPI.
+- A shared Track Info / Lyrics / Queue panel, a footer Lyrics action and
+  volume-wheel control, responsive layouts, light/dark themes and HiDPI.
 - MPRIS media controls and metadata for KDE Plasma and other Linux desktops.
 - Protected remembered sign-in and one account-scoped cache for metadata,
   artwork and eligible online-revalidated MP3 responses.
@@ -96,7 +100,9 @@ arrive. See [validation](docs/VALIDATION.md#owner-acceptance-of-pr-28--2026-11-1
 
 The integrated **v0.8** work adds plain/synchronized text, related tracks,
 explicit complete supported-collection indexing, exact queue edits and narrow
-UI-update optimizations. Lyrics use the allowed legacy full-text contract or an
+UI-update optimizations. Track Info has a compact action row and native menu;
+Lyrics and Queue switch inside its existing panel rather than separate pages.
+Lyrics use the allowed legacy full-text contract or an
 explicitly disclosed LRCLIB metadata lookup; no extracted modern signing key is
 included. The supported index reaches 20,000 original positions with bounded
 batches and result windows; it does not scan the whole library on startup or

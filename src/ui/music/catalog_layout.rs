@@ -919,15 +919,6 @@ impl Controller {
         hero.prepend(&art);
     }
 
-    pub(super) fn track_menu_context(
-        self: &Rc<Self>,
-        track: &Track,
-        context: Option<PlaybackContext>,
-    ) -> gtk::MenuButton {
-        let allow_standalone = context.is_none();
-        self.track_menu_source(track, Rc::new(move || context.clone()), allow_standalone)
-    }
-
     fn track_menu_source(
         self: &Rc<Self>,
         track: &Track,
@@ -949,7 +940,7 @@ impl Controller {
         detail.add_css_class("flat");
         let weak = Rc::downgrade(self);
         let close = popover.downgrade();
-        let id = track.id.clone();
+        let inspected = track.clone();
         let detail_context = context.clone();
         detail.connect_clicked(move |_| {
             if let Some(popover) = close.upgrade() {
@@ -961,7 +952,7 @@ impl Controller {
             }) {
                 let selected_context = detail_context();
                 if allow_standalone || selected_context.is_some() {
-                    this.open_track_context(id.clone(), selected_context);
+                    this.open_loaded_track_info(inspected.clone(), selected_context);
                 }
             }
         });
@@ -1117,107 +1108,6 @@ impl Controller {
         });
         failure.set_child(Some(&button));
         self.widgets.detail.append(&failure);
-    }
-
-    pub(super) fn open_track_context(
-        self: &Rc<Self>,
-        id: String,
-        context: Option<PlaybackContext>,
-    ) {
-        self.open_track_policy(id, context, false);
-    }
-
-    pub(super) fn open_track_policy(
-        self: &Rc<Self>,
-        id: String,
-        context: Option<PlaybackContext>,
-        force: bool,
-    ) {
-        let retry_context = context.clone();
-        self.detail_loading("Сведения о треке", "Загрузка трека…");
-        let info_epoch = self.info_target_epoch();
-        let refresh_id = id.clone();
-        let refresh_context = context.clone();
-        self.detail_refresh.replace(Some(Rc::new(move |this| {
-            this.open_track_policy(refresh_id.clone(), refresh_context.clone(), true)
-        })));
-        let retry_id = id.clone();
-        self.run_catalog(
-            Operation::Detail,
-            None,
-            force,
-            move |service, token, catalog, force| match catalog {
-                Some(catalog) => catalog.track(&service, &token, &id, force),
-                None => service.track(&token, &id).map(catalog_view::network),
-            },
-            move |this, result| match result {
-                Ok(track) => {
-                    this.select_track_info_if_current(info_epoch, track.clone(), context.clone());
-                    let mut facts = track.artists.join(", ");
-                    if let Some(duration) = track.duration_ms.map(format_duration) {
-                        if !facts.is_empty() {
-                            facts.push_str(" · ");
-                        }
-                        facts.push_str(&duration);
-                    }
-                    this.detail_header(&track.title, &facts);
-                    this.detail_cover(track.cover.as_ref());
-                    if !track.available {
-                        this.widgets
-                            .detail
-                            .append(&text("Сервис пометил трек как недоступный.", "dim-label"));
-                    }
-                    let button = if let Some(context) = context.clone() {
-                        this.context_play_button(&track, false, context)
-                    } else {
-                        this.track_play_button(&track, false)
-                    };
-                    button.set_label("Слушать");
-                    let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-                    actions.add_css_class("music-collection-actions");
-                    actions.append(&button);
-                    let add = icon_button("list-add-symbolic", "Добавить в очередь");
-                    add.add_css_class("flat");
-                    let weak = Rc::downgrade(this);
-                    let queued = track.clone();
-                    add.connect_clicked(move |_| {
-                        if let Some(this) = weak.upgrade() {
-                            this.enqueue(queued.clone());
-                        }
-                    });
-                    actions.append(&add);
-                    actions.append(&this.track_menu_context(&track, context.clone()));
-                    this.place_detail_actions(&actions);
-                    this.widgets
-                        .detail
-                        .append(&this.like_controls(track.id.clone()));
-                    if this.model.borrow().delivery_diagnostic {
-                        this.delivery_action(track.id.clone());
-                    }
-                    if let Some(album_id) = track.album_id {
-                        let album = gtk::Button::with_label(
-                            track.album_title.as_deref().unwrap_or("Открыть альбом"),
-                        );
-                        album.set_halign(gtk::Align::Start);
-                        if let Some(label) = album.child().and_downcast::<gtk::Label>() {
-                            label.set_wrap(true);
-                            label.set_wrap_mode(gtk::pango::WrapMode::WordChar);
-                        }
-                        let weak = Rc::downgrade(this);
-                        album.connect_clicked(move |_| {
-                            if let Some(this) = weak.upgrade() {
-                                this.open_album(album_id.clone());
-                            }
-                        });
-                        this.widgets.detail.append(&album);
-                    }
-                    this.widgets.status.set_title("Сведения о треке получены.");
-                }
-                Err(error) => this.detail_error(error, move |this| {
-                    this.open_track_context(retry_id.clone(), retry_context.clone())
-                }),
-            },
-        );
     }
 
     pub(super) fn open_album(self: &Rc<Self>, id: String) {

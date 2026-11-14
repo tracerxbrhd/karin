@@ -7,6 +7,7 @@ use adw::prelude::*;
 use crate::settings::{ColorScheme, Preferences, UiStyle};
 
 const SYSTEM_CSS: &str = include_str!("../../resources/styles/system.css");
+const LYRICS_CSS: &str = include_str!("../../resources/styles/lyrics.css");
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct AppliedAppearance {
@@ -81,7 +82,7 @@ pub(super) fn install() {
             return;
         }
         let provider = gtk::CssProvider::new();
-        provider.load_from_string(SYSTEM_CSS);
+        provider.load_from_string(&format!("{SYSTEM_CSS}\n{LYRICS_CSS}"));
         gtk::style_context_add_provider_for_display(
             &display,
             &provider,

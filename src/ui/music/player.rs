@@ -16,6 +16,8 @@ use crate::{
     stream::{DeliveryCancellation, DeliveryReport, StreamResolver},
 };
 
+mod source_renewal;
+
 struct Intent {
     serial: u64,
     session: u64,
@@ -62,6 +64,8 @@ pub(super) struct MusicPlayback {
     cache_fill_prepared: Option<crate::audio_cache::bridge::Fill>,
     #[cfg(test)]
     fixture_resolver: Option<StreamResolver>,
+    renewal: Option<source_renewal::Renewal>,
+    renewal_serial: u64,
 }
 
 impl Default for MusicPlayback {
@@ -94,6 +98,8 @@ impl Default for MusicPlayback {
             cache_fill_prepared: None,
             #[cfg(test)]
             fixture_resolver: None,
+            renewal: None,
+            renewal_serial: 0,
         }
     }
 }
@@ -177,59 +183,6 @@ impl Controller {
             this.tick_playback_restore();
             glib::ControlFlow::Continue
         });
-    }
-
-    pub(super) fn track_play_button(self: &Rc<Self>, track: &Track, compact: bool) -> gtk::Button {
-        let button = Self::music_play_button(track, compact);
-        let generation = self.model.borrow().generation;
-        let weak = Rc::downgrade(self);
-        let selected = track.clone();
-        button.connect_clicked(move |_| {
-            if let Some(this) = weak
-                .upgrade()
-                .filter(|this| this.model.borrow().generation == generation)
-            {
-                this.play_music_track(selected.clone());
-            }
-        });
-        button
-    }
-
-    pub(super) fn context_play_button(
-        self: &Rc<Self>,
-        track: &Track,
-        compact: bool,
-        context: PlaybackContext,
-    ) -> gtk::Button {
-        let button = Self::music_play_button(track, compact);
-        let generation = self.model.borrow().generation;
-        let weak = Rc::downgrade(self);
-        button.connect_clicked(move |_| {
-            if let Some(this) = weak
-                .upgrade()
-                .filter(|this| this.model.borrow().generation == generation)
-            {
-                this.play_music_context(context.clone());
-            }
-        });
-        button
-    }
-
-    fn music_play_button(track: &Track, compact: bool) -> gtk::Button {
-        let button = if compact {
-            icon_button("media-playback-start-symbolic", "Воспроизвести трек")
-        } else {
-            let button = gtk::Button::with_label("Воспроизвести");
-            button.add_css_class("suggested-action");
-            button.set_halign(gtk::Align::Start);
-            button
-        };
-        button.set_widget_name("music-track-play");
-        button.set_sensitive(track.available);
-        if !track.available {
-            button.set_tooltip_text(Some("Трек недоступен по данным сервиса"));
-        }
-        button
     }
 
     pub(super) fn play_music_context(self: &Rc<Self>, context: PlaybackContext) {
@@ -351,18 +304,28 @@ impl Controller {
 
     pub(super) fn toggle_music(self: &Rc<Self>) {
         if self.music_requested() {
+            if self.source_renewal_active() {
+                self.pause_music();
+            }
             return;
         }
         let snapshot = self.music_snapshot();
         match snapshot.as_ref().map(|snapshot| snapshot.state) {
             Some(PlaybackState::Playing) => self.pause_music(),
-            Some(PlaybackState::Paused) => self.music_command(PlaybackController::resume),
+            Some(PlaybackState::Paused) => self.resume_current_source(),
             Some(PlaybackState::Ready) => {
                 if let Some(snapshot) = &snapshot {
                     self.play_prepared_music(snapshot);
                 }
             }
             Some(PlaybackState::Loading) => {}
+            Some(PlaybackState::Error)
+                if snapshot
+                    .as_ref()
+                    .is_some_and(|s| s.last_error == Some(PlaybackError::SourceExpired)) =>
+            {
+                self.resume_current_source()
+            }
             _ => self.request_music(
                 true,
                 snapshot
@@ -373,6 +336,9 @@ impl Controller {
     }
 
     pub(super) fn play_music(self: &Rc<Self>) {
+        if self.play_pending_source_renewal() {
+            return;
+        }
         {
             let mut player = self.player.borrow_mut();
             player.play_intent = true;
@@ -390,11 +356,18 @@ impl Controller {
         let snapshot = self.music_snapshot();
         match snapshot.as_ref().map(|snapshot| snapshot.state) {
             Some(PlaybackState::Playing | PlaybackState::Loading) => {}
-            Some(PlaybackState::Paused) => self.music_command(PlaybackController::resume),
+            Some(PlaybackState::Paused) => self.resume_current_source(),
             Some(PlaybackState::Ready) => {
                 if let Some(snapshot) = &snapshot {
                     self.play_prepared_music(snapshot);
                 }
+            }
+            Some(PlaybackState::Error)
+                if snapshot
+                    .as_ref()
+                    .is_some_and(|s| s.last_error == Some(PlaybackError::SourceExpired)) =>
+            {
+                self.resume_current_source()
             }
             _ => self.request_music(
                 true,
@@ -406,6 +379,9 @@ impl Controller {
     }
 
     pub(super) fn pause_music(&self) {
+        if self.pause_source_renewal() {
+            return;
+        }
         if self
             .music_snapshot()
             .is_some_and(|snapshot| snapshot.state == PlaybackState::Playing)
@@ -416,6 +392,10 @@ impl Controller {
     }
 
     fn play_prepared_music(self: &Rc<Self>, snapshot: &PlaybackSnapshot) {
+        if snapshot.source_expired {
+            self.resume_current_source();
+            return;
+        }
         self.arm_prepared_cache_fill();
         // The worker can reach Ready between GUI polls. Explicit Play must
         // consume that preparation before the worker leaves Ready; otherwise
@@ -443,6 +423,12 @@ impl Controller {
     }
 
     pub(super) fn seek_music(&self, position: Duration) {
+        if position.as_nanos() > i64::MAX as u128 {
+            return;
+        }
+        if self.seek_source_renewal(position) {
+            return;
+        }
         let before = self
             .music_snapshot()
             .map_or(0, |snapshot| snapshot.seek_serial);
@@ -670,6 +656,7 @@ impl Controller {
             this.render_music_player();
             // One running resolution and only the latest pending intent.
             this.begin_music_resolution();
+            this.begin_source_renewal();
         });
     }
 
@@ -736,6 +723,7 @@ impl Controller {
     /// Ordinary source replacement stops only the one native player. Already
     /// requested independent cache downloads retain their bounded tickets.
     pub(super) fn stop_music_engine(&self) {
+        self.cancel_source_renewal();
         let (old, owned_error) = {
             let mut player = self.player.borrow_mut();
             player.serial = player.serial.wrapping_add(1);
@@ -845,11 +833,13 @@ impl Controller {
     }
 
     pub(super) fn music_snapshot(&self) -> Option<PlaybackSnapshot> {
-        self.player
+        let snapshot = self
+            .player
             .borrow()
             .controller
             .as_ref()
-            .map(PlaybackController::snapshot)
+            .map(PlaybackController::snapshot);
+        self.resume_presentation(snapshot)
     }
 
     /// Native tests retain the actual worker handle to observe its shutdown;
@@ -978,6 +968,10 @@ impl Controller {
             return;
         }
         let snapshot = self.music_snapshot();
+        if self.tick_source_renewal() {
+            self.render_music_player();
+            return;
+        }
         if snapshot.as_ref().is_some_and(|snapshot| {
             snapshot.state == PlaybackState::Error
                 && snapshot.last_error == Some(PlaybackError::CachedSourceUnavailable)
@@ -1178,6 +1172,9 @@ impl Controller {
         self.note_playback_intent();
         self.observe_wave_snapshot(self.music_snapshot().as_ref());
         let (active, autoplay) = self.continuation();
+        if !eos {
+            self.cancel_source_renewal();
+        }
         let (advanced, changed_occurrence) = {
             let mut model = self.model.borrow_mut();
             let before = model.queue.current_index();
@@ -1336,7 +1333,8 @@ impl Controller {
     pub(super) fn render_music_player(&self) {
         let model = self.model.borrow();
         let player = self.player.borrow();
-        let snapshot = player.controller.as_ref().map(PlaybackController::snapshot);
+        let snapshot =
+            self.resume_presentation(player.controller.as_ref().map(PlaybackController::snapshot));
         let state = snapshot
             .as_ref()
             .map_or(PlaybackState::Idle, |snapshot| snapshot.state);
@@ -1370,6 +1368,8 @@ impl Controller {
                 Failure::Engine(error) if music_command_failure(error) => "Действие недоступно",
                 Failure::Engine(_) => "Ошибка воспроизведения",
             }
+        } else if player.requested && self.source_renewal_active() {
+            "Возобновляем воспроизведение…"
         } else if player.requested {
             "Получаем аудио…"
         } else if player.preparing.is_some() {
@@ -1406,7 +1406,8 @@ impl Controller {
         let spinner_loading = loading
             && active_footer
             && player.failure.is_none()
-            && !matches!(state, PlaybackState::Paused | PlaybackState::Error);
+            && (self.source_renewal_active()
+                || !matches!(state, PlaybackState::Paused | PlaybackState::Error));
         player_bar::set_play_presentation(
             &self.widgets.play,
             state == PlaybackState::Playing,
@@ -1429,7 +1430,7 @@ impl Controller {
         self.widgets.play.set_sensitive(
             ready
                 && selected.is_some_and(|track| track.available)
-                && !loading
+                && (!loading || self.source_renewal_active())
                 && (self.wave_current_allowed()
                     || matches!(
                         state,
