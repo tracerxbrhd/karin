@@ -20,6 +20,7 @@ pub mod music;
 pub mod oauth;
 pub mod platform;
 pub mod playback;
+pub(crate) mod playback_session;
 pub mod queue;
 pub mod session;
 pub mod session_lifecycle;

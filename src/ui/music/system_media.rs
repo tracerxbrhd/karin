@@ -327,7 +327,11 @@ impl Controller {
                 length_us: duration,
                 artwork: media.cover.as_ref().and_then(|cover| cover.artwork.clone()),
             }),
-            position_us: snapshot.as_ref().and_then(|s| s.position).map_or(0, micros),
+            position_us: snapshot
+                .as_ref()
+                .and_then(|s| s.position)
+                .or_else(|| self.continuation_position())
+                .map_or(0, micros),
             volume: snapshot
                 .as_ref()
                 .map_or_else(|| self.music_volume(), |snapshot| snapshot.volume),

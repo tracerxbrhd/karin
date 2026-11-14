@@ -28,6 +28,26 @@ record does not announce a tagged or published release. PR #15 was merged into
 `master` as [`562596b`](https://github.com/tracerxbrhd/karin/commit/562596b990b5cd87c763af41120bad7830fda551).
 That merge does not automatically accept later stability changes on Fedora.
 
+## Owner acceptance of PR #26 — 2026-11-11
+
+The owner explicitly accepted [`c1de869`](https://github.com/tracerxbrhd/karin/commit/c1de869361f36f5c749dec2b283ce56a356f06f2)
+on real Yandex Music: Native playback, complete background MP3 saving, local
+cache hits and local playback after application restart; installed Flatpak
+playback, audio caching and local hits after restart. Downloading/Saved graphics
+are provisionally accepted; their later visual refinement belongs to the actual
+new design. This does not infer unreported per-device/failure/backend checks.
+
+The accepted HEAD had eight successful final-source CI jobs, no intervening
+unreviewed changes, and a clean merge base. PR #26 was made ready and normally
+merged at [`1fd4028`](https://github.com/tracerxbrhd/karin/commit/1fd40289771af5a627e05eaaa47d2e6381de4b89),
+preserving both parents and all development commits. `master` contains the accepted
+HEAD. Earlier FAIL/pending entries below remain revision-specific history; the
+real cache replay/restart requirement is now owner-confirmed in both packages.
+
+This technical acceptance does not establish public OAuth/service/content
+redistribution permission, offline lifetimes or a release. #5/#22 stay separate.
+The v0.7 restoration/playlist/style work has no inherited desktop acceptance.
+
 ## Automated coverage
 
 The [CI workflow](../.github/workflows/ci.yml) tests stable Rust and exact
@@ -1326,3 +1346,49 @@ Exercise real-account Music and desktop integration only on the consenting
 owner's local installation, without copying credentials or personal captures
 into Cloud/CI/GitHub. Use [UI_QUALITY_GATE.md](UI_QUALITY_GATE.md) for substantial
 UI changes, and retain the exact source revision and environment with results.
+
+## v0.7 combined continuation, playlist and appearance change
+
+[Draft PR #28](https://github.com/tracerxbrhd/karin/pull/28), branch
+`feature/v0.7-playback-playlists-appearance`, starts at the accepted normal
+PR #26 merge `1fd4028`. Issues #19/#21 remain open pending the one final owner
+Native/installed-Flatpak acceptance; the new functions are not accepted merely
+because the earlier audio/cache path was accepted.
+
+The changes add account-bound IDs-only ordinary playback snapshots, exact
+occurrence/Shuffle continuation without autoplay, fresh batch normalization and
+explicit cache/resolver Play with saved seek. Stop/forget/logout have durable
+suppression; radio is never serialized. Confirmed playlist Insert/Remove/Move,
+Rename/Visibility/Delete use ownership, complete positions/revision, one POST,
+independent readback and GET-only uncertainty recovery. Metadata endpoints have
+no confirmed server revision CAS. System presentation and color scheme are
+independent; schema 3 migrates old preferences, while Karin Style remains visibly
+unavailable. See ADR-0031/0032/0033 and [the implementation boundary](ARCHITECTURE.md).
+
+The native registration now includes 38 selectors: the original 37 plus
+`native_v07_playback_restore_playlist_appearance_process_restart`. Its real OS
+subprocesses use the ordinary MainWindow factory, a synthetic protected-store
+backend, current account HTTP validation, production cache/resolver policy,
+original CC0 audio and actual GStreamer/MPRIS. Counted requests distinguish local
+CachedFile replay from a new media GET; fresh offer validation still occurs.
+The same retained profile exercises restart, exact duplicate/current/order/mode/
+position, missing/deleted sources, unavailable/wrong-account/corrupt/version
+records, Stop/logout and honest partial views. Held credential-save fixtures
+cover manual sign-in and fast-close/restart; a held batch reply tests logout
+before late restoration can publish. A separate HTTP 503 phase seeds an inherited
+storage retry and invokes ordinary periodic saving without a forced flush: the
+valid record must remain byte-identical, then native Retry must recover its
+queue/position without an audio request. Real native editor clicks while
+cached audio plays cover each mutation, Cancel-default deletion and stale-row
+callbacks. Appearance changes must retain that exact queue and player worker.
+New dialog captures supplement measured GTK layout at compact/medium/wide,
+both themes and both scales; Preferences additionally checks synthetic desktop
+scheme/high contrast, native focus and unavailable-style presentation.
+
+Ignored listings are not passes. Final executed results and immutable source/
+artifact identities belong to [PR #28 checks](https://github.com/tracerxbrhd/karin/pull/28/checks)
+and its handoff report. Existing timing/geometry, navigating WebKit sandbox,
+Wave, MPRIS, native cache-process and archived visual-baseline gates remain.
+Cloud original-audio/HTTP fixtures establish no real service mutation, physical
+PipeWire output, KDE portal behavior, installed Flatpak or future Karin design
+acceptance. Use the [single final procedure](BUILDING.md#v07-final-fedora-acceptance).

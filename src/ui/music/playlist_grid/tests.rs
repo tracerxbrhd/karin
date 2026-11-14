@@ -165,6 +165,8 @@ fn native_workspace_playlist_grid_input_states_and_resize() {
         .default_height(650)
         .content(&scroll)
         .build();
+    crate::ui::style::attach(&window);
+    assert!(window.has_css_class("karin-style-system"));
     window.present();
     pump_until(|| grid.tiles.is_mapped() && grid.tiles.width() > 0);
     wait_responsive_covers(&grid);

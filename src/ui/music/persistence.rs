@@ -12,12 +12,15 @@ use crate::{
     cache_budget::CacheBudget,
     credentials::{BackendKind, CredentialStore, StorageError},
     session_lifecycle::{PersistenceTicket, SessionPersistence},
-    settings::{Appearance, LoadStatus, Preferences, SettingsError, SettingsLoad, SettingsStore},
+    settings::{LoadStatus, Preferences, SettingsError, SettingsLoad, SettingsStore},
 };
 use std::{
     path::PathBuf,
     sync::atomic::{AtomicUsize, Ordering},
 };
+
+#[cfg(test)]
+use crate::settings::Appearance;
 
 thread_local! {
     // A reopened native window may otherwise create independent stores while
@@ -45,6 +48,11 @@ impl DurableWork {
         count.fetch_add(1, Ordering::AcqRel);
         Self(count)
     }
+}
+
+pub(super) struct PlaybackSaveConfirmation {
+    settings: SettingsStore,
+    durable: Arc<AtomicUsize>,
 }
 impl Drop for DurableWork {
     fn drop(&mut self) {
@@ -83,15 +91,15 @@ pub(super) struct State {
     row: adw::ActionRow,
     spinner: gtk::Spinner,
     retry_button: gtk::Button,
-    enabled: bool,
+    pub(super) enabled: bool,
     started: bool,
     retry_connected: bool,
-    closed: bool,
+    pub(super) closed: bool,
     settings: Option<SettingsStore>,
     manager: Option<SessionPersistence>,
     injected: Option<(SettingsStore, CredentialStore)>,
-    values: Preferences,
-    ready: bool,
+    pub(super) values: Preferences,
+    pub(super) ready: bool,
     supported: bool,
     restore_allowed: bool,
     phase: Phase,
@@ -117,7 +125,8 @@ pub(super) struct State {
     audio_cache_stats: Option<AudioStats>,
     audio_purge_pending: bool,
     audio_purge_generation: u64,
-    scope: Option<AccountScope>,
+    pub(super) scope: Option<AccountScope>,
+    pub(super) playback: playback_restore::State,
     cache_busy: bool,
     cache_operation: u64,
     cache_trim_pending: bool,
@@ -211,6 +220,7 @@ impl State {
             audio_purge_pending: false,
             audio_purge_generation: 0,
             scope: None,
+            playback: playback_restore::State::default(),
             cache_busy: false,
             cache_operation: 0,
             cache_trim_pending: false,
@@ -331,7 +341,7 @@ struct CacheOutcome {
 }
 
 impl Controller {
-    fn persistence_job<T: Send + 'static>(
+    pub(super) fn persistence_job<T: Send + 'static>(
         self: &Rc<Self>,
         work: impl FnOnce() -> T + Send + 'static,
         completed: impl FnOnce(&Rc<Self>, Result<T, ()>) + 'static,
@@ -351,6 +361,57 @@ impl Controller {
             {
                 completed(&this, result);
             }
+        });
+    }
+    pub(super) fn playback_storage_job(&self, work: impl FnOnce() + Send + 'static) {
+        self.confirmed_playback_storage_job(None, work);
+    }
+    pub(super) fn pending_playback_save_confirmation(&self) -> Option<PlaybackSaveConfirmation> {
+        let p = self.persistence.borrow();
+        (p.phase == Phase::Save && p.critical && p.values.remember_login)
+            .then(|| {
+                p.settings.clone().map(|settings| PlaybackSaveConfirmation {
+                    settings,
+                    durable: p.durable_work.clone(),
+                })
+            })
+            .flatten()
+    }
+    pub(super) fn confirmed_playback_storage_job(
+        &self,
+        confirmation: Option<PlaybackSaveConfirmation>,
+        work: impl FnOnce() + Send + 'static,
+    ) {
+        let app = self.app.upgrade();
+        let hold = app.as_ref().map(|app| app.hold());
+        let fence = WorkFence::new();
+        glib::spawn_future_local(async move {
+            let (_app, _hold, _fence) = (app, hold, fence);
+            if let Some(confirmation) = &confirmation {
+                // A credential backend can finish after the last window. Keep
+                // its final protected-save decision authoritative; never join
+                // the worker, touch disk, or wait synchronously on GTK.
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(150);
+                while confirmation.durable.load(Ordering::Acquire) != 0 {
+                    if std::time::Instant::now() >= deadline {
+                        return;
+                    }
+                    glib::timeout_future(std::time::Duration::from_millis(25)).await;
+                }
+            }
+            let _ = gio::spawn_blocking(move || {
+                let confirmed = confirmation.is_none_or(|confirmation| {
+                    confirmation.settings.load().is_ok_and(|loaded| {
+                        loaded.status == LoadStatus::Loaded
+                            && loaded.preferences.remember_login
+                            && !loaded.preferences.forget_pending
+                    })
+                });
+                if confirmed {
+                    work();
+                }
+            })
+            .await;
         });
     }
     pub(super) fn start_persistence(self: &Rc<Self>) {
@@ -646,6 +707,7 @@ impl Controller {
         );
     }
     pub(super) fn session_validated(self: &Rc<Self>, scope: AccountScope) {
+        let playback_scope = scope.clone();
         let restored = {
             let mut p = self.persistence.borrow_mut();
             if !p.enabled || p.closed {
@@ -665,6 +727,7 @@ impl Controller {
             }
             restored.map(|ticket| (p.manager.clone(), ticket))
         };
+        self.bind_playback_account(playback_scope.clone());
         self.apply_persistence_policy();
         if let Some((Some(manager), ticket)) = restored {
             let mut p = self.persistence.borrow_mut();
@@ -685,8 +748,10 @@ impl Controller {
             self.render_persistence();
         }
         self.reload_cache_stats();
+        self.start_playback_restore(playback_scope);
     }
     pub(super) fn session_validation_failed(self: &Rc<Self>, error: MusicError) {
+        self.retire_playback_restore();
         let revoked = matches!(
             error,
             MusicError::Unauthenticated | MusicError::AccessDenied | MusicError::Http(401)
@@ -871,6 +936,16 @@ impl Controller {
                 this.apply_persistence_policy();
                 this.render_persistence();
                 this.flush_preferences();
+                // Interactive login saves the verified credential behind a
+                // forget barrier. Queue restoration may begin only after that
+                // same transaction confirms its final settings receipt.
+                let scope = {
+                    let p = this.persistence.borrow();
+                    (!p.values.forget_pending).then(|| p.scope.clone()).flatten()
+                };
+                if let Some(scope) = scope {
+                    this.start_playback_restore(scope);
+                }
             },
         );
     }
@@ -908,6 +983,15 @@ impl Controller {
         self.forget_persistent_session(true);
     }
     fn forget_persistent_session(self: &Rc<Self>, purge: bool) {
+        {
+            let p = self.persistence.borrow();
+            if !p.enabled || p.closed || (p.critical && (!purge || p.purge_after_forget)) {
+                return;
+            }
+        }
+        // Reserve the account tombstone before credentials/account are cleared.
+        // Its result participates in the same durable forget barrier.
+        let playback_deletion = self.prepare_forget_playback(true);
         let task = {
             let mut p = self.persistence.borrow_mut();
             if !p.enabled || p.closed || (p.critical && (!purge || p.purge_after_forget)) {
@@ -999,7 +1083,8 @@ impl Controller {
                 } else {
                     Ok(())
                 };
-                let cache = metadata.and(audio);
+                let playback = playback_deletion.and_then(|task| task.map_or(Ok(()), |task| task.run()));
+                let cache = metadata.and(audio).and(playback);
                 let mut final_values = task.4;
                 final_values.forget_pending = false;
                 let settings = if deletion.is_ok() && cache.is_ok() {
@@ -1105,7 +1190,7 @@ impl Controller {
                 self.persistence.borrow_mut().settings_dirty = true;
                 self.flush_preferences();
             }
-            Retry::None => {}
+            Retry::None => self.retry_playback_restore(),
         }
     }
     pub(super) fn persistent_cache(&self) -> Option<Cache> {
@@ -1176,19 +1261,26 @@ impl Controller {
         }
     }
     fn apply_appearance(&self) {
-        let appearance = self.persistence.borrow().values.appearance;
-        adw::StyleManager::default().set_color_scheme(match appearance {
-            Appearance::System => adw::ColorScheme::Default,
-            Appearance::Light => adw::ColorScheme::ForceLight,
-            Appearance::Dark => adw::ColorScheme::ForceDark,
-        });
+        let values = self.persistence.borrow().values.clone();
+        if let Some(window) = self.window.upgrade() {
+            super::super::style::apply(&values, &window);
+        }
     }
-    fn render_persistence(&self) {
+    pub(super) fn render_persistence(&self) {
         let p = self.persistence.borrow();
         let visible = p.enabled
-            && (p.phase != Phase::Idle || p.retry != Retry::None || p.values.forget_pending);
+            && (p.phase != Phase::Idle
+                || p.retry != Retry::None
+                || p.values.forget_pending
+                || p.playback.message.is_some());
         p.banner.set_visible(visible);
-        p.row.set_title(&p.status);
+        p.row.set_title(
+            if p.phase == Phase::Idle && p.retry == Retry::None && !p.values.forget_pending {
+                p.playback.message.unwrap_or(&p.status)
+            } else {
+                &p.status
+            },
+        );
         p.row.set_subtitle(if p.values.forget_pending && !p.barrier_confirmed {
             "Постоянное хранение приостановлено. Завершение операции на устройстве ещё не подтверждено."
         } else if p.values.forget_pending {
@@ -1196,11 +1288,14 @@ impl Controller {
         } else {
             ""
         });
-        p.spinner.set_spinning(p.phase != Phase::Idle);
-        p.spinner.set_visible(p.phase != Phase::Idle);
-        p.retry_button.set_visible(p.retry != Retry::None);
+        p.spinner
+            .set_spinning(p.phase != Phase::Idle || p.playback.loading());
+        p.spinner
+            .set_visible(p.phase != Phase::Idle || p.playback.loading());
         p.retry_button
-            .set_sensitive(p.phase == Phase::Idle && !p.critical);
+            .set_visible(p.retry != Retry::None || p.playback.retry);
+        p.retry_button
+            .set_sensitive(p.phase == Phase::Idle && !p.critical && !p.playback.loading());
         if let Some(view) = &p.view {
             view.update(&p.snapshot());
         }
@@ -1271,6 +1366,7 @@ impl Controller {
             }
             let previous = p.values.clone();
             p.values.appearance = values.appearance;
+            p.values.ui_style = values.ui_style;
             p.values.track_info_open = values.track_info_open;
             p.values.cache_enabled = values.cache_enabled;
             p.values.cache_limit = values.cache_limit;
@@ -1283,6 +1379,7 @@ impl Controller {
             let limit_only = previous.cache_limit != p.values.cache_limit
                 && previous.cache_enabled == p.values.cache_enabled
                 && previous.appearance == p.values.appearance
+                && previous.ui_style == p.values.ui_style
                 && previous.remember_login == p.values.remember_login
                 && previous.track_info_open == p.values.track_info_open;
             if cache_changed {
@@ -1336,6 +1433,7 @@ impl Controller {
                 self.flush_preferences();
             }
             if remember_changed && remember && self.model.borrow().account_valid {
+                self.allow_playback_continuation();
                 self.persist_current_session();
             }
             self.render_persistence();

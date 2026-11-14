@@ -22,7 +22,7 @@ pub enum PlaylistVisibility {
 }
 
 impl PlaylistVisibility {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Private => "private",
             Self::Public => "public",
@@ -53,6 +53,7 @@ impl MusicService {
             return Err(MusicError::InvalidInput.into());
         }
         let binding = self.search_binding(token)?;
+        let _write = self.claim_playlist_write(token, &binding)?;
         let mut form_url = self.origin.clone();
         form_url
             .query_pairs_mut()

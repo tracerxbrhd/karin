@@ -886,3 +886,4 @@ fn native_persistent_session_restore_settings_forget_and_close() {
 }
 
 mod app_cache_acceptance;
+mod v07_acceptance;

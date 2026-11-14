@@ -56,6 +56,7 @@ pub(super) struct LoadedTracks {
     pub incomplete: bool,
     kind: ContextKind,
     source_key: String,
+    origin: crate::queue::PlaybackOrigin,
     pub filter: collection_filter::CollectionFilter,
     applied: std::collections::BTreeSet<u32>,
     contexts: RefCell<std::collections::BTreeMap<usize, PlaybackContext>>,
@@ -83,6 +84,7 @@ impl LoadedTracks {
             incomplete: false,
             kind,
             source_key: format!("continuous:{epoch}:{opaque}"),
+            origin: crate::queue::PlaybackOrigin::from_source(kind, source.as_deref()),
             filter: collection_filter::CollectionFilter::default(),
             applied: Default::default(),
             contexts: RefCell::new(Default::default()),
@@ -169,7 +171,8 @@ impl LoadedTracks {
             partial,
             positions,
         )
-        .ok()?;
+        .ok()?
+        .with_origin(self.origin.clone());
         self.contexts.borrow_mut().insert(start, context.clone());
         context.with_current_index(rank - start)
     }

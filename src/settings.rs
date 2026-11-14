@@ -21,7 +21,7 @@ use rustix::fs::{AtFlags, Mode, OFlags};
 use serde::{Deserialize, Serialize};
 
 const FILE_NAME: &str = "preferences.json";
-const FORMAT_VERSION: u32 = 2;
+const FORMAT_VERSION: u32 = 3;
 const MAX_FILE_BYTES: u64 = 16 * 1024;
 const LEGACY_DEFAULT_BYTES: u64 = 256 * 1024 * 1024;
 const LEGACY_MIN_BYTES: u64 = 16 * 1024 * 1024;
@@ -110,9 +110,40 @@ pub enum Appearance {
     Dark,
 }
 
+/// Existing wire values describe a color scheme, independently of UI design.
+/// Retain `Appearance` and its `appearance` field for source/wire compatibility.
+pub type ColorScheme = Appearance;
+
+/// Presentation choice, never a second service, queue or player. The branded
+/// variant is reserved until approved designer resources can actually render it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum UiStyle {
+    #[default]
+    System,
+    Karin,
+}
+
+impl UiStyle {
+    pub const fn is_available(self) -> bool {
+        matches!(self, Self::System)
+    }
+
+    /// A stored future choice must not pretend the current system view is a
+    /// finished branded design. Preserve the preference; render the safe style.
+    pub const fn effective(self) -> Self {
+        if self.is_available() {
+            self
+        } else {
+            Self::System
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Preferences {
+    pub ui_style: UiStyle,
     pub appearance: Appearance,
     /// The preference is effective only when protected storage is available.
     pub remember_login: bool,
@@ -127,6 +158,7 @@ pub struct Preferences {
 impl Default for Preferences {
     fn default() -> Self {
         Self {
+            ui_style: UiStyle::System,
             appearance: Appearance::System,
             remember_login: true,
             forget_pending: false,
@@ -228,6 +260,7 @@ fn decode_preferences(bytes: &[u8]) -> Option<Preferences> {
                 _ => CacheLimit::default(),
             };
             Some(Preferences {
+                ui_style: UiStyle::System,
                 appearance: legacy.appearance,
                 remember_login: legacy.remember_login,
                 forget_pending: legacy.forget_pending,
@@ -236,8 +269,15 @@ fn decode_preferences(bytes: &[u8]) -> Option<Preferences> {
                 track_info_open: legacy.track_info_open,
             })
         }
-        FORMAT_VERSION => {
+        2 | FORMAT_VERSION => {
             let mut object = envelope.preferences.as_object()?.clone();
+            // A future/unrecognized style cannot reset remembered-login or
+            // deletion barriers. System remains the usable presentation.
+            let style = object
+                .remove("ui_style")
+                .and_then(|value| serde_json::from_value::<UiStyle>(value).ok())
+                .unwrap_or_default();
+            object.insert("ui_style".into(), serde_json::to_value(style).ok()?);
             // A malformed quota alone must not reset valid session/barrier or
             // appearance preferences. Credentials remain in their separate store.
             let limit = object

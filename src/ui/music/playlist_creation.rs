@@ -423,7 +423,7 @@ impl Controller {
         );
     }
 
-    fn invalidate_creation_reads(self: &Rc<Self>) {
+    pub(super) fn invalidate_creation_reads(self: &Rc<Self>) {
         self.interrupt_feed_reads(Operation::Library);
         let mut requests = self.requests.borrow_mut();
         requests.invalidate(Operation::Library);

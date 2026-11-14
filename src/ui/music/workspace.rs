@@ -757,6 +757,7 @@ impl Controller {
             }
             PaneAction::Play(_) => {}
             PaneAction::Enqueue(track) => self.enqueue(track),
+            PaneAction::AddToPlaylist(track) => self.present_add_to_playlist(track),
             PaneAction::Details(track) => self.open_track_context(track.id, context),
             PaneAction::Album(id) => self.open_album(id),
             PaneAction::Artist(artist) => self.open_artist(artist, 0),
@@ -783,6 +784,7 @@ impl Controller {
     }
 
     pub(super) fn clear_workspace(&self) {
+        self.retire_playlist_management();
         let dialog = self.playlist_dialog.borrow_mut().take();
         if let Some(dialog) = dialog {
             dialog.close();

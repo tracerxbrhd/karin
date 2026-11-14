@@ -201,7 +201,7 @@ impl Controller {
     /// Artwork, facts and the actual collection action form one compact hero.
     /// Reuse the same buttons rather than reserving an extra full-width row
     /// below the cover. Wrapped metadata can still grow naturally on compact.
-    fn place_detail_actions(&self, actions: &gtk::Box) {
+    pub(super) fn place_detail_actions(&self, actions: &gtk::Box) {
         if let Some(hero) = self
             .widgets
             .detail
@@ -932,6 +932,26 @@ impl Controller {
             }
         });
         actions.append(&add);
+        let playlist = gtk::Button::with_label("Добавить в плейлист");
+        playlist.set_widget_name("music-track-add-playlist");
+        playlist.add_css_class("flat");
+        let weak = Rc::downgrade(self);
+        let close = popover.downgrade();
+        let selected = track.clone();
+        let playlist_context = context.clone();
+        playlist.connect_clicked(move |_| {
+            if let Some(popover) = close.upgrade() {
+                popover.popdown();
+            }
+            if let Some(this) = weak.upgrade().filter(|this| {
+                let model = this.model.borrow();
+                model.generation == generation && model.account_valid && !model.closed
+            }) && (allow_standalone || playlist_context().is_some())
+            {
+                this.present_add_to_playlist(selected.clone());
+            }
+        });
+        actions.append(&playlist);
         if let Some(id) = &track.album_id {
             let album = gtk::Button::with_label("Открыть альбом");
             album.add_css_class("flat");
@@ -1182,6 +1202,7 @@ impl Controller {
         self.widgets.detail.append(&rows);
         self.widgets.detail.append(&status);
         let id = Some(format!("{}:{}", playlist.id.owner, playlist.id.kind));
+        let playlist_for_management = playlist.clone();
         let feed = self.new_track_feed(
             continuous_loading::FeedSource::Playlist(playlist),
             ContextKind::Playlist,
@@ -1190,6 +1211,7 @@ impl Controller {
             &status,
         );
         self.detail_primary(Some(self.feed_play_button(&feed)));
+        self.append_playlist_management_action(&playlist_for_management);
         self.request_track_feed(&feed, force);
     }
 

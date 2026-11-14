@@ -10,7 +10,7 @@ use adw::prelude::*;
 
 use crate::{
     cache::CacheStats,
-    settings::{Appearance, CacheLimit, Preferences},
+    settings::{Appearance, CacheLimit, Preferences, UiStyle},
 };
 
 const MIB: u64 = 1024 * 1024;
@@ -79,6 +79,9 @@ pub(super) struct PreferencesView {
     pub dialog: adw::PreferencesDialog,
     state: Rc<State>,
     page: adw::PreferencesPage,
+    style_system: gtk::CheckButton,
+    style_karin: gtk::CheckButton,
+    system_style_row: adw::ActionRow,
     scheme: adw::ComboRow,
     remember: adw::SwitchRow,
     session: adw::ActionRow,
@@ -118,6 +121,65 @@ impl PreferencesView {
             .build();
         dialog.set_widget_name("karin-preferences");
         let page = adw::PreferencesPage::new();
+        let styles = adw::PreferencesGroup::builder()
+            .title("Стиль интерфейса")
+            .description("Оформление не изменяет музыкальную библиотеку и воспроизведение.")
+            .build();
+        let system_style_row = adw::ActionRow::builder()
+            .title("Системный")
+            .subtitle("Нативное оформление GTK и Libadwaita.")
+            .title_lines(0)
+            .subtitle_lines(0)
+            .use_markup(false)
+            .activatable(true)
+            .build();
+        system_style_row.set_widget_name("preferences-style-system-row");
+        let style_system = gtk::CheckButton::new();
+        style_system.set_widget_name("preferences-style-system");
+        style_system.set_valign(gtk::Align::Center);
+        style_system.update_property(&[gtk::accessible::Property::Label(
+            "Стиль интерфейса: системный",
+        )]);
+        style_system.connect_toggled({
+            let state = Rc::clone(&state);
+            move |button| {
+                if button.is_active() {
+                    state.change(|values| values.ui_style = UiStyle::System);
+                }
+            }
+        });
+        system_style_row.add_prefix(&style_system);
+        system_style_row.set_activatable_widget(Some(&style_system));
+        // An older/future persisted Karin choice is rendered honestly as a
+        // System fallback. Explicitly activating this row clears that request.
+        system_style_row.connect_activated({
+            let state = Rc::clone(&state);
+            move |_| state.change(|values| values.ui_style = UiStyle::System)
+        });
+        styles.add(&system_style_row);
+        let karin_style_row = adw::ActionRow::builder()
+            .title("Karin")
+            .subtitle("В разработке — новый дизайн ещё не интегрирован.")
+            .title_lines(0)
+            .subtitle_lines(0)
+            .use_markup(false)
+            .sensitive(false)
+            .build();
+        karin_style_row.set_widget_name("preferences-style-karin-row");
+        let style_karin = gtk::CheckButton::new();
+        style_karin.set_widget_name("preferences-style-karin");
+        style_karin.set_group(Some(&style_system));
+        style_karin.set_sensitive(false);
+        style_karin.set_valign(gtk::Align::Center);
+        style_karin.update_property(&[
+            gtk::accessible::Property::Label("Стиль интерфейса: Karin"),
+            gtk::accessible::Property::Description(
+                "В разработке. Материалы дизайна ещё не интегрированы.",
+            ),
+        ]);
+        karin_style_row.add_prefix(&style_karin);
+        styles.add(&karin_style_row);
+        page.add(&styles);
         let appearance = adw::PreferencesGroup::builder().title("Оформление").build();
         let scheme = adw::ComboRow::builder()
             .title("Цветовая схема")
@@ -359,6 +421,9 @@ impl PreferencesView {
             dialog,
             state,
             page,
+            style_system,
+            style_karin,
+            system_style_row,
             scheme,
             remember,
             session,
@@ -391,6 +456,16 @@ impl PreferencesView {
         self.state.can_retry_session.set(snapshot.can_retry_session);
         self.state.can_retry_cache.set(snapshot.can_retry_cache);
         let ready = snapshot.settings_ready;
+        self.style_system.set_active(true);
+        self.style_system.set_sensitive(ready);
+        self.system_style_row.set_sensitive(ready);
+        self.system_style_row.set_subtitle(if snapshot.values.ui_style == UiStyle::Karin {
+            "Karin пока недоступен. Используется системный стиль; выберите его, чтобы сохранить этот выбор."
+        } else {
+            "Нативное оформление GTK и Libadwaita."
+        });
+        self.style_karin.set_active(false);
+        self.style_karin.set_sensitive(false);
         self.scheme
             .set_selected(appearance_index(snapshot.values.appearance));
         self.scheme.set_sensitive(ready);

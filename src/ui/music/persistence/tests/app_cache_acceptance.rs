@@ -443,6 +443,20 @@ fn media_files(root: &Path) -> Vec<PathBuf> {
 }
 
 fn run_phase(input: &Path, phase: &str, directory: &Path) -> PhaseReport {
+    // These pre-restoration cases deliberately start an independent playback
+    // context while retaining their audio cache across OS processes. Only the
+    // separate playback snapshot is isolated; credentials, preferences and all
+    // cache bytes remain intact. The v0.7 fixture tests the combined restart.
+    match fs::remove_dir_all(
+        directory
+            .join("data")
+            .join(crate::config::APP_ID)
+            .join("playback"),
+    ) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => panic!("could not isolate the playback-state fixture"),
+    }
     let log = fs::File::create(directory.join(format!("{phase}.log"))).unwrap();
     let mut command = Command::new(std::env::current_exe().unwrap());
     command

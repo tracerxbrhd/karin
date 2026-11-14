@@ -945,6 +945,7 @@ impl Controller {
             return;
         };
         // Deliberate successful source replacement, through the same engine.
+        self.stop_playback_continuation();
         self.stop_music_engine();
         let (saved_modes, bindings) = {
             let mut model = self.model.borrow_mut();

@@ -77,6 +77,14 @@ reviewable and consistent with the accepted application.
   actual new current occurrences resume following. Footer: hidden before Play,
   retained through Pause/retryable active failure, hidden on Stop/clear/logout.
   No visible Stop. Keep local Shuffle/Repeat and existing system controls.
+- Ordinary continuation is IDs-only, account-bound, bounded and worker-written.
+  Restore only after fresh Music validation, without autoplay/player preparation;
+  preserve duplicate occurrences and shuffle history. Stop/forget/logout delete
+  continuation, Wave never persists. Keep UiStyle independent of color scheme;
+  unavailable Karin presentation must remain visibly unavailable.
+- Playlist writes use exact complete positions/revision, one POST per intent and
+  independent readback. Unknown results permit GET-only reconciliation, never
+  write replay; metadata endpoints have no proven server revision CAS.
 - Mutations need server confirmation; never replay an ambiguous write. Use clear
   loading/empty/error/Retry states. No fake radio, recommendations, lyrics,
   offline mode or inert controls. My Wave is available in the ordinary signed-in
@@ -88,7 +96,7 @@ reviewable and consistent with the accepted application.
   bounded serialized feedback and no replay after an ambiguous POST.
 - Cache metadata, artwork and policy-admitted audio under one shared budget
   (default on/2 GiB, six discrete choices including Unlimited). Preserve worker
-  reservations, disk headroom, generation fences and the v1 settings migration;
+  reservations, disk headroom, generation fences and v1/v2 settings migration to schema 3;
   do not reintroduce separate user quotas or run disk scans while dragging.
 - Catalog refusals fence key epochs before cache I/O; cached UI replies recheck
   those leases. Cold metadata stays Stale until a current positive write. Never
@@ -108,12 +116,12 @@ reviewable and consistent with the accepted application.
 - Distinguish authored code, executed tests and owner acceptance. See
   [VALIDATION](docs/VALIDATION.md): native/UI and Flatpak at `97093ee` are accepted;
   Dislike→Next and available `707539b` Native/installed-Flatpak functions are
-  owner-accepted; `0709729` is the last fully accepted PR #26 revision. At
-  `31d873d` the owner confirmed real first playback/background saving on Native,
-  while local replay and restart failed with `resource-changed`. At `cac4d78`,
-  real saving still worked, but descriptor-path/representation-changed caused
-  repeated downloads; no local hit was confirmed. Revised validator scoping and
-  retained cache indicators need separate acceptance.
+  owner-accepted. The owner accepted `c1de869` real Native/installed-Flatpak MP3
+  playback, complete background saving, local hits and local replay after restart
+  on 2026-11-11; #26 merged normally at `1fd4028`. Downloading/Saved graphics are
+  provisionally accepted pending the designer's work. Prior cache failures remain
+  historical evidence, not the current technical status. #5/#22 distribution
+  questions remain independent; no public content rights are established.
   Unreported individual scenarios and unresolved Cloud cold gaps are not PASS.
   This is not a published release. Read [LIMITATIONS](docs/LIMITATIONS.md).
 

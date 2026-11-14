@@ -25,7 +25,7 @@ if [ "${1-}" != --session ]; then
         git -C "$repository" status --short
         printf '\nRendered binary and UI sources:\n'
         sha256sum "$binary"
-        (cd "$repository" && git ls-files -z -- src Cargo.toml Cargo.lock | xargs -0 sha256sum)
+        (cd "$repository" && git ls-files -z -- src resources Cargo.toml Cargo.lock | xargs -0 sha256sum)
         printf '\nAuthentication: explicit --ui-fixture; no live OAuth requests.\n'
         printf 'Music pages are signed out here; populated music, active player and Queue are captured by the native loopback fixtures.\n'
         printf '\nExperimental UI requested: %s\n' "${KARIN_CAPTURE_EXPERIMENTAL:-0}"

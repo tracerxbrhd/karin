@@ -28,6 +28,7 @@ use crate::session::AccessToken;
 pub mod cache_codec;
 pub mod interactions;
 pub mod playlist_creation;
+pub mod playlist_management;
 pub mod wave;
 
 const ORIGIN: &str = "https://api.music.yandex.net/";
@@ -358,7 +359,9 @@ impl<T> fmt::Debug for Page<T> {
 struct AccountCache {
     epoch: u64,
     validated: Option<([u8; 32], String)>,
+    playlist_write: bool,
 }
+#[derive(Clone)]
 struct SearchBinding {
     epoch: u64,
     token_key: [u8; 32],
@@ -822,6 +825,45 @@ impl MusicService {
         // /tracks may normalize that selector to a bare canonical identity.
         track.id = id.to_owned();
         Ok(track)
+    }
+    /// Current bounded normalization for a saved queue. Missing records are
+    /// omitted, unavailable identified records remain explicit, and duplicate
+    /// selectors keep their original order. No stored resource grants access.
+    pub(crate) fn restore_tracks(
+        &self,
+        token: &AccessToken,
+        ids: &[String],
+    ) -> Result<Vec<Track>, MusicError> {
+        if ids.len() > 500 {
+            return Err(MusicError::InvalidInput);
+        }
+        let binding = self.search_binding(token)?;
+        let mut distinct = Vec::new();
+        for id in ids {
+            validate_id(id)?;
+            if !distinct.contains(id) {
+                distinct.push(id.clone());
+            }
+        }
+        let mut normalized = Vec::new();
+        for batch in distinct.chunks(PAGE_SIZE) {
+            self.check_search_binding(token, &binding)?;
+            let response = self.track_batch_response(token, batch)?;
+            let body = read_body(response)?;
+            self.check_search_binding(token, &binding)?;
+            let tracks = decode_track_batch(&body, batch.len())?;
+            let hits = batch
+                .iter()
+                .map(|id| SearchTrackHit { id: Id(id.clone()) })
+                .collect();
+            let (ordered, _) = order_search_tracks(hits, tracks)?;
+            normalized.extend(ordered);
+        }
+        self.check_search_binding(token, &binding)?;
+        Ok(ids
+            .iter()
+            .filter_map(|id| normalized.iter().find(|track| &track.id == id).cloned())
+            .collect())
     }
     fn tracks(&self, token: &AccessToken, ids: &[String]) -> Result<Vec<Track>, MusicError> {
         if ids.is_empty() {

@@ -15,6 +15,7 @@ pub(super) enum Operation {
     OwnedPlaylistsMore,
     LikedPlaylistsMore,
     Mutation,
+    PlaylistMutation,
 }
 impl Operation {
     fn index(self) -> usize {
@@ -34,6 +35,7 @@ impl Operation {
             Self::OwnedPlaylistsMore => "owned_playlists_more",
             Self::LikedPlaylistsMore => "liked_playlists_more",
             Self::Mutation => "library_mutation",
+            Self::PlaylistMutation => "playlist_mutation",
         }
     }
 }
@@ -54,7 +56,7 @@ impl<J> Default for Slot<J> {
 }
 
 pub(super) struct Requests<J> {
-    slots: [Slot<J>; 12],
+    slots: [Slot<J>; 13],
 }
 impl<J> Default for Requests<J> {
     fn default() -> Self {
@@ -112,6 +114,7 @@ impl<J> Requests<J> {
             Operation::OwnedPlaylistsMore,
             Operation::LikedPlaylistsMore,
             Operation::Mutation,
+            Operation::PlaylistMutation,
         ] {
             self.invalidate(operation);
         }
@@ -132,6 +135,30 @@ mod tests {
         assert!(jobs.submit(Operation::Library, "library").is_some());
         assert!(jobs.submit(Operation::Search, "search").is_some());
         assert!(jobs.submit(Operation::Detail, "playlist").is_some());
+    }
+    #[test]
+    fn playlist_write_readback_survives_navigation_until_session_retirement() {
+        let mut jobs = Requests::default();
+        let (write, _) = jobs
+            .submit(Operation::PlaylistMutation, "write-once")
+            .unwrap();
+        for operation in [
+            Operation::Detail,
+            Operation::PlaylistSections,
+            Operation::Search,
+        ] {
+            let (read, _) = jobs.submit(operation, "read").unwrap();
+            jobs.invalidate(operation);
+            assert!(!jobs.current(operation, read));
+            assert!(jobs.current(Operation::PlaylistMutation, write));
+            assert!(jobs.finish(operation, read).is_none());
+        }
+        // Closing/logout fences the eventual write readback without reissuing
+        // the already-sent server operation or releasing a live worker early.
+        jobs.invalidate_all();
+        assert!(!jobs.current(Operation::PlaylistMutation, write));
+        assert!(jobs.finish(Operation::PlaylistMutation, write).is_none());
+        assert!(!jobs.busy());
     }
     #[test]
     fn playlist_refresh_survives_unrelated_library_and_like_invalidation() {
