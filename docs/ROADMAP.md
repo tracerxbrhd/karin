@@ -99,19 +99,38 @@ Logout and Wave passed the reported matrix. Issues #19/#21 are complete. Karin
 Style remains unavailable until designer materials arrive. This is no release
 or public-distribution decision; #23 remains separate.
 
+## v0.8 integrated music, library and performance work
+
+One branch/Draft PR combines all five directions on the accepted v0.7 baseline:
+
+- [Lyrics and related tracks](https://github.com/tracerxbrhd/karin/issues/18):
+  legacy Yandex full text with explicit rights, separately requested/attributed
+  LRCLIB TEXT/LRC, actual-player-position highlighting, and seed-bound similar
+  tracks normalized through one canonical batch. No modern extracted signer.
+- Explicit supported-collection indexing beyond the old 2,000-position prefix:
+  up to 20,000 original positions, 50-position batches, 200-row display windows,
+  Unicode title/artist/album matching and stable sorting. Added-date choices
+  require valid timestamps. Startup/typing never starts an entire-library scan.
+- Exact-occurrence Play Next, append, native drag-and-drop and keyboard queue
+  moves, with unchanged current audio and persistent edited order/modes/history.
+- Narrow current-marker and unchanged-player-update work reductions, measured
+  under matching synthetic workloads. These do not claim that Cloud LLVM first
+  rendering or physical Wayland issue #23 is solved.
+
+System presentation and the one queue/player/auth/cache/Wave/MPRIS architecture
+remain. New content/large-library/gesture behavior needs its own final live
+Native/installed-Flatpak acceptance; earlier v0.7 acceptance is not inherited.
+See ADR-0034/0035/0036/0037, [API_FEASIBILITY](API_FEASIBILITY.md),
+[VALIDATION](VALIDATION.md) and [the single final procedure](BUILDING.md#v08-final-fedora-acceptance).
+The new PR stays Draft/unmerged until owner acceptance and explicit merge
+instruction. No release/tag or Karin Style activation is included.
+
 ## Further directions
 
-- [Lyrics and related tracks](https://github.com/tracerxbrhd/karin/issues/18): confirm permitted endpoints/resources before
-  exposing a user workflow; no extracted official-client signing material.
-- Later offline audio needs separately confirmed access lifetimes and renewal
-  rules. Accepted online-revalidated caching does not establish that feature.
-- Whole-collection search/sorting: provide complete coverage or label a loaded
-  prefix honestly without silently changing the playing queue.
-
-Each direction needs its own confirmed contract and acceptance criteria.
-Unsupported actions remain absent.
-See [API_FEASIBILITY.md](API_FEASIBILITY.md) and
-[AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md).
+Offline audio still needs separately confirmed access lifetimes and renewal
+rules. Accepted online-revalidated caching does not establish that feature.
+Unknown service capabilities remain absent rather than decorative controls.
+See [AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md).
 
 [The backlog audit](ISSUES_AUDIT.md) records closed milestones, remaining
 criteria and separate external, technical-debt and future-feature priorities.

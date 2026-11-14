@@ -18,10 +18,12 @@ pub(super) enum PaneAction {
     Close,
     Play(Track),
     Enqueue(Track),
+    EnqueueNext(Track),
     AddToPlaylist(Track),
     Details(Track),
     Album(String),
     Artist(Artist),
+    Extras(super::track_extras::ExtrasAction),
 }
 
 struct State {
@@ -42,10 +44,12 @@ pub(super) struct TrackPane {
     pub play: gtk::Button,
     pub enqueue: gtk::Button,
     pub add_to_playlist: gtk::Button,
+    pub play_next: gtk::Button,
     pub details: gtk::Button,
     pub album: gtk::Button,
     pub artists: gtk::Box,
     pub cache_indicator: gtk::Box,
+    pub(super) extras: super::track_extras::ExtrasView,
     header: gtk::Box,
     pub(super) heading: gtk::Label,
     pages: gtk::Stack,
@@ -241,7 +245,27 @@ impl TrackPane {
         artists.set_visible(false);
         metadata.insert_child_after(&artists, Some(&title_line));
         content.append(&transport);
+        let play_next = gtk::Button::with_label("Воспроизвести следующим");
+        play_next.set_widget_name("music-track-pane-next");
+        play_next.set_halign(gtk::Align::Center);
+        play_next.add_css_class("flat");
+        play_next.set_sensitive(false);
+        play_next.connect_clicked({
+            let state = Rc::clone(&state);
+            move |_| {
+                let selected = state.selected.borrow().clone();
+                if let Some(track) = selected {
+                    (state.action)(PaneAction::EnqueueNext(track));
+                }
+            }
+        });
+        content.append(&play_next);
         content.append(&status);
+        let extras = super::track_extras::ExtrasView::new(Rc::new({
+            let state = Rc::clone(&state);
+            move |action| (state.action)(PaneAction::Extras(action))
+        }));
+        content.append(&extras.widget);
         body.append(&content);
         // The same musical cluster remains bounded and centered when the
         // pinned sidebar becomes a dedicated compact information view.
@@ -277,10 +301,12 @@ impl TrackPane {
             play,
             enqueue,
             add_to_playlist,
+            play_next,
             details,
             album,
             artists,
             cache_indicator,
+            extras,
             header,
             heading,
             pages,
@@ -360,6 +386,7 @@ impl TrackPane {
         let cache_track_changed = self.state.selected.borrow().as_ref().map(|track| &track.id)
             != track.map(|track| &track.id);
         self.state.selected.replace(track.cloned());
+        self.extras.set_track(track, loader);
         if cache_track_changed {
             self.cache_indicator.set_visible(false);
         }
@@ -371,6 +398,7 @@ impl TrackPane {
         self.content.set_visible(track.is_some());
         self.play.set_sensitive(false);
         self.enqueue.set_sensitive(false);
+        self.play_next.set_sensitive(false);
         self.add_to_playlist.set_sensitive(track.is_some());
         self.status.set_visible(false);
         self.state.playback_status.borrow_mut().clear();
@@ -435,6 +463,7 @@ impl TrackPane {
         for widget in [
             self.metadata.upcast_ref::<gtk::Widget>(),
             self.transport.upcast_ref(),
+            self.play_next.upcast_ref(),
             self.status.upcast_ref(),
         ] {
             if widget.is_visible() {
@@ -487,6 +516,7 @@ impl TrackPane {
             .set_visible(selected && !available && !status.is_empty());
         self.play.set_sensitive(can_play && available);
         self.enqueue.set_sensitive(can_enqueue && selected);
+        self.play_next.set_sensitive(can_enqueue && available);
         self.update_description();
     }
 

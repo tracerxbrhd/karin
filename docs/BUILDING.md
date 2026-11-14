@@ -550,3 +550,60 @@ Perform this **one combined check** first Native and then installed Flatpak:
 Record Native/installed-Flatpak PASS/FAIL by action and commit, without exporting
 identifiers, tokens, playlist contents or signed URLs. Public distribution rights
 and unresolved cold-frame issue #23 remain separate from this functional check.
+
+## v08 final Fedora acceptance
+
+Use **one final v0.8 commit** for the Native CI package and the installed Flatpak
+built from this repository's unchanged manifest. Verify `BUILD-INFO.txt` and
+`SHA256SUMS`, then launch ordinary `./karin` / the installed Flatpak without
+experimental flags. Keep the normal sandbox; do not grant host filesystem or
+session-bus access. The v0.7 acceptance at `949d1f9` is already recorded and is
+not a request to repeat intermediate builds.
+
+Perform this combined check once Native, then repeat the key actions in the
+installed Flatpak. Use a disposable owned playlist for mutations and keep all
+account data, lyrics, media, tokens and signed URLs on Fedora.
+
+1. **Lyrics and recommendations.** Play a real track, open Track Info → “Текст песни”
+   and check any available Yandex plain text. If using “Искать текст и караоке в
+   LRCLIB”, read its external-source disclosure before submitting public metadata;
+   verify TEXT and an available synchronized LRC separately. Pause, seek both
+   ways and change tracks rapidly: the active line follows actual playback,
+   manual scrolling is respected and old replies cannot replace the new track.
+   Check no-text, loading, network-error and Retry states. Open Similar Tracks;
+   play a result, append another, play one next, open Details and use the existing
+   confirmed Like/Dislike actions. No action should create a Wave session.
+2. **Complete collection search and sorting.** Explicitly extend/index a large
+   liked collection or playlist and search for a known title beyond the old
+   2,000-position prefix, also by artist and album. Check progress, cancellation,
+   Retry, no-match versus incomplete coverage and changing the query while a
+   batch is pending. Sort title/artist/provider order and, when offered from valid timestamps,
+   added date;
+   navigate away/back and inspect the retained filter/scroll state. The playing
+   occurrence, audio and active queue must remain unchanged until explicit Play.
+3. **Queue editing and restoration.** From a disposable context with duplicate
+   tracks, use Play Next, Append, drag-and-drop and the keyboard move controls.
+   Remove one exact duplicate and edit future rows while playing and paused.
+   Check Next/Previous, Shuffle, Repeat, EOS and KDE MPRIS. Seek, close/reopen:
+   the edited queue, occurrence/modes and position restore **Stopped**. Explicit
+   Play resumes through the current-access/cache path; no startup autoplay.
+4. **Responsiveness and layout.** Check first launch/first Play, a repeated Play,
+   long-list scrolling, tabs, Track Info open/close, artwork updates, rapid search
+   and Light/Dark switching under both normal and slow connections. Compare
+   Native/Flatpak ordinary Wayland behavior separately from Cloud/Xvfb software
+   rendering. Exercise approximately 420×720, 900×650, 1440×900 and maximized,
+   1×/2×, keyboard focus, high contrast and Reduced Motion. System remains the
+   interface style; Karin remains visibly unavailable until designer materials.
+5. **Accepted regressions.** Sign in/restore normally; verify heard real audio,
+   seek/volume/EOS, local cache replay after restart, Clear without interrupting
+   already admitted audio, playlist confirmed edits, and desktop media controls.
+   Deliberately start My Wave and verify its normal controls/continuation. Stop,
+   logout and remembering-off must not revive ordinary playback or Wave. During
+   a pending lyric/index/similar request, logout/close must discard late results.
+
+Record action-level Native/installed-Flatpak PASS/FAIL with the exact commit.
+Report TEXT and LRC, live related results and full-library coverage independently;
+a missing lyric for one track is not a claim that all providers are unavailable.
+No private payload, account/track IDs, lyrics, screenshots or credentials need
+uploading. Issues #5/#22 and the unresolved physical-GPU/Wayland boundary of
+cold-rendering #23 are separate from this functional acceptance.

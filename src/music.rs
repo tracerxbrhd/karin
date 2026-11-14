@@ -27,8 +27,10 @@ use crate::session::AccessToken;
 
 pub mod cache_codec;
 pub mod interactions;
+pub mod library_index;
 pub mod playlist_creation;
 pub mod playlist_management;
+pub mod track_extras;
 pub mod wave;
 
 const ORIGIN: &str = "https://api.music.yandex.net/";
@@ -389,6 +391,7 @@ pub struct MusicService {
     client: Client,
     origin: Url,
     account: Arc<Mutex<AccountCache>>,
+    external_lyrics: Arc<Mutex<track_extras::ExternalHttpState>>,
 }
 impl fmt::Debug for MusicService {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -430,6 +433,7 @@ impl MusicService {
                 .expect("fixture client"),
             origin,
             account: Arc::new(Mutex::new(AccountCache::default())),
+            external_lyrics: Arc::default(),
         }
     }
     pub fn new() -> Result<Self, MusicError> {
@@ -445,6 +449,7 @@ impl MusicService {
             client,
             origin: Url::parse(ORIGIN).map_err(|_| MusicError::Configuration)?,
             account: Arc::new(Mutex::new(AccountCache::default())),
+            external_lyrics: Arc::default(),
         })
     }
     pub fn clear_session(&self) {

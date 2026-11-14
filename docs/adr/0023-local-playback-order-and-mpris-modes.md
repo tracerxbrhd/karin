@@ -5,6 +5,9 @@
 Status: Accepted for v0.4 implementation; execution and owner acceptance remain separate
 Date: 2026-11-01
 Extends: ADR-0017's PlaybackContext and shared MPRIS/controller ownership
+Updated by: [ADR-0031](0031-private-playback-continuation.md) for private ordinary
+continuation and [ADR-0036](0036-occurrence-queue-editing.md) for occurrence-aware
+Play Next and manual upcoming-order edits.
 
 ## Context
 

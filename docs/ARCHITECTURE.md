@@ -20,7 +20,7 @@ flowchart LR
 
 | Area | Modules | Responsibility |
 | --- | --- | --- |
-| Catalog | `music`, `api`, `application` | Typed service access and separate anonymous diagnostics |
+| Catalog | `music`, `music::library_index`, `music::track_extras`, `api`, `application` | Typed service access, explicit collection indexing, read-only text/related metadata and separate anonymous diagnostics |
 | Authentication | `auth`, `auth::cassette`, `ui::auth`, `oauth` | Ordinary sign-in and independent PKCE diagnostic |
 | Session | `session`, `credentials`, `session_lifecycle`, `settings` | Live tokens, protected persistence and non-secret preferences |
 | Data | `cache_budget`, `cache`, `catalog_cache`, `artwork`, `audio_cache` | One shared resource policy; typed metadata/artwork and separately policy-admitted audio stores |
@@ -29,8 +29,9 @@ flowchart LR
 | Presentation | `ui::music` and its view modules | Native views, user intents and guarded result admission |
 
 GIO workers perform bounded blocking work; main-context futures admit results
-under current account/request/source generations. Thirteen lanes each retain one
-running and one latest pending job. Playlist mutations additionally use a shared service write gate and a dedicated
+under current account/request/source generations. Sixteen lanes each retain one
+running and one latest pending job, including independent Lyrics, Similar and
+CollectionIndex reads. Playlist mutations additionally use a shared service write gate and a dedicated
 request lane; GTK rejects concurrent write intents before submission. Their
 read-only native editor has one bounded worker. The Wave lifecycle uses a separate
 bounded FIFO lane because feedback must not be coalesced or retried. Source
@@ -78,16 +79,24 @@ authorization loss still follows normal session teardown.
 [ADR-0028](adr/0028-confirmed-track-reactions.md) separates account membership
 from the unchanged Wave feedback protocol.
 
-Continuous views admit fifty-position portions, at most 2,000 positions/100 pages.
-Initial filling stops at three pages; further reads require user demand. Errors
-preserve rows with read Retry. Remote end, missing/stale data and local limits
-remain distinct. Like mutations retire continuation until explicit refresh,
+Ordinary continuous views admit fifty-position portions, at most 2,000 positions/
+100 pages. Initial filling stops at three pages; further reads require user demand.
+Errors preserve rows with read Retry. Remote end, missing/stale data and local
+limits remain distinct. Like mutations retire continuation until explicit refresh,
 without changing playback.
 
-Collection filtering reuses rows and an NFKC → casefold → NFKC title/artist/album
-index. Typing fetches no pages/metadata; bounded cover work may resume. Partial
-coverage is labelled; next-part reads stay bounded and source changes reset the
-query. An incomplete prefix is not complete remote search or sorting.
+Explicit whole-collection indexing uses `music::library_index`: a current compact
+membership manifest (4 MiB/20,000 original positions), independent 50-position
+canonical batches and a final full sequence/revision recheck. It remains
+process-only, with progress/pause/Retry and 200-row result windows. No new database,
+quota, whole-library startup scan or per-key network request is introduced.
+NFKC → casefold → NFKC title/artist/album keys support local matching and stable
+sorts. Added-date sorting requires valid occurrence timestamps throughout;
+provider order is not relabelled as an invented date. Incomplete/changed/oversized
+coverage remains explicit. Normal navigation retains useful projection state;
+logout/source changes retire late work. The active queue/player remains untouched.
+[ADR-0035](adr/0035-incremental-whole-collection-index.md) extends the original
+loaded-prefix decision.
 
 Play snapshots an aligned window of up to 500 matches in provider order, including
 the selected item; at most four windows are cached. Opaque feed binding and original
@@ -98,6 +107,22 @@ duplicates. Removing another row preserves that token; a replacement context
 gets new tokens. Info and MPRIS share this identity without publishing it.
 ADR-0016 and ADR-0024 cover normalization/loading;
 [ADR-0025](adr/0025-loaded-collection-search-and-playback-provenance.md) defines filtering/provenance.
+
+## Track text and related tracks
+
+`music::track_extras` owns legacy Yandex supplement full text, explicit external
+LRCLIB lookup and seed-bound similar-track reads. `lyrics` provides a bounded
+literal TEXT/LRC model and position lookup; it has no playback clock. The native
+Track Info extension uses the existing player snapshot only for the exact
+FollowingCurrent occurrence and retires old content with account/track/pane
+generations; another equal Track ID cannot borrow that playhead. A manually scrolled lyric stays under user
+control until following is requested again. External requests disclose public
+metadata sharing and never receive Music tokens/account or track IDs. Text is
+memory-only and source-labelled. Similar rows use one canonical batch and the
+existing Play/Next/Append/Details/reaction paths, without creating Wave.
+[ADR-0034](adr/0034-bounded-track-lyrics-and-similar.md) and
+[API_FEASIBILITY](API_FEASIBILITY.md#lyrics-and-related-tracks-in-v08) define
+bounds, source provenance and the exclusion of extracted modern signing keys.
 
 ## Playback controller
 
@@ -126,7 +151,11 @@ Modes survive normal clear/context replacement. Logout resets live modes;
 ordinary close saves them with the account-bound continuation, restored without
 autoplay after current Music validation.
 [ADR-0023](adr/0023-local-playback-order-and-mpris-modes.md) defines the policy
-shared by native controls and MPRIS.
+shared by native controls and MPRIS. [ADR-0036](adr/0036-occurrence-queue-editing.md)
+extends it with exact Play Next and upcoming reorder, typed local GTK drag/drop
+and keyboard equivalents. Edits remap current/history/provenance together without
+preparing the player; interleaved manual occurrences and edited future order
+survive the same private continuation path. Wave ordering remains unchanged.
 
 ## My Wave
 
@@ -293,11 +322,12 @@ after restart. Storage and access failures never become fabricated offline
 rights. [ADR-0029](adr/0029-synthetic-audio-cache-foundation.md) and
 [AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md) record the policy and source influence.
 Cloud checks use original permitted audio/local HTTP through this ordinary
-application, not a second player or a mock provider grant. The owner confirmed
-real first playback/background save at `31d873d`. At `cac4d78`, saving still
-worked while descriptor-path/representation-changed caused repeated downloads,
-with no confirmed local hit. Those service results remain separate from the
-new code and final Native/installed-Flatpak acceptance.
+application, not a second player or a mock provider grant. The owner accepted
+real Native and installed-Flatpak complete saving, local hits and restart-local
+playback at `c1de869`; #26 normally merged at `1fd4028`. Earlier service failures
+remain revision-specific history in VALIDATION. Subsequent v0.7 acceptance at
+`949d1f9` also covers restoration and the unchanged audio/cache path. Neither
+report establishes offline lifetimes or public service/content rights.
 
 ## GTK workspace, MPRIS and Flatpak
 

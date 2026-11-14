@@ -852,6 +852,13 @@ impl Controller {
             .map(PlaybackController::snapshot)
     }
 
+    /// Native tests retain the actual worker handle to observe its shutdown;
+    /// this exposes no engine accessor in the production application.
+    #[cfg(test)]
+    pub(super) fn music_controller_for_test(&self) -> Option<PlaybackController> {
+        self.player.borrow().controller.clone()
+    }
+
     pub(super) fn continuation_position(&self) -> Option<Duration> {
         let model = self.model.borrow();
         let player = self.player.borrow();
@@ -1536,9 +1543,10 @@ impl Controller {
         drop(model);
         self.publish_mpris();
         self.sync_track_pane();
+        self.sync_track_extras_position();
         self.sync_cache_presence_targets();
         self.sync_cache_source_tooltip();
-        self.sync_catalog_rows();
+        self.sync_catalog_rows_if_current_changed();
         self.sync_wave_queue_controls();
     }
 }

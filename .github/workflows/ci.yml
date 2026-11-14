@@ -69,16 +69,44 @@ jobs:
           PYTHON
           # An unsuccessful index refresh must not silently use stale indexes
           # and then spend 45 minutes retrying every unavailable package.
-          sudo apt-get -o APT::Update::Error-Mode=any -o Acquire::Retries=2 \
-            -o Acquire::https::Timeout=20 update
-          sudo apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=20 \
-            install -y --no-install-recommends \
-            build-essential pkg-config libgtk-4-dev libadwaita-1-dev \
-            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-            gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
-            libssl-dev libdbus-1-dev libsecret-1-dev libwebkitgtk-6.0-dev dbus-x11 xvfb xauth \
-            librsvg2-common openbox imagemagick xdotool wmctrl x11-utils apparmor \
-            playerctl libglib2.0-bin libgl1-mesa-dri libegl-mesa0 libglx-mesa0
+          install_native() {
+            sudo apt-get -o APT::Update::Error-Mode=any -o Acquire::Retries=2 \
+              -o Acquire::https::Timeout=20 update &&
+            sudo apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=20 \
+              install -y --no-install-recommends \
+              build-essential pkg-config libgtk-4-dev libadwaita-1-dev \
+              libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+              gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+              libssl-dev libdbus-1-dev libsecret-1-dev libwebkitgtk-6.0-dev dbus-x11 xvfb xauth \
+              librsvg2-common openbox imagemagick xdotool wmctrl x11-utils apparmor \
+              playerctl libglib2.0-bin libgl1-mesa-dri libegl-mesa0 libglx-mesa0
+          }
+          if ! install_native; then
+            # A resolved kernel-mirror IPv4 timed out during package fetching on
+            # 2ab6d28. One official Ubuntu HTTPS fallback covers update and
+            # mid-install transport failures; apt still verifies every signature.
+            echo 'Native dependency setup: retrying once with official Ubuntu archive'
+            sudo python3 - <<'PYTHON'
+          from pathlib import Path
+          import re
+          sources = [Path('/etc/apt/sources.list'), Path('/etc/apt/apt-mirrors.txt')]
+          sources += list(Path('/etc/apt/sources.list.d').glob('*.sources'))
+          sources += list(Path('/etc/apt/sources.list.d').glob('*.list'))
+          changed = 0
+          for source in sources:
+              if source.is_file():
+                  original = source.read_text()
+                  updated = re.sub(
+                      r'https://mirrors\.edge\.kernel\.org/ubuntu(?=/|\s|$)',
+                      'https://archive.ubuntu.com/ubuntu', original)
+                  if updated != original:
+                      source.write_text(updated)
+                      changed += 1
+          assert changed, 'No known Ubuntu mirror source was available for fallback'
+          print(f'Ubuntu archive fallback: {changed} source files updated')
+          PYTHON
+            install_native
+          fi
       - name: Install selected Rust toolchain
         run: |
           rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
@@ -193,6 +221,10 @@ jobs:
               'native_persistent_session_restore_settings_forget_and_close',
               'native_audio_cache_application_process_restart',
               'native_v07_playback_restore_playlist_appearance_process_restart',
+              'native_v08_lyrics_similar_seek_and_stale_selection',
+              'native_v08_whole_collection_index_search_sort_and_cancellation',
+              'native_v08_queue_next_drag_keyboard_and_restoration',
+              'native_v08_incremental_marker_updates_and_stable_ticks',
               'native_catalog_cache_provenance_interleaving_and_retired_replies',
           ]
           compiled = {line.rsplit('::', 1)[-1].removesuffix(': test')
@@ -295,6 +327,23 @@ jobs:
             export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/v07-application/scale-$scale"
             if [ "$scale" = 2 ]; then screen=3840x2160; else screen=1920x1080; fi
             dbus-run-session -- xvfb-run -a -s "-screen 0 ${screen}x24 -dpi 96" cargo test --lib --all-features --locked native_v07_playback_restore_playlist_appearance_process_restart -- --ignored --test-threads=1 --nocapture
+          done
+      - name: Integrated lyrics, similar tracks, complete collection index and queue input
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+          G_DEBUG: fatal-warnings
+        run: |
+          for scale in 1 2; do
+            export GDK_SCALE="$scale"
+            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/v08-application/scale-$scale"
+            mkdir -p "$KARIN_TEST_CAPTURE_DIR"
+            if [ "$scale" = 2 ]; then screen=3840x2160; else screen=1920x1080; fi
+            dbus-run-session -- xvfb-run -a -s "-screen 0 ${screen}x24 -dpi 96" cargo test --lib --all-features --locked native_v08_lyrics_similar_seek_and_stale_selection -- --ignored --test-threads=1 --nocapture
+            dbus-run-session -- xvfb-run -a -s "-screen 0 ${screen}x24 -dpi 96" cargo test --lib --all-features --locked native_v08_whole_collection_index_search_sort_and_cancellation -- --ignored --test-threads=1 --nocapture
+            dbus-run-session -- xvfb-run -a -s "-screen 0 ${screen}x24 -dpi 96" cargo test --lib --all-features --locked native_v08_queue_next_drag_keyboard_and_restoration -- --ignored --test-threads=1 --nocapture
+            dbus-run-session -- xvfb-run -a -s "-screen 0 ${screen}x24 -dpi 96" cargo test --lib --all-features --locked native_v08_incremental_marker_updates_and_stable_ticks -- --ignored --test-threads=1 --nocapture 2>&1 | tee "$KARIN_TEST_CAPTURE_DIR/marker-work.log"
+            python3 scripts/check-marker-work.py "$KARIN_TEST_CAPTURE_DIR/marker-work.log"
           done
       - name: Persistent session and catalog cache integration at HiDPI
         env:
@@ -467,8 +516,17 @@ jobs:
                           and item.get('profile', {}).get('test') and item.get('executable')]
               assert len(binaries) == 1, 'Expected one compiled library test executable'
               binary = Path(binaries[0]).resolve()
-              expected = Path(os.environ['GITHUB_WORKSPACE']).resolve() / 'target/debug/deps'
-              assert binary.parent == expected and re.fullmatch(r'karin-[0-9a-f]+', binary.name)
+              workspace = Path(os.environ['GITHUB_WORKSPACE']).resolve()
+              # Cargo 1.100 moved test executables from debug/deps to this
+              # exact crate/hash/out layout. Admit only those two known layouts;
+              # the AppArmor attachment still names this single compiled ELF.
+              name = re.fullmatch(r'karin-([0-9a-f]{16})', binary.name)
+              assert name, 'Unexpected library test executable name'
+              expected = {
+                  workspace / 'target/debug/deps',
+                  workspace / 'target/debug/build/karin' / name.group(1) / 'out',
+              }
+              assert binary.parent in expected, 'Unexpected compiled test directory'
               assert binary.is_file() and os.access(binary, os.X_OK)
               assert re.fullmatch(r'[A-Za-z0-9_./-]+', str(binary)), 'Unsafe profile attachment path'
               # Ubuntu 24.04 requires a labelled parent app for WebKit's bwrap
@@ -652,7 +710,8 @@ jobs:
           Preserve GPL and third-party notices. Shared OAuth public-distribution/service permission remains unresolved separately.
           Do not enable network/GStreamer logs or share tokens, URLs, account data, private screenshots or audio.
           Private HTTP audio caching uses the current validated Legacy MP3 session, actual response directives and fresh representation validation; it is not a provider entitlement or an offline mode.
-          The owner accepted real Native and installed Flatpak playback, complete saving, local hits and replay after restart at c1de869 on 2026-11-11. Follow docs/BUILDING.md#v07-final-fedora-acceptance for one final check of this build: playback continuation, disposable playlist edits, independent appearance, and preserved AudioCache/MPRIS/Wave behavior. Cloud original-audio fixtures do not replace that real-service acceptance.
+          The owner accepted audio caching at c1de869 and v0.7 at949d1f9 (68/68: Native34/34, installedFlatpak34/34); PR28 merged normally at2ab6d28. Follow docs/BUILDING.md#v08-final-fedora-acceptance for this build: lyrics/TEXT/LRC, similar tracks, full-collection indexing and sort, exact queue editing, and preserved playback/cache/auth/MPRIS/Wave. Cloud original-audio fixtures do not replace real-service acceptance of the new features.
+          LRCLIB is a separate explicitly requested text source; its disclosed public artist/title/album/duration lookup sends no Music token or private account identifiers. Modern extracted-key lyrics signing is excluded. Karin Style remains unavailable pending designer materials.
           Settings has one enabled-by-default 2GiB shared cache allowance, six-position slider (500MiB/1/2/3/4GiB/Unlimited), measured total and Clear; no download/offline or permission-override controls.
           Active-footer Like and Dislike require independent live membership confirmation; Dislike stays hidden if unavailable, while fresh Like-only remains supported.
           Test separate marks, their removal/opposite clearing, pending/error GET recovery and exactly one Next after confirmed current Dislike; removal/Like/errors never advance or add new Wave events.
@@ -701,6 +760,14 @@ jobs:
             build/ui-captures/fixtures/v07-application/scale-*/v07-application-receipt.json
             build/ui-captures/fixtures/v07-application/scale-*/v07-application-*.log
             build/ui-captures/fixtures/v07-application/scale-*/v07-playlist-editor-*.png
+          retention-days: 14
+          if-no-files-found: error
+      - name: Retain v0.8 functional input and marker-work evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6, Node.js 24
+        with:
+          name: karin-v08-application-${{ matrix.lane }}-${{ github.sha }}
+          path: build/ui-captures/fixtures/v08-application/
           retention-days: 14
           if-no-files-found: error
       - name: Retain Ubuntu functional UI evidence

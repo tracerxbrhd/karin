@@ -5,6 +5,9 @@
 Status: accepted and normally merged through PR #28 at `2ab6d28`; exact
 `949d1f9` passed the owner's v0.7 Native/installed-Flatpak acceptance (68/68).
 
+Extended by: [ADR-0036](0036-occurrence-queue-editing.md) for edited-order
+continuation and bounded larger source-position provenance.
+
 ## Context
 
 The accepted player/cache path can reuse audio after restart, but the ordinary

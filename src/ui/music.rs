@@ -47,6 +47,7 @@ pub(in crate::ui) mod sliding_panel;
 mod system_media;
 #[cfg(test)]
 mod test_input;
+mod track_extras;
 mod track_pane;
 mod workspace;
 use requests::{Operation, Requests};
@@ -202,7 +203,8 @@ struct Controller {
     info_observed: RefCell<Option<workspace::CurrentOccurrence>>,
     info_target_epoch: Cell<u64>,
     panel_mode: Cell<workspace::PanelMode>,
-    catalog_rows: RefCell<Vec<catalog_layout::CatalogRow>>,
+    catalog_rows: RefCell<catalog_layout::CatalogRows>,
+    current_art_cover: RefCell<Option<Option<CoverArt>>>,
     current_like_key: RefCell<Option<(u64, String)>>,
     detail_like_controls: RefCell<Vec<interactions::DetailLike>>,
     catalog: RefCell<Option<crate::catalog_cache::CachedCatalog>>,
@@ -709,7 +711,8 @@ impl MusicPane {
             info_observed: RefCell::new(None),
             info_target_epoch: Cell::new(0),
             panel_mode: Cell::new(workspace::PanelMode::Closed),
-            catalog_rows: RefCell::new(Vec::new()),
+            catalog_rows: RefCell::new(catalog_layout::CatalogRows::default()),
+            current_art_cover: RefCell::new(None),
             current_like_key: RefCell::new(None),
             detail_like_controls: RefCell::new(Vec::new()),
             catalog: RefCell::new(None),
@@ -2058,6 +2061,27 @@ impl Controller {
         }
         self.render_queue();
     }
+
+    fn enqueue_next(self: &Rc<Self>, track: Track) {
+        if !self.wave_manual_append_allowed() {
+            return;
+        }
+        self.note_playback_intent();
+        self.cancel_pending_wave_for_ordinary_action();
+        let result = self.model.borrow_mut().queue.insert_next(track);
+        match result {
+            Ok(_) => self
+                .widgets
+                .status
+                .set_title("Трек будет воспроизведён следующим."),
+            Err(_) => self
+                .widgets
+                .status
+                .set_title("Очередь заполнена. Удалите ненужные треки."),
+        }
+        self.render_queue();
+        self.publish_mpris();
+    }
 }
 
 fn cover_widget(
@@ -2399,6 +2423,7 @@ mod tests {
         time::{Duration, Instant},
     };
 
+    #[track_caller]
     pub(super) fn pump_until(mut condition: impl FnMut() -> bool) {
         let context = glib::MainContext::default();
         let deadline = Instant::now() + Duration::from_secs(8);

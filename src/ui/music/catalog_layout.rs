@@ -11,24 +11,94 @@ pub(super) struct CatalogRow {
     marker: Option<CatalogMarker>,
 }
 
+#[derive(Default)]
+pub(super) struct CatalogRows {
+    bindings: Vec<CatalogRow>,
+    observed: Option<CatalogSelection>,
+}
+
+struct CatalogSelection {
+    generation: u64,
+    context: Option<PlaybackContext>,
+}
+
+impl CatalogSelection {
+    fn matches(&self, other: &Self) -> bool {
+        self.generation == other.generation
+            && match (&self.context, &other.context) {
+                (Some(first), Some(second)) => first.same_presentation_snapshot(second),
+                (None, None) => true,
+                _ => false,
+            }
+    }
+}
+
+impl CatalogRow {
+    fn sync(&self, current: Option<&PlaybackContext>) -> bool {
+        let Some(row) = self.row.upgrade() else {
+            return false;
+        };
+        let selected = current.is_some_and(|current| {
+            if let Some(marker) = &self.marker {
+                return marker(current);
+            }
+            self.context.as_ref()().is_some_and(|context| {
+                if context
+                    .source_id()
+                    .is_some_and(|id| id.starts_with("continuous:"))
+                {
+                    continuous_loading::same_loaded_occurrence(&context, current)
+                } else {
+                    same_context_occurrence(&context, current)
+                }
+            })
+        });
+        if row.has_css_class("music-current") != selected {
+            if selected {
+                row.add_css_class("music-current");
+            } else {
+                row.remove_css_class("music-current");
+            }
+            row.update_property(&[gtk::accessible::Property::Description(if selected {
+                "Текущий трек"
+            } else {
+                ""
+            })]);
+        }
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests;
 
 fn same_context_occurrence(row: &PlaybackContext, current: &PlaybackContext) -> bool {
-    row.source_kind() == current.source_kind()
-        && row.source_id() == current.source_id()
-        && row.current_index() == current.current_index()
-        && row.loaded_items_len() == current.loaded_items_len()
-        && row
-            .items()
-            .iter()
-            .take(row.loaded_items_len())
-            .map(|track| &track.id)
-            .eq(current
-                .items()
-                .iter()
-                .take(current.loaded_items_len())
-                .map(|track| &track.id))
+    if row.source_kind() != current.source_kind() || row.source_id() != current.source_id() {
+        return false;
+    }
+    let Some(position) = row.source_position(row.current_index()) else {
+        return false;
+    };
+    if current.source_position(current.current_index()) != Some(position)
+        || row.items()[row.current_index()].id != current.items()[current.current_index()].id
+    {
+        return false;
+    }
+    // Queue edits may interleave manual additions or move/remove source
+    // occurrences. Compare original source positions, not mutable physical
+    // indices or an assumed loaded prefix. Retained source identities must
+    // still match this exact admitted source window, including duplicates.
+    let source: std::collections::BTreeMap<_, _> = row
+        .items()
+        .iter()
+        .enumerate()
+        .filter_map(|(index, track)| row.source_position(index).map(|pos| (pos, &track.id)))
+        .collect();
+    current.items().iter().enumerate().all(|(index, track)| {
+        current
+            .source_position(index)
+            .is_none_or(|pos| source.get(&pos).is_some_and(|id| *id == &track.id))
+    })
 }
 
 /// A compact, keyboard-activatable song row. Metadata stays available through
@@ -142,46 +212,52 @@ pub(super) fn append_tile(grid: &gtk::FlowBox, tile: &gtk::Button) {
 }
 
 impl Controller {
+    pub(super) fn retire_catalog_rows(&self) {
+        let mut rows = self.catalog_rows.borrow_mut();
+        rows.bindings.clear();
+        rows.observed = None;
+    }
+
     /// Styling observes the existing queue occurrence, never controls playback.
     /// Weak rows are pruned on each refresh and cannot retain removed pages or
     /// private catalog widgets after logout.
     pub(super) fn sync_catalog_rows(&self) {
+        self.sync_catalog_rows_with_selection(self.catalog_selection());
+    }
+
+    fn catalog_selection(&self) -> CatalogSelection {
         let model = self.model.borrow();
-        let current = model.account_valid.then(|| model.queue.context()).flatten();
-        self.catalog_rows.borrow_mut().retain(|binding| {
-            let Some(row) = binding.row.upgrade() else {
-                return false;
-            };
-            let selected = current.is_some_and(|current| {
-                if let Some(marker) = &binding.marker {
-                    return marker(current);
-                }
-                binding.context.as_ref()().is_some_and(|context| {
-                    if context
-                        .source_id()
-                        .is_some_and(|id| id.starts_with("continuous:"))
-                    {
-                        continuous_loading::same_loaded_occurrence(&context, current)
-                    } else {
-                        same_context_occurrence(&context, current)
-                    }
-                })
-            });
-            if row.has_css_class("music-current") == selected {
-                return true;
-            }
-            if selected {
-                row.add_css_class("music-current");
-            } else {
-                row.remove_css_class("music-current");
-            }
-            row.update_property(&[gtk::accessible::Property::Description(if selected {
-                "Текущий трек"
-            } else {
-                ""
-            })]);
-            true
-        });
+        CatalogSelection {
+            generation: model.generation,
+            context: (model.account_valid && !model.closed)
+                .then(|| model.queue.context().cloned())
+                .flatten(),
+        }
+    }
+
+    fn sync_catalog_rows_with_selection(&self, selection: CatalogSelection) {
+        let mut rows = self.catalog_rows.borrow_mut();
+        rows.bindings
+            .retain(|binding| binding.sync(selection.context.as_ref()));
+        rows.observed = Some(selection);
+    }
+
+    /// Position polling does not change a catalog occurrence. Explicit feed,
+    /// filter and account updates still call the unconditional sync above.
+    /// Context identity also changes for queue edits, even if the current
+    /// occurrence and length happen to remain unchanged.
+    pub(super) fn sync_catalog_rows_if_current_changed(&self) {
+        let selection = self.catalog_selection();
+        if self
+            .catalog_rows
+            .borrow()
+            .observed
+            .as_ref()
+            .is_some_and(|observed| observed.matches(&selection))
+        {
+            return;
+        }
+        self.sync_catalog_rows_with_selection(selection);
     }
 
     fn render_home_collections(self: &Rc<Self>) {
@@ -669,18 +745,18 @@ impl Controller {
         play.add_css_class("flat");
         body.append(&play);
         body.append(&self.track_menu_source(&track, context.clone(), false));
-        self.catalog_rows
-            .borrow_mut()
-            .retain(|binding| binding.row.upgrade().is_some());
-        self.catalog_rows.borrow_mut().push(CatalogRow {
+        let binding = CatalogRow {
             row: row.downgrade(),
             context: context.clone(),
             marker,
-        });
+        };
         self.row_action(&row, RowAction::LoadedTrack(context));
         row.set_activatable(track.available);
         list.append(&row);
-        self.sync_catalog_rows();
+        // A new row needs its own current marker immediately. Re-evaluating
+        // every old row for each insertion made a page append quadratic.
+        binding.sync(self.catalog_selection().context.as_ref());
+        self.catalog_rows.borrow_mut().bindings.push(binding);
     }
 
     pub(super) fn row_action(self: &Rc<Self>, row: &gtk::ListBoxRow, action: RowAction) {
@@ -913,6 +989,26 @@ impl Controller {
             }
         });
         actions.append(&play);
+        let next = gtk::Button::with_label("Воспроизвести следующим");
+        next.add_css_class("flat");
+        next.set_sensitive(track.available);
+        let weak = Rc::downgrade(self);
+        let close = popover.downgrade();
+        let queued = track.clone();
+        let next_context = context.clone();
+        next.connect_clicked(move |_| {
+            if let Some(popover) = close.upgrade() {
+                popover.popdown();
+            }
+            if let Some(this) = weak.upgrade().filter(|this| {
+                let model = this.model.borrow();
+                model.generation == generation && model.account_valid && !model.closed
+            }) && (allow_standalone || next_context().is_some())
+            {
+                this.enqueue_next(queued.clone());
+            }
+        });
+        actions.append(&next);
         let add = gtk::Button::with_label("Добавить в очередь");
         add.add_css_class("flat");
         let weak = Rc::downgrade(self);

@@ -76,6 +76,7 @@ fn fixture(responses: Vec<(u16, String)>) -> (MusicService, JoinHandle<Vec<Strin
             .unwrap(),
         origin: Url::parse(&format!("http://{address}/")).unwrap(),
         account: Arc::new(Mutex::new(AccountCache::default())),
+        external_lyrics: Arc::default(),
     };
     (service, server, retained)
 }
@@ -571,6 +572,7 @@ fn wire_request_fixture<T>(
             .unwrap(),
         origin: Url::parse(&format!("http://{address}/")).unwrap(),
         account: Arc::new(Mutex::new(AccountCache::default())),
+        external_lyrics: Arc::default(),
     };
     seed_search_account(&service);
     let result = operation(&service);
@@ -1900,6 +1902,7 @@ fn search_lookup_transport_failure_does_not_reuse_search_http_200() {
                     .unwrap(),
                 origin: Url::parse(&format!("http://{address}/")).unwrap(),
                 account: Arc::new(Mutex::new(AccountCache::default())),
+                external_lyrics: Arc::default(),
             };
             seed_search_account(&service);
             let server = thread::spawn(move || {

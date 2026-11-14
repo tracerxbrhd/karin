@@ -234,6 +234,15 @@ impl Controller {
         self.info_target_epoch.get()
     }
 
+    pub(super) fn information_follows_current_playback(&self) -> bool {
+        self.info_selection
+            .borrow()
+            .as_ref()
+            .is_some_and(|selection| selection.target == InfoTarget::FollowingCurrent)
+            && *self.info_observed.borrow()
+                == CurrentOccurrence::from_queue(&self.model.borrow().queue)
+    }
+
     pub(super) fn select_track_info_if_current(
         &self,
         epoch: u64,
@@ -713,9 +722,10 @@ impl Controller {
             return;
         }
         let action_track = match &action {
-            PaneAction::Play(track) | PaneAction::Enqueue(track) | PaneAction::Details(track) => {
-                Some(track)
-            }
+            PaneAction::Play(track)
+            | PaneAction::Enqueue(track)
+            | PaneAction::EnqueueNext(track)
+            | PaneAction::Details(track) => Some(track),
             _ => None,
         };
         if action_track.is_some_and(|track| self.track_pane.selected().as_ref() != Some(track)) {
@@ -757,10 +767,12 @@ impl Controller {
             }
             PaneAction::Play(_) => {}
             PaneAction::Enqueue(track) => self.enqueue(track),
+            PaneAction::EnqueueNext(track) => self.enqueue_next(track),
             PaneAction::AddToPlaylist(track) => self.present_add_to_playlist(track),
             PaneAction::Details(track) => self.open_track_context(track.id, context),
             PaneAction::Album(id) => self.open_album(id),
             PaneAction::Artist(artist) => self.open_artist(artist, 0),
+            PaneAction::Extras(action) => self.handle_track_extras_action(action),
         }
     }
 
@@ -784,6 +796,7 @@ impl Controller {
     }
 
     pub(super) fn clear_workspace(&self) {
+        self.retire_catalog_rows();
         self.retire_playlist_management();
         let dialog = self.playlist_dialog.borrow_mut().take();
         if let Some(dialog) = dialog {

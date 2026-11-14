@@ -136,6 +136,10 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
                     assert_eq!(track.id, "42");
                     "enqueue"
                 }
+                PaneAction::EnqueueNext(track) => {
+                    assert_eq!(track.id, "42");
+                    "enqueue_next"
+                }
                 PaneAction::AddToPlaylist(track) => {
                     assert_eq!(track.id, "42");
                     "add_playlist"
@@ -152,6 +156,7 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
                     assert_eq!(artist.id, "11");
                     "artist"
                 }
+                PaneAction::Extras(_) => return,
             });
             if reenter.get()
                 && let Some(pane) = weak.borrow().upgrade()

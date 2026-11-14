@@ -66,13 +66,17 @@ reviewable and consistent with the accepted application.
   and confirmed seek/volume; export supported capabilities, opaque track paths and
   decoded local covers only. Do not widen Flatpak D-Bus/filesystem permissions.
 - Row click/Enter/Space plays the exact occurrence; Details is separate. Preserve
-  duplicates and original source positions. Views stay bounded at 2,000 positions/
-  100 pages; new contexts at 500. Filtering/appending must not rewrite active Queue.
+  duplicates and original source positions. Ordinary views stay bounded at 2,000
+  positions/100 pages; explicit collection indexing supports 20,000 original
+  positions with 50-position batches and 200-row result windows. New contexts
+  remain at 500. Filtering/sorting/indexing/appending must not rewrite active Queue.
   Info/MPRIS use queue-owned opaque occurrence IDs, never mutable indices or IDs
   of service tracks. Original source positions remain separate provenance.
 - Search admitted collection metadata with Unicode matching and honest partial
-  coverage. No whole-library drain on typing. Total duration needs complete data
-  with every duration known and a checked sum.
+  coverage. Whole-collection indexing requires an explicit intent and final
+  membership recheck; never start it on startup or typing. Date sorting requires
+  valid occurrence timestamps; provider order is not an invented date. Total
+  duration needs complete data with every duration known and a checked sum.
 - Preserve pinned Track Info/Queue intent across outside clicks/navigation/resize;
   actual new current occurrences resume following. Footer: hidden before Play,
   retained through Pause/retryable active failure, hidden on Stop/clear/logout.
