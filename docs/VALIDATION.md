@@ -1471,6 +1471,19 @@ interaction and ordered session fixtures were likewise updated for the new
 passive related read and the common Info-to-Album action; unknown requests,
 authorization, media counters and pagination assertions remain strict.
 
+At `56e4aad`, the complete local 62-selection matrix and both vendored offline
+source/release lanes passed. All four modern CI jobs also passed; the four main
+jobs later exposed ambient playback state in the legacy persistence fixture at
+HiDPI. A deterministic regression seeded a real valid ordinary continuation for
+the synthetic account in the explicitly isolated XDG profile. Without injection,
+startup rejected a canonical track-lookup POST; the old assertion had incorrectly
+labelled every POST as a Wave session. This was not evidence of an automatic
+radio request. A test-only private playback-store injection made the same seeded
+case pass on both compilers at both scales, while preserving the ambient record,
+empty-startup assertions and production continuation behavior. Dedicated v0.7
+restoration coverage remains intact. Final-head CI is required after this test
+isolation correction; earlier successful checks do not stand in for it.
+
 A separate local MSRV cache parent timed out in `completion-skip` while waiting
 for cached replay. Its first log lacks the native state needed to assign a
 cause. A later focused run and full 74-process parent passed with the original
