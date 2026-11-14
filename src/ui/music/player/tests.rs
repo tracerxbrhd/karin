@@ -1275,7 +1275,15 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
     // owner and independent storage authority. Persistent bytes alone cannot
     // authorize local playback, and every hit must resolve the online source.
     let checks_before_restart = fixture.counts.lock().unwrap().account_checks;
+    // Deliberately leave a real presence task pending at close. Its weak GTK
+    // callback still owns the cache until the bounded read has completed.
+    this.register_cache_indicator("42", &this.widgets.current_cache);
+    this.tick_cache_presence();
+    assert!(this.cache_presence_query_running_for_test());
     this.close();
+    // Closing fences reads immediately; same-process namespace reconstruction
+    // must also await the old asynchronous owner, rather than racing its flock.
+    pump_until(|| !this.cache_presence_query_running_for_test() && cache.lookup_settled_for_test());
     ui.window.close();
     drop(cache);
     drop(ui);
