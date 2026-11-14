@@ -162,6 +162,14 @@ fn make_fixture(count: usize, malformed: bool, native: bool) -> Fixture {
                         offers.fetch_add(1, Ordering::AcqRel);
                         json!({"result":[]})
                     }
+                    path if header.starts_with("GET ")
+                        && path.strip_prefix("/tracks/")
+                            .and_then(|tail| tail.strip_suffix("/similar"))
+                            .is_some_and(|id| !id.is_empty() && id.len() <= 20
+                                && id.bytes().all(|byte| byte.is_ascii_digit())) => {
+                        let id = path.strip_prefix("/tracks/").unwrap().strip_suffix("/similar").unwrap();
+                        json!({"result":{"track":{"id":id},"similarTracks":[]}})
+                    }
                     _ => panic!("unexpected synthetic index route"),
                 }.to_string();
                 let _ = write!(

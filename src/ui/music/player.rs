@@ -809,6 +809,26 @@ impl Controller {
         !player.resolving && !player.cache_fill_running && player.cache_fill_pending.is_empty()
     }
 
+    /// Fixed flags and a count only; native acceptance receipts must not expose
+    /// queue identities, account data or resolved media addresses.
+    #[cfg(test)]
+    pub(super) fn playback_phase_for_test(&self) -> (bool, bool, bool, bool, bool, usize, bool) {
+        let player = self.player.borrow();
+        (
+            player.requested,
+            player.resolving,
+            player.pending.is_some(),
+            player.preparing.is_some(),
+            player.stopped,
+            player
+                .retired
+                .iter()
+                .filter(|engine| engine.snapshot().worker_running)
+                .count(),
+            self.source_renewal_active(),
+        )
+    }
+
     #[cfg(test)]
     pub(super) fn music_cleanup_observer_for_test(&self) -> impl Fn() -> bool {
         let player = self.player.borrow();

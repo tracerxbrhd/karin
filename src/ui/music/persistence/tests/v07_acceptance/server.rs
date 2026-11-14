@@ -355,6 +355,11 @@ fn serve(
             counts.lock().unwrap().deletes += 1;
             json!({"result":"ok"})
         }
+        path if method == "GET"
+            && crate::ui::music::tests::empty_similar_response(path).is_some() =>
+        {
+            crate::ui::music::tests::empty_similar_response(path).unwrap()
+        }
         path if path.starts_with("/tracks/") && path.ends_with("/download-info") => {
             counts.lock().unwrap().offers += 1;
             let id = path

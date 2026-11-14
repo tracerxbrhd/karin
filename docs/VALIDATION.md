@@ -1464,6 +1464,21 @@ original local audio/text and HTTP fixtures; no real account, elapsed-hour pause
 or Fedora acceptance is inferred. Final-source/compiler-matrix and Actions
 results remain separately identified in PR #29's execution receipts.
 
+At `8c651c8`, all four modern UI jobs passed, but the four main CI jobs stopped
+at the strict v0.7 fixture's unhandled request. Admitting only the exact numeric
+GET Similar route made that unchanged twenty-process scenario pass. The index,
+interaction and ordered session fixtures were likewise updated for the new
+passive related read and the common Info-to-Album action; unknown requests,
+authorization, media counters and pagination assertions remain strict.
+
+A separate local MSRV cache parent timed out in `completion-skip` while waiting
+for cached replay. Its first log lacks the native state needed to assign a
+cause. A later focused run and full 74-process parent passed with the original
+predicate and deadline. The failed sample is retained as unexplained, alongside
+the earlier `completion-eos` sample; test-only bounded state/HTTP-count receipts
+now preserve evidence if it recurs. Neither passing repeats nor the new receipt
+are described as a production cache fix.
+
 A retained development run also failed the unchanged NGL scale-2 motion gate
 for wide Track Info opening: five distinct quarter frames were unavailable
 (sampled progress 0, 0.368, 0.725, 0.802, 0.972, 0.987, 1). Its scale-1 static

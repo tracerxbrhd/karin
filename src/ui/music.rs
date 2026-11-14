@@ -2906,7 +2906,6 @@ mod tests {
             ("GET /users/1234/playlists/3", playlist, false),
             ("POST /tracks", tracks.clone(), false),
             ("GET /search", search.clone(), false),
-            ("POST /tracks", tracks.clone(), false),
             ("POST /tracks", tracks, false),
             ("GET /albums/7/with-tracks", album, false),
             ("GET /search", search, true),
@@ -2954,7 +2953,12 @@ mod tests {
                 let independent_dislike = request.starts_with("GET /users/1234/dislikes/tracks");
                 let independent_membership = !request.starts_with(prefix)
                     && (request.starts_with("GET /users/1234/likes/tracks") || independent_dislike);
-                assert!(request.starts_with(prefix) || independent_membership);
+                let independent_similar = request
+                    .strip_prefix("GET ")
+                    .and_then(|line| line.split_whitespace().next())
+                    .and_then(empty_similar_response);
+                let independent_read = independent_membership || independent_similar.is_some();
+                assert!(request.starts_with(prefix) || independent_read);
                 assert!(
                     !request
                         .to_ascii_lowercase()
@@ -2971,13 +2975,15 @@ mod tests {
                     .unwrap_or(0);
                 assert!(length < 32 * 1024);
                 stream.read_exact(&mut vec![0; length]).unwrap();
-                if *delayed && !independent_membership {
+                if *delayed && !independent_read {
                     server_late_started.store(true, Ordering::Release);
                     wait_for_release
                         .recv_timeout(Duration::from_secs(8))
                         .unwrap();
                 }
-                let body = if independent_dislike {
+                let body = if let Some(response) = independent_similar {
+                    response.to_string()
+                } else if independent_dislike {
                     dislike_body.clone()
                 } else if independent_membership {
                     membership_body.clone()
@@ -2985,7 +2991,7 @@ mod tests {
                     response.to_string()
                 };
                 write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
-                if !independent_membership {
+                if !independent_read {
                     responses.next();
                 }
             }
@@ -3331,15 +3337,53 @@ mod tests {
         )
         .unwrap()
         .emit_clicked();
-        pump_until(|| !this.model.borrow().busy);
-        this.widgets
-            .detail
-            .last_child()
-            .unwrap()
-            .downcast::<gtk::Button>()
-            .unwrap()
-            .emit_clicked();
-        pump_until(|| !this.model.borrow().busy);
+        pump_until(|| {
+            this.panel_mode.get() == workspace::PanelMode::TrackInfo
+                && !menu.popover().unwrap().is_mapped()
+                && this.track_pane.album.is_mapped()
+                && this.track_pane.album.is_sensitive()
+        });
+        assert_eq!(
+            this.widgets.stack.visible_child_name().as_deref(),
+            Some("search")
+        );
+        let native = std::process::Command::new("xdotool")
+            .args([
+                "search",
+                "--onlyvisible",
+                "--name",
+                "^Karin synthetic HTTP fixture$",
+            ])
+            .output()
+            .unwrap();
+        assert!(native.status.success());
+        let native = String::from_utf8(native.stdout).unwrap();
+        let native = native.lines().next().unwrap();
+        assert!(native.bytes().all(|byte| byte.is_ascii_digit()));
+        let (x, y) = super::test_input::pointer(
+            &window,
+            &this.track_pane.album,
+            super::test_input::Target::Center,
+        );
+        assert!(
+            std::process::Command::new("xdotool")
+                .args([
+                    "mousemove",
+                    "--window",
+                    native,
+                    &x.to_string(),
+                    &y.to_string(),
+                    "click",
+                    "1"
+                ])
+                .status()
+                .unwrap()
+                .success()
+        );
+        pump_until(|| {
+            this.widgets.stack.visible_child_name().as_deref() == Some("detail")
+                && !this.model.borrow().busy
+        });
         // A collection's Play action belongs inside its hero. Locate the
         // actual track list by type instead of an obsolete child position.
         let album_rows = {

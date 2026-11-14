@@ -8,7 +8,7 @@
 //! not prove any rights or live-service behavior for the Yandex catalog.
 
 use super::*;
-use crate::playback::PlaybackSourceKind;
+use crate::playback::{PlaybackSnapshot, PlaybackSourceKind};
 use ring::digest::{SHA256, digest};
 use std::{
     fs,
@@ -1106,13 +1106,63 @@ fn application_child(input: &Input, phase: &str) {
 }
 
 fn wait_source(this: &Controller, kind: PlaybackSourceKind) {
-    pump_until(|| {
-        this.music_snapshot().is_some_and(|snapshot| {
-            snapshot.state == PlaybackState::Playing
-                && !snapshot.playing_time.is_zero()
-                && snapshot.source_kind == kind
-        })
-    });
+    let receipt = |event: &str, snapshot: Option<&PlaybackSnapshot>| {
+        let (requested, resolving, pending, preparing, stopped, retired, renewing) =
+            this.playback_phase_for_test();
+        eprintln!(
+            "Karin cache acceptance: event={event} expected={kind:?} requested={requested} resolving={resolving} pending={pending} preparing={preparing} stopped={stopped} retired-running={retired} renewing={renewing} state={:?} source={:?} error={:?} worker={:?} expired={:?} position-ms={:?} playing-ms={:?}",
+            snapshot.map(|value| value.state),
+            snapshot.map(|value| value.source_kind),
+            snapshot.and_then(|value| value.last_error),
+            snapshot.map(|value| value.worker_running),
+            snapshot.map(|value| value.source_expired),
+            snapshot
+                .and_then(|value| value.position)
+                .map(|value| value.as_millis()),
+            snapshot.map(|value| value.playing_time.as_millis()),
+        );
+    };
+    let mut previous = None;
+    let mut transitions = 0;
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        pump_until(|| {
+            let native = this
+                .music_controller_for_test()
+                .map(|engine| engine.snapshot());
+            // Exclude ticking position/time from the transition key: this is a
+            // bounded state receipt rather than a per-poll playback log.
+            let key = (
+                this.playback_phase_for_test(),
+                native.as_ref().map(|snapshot| {
+                    (
+                        snapshot.state,
+                        snapshot.source_kind,
+                        snapshot.last_error,
+                        snapshot.worker_running,
+                        snapshot.source_expired,
+                        snapshot.playing_time.is_zero(),
+                    )
+                }),
+            );
+            if previous.as_ref() != Some(&key) && transitions < 32 {
+                receipt("source-transition", native.as_ref());
+                transitions += 1;
+            }
+            previous = Some(key);
+            this.music_snapshot().is_some_and(|snapshot| {
+                snapshot.state == PlaybackState::Playing
+                    && !snapshot.playing_time.is_zero()
+                    && snapshot.source_kind == kind
+            })
+        });
+    }));
+    if let Err(error) = result {
+        let snapshot = this
+            .music_controller_for_test()
+            .map(|engine| engine.snapshot());
+        receipt("source-timeout", snapshot.as_ref());
+        std::panic::resume_unwind(error);
+    }
 }
 fn wait_publication(this: &Controller, input: &Input) {
     let (cache, _) = this.audio_cache_binding().unwrap();
@@ -1324,6 +1374,15 @@ fn retain_child_log(directory: &Path, phase: &str) {
             captures.join(format!("audio-cache-application-{phase}.log")),
         )
         .unwrap();
+        if phase.starts_with("completion-")
+            && let Some(counts) = completion::safe_http_counts(directory)
+        {
+            fs::write(
+                captures.join(format!("audio-cache-application-{phase}-http.json")),
+                serde_json::to_vec_pretty(&counts).unwrap(),
+            )
+            .unwrap();
+        }
     }
 }
 
