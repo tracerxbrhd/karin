@@ -491,6 +491,10 @@ fn native_collection_filter_continuation_and_exact_occurrences() {
         .find(|feed| feed.rows == this.widgets.library_rows)
         .unwrap()
         .clone();
+    // The initial ordinary page is already present. Isolate the search/Retry
+    // fixture from its independent bounded viewport prefill while GTK finishes
+    // the first allocation, as in the seeded whole-collection fixture.
+    liked.suppress_prefill_for_test();
     pump_until(|| liked.filter_ui.as_ref().unwrap().search.is_mapped());
     let found = std::process::Command::new("xdotool")
         .args([

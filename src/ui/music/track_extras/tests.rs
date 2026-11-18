@@ -1318,7 +1318,7 @@ fn native_line_transitions() {
         .map(|(phase, node)| {
             let snapshot = gtk::Snapshot::new();
             snapshot.scale(scale as f32, scale as f32);
-            snapshot.append_node(&node.expect("painted lyric motion frame"));
+            snapshot.append_node(node.expect("painted lyric motion frame"));
             let png = renderer
                 .render_texture(snapshot.to_node().unwrap(), None)
                 .save_to_png_bytes();

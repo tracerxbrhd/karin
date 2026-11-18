@@ -267,6 +267,11 @@ struct CollectionIndex {
 }
 
 impl TrackFeed {
+    #[cfg(test)]
+    pub(super) fn suppress_prefill_for_test(&self) {
+        self.prefill_remaining.set(0);
+    }
+
     fn cancel_index_debounce(&self) {
         if let Some(source) = self.index_debounce.borrow_mut().take() {
             source.remove();
