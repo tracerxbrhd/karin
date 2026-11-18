@@ -60,7 +60,8 @@ jobs:
                   original = source.read_text()
                   updated = original
                   for host in ('azure.archive.ubuntu.com', 'archive.ubuntu.com',
-                               'security.ubuntu.com', 'us.archive.ubuntu.com'):
+                               'security.ubuntu.com', 'us.archive.ubuntu.com',
+                               'us-east-2.ec2.archive.ubuntu.com'):
                       for scheme in ('http', 'https'):
                           updated = updated.replace(f'{scheme}://{host}/',
                                                     'https://mirrors.edge.kernel.org/')
