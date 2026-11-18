@@ -42,6 +42,7 @@ mod requests;
 mod row_activation_tests;
 #[cfg(test)]
 mod search_tests;
+mod search_toolbar;
 mod search_view;
 pub(in crate::ui) mod sliding_panel;
 mod system_media;
@@ -147,7 +148,6 @@ struct Widgets {
     search_sections: gtk::Box,
     search_all: gtk::Button,
     search_scope_title: gtk::Label,
-    search_button: gtk::Button,
     search_feedback: gtk::Box,
     search_rows: gtk::ListBox,
     search_previous: gtk::Button,
@@ -194,6 +194,7 @@ struct Controller {
     model: RefCell<Model>,
     widgets: Widgets,
     requests: RefCell<Requests<PendingJob>>,
+    search_input: search_view::SearchInput,
     mutation_busy: Cell<bool>,
     artwork: Option<ArtworkLoader>,
     player: RefCell<player::MusicPlayback>,
@@ -473,23 +474,12 @@ impl MusicPane {
         // Track pagination is driven by the outer scroll threshold.
         stack.add_titled(&library, Some("library"), "Библиотека");
 
-        // The HeaderBar already names this page. Give the entry and results
-        // priority; wide windows place both control groups on one native row.
         let search_page = gtk::Box::new(gtk::Orientation::Vertical, 12);
-        let search_tools = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-        let search = gtk::SearchEntry::new();
-        search.set_placeholder_text(Some("Что хотите послушать?"));
-        search.set_hexpand(true);
-        search.set_width_request(120);
-        search.set_widget_name("music-search");
-        search.update_property(&[gtk::accessible::Property::Label("Поиск музыки")]);
-        let search_button = gtk::Button::with_label("Найти");
-        search_button.set_widget_name("music-search-button");
-        search_button.add_css_class("suggested-action");
-        search_tools.append(&search);
-        search_tools.append(&search_button);
+        let (search_tools, search_row, search) =
+            search_toolbar::build("Что хотите послушать?", "music-search", "Поиск музыки");
         search_page.append(&search_tools);
         let scope_header = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        scope_header.set_visible(false);
         let search_all = gtk::Button::with_label("Все результаты");
         search_all.set_widget_name("music-search-all");
         search_all.set_icon_name("go-previous-symbolic");
@@ -499,9 +489,15 @@ impl MusicPane {
         search_scope_title.set_wrap(false);
         search_scope_title.set_hexpand(false);
         search_scope_title.set_visible(false);
+        let scope_header_weak = scope_header.downgrade();
+        search_scope_title.connect_visible_notify(move |title| {
+            if let Some(header) = scope_header_weak.upgrade() {
+                header.set_visible(title.get_visible());
+            }
+        });
         scope_header.append(&search_all);
         scope_header.append(&search_scope_title);
-        search_tools.prepend(&scope_header);
+        search_row.prepend(&scope_header);
         let search_feedback = gtk::Box::new(gtk::Orientation::Vertical, 8);
         search_feedback.set_widget_name("music-search-feedback");
         search_feedback.set_visible(false);
@@ -641,7 +637,6 @@ impl MusicPane {
             search_sections,
             search_all,
             search_scope_title,
-            search_button,
             search_feedback,
             search_rows,
             search_previous,
@@ -707,6 +702,7 @@ impl MusicPane {
             }),
             widgets,
             requests: RefCell::new(Requests::default()),
+            search_input: search_view::SearchInput::default(),
             mutation_busy: Cell::new(false),
             artwork,
             player: RefCell::new(player::MusicPlayback::default()),
@@ -1073,6 +1069,7 @@ impl Controller {
         }
         self.cancel_radio();
         self.stop_music();
+        self.cancel_search_input();
         self.requests.borrow_mut().invalidate_all();
         self.cancel_delivery();
         if let Some(artwork) = &self.artwork {
@@ -1512,24 +1509,7 @@ impl Controller {
                 this.load_library(page);
             }
         });
-        let weak = Rc::downgrade(self);
-        self.widgets.search_button.connect_clicked(move |_| {
-            if let Some(this) = weak.upgrade() {
-                this.search(0);
-            }
-        });
-        let weak = Rc::downgrade(self);
-        self.widgets.search.connect_activate(move |_| {
-            if let Some(this) = weak.upgrade() {
-                this.search(0);
-            }
-        });
-        let weak = Rc::downgrade(self);
-        self.widgets.search.connect_changed(move |_| {
-            if let Some(this) = weak.upgrade() {
-                this.invalidate_search();
-            }
-        });
+        self.connect_search_entry();
         let weak = Rc::downgrade(self);
         self.widgets.search_all.connect_clicked(move |_| {
             if let Some(this) = weak.upgrade() {
@@ -1558,6 +1538,7 @@ impl Controller {
                 if let Some(this) = weak.upgrade() {
                     let route = this.widgets.stack.visible_child_name();
                     this.reset_collection_filters();
+                    this.sync_search_debounce_route();
                     this.widgets
                         .nav_wave
                         .set_active(route.as_deref() == Some("home"));
@@ -1682,7 +1663,6 @@ impl Controller {
         self.widgets
             .search
             .set_sensitive(model.account_valid && !model.closed);
-        self.widgets.search_button.set_sensitive(ready);
         self.widgets.library_next.set_sensitive(ready);
         self.widgets.library_previous.set_sensitive(ready);
         self.widgets.search_next.set_sensitive(ready);
@@ -1737,6 +1717,7 @@ impl Controller {
         self.detail_like_controls.borrow_mut().clear();
         self.playlist_refreshing.set([false, false]);
         self.clear_text_focus();
+        self.cancel_search_input();
         self.requests.borrow_mut().invalidate_all();
         self.cancel_delivery();
         if let Some(artwork) = &self.artwork {
@@ -1788,6 +1769,7 @@ impl Controller {
         self.detail_like_controls.borrow_mut().clear();
         self.playlist_refreshing.set([false, false]);
         self.clear_text_focus();
+        self.cancel_search_input();
         self.requests.borrow_mut().invalidate_all();
         self.cancel_delivery();
         if let Some(artwork) = &self.artwork {
@@ -1853,28 +1835,6 @@ impl Controller {
     fn cancel_delivery(&self) {
         if let Some(cancellation) = self.model.borrow_mut().delivery_cancellation.take() {
             cancellation.cancel();
-        }
-    }
-
-    fn invalidate_search(&self) {
-        self.track_feeds
-            .borrow_mut()
-            .retain(|feed| feed.rows != self.widgets.search_rows);
-        self.clear_search_feedback();
-        self.requests.borrow_mut().invalidate(Operation::Search);
-        let mut model = self.model.borrow_mut();
-        model.view_generation += 1;
-        model.search_page = 0;
-        model.search_scope = None;
-        drop(model);
-        self.reset_search_sections();
-        self.widgets.search_next.set_visible(false);
-        self.widgets.search_previous.set_visible(false);
-        if self.model.borrow().account_valid {
-            set_empty(
-                &self.widgets.search_rows,
-                "Запрос изменён. Нажмите Enter или «Найти».",
-            );
         }
     }
 
@@ -2418,6 +2378,10 @@ fn music_error_message(error: MusicError) -> (&'static str, &'static str) {
             "Доступ ограничен сервисом",
             "Яндекс Музыка ограничила доступ к этим данным.",
         ),
+        MusicError::LyricsNotPermitted => (
+            "Текст недоступен",
+            "Источник не предоставил разрешение показать текст.",
+        ),
         MusicError::RateLimited => (
             "Слишком много запросов",
             "Подождите и повторите запрос вручную.",
@@ -2513,6 +2477,10 @@ mod tests {
     // Optional review evidence from this test-only fixture window. No synthetic
     // catalog, account or token is compiled into the normal application.
     pub(super) fn capture_native(name: &str) {
+        capture_native_themed(name, |_| {});
+    }
+
+    pub(super) fn capture_native_themed(name: &str, mut inspect: impl FnMut(&'static str)) {
         let Ok(directory) = std::env::var("KARIN_TEST_CAPTURE_DIR") else {
             return;
         };
@@ -2532,6 +2500,7 @@ mod tests {
             adw::StyleManager::default().set_color_scheme(scheme);
             let painted = Instant::now() + Duration::from_millis(180);
             pump_until(|| Instant::now() >= painted);
+            inspect(theme);
             let result = std::process::Command::new("xdotool")
                 .args([
                     "search",
@@ -3412,17 +3381,17 @@ mod tests {
         assert!(!album_feed.data.borrow().has_more);
         this.widgets.stack.set_visible_child_name("search");
         this.widgets.search.set_text("Late result");
-        this.widgets.search_button.emit_clicked();
+        this.widgets.search.emit_by_name::<()>("activate", &[]);
         assert!(this.model.borrow().busy);
         assert!(this.widgets.search.is_sensitive());
+        // Hold a real response before editing, so the test also covers the
+        // case where cancellation cannot prevent the original HTTP request.
+        pump_until(|| late_started.load(Ordering::Acquire));
         let previous_view = this.model.borrow().view_generation;
         this.widgets
             .search
             .set_text("Changed before the old response");
         assert!(this.model.borrow().view_generation > previous_view);
-        // Exercise an actual in-flight response. A merely queued request is now
-        // correctly suppressed by the shared token invalidation on logout.
-        pump_until(|| late_started.load(Ordering::Acquire));
         this.logout();
         release_search.send(()).unwrap();
         pump_until(|| served.load(Ordering::Acquire));

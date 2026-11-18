@@ -553,16 +553,16 @@ and unresolved cold-frame issue #23 remain separate from this functional check.
 
 ## v08 final Fedora acceptance
 
-Use **one final v0.8 commit** for the Native CI package and the installed Flatpak
-built from this repository's unchanged manifest. Verify `BUILD-INFO.txt` and
-`SHA256SUMS`, then launch ordinary `./karin` / the installed Flatpak without
-experimental flags. Keep the normal sandbox; do not grant host filesystem or
-session-bus access. The v0.7 acceptance at `949d1f9` is already recorded and is
-not a request to repeat intermediate builds.
+Use **one final v0.8 commit** for both runs. Download its Native CI package
+from [PR #29](https://github.com/tracerxbrhd/karin/pull/29), verify the source
+revision in `BUILD-INFO.txt` and run `sha256sum -c SHA256SUMS` before launching
+ordinary `./karin`. Prepare the same commit and install it with the
+[Flatpak source build procedure](#flatpak-source-build). Launch the installed
+app with its normal scoped permissions. Use ordinary launches without flags.
 
-Perform this combined check once Native, then repeat the key actions in the
-installed Flatpak. Use a disposable owned playlist for mutations and keep all
-account data, lyrics, media, tokens and signed URLs on Fedora.
+Follow this one checklist on Native and then on installed Flatpak. Use a
+disposable owned playlist for mutations and keep all account data, lyrics,
+media, tokens and signed URLs on Fedora.
 
 1. **Track Info and navigation.** Open information from Liked, a playlist, search,
    a related row, Queue and the footer. Every track-information action must use
@@ -580,11 +580,15 @@ account data, lyrics, media, tokens and signed URLs on Fedora.
    read the external-source disclosure before explicitly submitting public
    metadata. Plain text has readable stanzas and “Без синхронизации”, not fake
    timestamps or an editable text field. Use Copy and, where selectable, Ctrl+C
-   with Cyrillic/Unicode; do not upload the copied text. For LRC, inspect the
-   active/past/future lines and centered following, Pause, forward/backward Seek,
-   Next/Previous and EOS. Wheel, scrollbar, keyboard and touchpad scrolling must
-   suspend Follow until requested again. Check no-text, loading, error/Retry and
-   rapid-track/logout retirement. Repeat the motion check with Reduced Motion.
+   with Cyrillic/Unicode. For LRC, watch the newly active line gain emphasis and
+   the previous line settle while Follow centers the text. Check stable wrapping
+   and row heights with long lines. Pause keeps the current line, Seek chooses
+   the new one immediately, and Next/Previous/EOS retire the old text and motion.
+   Wheel, scrollbar, keyboard and touchpad scrolling suspend Follow until you
+   request it again. With Reduced Motion, check immediate clear emphasis. In
+   High Contrast, check the current marker and text readability. Distinguish an
+   unavailable lyric, a rights refusal and an error with Retry. Rapid track
+   changes and logout must retire results and animations.
 3. **Footer controls.** Reach Lyrics, Queue and Volume by Tab/Enter/Space at
    compact, medium and wide sizes. Lyrics shows its active mode. Scroll over
    Volume: one wheel step changes five percentage points, clamps at 0–100%,
@@ -615,16 +619,35 @@ account data, lyrics, media, tokens and signed URLs on Fedora.
    preserve the current radio context instead of creating a new session or
    switching tracks. Controlled races and feedback counts are automated fixtures;
    do not enable network tracing to inspect them on a real account.
-6. **Collection and queue regressions.** Explicitly index a large liked collection
-   or playlist and find a known title beyond 2,000 positions, also by artist/album.
-   Check progress, cancellation, Retry, changed queries, title/artist/provider
-   sorts and added date only when supplied by valid timestamps. Retain filter/
-   scroll across navigation without rewriting active playback. Use duplicate
-   queue items for Play Next, Append, DnD, keyboard moves and exact removal while
-   playing/paused. At 500 items check the visible refusal and retry after removing
-   one future item. Close/reopen: edited order, occurrence/modes and position
-   restore **Stopped**; explicit Play performs the normal access/cache path.
-7. **Layout and accepted regressions.** Check approximately 420×720, 900×650,
+6. **Collection search and sorting.** Compare the single compact search/sort
+   row in Liked, an owned and an accessible playlist, an album and an artist
+   track list. On a wide window it stays bounded. On compact, the sort button
+   stays in the row and reachable. Open the menu by mouse and Tab/Enter/Space.
+   Check the selected indicator, provider and reverse order, title and artist,
+   and available recent/oldest date choices. For a large incomplete liked list
+   or playlist, open it and check that whole-collection progress starts only
+   after entering a query. Type a loaded Cyrillic/Unicode match, then look for a
+   title beyond 2,000 positions by title, artist and album. The loaded results
+   appear on input and bounded indexing follows a short typing pause or Enter.
+   Check changed queries, clear/reset, compact progress, Pause/Continue/Retry,
+   partial/no-match states and honestly reported changed membership or limits
+   when applicable. Clear during work and use «Загрузить ещё» at the end of
+   the ordinary list to admit one more batch. Search again to reuse the index.
+   Leaving the view stops indexing. Return retains the query, order and scroll.
+   During the checks, the current occurrence, queue, play position, modes and
+   MPRIS must stay with the playing track.
+7. **Global search.** Use the compact field on the Search page. Type a query
+   in quick succession, replace it before results arrive, and check that only
+   the latest query is displayed. Use Enter to submit immediately. Open another
+   page and return, then clear the query to reset results. Verify track, album,
+   artist and playlist sections, scope/pagination and Retry where available.
+   Search and page changes preserve the current playback context.
+8. **Queue and restart.** Use duplicate items for Play Next, Append, drag and
+   drop, keyboard moves and exact removal while playing or paused. At 500 items
+   check the visible refusal, remove one future item and retry. Close and reopen.
+   Edited order, occurrence, modes and position restore **Stopped**. Play
+   performs the current access/cache path.
+9. **Layout and accepted regressions.** Check approximately 420×720, 900×650,
    1440×900 and maximized, Light/Dark, 1×/2×, keyboard/focus, high contrast and
    Reduced Motion. Compare ordinary Wayland first/repeated Player Bar appearance,
    scrolling, tabs, pane switches and artwork separately from Cloud rendering.

@@ -18,6 +18,7 @@ use std::{
 #[derive(Default)]
 struct Counts {
     searches: Vec<(String, u32)>,
+    queries: Vec<String>,
     batches: Vec<Vec<String>>,
     offers: std::collections::BTreeMap<String, usize>,
     accounts: usize,
@@ -349,15 +350,18 @@ fn native_search_retry_normalized_results_and_density() {
                             .1
                             .parse::<u32>()
                             .unwrap();
-                        let sparse = url
+                        let query = url
                             .query_pairs()
-                            .any(|(k, v)| k == "text" && v == "sparse-query");
-                        let partial = url
-                            .query_pairs()
-                            .any(|(k, v)| k == "text" && v == "partial-query");
+                            .find(|(k, _)| k == "text")
+                            .unwrap()
+                            .1
+                            .into_owned();
+                        let sparse = query == "sparse-query";
+                        let partial = query == "partial-query";
                         let first = {
                             let mut c = counts.lock().unwrap();
                             c.searches.push((kind.clone(), page));
+                            c.queries.push(query);
                             c.searches.len() == 1
                         };
                         let append_failure = kind == "track"
@@ -542,12 +546,20 @@ fn native_search_retry_normalized_results_and_density() {
     assert!(id.bytes().all(|b| b.is_ascii_digit()));
     input(&["windowfocus", "--sync", id]);
     click(window, id, &this.widgets.search);
-    input(&["type", "--clearmodifiers", "synthetic-query"]);
-    input(&["key", "--clearmodifiers", "Return"]);
+    assert!(counts.lock().unwrap().searches.is_empty());
+    // Separate real key bursts are drained by GTK while the same debounce is
+    // pending. No Enter/submit action is used for this first search.
+    for fragment in ["synth", "etic-", "query"] {
+        input(&["type", "--clearmodifiers", "--delay", "0", fragment]);
+        let deadline = Instant::now() + Duration::from_millis(35);
+        pump_until(|| Instant::now() >= deadline);
+        assert!(counts.lock().unwrap().searches.is_empty());
+    }
     wait_for_step("initial-search-error", || {
         counts.lock().unwrap().searches.len() == 1 && !this.model.borrow().busy
     });
     assert_eq!(counts.lock().unwrap().searches[0], ("all".into(), 0));
+    assert_eq!(counts.lock().unwrap().queries, ["synthetic-query"]);
     let retry = named_button(
         this.widgets.search_feedback.upcast_ref(),
         "music-search-retry",
@@ -1075,6 +1087,47 @@ fn native_search_retry_normalized_results_and_density() {
     assert!(!sparse_feed.data.borrow().has_more);
     assert_eq!(counts.lock().unwrap().searches.len(), before_sparse + 5);
     capture_native("search-continuous-sparse-wheel");
+    let before_clear = counts.lock().unwrap().searches.len();
+    let playing_context = this.model.borrow().queue.context().cloned();
+    click(window, id, &this.widgets.search);
+    input(&["key", "--clearmodifiers", "ctrl+a", "BackSpace"]);
+    pump_until(|| {
+        this.widgets.search.text().is_empty()
+            && contains_text(
+                this.widgets.search_rows.upcast_ref(),
+                "Введите название или исполнителя.",
+            )
+    });
+    assert!(!this.widgets.search_next.is_visible());
+    assert!(!this.widgets.search_previous.is_visible());
+    assert!(!this.widgets.search_feedback.is_visible());
+    let clear_deadline = Instant::now() + Duration::from_millis(400);
+    pump_until(|| Instant::now() >= clear_deadline);
+    assert_eq!(counts.lock().unwrap().searches.len(), before_clear);
+    assert_eq!(
+        this.model.borrow().queue.context(),
+        playing_context.as_ref()
+    );
+
+    assert!(this.widgets.search.grab_focus());
+    input(&["type", "--clearmodifiers", "--delay", "0", "return-query"]);
+    pump_until(|| this.widgets.search.text() == "return-query");
+    ui.show_page("diagnostics");
+    assert_eq!(
+        this.widgets.stack.visible_child_name().as_deref(),
+        Some("search")
+    );
+    let hidden_deadline = Instant::now() + Duration::from_millis(400);
+    pump_until(|| Instant::now() >= hidden_deadline);
+    assert_eq!(counts.lock().unwrap().searches.len(), before_clear);
+    ui.show_page("music-search");
+    wait_for_step("debounce-resumes-on-return", || {
+        counts.lock().unwrap().searches.len() == before_clear + 1 && !this.model.borrow().busy
+    });
+    assert_eq!(
+        counts.lock().unwrap().queries.last().map(String::as_str),
+        Some("return-query")
+    );
     pane.close();
     window.close();
     stop.store(true, Ordering::Release);

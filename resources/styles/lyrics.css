@@ -8,6 +8,11 @@
   padding: 10px 8px;
   border-left: 3px solid transparent;
 }
+.karin-style-system .karin-lyrics-line.lyrics-transition {
+  transition-property: color, opacity, border-left-color;
+  transition-duration: 220ms;
+  transition-timing-function: ease-out;
+}
 .karin-style-system .karin-lyrics-line.lyrics-past { opacity: .55; }
 .karin-style-system .karin-lyrics-line.lyrics-future { opacity: .8; }
 .karin-style-system .karin-lyrics-line.lyrics-active {
@@ -20,8 +25,8 @@
   padding: 12px 4px;
   line-height: 1.5;
 }
-.karin-high-contrast .karin-lyrics-line { opacity: 1; }
-.karin-high-contrast .karin-lyrics-line.lyrics-active {
+.karin-style-system.karin-high-contrast .karin-lyrics-line { opacity: 1; }
+.karin-style-system.karin-high-contrast .karin-lyrics-line.lyrics-active {
   color: @window_fg_color;
   border-left-color: @window_fg_color;
 }

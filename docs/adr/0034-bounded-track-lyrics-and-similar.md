@@ -4,6 +4,7 @@
 
 Status: v0.8 implementation decision; live content acceptance is separate.
 Date: 2026-11-14
+Refined: 2026-11-18
 Extends: ADR-0016, ADR-0022 and ADR-0031
 
 ## Context
@@ -26,10 +27,11 @@ database or permanent service.
 
 For Yandex text use `GET /tracks/{id}/supplement` and the published
 `lyrics.fullLyrics` only when `hasRights == true`. The `lyrics.lyrics` opening
-excerpt is not presented as a complete text. Missing full text or an absent/false
-rights flag is unavailable, not a successful empty fake text. Preserve
-normal HTTP/schema errors separately. This legacy path supplies plain text; it
-does not pretend to supply modern synchronized text or call the excluded signer.
+excerpt is not presented as a complete text. Missing full text or an absent
+rights flag makes the text unavailable. An explicit false flag produces a
+permission message without offering a retry of that refusal. Transport and
+schema failures have their own error and Retry. This path supplies plain text
+through the legacy contract.
 
 Offer LRCLIB as a separately named, explicit user action. Before the request,
 the interface discloses that public title, first artist, optional album and
@@ -39,9 +41,10 @@ The native confirmation dialog defaults to Cancel; only its explicit Search
 response submits metadata. Consent is per request, with no new saved preference.
 The existing no-redirect HTTP client supplies a truthful Karin User-Agent and
 accepts bounded JSON only. Require matching title/artist and compatible duration;
-404, instrumental or missing text are unavailable. Prefer admitted LRC over
-plain text, with an explicit source label. This request is not an automatic
-fallback on every current-track change.
+404, instrumental or missing text are unavailable. Prefer admitted LRC and
+keep a matched timeline if a later reply for the same selection supplies only
+plain text. Display its actual source. Every external lookup is an explicit
+user request.
 
 Serialize external requests across MusicService clones; respect the explicit
 request spacing and provider Retry-After, with no automatic retry. Retired
@@ -64,17 +67,22 @@ no fabricated timestamps or editable TextView stand in for karaoke. A native
 Lyrics menu can copy the complete displayed Unicode text to the local clipboard,
 with LRC timestamps/metadata stripped by the existing parser. Selectable labels
 retain ordinary fragment selection and Ctrl+C. Synchronized lines use GtkListView
-virtualization and semantic past/current/future contrast. Automatic following
-centers the active area through a native 180 ms adjustment animation for adjacent
-lines, respecting reduced motion; a Seek jump moves immediately rather than
-replaying elapsed text. This animation changes only scroll position and owns no
-playback clock. Wheel/keyboard/touch scrolling suspends following until the user
-chooses “Следовать за воспроизведением”. Highlighting uses Playing/Paused/Ready
+virtualization and semantic past/current/future contrast. On a natural line
+change, GTK eases emphasis into the active line and out of the previous one
+over 220 ms through color, opacity and the accent border. Row geometry stays
+fixed. Row binding applies the current model directly.
+A Seek jump updates emphasis and the Follow target immediately. For adjacent
+lines, automatic following centers the active area with the existing native
+220 ms adjustment animation. Reduced motion suppresses decorative transitions
+while preserving the current-line marker. High Contrast keeps the marker and
+readable text. The native animations own no playback clock. Wheel, keyboard
+and touch scrolling suspend following until the user requests it again.
+Highlighting uses Playing/Paused/Ready
 position only while FollowingCurrent and the opaque inspected/current occurrence
 bindings agree. Explicit Details of another occurrence cannot borrow the playhead
 even when Track IDs repeat. Stop, EOS or another inspected occurrence clears the
-active line. Changing selection/account
-clears old content and retires its work.
+active line. Changing selection/account clears old content and retires its
+transitions and requests. Line timestamps never imply word or syllable timing.
 
 For recommendations use `GET /tracks/{id}/similar`, validate the returned seed
 track identity, admit at most 200 wire candidates and normalize at most 50 distinct

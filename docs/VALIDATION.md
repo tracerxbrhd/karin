@@ -1481,8 +1481,19 @@ labelled every POST as a Wave session. This was not evidence of an automatic
 radio request. A test-only private playback-store injection made the same seeded
 case pass on both compilers at both scales, while preserving the ambient record,
 empty-startup assertions and production continuation behavior. Dedicated v0.7
-restoration coverage remains intact. Final-head CI is required after this test
-isolation correction; earlier successful checks do not stand in for it.
+restoration coverage remains intact.
+
+The previous refinement candidate `7be41283ba40e67ff633ef8f5ca8605aadaf8f93`
+passed all eight hosted jobs on 14 November 2026. Its main jobs each executed
+67 native invocations across 41 functional selectors, including sandboxed
+WebKit navigation. Its modern artifact contains 144 current GTK captures and
+108 archived captures. Exact Rust 1.98.1 and stable 1.100.0 passed the vendored
+offline source builds and release smokes. The downloaded Native package passed
+archive, source, license and actual binary smoke verification. See the
+[push run](https://github.com/tracerxbrhd/karin/actions/runs/43606995346),
+[PR run](https://github.com/tracerxbrhd/karin/actions/runs/43606999835) and
+[GTK artifact](https://github.com/tracerxbrhd/karin/actions/runs/43606995346/artifacts/14118891988).
+These checks are pinned to the earlier revision.
 
 A separate local MSRV cache parent timed out in `completion-skip` while waiting
 for cached replay. Its first log lacks the native state needed to assign a
@@ -1501,6 +1512,28 @@ This failed Cloud software-rendering sample is retained without changing phase,
 timing, renderer or geometry assertions. Later final-head results do not erase
 it or establish its cause; no physical Fedora smoothness or resolution of #23
 is inferred from repeats.
+
+### Owner review of `7be4128` and compact search/lyrics motion
+
+The owner reported on Fedora that lyrics load for some tracks. A wide search
+field, separate search and sort rows, the large whole-collection action and
+abrupt karaoke emphasis remained UX concerns. Full LRC coverage cannot be
+expected. Installed Flatpak and live long-pause continuation for the new
+candidate await the combined acceptance. Personal screenshots and real account
+content stay on Fedora.
+
+The refinement uses one compact search and sort row in track feeds. Immediate
+local matching gains a bounded whole-collection index after a settled query or
+Enter in eligible liked and playlist feeds. Query changes use current admitted
+data and retire stale UI work. Global catalog search uses its own latest-query
+debounce, sections and pagination. LRC line accents transition on actual
+player-position line changes, with immediate state on Seek and under reduced
+motion. The tests must cover both the live widget transitions and their
+intermediate native samples, in addition to search input and request counts.
+The [combined Fedora procedure](BUILDING.md#v08-final-fedora-acceptance)
+includes these checks and the previously implemented same-occurrence Resume.
+Results for the new candidate belong to its own
+[PR checks](https://github.com/tracerxbrhd/karin/pull/29/checks) and handoff.
 
 ### v08 implementation and Cloud evidence
 
@@ -1530,13 +1563,16 @@ The native `native_v08_lyrics_similar_seek_and_stale_selection` fixture covers
 Lyrics/Track Info presentation, external opt-in, paused player seek, manual scrolling, related
 row actions and late selection/logout replies. It is not a live lyric/catalog test.
 
-Explicit collection-index fixtures use memberships beyond the old 2,000-position
+Collection-index fixtures use memberships beyond the old 2,000-position
 prefix, original duplicate/composite positions, missing canonical records,
 count/sequence/revision changes, date availability and cancellation. They must
-show 50-position worker batches, bounded 200-row display windows, no startup/
-per-key whole-library drain and no active queue/player change from filtering or
-sorting. Complete coverage is asserted only for the admitted rechecked supported
-manifest; larger/changed/incomplete collections remain explicit.
+show immediate local matching, debounced or Enter-driven index admission,
+50-position worker batches, bounded 200-row display windows and reuse across
+query changes. Startup/page entry and individual keys must not start a full
+scan. Filtering, indexing and sorting preserve the current occurrence and the
+active queue/player. Complete coverage is asserted only for the admitted,
+rechecked supported manifest. Larger, changed and incomplete collections are
+reported separately.
 
 The `native_v08_queue_next_drag_keyboard_and_restoration` fixture exercises actual
 native drag/drop and accessible keyboard moves over exact duplicate occurrences,

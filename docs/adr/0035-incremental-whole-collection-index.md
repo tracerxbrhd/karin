@@ -1,9 +1,10 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 
-# ADR-0035: Explicit incremental indexing of complete supported collections
+# ADR-0035: Search-driven incremental indexing of complete supported collections
 
 Status: v0.8 implementation decision; live large-library acceptance is separate.
 Date: 2026-11-14
+Refined: 2026-11-18
 Extends: ADR-0016, ADR-0024, ADR-0025 and ADR-0031
 
 ## Context
@@ -16,12 +17,13 @@ not identify duplicate occurrences or prove current collection membership.
 
 ## Decision
 
-Add `music::library_index` with a process-only current collection manifest and
-independent canonical batches. An explicit “Искать во всей коллекции” intent
-reads the existing liked membership endpoint or playlist `richTracks=false`
-manifest once, under current account/source binding. Limit this specialized
-compact response to 4 MiB and 20,000 original positions; retain the ordinary
-1 MiB API ceiling elsewhere. Validate identifiers, owner/kind where supplied,
+Use `music::library_index` with a process-only current collection manifest and
+independent canonical batches. A settled nonempty query or Enter in an eligible
+incomplete collection starts or resumes that index. The existing liked
+membership endpoint or playlist `richTracks=false` supplies a manifest under
+current account/source binding. Limit this specialized compact response to
+4 MiB and 20,000 original positions. Ordinary requests retain the 1 MiB API
+ceiling. Validate identifiers, owner/kind where supplied,
 revision and complete count. A larger/unsupported response is an explicit limit,
 not a claim that the supported prefix is the whole remote library.
 
@@ -34,12 +36,25 @@ require identical full sequence, source/account/token binding and revision.
 A changed membership is a visible restart/refresh condition, not mixed old/new
 pages or an implicit replay of a mutation.
 
-The user can pause/resume indexing and Retry a failed read. Opening the app or
-typing a character does not start it. Query changes apply to already admitted
-metadata; ongoing explicitly requested batches use the current query when
-admitted. Preserve progress and distinguish incomplete coverage, omissions,
-errors, no matches and a fully read collection. Do not claim no remote match
-from an unfinished prefix.
+The shared track-list toolbar places a bounded search field and a native sort
+menu on one row. Query changes filter admitted title, artist and album metadata
+immediately. About 300 ms of quiet input starts the eligible whole-collection
+work, with Enter applying the query immediately. Index read batches are
+independent of query text. Each admitted batch is projected using the latest
+query, without restarting a manifest or issuing one HTTP request per keystroke.
+Opening the app or a list alone does not start indexing. Global catalog search
+uses the same compact field geometry with its own approximately 350 ms debounce
+and request generations, sections, paging and Retry.
+
+Clearing the query or leaving the view stops indexing while retaining admitted
+metadata. Return alone preserves view state without starting more reads.
+After clearing a partial index, «Загрузить ещё» at the end of the ordinary
+list admits one batch of up to 50 positions. Reaching the end still requires
+the final membership recheck.
+Contextual progress and compact Pause, Continue or Retry actions communicate
+incomplete coverage, omissions, errors, changed membership, the technical limit
+and a fully read collection. A user pause or failure requires an intentional
+resume or Retry. An unfinished prefix cannot establish no remote match.
 
 Keep the index in the current application's account-bound RAM and reuse it
 across ordinary navigation. Do not add a persistent database, cache quota,
@@ -50,10 +65,12 @@ collection changes retire old index work. Normal navigation preserves useful
 filter/sort/result-window and scroll state without changing playback.
 
 Build Unicode-normalized/casefolded title/artist/album search keys once per
-admitted track. Sort title or artist with deterministic original-position ties;
-provider and reverse-provider sequence remain explicit alternatives. Added-date
-sorting is offered only when every manifest occurrence supplies a valid RFC3339
-`TrackShort.timestamp`. The admitted RFC3339 subset validates calendar/leap days
+admitted track. Sort title or artist with deterministic original-position ties.
+Provider and reverse-provider sequence remain menu alternatives. Mark the
+selected order and retain it across ordinary navigation. Order projections use
+maintained keys so GTK input does not repeatedly sort all matching tracks.
+Added-date sorting is available when every manifest occurrence supplies a valid
+RFC3339 `TrackShort.timestamp`. The admitted subset validates calendar/leap days
 for 1970–9999, up to nine fractional digits and Z/explicit offsets; leap-second
 60 is conservatively unavailable. Missing/unsupported timestamps disable date
 choices without rejecting the track, guessing a date or relabelling provider
@@ -79,8 +96,8 @@ right or a promise that the remote collection cannot change later.
 Use synthetic manifests beyond 2,000 positions, repeated/composite selectors,
 omissions, wrong owners, count/revision/sequence changes, timestamp combinations,
 query changes, cancellation and late account/logout replies. Native input tests
-must locate a result past the old prefix, sort and navigate while asserting no
-per-key network work or active queue/worker change. Fixtures and source decisions
-are not live-library acceptance; executed results belong in
-[VALIDATION](../VALIDATION.md), with one
-[Native/installed-Flatpak procedure](../BUILDING.md#v08-final-fedora-acceptance).
+must type and locate a result past the old prefix, exercise Enter, debounce,
+clear and cancellation, and use the sort menu by mouse and keyboard. They assert
+bounded requests and preserve the active queue, worker and occurrence identity.
+Record executed checks in [VALIDATION](../VALIDATION.md) and check live behavior
+with the [Native/installed-Flatpak procedure](../BUILDING.md#v08-final-fedora-acceptance).

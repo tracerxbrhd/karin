@@ -2,8 +2,125 @@
 //! One search journey with independently usable typed result sections.
 use super::*;
 use crate::music::{SearchPlaylist, SearchSection, UnifiedSearchResults};
+use std::{
+    sync::atomic::{AtomicBool, Ordering},
+    time::Duration,
+};
+
+const SEARCH_DEBOUNCE: Duration = Duration::from_millis(350);
+
+#[derive(Default)]
+pub(super) struct SearchInput {
+    debounce: RefCell<Option<glib::SourceId>>,
+    unsent: Cell<bool>,
+    cancellation: RefCell<Option<Arc<AtomicBool>>>,
+}
 
 impl Controller {
+    pub(super) fn connect_search_entry(self: &Rc<Self>) {
+        let weak = Rc::downgrade(self);
+        self.widgets.search.connect_changed(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.search_entry_changed();
+            }
+        });
+        let weak = Rc::downgrade(self);
+        self.widgets.search.connect_activate(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.search(0);
+            }
+        });
+    }
+
+    fn cancel_search_debounce(&self) {
+        if let Some(source) = self.search_input.debounce.take() {
+            source.remove();
+        }
+    }
+
+    pub(super) fn cancel_search_input(&self) {
+        self.cancel_search_debounce();
+        self.search_input.unsent.set(false);
+        if let Some(cancellation) = self.search_input.cancellation.take() {
+            cancellation.store(true, Ordering::Release);
+        }
+    }
+
+    pub(super) fn search_cancellation(&self) -> Option<Arc<AtomicBool>> {
+        self.search_input.cancellation.borrow().clone()
+    }
+
+    fn search_route_visible(&self) -> bool {
+        self.music_surface_visible.get()
+            && self.widgets.stack.visible_child_name().as_deref() == Some("search")
+    }
+
+    pub(super) fn sync_search_debounce_route(self: &Rc<Self>) {
+        if !self.search_route_visible() {
+            self.cancel_search_debounce();
+            return;
+        }
+        if !self.search_input.unsent.get() || self.search_input.debounce.borrow().is_some() {
+            return;
+        }
+        let generation = self.model.borrow().generation;
+        let weak = Rc::downgrade(self);
+        self.search_input
+            .debounce
+            .replace(Some(glib::timeout_add_local_once(
+                SEARCH_DEBOUNCE,
+                move || {
+                    let Some(this) = weak.upgrade() else { return };
+                    this.search_input.debounce.take();
+                    let ready = {
+                        let model = this.model.borrow();
+                        model.account_valid && !model.closed && model.generation == generation
+                    };
+                    if ready && this.search_input.unsent.get() && this.search_route_visible() {
+                        this.search(0);
+                    }
+                },
+            )));
+    }
+
+    fn search_entry_changed(self: &Rc<Self>) {
+        let already_cleared = self.search_input.unsent.get();
+        self.cancel_search_input();
+        self.requests.borrow_mut().invalidate(Operation::Search);
+        self.sync_busy();
+        self.track_feeds
+            .borrow_mut()
+            .retain(|feed| feed.rows != self.widgets.search_rows);
+        let ready = {
+            let mut model = self.model.borrow_mut();
+            model.view_generation += 1;
+            model.search_page = 0;
+            model.search_scope = None;
+            model.account_valid && !model.closed
+        };
+        let has_query = !self.widgets.search.text().trim().is_empty();
+        if !already_cleared || !has_query {
+            self.reset_search_sections();
+            self.clear_search_feedback();
+            clear_list(&self.widgets.search_rows);
+            self.widgets.search_next.set_visible(false);
+            self.widgets.search_previous.set_visible(false);
+        }
+        if ready && has_query {
+            self.search_input.unsent.set(true);
+            self.sync_search_debounce_route();
+        } else if ready {
+            self.show_empty_search();
+        }
+    }
+
+    fn show_empty_search(&self) {
+        set_empty(
+            &self.widgets.search_rows,
+            "Что хотите послушать? Введите название или исполнителя.",
+        );
+    }
+
     pub(super) fn reset_search_sections(&self) {
         // Reparent the reusable track/section list before removing old sections.
         if let Some(parent) = self.widgets.search_rows.parent().and_downcast::<gtk::Box>() {
@@ -26,6 +143,7 @@ impl Controller {
         if !self.model.borrow().account_valid || self.model.borrow().closed {
             return;
         }
+        self.cancel_search_input();
         let query = self.widgets.search.text().trim().to_owned();
         let scope = self.model.borrow().search_scope;
         self.track_feeds
@@ -34,16 +152,17 @@ impl Controller {
         self.reset_search_sections();
         self.clear_search_feedback();
         clear_list(&self.widgets.search_rows);
+        self.widgets.search_next.set_visible(false);
+        self.widgets.search_previous.set_visible(false);
         if query.is_empty() {
-            set_empty(
-                &self.widgets.search_rows,
-                "Что хотите послушать? Введите название или исполнителя.",
-            );
+            self.show_empty_search();
             return;
         }
         self.widgets.stack.set_visible_child_name("search");
-        self.widgets.search_next.set_visible(false);
-        self.widgets.search_previous.set_visible(false);
+        let cancellation = Arc::new(AtomicBool::new(false));
+        self.search_input
+            .cancellation
+            .replace(Some(cancellation.clone()));
         let loading = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         let spinner = gtk::Spinner::new();
         spinner.set_spinning(true);
@@ -71,7 +190,9 @@ impl Controller {
             }
             self.run(
                 Operation::Search,
-                move |service, token| service.search(&token, &query, kind, page),
+                move |service, token| {
+                    service.search_cancellable(&token, &query, kind, page, Some(&cancellation))
+                },
                 move |this, result| match result {
                     Ok(result) => {
                         this.clear_search_feedback();
@@ -120,7 +241,9 @@ impl Controller {
         } else {
             self.run(
                 Operation::Search,
-                move |service, token| service.search_all(&token, &query),
+                move |service, token| {
+                    service.search_all_cancellable(&token, &query, Some(&cancellation))
+                },
                 |this, result| match result {
                     Ok(result) => this.render_unified_search(result),
                     Err(error) => this.search_error(error, 0),

@@ -68,20 +68,29 @@ reviewable and consistent with the accepted application.
 - Row click/Enter/Space plays the exact occurrence; the separate Info action opens
   shared Track Info without playing, never a standalone track page. Preserve
   duplicates and original source positions. Ordinary views stay bounded at 2,000
-  positions/100 pages; explicit collection indexing supports 20,000 original
+  positions/100 pages. Whole-collection indexing supports 20,000 original
   positions with 50-position batches and 200-row result windows. New contexts
   remain at 500. Filtering/sorting/indexing/appending must not rewrite active Queue.
   Info/MPRIS use queue-owned opaque occurrence IDs, never mutable indices or IDs
   of service tracks. Original source positions remain separate provenance.
-- Search admitted collection metadata with Unicode matching and honest partial
-  coverage. Whole-collection indexing requires an explicit intent and final
-  membership recheck; never start it on startup or typing. Date sorting requires
-  valid occurrence timestamps; provider order is not an invented date. Total
-  duration needs complete data with every duration known and a checked sum.
+- Use the shared compact search row and native sort menu in collection track
+  lists. Match admitted title/artist/album metadata immediately with Unicode
+  normalization and honest partial coverage. In an eligible incomplete
+  collection, a nonempty query after debounce or Enter expresses search intent.
+  Reuse one bounded index under the latest query, suspend on clear or leaving
+  the view, and require a final membership recheck. Startup, opening a view and
+  individual keystrokes must not trigger full scans or per-key requests. Date
+  sorting requires valid occurrence timestamps. Total duration needs complete
+  data with every duration known and a checked sum. Global catalog search has
+  its own debounced request, results and pagination.
 - Preserve pinned Track Info/Lyrics/Queue intent across outside clicks/navigation/resize;
   actual new current occurrences resume following. Footer: hidden before Play,
   retained through Pause/retryable active failure, hidden on Stop/clear/logout.
   No visible Stop. Keep local Shuffle/Repeat and existing system controls.
+- Resolve LRC lines from the current player's actual position and exact opaque
+  occurrence. Native line emphasis and Follow respect reduced motion and manual
+  scrolling. Rebound rows reflect the current model, and Seek, selection or
+  session changes retire stale transitions. TEXT carries no invented timing.
 - An explicit Resume may renew an expired source for the same queue occurrence
   through fresh access/cache/resolver admission. Preserve its confirmed position,
   queue/modes/volume and Wave/MPRIS identity; bound recovery to one attempt and

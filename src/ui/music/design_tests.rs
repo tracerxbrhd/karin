@@ -3,6 +3,7 @@
 //! original synthetic loopback data; no fixture is compiled into production.
 
 use super::*;
+use crate::music::{PlaylistId, SearchPlaylist};
 use gtk::gdk;
 use serde_json::{Value, json};
 use std::{
@@ -403,11 +404,16 @@ impl Fixture {
                                 "title":"Открытый горизонт","trackCount":8,
                                 "cover":{"itemsUri":[cover(4)]}}}]})
                         }
-                        "/users/1234/playlists/3"
+                        "/users/4321/playlists/8"
+                        | "/users/1234/playlists/3"
                         | "/users/1234/playlists/4"
                         | "/users/1234/playlists/5" => json!({"result":{"tracks":references}}),
                         "/albums/7/with-tracks" => {
                             json!({"result":{"id":7,"title":"Тихие улицы","coverUri":cover(1),"artists":[{"id":11,"name":"Aster Field"}],"volumes":[tracks]}})
+                        }
+                        "/artists/11/tracks" => {
+                            assert!(headers.starts_with("GET "));
+                            json!({"result":{"tracks":tracks,"pager":{"page":0,"perPage":50,"total":8}}})
                         }
                         "/tracks" => {
                             let form = reqwest::Url::parse(&format!(
@@ -424,6 +430,13 @@ impl Fixture {
                                 .collect();
                             assert!(!ids.is_empty());
                             json!({"result":ids.iter().map(|id| track(id.split(':').next().unwrap().parse::<usize>().unwrap()-1)).collect::<Vec<_>>()})
+                        }
+                        "/search"
+                            if url
+                                .query_pairs()
+                                .any(|(key, value)| key == "text" && value == "Нет совпадений") =>
+                        {
+                            json!({"result":{"text":"Нет совпадений"}})
                         }
                         "/search" => json!({"result":{"text":"Синтетическая музыка",
                             "tracks":{"total":8,"perPage":20,"page":0,"results":(1..=8).map(|id| json!({"id":id})).collect::<Vec<_>>()},
@@ -543,24 +556,11 @@ fn primary_destination(ui: &crate::ui::MainWindow, route: &str) {
     pump(|| this.widgets.stack.visible_child_name().as_deref() == Some(route));
     settle();
     assert!(
-        descendants(this.widgets.primary_navigation.upcast_ref())
+        descendants(ui.music.widget.upcast_ref())
             .into_iter()
             .all(|widget| !widget.is::<gtk::DropDown>()),
-        "primary navigation must not retain parented technical dropdowns"
+        "music routes must use the compact native sort menu; technical dropdowns remain forbidden"
     );
-    for widget in descendants(ui.music.widget.upcast_ref())
-        .into_iter()
-        .filter(|widget| widget.is::<gtk::DropDown>())
-    {
-        assert!(
-            widget.widget_name() == "music-collection-sort"
-                && widget.is_ancestor(&this.widgets.stack)
-                && widget
-                    .parent()
-                    .is_some_and(|parent| { parent.widget_name() == "music-collection-filter" }),
-            "a user sort dropdown must belong to collection content; other technical dropdowns remain forbidden"
-        );
-    }
 }
 fn resize(ui: &crate::ui::MainWindow, width: i32, height: i32) {
     ui.window.set_default_size(width, height);
@@ -903,6 +903,117 @@ fn responsive_collection_evidence(ui: &crate::ui::MainWindow, name: &str) {
     }
 }
 
+fn search_toolbar_layout(
+    ui: &crate::ui::MainWindow,
+    entry: &gtk::Widget,
+    sort: Option<&gtk::Widget>,
+) -> Value {
+    assert!(entry.is::<gtk::SearchEntry>());
+    let row = entry.parent().expect("search controls have a real GTK row");
+    assert_eq!(row.widget_name(), "music-search-controls");
+    assert_eq!(
+        row.parent().expect("the toolbar has a clamp").widget_name(),
+        "music-search-toolbar"
+    );
+    let row_rect = row.compute_bounds(&ui.window).unwrap();
+    let entry_rect = entry.compute_bounds(&ui.window).unwrap();
+    let page_rect = ui
+        .music
+        .controller
+        .widgets
+        .stack
+        .visible_child()
+        .unwrap()
+        .compute_bounds(&ui.window)
+        .unwrap();
+    let right = |rect: &gtk::graphene::Rect| rect.x() + rect.width();
+    assert!(
+        row_rect.width() <= 568.0
+            && row_rect.x() >= -1.0
+            && right(&row_rect) <= ui.window.width() as f32 + 1.0
+            && row_rect.x() >= page_rect.x() - 1.0
+            && right(&row_rect) <= right(&page_rect) + 1.0,
+        "the toolbar fits the available content when the adjacent pane opens: {row_rect:?}/{page_rect:?}"
+    );
+    assert!(
+        entry_rect.width() >= 120.0 && entry_rect.height() <= 48.0 && entry_rect.height() > 0.0,
+        "the search entry must remain usable and compact: {entry_rect:?}"
+    );
+    assert!(
+        (entry_rect.x() - row_rect.x()).abs() <= 1.0,
+        "the entry starts at its toolbar's leading edge"
+    );
+    let sort_rect = sort.map(|sort| {
+        let menu = sort.downcast_ref::<gtk::MenuButton>().unwrap();
+        assert_eq!(menu.parent().as_ref(), Some(&row));
+        assert_eq!(menu.tooltip_text().as_deref(), Some("Сортировка"));
+        assert!(
+            menu.popover().is_some(),
+            "the sort button opens a native menu"
+        );
+        let rect = menu.compute_bounds(&ui.window).unwrap();
+        let gap = rect.x() - right(&entry_rect);
+        let center_y = |bounds: &gtk::graphene::Rect| bounds.y() + bounds.height() / 2.0;
+        assert!(
+            (28.0..=52.0).contains(&rect.width())
+                && (28.0..=52.0).contains(&rect.height())
+                && (rect.width() - rect.height()).abs() <= 8.0,
+            "sort needs a square-sized native hit target: {rect:?}"
+        );
+        assert!(
+            (2.0..=16.0).contains(&gap)
+                && (center_y(&rect) - center_y(&entry_rect)).abs() <= 2.0
+                && (right(&rect) - right(&row_rect)).abs() <= 1.0,
+            "sort must share the entry's line without crowding or clipping: {entry_rect:?}/{rect:?}"
+        );
+        rect
+    });
+    json!({
+        "toolbar": [row_rect.x(),row_rect.y(),row_rect.width(),row_rect.height()],
+        "entry": [entry_rect.x(),entry_rect.y(),entry_rect.width(),entry_rect.height()],
+        "sort": sort_rect.map(|rect| [rect.x(),rect.y(),rect.width(),rect.height()]),
+    })
+}
+
+fn collection_sort_evidence(ui: &crate::ui::MainWindow) {
+    let page = ui.music.controller.widgets.stack.visible_child().unwrap();
+    let sort = named_widget(&page, "music-collection-sort")
+        .downcast::<gtk::MenuButton>()
+        .unwrap();
+    let this = &ui.music.controller;
+    let context = this.model.borrow().queue.context().cloned();
+    resize(ui, 420, 720);
+    gtk::prelude::WidgetExt::activate_action(
+        &sort,
+        "collection-sort.order",
+        Some(&"reverse".to_variant()),
+    )
+    .unwrap();
+    pump(|| sort.has_css_class("music-collection-sort-active"));
+    native_click(ui, &sort);
+    let popup = sort.popover().unwrap();
+    super::test_input::wait_for_layout(&ui.window, &popup);
+    for label in [
+        "Порядок коллекции",
+        "Обратный порядок",
+        "По названию",
+        "По исполнителю",
+    ] {
+        assert!(tests::contains_text(popup.upcast_ref(), label), "{label}");
+    }
+    evidence(ui, "surface-liked-sort-menu-compact");
+    popup.popdown();
+    pump(|| !popup.is_mapped());
+    gtk::prelude::WidgetExt::activate_action(
+        &sort,
+        "collection-sort.order",
+        Some(&"provider".to_variant()),
+    )
+    .unwrap();
+    pump(|| !sort.has_css_class("music-collection-sort-active"));
+    assert_eq!(this.model.borrow().queue.context(), context.as_ref());
+}
+
 fn collection_layout(ui: &crate::ui::MainWindow) -> Value {
     let page = ui.music.controller.widgets.stack.visible_child().unwrap();
     let widgets = descendants(&page);
@@ -953,29 +1064,59 @@ fn collection_layout(ui: &crate::ui::MainWindow) -> Value {
         filters.len() <= 1,
         "one reusable filter per visible collection"
     );
-    for filter in &filters {
-        let rect = filter.compute_bounds(&ui.window).unwrap();
+    let filter_layout = filters.first().map(|filter| {
+        let sort = named_widget(&page, "music-collection-sort");
         assert!(
-            rect.width() >= 120.0 && rect.height() <= 56.0,
-            "collection search must remain usable and compact: {rect:?}"
+            sort.is_mapped(),
+            "a visible collection entry must retain the adjacent sort control"
         );
-        assert!(
-            rect.x() >= -1.0 && rect.x() + rect.width() <= ui.window.width() as f32 + 1.0,
-            "collection search must not horizontally overflow the window: {rect:?}"
-        );
-    }
+        let status_row = named_widget(&page, "music-collection-filter-status-row");
+        if filter
+            .downcast_ref::<gtk::SearchEntry>()
+            .unwrap()
+            .text()
+            .is_empty()
+        {
+            assert!(!status_row.is_mapped(), "idle search has no progress row");
+        }
+        let mut layout = search_toolbar_layout(ui, filter, Some(&sort));
+        if status_row.is_mapped() {
+            let rect = status_row.compute_bounds(&ui.window).unwrap();
+            assert!(
+                rect.height() <= 56.0,
+                "search status and its contextual action stay in one compact area: {rect:?}"
+            );
+            layout["status"] = json!([rect.x(), rect.y(), rect.width(), rect.height()]);
+        }
+        layout
+    });
+    let global_layout = widgets
+        .iter()
+        .find(|widget| widget.widget_name() == "music-search" && widget.is_mapped())
+        .map(|entry| search_toolbar_layout(ui, entry, None));
+    assert!(
+        widgets.iter().all(|widget| {
+            !matches!(
+                widget.widget_name().as_str(),
+                "music-collection-index-all" | "music-search-button"
+            )
+        }),
+        "compact search must not retain the old standalone submission controls"
+    );
     json!({
         "liked_hero_size":hero.map(|widget| [widget.width(),widget.height()]),
         "liked_cover_size":art.map(|widget| [widget.width(),widget.height()]),
         "filter_size":filters.first().map(|widget| [widget.width(),widget.height()]),
         "filter_active":filters.first().is_some_and(|widget| !widget.downcast_ref::<gtk::SearchEntry>().unwrap().text().is_empty()),
+        "filter_layout":filter_layout,
+        "global_search_layout":global_layout,
         "visible_track_rows":visible_collection_tracks(ui),
     })
 }
 
 fn evidence(ui: &crate::ui::MainWindow, name: &str) {
     assert_footer_geometry(ui);
-    let collection = collection_layout(ui);
+    collection_layout(ui);
     assert!(
         descendants(ui.music.widget.upcast_ref())
             .into_iter()
@@ -984,7 +1125,10 @@ fn evidence(ui: &crate::ui::MainWindow, name: &str) {
     );
     let scale = ui.window.scale_factor();
     let name = format!("{name}-scale{scale}");
-    super::tests::capture_native(&name);
+    let mut themed_collection_layouts = BTreeMap::new();
+    super::tests::capture_native_themed(&name, |theme| {
+        themed_collection_layouts.insert(theme, collection_layout(ui));
+    });
     if std::env::var_os("KARIN_TEST_COMPARE_RENDER_READBACK").is_some()
         && (name.starts_with("surface-home-wide-scale")
             || name.starts_with("matrix-wide-panel-track-scale"))
@@ -1010,6 +1154,7 @@ fn evidence(ui: &crate::ui::MainWindow, name: &str) {
             .open(path)
             .unwrap();
         for theme in ["light", "dark"] {
+            let collection = &themed_collection_layouts[theme];
             writeln!(file,"{}",json!({"capture":format!("{name}-{theme}.png"),"logical_width":ui.window.width(),"logical_height":ui.window.height(),"scale":scale,"maximized":ui.window.is_maximized(),"pane_open":pane_open(&ui.music.controller),"panel_mode":format!("{:?}",ui.music.controller.panel_mode.get()),"renderer":ui.window.renderer().unwrap().type_().name(),"rows":heights,"fully_visible_rows":visible,"collection":collection,"source":"synthetic-loopback-musicservice-http-decoded-artwork","tracks":8,"footer_art_hit":[ui.music.controller.widgets.current_art_button.width(),ui.music.controller.widgets.current_art_button.height()],"footer_track_hit":[ui.music.controller.widgets.current_art_button.width(),ui.music.controller.widgets.current_art_button.height()],"footer_cover_size":[ui.music.controller.widgets.current_art.width(),ui.music.controller.widgets.current_art.height()],"footer_like_mapped":ui.music.controller.widgets.current_like_slot.is_mapped(),"footer_title_width":ui.music.controller.widgets.current.width(),"player_requested_visible":ui.music.controller.widgets.player_revealer.reveals_child(),"player_child_revealed":ui.music.controller.widgets.player_revealer.is_child_revealed(),"player_height":ui.music.player_bar.height(),"player_state":format!("{:?}",ui.music.controller.music_snapshot().map(|snapshot|snapshot.state))})).unwrap();
         }
     }
@@ -1382,6 +1527,7 @@ fn native_design_matched_matrix_and_populated_surfaces() {
     resize(&ui, 850, 750);
     evidence(&ui, "surface-liked-filter-empty");
     set_collection_query(&ui, "", 8);
+    collection_sort_evidence(&ui);
     // At the reference width the four owned/Create tiles wrap, placing the
     // liked section below the viewport. Its artwork correctly waits for real
     // visibility before HTTP. Admit all four decoded covers in the wide view
@@ -1411,14 +1557,54 @@ fn native_design_matched_matrix_and_populated_surfaces() {
     set_collection_query(&ui, "mIRA", 2);
     responsive_collection_evidence(&ui, "surface-playlist-filter");
     set_collection_query(&ui, "", 8);
+    let cover = album.cover.clone();
     this.render_album(Rc::new(album), 0);
     pump(|| textures(&this.widgets.detail) >= 6);
     evidence(&ui, "surface-album");
+    set_collection_query(&ui, "mIRA", 2);
+    resize(&ui, 900, 650);
+    evidence(&ui, "surface-album-filter-medium");
+    set_collection_query(&ui, "", 8);
+    this.open_artist(
+        Artist {
+            id: "11".into(),
+            name: "Aster Field".into(),
+            cover: cover.clone(),
+        },
+        0,
+    );
+    pump(|| !this.model.borrow().busy && visible_collection_tracks(&ui) == 8);
+    set_collection_query(&ui, "mIRA", 2);
+    evidence(&ui, "surface-artist-filter-medium");
+    this.open_search_playlist(
+        SearchPlaylist {
+            id: PlaylistId {
+                owner: "4321".into(),
+                kind: "8".into(),
+            },
+            title: "Открытый горизонт".into(),
+            track_count: Some(8),
+            cover,
+        },
+        0,
+    );
+    pump(|| !this.model.borrow().busy && visible_collection_tracks(&ui) == 8);
+    set_collection_query(&ui, "mIRA", 2);
+    evidence(&ui, "surface-open-playlist-filter-medium");
+
     this.widgets.stack.set_visible_child_name("search");
     this.widgets.search.set_text("Синтетическая музыка");
     this.widgets.search.emit_by_name::<()>("activate", &[]);
     pump(|| !this.model.borrow().busy && textures(&this.widgets.search_sections) >= 5);
+    responsive_collection_evidence(&ui, "surface-global-search");
     evidence(&ui, "surface-unified-search");
+    ui.window.maximize();
+    pump(|| ui.window.is_maximized());
+    settle_geometry(&ui, "search-maximized");
+    evidence(&ui, "surface-global-search-maximized");
+    ui.window.unmaximize();
+    pump(|| !ui.window.is_maximized());
+    resize(&ui, 1440, 900);
     set_panel(&ui, workspace::PanelMode::Queue);
     pump(|| textures(&this.widgets.queue_rows) >= 6);
     evidence(&ui, "surface-queue");
@@ -1468,16 +1654,13 @@ fn native_design_matched_matrix_and_populated_surfaces() {
     settle();
     evidence(&ui, "surface-keyboard-focus");
     this.widgets.search.set_text("Нет совпадений");
-    this.model.borrow_mut().search_scope = Some(SearchKind::Tracks);
-    // Empty state uses the same confirmed typed render boundary, with no
-    // fabricated service feature or production demonstration catalog.
-    clear_list(&this.widgets.search_rows);
-    this.reset_search_sections();
-    set_empty(
-        &this.widgets.search_rows,
-        "Ничего не найдено. Попробуйте другой запрос.",
-    );
-    this.widgets.search_feedback.set_visible(false);
+    pump(|| {
+        !this.model.borrow().busy
+            && tests::contains_text(
+                this.widgets.search_sections.upcast_ref(),
+                "Ничего не найдено. Попробуйте другой запрос.",
+            )
+    });
     settle();
     evidence(&ui, "surface-search-empty");
 

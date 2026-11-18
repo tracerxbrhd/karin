@@ -105,12 +105,13 @@ One branch/Draft PR combines all five directions on the accepted v0.7 baseline:
 
 - [Lyrics and related tracks](https://github.com/tracerxbrhd/karin/issues/18):
   legacy Yandex full text with explicit rights, separately requested/attributed
-  LRCLIB TEXT/LRC, actual-player-position highlighting, and seed-bound similar
+  LRCLIB TEXT/LRC, animated line emphasis from the player position, and related
   tracks normalized through one canonical batch. No modern extracted signer.
-- Explicit supported-collection indexing beyond the old 2,000-position prefix:
+- Search-driven supported-collection indexing beyond the old 2,000-position prefix:
   up to 20,000 original positions, 50-position batches, 200-row display windows,
   Unicode title/artist/album matching and stable sorting. Added-date choices
-  require valid timestamps. Startup/typing never starts an entire-library scan.
+  require valid timestamps. The shared search row filters available tracks as
+  you type. An eligible incomplete collection indexes after debounce or Enter.
 - Exact-occurrence Play Next, append, native drag-and-drop and keyboard queue
   moves, with unchanged current audio and persistent edited order/modes/history.
 - Narrow current-marker and unchanged-player-update work reductions, measured

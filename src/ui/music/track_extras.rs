@@ -17,7 +17,7 @@ use crate::{
         interactions::{InteractionError, TrackReaction},
         track_extras::{LyricsRequest, SimilarTracks},
     },
-    playback::PlaybackState,
+    playback::{PlaybackSnapshot, PlaybackState},
 };
 
 const RELATED_PAGE: usize = 10;
@@ -77,6 +77,7 @@ struct Inner {
     lyrics: RefCell<Option<Lyrics>>,
     synchronized: Cell<bool>,
     active: Cell<Option<u32>>,
+    lyric_clock: Cell<Option<LyricClock>>,
     following: Cell<bool>,
     follow_revision: Cell<u64>,
     scroll_animation: RefCell<Option<adw::TimedAnimation>>,
@@ -105,6 +106,14 @@ struct Inner {
     related: RefCell<Vec<Track>>,
     shown: Cell<usize>,
     loader: RefCell<Option<ArtworkLoader>>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct LyricClock {
+    playback_intent: u64,
+    generation: u64,
+    source_revision: u64,
+    seek_serial: u64,
 }
 
 pub(super) struct ExtrasView {
@@ -231,6 +240,7 @@ impl ExtrasView {
             lyrics: RefCell::new(None),
             synchronized: Cell::new(false),
             active: Cell::new(None),
+            lyric_clock: Cell::new(None),
             following: Cell::new(true),
             follow_revision: Cell::new(0),
             scroll_animation: RefCell::new(None),
@@ -290,6 +300,7 @@ impl ExtrasView {
                     item.position(),
                     this.active.get(),
                     this.synchronized.get(),
+                    false,
                 );
                 let mut visible = this.visible_lines.borrow_mut();
                 visible.retain(|(_, old)| old.upgrade().is_some_and(|old| old != label));
@@ -312,7 +323,7 @@ impl ExtrasView {
                         .retain(|(_, old)| old.upgrade().is_some_and(|old| old != label));
                 }
                 label.set_text("");
-                style_line(&label, 0, None, false);
+                style_line(&label, 0, None, false, false);
             }
         });
         connect(&inner);
@@ -329,6 +340,9 @@ impl ExtrasView {
         if !lyrics_visible {
             self.inner.stop_scroll_animation();
             self.inner.dismiss_external_consent();
+            if lyrics_changed {
+                self.inner.finish_line_transitions();
+            }
         }
         if info_changed || lyrics_changed {
             schedule_visible(&self.inner);
@@ -352,6 +366,7 @@ impl ExtrasView {
         this.lyrics.borrow_mut().take();
         this.synchronized.set(false);
         this.active.set(None);
+        this.lyric_clock.set(None);
         this.following.set(true);
         this.follow.set_visible(false);
         this.copy.set_enabled(false);
@@ -410,10 +425,21 @@ impl ExtrasView {
         this.lyrics_spinner.set_visible(false);
         this.external.set_sensitive(true);
         this.external_action.set_enabled(true);
-        this.lyrics_retry.set_visible(result.is_err());
+        this.lyrics_retry.set_visible(
+            result
+                .as_ref()
+                .is_err_and(|error| *error != MusicError::LyricsNotPermitted),
+        );
         match result {
             Ok(Some(lyrics)) => {
                 let synchronized = !lyrics.synchronized.is_empty();
+                if this.synchronized.get() && !synchronized {
+                    // A later successful plain-only lookup must not replace an
+                    // already matched timeline for this same track selection.
+                    this.lyrics_status
+                        .set_text("Найден только обычный текст. Караоке сохранено.");
+                    return;
+                }
                 let keep_manual = this.synchronized.get() && !this.following.get();
                 this.lyrics_status.set_text(if synchronized {
                     "Караоке"
@@ -424,7 +450,9 @@ impl ExtrasView {
                     .set_text(&format!("Источник: {}", lyrics.source.label()));
                 this.source.set_visible(true);
                 this.stop_scroll_animation();
+                this.finish_line_transitions();
                 this.active.set(None);
+                this.lyric_clock.set(None);
                 this.synchronized.set(synchronized);
                 let lines = if synchronized {
                     lyrics
@@ -502,29 +530,43 @@ impl ExtrasView {
         }
     }
 
-    pub(super) fn update_position(&self, position_ms: Option<u64>) {
+    fn update_position(&self, snapshot: Option<&PlaybackSnapshot>, playback_intent: u64) {
         let this = &self.inner;
-        let next = position_ms
-            .and_then(|position| this.lyrics.borrow().as_ref()?.active_line(position))
+        let clock = snapshot.map(|snapshot| LyricClock {
+            playback_intent,
+            generation: snapshot.generation,
+            source_revision: snapshot.source_revision,
+            seek_serial: snapshot.seek_serial,
+        });
+        let same_clock = this.lyric_clock.replace(clock) == clock;
+        let next = snapshot
+            .and_then(|snapshot| snapshot.position)
+            .map(|position| u64::try_from(position.as_millis()).unwrap_or(u64::MAX))
+            .and_then(|position_ms| this.lyrics.borrow().as_ref()?.active_line(position_ms))
             .map(|line| line as u32);
         let old = this.active.replace(next);
-        if old == next {
+        if old == next && same_clock {
             return;
         }
+        let animate = same_clock
+            && snapshot.is_some_and(|snapshot| snapshot.state == PlaybackState::Playing)
+            && next.is_some_and(|next| old.map_or(next < 3, |old| next > old && next - old <= 3))
+            && this.lyrics_active.get()
+            && this.lyrics_list.is_mapped()
+            && this.lyrics_list.settings().is_gtk_enable_animations();
         this.visible_lines.borrow_mut().retain(|(position, label)| {
             if let Some(label) = label.upgrade() {
-                style_line(&label, *position, next, this.synchronized.get());
+                let animate = animate && label.is_mapped() && label.height() > 0;
+                style_line(&label, *position, next, this.synchronized.get(), animate);
                 true
             } else {
                 false
             }
         });
-        // A seek updates the line immediately; ordinary adjacent line movement
-        // animates only GTK scroll position, never an independent lyric clock.
-        let jump = old
-            .zip(next)
-            .is_none_or(|(old, next)| old.abs_diff(next) > 3);
-        this.follow_active(jump);
+        // Acknowledged seeks (even within one line), source changes and
+        // discontinuities snap directly to the line on the confirmed playhead.
+        // GTK only interpolates presentation between real player positions.
+        this.follow_active(!animate);
     }
 
     fn defer_unmapped_request(&self, action: &ExtrasAction) {
@@ -550,6 +592,14 @@ impl ExtrasView {
 }
 
 impl Inner {
+    fn finish_line_transitions(&self) {
+        for (_, label) in self.visible_lines.borrow().iter() {
+            if let Some(label) = label.upgrade() {
+                label.remove_css_class("lyrics-transition");
+            }
+        }
+    }
+
     fn request_lyrics(self: &Rc<Self>, request: LyricsRequest, force: bool) {
         if !self.lyrics_active.get()
             || !self.lyrics_widget.is_mapped()
@@ -734,7 +784,7 @@ impl Inner {
                             &this.lyrics_scroll,
                             adjustment.value(),
                             target,
-                            180,
+                            220,
                             target_callback,
                         );
                         animation.set_easing(adw::Easing::EaseOutCubic);
@@ -1003,7 +1053,28 @@ fn schedule_visible(this: &Rc<Inner>) {
     });
 }
 
-fn style_line(label: &gtk::Label, position: u32, active: Option<u32>, synchronized: bool) {
+fn style_line(
+    label: &gtk::Label,
+    position: u32,
+    active: Option<u32>,
+    synchronized: bool,
+    animate: bool,
+) {
+    if !animate {
+        label.remove_css_class("lyrics-transition");
+    }
+    let (class, description) = if !synchronized {
+        ("karin-lyrics-stanza", "Без синхронизации")
+    } else if active == Some(position) {
+        ("lyrics-active", "Текущая строка")
+    } else if active.is_some_and(|active| position < active) {
+        ("lyrics-past", "Прошедшая строка")
+    } else {
+        ("lyrics-future", "Следующая строка")
+    };
+    if label.has_css_class(class) {
+        return;
+    }
     for class in [
         "karin-lyrics-line",
         "karin-lyrics-stanza",
@@ -1015,19 +1086,12 @@ fn style_line(label: &gtk::Label, position: u32, active: Option<u32>, synchroniz
     }
     if synchronized {
         label.add_css_class("karin-lyrics-line");
-        let (class, description) = if active == Some(position) {
-            ("lyrics-active", "Текущая строка")
-        } else if active.is_some_and(|active| position < active) {
-            ("lyrics-past", "Прошедшая строка")
-        } else {
-            ("lyrics-future", "Следующая строка")
-        };
-        label.add_css_class(class);
-        label.update_property(&[gtk::accessible::Property::Description(description)]);
-    } else {
-        label.add_css_class("karin-lyrics-stanza");
-        label.update_property(&[gtk::accessible::Property::Description("Без синхронизации")]);
+        if animate {
+            label.add_css_class("lyrics-transition");
+        }
     }
+    label.add_css_class(class);
+    label.update_property(&[gtk::accessible::Property::Description(description)]);
 }
 
 fn feedback(
@@ -1067,9 +1131,11 @@ fn extras_error(error: MusicError) -> &'static str {
         MusicError::AccessDenied | MusicError::Unauthenticated => {
             "Войдите снова, чтобы получить данные композиции."
         }
-        MusicError::Forbidden | MusicError::Restricted | MusicError::MissingScopes => {
-            "Сервис не предоставил доступ к этим данным."
-        }
+        MusicError::LyricsNotPermitted => "Источник не предоставил разрешение показать текст.",
+        MusicError::Forbidden
+        | MusicError::Restricted
+        | MusicError::MissingScopes
+        | MusicError::Http(401 | 403 | 451) => "Сервис не предоставил доступ к этим данным.",
         MusicError::Network | MusicError::Timeout => {
             "Не удалось загрузить данные. Проверьте соединение и повторите."
         }
@@ -1242,20 +1308,18 @@ impl Controller {
                 .as_ref()
                 .zip(current.as_ref())
                 .is_some_and(|(selected, current)| selected.id == current.id);
-        let position = if same {
-            self.music_snapshot()
-                .filter(|snapshot| {
-                    matches!(
-                        snapshot.state,
-                        PlaybackState::Playing | PlaybackState::Paused | PlaybackState::Ready
-                    )
-                })
-                .and_then(|snapshot| snapshot.position)
-                .map(|position| position.as_millis().min(u128::from(u64::MAX)) as u64)
-        } else {
-            None
-        };
-        self.track_pane.extras.update_position(position);
+        let snapshot = same
+            .then(|| self.music_snapshot())
+            .flatten()
+            .filter(|snapshot| {
+                matches!(
+                    snapshot.state,
+                    PlaybackState::Playing | PlaybackState::Paused | PlaybackState::Ready
+                )
+            });
+        self.track_pane
+            .extras
+            .update_position(snapshot.as_ref(), self.music_serial());
     }
 }
 

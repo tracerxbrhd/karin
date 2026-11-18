@@ -1,20 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Explicit incremental whole-collection loading with a bounded native result
-//! window. No timer or SearchEntry change starts an HTTP request.
+//! Debounced search intent over a bounded manifest and canonical batches.
+//! Batches are query-independent; each reply projects the current local query.
 
 use super::*;
-
-pub(super) fn sort_choice(choice: u32) -> collection_filter::CollectionSort {
-    use collection_filter::CollectionSort;
-    match choice {
-        1 => CollectionSort::ReverseProvider,
-        2 => CollectionSort::Title,
-        3 => CollectionSort::Artist,
-        4 => CollectionSort::AddedNewest,
-        5 => CollectionSort::AddedOldest,
-        _ => CollectionSort::Provider,
-    }
-}
 
 #[cfg(test)]
 mod native_tests;
@@ -28,6 +16,15 @@ pub(super) fn source(feed: &Feed) -> Option<CollectionSource> {
         _ => None,
     }
 }
+pub(super) fn has_dates(feed: &Feed) -> bool {
+    let index = feed.index.borrow();
+    !index.changed
+        && index
+            .snapshot
+            .as_ref()
+            .is_some_and(CollectionSnapshot::has_added_dates)
+}
+
 pub(super) fn update_window_buttons(feed: &Feed, bar: &collection_filter::FilterBar, count: usize) {
     let windowed = feed.windowed.get();
     bar.previous
@@ -74,33 +71,91 @@ impl Controller {
         feed.rendered_positions.replace(positions);
     }
 
-    pub(super) fn pause_collection_index(self: &Rc<Self>, feed: &Feed) {
-        {
-            let mut index = feed.index.borrow_mut();
+    pub(super) fn retire_collection_index(&self, feed: &Feed) {
+        feed.cancel_index_debounce();
+        let mut index = feed.index.borrow_mut();
+        if index.running || index.busy {
             index.running = false;
             index.busy = false;
             index.serial = index.serial.wrapping_add(1);
+            self.requests
+                .borrow_mut()
+                .invalidate(Operation::CollectionIndex);
         }
-        self.requests
-            .borrow_mut()
-            .invalidate(Operation::CollectionIndex);
+    }
+
+    pub(super) fn pause_collection_index(self: &Rc<Self>, feed: &Feed) {
+        self.retire_collection_index(feed);
+        feed.index.borrow_mut().paused = true;
+        self.sync_busy();
         self.render_feed_status(feed);
     }
 
-    pub(super) fn start_collection_index(self: &Rc<Self>, feed: &Feed) {
-        if !self.feed_is_current(feed) || source(feed).is_none() || feed.index.borrow().running {
+    fn collection_index_available(&self, feed: &Feed, one_page: bool) -> bool {
+        if !self.feed_is_current(feed) || !feed.rows.is_mapped() {
+            return false;
+        }
+        let data = feed.data.borrow();
+        let index = feed.index.borrow();
+        data.filter.active() != one_page
+            && !index.complete
+            && !index.running
+            && index.error != Some(MusicError::ResponseTooLarge)
+            && (data.indexed
+                || data.has_more
+                || data.incomplete
+                || data.error.is_some()
+                || feed.restart_required.get())
+    }
+
+    pub(super) fn schedule_collection_index(self: &Rc<Self>, feed: &Feed) {
+        feed.cancel_index_debounce();
+        if source(feed).is_none() || !self.collection_index_available(feed, false) {
             return;
         }
-        // One indexing lane; a new collection retires the preceding intent.
+        let index = feed.index.borrow();
+        if index.paused || index.error.is_some() || index.changed {
+            return;
+        }
+        drop(index);
+        let weak = Rc::downgrade(self);
+        let weak_feed = Rc::downgrade(feed);
+        let timeout = glib::timeout_add_local_once(COLLECTION_SEARCH_DEBOUNCE, move || {
+            if let Some(feed) = weak_feed.upgrade() {
+                feed.index_debounce.borrow_mut().take();
+                if let Some(this) = weak.upgrade() {
+                    this.start_collection_index(&feed, false);
+                }
+            }
+        });
+        feed.index_debounce.replace(Some(timeout));
+    }
+
+    pub(super) fn activate_collection_search(self: &Rc<Self>, feed: &Feed) {
+        feed.cancel_index_debounce();
+        if source(feed).is_some() {
+            self.start_collection_index(feed, false);
+        } else if self.feed_is_current(feed)
+            && feed.rows.is_mapped()
+            && feed.data.borrow().filter.active()
+        {
+            // An artist page has no full membership contract. Album slices
+            // are already local, and both keep the existing bounded prefix.
+            self.request_track_feed(feed, false);
+        }
+    }
+
+    fn start_collection_index(self: &Rc<Self>, feed: &Feed, one_page: bool) {
+        if !self.collection_index_available(feed, one_page) {
+            return;
+        }
+        // One indexing lane. A new collection retires the preceding intent.
         for other in self.track_feeds.borrow().clone() {
-            if !Rc::ptr_eq(&other, feed) && other.index.borrow().running {
-                self.pause_collection_index(&other);
+            if !Rc::ptr_eq(&other, feed) {
+                self.retire_collection_index(&other);
             }
         }
         let mut index = feed.index.borrow_mut();
-        if index.complete {
-            return;
-        }
         if index.changed {
             *index = CollectionIndex {
                 serial: index.serial.wrapping_add(1),
@@ -108,33 +163,36 @@ impl Controller {
             };
         }
         index.running = true;
+        index.one_page = one_page;
+        if !one_page {
+            index.paused = false;
+        }
         index.error = None;
         index.serial = index.serial.wrapping_add(1);
         drop(index);
         // No outstanding old prefix request may append to the new manifest.
-        self.interrupt_feed_reads(match feed.source {
+        let operation = match feed.source {
             FeedSource::Liked => Operation::Library,
             _ => Operation::Detail,
-        });
-        self.requests.borrow_mut().invalidate(match feed.source {
-            FeedSource::Liked => Operation::Library,
-            _ => Operation::Detail,
-        });
-        feed.data.borrow_mut().loading = false;
-        feed.data.borrow_mut().error = None;
-        feed.data.borrow_mut().indexed = true;
-        feed.windowed.set(true);
-        self.update_index_sort_options(feed);
-        // The initial window already exists, but its physical positions may
-        // differ from a filtered view; rebuild it once on entering this mode.
-        feed.rendered_positions.borrow_mut().clear();
+        };
+        self.interrupt_feed_reads(operation);
+        self.requests.borrow_mut().invalidate(operation);
+        let mut data = feed.data.borrow_mut();
+        data.loading = false;
+        data.error = None;
+        data.indexed = true;
+        drop(data);
+        if !feed.windowed.replace(true) {
+            // The ordinary rows are in provider sequence, not a window.
+            feed.rendered_positions.borrow_mut().clear();
+        }
         self.render_collection_window(feed);
         self.render_feed_status(feed);
         self.request_collection_index(feed);
     }
 
     fn request_collection_index(self: &Rc<Self>, feed: &Feed) {
-        if !self.feed_is_current(feed) {
+        if !self.feed_is_current(feed) || !feed.rows.is_mapped() {
             return;
         }
         let Some(source) = source(feed) else {
@@ -171,11 +229,13 @@ impl Controller {
                     return;
                 }
                 completed.index.borrow_mut().busy = false;
+                let mut browsing_page_finished = false;
                 match result {
                     Ok(IndexReply::Manifest(snapshot)) => {
                         completed.restart_required.set(false);
                         let mut data = completed.data.borrow_mut();
-                        let prefix = snapshot.matches_prefix(&data.items);
+                        let prefix = data.positions.iter().copied().eq(0..data.items.len())
+                            && snapshot.matches_prefix(&data.items);
                         let cursor = if prefix { data.items.len() } else { 0 };
                         if !prefix {
                             let old = ring::digest::digest(
@@ -191,27 +251,36 @@ impl Controller {
                             data.source_key = format!("continuous:index:{key}:{epoch}");
                             data.items.clear();
                             data.positions.clear();
-                            data.contexts.borrow_mut().clear();
-                            completed.rendered_positions.borrow_mut().clear();
-                            clear_list(&completed.rows);
+                            let sort = data.filter.sort();
+                            data.filter = collection_filter::CollectionFilter::default();
+                            if let Some(bar) = &completed.filter_ui {
+                                data.filter.set_query(&bar.search.text());
+                            }
+                            data.filter.set_sort(sort);
                         }
-                        data.filter = collection_filter::CollectionFilter::default();
-                        if let Some(bar) = &completed.filter_ui {
-                            data.filter.set_query(&bar.search.text());
-                            data.filter.set_sort(sort_choice(bar.sort.selected()));
+                        let LoadedTracks {
+                            positions, filter, ..
+                        } = &mut *data;
+                        if !snapshot.has_added_dates() && filter.sort().needs_dates() {
+                            filter.set_sort(collection_filter::CollectionSort::Provider);
                         }
-                        let dates = data
-                            .positions
-                            .iter()
-                            .map(|position| snapshot.added_at(*position))
-                            .collect::<Vec<_>>();
-                        let LoadedTracks { items, filter, .. } = &mut *data;
-                        filter.append_dated(items, &dates);
+                        filter.replace_dates(
+                            positions
+                                .iter()
+                                .map(|position| snapshot.added_at(*position)),
+                        );
+                        data.contexts.borrow_mut().clear();
                         data.has_more = cursor < snapshot.len();
                         data.incomplete = false;
                         let mut index = completed.index.borrow_mut();
                         index.cursor = cursor;
                         index.snapshot = Some(snapshot);
+                        drop(index);
+                        drop(data);
+                        if !prefix {
+                            completed.rendered_positions.borrow_mut().clear();
+                            clear_list(&completed.rows);
+                        }
                     }
                     Ok(IndexReply::Batch(batch)) => {
                         let mut data = completed.data.borrow_mut();
@@ -223,6 +292,10 @@ impl Controller {
                             .snapshot
                             .as_ref()
                             .is_some_and(|snapshot| index.cursor < snapshot.len());
+                        if index.one_page && data.has_more {
+                            index.running = false;
+                            browsing_page_finished = true;
+                        }
                     }
                     Ok(IndexReply::Verified(same)) => {
                         let mut index = completed.index.borrow_mut();
@@ -230,7 +303,12 @@ impl Controller {
                         index.changed = !same;
                         index.running = false;
                         index.error = (!same).then_some(MusicError::InvalidResponse);
-                        completed.data.borrow_mut().has_more = !same;
+                        let mut data = completed.data.borrow_mut();
+                        data.has_more = !same;
+                        if !same && data.filter.sort().needs_dates() {
+                            data.set_sort(collection_filter::CollectionSort::Provider);
+                            completed.window_start.set(0);
+                        }
                     }
                     Err(error) => {
                         let mut index = completed.index.borrow_mut();
@@ -246,13 +324,17 @@ impl Controller {
                         }
                     }
                 }
-                this.update_index_sort_options(&completed);
                 this.render_collection_window(&completed);
                 this.render_feed_status(&completed);
                 this.sync_catalog_rows();
-                if completed.index.borrow().running {
+                if browsing_page_finished {
+                    // A query typed during this explicit page can use its
+                    // newly admitted data and then follow normal debounce.
+                    this.schedule_collection_index(&completed);
+                } else if completed.index.borrow().running {
                     // Yield to native input and paint between bounded batches.
-                    // No artificial delay and no HTTP scheduled by typing.
+                    // Each reply uses the current projection, regardless of
+                    // the query text before this request began.
                     let weak = Rc::downgrade(this);
                     let weak_feed = Rc::downgrade(&completed);
                     glib::idle_add_local_once(move || {
@@ -265,38 +347,43 @@ impl Controller {
         );
     }
 
-    fn update_index_sort_options(&self, feed: &Feed) {
-        let Some(bar) = &feed.filter_ui else {
+    pub(super) fn render_index_browsing_footer(self: &Rc<Self>, feed: &Feed) {
+        // Clearing search does not leave an indexed prefix at a dead end or
+        // silently fetch its remaining tracks. Resume browsing one page at a time.
+        let index = feed.index.borrow();
+        if index.running {
+            let spinner = gtk::Spinner::new();
+            spinner.set_spinning(true);
+            spinner.set_halign(gtk::Align::Center);
+            feed.status.append(&spinner);
             return;
+        }
+        let (message, action) = if index.complete {
+            return;
+        } else if index.changed {
+            (Some("Коллекция изменилась"), "Обновить")
+        } else if index.error == Some(MusicError::ResponseTooLarge) {
+            (Some("Показана ограниченная часть коллекции"), "")
+        } else if index.error.is_some() {
+            (Some("Не удалось загрузить следующие треки"), "Повторить")
+        } else {
+            (None, "Загрузить ещё")
         };
-        let dates = feed
-            .index
-            .borrow()
-            .snapshot
-            .as_ref()
-            .is_some_and(CollectionSnapshot::has_added_dates);
-        let choices = [
-            "Порядок коллекции",
-            "Обратный порядок",
-            "По названию",
-            "По исполнителю",
-            "Добавлены позже",
-            "Добавлены раньше",
-        ];
-        let count = if dates { 6 } else { 4 };
-        if bar
-            .sort
-            .model()
-            .is_none_or(|model| model.n_items() != count)
-        {
-            let selected = if bar.sort.selected() < count {
-                bar.sort.selected()
-            } else {
-                0
-            };
-            bar.sort
-                .set_model(Some(&gtk::StringList::new(&choices[..count as usize])));
-            bar.sort.set_selected(selected);
+        if let Some(message) = message {
+            feed.status.append(&text(message, "dim-label"));
+        }
+        if !action.is_empty() {
+            let button = gtk::Button::with_label(action);
+            button.set_widget_name("music-collection-browse-more");
+            button.set_halign(gtk::Align::Center);
+            let weak = Rc::downgrade(self);
+            let weak_feed = Rc::downgrade(feed);
+            button.connect_clicked(move |_| {
+                if let (Some(this), Some(feed)) = (weak.upgrade(), weak_feed.upgrade()) {
+                    this.start_collection_index(&feed, true);
+                }
+            });
+            feed.status.append(&button);
         }
     }
 
@@ -308,6 +395,11 @@ impl Controller {
     ) {
         let index = feed.index.borrow();
         let count = data.filter.visible().len();
+        update_window_buttons(feed, bar, count);
+        if !data.filter.active() {
+            bar.set_status("", false, None);
+            return;
+        }
         let total = index.snapshot.as_ref().map(CollectionSnapshot::len);
         let range = if count == 0 {
             String::new()
@@ -322,43 +414,49 @@ impl Controller {
             Some(total) => format!("Проверено {} из {total} позиций", index.cursor),
             None => "Получение состава коллекции".into(),
         };
-        bar.status.set_text(&if index.changed {
-            "Коллекция изменилась. Обновите индекс; текущая очередь сохранена.".into()
+        let (message, action) = if index.changed {
+            (
+                "Коллекция изменилась · Поиск неполный".into(),
+                Some("Обновить"),
+            )
         } else if index.error == Some(MusicError::ResponseTooLarge) {
-            "Индекс ограничен 20 000 позиций и 4 МБ состава. Полный поиск не выполнен.".into()
+            (
+                format!("Лимит индекса: 20 000 позиций / 4 МБ · Найдено: {count}{range}"),
+                None,
+            )
         } else if index.error.is_some() {
-            format!("Не удалось продолжить загрузку. {progress} · Найдено: {count}{range}")
+            (
+                format!("Поиск прерван · {progress} · Найдено: {count}{range}"),
+                Some("Повторить"),
+            )
         } else if index.complete {
-            format!(
-                "Вся коллекция проверена · Найдено: {count}{range}{}",
-                if data.incomplete {
-                    " · Часть данных недоступна"
-                } else {
-                    ""
-                }
+            let result = if count == 0 && !data.incomplete {
+                "Совпадений нет".into()
+            } else {
+                format!("Найдено: {count}{range}")
+            };
+            (
+                format!(
+                    "Вся коллекция проверена · {result}{}",
+                    if data.incomplete {
+                        " · Часть данных недоступна"
+                    } else {
+                        ""
+                    }
+                ),
+                None,
+            )
+        } else if index.running {
+            (
+                format!("{progress} · Найдено: {count}{range}"),
+                Some("Пауза"),
             )
         } else {
-            format!(
-                "{progress} · Найдено: {count}{range}{}",
-                if index.running {
-                    ""
-                } else {
-                    " · Загрузка приостановлена"
-                }
+            (
+                format!("{progress} · Найдено: {count}{range} · На паузе"),
+                Some("Продолжить"),
             )
-        });
-        bar.status.set_visible(true);
-        bar.more.set_visible(false);
-        bar.index_all.set_label(if index.changed {
-            "Обновить индекс"
-        } else if index.error.is_some() {
-            "Повторить загрузку"
-        } else {
-            "Продолжить загрузку всей коллекции"
-        });
-        bar.index_all.set_visible(!index.running && !index.complete);
-        bar.index_all.set_sensitive(self.feed_is_current(feed));
-        bar.cancel_index.set_visible(index.running);
-        update_window_buttons(feed, bar, count);
+        };
+        bar.set_status(&message, index.running, action);
     }
 }

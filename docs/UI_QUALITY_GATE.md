@@ -31,10 +31,18 @@ bounds do not justify skipping containment or guessing coordinates.
 - Activate exact track occurrences by mouse/Enter/Space, including duplicate IDs
   across filtered 500-position windows. Details must not play. Filtering,
   appending and navigation must not rewrite the active queue or restart audio.
-- Type Cyrillic/Unicode title, artist and album queries; test clear/reset, empty
-  matches, partial coverage, next-part errors/Retry and retired replies. Count
-  HTTP work to exclude per-key page/N+1 reads. Retain the 2,000-position/100-page
-  bounds and initial fill limit. See [ADR-0025](adr/0025-loaded-collection-search-and-playback-provenance.md).
+- Inspect the shared one-row track filter and native sort button in all track
+  feeds. Check compact hit targets, a group width around 500–600 logical pixels
+  at wide sizes, and no horizontal overflow. Open and select sort options with
+  mouse and Tab/Enter/Space. Verify selected order, active styling and date
+  availability. Type Unicode title, artist and album queries, then check immediate
+  local results, clear/reset, empty matches, honest partial coverage, compact
+  Pause/Continue/Retry and retired replies. Count actual HTTP work for fast typing,
+  Enter, clearing, navigation and reusing an index beyond 2,000 positions. Preserve
+  the ordinary 2,000-position/100-page bounds, initial fill limit and indexed
+  20,000-position/50-position-batch/200-row-window bounds. Exercise debounced
+  global search separately with sections, paging, Retry and latest-query results.
+  See [ADR-0035](adr/0035-incremental-whole-collection-index.md).
 - Test the whole metadata Info target and independent Like/Dislike focus. A
   reaction click must not open Info; unknown Dislike stays hidden and pending
   state is not optimistic. An unavailable Dislike must not disable a separately
@@ -60,10 +68,17 @@ bounds do not justify skipping containment or guessing coordinates.
 
 ## Pinned panel and motion
 
-Info/Queue share one fixed-size surface. Outside clicks, navigation, resize and
+Info/Lyrics/Queue share one surface. Outside clicks, navigation, resize and
 playback preserve mode; explicit close/Back restores focus. Content switching
 must not close/reopen the host. Current-occurrence changes resume following;
 inspecting details must not play. See [ADR-0022](adr/0022-universal-music-panel.md).
+
+For synchronized lyrics observe the active and previous rows during a real
+position-driven line transition, including intermediate emphasis and stable
+geometry. Check seek, pause, next/previous/EOS, virtual row reuse, old-track
+retirement and manual scrolling without recentering before Follow. Verify
+instant current-line emphasis with reduced motion, readable High Contrast,
+and plain selectable TEXT without synchronization. [ADR-0034](adr/0034-bounded-track-lyrics-and-similar.md).
 
 With normal animation enabled, observe opening and closing near 0/25/50/75/100%
 openness using five distinct native frame times and indices. Closing is presented

@@ -537,20 +537,19 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
         ),
     ] {
         this.widgets.stack.set_visible_child_name("search");
+        this.widgets.search.set_text("");
         this.widgets.search.set_text(if enter {
             "Синтетический ввод"
         } else {
             "Synthetic input"
         });
         this.model.borrow_mut().search_scope = Some(kind);
-        // Exercise actual entry Return/Find. Section selection itself is covered
-        // by the independent unified Show All mouse fixture.
+        // Exercise actual entry Return and automatic debounce. The independent
+        // unified Show All mouse fixture covers category selection.
         if enter {
             assert!(this.widgets.search.grab_focus());
             input(&["key", "--clearmodifiers", "Return"]);
             settle();
-        } else {
-            click(window, id, &this.widgets.search_button);
         }
         pump_until(|| {
             !this.model.borrow().busy && contains_text(this.widgets.search_rows.upcast_ref(), title)

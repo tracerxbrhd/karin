@@ -156,6 +156,7 @@ impl MusicPane {
         Rc::new(move |visible| {
             if let Some(this) = weak.upgrade() {
                 this.music_surface_visible.set(visible);
+                this.sync_search_debounce_route();
                 this.sync_track_pane();
             }
         })

@@ -11,7 +11,7 @@ supersedes the manual physical-index fallback described below. Queue-owned opaqu
 occurrence tokens preserve Info/MPRIS identity through reindexing; original source
 positions and filtering semantics remain unchanged.
 
-Extended by: [ADR-0035](0035-incremental-whole-collection-index.md) adds explicit
+Extended by: [ADR-0035](0035-incremental-whole-collection-index.md) adds search-driven
 complete supported-collection indexing and bounded result windows in v0.8; the
 following text records the original display-prefix decision.
 

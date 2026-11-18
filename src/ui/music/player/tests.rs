@@ -834,7 +834,6 @@ fn native_music_playback_resolver_queue_controls_and_logout() {
     let this = &pane.controller;
     this.widgets.stack.set_visible_child_name("search");
     this.widgets.search.set_text("Synthetic playable search");
-    native_click(&ui.window, &this.widgets.search_button);
     pump_until(|| {
         !this.model.borrow().busy
             && contains_text(

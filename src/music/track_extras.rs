@@ -184,8 +184,10 @@ impl MusicService {
                 let Some(lyrics) = envelope.result.and_then(|supplement| supplement.lyrics) else {
                     return Ok(None);
                 };
-                if lyrics.has_rights != Some(true) {
-                    return Ok(None);
+                match lyrics.has_rights {
+                    Some(false) => return Err(MusicError::LyricsNotPermitted),
+                    None => return Ok(None),
+                    Some(true) => {}
                 }
                 // The legacy `lyrics` field is only an opening excerpt. Do not
                 // present that excerpt as the complete song text.
@@ -305,8 +307,8 @@ impl MusicService {
         self.check_search_binding(token, binding)?;
         let wire: ExternalLyrics =
             serde_json::from_slice(&body).map_err(|_| MusicError::InvalidResponse)?;
-        if match_text(&wire.track_name) != match_text(&track.title)
-            || match_text(&wire.artist_name) != match_text(artist)
+        if match_text(&text(wire.track_name)?) != match_text(&track.title)
+            || match_text(&text(wire.artist_name)?) != match_text(artist)
             || wire.duration.is_some_and(|duration| {
                 !duration.is_finite()
                     || duration < 0.0
@@ -355,11 +357,16 @@ fn lyrics_error(error: LyricsError) -> MusicError {
 }
 
 fn match_text(value: &str) -> String {
-    value
+    use gtk::glib;
+
+    // Keep version qualifiers and punctuation. Only harmless case,
+    // whitespace and canonical Unicode spelling differences are folded.
+    let folded = value
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
-        .to_lowercase()
+        .to_lowercase();
+    glib::normalize(folded, glib::NormalizeMode::DefaultCompose).into()
 }
 
 /// Delta-seconds and IMF-fixdate from RFC 9110. No external clock/HTTP helper

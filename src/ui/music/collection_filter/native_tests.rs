@@ -8,7 +8,7 @@ use crate::ui::music::{
 };
 use serde_json::{Value, json};
 use std::{
-    io::{Read, Write},
+    io::{ErrorKind, Read, Write},
     net::{TcpListener, TcpStream},
     sync::{
         Condvar, Mutex,
@@ -69,10 +69,19 @@ fn serve(mut stream: TcpStream, counts: &Counts, release: &(Mutex<bool>, Condvar
     let mut bytes = Vec::new();
     let mut byte = [0];
     while !bytes.ends_with(b"\r\n\r\n") {
-        if stream.read(&mut byte).unwrap() == 0 {
-            return;
+        match stream.read(&mut byte) {
+            Ok(0) => return,
+            Ok(_) => bytes.push(byte[0]),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    ErrorKind::ConnectionReset | ErrorKind::BrokenPipe
+                ) =>
+            {
+                return;
+            }
+            Err(error) => panic!("synthetic collection request read: {}", error.kind()),
         }
-        bytes.push(byte[0]);
         assert!(bytes.len() < 16 * 1024);
     }
     let request = String::from_utf8(bytes).unwrap();
@@ -89,7 +98,15 @@ fn serve(mut stream: TcpStream, counts: &Counts, release: &(Mutex<bool>, Condvar
         .unwrap_or(0);
     assert!(length < 16 * 1024);
     let mut body = vec![0; length];
-    stream.read_exact(&mut body).unwrap();
+    if let Err(error) = stream.read_exact(&mut body) {
+        if matches!(
+            error.kind(),
+            ErrorKind::ConnectionReset | ErrorKind::BrokenPipe | ErrorKind::UnexpectedEof
+        ) {
+            return;
+        }
+        panic!("synthetic collection request body read: {}", error.kind());
+    }
     let path = request
         .lines()
         .next()
@@ -170,10 +187,9 @@ fn serve(mut stream: TcpStream, counts: &Counts, release: &(Mutex<bool>, Condvar
                     let (ready, timed) = changed
                         .wait_timeout_while(ready, Duration::from_secs(15), |ready| !*ready)
                         .unwrap();
-                    assert!(
-                        *ready && !timed.timed_out(),
-                        "late fixture read not released"
-                    );
+                    let released = *ready && !timed.timed_out();
+                    drop(ready);
+                    assert!(released, "late fixture read not released");
                 }
                 (
                     200,
@@ -235,9 +251,10 @@ fn settle(ms: u64) {
 fn click(window: &adw::ApplicationWindow, id: &str, widget: &impl IsA<gtk::Widget>) {
     test_input::wait_for_layout(window, widget);
     let (x, y) = test_input::pointer(window, widget, test_input::Target::Leading);
+    // Keep motion and button input ordered on one X connection. Waiting
+    // for a motion event hangs when a repeated click uses the same point.
     input(&[
         "mousemove",
-        "--sync",
         "--window",
         id,
         &x.to_string(),
@@ -306,14 +323,14 @@ fn query(window: &adw::ApplicationWindow, id: &str, feed: &Feed, value: &str) {
     let entry = &feed.filter_ui.as_ref().unwrap().search;
     click(window, id, entry);
     input(&["key", "--clearmodifiers", "ctrl+a"]);
-    input(&["key", "--clearmodifiers", "BackSpace"]);
-    if !value.is_empty() {
-        if value.is_ascii() {
+    if value.is_empty() {
+        input(&["key", "--clearmodifiers", "BackSpace"]);
+    } else {
+        if value.is_ascii() && entry.text().is_empty() {
             input(&["type", "--clearmodifiers", value]);
         } else {
-            // Exercise GTK's genuine clipboard transfer through a real paste
-            // key event. A headless Latin XKB map is not a Russian keyboard;
-            // do not replace this native input with GtkEditable::set_text.
+            // Real native Paste preserves replace-selection as one edit.
+            // It also accepts Unicode on the fixture's Latin XKB map.
             entry.clipboard().set_text(value);
             input(&["key", "--clearmodifiers", "ctrl+v"]);
         }
@@ -335,9 +352,19 @@ fn query(window: &adw::ApplicationWindow, id: &str, feed: &Feed, value: &str) {
     settle(160);
 }
 fn visible(feed: &Feed) -> Vec<usize> {
-    (0..feed.data.borrow().items.len())
-        .filter(|index| feed.rows.row_at_index(*index as i32).unwrap().is_visible())
-        .collect()
+    let indices = feed.data.borrow().filter.visible().to_vec();
+    let mut child = feed.rows.first_child();
+    let mut visible = 0;
+    while let Some(row) = child {
+        visible += usize::from(row.is_visible());
+        child = row.next_sibling();
+    }
+    assert_eq!(
+        visible,
+        indices.len(),
+        "the native rows match the admitted projection"
+    );
+    indices
 }
 fn detail_feed(this: &Rc<Controller>) -> Feed {
     this.track_feeds
@@ -484,21 +511,18 @@ fn native_collection_filter_continuation_and_exact_occurrences() {
     let before = counts.all.load(Ordering::Acquire);
     query(window, id, &liked, "no-match");
     assert!(visible(&liked).is_empty());
-    settle(200);
     assert_eq!(
         counts.all.load(Ordering::Acquire),
         before,
-        "typing and viewport collapse cannot drain the collection"
+        "local input and viewport collapse do not issue requests during debounce"
     );
     assert!(contains_text(
         liked.filter_ui.as_ref().unwrap().status.upcast_ref(),
         "В загруженной части (50 треков)"
     ));
     capture_native("collection-filter-partial");
-    click(window, id, &liked.filter_ui.as_ref().unwrap().more);
-    pump_until(|| {
-        liked.data.borrow().error == Some(MusicError::Http(503)) && !liked.data.borrow().loading
-    });
+    let filter = liked.filter_ui.as_ref().unwrap();
+    pump_until(|| filter.index_action.label().as_deref() == Some("Повторить"));
     assert_eq!(liked.data.borrow().items.len(), 50);
     assert_eq!(counts.batches.load(Ordering::Acquire), 2);
     assert!(!contains_text(
@@ -506,18 +530,20 @@ fn native_collection_filter_continuation_and_exact_occurrences() {
         "synthetic-private-provider-diagnostic"
     ));
     capture_native("collection-filter-retry");
-    let retry = find_button(liked.status.upcast_ref(), "music-feed-retry").unwrap();
-    click(window, id, &retry);
-    pump_until(|| liked.data.borrow().items.len() == 100 && !liked.data.borrow().loading);
-    assert_eq!(counts.batches.load(Ordering::Acquire), 3);
+    click(window, id, &filter.index_action);
+    pump_until(|| liked.data.borrow().items.len() == 100 && counts.late.load(Ordering::Acquire));
+    assert_eq!(counts.batches.load(Ordering::Acquire), 4);
     assert!(visible(&liked).is_empty());
-    drain(this);
     let before = counts.all.load(Ordering::Acquire);
     query(window, id, &liked, "ёЛКА");
     assert_eq!(visible(&liked), [2, 10, 55, 90]);
     assert_eq!(counts.all.load(Ordering::Acquire), before);
+    // Retire the deliberately held request without releasing its response.
+    // The following playback/membership drain must not await that old lane.
+    click(window, id, &filter.index_action);
+    assert_eq!(filter.index_action.label().as_deref(), Some("Продолжить"));
     capture_native("collection-filter-append");
-    let row = liked.rows.row_at_index(55).unwrap();
+    let row = liked.rows.row_at_index(2).unwrap();
     let late_play = find_button(row.upcast_ref(), "music-track-play").unwrap();
     click(window, id, &row);
     pump_until(|| counts.offers.load(Ordering::Acquire) > 0 && !this.music_requested());
@@ -561,8 +587,7 @@ fn native_collection_filter_continuation_and_exact_occurrences() {
     );
     assert_eq!(counts.offers.load(Ordering::Acquire), original_offers);
     query(window, id, &liked, "ёЛКА");
-    click(window, id, &liked.filter_ui.as_ref().unwrap().more);
-    pump_until(|| counts.late.load(Ordering::Acquire));
+    input(&["key", "--clearmodifiers", "Return"]);
     this.load_library_refresh(0);
     let fresh_liked = this
         .track_feeds
@@ -740,7 +765,7 @@ fn native_collection_filter_continuation_and_exact_occurrences() {
         retired_filter
             .status
             .text()
-            .contains("В загруженной части (50 треков)")
+            .contains("Коллекция изменилась")
     );
     assert_ne!(
         retired_filter.status.text().as_str(),

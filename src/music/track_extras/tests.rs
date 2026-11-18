@@ -348,19 +348,28 @@ fn yandex_full_text_requires_explicit_rights_and_never_forwards_to_external_sour
 
 #[test]
 fn missing_refused_and_excerpt_only_yandex_lyrics_are_not_full_text() {
-    for body in [
-        r#"{"result":{"lyrics":null}}"#,
-        r#"{"result":{"lyrics":{"fullLyrics":"not permitted","hasRights":false}}}"#,
-        r#"{"result":{"lyrics":{"fullLyrics":"unknown permission"}}}"#,
-        r#"{"result":{"lyrics":{"lyrics":"Only opening excerpt","hasRights":true}}}"#,
-        r#"{"result":null}"#,
+    for (body, expected) in [
+        (r#"{"result":{"lyrics":null}}"#, Ok(None)),
+        (
+            r#"{"result":{"lyrics":{"fullLyrics":"not permitted","hasRights":false}}}"#,
+            Err(MusicError::LyricsNotPermitted),
+        ),
+        (
+            r#"{"result":{"lyrics":{"fullLyrics":"unknown permission"}}}"#,
+            Ok(None),
+        ),
+        (
+            r#"{"result":{"lyrics":{"lyrics":"Only opening excerpt","hasRights":true}}}"#,
+            Ok(None),
+        ),
+        (r#"{"result":null}"#, Ok(None)),
     ] {
         let (service, token, server) =
             fixture(vec![Reply::new(200, ACCOUNT), Reply::new(200, body)], None);
         authenticated(&service, &token);
         assert_eq!(
             service.lyrics(&token, &track(), LyricsRequest::Yandex),
-            Ok(None)
+            expected
         );
         assert_eq!(server.join().unwrap().len(), 2);
     }
@@ -436,7 +445,11 @@ fn external_not_found_instrumental_and_mismatched_metadata_are_distinct() {
     mismatch["trackName"] = "Unrelated fixture".into();
     let mut duration = external_record();
     duration["duration"] = 180.into();
-    for body in [mismatch, duration] {
+    let mut version = external_record();
+    version["trackName"] = "Original & 100% track (live)".into();
+    let mut malformed = external_record();
+    malformed["trackName"] = "Original & 100% track\0unrelated".into();
+    for body in [mismatch, duration, version, malformed] {
         let (service, token, server) = fixture(
             vec![Reply::new(200, ACCOUNT), Reply::new(200, body.to_string())],
             None,
@@ -462,6 +475,27 @@ fn external_not_found_instrumental_and_mismatched_metadata_are_distinct() {
         );
         assert_eq!(server.join().unwrap().len(), 2);
     }
+}
+
+#[test]
+fn external_canonically_equivalent_names_keep_matched_synchronized_text() {
+    let mut track = track();
+    track.title = "Original café".into();
+    track.artists = vec!["Ёж и звёзды".into()];
+    let mut body = external_record();
+    body["trackName"] = "Original\u{00a0}CAFE\u{0301}".into();
+    body["artistName"] = "Е\u{0308}ж и зве\u{0308}зды".into();
+    let (service, token, server) = fixture(
+        vec![Reply::new(200, ACCOUNT), Reply::new(200, body.to_string())],
+        None,
+    );
+    authenticated(&service, &token);
+    let lyrics = service
+        .lyrics(&token, &track, LyricsRequest::External)
+        .unwrap()
+        .unwrap();
+    assert_eq!(lyrics.active_line(1500), Some(0));
+    assert_eq!(server.join().unwrap().len(), 2);
 }
 
 #[test]

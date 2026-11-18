@@ -26,16 +26,17 @@ is not affiliated with or endorsed by Yandex.
   <img src="docs/screenshots/track-info.png" width="49%" alt="Dark theme with the pinned track information panel" />
 </p>
 
-Actual GTK captures with synthetic library data and original test artwork.
-[Capture details](docs/screenshots/README.md).
+GTK captures of the accepted v0.4 baseline with synthetic library data and
+original test artwork. [Capture details](docs/screenshots/README.md).
 
 ## Features
 
 - Yandex sign-in, liked tracks, personal playlists and catalog search.
-- Explicit whole-collection indexing, Unicode title/artist/album search and sorting.
+- Compact collection search and sorting, with Unicode title/artist/album matching
+  and automatic bounded indexing when you search in an eligible collection.
 - Track information in one pinned panel and confirmed owned-playlist creation/editing.
-- A dedicated plain/LRC Lyrics mode in that same panel, with copying, Follow
-  and an explicit external source option.
+- A dedicated plain/LRC Lyrics mode in that same panel, with animated line
+  emphasis, copying, Follow and an explicit external source option.
 - Similar tracks using ordinary playback, queue and reaction actions.
 - Playback queue, position and Shuffle/Repeat restoration without autoplay.
 - Distinct Like/Dislike controls with account-bound read-after-write confirmation.
@@ -99,14 +100,14 @@ independent; Karin Style remains unavailable until approved designer materials
 arrive. See [validation](docs/VALIDATION.md#owner-acceptance-of-pr-28--2026-11-14).
 
 The integrated **v0.8** work adds plain/synchronized text, related tracks,
-explicit complete supported-collection indexing, exact queue edits and narrow
-UI-update optimizations. Track Info has a compact action row and native menu;
-Lyrics and Queue switch inside its existing panel rather than separate pages.
-Lyrics use the allowed legacy full-text contract or an
-explicitly disclosed LRCLIB metadata lookup; no extracted modern signing key is
-included. The supported index reaches 20,000 original positions with bounded
-batches and result windows; it does not scan the whole library on startup or
-send a request on each keystroke. System UI remains the product interface.
+compact search and sorting, exact queue edits and fewer repeated UI updates. Track
+Info has a compact action row and native menu. Lyrics and Queue switch inside
+the existing panel. Synchronized text follows the player position and animates
+the current line. Lyrics use the allowed legacy full-text contract or an
+explicitly disclosed LRCLIB lookup by public metadata. Collection search
+filters available tracks immediately, then continues the index after a short
+typing pause or Enter. The supported index reaches 20,000 original positions
+with bounded batches and result windows. System UI remains the product interface.
 New real-content/large-library/gesture acceptance is separate from v0.7 and is
 covered by [one final Native/Flatpak procedure](docs/BUILDING.md#v08-final-fedora-acceptance).
 There is no v0.8 release/tag or automatic merge authorization.

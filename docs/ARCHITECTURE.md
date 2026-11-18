@@ -20,7 +20,7 @@ flowchart LR
 
 | Area | Modules | Responsibility |
 | --- | --- | --- |
-| Catalog | `music`, `music::library_index`, `music::track_extras`, `api`, `application` | Typed service access, explicit collection indexing, read-only text/related metadata and separate anonymous diagnostics |
+| Catalog | `music`, `music::library_index`, `music::track_extras`, `api`, `application` | Typed service access, search-driven collection indexing, read-only text/related metadata and separate anonymous diagnostics |
 | Authentication | `auth`, `auth::cassette`, `ui::auth`, `oauth` | Ordinary sign-in and independent PKCE diagnostic |
 | Session | `session`, `credentials`, `session_lifecycle`, `settings` | Live tokens, protected persistence and non-secret preferences |
 | Data | `cache_budget`, `cache`, `catalog_cache`, `artwork`, `audio_cache` | One shared resource policy; typed metadata/artwork and separately policy-admitted audio stores |
@@ -63,6 +63,12 @@ preserving order, duplicates, unavailable records and paging. Optional display
 fields cannot invalidate valid IDs. Reaction/playlist writes require independent
 confirmation; ambiguous POSTs are not replayed.
 
+Global search uses the compact search entry, a GTK debounce and Enter for
+immediate submission. Changing or clearing the query retires pending and
+superseded search results. The bounded search lane admits results, paging and
+Retry under the current request generation. Collection filtering has its own
+data source and uses no global catalog results.
+
 `music::interactions` distinguishes Like, Unlike, account Dislike and removing
 Dislike. Current-track reactions use compact live reads of both collections,
 with account/track generations and a bounded write lane. A deliberate reaction
@@ -85,20 +91,26 @@ Errors preserve rows with read Retry. Remote end, missing/stale data and local
 limits remain distinct. Like mutations retire continuation until explicit refresh,
 without changing playback.
 
-Explicit whole-collection indexing uses `music::library_index`: a current compact
-membership manifest (4 MiB/20,000 original positions), independent 50-position
-canonical batches and a final full sequence/revision recheck. It remains
-process-only, with progress/pause/Retry and 200-row result windows. No new database,
-quota, whole-library startup scan or per-key network request is introduced.
+Liked tracks, playlist tracks, album tracks and artist tracks share a bounded
+search field and native sort menu. Admitted rows filter on input. Eligible
+incomplete liked or playlist feeds continue their existing index after debounce
+or Enter. Album and artist filters use their admitted bounded metadata.
+`music::library_index` reads a compact membership manifest (4 MiB/20,000
+original positions), independent 50-position canonical batches and a final
+full sequence/revision recheck. It remains process-only, with contextual
+progress, Pause/Continue/Retry and 200-row result windows. The latest query
+projects reusable admitted data. Clearing or leaving the view suspends the
+read lane. Startup and view entry alone leave it idle.
+
 NFKC → casefold → NFKC title/artist/album keys support local matching and stable
-sorts. Added-date sorting requires valid occurrence timestamps throughout;
-provider order is not relabelled as an invented date. Incomplete/changed/oversized
-coverage remains explicit. Normal navigation retains useful projection state;
-logout/source changes retire late work. The active queue/player remains untouched.
+sorts. Added-date sorting requires valid occurrence timestamps throughout.
+Incomplete, changed and oversized coverage remain explicit. Normal navigation
+retains useful projection state. Logout and source changes retire late work.
+The active queue, player and MPRIS state are independent of these projections.
 [ADR-0035](adr/0035-incremental-whole-collection-index.md) extends the original
 loaded-prefix decision.
 
-Play snapshots an aligned window of up to 500 matches in provider order, including
+Play snapshots an aligned window of up to 500 matches in the selected order, including
 the selected item; at most four windows are cached. Opaque feed binding and original
 admitted positions distinguish duplicates across windows/reindexing. Filtering,
 appending and navigation never rewrite active playback. MusicQueue also owns a
@@ -120,8 +132,11 @@ scrolled lyric stays under user control until following is requested again.
 External requests disclose public
 metadata sharing and never receive Music tokens/account or track IDs. Text is
 memory-only and source-labelled. TEXT uses selectable stanza/line labels; LRC
-uses virtualized lines, semantic past/current/future states and native scrolling
-that honors reduced motion. Copy exports only the displayed text to the local
+uses virtualized lines, semantic past/current/future states and native scrolling.
+The 220 ms GTK transitions accent the newly active line and fade the previous
+line without changing row geometry. Seek and rebound rows resolve their current
+state immediately. Reduced motion suppresses the line transition and keeps
+legible emphasis. Copy exports only the displayed text to the local
 clipboard. Opening Lyrics starts the Yandex read; LRCLIB remains an explicitly
 disclosed user request. Track Info displays related tracks under an ordinary
 heading, without expanders or a nested lyrics viewport. Similar rows use one

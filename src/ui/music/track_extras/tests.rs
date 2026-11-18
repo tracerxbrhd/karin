@@ -1181,4 +1181,247 @@ fn native_v08_lyrics_similar_seek_and_stale_selection() {
     let weak = view.widget.downgrade();
     ui.close_for_smoke()(true);
     pump_until(|| weak.upgrade().is_none());
+    native_line_transitions();
+}
+
+// Deterministic confirmed positions isolate GTK presentation. The ordinary
+// application scenario above verifies that real GStreamer seek/position,
+// occurrence changes, and logout feed that same presentation.
+fn native_line_transitions() {
+    let settings = gtk::Settings::default().unwrap();
+    let animations = settings.is_gtk_enable_animations();
+    settings.set_gtk_enable_animations(true);
+    let manager = adw::StyleManager::default();
+    let scheme = manager.color_scheme();
+    manager.set_color_scheme(adw::ColorScheme::ForceDark);
+    let view = ExtrasView::new(Rc::new(|_| {}));
+    view.set_track(Some(&track(42)), None);
+    view.set_modes(false, true);
+    let window = gtk::Window::builder()
+        .title("Karin synthetic lyric motion")
+        .default_width(360)
+        .default_height(640)
+        .child(&view.lyrics_widget)
+        .build();
+    window.add_css_class("karin-style-system");
+    window.present();
+    pump_until(|| view.lyrics_widget.is_mapped() && view.inner.lyrics_loading.get());
+    let ticket = Ticket {
+        selection: view.inner.epoch.get(),
+        request: view.inner.lyrics_serial.get(),
+    };
+    let source = crate::lyrics::LyricsSource::Lrclib;
+    let lrc = (0..200)
+        .map(|i| {
+            format!(
+                "[{:02}:{:02}.000]Строка {i} · original Unicode",
+                i / 60,
+                i % 60
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    view.show_lyrics(ticket, Ok(Lyrics::from_lrc(source, &lrc).unwrap()));
+    view.inner.suspend_following();
+    let mut snapshot = PlaybackSnapshot {
+        state: PlaybackState::Playing,
+        position: Some(Duration::from_secs(2)),
+        ..PlaybackSnapshot::default()
+    };
+    view.update_position(Some(&snapshot), 1);
+
+    let mapped_line = |index| {
+        view.inner
+            .visible_lines
+            .borrow()
+            .iter()
+            .find(|(position, _)| *position == index)
+            .and_then(|(_, label)| label.upgrade())
+            .filter(|label| label.is_mapped() && label.height() > 0)
+    };
+    pump_until(|| mapped_line(2).is_some() && mapped_line(3).is_some());
+    let old = mapped_line(2).unwrap();
+    let next = mapped_line(3).unwrap();
+    let heights = (old.height(), next.height());
+    let accent = old.color();
+    let normal = next.color();
+    assert_ne!(
+        accent, normal,
+        "System style provides a distinct active color"
+    );
+    let before = lyric_motion_node(&window);
+
+    let samples = Rc::new(RefCell::new(Vec::new()));
+    let intermediate = Rc::new(RefCell::new(None));
+    let finished = Rc::new(Cell::new(false));
+    let clock = window.frame_clock().unwrap();
+    let handler = clock.connect_after_paint({
+        let (old, next, window) = (old.clone(), next.clone(), window.downgrade());
+        let (samples, intermediate, finished) =
+            (samples.clone(), intermediate.clone(), finished.clone());
+        move |_| {
+            let colors = (old.color(), next.color());
+            if colors == (normal, accent) {
+                finished.set(true);
+            }
+            if colors.0 != accent && colors.0 != normal && colors.1 != accent && colors.1 != normal
+            {
+                samples.borrow_mut().push(colors);
+                let distance = color_midpoint_distance(colors.0, accent, normal)
+                    + color_midpoint_distance(colors.1, accent, normal);
+                let closer = intermediate
+                    .borrow()
+                    .as_ref()
+                    .is_none_or(|(best, _)| distance < *best);
+                if closer && let Some(node) = window.upgrade().as_ref().and_then(lyric_motion_node)
+                {
+                    intermediate.replace(Some((distance, node)));
+                }
+            }
+        }
+    });
+    snapshot.position = Some(Duration::from_secs(3));
+    view.update_position(Some(&snapshot), 1);
+    let deadline = Instant::now() + Duration::from_secs(1);
+    pump_until(|| {
+        // Repeated observations of the same playhead must not restart an
+        // animation or rebind any lyric rows.
+        view.update_position(Some(&snapshot), 1);
+        finished.get() || Instant::now() >= deadline
+    });
+    clock.disconnect(handler);
+    assert!(
+        !samples.borrow().is_empty(),
+        "promotion and demotion must both paint an intermediate color"
+    );
+    assert!(finished.get(), "settled colors must actually paint");
+    assert_eq!((old.color(), next.color()), (normal, accent));
+    assert_eq!(
+        heights,
+        (old.height(), next.height()),
+        "lyric motion must not reflow rows"
+    );
+    eprintln!(
+        "Karin synthetic lyric motion: {} frames with both lines interpolating",
+        samples.borrow().len()
+    );
+    if let Ok(directory) = std::env::var("KARIN_TEST_CAPTURE_DIR") {
+        let directory = std::path::Path::new(&directory);
+        std::fs::create_dir_all(directory).unwrap();
+        let scale = window.scale_factor();
+        let renderer = window.renderer().unwrap();
+        let frames = [
+            ("before", before),
+            ("transition", intermediate.take().map(|(_, node)| node)),
+            ("after", lyric_motion_node(&window)),
+        ]
+        .map(|(phase, node)| {
+            let snapshot = gtk::Snapshot::new();
+            snapshot.scale(scale as f32, scale as f32);
+            snapshot.append_node(&node.expect("painted lyric motion frame"));
+            let png = renderer
+                .render_texture(snapshot.to_node().unwrap(), None)
+                .save_to_png_bytes();
+            (phase, png)
+        });
+        assert!(
+            frames[0].1 != frames[1].1 && frames[1].1 != frames[2].1,
+            "captured transition must show a frame distinct from both endpoints"
+        );
+        for (phase, png) in frames {
+            std::fs::write(
+                directory.join(format!("v08-lyrics-row-{phase}-scale{scale}.png")),
+                png,
+            )
+            .unwrap();
+        }
+    }
+
+    snapshot.state = PlaybackState::Paused;
+    view.update_position(Some(&snapshot), 1);
+    assert_eq!(view.inner.active.get(), Some(3));
+    snapshot.seek_serial += 1;
+    snapshot.position = Some(Duration::from_secs(2));
+    view.update_position(Some(&snapshot), 1);
+    assert!(old.has_css_class("lyrics-active"));
+    assert!(!old.has_css_class("lyrics-transition"));
+    assert_eq!((old.color(), next.color()), (accent, normal));
+    settings.set_gtk_enable_animations(false);
+    snapshot.state = PlaybackState::Playing;
+    snapshot.position = Some(Duration::from_secs(3));
+    view.update_position(Some(&snapshot), 1);
+    assert!(next.has_css_class("lyrics-active"));
+    assert!(!next.has_css_class("lyrics-transition"));
+    assert_eq!((old.color(), next.color()), (normal, accent));
+
+    // A different native source/seek target is styled from the model after
+    // virtualization brings the new row into view, without a stale fade.
+    window.add_css_class("karin-high-contrast");
+    snapshot.seek_serial += 1;
+    snapshot.position = Some(Duration::from_secs(151));
+    view.update_position(Some(&snapshot), 1);
+    view.inner
+        .lyrics_list
+        .scroll_to(152, gtk::ListScrollFlags::NONE, None);
+    pump_until(|| mapped_line(151).is_some() && mapped_line(152).is_some());
+    let active = mapped_line(151).unwrap();
+    assert!(active.has_css_class("lyrics-active"));
+    assert!(!active.has_css_class("lyrics-transition"));
+    assert_eq!(
+        active.color(),
+        mapped_line(152).unwrap().color(),
+        "High Contrast uses foreground with the separate current marker"
+    );
+    assert!(
+        view.inner
+            .visible_lines
+            .borrow()
+            .iter()
+            .all(|(index, label)| {
+                label.upgrade().is_none_or(|label| {
+                    label.has_css_class("lyrics-active") == (*index == 151)
+                        && !label.has_css_class("lyrics-transition")
+                })
+            })
+    );
+    view.show_lyrics(
+        ticket,
+        Ok(Lyrics::from_text(source, "Later plain-only result").unwrap()),
+    );
+    assert_eq!(view.inner.active.get(), Some(151));
+    assert!(
+        view.inner.synchronized.get(),
+        "plain refresh cannot downgrade an admitted LRC"
+    );
+    view.set_track(None, None);
+    assert_eq!(view.inner.lyrics_model.n_items(), 0);
+    assert!(view.inner.active.get().is_none());
+    assert!(!view.lyrics_is_current(ticket));
+    window.close();
+    settings.set_gtk_enable_animations(animations);
+    manager.set_color_scheme(scheme);
+}
+
+fn color_midpoint_distance(
+    color: gtk::gdk::RGBA,
+    start: gtk::gdk::RGBA,
+    end: gtk::gdk::RGBA,
+) -> f32 {
+    let channel = |value: f32, a: f32, b: f32| (value - (a + b) * 0.5).powi(2);
+    channel(color.red(), start.red(), end.red())
+        + channel(color.green(), start.green(), end.green())
+        + channel(color.blue(), start.blue(), end.blue())
+}
+
+fn lyric_motion_node(window: &gtk::Window) -> Option<gtk::gsk::RenderNode> {
+    // Construct from the current node instead of a long-lived paintable's
+    // previous idle publication.
+    let paintable = gtk::WidgetPaintable::new(Some(window));
+    let snapshot = gtk::Snapshot::new();
+    paintable.snapshot(
+        &snapshot,
+        f64::from(paintable.intrinsic_width()),
+        f64::from(paintable.intrinsic_height()),
+    );
+    snapshot.to_node()
 }

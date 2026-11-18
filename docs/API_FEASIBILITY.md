@@ -46,10 +46,11 @@ result. Missing/unavailable data remains explicit. See
 [ADR-0016](adr/0016-search-identity-and-batch-normalization.md).
 
 Ordinary loaded collection views retain their 2,000-position/100-page startup
-bound. Explicit full-collection indexing reads a current compact liked/playlist
-manifest (at most 4 MiB/20,000 original positions), then canonical batches of at
-most 50 and a final full membership/revision recheck. It is never started on
-startup or per keystroke. The process-only index supports Unicode title/artist/
+bound. A settled nonempty query or Enter in an eligible incomplete collection
+can start or continue whole-collection indexing. It reads a compact liked or
+playlist manifest (at most 4 MiB/20,000 original positions), then batches of at
+most 50 and a final full membership/revision recheck. Work follows the current
+view and search intent. The process-only index supports Unicode title/artist/
 album search, title/artist/provider-order sorting, and added-date sorting only
 when all occurrence timestamps are valid. A bounded 200-row result window can
 reach positions beyond the old prefix; playback still snapshots at most 500
@@ -63,7 +64,8 @@ queue. See [ADR-0035](adr/0035-incremental-whole-collection-index.md), extending
 `music::track_extras` uses `GET /tracks/{id}/supplement` for legacy Yandex
 plain text. Admit `lyrics.fullLyrics` only with explicit `hasRights == true`;
 the `lyrics.lyrics` opening excerpt cannot masquerade as the full song. Missing
-full text/rights is unavailable; normal transport/schema errors remain errors.
+full text or unknown rights are unavailable. Explicitly refused rights have
+their own permission state. Transport and schema failures remain separate.
 The current modern `/lyrics` path in reviewed upstream code needs extracted
 client HMAC material and is not implemented. This is a restriction of that
 specific route, not a blanket claim that Yandex text is forbidden or unavailable.
@@ -73,8 +75,9 @@ metadata submission. `GET https://lrclib.net/api/get` carries title, first artis
 optional album/duration and a truthful Karin User-Agent/project URL. It carries
 no Music token, cookie, Music/account ID, private collection or history. The
 existing HTTP client disables redirects; require bounded JSON, matching title/
-artist and compatible duration. Prefer admitted synchronized LRC, otherwise
-plain text; 404/instrumental/missing text is an honest no-text state. One shared
+artist and compatible duration. Prefer admitted synchronized LRC and preserve
+it when a later same-selection reply contains plain text only. A 404, an
+instrumental track or a missing text is reported as unavailable. One shared
 worker gate enforces sequential requests and the documented spacing/Retry-After;
 there is no automatic fallback or retry. Lyrics remain memory-only with source
 attribution, literal rendering, bounded 128 KiB/2,000-line parsing and active-line
