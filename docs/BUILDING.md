@@ -553,113 +553,39 @@ and unresolved cold-frame issue #23 remain separate from this functional check.
 
 ## v08 final Fedora acceptance
 
-Use **one final v0.8 commit** for both runs. Download its Native CI package
-from [PR #29](https://github.com/tracerxbrhd/karin/pull/29), verify the source
-revision in `BUILD-INFO.txt` and run `sha256sum -c SHA256SUMS` before launching
-ordinary `./karin`. Prepare the same commit and install it with the
-[Flatpak source build procedure](#flatpak-source-build). Launch the installed
-app with its normal scoped permissions. Use ordinary launches without flags.
+Use the same PR #29 commit for Native and installed Flatpak. Check the Native
+artifact’s `SHA256SUMS` and `BUILD-INFO.txt`, then launch ordinary `./karin`.
+Build and install that commit with the [Flatpak instructions](#flatpak-source-build)
+and use its ordinary launcher. Run the following sequence once in each build.
 
-Follow this one checklist on Native and then on installed Flatpak. Use a
-disposable owned playlist for mutations and keep all account data, lyrics,
-media, tokens and signed URLs on Fedora.
+1. **Play and read.** Start an entitled track with line-timed lyrics, open Lyrics
+   from the footer and let several lines advance naturally. Also open Lyrics
+   from the playing row's Track Info menu. With desktop animations enabled,
+   watch the old line lose emphasis while the new line and its edge marker gain
+   emphasis on both paths. Suspend Follow by scrolling and watch a boundary with both
+   rows visible. Resume Follow, pause and seek both ways. Check immediate emphasis
+   with Reduced Motion, readability in High Contrast and retirement on Next.
+   Plain text shows ordinary stanzas. LRCLIB lookup requires explicit consent.
+2. **Resize and filter.** In Liked, a playlist, album and artist track list, resize
+   through approximately 420, 900, 1440 and 1920 logical pixels and maximize.
+   Open and close the side panel. The field should fill the track-list column
+   with the square sort button visible on its right. Try Light/Dark and the
+   available 1×/2× scales. Type a Unicode match, use Tab and Enter/Space to
+   change sort, clear the query and check that playback and the queue continue.
+3. **Search from a detail page.** From an album or playlist press Ctrl+F. Watch
+   the field reveal and the magnifier move. Before typing, confirm the original
+   detail is still visible. Type quickly, wait for results and open a result
+   detail, then go Back. Clear the field and check the original detail returns
+   with focus ready for input. Submit again with Enter and close with Escape.
+   Repeat using the magnifier and Home action. Switch tabs during a search and
+   confirm the chosen tab retains focus and content when the response arrives.
+4. **Check playback continuity.** Keep a duplicate queue occurrence, note its
+   position, volume, Shuffle/Repeat and KDE metadata. Pause a real track for
+   at least ten minutes, record the interval and resume once. Check heard audio,
+   position and EOS/Next. Across the two builds cover a cached and an uncached
+   track. Verify edited queue order after restart, and Stop/logout cleanup.
 
-1. **Track Info and navigation.** Open information from Liked, a playlist, search,
-   a related row, Queue and the footer. Every track-information action must use
-   the existing pinned panel, with no separate track page. Album, artist and
-   playlist pages still open independently. Inspect the cover/metadata, compact
-   Play/Append/`⋮` row and related tracks under a normal heading. Use the real
-   menu for Play Next, Append, Add to Playlist and Lyrics; inspect keyboard
-   focus, disabled states, Show More, loading/error/Retry and confirmed reactions.
-   Outside input and ordinary navigation must not dismiss the panel.
-2. **Lyrics.** Open a selected track's Lyrics from its menu, then use the in-panel
-   Back control to return to Track Info. Inspect another track and press the
-   footer “Текст песни”: it must select the actual playing occurrence instead.
-   Switch Track Info ↔ Lyrics ↔ Queue without a new outer reveal or audio restart.
-   Check available Yandex plain text separately from an LRCLIB TEXT/LRC match;
-   read the external-source disclosure before explicitly submitting public
-   metadata. Plain text has readable stanzas and “Без синхронизации”, not fake
-   timestamps or an editable text field. Use Copy and, where selectable, Ctrl+C
-   with Cyrillic/Unicode. For LRC, watch the newly active line gain emphasis and
-   the previous line settle while Follow centers the text. Check stable wrapping
-   and row heights with long lines. Pause keeps the current line, Seek chooses
-   the new one immediately, and Next/Previous/EOS retire the old text and motion.
-   Wheel, scrollbar, keyboard and touchpad scrolling suspend Follow until you
-   request it again. With Reduced Motion, check immediate clear emphasis. In
-   High Contrast, check the current marker and text readability. Distinguish an
-   unavailable lyric, a rights refusal and an error with Retry. Rapid track
-   changes and logout must retire results and animations.
-3. **Footer controls.** Reach Lyrics, Queue and Volume by Tab/Enter/Space at
-   compact, medium and wide sizes. Lyrics shows its active mode. Scroll over
-   Volume: one wheel step changes five percentage points, clamps at 0–100%,
-   updates the normal slider and KDE/playerctl volume, and neither opens the
-   popover nor scrolls the page. Smooth touchpad input must remain controlled;
-   clicking Volume still opens its slider.
-4. **Long Pause and the same occurrence.** Start a real entitled track, seek to a
-   nonzero position, select a duplicate occurrence and note Shuffle/Repeat and
-   volume. Pause briefly and Resume once as a baseline. Then leave it paused for
-   at least ten minutes (record the actual interval; a normal 30/60-minute or
-   longer pause is also useful), and press Play **once**. Pause must not turn into
-   an expiry error while idle. With current access/network, a short “Возобновляем
-   воспроизведение…” state may appear, then heard audio must resume near the last
-   confirmed position with the same occurrence, queue/modes/volume and KDE
-   metadata. It must reach real EOS and advance through the existing queue.
-   Cover an uncached remote track and a previously completed cache record across
-   the Native/Flatpak checks; a Saved icon alone does not prove a local hit.
-   Real time on Fedora is separate from Cloud's controlled 10/30/60-minute expiry
-   fixtures; record only durations actually tested.
-5. **Recovery cancellation and honest failures.** Where the loading state is
-   observable, try double Play, Play→Pause, Seek, Next/Previous and MPRIS Stop
-   during renewal. The latest explicit intent wins; no late response may play
-   after Stop, logout, account retirement or close. Check that an offline or
-   refused renewal gives a normal error/Retry, without a request loop or a
-   fabricated zero-position success. If a replacement cannot seek, inspect its
-   explicit message rather than assuming the old position was restored.
-   Deliberately start My Wave, then check normal Pause/Resume/Next; renewal must
-   preserve the current radio context instead of creating a new session or
-   switching tracks. Controlled races and feedback counts are automated fixtures;
-   do not enable network tracing to inspect them on a real account.
-6. **Collection search and sorting.** Compare the single compact search/sort
-   row in Liked, an owned and an accessible playlist, an album and an artist
-   track list. On a wide window it stays bounded. On compact, the sort button
-   stays in the row and reachable. Open the menu by mouse and Tab/Enter/Space.
-   Check the selected indicator, provider and reverse order, title and artist,
-   and available recent/oldest date choices. For a large incomplete liked list
-   or playlist, open it and check that whole-collection progress starts only
-   after entering a query. Type a loaded Cyrillic/Unicode match, then look for a
-   title beyond 2,000 positions by title, artist and album. The loaded results
-   appear on input and bounded indexing follows a short typing pause or Enter.
-   Check changed queries, clear/reset, compact progress, Pause/Continue/Retry,
-   partial/no-match states and honestly reported changed membership or limits
-   when applicable. Clear during work and use «Загрузить ещё» at the end of
-   the ordinary list to admit one more batch. Search again to reuse the index.
-   Leaving the view stops indexing. Return retains the query, order and scroll.
-   During the checks, the current occurrence, queue, play position, modes and
-   MPRIS must stay with the playing track.
-7. **Global search.** Use the compact field on the Search page. Type a query
-   in quick succession, replace it before results arrive, and check that only
-   the latest query is displayed. Use Enter to submit immediately. Open another
-   page and return, then clear the query to reset results. Verify track, album,
-   artist and playlist sections, scope/pagination and Retry where available.
-   Search and page changes preserve the current playback context.
-8. **Queue and restart.** Use duplicate items for Play Next, Append, drag and
-   drop, keyboard moves and exact removal while playing or paused. At 500 items
-   check the visible refusal, remove one future item and retry. Close and reopen.
-   Edited order, occurrence, modes and position restore **Stopped**. Play
-   performs the current access/cache path.
-9. **Layout and accepted regressions.** Check approximately 420×720, 900×650,
-   1440×900 and maximized, Light/Dark, 1×/2×, keyboard/focus, high contrast and
-   Reduced Motion. Compare ordinary Wayland first/repeated Player Bar appearance,
-   scrolling, tabs, pane switches and artwork separately from Cloud rendering.
-   Verify normal sign-in/restore, heard music, transport/seek/volume/EOS, local
-   cache replay after restart, Clear without interrupting admitted audio, confirmed
-   playlist edits and MPRIS. Stop/logout/remembering-off must not revive playback
-   or Wave. System remains the interface style; Karin remains visibly unavailable
-   until designer materials arrive.
-
-Record action-level Native/installed-Flatpak PASS/FAIL with the exact commit.
-Report TEXT and LRC, live related results and full-library coverage independently;
-a missing lyric for one track is not a claim that all providers are unavailable.
-No private payload, account/track IDs, lyrics, screenshots or credentials need
-uploading. Issues #5/#22 and the unresolved physical-GPU/Wayland boundary of
-cold-rendering #23 are separate from this functional acceptance.
+Record the commit, packaging type and observed result for each step.
+Keep account details, song text and screenshots containing personal data on
+Fedora. The [earlier v0.8 checklist](https://github.com/tracerxbrhd/karin/blob/55b9e42cc0b35851014717a3620c7aa00f58b9a7/docs/BUILDING.md#v08-final-fedora-acceptance)
+retains the detailed background for queue, playlist, cache and long-Pause cases.

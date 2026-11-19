@@ -1522,18 +1522,48 @@ expected. Installed Flatpak and live long-pause continuation for the new
 candidate await the combined acceptance. Personal screenshots and real account
 content stay on Fedora.
 
-The refinement uses one compact search and sort row in track feeds. Immediate
-local matching gains a bounded whole-collection index after a settled query or
-Enter in eligible liked and playlist feeds. Query changes use current admitted
-data and retire stale UI work. Global catalog search uses its own latest-query
-debounce, sections and pagination. LRC line accents transition on actual
-player-position line changes, with immediate state on Seek and under reduced
-motion. The tests must cover both the live widget transitions and their
-intermediate native samples, in addition to search input and request counts.
-The [combined Fedora procedure](BUILDING.md#v08-final-fedora-acceptance)
-includes these checks and the previously implemented same-occurrence Resume.
-Results for the new candidate belong to its own
-[PR checks](https://github.com/tracerxbrhd/karin/pull/29/checks) and handoff.
+At `55b9e42` all eight hosted jobs passed. The GTK artifact showed a compact
+search/sort row capped at 560 logical pixels, and the motion fixture captured
+intermediate colors on two LRC labels. That fixture advanced a constructed
+snapshot in a standalone window with Follow suspended. The ordinary application
+fixture covered playback, seek and lyric selection separately.
+[Push CI](https://github.com/tracerxbrhd/karin/actions/runs/44328974765) ·
+[PR CI](https://github.com/tracerxbrhd/karin/actions/runs/44328991102)
+
+### Fedora report on `55b9e42` and final UX corrections
+
+On 19 November 2026 the owner reported that both Fedora Native and installed
+Flatpak loaded texts and synchronized lyrics on supported tracks. During real
+playback the line emphasis appeared instantaneous. Other exercised features drew
+no further comments. The report includes no per-case matrix for unmentioned
+conditions or frame trace that identifies the exact runtime trigger.
+
+Opening Lyrics from the explicitly inspected Track Info row at that revision
+kept the explicit target even when its source and exact occurrence matched the
+playing row. The position adapter supplied no snapshot to those lyrics. The
+footer's following-current path had a separate failure mode. Ordinary forward
+playback crossing more than three LRC indices in one position update skipped
+interpolation. A recycled label also
+lost its in-flight CSS transition on binding, including during Follow. The
+standalone motion fixture always advanced one index between two mapped labels.
+A test-only reproduction on the archived `55b9e42` tree exercised those two
+paths in separate ordinary GTK windows (Rust 1.98.1, Cairo/Xvfb, 1440×900, 1×,
+original loopback audio through GStreamer). Info → Lyrics on the exact playing
+occurrence failed to bind to the playhead. From the footer, a natural adjacent
+line change produced 11 distinct intermediate glyph frames among 57 captures.
+On crossing four lines with the same timestamp, both rows jumped directly
+between endpoints across 56 captures. The test sampled glyph pixels inside the
+two rows at fixed geometry. The Fedora observation does not identify which
+path or timestamps the owner encountered.
+
+The collection row now follows its content column. Check actual width growth
+and the sort button with the pane open and closed. Global search opens an
+entry in the top navigation before submitting a query. Check opening motion,
+keyboard focus, delayed replies and detail-route return. The revision-specific
+Cloud results and synthetic GTK captures are recorded in the
+[PR checks](https://github.com/tracerxbrhd/karin/pull/29/checks).
+Visible line motion in the corrected build on physical KDE/Wayland remains
+pending the [combined Fedora run](BUILDING.md#v08-final-fedora-acceptance).
 
 ### v08 implementation and Cloud evidence
 

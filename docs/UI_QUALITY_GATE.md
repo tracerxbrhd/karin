@@ -32,8 +32,10 @@ bounds do not justify skipping containment or guessing coordinates.
   across filtered 500-position windows. Details must not play. Filtering,
   appending and navigation must not rewrite the active queue or restart audio.
 - Inspect the shared one-row track filter and native sort button in all track
-  feeds. Check compact hit targets, a group width around 500–600 logical pixels
-  at wide sizes, and no horizontal overflow. Open and select sort options with
+  feeds. Measure the entry and sort allocations at 420, 900, 1440 and 1920 logical
+  pixels and maximized, at 1× and 2×. Check that the field grows with the list,
+  shrinks when a pinned pane takes space and grows back on close. The sort
+  button must stay square, reachable and inside the content column. Open and select sort options with
   mouse and Tab/Enter/Space. Verify selected order, active styling and date
   availability. Type Unicode title, artist and album queries, then check immediate
   local results, clear/reset, empty matches, honest partial coverage, compact
@@ -41,7 +43,10 @@ bounds do not justify skipping containment or guessing coordinates.
   Enter, clearing, navigation and reusing an index beyond 2,000 positions. Preserve
   the ordinary 2,000-position/100-page bounds, initial fill limit and indexed
   20,000-position/50-position-batch/200-row-window bounds. Exercise debounced
-  global search separately with sections, paging, Retry and latest-query results.
+  global search from the top button, Ctrl+F and Home. Sample the moving icon and
+  revealing field in native frames. Check focus, unchanged origin before input,
+  sections/paging/Retry after submission, clear and Escape from a detail origin,
+  and response retirement after a tab switch or logout.
   See [ADR-0035](adr/0035-incremental-whole-collection-index.md).
 - Test the whole metadata Info target and independent Like/Dislike focus. A
   reaction click must not open Info; unknown Dislike stays hidden and pending
@@ -73,9 +78,11 @@ playback preserve mode; explicit close/Back restores focus. Content switching
 must not close/reopen the host. Current-occurrence changes resume following;
 inspecting details must not play. See [ADR-0022](adr/0022-universal-music-panel.md).
 
-For synchronized lyrics observe the active and previous rows during a real
-position-driven line transition, including intermediate emphasis and stable
-geometry. Check seek, pause, next/previous/EOS, virtual row reuse, old-track
+Play original fixture audio through PlaybackController with Lyrics visible.
+Across a natural LRC boundary compare rendered pixels inside both affected
+rows before, during and after emphasis changes, accounting for Follow movement.
+Require multiple distinct intermediate frames and stable row geometry.
+Run the same passage with Reduced Motion and check immediate emphasis. Check seek, pause, next/previous/EOS, virtual row reuse, old-track
 retirement and manual scrolling without recentering before Follow. Verify
 instant current-line emphasis with reduced motion, readable High Contrast,
 and plain selectable TEXT without synchronization. [ADR-0034](adr/0034-bounded-track-lyrics-and-similar.md).

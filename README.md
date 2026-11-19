@@ -105,9 +105,12 @@ Info has a compact action row and native menu. Lyrics and Queue switch inside
 the existing panel. Synchronized text follows the player position and animates
 the current line. Lyrics use the allowed legacy full-text contract or an
 explicitly disclosed LRCLIB lookup by public metadata. Collection search
-filters available tracks immediately, then continues the index after a short
-typing pause or Enter. The supported index reaches 20,000 original positions
-with bounded batches and result windows. System UI remains the product interface.
+fills the track-list column beside the sort button, filters available tracks
+immediately and continues the index after a short typing pause or Enter. The
+supported index reaches 20,000 original positions with bounded batches and result
+windows. The top search button, Ctrl+F and Home open one global search field.
+Submitting a query shows catalog results. Clear returns to the originating
+page for another query, and Escape closes the field.
 New real-content/large-library/gesture acceptance is separate from v0.7 and is
 covered by [one final Native/Flatpak procedure](docs/BUILDING.md#v08-final-fedora-acceptance).
 There is no v0.8 release/tag or automatic merge authorization.

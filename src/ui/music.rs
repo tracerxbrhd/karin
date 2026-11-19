@@ -40,6 +40,7 @@ mod reactions;
 mod requests;
 #[cfg(test)]
 mod row_activation_tests;
+mod search_header;
 #[cfg(test)]
 mod search_tests;
 mod search_toolbar;
@@ -136,6 +137,7 @@ struct Widgets {
     nav_liked: gtk::ToggleButton,
     nav_playlists: gtk::ToggleButton,
     nav_search: gtk::Button,
+    search_header: search_header::SearchHeader,
     library_feedback: gtk::Box,
     library_refresh: gtk::Button,
     library_rows: gtk::ListBox,
@@ -179,7 +181,7 @@ struct Widgets {
     clear_queue: gtk::Button,
 }
 
-type DetailRefresh = Rc<dyn Fn(&Rc<Controller>)>;
+type DetailRefresh = Rc<dyn Fn(&Rc<Controller>, bool)>;
 
 struct Controller {
     app: glib::WeakRef<adw::Application>,
@@ -373,7 +375,7 @@ impl MusicPane {
         let segments = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         segments.add_css_class("linked");
         segments.set_hexpand(true);
-        navigation.set_halign(gtk::Align::Center);
+        navigation.set_hexpand(true);
         navigation.set_size_request(-1, 42);
         let nav_wave = gtk::ToggleButton::with_label("Главная");
         let nav_liked = gtk::ToggleButton::with_label("Нравится");
@@ -393,11 +395,12 @@ impl MusicPane {
         nav_liked.set_action_name(Some("win.music-library"));
         nav_playlists.set_action_name(Some("win.music-playlists"));
         nav_wave.set_active(true);
-        navigation.append(&segments);
+
         let nav_search = icon_button("system-search-symbolic", "Поиск музыки");
         nav_search.set_widget_name("music-navigation-search");
-        nav_search.set_action_name(Some("win.music-search"));
-        navigation.append(&nav_search);
+        let search = search_toolbar::entry("Поиск музыки…", "music-search", "Поиск музыки");
+        let search_header = search_header::SearchHeader::new(&segments, &search, &nav_search);
+        navigation.append(&search_header);
         widget.append(&navigation);
         let stack = gtk::Stack::new();
         // Measure the visible page. GTK 4.14 otherwise measures hidden wrapped
@@ -475,9 +478,6 @@ impl MusicPane {
         stack.add_titled(&library, Some("library"), "Библиотека");
 
         let search_page = gtk::Box::new(gtk::Orientation::Vertical, 12);
-        let (search_tools, search_row, search) =
-            search_toolbar::build("Что хотите послушать?", "music-search", "Поиск музыки");
-        search_page.append(&search_tools);
         let scope_header = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         scope_header.set_visible(false);
         let search_all = gtk::Button::with_label("Все результаты");
@@ -497,7 +497,7 @@ impl MusicPane {
         });
         scope_header.append(&search_all);
         scope_header.append(&search_scope_title);
-        search_row.prepend(&scope_header);
+        search_page.append(&scope_header);
         let search_feedback = gtk::Box::new(gtk::Orientation::Vertical, 8);
         search_feedback.set_widget_name("music-search-feedback");
         search_feedback.set_visible(false);
@@ -625,6 +625,7 @@ impl MusicPane {
             nav_liked,
             nav_playlists,
             nav_search,
+            search_header,
             library_feedback,
             library_refresh,
             library_rows,
@@ -1447,6 +1448,7 @@ impl Controller {
             let weak = Rc::downgrade(self);
             button.connect_clicked(move |_| {
                 if let Some(this) = weak.upgrade() {
+                    this.close_global_search(false);
                     this.widgets.stack.set_visible_child_name(if mode == 0 {
                         "library"
                     } else {
@@ -1463,8 +1465,7 @@ impl Controller {
         let weak = Rc::downgrade(self);
         self.widgets.home_search.connect_clicked(move |_| {
             if let Some(this) = weak.upgrade() {
-                this.widgets.stack.set_visible_child_name("search");
-                this.widgets.search.grab_focus();
+                this.open_global_search();
             }
         });
         let weak = Rc::downgrade(self);
@@ -1538,7 +1539,12 @@ impl Controller {
                 if let Some(this) = weak.upgrade() {
                     let route = this.widgets.stack.visible_child_name();
                     this.reset_collection_filters();
-                    this.sync_search_debounce_route();
+                    if this.widgets.search_header.is_open()
+                        && !this.widgets.search.text().is_empty()
+                        && !matches!(route.as_deref(), Some("search" | "detail"))
+                    {
+                        this.close_global_search(false);
+                    }
                     this.widgets
                         .nav_wave
                         .set_active(route.as_deref() == Some("home"));
@@ -1597,6 +1603,11 @@ impl Controller {
             let weak = Rc::downgrade(self);
             action.connect_activate(move |_, _| {
                 if let Some(this) = weak.upgrade() {
+                    if page == "search" {
+                        this.open_global_search();
+                        return;
+                    }
+                    this.close_global_search(false);
                     this.widgets.stack.set_visible_child_name(page);
                     if page == "library" || page == "playlists" {
                         let mode = u32::from(page == "playlists");
@@ -1605,9 +1616,6 @@ impl Controller {
                         if !changed {
                             this.show_library();
                         }
-                    }
-                    if page == "search" {
-                        this.widgets.search.grab_focus();
                     }
                 }
             });
@@ -1717,6 +1725,7 @@ impl Controller {
         self.detail_like_controls.borrow_mut().clear();
         self.playlist_refreshing.set([false, false]);
         self.clear_text_focus();
+        self.retire_global_search();
         self.cancel_search_input();
         self.requests.borrow_mut().invalidate_all();
         self.cancel_delivery();
@@ -1769,6 +1778,7 @@ impl Controller {
         self.detail_like_controls.borrow_mut().clear();
         self.playlist_refreshing.set([false, false]);
         self.clear_text_focus();
+        self.close_global_search(false);
         self.cancel_search_input();
         self.requests.borrow_mut().invalidate_all();
         self.cancel_delivery();
@@ -3119,8 +3129,10 @@ mod tests {
         this.widgets.home_search.emit_clicked();
         assert_eq!(
             this.widgets.stack.visible_child_name().as_deref(),
-            Some("search")
+            Some("home"),
+            "opening global search keeps Home visible until a query is submitted"
         );
+        assert!(this.widgets.search.is_mapped());
         this.widgets.home_liked.emit_clicked();
         assert_eq!(
             this.widgets.stack.visible_child_name().as_deref(),
@@ -3258,7 +3270,7 @@ mod tests {
             this.widgets.detail.upcast_ref(),
             "Synthetic UI track"
         ));
-        this.widgets.stack.set_visible_child_name("search");
+        ui.show_page("music-search");
         this.widgets.search.set_text("Synthetic");
         this.widgets.search.emit_by_name::<()>("activate", &[]);
         pump_until(|| !this.model.borrow().busy);
@@ -3379,7 +3391,7 @@ mod tests {
         assert_eq!(rows(&album_rows), 63);
         assert_eq!(album_rows.row_at_index(0), Some(original_album_row));
         assert!(!album_feed.data.borrow().has_more);
-        this.widgets.stack.set_visible_child_name("search");
+        ui.show_page("music-search");
         this.widgets.search.set_text("Late result");
         this.widgets.search.emit_by_name::<()>("activate", &[]);
         assert!(this.model.borrow().busy);

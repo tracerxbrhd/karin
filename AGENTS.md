@@ -73,16 +73,19 @@ reviewable and consistent with the accepted application.
   remain at 500. Filtering/sorting/indexing/appending must not rewrite active Queue.
   Info/MPRIS use queue-owned opaque occurrence IDs, never mutable indices or IDs
   of service tracks. Original source positions remain separate provenance.
-- Use the shared compact search row and native sort menu in collection track
-  lists. Match admitted title/artist/album metadata immediately with Unicode
+- Allocate the shared collection search row to the content column. Let the
+  entry expand beside its compact native sort button as the window or pinned
+  panel changes size. Match admitted title/artist/album metadata immediately with Unicode
   normalization and honest partial coverage. In an eligible incomplete
   collection, a nonempty query after debounce or Enter expresses search intent.
   Reuse one bounded index under the latest query, suspend on clear or leaving
   the view, and require a final membership recheck. Startup, opening a view and
   individual keystrokes must not trigger full scans or per-key requests. Date
   sorting requires valid occurrence timestamps. Total duration needs complete
-  data with every duration known and a checked sum. Global catalog search has
-  its own debounced request, results and pagination.
+  data with every duration known and a checked sum. Route global search actions
+  to one entry in the top navigation. Opening the entry preserves the current
+  route. A submitted query presents results. Clear restores the source route
+  with the field open. Closing search retires its outstanding work.
 - Preserve pinned Track Info/Lyrics/Queue intent across outside clicks/navigation/resize;
   actual new current occurrences resume following. Footer: hidden before Play,
   retained through Pause/retryable active failure, hidden on Stop/clear/logout.
@@ -90,7 +93,9 @@ reviewable and consistent with the accepted application.
 - Resolve LRC lines from the current player's actual position and exact opaque
   occurrence. Native line emphasis and Follow respect reduced motion and manual
   scrolling. Rebound rows reflect the current model, and Seek, selection or
-  session changes retire stale transitions. TEXT carries no invented timing.
+  session changes retire stale transitions. Verify rendered row pixels across
+  a naturally played line boundary through the ordinary position updates.
+  TEXT carries no invented timing.
 - An explicit Resume may renew an expired source for the same queue occurrence
   through fresh access/cache/resolver admission. Preserve its confirmed position,
   queue/modes/volume and Wave/MPRIS identity; bound recovery to one attempt and

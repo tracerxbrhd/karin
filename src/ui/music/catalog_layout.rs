@@ -805,6 +805,9 @@ impl Controller {
     }
 
     pub(super) fn detail_loading(self: &Rc<Self>, title: &str, _subtitle: &str) {
+        // Opening a collection on the original page is a new navigation intent.
+        // A pending search debounce must not subsequently navigate away from it.
+        self.entering_collection_detail();
         self.detail_cache.set(None);
         self.widgets.cache_notice.set_revealed(false);
         self.widgets.cache_hint.set_visible(false);
@@ -1117,9 +1120,10 @@ impl Controller {
     pub(super) fn open_album_policy(self: &Rc<Self>, id: String, force: bool, page: usize) {
         self.detail_loading("Альбом", "Загрузка альбома…");
         let refresh_id = id.clone();
-        self.detail_refresh.replace(Some(Rc::new(move |this| {
-            this.open_album_policy(refresh_id.clone(), true, page)
-        })));
+        self.detail_refresh
+            .replace(Some(Rc::new(move |this, force| {
+                this.open_album_policy(refresh_id.clone(), force, page)
+            })));
         let retry_id = id.clone();
         self.run_catalog(
             Operation::Detail,
@@ -1143,9 +1147,10 @@ impl Controller {
 
     pub(super) fn render_album(self: &Rc<Self>, album: Rc<Album>, _page: usize) {
         let id = album.id.clone();
-        self.detail_refresh.replace(Some(Rc::new(move |this| {
-            this.open_album_policy(id.clone(), true, 0)
-        })));
+        self.detail_refresh
+            .replace(Some(Rc::new(move |this, force| {
+                this.open_album_policy(id.clone(), force, 0)
+            })));
         self.detail_header(&album.title, &album.artists.join(", "));
         self.detail_cover(album.cover.as_ref());
         let rows = list();
@@ -1175,9 +1180,10 @@ impl Controller {
     ) {
         self.detail_loading(&playlist.title, "Загрузка плейлиста…");
         let refresh = playlist.clone();
-        self.detail_refresh.replace(Some(Rc::new(move |this| {
-            this.open_playlist_policy(refresh.clone(), 0, true)
-        })));
+        self.detail_refresh
+            .replace(Some(Rc::new(move |this, force| {
+                this.open_playlist_policy(refresh.clone(), 0, force)
+            })));
         self.detail_header(
             &playlist.title,
             &format!("Плейлист · {}", track_count_text(playlist.track_count)),
@@ -1208,9 +1214,10 @@ impl Controller {
     pub(super) fn open_artist_policy(self: &Rc<Self>, artist: Artist, _page: u32, force: bool) {
         self.detail_loading(&artist.name, "Загрузка исполнителя…");
         let refresh = artist.clone();
-        self.detail_refresh.replace(Some(Rc::new(move |this| {
-            this.open_artist_policy(refresh.clone(), 0, true)
-        })));
+        self.detail_refresh
+            .replace(Some(Rc::new(move |this, force| {
+                this.open_artist_policy(refresh.clone(), 0, force)
+            })));
         self.detail_header(&artist.name, "Исполнитель");
         self.detail_cover(artist.cover.as_ref());
         let rows = list();

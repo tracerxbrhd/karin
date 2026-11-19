@@ -191,7 +191,7 @@ impl FilterBar {
     pub(super) fn new() -> Self {
         let widget = gtk::Box::new(gtk::Orientation::Vertical, 4);
         widget.set_widget_name("music-collection-filter");
-        let (toolbar, row, search) = super::search_toolbar::build(
+        let search = super::search_toolbar::entry(
             "Поиск по трекам",
             "music-collection-search",
             "Поиск по названию, исполнителю и альбому в коллекции",
@@ -212,7 +212,10 @@ impl FilterBar {
         actions.add_action(&sort_action);
         sort.insert_action_group("collection-sort", Some(&actions));
         Self::set_sort_menu(&sort, false);
-        row.append(&sort);
+        let toolbar = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        toolbar.set_widget_name("music-search-toolbar");
+        toolbar.append(&search);
+        toolbar.append(&sort);
 
         let status_row = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         status_row.set_widget_name("music-collection-filter-status-row");

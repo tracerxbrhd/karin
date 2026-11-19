@@ -68,9 +68,10 @@ Lyrics menu can copy the complete displayed Unicode text to the local clipboard,
 with LRC timestamps/metadata stripped by the existing parser. Selectable labels
 retain ordinary fragment selection and Ctrl+C. Synchronized lines use GtkListView
 virtualization and semantic past/current/future contrast. On a natural line
-change, GTK eases emphasis into the active line and out of the previous one
-over 220 ms through color, opacity and the accent border. Row geometry stays
-fixed. Row binding applies the current model directly.
+change, a single 220 ms AdwTimedAnimation fades the accent and leading marker
+between the previous and current indices. The Lyrics view owns the transition.
+Rows keep fixed geometry and apply the current emphasis on binding, including
+when Follow scrolls a row into view during the transition.
 A Seek jump updates emphasis and the Follow target immediately. For adjacent
 lines, automatic following centers the active area with the existing native
 220 ms adjustment animation. Reduced motion suppresses decorative transitions
@@ -79,8 +80,9 @@ readable text. The native animations own no playback clock. Wheel, keyboard
 and touch scrolling suspend following until the user requests it again.
 Highlighting uses Playing/Paused/Ready
 position only while FollowingCurrent and the opaque inspected/current occurrence
-bindings agree. Explicit Details of another occurrence cannot borrow the playhead
-even when Track IDs repeat. Stop, EOS or another inspected occurrence clears the
+bindings agree. On entering Lyrics from an inspected row, bind to the playhead
+when the source context proves it is the exact current occurrence. Inspected
+duplicates and ambiguous ID-only selections keep their own identity. Stop, EOS or another inspected occurrence clears the
 active line. Changing selection/account clears old content and retires its
 transitions and requests. Line timestamps never imply word or syllable timing.
 

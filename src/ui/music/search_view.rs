@@ -11,13 +11,53 @@ const SEARCH_DEBOUNCE: Duration = Duration::from_millis(350);
 
 #[derive(Default)]
 pub(super) struct SearchInput {
+    origin: RefCell<Option<SearchOrigin>>,
+    restoring_detail: Cell<bool>,
     debounce: RefCell<Option<glib::SourceId>>,
     unsent: Cell<bool>,
     cancellation: RefCell<Option<Arc<AtomicBool>>>,
 }
 
+#[derive(Clone)]
+struct SearchOrigin {
+    page: String,
+    detail: Option<DetailRefresh>,
+    detail_parent: String,
+    detail_loading: bool,
+}
+
 impl Controller {
     pub(super) fn connect_search_entry(self: &Rc<Self>) {
+        let weak = Rc::downgrade(self);
+        self.widgets.nav_search.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade() {
+                if this.widgets.search_header.is_open() {
+                    this.close_global_search(true);
+                } else {
+                    this.open_global_search();
+                }
+            }
+        });
+        if let Some(window) = self.window.upgrade() {
+            let keys = gtk::EventControllerKey::new();
+            keys.set_propagation_phase(gtk::PropagationPhase::Capture);
+            let weak = Rc::downgrade(self);
+            keys.connect_key_pressed(move |_, key, _, _| {
+                if key == gtk::gdk::Key::Escape
+                    && let Some(this) = weak.upgrade()
+                    && this.search_header_active()
+                    && let Some(window) = this.window.upgrade()
+                    && window.visible_dialog().is_none()
+                    && !gtk::prelude::GtkWindowExt::focus(&window)
+                        .is_some_and(|focus| focus.ancestor(gtk::Popover::static_type()).is_some())
+                {
+                    this.close_global_search(true);
+                    return glib::Propagation::Stop;
+                }
+                glib::Propagation::Proceed
+            });
+            window.add_controller(keys);
+        }
         let weak = Rc::downgrade(self);
         self.widgets.search.connect_changed(move |_| {
             if let Some(this) = weak.upgrade() {
@@ -30,6 +70,109 @@ impl Controller {
                 this.search(0);
             }
         });
+    }
+
+    fn search_origin(&self) -> SearchOrigin {
+        let page = self
+            .widgets
+            .stack
+            .visible_child_name()
+            .unwrap_or_else(|| "home".into());
+        SearchOrigin {
+            detail: (page == "detail")
+                .then(|| self.detail_refresh.borrow().clone())
+                .flatten(),
+            detail_parent: self.model.borrow().detail_origin.clone(),
+            detail_loading: page == "detail" && self.requests.borrow().active(Operation::Detail),
+            page: page.to_string(),
+        }
+    }
+
+    pub(super) fn open_global_search(self: &Rc<Self>) {
+        if !self.widgets.search.is_sensitive() {
+            return;
+        }
+        if !self.widgets.search_header.is_open() {
+            self.search_input.origin.replace(Some(self.search_origin()));
+            self.widgets.search.set_can_focus(true);
+            self.widgets.search_header.set_open(true);
+        }
+        self.widgets.search.grab_focus();
+    }
+
+    fn restore_search_origin(self: &Rc<Self>, origin: &SearchOrigin) {
+        let current = self.widgets.stack.visible_child_name();
+        if current.as_deref() != Some("search")
+            && !(current.as_deref() == Some("detail")
+                && self.model.borrow().detail_origin == "search")
+        {
+            return;
+        }
+        self.widgets.stack.set_visible_child_name(&origin.page);
+        if let Some(detail) = &origin.detail {
+            // Another result may have replaced the sole detail widget. Reopen
+            // the precise original entity with the ordinary cached read.
+            let displaced = self
+                .detail_refresh
+                .borrow()
+                .as_ref()
+                .is_none_or(|current| !Rc::ptr_eq(current, detail));
+            self.model
+                .borrow_mut()
+                .detail_origin
+                .clone_from(&origin.detail_parent);
+            if displaced || origin.detail_loading {
+                self.search_input.restoring_detail.set(true);
+                detail(self, false);
+                self.search_input.restoring_detail.set(false);
+            }
+        }
+    }
+
+    pub(super) fn entering_collection_detail(self: &Rc<Self>) {
+        if !self.widgets.search_header.is_open() || self.search_input.restoring_detail.get() {
+            return;
+        }
+        let route = self.widgets.stack.visible_child_name();
+        let from_results = route.as_deref() == Some("search")
+            || (route.as_deref() == Some("detail")
+                && self.model.borrow().detail_origin == "search");
+        if !from_results {
+            self.close_global_search(false);
+        }
+    }
+
+    pub(super) fn retire_global_search(&self) {
+        self.search_input.origin.take();
+        // Move focus before disabling the GtkText subtree. GTK otherwise
+        // queues a focus fallback that can run *after* Ctrl+F reopens it.
+        if self.window.upgrade().is_some_and(|window| {
+            gtk::prelude::GtkWindowExt::focus(&window).is_some_and(|focus| {
+                focus == *self.widgets.search.upcast_ref::<gtk::Widget>()
+                    || focus.is_ancestor(&self.widgets.search)
+            })
+        }) {
+            self.widgets.nav_search.grab_focus();
+        }
+        self.widgets.search.set_can_focus(false);
+        self.widgets.search_header.set_open(false);
+    }
+
+    pub(super) fn close_global_search(self: &Rc<Self>, restore: bool) {
+        if !self.widgets.search_header.is_open() {
+            return;
+        }
+        let origin = self.search_input.origin.take();
+        self.cancel_search_input();
+        self.requests.borrow_mut().invalidate(Operation::Search);
+        self.retire_global_search();
+        self.widgets.search.set_text("");
+        if restore {
+            if let Some(origin) = origin {
+                self.restore_search_origin(&origin);
+            }
+            self.widgets.nav_search.grab_focus();
+        }
     }
 
     fn cancel_search_debounce(&self) {
@@ -50,13 +193,12 @@ impl Controller {
         self.search_input.cancellation.borrow().clone()
     }
 
-    fn search_route_visible(&self) -> bool {
-        self.music_surface_visible.get()
-            && self.widgets.stack.visible_child_name().as_deref() == Some("search")
+    fn search_header_active(&self) -> bool {
+        self.music_surface_visible.get() && self.widgets.search_header.is_open()
     }
 
     pub(super) fn sync_search_debounce_route(self: &Rc<Self>) {
-        if !self.search_route_visible() {
+        if !self.search_header_active() {
             self.cancel_search_debounce();
             return;
         }
@@ -76,7 +218,7 @@ impl Controller {
                         let model = this.model.borrow();
                         model.account_valid && !model.closed && model.generation == generation
                     };
-                    if ready && this.search_input.unsent.get() && this.search_route_visible() {
+                    if ready && this.search_input.unsent.get() && this.search_header_active() {
                         this.search(0);
                     }
                 },
@@ -111,6 +253,10 @@ impl Controller {
             self.sync_search_debounce_route();
         } else if ready {
             self.show_empty_search();
+            let origin = self.search_input.origin.borrow().clone();
+            if let Some(origin) = origin {
+                self.restore_search_origin(&origin);
+            }
         }
     }
 
@@ -140,7 +286,10 @@ impl Controller {
     }
 
     pub(super) fn search(self: &Rc<Self>, page: u32) {
-        if !self.model.borrow().account_valid || self.model.borrow().closed {
+        if !self.search_header_active()
+            || !self.model.borrow().account_valid
+            || self.model.borrow().closed
+        {
             return;
         }
         self.cancel_search_input();
@@ -157,6 +306,13 @@ impl Controller {
         if query.is_empty() {
             self.show_empty_search();
             return;
+        }
+        // Capture a detail load at departure: it may have completed while
+        // the user was typing, or still need resuming after navigation.
+        if self.widgets.stack.visible_child_name().as_deref() == Some("detail")
+            && self.model.borrow().detail_origin != "search"
+        {
+            self.search_input.origin.replace(Some(self.search_origin()));
         }
         self.widgets.stack.set_visible_child_name("search");
         let cancellation = Arc::new(AtomicBool::new(false));
@@ -479,9 +635,10 @@ impl Controller {
     fn open_search_playlist_policy(self: &Rc<Self>, playlist: SearchPlaylist, force: bool) {
         self.detail_loading(&playlist.title, "Загрузка плейлиста…");
         let refresh = playlist.clone();
-        self.detail_refresh.replace(Some(Rc::new(move |this| {
-            this.open_search_playlist_policy(refresh.clone(), true)
-        })));
+        self.detail_refresh
+            .replace(Some(Rc::new(move |this, force| {
+                this.open_search_playlist_policy(refresh.clone(), force)
+            })));
         self.detail_header(
             &playlist.title,
             &playlist

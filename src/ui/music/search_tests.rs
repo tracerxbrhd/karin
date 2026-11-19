@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Rendered search retry, normalized results and useful list density.
 
+mod header;
+
 use super::tests::{capture_native, contains_text, pump_until};
 use super::*;
 use serde_json::json;
@@ -155,13 +157,13 @@ fn click(window: &adw::ApplicationWindow, id: &str, widget: &impl IsA<gtk::Widge
     }
     input(&[
         "mousemove",
-        "--sync",
         "--window",
         id,
         &x.to_string(),
         &y.to_string(),
+        "click",
+        "1",
     ]);
-    input(&["click", "1"]);
     settle();
 }
 
@@ -173,13 +175,13 @@ fn click_expander_heading(window: &adw::ApplicationWindow, id: &str, expander: &
     );
     input(&[
         "mousemove",
-        "--sync",
         "--window",
         id,
         &x.to_string(),
         &y.to_string(),
+        "click",
+        "1",
     ]);
-    input(&["click", "1"]);
     settle();
 }
 
@@ -272,6 +274,7 @@ fn native_search_retry_normalized_results_and_density() {
     listener.set_nonblocking(true).unwrap();
     let stop = Arc::new(AtomicBool::new(false));
     let counts = Arc::new(Mutex::new(Counts::default()));
+    let (release_reply, held_replies) = std::sync::mpsc::channel();
     let server = {
         let stop = stop.clone();
         let counts = counts.clone();
@@ -356,6 +359,7 @@ fn native_search_retry_normalized_results_and_density() {
                             .unwrap()
                             .1
                             .into_owned();
+                        let hold_reply = query.starts_with("held-header-");
                         let sparse = query == "sparse-query";
                         let partial = query == "partial-query";
                         let first = {
@@ -364,6 +368,11 @@ fn native_search_retry_normalized_results_and_density() {
                             c.queries.push(query);
                             c.searches.len() == 1
                         };
+                        if hold_reply {
+                            held_replies
+                                .recv_timeout(Duration::from_secs(8))
+                                .expect("native navigation releases the held search response");
+                        }
                         let append_failure = kind == "track"
                             && page == 1
                             && counts
@@ -529,8 +538,11 @@ fn native_search_retry_normalized_results_and_density() {
         model.account_valid = true;
     }
     this.render_controls();
-    this.widgets.stack.set_visible_child_name("search");
-    pump_until(|| this.widgets.search.is_mapped());
+    pump_until(|| this.widgets.nav_search.is_mapped());
+    assert_eq!(
+        this.widgets.stack.visible_child_name().as_deref(),
+        Some("home")
+    );
     let found = std::process::Command::new("xdotool")
         .args([
             "search",
@@ -545,14 +557,21 @@ fn native_search_retry_normalized_results_and_density() {
     let id = found.lines().next().unwrap();
     assert!(id.bytes().all(|b| b.is_ascii_digit()));
     input(&["windowfocus", "--sync", id]);
-    click(window, id, &this.widgets.search);
+    header::open_by_mouse(window, id, this);
     assert!(counts.lock().unwrap().searches.is_empty());
     // Separate real key bursts are drained by GTK while the same debounce is
     // pending. No Enter/submit action is used for this first search.
+    let mut typed = String::new();
     for fragment in ["synth", "etic-", "query"] {
         input(&["type", "--clearmodifiers", "--delay", "0", fragment]);
         let deadline = Instant::now() + Duration::from_millis(35);
         pump_until(|| Instant::now() >= deadline);
+        typed.push_str(fragment);
+        assert_eq!(
+            this.widgets.search.text().as_str(),
+            typed,
+            "header keyboard input after resize"
+        );
         assert!(counts.lock().unwrap().searches.is_empty());
     }
     wait_for_step("initial-search-error", || {
@@ -1093,10 +1112,8 @@ fn native_search_retry_normalized_results_and_density() {
     input(&["key", "--clearmodifiers", "ctrl+a", "BackSpace"]);
     pump_until(|| {
         this.widgets.search.text().is_empty()
-            && contains_text(
-                this.widgets.search_rows.upcast_ref(),
-                "Введите название или исполнителя.",
-            )
+            && this.widgets.stack.visible_child_name().as_deref() == Some("home")
+            && this.widgets.search.is_mapped()
     });
     assert!(!this.widgets.search_next.is_visible());
     assert!(!this.widgets.search_previous.is_visible());
@@ -1115,7 +1132,8 @@ fn native_search_retry_normalized_results_and_density() {
     ui.show_page("diagnostics");
     assert_eq!(
         this.widgets.stack.visible_child_name().as_deref(),
-        Some("search")
+        Some("home"),
+        "an unsubmitted query keeps its underlying page"
     );
     let hidden_deadline = Instant::now() + Duration::from_millis(400);
     pump_until(|| Instant::now() >= hidden_deadline);
@@ -1128,6 +1146,171 @@ fn native_search_retry_normalized_results_and_density() {
         counts.lock().unwrap().queries.last().map(String::as_str),
         Some("return-query")
     );
+    input(&["key", "--clearmodifiers", "Escape"]);
+    wait_for_step("escape-restores-home", || {
+        this.widgets.stack.visible_child_name().as_deref() == Some("home")
+            && !this.widgets.search.is_mapped()
+    });
+    assert_eq!(
+        this.model.borrow().queue.context(),
+        playing_context.as_ref()
+    );
+
+    // Start again on an actual loaded detail. Clearing / closing the overlay
+    // should bring back that very album, including its Back action.
+    this.open_album("7".into());
+    pump_until(|| {
+        !this.model.borrow().busy
+            && this.widgets.stack.visible_child_name().as_deref() == Some("detail")
+    });
+    input(&["key", "--clearmodifiers", "ctrl+f"]);
+    pump_until(|| header::entry_focused(window, this));
+    assert_eq!(
+        this.widgets.stack.visible_child_name().as_deref(),
+        Some("detail")
+    );
+    input(&["type", "--clearmodifiers", "--delay", "0", "album-origin"]);
+    input(&["key", "--clearmodifiers", "Return"]);
+    wait_for_step("search-from-album", || {
+        this.widgets.stack.visible_child_name().as_deref() == Some("search")
+            && !this.model.borrow().busy
+    });
+    let group = section(this, "music-results-artists");
+    let artist = named_button(group.upcast_ref(), "music-search-artist-tile");
+    click(window, id, &artist);
+    pump_until(|| {
+        this.widgets.stack.visible_child_name().as_deref() == Some("detail")
+            && !this.model.borrow().busy
+    });
+    input(&["key", "--clearmodifiers", "alt+Left"]);
+    pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("search"));
+    assert_eq!(this.widgets.search.text(), "album-origin");
+    click(window, id, &this.widgets.search);
+    input(&["key", "--clearmodifiers", "ctrl+a", "BackSpace"]);
+    pump_until(|| {
+        this.widgets.stack.visible_child_name().as_deref() == Some("detail")
+            && !this.model.borrow().busy
+            && contains_text(this.widgets.detail.upcast_ref(), "Synthetic search album")
+    });
+    let back = named_button(this.widgets.detail.upcast_ref(), "music-detail-back");
+    assert!(header::entry_focused(window, this));
+    assert!(contains_text(
+        this.widgets.detail.upcast_ref(),
+        "Synthetic search album"
+    ));
+    let before_escape = counts.lock().unwrap().searches.len();
+    input(&[
+        "type",
+        "--clearmodifiers",
+        "--delay",
+        "0",
+        "never-submitted",
+    ]);
+    input(&["key", "--clearmodifiers", "Escape"]);
+    pump_until(|| !this.widgets.search.is_mapped() && this.widgets.nav_search.has_focus());
+    let retired = Instant::now() + Duration::from_millis(400);
+    pump_until(|| Instant::now() >= retired);
+    assert_eq!(counts.lock().unwrap().searches.len(), before_escape);
+    assert!(back.is_mapped());
+
+    // The service has accepted the GET. Leave before it can return IDs:
+    // a late response must neither fetch canonical tracks nor reopen results.
+    for (query, destination) in [
+        ("held-header-close", "detail"),
+        ("held-header-tab", "library"),
+    ] {
+        input(&["key", "--clearmodifiers", "ctrl+f"]);
+        pump_until(|| header::entry_focused(window, this));
+        let batches = counts.lock().unwrap().batches.len();
+        input(&["type", "--clearmodifiers", "--delay", "0", query]);
+        input(&["key", "--clearmodifiers", "Return"]);
+        pump_until(|| {
+            counts
+                .lock()
+                .unwrap()
+                .queries
+                .last()
+                .is_some_and(|sent| sent == query)
+        });
+        assert_eq!(
+            this.widgets.stack.visible_child_name().as_deref(),
+            Some("search")
+        );
+        if destination == "library" {
+            click(window, id, &this.widgets.nav_liked);
+        } else {
+            click(window, id, &this.widgets.nav_search);
+        }
+        pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some(destination));
+        release_reply.send(()).unwrap();
+        // A following query through the same serialized search lane is a
+        // completion barrier for the retired GET and its cancellation checks.
+        input(&["key", "--clearmodifiers", "ctrl+f"]);
+        pump_until(|| header::entry_focused(window, this));
+        assert!(this.widgets.search.text().is_empty());
+        input(&["type", "--clearmodifiers", "--delay", "0", "new-after-held"]);
+        input(&["key", "--clearmodifiers", "Return"]);
+        pump_until(|| counts.lock().unwrap().batches.len() > batches && !this.model.borrow().busy);
+        assert_eq!(counts.lock().unwrap().batches.len(), batches + 1);
+        assert_eq!(this.widgets.search.text(), "new-after-held");
+        if destination == "library" {
+            // Leave a result detail directly via a tab. Its historical Back
+            // destination is still Search the next time Library is displayed.
+            let artists = section(this, "music-results-artists");
+            let tile = named_button(artists.upcast_ref(), "music-search-artist-tile");
+            click(window, id, &tile);
+            pump_until(|| {
+                this.widgets.stack.visible_child_name().as_deref() == Some("detail")
+                    && !this.model.borrow().busy
+            });
+            click(window, id, &this.widgets.nav_liked);
+            pump_until(|| {
+                this.widgets.stack.visible_child_name().as_deref() == Some("library")
+                    && !this.widgets.search.is_mapped()
+                    && !this.model.borrow().busy
+            });
+            assert_eq!(this.model.borrow().detail_origin, "search");
+            input(&["key", "--clearmodifiers", "ctrl+f"]);
+            pump_until(|| header::entry_focused(window, this));
+            let sent = counts.lock().unwrap().searches.len();
+            input(&[
+                "type",
+                "--clearmodifiers",
+                "--delay",
+                "0",
+                "pending-in-library",
+            ]);
+            pump_until(|| this.widgets.search.text() == "pending-in-library");
+            this.open_album("7".into());
+            pump_until(|| {
+                this.widgets.stack.visible_child_name().as_deref() == Some("detail")
+                    && !this.widgets.search.is_mapped()
+                    && !this.model.borrow().busy
+            });
+            let retired = Instant::now() + Duration::from_millis(400);
+            pump_until(|| Instant::now() >= retired);
+            assert_eq!(counts.lock().unwrap().searches.len(), sent);
+            assert_eq!(this.model.borrow().detail_origin, "library");
+            assert!(contains_text(
+                this.widgets.detail.upcast_ref(),
+                "Synthetic search album"
+            ));
+            assert_eq!(
+                this.model.borrow().queue.context(),
+                playing_context.as_ref()
+            );
+            break;
+        }
+        input(&["key", "--clearmodifiers", "Escape"]);
+        pump_until(|| {
+            !this.widgets.search.is_mapped()
+                && this.widgets.stack.visible_child_name().as_deref() == Some(destination)
+        });
+        assert_eq!(
+            this.model.borrow().queue.context(),
+            playing_context.as_ref()
+        );
+    }
     pane.close();
     window.close();
     stop.store(true, Ordering::Release);

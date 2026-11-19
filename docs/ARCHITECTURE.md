@@ -63,11 +63,13 @@ preserving order, duplicates, unavailable records and paging. Optional display
 fields cannot invalidate valid IDs. Reaction/playlist writes require independent
 confirmation; ambiguous POSTs are not replayed.
 
-Global search uses the compact search entry, a GTK debounce and Enter for
-immediate submission. Changing or clearing the query retires pending and
-superseded search results. The bounded search lane admits results, paging and
-Retry under the current request generation. Collection filtering has its own
-data source and uses no global catalog results.
+The top navigation owns the global search entry. Opening it from the search
+button, Ctrl+F or Home focuses the field over the existing route. After 350 ms
+of quiet input, or on Enter, the catalog presents results for a nonempty query.
+Clear restores the originating route with the entry open. Closing search
+returns focus to navigation. A new tab selection takes precedence over the
+original route. The bounded search lane guards results, paging and Retry with
+the current request generation. Collection filters project their own metadata.
 
 `music::interactions` distinguishes Like, Unlike, account Dislike and removing
 Dislike. Current-track reactions use compact live reads of both collections,
@@ -91,8 +93,9 @@ Errors preserve rows with read Retry. Remote end, missing/stale data and local
 limits remain distinct. Like mutations retire continuation until explicit refresh,
 without changing playback.
 
-Liked tracks, playlist tracks, album tracks and artist tracks share a bounded
-search field and native sort menu. Admitted rows filter on input. Eligible
+Liked tracks, playlist tracks, album tracks and artist tracks share one search
+row. The track list's content allocation determines its width. The entry takes
+the space beside the compact native sort button. Admitted rows filter on input. Eligible
 incomplete liked or playlist feeds continue their existing index after debounce
 or Enter. Album and artist filters use their admitted bounded metadata.
 `music::library_index` reads a compact membership manifest (4 MiB/20,000
@@ -133,10 +136,11 @@ External requests disclose public
 metadata sharing and never receive Music tokens/account or track IDs. Text is
 memory-only and source-labelled. TEXT uses selectable stanza/line labels; LRC
 uses virtualized lines, semantic past/current/future states and native scrolling.
-The 220 ms GTK transitions accent the newly active line and fade the previous
-line without changing row geometry. Seek and rebound rows resolve their current
-state immediately. Reduced motion suppresses the line transition and keeps
-legible emphasis. Copy exports only the displayed text to the local
+A 220 ms Libadwaita timed animation belongs to the Lyrics view. Its progress
+controls the accent and leading marker on the previous and current lines.
+A recycled row takes its emphasis from the current transition and position
+when bound. Seek applies the endpoint immediately. Reduced Motion preserves
+the same current-line emphasis with direct updates. Copy exports only the displayed text to the local
 clipboard. Opening Lyrics starts the Yandex read; LRCLIB remains an explicitly
 disclosed user request. Track Info displays related tracks under an ordinary
 heading, without expanders or a nested lyrics viewport. Similar rows use one

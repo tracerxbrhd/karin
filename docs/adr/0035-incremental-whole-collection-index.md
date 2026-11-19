@@ -36,15 +36,16 @@ require identical full sequence, source/account/token binding and revision.
 A changed membership is a visible restart/refresh condition, not mixed old/new
 pages or an implicit replay of a mutation.
 
-The shared track-list toolbar places a bounded search field and a native sort
-menu on one row. Query changes filter admitted title, artist and album metadata
+The shared track-list toolbar spans the available track-list column. It allocates
+the native sort button its compact width and gives the entry the remaining space. Query changes filter admitted title, artist and album metadata
 immediately. About 300 ms of quiet input starts the eligible whole-collection
 work, with Enter applying the query immediately. Index read batches are
 independent of query text. Each admitted batch is projected using the latest
 query, without restarting a manifest or issuing one HTTP request per keystroke.
 Opening the app or a list alone does not start indexing. Global catalog search
-uses the same compact field geometry with its own approximately 350 ms debounce
-and request generations, sections, paging and Retry.
+uses its own entry in the top navigation. It presents results on submission
+after roughly 350 ms of quiet input or immediately on Enter, retaining its
+request generations, sections, paging and Retry.
 
 Clearing the query or leaving the view stops indexing while retaining admitted
 metadata. Return alone preserves view state without starting more reads.

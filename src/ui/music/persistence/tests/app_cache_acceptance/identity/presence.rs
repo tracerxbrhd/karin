@@ -214,6 +214,7 @@ pub(super) fn run_child(original: &Input, phase: &str) {
         wait_presence(this, "42", Presence::Stored);
         assert!(find_named(this.widgets.detail.upcast_ref(), "music-track-cache").is_some());
         capture_native(&ui.window, "audio-cache-saved-playlist");
+        ui.show_page("music-search");
         this.widgets.search.set_text("Original");
         this.search(0);
         pump_until(|| {

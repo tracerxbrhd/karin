@@ -712,6 +712,30 @@ impl Controller {
         if !already_selected {
             self.open_loaded_track_info(track, context);
         }
+        // Opening Info explicitly must not detach a *proven* current row
+        // from its clock when the user subsequently chooses Lyrics. Bind to
+        // the queue occurrence only with its exact snapshot/position, never
+        // solely because the inspected and playing tracks have equal IDs.
+        let verified_current = self
+            .info_selection
+            .borrow()
+            .as_ref()
+            .is_some_and(|selection| {
+                let model = self.model.borrow();
+                selection
+                    .context
+                    .as_ref()
+                    .zip(model.queue.context())
+                    .is_some_and(|(row, current)| {
+                        current.items()[current.current_index()].id == selection.track.id
+                            && (row.same_presentation_snapshot(current)
+                                || continuous_loading::same_loaded_occurrence(row, current))
+                    })
+            });
+        if verified_current && !self.information_follows_current_playback() {
+            self.follow_current_occurrence();
+            self.sync_track_pane();
+        }
         self.set_panel_mode(PanelMode::Lyrics);
         self.track_pane.back_info.grab_focus();
     }

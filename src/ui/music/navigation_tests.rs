@@ -213,7 +213,7 @@ fn native_catalog_navigation_latest_actions() {
         this.widgets.search.is_sensitive(),
         "library loading must not disable search"
     );
-    this.widgets.stack.set_visible_child_name("search");
+    ui.show_page("music-search");
     // Unified four-section search has its own native fixture. Keep this
     // request-lane/latest-query regression explicitly in the track scope;
     // changing query text normally resets that scope, so reselect it below.

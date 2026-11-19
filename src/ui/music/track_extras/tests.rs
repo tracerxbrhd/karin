@@ -24,6 +24,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "tests/playing_frames.rs"]
+mod playing_frames;
+
 const TOKEN: &str = "synthetic-v08-extras-token";
 
 #[derive(Default)]
@@ -208,20 +211,31 @@ fn serve(
         let query = url
             .query_pairs()
             .collect::<std::collections::BTreeMap<_, _>>();
-        assert_eq!(
-            query.get("track_name").map(|value| value.as_ref()),
-            Some("Original fixture 42")
-        );
+        let name = query.get("track_name").unwrap().as_ref();
+        assert!(matches!(
+            name,
+            "Original fixture 42" | "Original fixture 46"
+        ));
         assert!(query.keys().all(|key| matches!(
             key.as_ref(),
             "track_name" | "artist_name" | "album_name" | "duration"
         )));
-        let lrc = (0..100)
-            .map(|i| {
+        // The long fixture exercises scrolling and virtualization. Track 46
+        // fits the pinned pane and includes both an ordinary adjacent change
+        // and simultaneous LRC timestamps (the last line in a group wins).
+        let timestamps = if name == "Original fixture 46" {
+            vec![0, 1000, 2200, 2200, 2200, 2200]
+        } else {
+            (0..100).map(|i| i * 40).collect()
+        };
+        let lrc = timestamps
+            .into_iter()
+            .enumerate()
+            .map(|(i, ms)| {
                 format!(
                     "[00:{:02}.{:03}]Original synthetic line {i} · строка",
-                    i * 40 / 1000,
-                    i * 40 % 1000
+                    ms / 1000,
+                    ms % 1000
                 )
             })
             .collect::<Vec<_>>()
@@ -229,7 +243,7 @@ fn serve(
         json_response(
             &mut stream,
             200,
-            json!({"trackName":"Original fixture 42","artistName":"Karin original fixture","albumName":"Original fixture collection","duration":4,"instrumental":false,"plainLyrics":"Original synthetic plain text","syncedLyrics":lrc}),
+            json!({"trackName":name,"artistName":"Karin original fixture","albumName":"Original fixture collection","duration":4,"instrumental":false,"plainLyrics":"Original synthetic plain text","syncedLyrics":lrc}),
         );
     } else if parts.len() == 4 && parts[1] == "tracks" && parts[3] == "supplement" {
         let id = parts[2].parse::<u64>().unwrap();
@@ -660,16 +674,26 @@ fn copy_lyrics_menu(window: &adw::ApplicationWindow, id: &str, view: &ExtrasView
 pub(in crate::ui::music) fn fixture_window(
     fixture: &Fixture,
 ) -> (adw::Application, crate::ui::MainWindow) {
-    let service = MusicService::for_native_input_test(&fixture.origin);
-    let token = AccessToken::for_test(TOKEN, Duration::from_secs(300));
-    service.account(&token).unwrap();
+    let app = fixture_app();
+    let ui = window_for(&app, fixture);
+    (app, ui)
+}
+
+fn fixture_app() -> adw::Application {
     let app = adw::Application::builder()
         .application_id("io.github.tracerxbrhd.Karin.TrackExtrasFixture")
         .flags(gio::ApplicationFlags::NON_UNIQUE)
         .build();
     app.register(None::<&gio::Cancellable>).unwrap();
+    app
+}
+
+fn window_for(app: &adw::Application, fixture: &Fixture) -> crate::ui::MainWindow {
+    let service = MusicService::for_native_input_test(&fixture.origin);
+    let token = AccessToken::for_test(TOKEN, Duration::from_secs(300));
+    service.account(&token).unwrap();
     let ui = super::super::super::build_with_music_pane(
-        &app,
+        app,
         crate::application::ConnectionService::new(crate::api::YandexApi::new().unwrap()),
         |app, window| {
             MusicPane::with_provider(
@@ -696,7 +720,7 @@ pub(in crate::ui::music) fn fixture_window(
         model.account_valid = true;
     }
     this.render_controls();
-    (app, ui)
+    ui
 }
 
 #[test]
@@ -705,7 +729,11 @@ fn native_v08_lyrics_similar_seek_and_stale_selection() {
     gtk::init().unwrap();
     adw::init().unwrap();
     let fixture = Fixture::new();
-    let (_app, ui) = fixture_window(&fixture);
+    let app = fixture_app();
+    // Static layout capture deliberately switches the test process to Reduced
+    // Motion. Exercise ordinary playback first, on the untouched GTK settings.
+    playing_frames::ordinary_lyrics_playback(&app);
+    let ui = window_for(&app, &fixture);
     let window = &ui.window;
     let this = &ui.music.controller;
     let context = PlaybackContext::new(
@@ -785,9 +813,8 @@ fn native_v08_lyrics_similar_seek_and_stale_selection() {
         .inner
         .visible_lines
         .borrow()
-        .iter()
-        .find(|(position, _)| *position == 0)
-        .and_then(|(_, label)| label.upgrade())
+        .get(&0)
+        .and_then(glib::WeakRef::upgrade)
         .unwrap();
     assert!(paragraph.is_selectable());
     assert_eq!(paragraph.text(), view.inner.lyrics_model.string(0).unwrap());
@@ -1234,21 +1261,22 @@ fn native_line_transitions() {
         view.inner
             .visible_lines
             .borrow()
-            .iter()
-            .find(|(position, _)| *position == index)
-            .and_then(|(_, label)| label.upgrade())
+            .get(&index)
+            .and_then(glib::WeakRef::upgrade)
             .filter(|label| label.is_mapped() && label.height() > 0)
     };
     pump_until(|| mapped_line(2).is_some() && mapped_line(3).is_some());
     let old = mapped_line(2).unwrap();
     let next = mapped_line(3).unwrap();
     let heights = (old.height(), next.height());
-    let accent = old.color();
-    let normal = next.color();
+    let old_accent = accent_layer(&old);
+    let next_accent = accent_layer(&next);
     assert_ne!(
-        accent, normal,
-        "System style provides a distinct active color"
+        old_accent.color(),
+        next.color(),
+        "System style distinguishes the accent from the base text"
     );
+    assert_eq!((old_accent.opacity(), next_accent.opacity()), (1.0, 0.0));
     let before = lyric_motion_node(&window);
 
     let samples = Rc::new(RefCell::new(Vec::new()));
@@ -1256,19 +1284,17 @@ fn native_line_transitions() {
     let finished = Rc::new(Cell::new(false));
     let clock = window.frame_clock().unwrap();
     let handler = clock.connect_after_paint({
-        let (old, next, window) = (old.clone(), next.clone(), window.downgrade());
+        let (old, next, window) = (old_accent.clone(), next_accent.clone(), window.downgrade());
         let (samples, intermediate, finished) =
             (samples.clone(), intermediate.clone(), finished.clone());
         move |_| {
-            let colors = (old.color(), next.color());
-            if colors == (normal, accent) {
+            let emphasis = (old.opacity(), next.opacity());
+            if emphasis == (0.0, 1.0) {
                 finished.set(true);
             }
-            if colors.0 != accent && colors.0 != normal && colors.1 != accent && colors.1 != normal
-            {
-                samples.borrow_mut().push(colors);
-                let distance = color_midpoint_distance(colors.0, accent, normal)
-                    + color_midpoint_distance(colors.1, accent, normal);
+            if emphasis.0 > 0.0 && emphasis.0 < 1.0 && emphasis.1 > 0.0 && emphasis.1 < 1.0 {
+                samples.borrow_mut().push(emphasis);
+                let distance = (emphasis.0 - 0.5).abs() + (emphasis.1 - 0.5).abs();
                 let closer = intermediate
                     .borrow()
                     .as_ref()
@@ -1295,7 +1321,7 @@ fn native_line_transitions() {
         "promotion and demotion must both paint an intermediate color"
     );
     assert!(finished.get(), "settled colors must actually paint");
-    assert_eq!((old.color(), next.color()), (normal, accent));
+    assert_eq!((old_accent.opacity(), next_accent.opacity()), (0.0, 1.0));
     assert_eq!(
         heights,
         (old.height(), next.height()),
@@ -1344,15 +1370,13 @@ fn native_line_transitions() {
     snapshot.position = Some(Duration::from_secs(2));
     view.update_position(Some(&snapshot), 1);
     assert!(old.has_css_class("lyrics-active"));
-    assert!(!old.has_css_class("lyrics-transition"));
-    assert_eq!((old.color(), next.color()), (accent, normal));
+    assert_eq!((old_accent.opacity(), next_accent.opacity()), (1.0, 0.0));
     settings.set_gtk_enable_animations(false);
     snapshot.state = PlaybackState::Playing;
     snapshot.position = Some(Duration::from_secs(3));
     view.update_position(Some(&snapshot), 1);
     assert!(next.has_css_class("lyrics-active"));
-    assert!(!next.has_css_class("lyrics-transition"));
-    assert_eq!((old.color(), next.color()), (normal, accent));
+    assert_eq!((old_accent.opacity(), next_accent.opacity()), (0.0, 1.0));
 
     // A different native source/seek target is styled from the model after
     // virtualization brings the new row into view, without a stale fade.
@@ -1366,9 +1390,9 @@ fn native_line_transitions() {
     pump_until(|| mapped_line(151).is_some() && mapped_line(152).is_some());
     let active = mapped_line(151).unwrap();
     assert!(active.has_css_class("lyrics-active"));
-    assert!(!active.has_css_class("lyrics-transition"));
+    assert_eq!(accent_layer(&active).opacity(), 1.0);
     assert_eq!(
-        active.color(),
+        accent_layer(&active).color(),
         mapped_line(152).unwrap().color(),
         "High Contrast uses foreground with the separate current marker"
     );
@@ -1380,7 +1404,7 @@ fn native_line_transitions() {
             .all(|(index, label)| {
                 label.upgrade().is_none_or(|label| {
                     label.has_css_class("lyrics-active") == (*index == 151)
-                        && !label.has_css_class("lyrics-transition")
+                        && accent_layer(&label).opacity() == if *index == 151 { 1.0 } else { 0.0 }
                 })
             })
     );
@@ -1400,17 +1424,6 @@ fn native_line_transitions() {
     window.close();
     settings.set_gtk_enable_animations(animations);
     manager.set_color_scheme(scheme);
-}
-
-fn color_midpoint_distance(
-    color: gtk::gdk::RGBA,
-    start: gtk::gdk::RGBA,
-    end: gtk::gdk::RGBA,
-) -> f32 {
-    let channel = |value: f32, a: f32, b: f32| (value - (a + b) * 0.5).powi(2);
-    channel(color.red(), start.red(), end.red())
-        + channel(color.green(), start.green(), end.green())
-        + channel(color.blue(), start.blue(), end.blue())
 }
 
 fn lyric_motion_node(window: &gtk::Window) -> Option<gtk::gsk::RenderNode> {

@@ -903,18 +903,14 @@ fn responsive_collection_evidence(ui: &crate::ui::MainWindow, name: &str) {
     }
 }
 
-fn search_toolbar_layout(
+fn collection_toolbar_layout(
     ui: &crate::ui::MainWindow,
     entry: &gtk::Widget,
-    sort: Option<&gtk::Widget>,
+    sort: &gtk::Widget,
 ) -> Value {
     assert!(entry.is::<gtk::SearchEntry>());
-    let row = entry.parent().expect("search controls have a real GTK row");
-    assert_eq!(row.widget_name(), "music-search-controls");
-    assert_eq!(
-        row.parent().expect("the toolbar has a clamp").widget_name(),
-        "music-search-toolbar"
-    );
+    let row = entry.parent().expect("mapped search entry has a toolbar");
+    assert_eq!(row.widget_name(), "music-search-toolbar");
     let row_rect = row.compute_bounds(&ui.window).unwrap();
     let entry_rect = entry.compute_bounds(&ui.window).unwrap();
     let page_rect = ui
@@ -928,51 +924,76 @@ fn search_toolbar_layout(
         .unwrap();
     let right = |rect: &gtk::graphene::Rect| rect.x() + rect.width();
     assert!(
-        row_rect.width() <= 568.0
-            && row_rect.x() >= -1.0
+        row_rect.x() >= -1.0
             && right(&row_rect) <= ui.window.width() as f32 + 1.0
-            && row_rect.x() >= page_rect.x() - 1.0
-            && right(&row_rect) <= right(&page_rect) + 1.0,
-        "the toolbar fits the available content when the adjacent pane opens: {row_rect:?}/{page_rect:?}"
+            && (row_rect.x() - page_rect.x()).abs() <= 1.0
+            && (right(&row_rect) - right(&page_rect)).abs() <= 1.0,
+        "the toolbar must fill its actual collection page allocation: {row_rect:?}/{page_rect:?}"
     );
     assert!(
         entry_rect.width() >= 120.0 && entry_rect.height() <= 48.0 && entry_rect.height() > 0.0,
         "the search entry must remain usable and compact: {entry_rect:?}"
     );
+    assert!((entry_rect.x() - row_rect.x()).abs() <= 1.0);
+    let menu = sort.downcast_ref::<gtk::MenuButton>().unwrap();
+    assert_eq!(menu.parent().as_ref(), Some(&row));
+    assert_eq!(menu.tooltip_text().as_deref(), Some("Сортировка"));
     assert!(
-        (entry_rect.x() - row_rect.x()).abs() <= 1.0,
-        "the entry starts at its toolbar's leading edge"
+        menu.popover().is_some(),
+        "the sort button opens a native menu"
     );
-    let sort_rect = sort.map(|sort| {
-        let menu = sort.downcast_ref::<gtk::MenuButton>().unwrap();
-        assert_eq!(menu.parent().as_ref(), Some(&row));
-        assert_eq!(menu.tooltip_text().as_deref(), Some("Сортировка"));
-        assert!(
-            menu.popover().is_some(),
-            "the sort button opens a native menu"
-        );
-        let rect = menu.compute_bounds(&ui.window).unwrap();
-        let gap = rect.x() - right(&entry_rect);
-        let center_y = |bounds: &gtk::graphene::Rect| bounds.y() + bounds.height() / 2.0;
-        assert!(
-            (28.0..=52.0).contains(&rect.width())
-                && (28.0..=52.0).contains(&rect.height())
-                && (rect.width() - rect.height()).abs() <= 8.0,
-            "sort needs a square-sized native hit target: {rect:?}"
-        );
-        assert!(
-            (2.0..=16.0).contains(&gap)
-                && (center_y(&rect) - center_y(&entry_rect)).abs() <= 2.0
-                && (right(&rect) - right(&row_rect)).abs() <= 1.0,
-            "sort must share the entry's line without crowding or clipping: {entry_rect:?}/{rect:?}"
-        );
-        rect
-    });
+    let rect = menu.compute_bounds(&ui.window).unwrap();
+    let gap = rect.x() - right(&entry_rect);
+    let center_y = |bounds: &gtk::graphene::Rect| bounds.y() + bounds.height() / 2.0;
+    assert!(
+        (28.0..=52.0).contains(&rect.width())
+            && (28.0..=52.0).contains(&rect.height())
+            && (rect.width() - rect.height()).abs() <= 8.0,
+        "sort needs a square-sized native hit target: {rect:?}"
+    );
+    assert!(
+        (2.0..=16.0).contains(&gap)
+            && (center_y(&rect) - center_y(&entry_rect)).abs() <= 2.0
+            && (right(&rect) - right(&row_rect)).abs() <= 1.0,
+        "sort must share the entry's line without crowding or clipping: {entry_rect:?}/{rect:?}"
+    );
     json!({
         "toolbar": [row_rect.x(),row_rect.y(),row_rect.width(),row_rect.height()],
         "entry": [entry_rect.x(),entry_rect.y(),entry_rect.width(),entry_rect.height()],
-        "sort": sort_rect.map(|rect| [rect.x(),rect.y(),rect.width(),rect.height()]),
+        "sort": [rect.x(),rect.y(),rect.width(),rect.height()],
+        "page_width": page_rect.width(),
     })
+}
+
+fn global_search_layout(ui: &crate::ui::MainWindow) -> Option<Value> {
+    let widgets = &ui.music.controller.widgets;
+    if widgets.stack.visible_child_name().as_deref() != Some("search") || !widgets.stack.is_mapped()
+    {
+        return None;
+    }
+    let header = &widgets.primary_navigation;
+    assert!(widgets.search.is_mapped() && widgets.search.is_ancestor(header));
+    assert!(
+        descendants(&widgets.stack.visible_child().unwrap())
+            .iter()
+            .all(|widget| !widget.is::<gtk::SearchEntry>()),
+        "the results page shares the header entry"
+    );
+    let entry = widgets.search.compute_bounds(&ui.window).unwrap();
+    let toggle = widgets.nav_search.compute_bounds(&ui.window).unwrap();
+    let header_rect = header.compute_bounds(&ui.window).unwrap();
+    assert!(entry.width() >= 120.0 && entry.height() > 0.0);
+    assert!(
+        entry.x() >= header_rect.x() - 1.0
+            && entry.x() + entry.width() <= toggle.x() + 1.0
+            && toggle.x() + toggle.width() <= header_rect.x() + header_rect.width() + 1.0,
+        "header entry and toggle fit the navigation: {entry:?}/{toggle:?}/{header_rect:?}"
+    );
+    Some(json!({
+        "entry": [entry.x(),entry.y(),entry.width(),entry.height()],
+        "toggle": [toggle.x(),toggle.y(),toggle.width(),toggle.height()],
+        "header": [header_rect.x(),header_rect.y(),header_rect.width(),header_rect.height()],
+    }))
 }
 
 fn collection_sort_evidence(ui: &crate::ui::MainWindow) {
@@ -1079,7 +1100,7 @@ fn collection_layout(ui: &crate::ui::MainWindow) -> Value {
         {
             assert!(!status_row.is_mapped(), "idle search has no progress row");
         }
-        let mut layout = search_toolbar_layout(ui, filter, Some(&sort));
+        let mut layout = collection_toolbar_layout(ui, filter, &sort);
         if status_row.is_mapped() {
             let rect = status_row.compute_bounds(&ui.window).unwrap();
             assert!(
@@ -1090,10 +1111,7 @@ fn collection_layout(ui: &crate::ui::MainWindow) -> Value {
         }
         layout
     });
-    let global_layout = widgets
-        .iter()
-        .find(|widget| widget.widget_name() == "music-search" && widget.is_mapped())
-        .map(|entry| search_toolbar_layout(ui, entry, None));
+    let global_layout = global_search_layout(ui);
     assert!(
         widgets.iter().all(|widget| {
             !matches!(
@@ -1445,6 +1463,7 @@ fn native_design_matched_matrix_and_populated_surfaces() {
     // separate scale processes =144 current images. The archived 2e3 baseline
     // adds only this reference-size tuple to its original test harness; its
     // application source and complete motion checks remain unchanged.
+    let mut previous_entry_width = 0;
     for (width, height, name) in [
         (420, 720, "compact"),
         (720, 650, "narrow"),
@@ -1457,6 +1476,12 @@ fn native_design_matched_matrix_and_populated_surfaces() {
     ] {
         set_pane(&ui, false);
         resize(&ui, width, height);
+        let entry_width = current_collection_search(&ui).width();
+        assert!(
+            entry_width > previous_entry_width,
+            "collection entry must grow with the content allocation at {name}: {previous_entry_width} → {entry_width}"
+        );
+        previous_entry_width = entry_width;
         for (mode, label) in [
             (workspace::PanelMode::Closed, "closed"),
             (workspace::PanelMode::TrackInfo, "track"),
@@ -1523,6 +1548,14 @@ fn native_design_matched_matrix_and_populated_surfaces() {
     evidence(&ui, "surface-liked-tab");
     set_collection_query(&ui, "гОриЗоНт", 1);
     responsive_collection_evidence(&ui, "surface-liked-filter");
+    let full_width = current_collection_search(&ui).width();
+    set_panel(&ui, workspace::PanelMode::Queue);
+    let narrowed = current_collection_search(&ui);
+    assert!(narrowed.width() < full_width);
+    assert_eq!(narrowed.text(), "гОриЗоНт");
+    evidence(&ui, "surface-liked-filter-wide-queue");
+    set_panel(&ui, workspace::PanelMode::Closed);
+    assert_eq!(current_collection_search(&ui).width(), full_width);
     set_collection_query(&ui, "Нет такой синтетической композиции", 0);
     resize(&ui, 850, 750);
     evidence(&ui, "surface-liked-filter-empty");
@@ -1592,12 +1625,20 @@ fn native_design_matched_matrix_and_populated_surfaces() {
     set_collection_query(&ui, "mIRA", 2);
     evidence(&ui, "surface-open-playlist-filter-medium");
 
-    this.widgets.stack.set_visible_child_name("search");
+    let origin_page = this.widgets.stack.visible_child().unwrap();
+    gtk::prelude::WidgetExt::activate_action(&ui.window, "win.music-search", None).unwrap();
+    super::test_input::wait_for_layout(&ui.window, &this.widgets.search);
+    assert_eq!(this.widgets.stack.visible_child().unwrap(), origin_page);
+    evidence(&ui, "surface-global-search-open");
     this.widgets.search.set_text("Синтетическая музыка");
     this.widgets.search.emit_by_name::<()>("activate", &[]);
     pump(|| !this.model.borrow().busy && textures(&this.widgets.search_sections) >= 5);
     responsive_collection_evidence(&ui, "surface-global-search");
     evidence(&ui, "surface-unified-search");
+    resize(&ui, 900, 650);
+    evidence(&ui, "surface-global-search-medium");
+    resize(&ui, 1920, 1080);
+    evidence(&ui, "surface-global-search-large");
     ui.window.maximize();
     pump(|| ui.window.is_maximized());
     settle_geometry(&ui, "search-maximized");
@@ -1620,7 +1661,10 @@ fn native_design_matched_matrix_and_populated_surfaces() {
     ui.window.visible_dialog().unwrap().force_close();
     pump(|| ui.window.visible_dialog().is_none());
 
-    this.widgets.stack.set_visible_child_name("search");
+    assert_eq!(
+        this.widgets.stack.visible_child_name().as_deref(),
+        Some("search")
+    );
     fixture.search_error.store(true, Ordering::Release);
     this.widgets.search.emit_by_name::<()>("activate", &[]);
     pump(|| !this.model.borrow().busy && this.widgets.search_feedback.is_visible());

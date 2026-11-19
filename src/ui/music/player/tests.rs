@@ -832,7 +832,7 @@ fn native_music_playback_resolver_queue_controls_and_logout() {
     let (_app, ui) = player_window(&fixture);
     let pane = &ui.music;
     let this = &pane.controller;
-    this.widgets.stack.set_visible_child_name("search");
+    ui.show_page("music-search");
     this.widgets.search.set_text("Synthetic playable search");
     pump_until(|| {
         !this.model.borrow().busy
@@ -861,6 +861,26 @@ fn native_music_playback_resolver_queue_controls_and_logout() {
     for id in ["43", "44"] {
         this.enqueue(track(id));
     }
+    // A different header query refreshes the catalog while the first result
+    // is already playing through the ordinary GStreamer worker.
+    let before_search = this.music_snapshot().unwrap();
+    let context = this.model.borrow().queue.context().cloned();
+    let occurrence = this.model.borrow().queue.current_occurrence_id().cloned();
+    this.widgets
+        .search
+        .set_text("Second catalog query during playback");
+    this.widgets.search.emit_by_name::<()>("activate", &[]);
+    pump_until(|| fixture.counts.lock().unwrap().searches == 2 && !this.model.borrow().busy);
+    let after_search = this.music_snapshot().unwrap();
+    assert_eq!(after_search.state, PlaybackState::Playing);
+    assert_eq!(after_search.generation, before_search.generation);
+    assert_eq!(after_search.source_revision, before_search.source_revision);
+    assert_eq!(after_search.seek_serial, before_search.seek_serial);
+    assert_eq!(this.model.borrow().queue.context(), context.as_ref());
+    assert_eq!(
+        this.model.borrow().queue.current_occurrence_id(),
+        occurrence.as_ref()
+    );
     this.toggle_queue_panel();
     assert!(this.widgets.play.is_sensitive());
     assert!(contains_text(

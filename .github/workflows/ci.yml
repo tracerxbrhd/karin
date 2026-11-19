@@ -425,10 +425,7 @@ jobs:
           GSK_RENDERER: cairo
           GSK_DEBUG: full-redraw
         run: |
-          if [ '${{ matrix.lane }}' = stable ]; then
-            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
-          fi
-          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_search_retry_normalized_results_and_density -- --ignored --test-threads=1
+          KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/v08-application/scale-1/search" dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_search_retry_normalized_results_and_density -- --ignored --test-threads=1
       - name: Account menu, safe default cancellation and explicit confirmed logout
         env:
           GTK_A11Y: none
@@ -476,7 +473,7 @@ jobs:
           if [ '${{ matrix.lane }}' = stable ]; then
             export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/hidpi"
           fi
-          dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_search_retry_normalized_results_and_density -- --ignored --test-threads=1
+          KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/v08-application/scale-2/search" dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_search_retry_normalized_results_and_density -- --ignored --test-threads=1
           dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_account_menu_logout_cancel_default_confirm_and_stale_session -- --ignored --test-threads=1
       - name: Cover textures, HiDPI, cancellation and native cleanup
         env:
@@ -697,18 +694,18 @@ jobs:
           Open Track Info, Lyrics or Queue in the same right panel; outside click/scroll/navigation must not close it.
           Check the entire surface slides together and switching Track Info/Lyrics/Queue never closes/reopens it.
           Track Info has Play, compact Append and a native menu. Next, Add to Playlist and Lyrics belong to that menu; no separate track-detail page remains.
-          Footer Lyrics always opens the current occurrence, even after inspecting another track. Check Lyrics Back, Follow, manual scrolling, Copy, Unicode, plain text and real LRC separately.
+          Play a track with confirmed LRC, open Lyrics from the footer, and watch both lines change emphasis during natural playback with Follow. Check again after manual scrolling and with Reduced Motion.
           Wheel over Volume changes it by five percentage points without opening the slider or scrolling the page; smooth touchpad input must remain controlled and MPRIS must agree.
           After a long Pause, one Play must recheck access and resume the same occurrence/position/modes/volume automatically through the existing local-first/resolver path. No expiry-driven network timer or second Play is required.
           Test Shuffle, Repeat Queue/One, previous-history, actual upcoming order and external playerctl modes.
           Queue is reached from the Player Bar/Ctrl+J; no separate queue navigation or visible Stop remains.
           Before Play the footer is hidden; real Play reveals it from below, Pause retains it, Stop/clear/logout hides it.
           Click cover/title/artist/metadata space or press Enter/Space to open Track Info; Like remains independent.
-          Use Home (Wave Hero starts only on Listen after validated sign-in), Liked and Playlists tabs and the adjacent unified Search action.
+          From a collection or album, open the header search with the magnifier or Ctrl+F. Type, clear, and press Escape to return to the original content.
+          Resize with the side pane open and closed. The collection filter and adjacent sort button should fill the available content row.
           Scroll track collections continuously; exercise loading/end/error/Retry without manual track pages.
-          Ordinary continuation is bounded at 2000 positions; explicit collection indexing admits up to 20000 source positions. Playback contexts stay bounded at 500.
-          In Liked/opened playlists type title/artist/album locally; typing must not fetch collection pages or replace the playing Queue.
-          Partial coverage is explicit; start collection indexing deliberately, verify its final membership check and retain exact duplicate occurrences in filtered playback.
+          In Liked and opened playlists, typing matches loaded title/artist/album immediately. A typing pause or Enter continues the bounded index. Check partial coverage and duplicate queue occurrences.
+          Ordinary browsing admits up to 2000 positions, collection indexing up to 20000 and playback contexts up to 500.
           Inspect the heart hero/truthful duration, larger playlist covers and tight centered footer at 850x750 and compact/wide sizes.
           Direct Like must read membership and confirm the server result; unconfirmed Dislike is hidden.
           Next/Previous/EOS/MPRIS must follow the actual occurrence without closing/reopening.

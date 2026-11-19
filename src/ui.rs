@@ -312,38 +312,6 @@ fn build_with_music_pane(
     window.add_css_class("music-shell");
     style::attach(&window);
     let toolbar = adw::ToolbarView::new();
-    {
-        let saved_focus: Rc<RefCell<Option<glib::WeakRef<gtk::Widget>>>> = Rc::default();
-        let window_unmap = window.downgrade();
-        let focus_unmap = saved_focus.clone();
-        // GTK 4.14 can overwrite a pending focus-move reference when adaptive
-        // layout hides focused content repeatedly before the next paint.
-        // Clear focus to prevent that overwrite; restore a valid control on map.
-        toolbar.connect_unmap(move |toolbar| {
-            if let Some(window) = window_unmap.upgrade() {
-                let focus = gtk::prelude::GtkWindowExt::focus(&window).filter(|focus| {
-                    focus == toolbar.upcast_ref::<gtk::Widget>() || focus.is_ancestor(toolbar)
-                });
-                let had_focus = focus.is_some();
-                *focus_unmap.borrow_mut() = focus.map(|widget| widget.downgrade());
-                if had_focus {
-                    gtk::prelude::GtkWindowExt::set_focus(&window, None::<&gtk::Widget>);
-                }
-            }
-        });
-        let window = window.downgrade();
-        toolbar.connect_map(move |_| {
-            let focus = saved_focus.borrow_mut().take();
-            if let (Some(window), Some(focus)) = (window.upgrade(), focus)
-                && gtk::prelude::GtkWindowExt::focus(&window).is_none()
-                && let Some(focus) = focus.upgrade()
-                && focus.is_mapped()
-                && focus.is_sensitive()
-            {
-                focus.grab_focus();
-            }
-        });
-    }
     let header = adw::HeaderBar::builder().height_request(48).build();
     header.add_css_class("music-header");
     header.set_show_start_title_buttons(false);
@@ -489,7 +457,55 @@ fn build_with_music_pane(
     information_view.set_widget_name("music-track-info-revealer");
     track_info.add_overlay(&information_view);
     track_info.set_measure_overlay(&information_view, false);
-    toolbar.set_content(Some(&track_info));
+    // Both breakpoints affect workspace content. Keeping their bin below the
+    // fixed navigation prevents Libadwaita's breakpoint remap and deferred focus
+    // traversal from taking keyboard focus out of the header search entry.
+    let workspace_bin = adw::BreakpointBin::builder()
+        // The scrollable body fits inside the existing 360×480 window
+        // minimum alongside the fixed header and compact transport.
+        .width_request(320)
+        .height_request(200)
+        .build();
+    // Include the responsive footer in the same bin. Its desktop grid can
+    // request more width than the compact minimum until it receives the new
+    // allocation. That temporary request must not constrain the window.
+    let workspace = adw::ToolbarView::new();
+    workspace.set_content(Some(&track_info));
+    workspace.add_bottom_bar(&music.player_bar);
+    workspace_bin.set_child(Some(&workspace));
+    toolbar.set_content(Some(&workspace_bin));
+    {
+        let saved_focus: Rc<RefCell<Option<glib::WeakRef<gtk::Widget>>>> = Rc::default();
+        let window_unmap = window.downgrade();
+        let focus_unmap = saved_focus.clone();
+        // GTK 4.14 can overwrite a pending focus-move reference when adaptive
+        // layout hides focused content repeatedly before the next paint.
+        // Clear focus to prevent that overwrite; restore a valid control on map.
+        workspace.connect_unmap(move |content| {
+            if let Some(window) = window_unmap.upgrade() {
+                let focus = gtk::prelude::GtkWindowExt::focus(&window).filter(|focus| {
+                    focus == content.upcast_ref::<gtk::Widget>() || focus.is_ancestor(content)
+                });
+                let had_focus = focus.is_some();
+                *focus_unmap.borrow_mut() = focus.map(|widget| widget.downgrade());
+                if had_focus {
+                    gtk::prelude::GtkWindowExt::set_focus(&window, None::<&gtk::Widget>);
+                }
+            }
+        });
+        let window = window.downgrade();
+        workspace.connect_map(move |_| {
+            let focus = saved_focus.borrow_mut().take();
+            if let (Some(window), Some(focus)) = (window.upgrade(), focus)
+                && gtk::prelude::GtkWindowExt::focus(&window).is_none()
+                && let Some(focus) = focus.upgrade()
+                && focus.is_mapped()
+                && focus.is_sensitive()
+            {
+                focus.grab_focus();
+            }
+        });
+    }
     music.attach_track_info(&track_info, &information_view, stack.upcast_ref());
     let music_visibility = music.visibility_callback();
     let navigation_visibility = music_navigation.downgrade();
@@ -503,7 +519,6 @@ fn build_with_music_pane(
     let account_menu = music.account_menu();
     header.pack_end(&account_menu);
     home.append(&music.widget);
-    toolbar.add_bottom_bar(&music.player_bar);
 
     // Keep the anonymous availability request in the technical diagnostics.
     let status = gtk::Box::new(gtk::Orientation::Vertical, 12);
@@ -535,7 +550,7 @@ fn build_with_music_pane(
         "width-request",
         Some(&300_i32.to_value()),
     );
-    window.add_breakpoint(compact_information);
+    workspace_bin.add_breakpoint(compact_information);
     let compact_navigation = adw::Breakpoint::new(
         adw::BreakpointCondition::parse("max-width: 719sp").expect("constant breakpoint"),
     );
@@ -550,7 +565,7 @@ fn build_with_music_pane(
         Some(&gtk::Orientation::Vertical.to_value()),
     );
     compact_navigation.add_setter(&diagnostic_columns, "homogeneous", Some(&false.to_value()));
-    window.add_breakpoint(compact_navigation);
+    workspace_bin.add_breakpoint(compact_navigation);
     for (name, page) in [("overview", "home"), ("diagnostics", "diagnostics")] {
         let action = gio::SimpleAction::new(name, None);
         let stack = stack.downgrade();
@@ -621,6 +636,16 @@ fn build_with_music_pane(
                         "home"
                     });
                 }
+                // A normal Ctrl+F has already focused the mapped header.
+                // A second delayed grab can select text typed since the action.
+                if name == "music-search"
+                    && let Some(target) = weak_focus.upgrade()
+                    && target.is_mapped()
+                    && weak_window.upgrade().and_then(|w| gtk::prelude::GtkWindowExt::focus(&w))
+                        .is_some_and(|focus| focus == target || focus.is_ancestor(&target))
+                {
+                    return;
+                }
                 if name != "diagnostics" {
                     let primary = weak_focus.clone();
                     let login = weak_login.clone();
@@ -632,7 +657,6 @@ fn build_with_music_pane(
                         "music-home" => Some("home"),
                         "music-library" => Some("library"),
                         "music-playlists" => Some("playlists"),
-                        "music-search" => Some("search"),
                         "music-queue" => None,
                         _ => None,
                     };
@@ -658,6 +682,11 @@ fn build_with_music_pane(
                             }
                             let moved = if let Some(target) = primary.upgrade() {
                                 if target.is_sensitive() {
+                                    // A later Escape may have retired the header field
+                                    // while this action waited for the outer Music page.
+                                    if name == "music-search" && !target.can_focus() {
+                                        return;
+                                    }
                                     target.is_mapped() && target.grab_focus()
                                 } else {
                                     login.upgrade().is_some_and(|login| {

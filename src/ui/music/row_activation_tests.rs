@@ -536,7 +536,7 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
             "Synthetic input artist",
         ),
     ] {
-        this.widgets.stack.set_visible_child_name("search");
+        ui.show_page("music-search");
         this.widgets.search.set_text("");
         this.widgets.search.set_text(if enter {
             "Синтетический ввод"
@@ -547,6 +547,7 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
         // Exercise actual entry Return and automatic debounce. The independent
         // unified Show All mouse fixture covers category selection.
         if enter {
+            pump_until(|| this.widgets.search.is_mapped() && this.widgets.search.width() > 0);
             assert!(this.widgets.search.grab_focus());
             input(&["key", "--clearmodifiers", "Return"]);
             settle();

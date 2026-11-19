@@ -128,6 +128,10 @@ impl<J> Requests<J> {
             self.invalidate(operation);
         }
     }
+    pub(super) fn active(&self, operation: Operation) -> bool {
+        let slot = &self.slots[operation.index()];
+        slot.pending.is_some() || slot.running == Some(slot.latest)
+    }
     pub(super) fn busy(&self) -> bool {
         self.slots.iter().any(|slot| {
             slot.pending.is_some() || slot.running.is_some_and(|serial| serial == slot.latest)
