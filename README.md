@@ -102,15 +102,16 @@ arrive. See [validation](docs/VALIDATION.md#owner-acceptance-of-pr-28--2026-11-1
 The integrated **v0.8** work adds plain/synchronized text, related tracks,
 compact search and sorting, exact queue edits and fewer repeated UI updates. Track
 Info has a compact action row and native menu. Lyrics and Queue switch inside
-the existing panel. Synchronized text follows the player position and animates
-the current line. Lyrics use the allowed legacy full-text contract or an
-explicitly disclosed LRCLIB lookup by public metadata. Collection search
+the existing panel. Synchronized text follows the player position. As one line
+shrinks back to normal, the next grows larger and bolder. Lyrics use the allowed
+legacy full-text contract or an explicitly disclosed LRCLIB lookup by public metadata. Collection search
 fills the track-list column beside the sort button, filters available tracks
 immediately and continues the index after a short typing pause or Enter. The
 supported index reaches 20,000 original positions with bounded batches and result
-windows. The top search button, Ctrl+F and Home open one global search field.
-Submitting a query shows catalog results. Clear returns to the originating
-page for another query, and Escape closes the field.
+windows. The top search button, Ctrl+F and Home open one global search field
+in the space occupied by the three navigation tabs. Submitting a query shows
+catalog results. Clear returns to the originating page with the field open.
+Press Escape, use the close button or click empty space to bring back the tabs.
 New real-content/large-library/gesture acceptance is separate from v0.7 and is
 covered by [one final Native/Flatpak procedure](docs/BUILDING.md#v08-final-fedora-acceptance).
 There is no v0.8 release/tag or automatic merge authorization.

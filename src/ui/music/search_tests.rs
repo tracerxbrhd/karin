@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Rendered search retry, normalized results and useful list density.
 
+mod geometry;
 mod header;
 
 use super::tests::{capture_native, contains_text, pump_until};
@@ -543,19 +544,8 @@ fn native_search_retry_normalized_results_and_density() {
         this.widgets.stack.visible_child_name().as_deref(),
         Some("home")
     );
-    let found = std::process::Command::new("xdotool")
-        .args([
-            "search",
-            "--onlyvisible",
-            "--name",
-            "^Karin synthetic HTTP fixture$",
-        ])
-        .output()
-        .unwrap();
-    assert!(found.status.success());
-    let found = String::from_utf8(found.stdout).unwrap();
-    let id = found.lines().next().unwrap();
-    assert!(id.bytes().all(|b| b.is_ascii_digit()));
+    let id = header::window_id();
+    let id = id.as_str();
     input(&["windowfocus", "--sync", id]);
     header::open_by_mouse(window, id, this);
     assert!(counts.lock().unwrap().searches.is_empty());
@@ -1108,8 +1098,7 @@ fn native_search_retry_normalized_results_and_density() {
     capture_native("search-continuous-sparse-wheel");
     let before_clear = counts.lock().unwrap().searches.len();
     let playing_context = this.model.borrow().queue.context().cloned();
-    click(window, id, &this.widgets.search);
-    input(&["key", "--clearmodifiers", "ctrl+a", "BackSpace"]);
+    header::click_clear(window, id, &this.widgets.search);
     pump_until(|| {
         this.widgets.search.text().is_empty()
             && this.widgets.stack.visible_child_name().as_deref() == Some("home")
@@ -1217,6 +1206,7 @@ fn native_search_retry_normalized_results_and_density() {
     // a late response must neither fetch canonical tracks nor reopen results.
     for (query, destination) in [
         ("held-header-close", "detail"),
+        ("held-header-outside", "detail"),
         ("held-header-tab", "library"),
     ] {
         input(&["key", "--clearmodifiers", "ctrl+f"]);
@@ -1237,7 +1227,10 @@ fn native_search_retry_normalized_results_and_density() {
             Some("search")
         );
         if destination == "library" {
-            click(window, id, &this.widgets.nav_liked);
+            // The keyboard route operates while the primary tabs are replaced.
+            input(&["key", "--clearmodifiers", "ctrl+l"]);
+        } else if query == "held-header-outside" {
+            header::click_blank_content(window, id, this);
         } else {
             click(window, id, &this.widgets.nav_search);
         }
@@ -1254,8 +1247,8 @@ fn native_search_retry_normalized_results_and_density() {
         assert_eq!(counts.lock().unwrap().batches.len(), batches + 1);
         assert_eq!(this.widgets.search.text(), "new-after-held");
         if destination == "library" {
-            // Leave a result detail directly via a tab. Its historical Back
-            // destination is still Search the next time Library is displayed.
+            // The historical Back destination of the result detail is Search
+            // when the user next opens a collection from Library.
             let artists = section(this, "music-results-artists");
             let tile = named_button(artists.upcast_ref(), "music-search-artist-tile");
             click(window, id, &tile);
@@ -1263,6 +1256,9 @@ fn native_search_retry_normalized_results_and_density() {
                 this.widgets.stack.visible_child_name().as_deref() == Some("detail")
                     && !this.model.borrow().busy
             });
+            // Expose the navigation, then send a physical click to its tab.
+            click(window, id, &this.widgets.nav_search);
+            pump_until(|| !this.widgets.search.is_mapped());
             click(window, id, &this.widgets.nav_liked);
             pump_until(|| {
                 this.widgets.stack.visible_child_name().as_deref() == Some("library")
@@ -1311,6 +1307,46 @@ fn native_search_retry_normalized_results_and_density() {
             playing_context.as_ref()
         );
     }
+    // The account menu and its confirmation remain usable while a real search
+    // request is held on the service worker. Logout retires both UI and request.
+    input(&["key", "--clearmodifiers", "ctrl+f"]);
+    pump_until(|| header::entry_focused(window, this));
+    input(&[
+        "type",
+        "--clearmodifiers",
+        "--delay",
+        "0",
+        "held-header-logout",
+    ]);
+    input(&["key", "--clearmodifiers", "Return"]);
+    pump_until(|| {
+        counts
+            .lock()
+            .unwrap()
+            .queries
+            .last()
+            .is_some_and(|q| q == "held-header-logout")
+    });
+    let batches = counts.lock().unwrap().batches.len();
+    let running = Arc::downgrade(&this.search_cancellation().unwrap());
+    click(window, id, &this.widgets.account_menu);
+    pump_until(|| this.widgets.logout.is_mapped());
+    assert!(this.widgets.search_header.is_open());
+    click(window, id, &this.widgets.logout);
+    pump_until(|| window.visible_dialog().is_some());
+    let confirm = labelled_button(
+        window.visible_dialog().unwrap().upcast_ref(),
+        "Выйти из аккаунта",
+    );
+    click(window, id, &confirm);
+    pump_until(|| !this.model.borrow().account_valid && !this.widgets.search.is_mapped());
+    release_reply.send(()).unwrap();
+    pump_until(|| running.upgrade().is_none());
+    settle();
+    assert_eq!(counts.lock().unwrap().batches.len(), batches);
+    assert!(this.widgets.search.text().is_empty());
+    assert!(!this.widgets.search_header.is_open());
+    assert!(this.widgets.stack.visible_child_name().as_deref() != Some("search"));
     pane.close();
     window.close();
     stop.store(true, Ordering::Release);

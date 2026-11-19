@@ -83,19 +83,23 @@ reviewable and consistent with the accepted application.
   individual keystrokes must not trigger full scans or per-key requests. Date
   sorting requires valid occurrence timestamps. Total duration needs complete
   data with every duration known and a checked sum. Route global search actions
-  to one entry in the top navigation. Opening the entry preserves the current
-  route. A submitted query presents results. Clear restores the source route
-  with the field open. Closing search retires its outstanding work.
+  to one entry in the top navigation. The three measured tabs and the field
+  share the same centered slot at every width. Keep the compact toggle beside
+  that slot. Opening preserves the route until a query presents results.
+  Clear restores the source route with the field open. Escape, the toggle or
+  a click on empty space dismisses search and retires its work. Preserve
+  interactive targets and honor deliberate navigation.
 - Preserve pinned Track Info/Lyrics/Queue intent across outside clicks/navigation/resize;
   actual new current occurrences resume following. Footer: hidden before Play,
   retained through Pause/retryable active failure, hidden on Stop/clear/logout.
   No visible Stop. Keep local Shuffle/Repeat and existing system controls.
 - Resolve LRC lines from the current player's actual position and exact opaque
-  occurrence. Native line emphasis and Follow respect reduced motion and manual
-  scrolling. Rebound rows reflect the current model, and Seek, selection or
-  session changes retire stale transitions. Verify rendered row pixels across
-  a naturally played line boundary through the ordinary position updates.
-  TEXT carries no invented timing.
+  occurrence. At natural boundaries the old glyphs shrink as the new glyphs
+  grow in size, weight and contrast. Reduced Motion applies the final size
+  immediately. Manual scrolling suspends centering while emphasis continues.
+  Rebound rows reflect the current model. Seek, selection and session changes
+  retire stale transitions. Measure the painted glyph bounds of both rows in
+  the same GTK frames during ordinary player updates. TEXT has no timing.
 - An explicit Resume may renew an expired source for the same queue occurrence
   through fresh access/cache/resolver admission. Preserve its confirmed position,
   queue/modes/volume and Wave/MPRIS identity; bound recovery to one attempt and

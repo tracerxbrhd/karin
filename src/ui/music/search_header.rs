@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Allocate the tabs, search entry and toggle in one fixed-height navigation row.
+//! The tabs and global search entry share one naturally measured navigation slot.
 use adw::prelude::*;
 use gtk::{glib, graphene, gsk, subclass::prelude::*};
 use std::cell::{Cell, OnceCell};
+
+const TOGGLE_GAP: i32 = 6;
 
 #[derive(Debug)]
 struct Children {
@@ -45,12 +47,19 @@ mod imp {
             let Some(c) = self.children.get() else {
                 return (0, 0, -1, -1);
             };
-            let (tabs_min, tabs_nat, ..) = c.tabs.measure(orientation, -1);
+            // The viewport can be unmapped while its child still determines
+            // the slot's request (including font, locale and theme changes).
+            let (tabs_min, tabs_nat, ..) = c.tabs.child().unwrap().measure(orientation, -1);
             let (toggle_min, toggle_nat, ..) = c.toggle.measure(orientation, -1);
             if orientation == gtk::Orientation::Horizontal {
-                return (tabs_min + 6 + toggle_min, tabs_nat + 6 + toggle_nat, -1, -1);
+                return (
+                    tabs_min + TOGGLE_GAP + toggle_min,
+                    tabs_nat + TOGGLE_GAP + toggle_nat,
+                    -1,
+                    -1,
+                );
             }
-            let (field_min, field_nat, ..) = c.field.measure(orientation, -1);
+            let (field_min, field_nat, ..) = c.field.child().unwrap().measure(orientation, -1);
             (
                 tabs_min.max(field_min).max(toggle_min),
                 tabs_nat.max(field_nat).max(toggle_nat),
@@ -63,27 +72,9 @@ mod imp {
             let Some(c) = self.children.get() else { return };
             let along = gtk::Orientation::Horizontal;
             let button = c.toggle.measure(along, -1).1.min(width);
-            // Measure the entries themselves even when their clipping viewport
-            // is child-invisible at either endpoint of the transition.
-            let tabs = c
-                .tabs
-                .child()
-                .unwrap()
-                .measure(along, -1)
-                .1
-                .min((width - button - 6).max(0));
-            let field_min = c.field.child().unwrap().measure(along, -1).0;
-            let keep_tabs = width >= tabs + field_min + button + 12;
-            let start = (width - tabs - 6 - button).max(0) / 2;
-            let progress = self.progress.get();
-            let blend = |from: i32, to: i32| {
-                (f64::from(from) + f64::from(to - from) * progress).round() as i32
-            };
-            let tabs_x = blend(start, 0);
-            let tabs_w = blend(tabs, if keep_tabs { tabs } else { 0 });
-            let button_x = blend(start + tabs + 6, width - button);
-            let field_x = tabs_x + tabs_w + blend(6, if keep_tabs { 6 } else { 0 });
-            let field_w = (button_x - blend(0, 6) - field_x).max(0);
+            let slot = (width - button - TOGGLE_GAP).max(0);
+            let field = (f64::from(slot) * self.progress.get()).round() as i32;
+            let tabs = slot - field;
             let allocate = |child: &gtk::Widget, x: i32, w: i32| {
                 child.set_child_visible(w > 0);
                 if w > 0 {
@@ -97,14 +88,17 @@ mod imp {
                     child.allocate(w, height, -1, Some(transform));
                 }
             };
-            c.tabs.set_can_focus(!self.open.get() || keep_tabs);
-            allocate(c.tabs.upcast_ref(), tabs_x, tabs_w);
+            // Slide the whole strip behind the group's leading clip. Its
+            // labels keep the same allocation throughout a transition.
+            allocate(c.tabs.upcast_ref(), -field, if tabs > 0 { slot } else { 0 });
+            // Map the entry even on the first animation frame so Ctrl+F
+            // followed immediately by typing reaches the same GtkText.
             allocate(
                 c.field.upcast_ref(),
-                field_x,
-                field_w.max(i32::from(self.open.get())),
+                tabs,
+                field.max(i32::from(self.open.get() && slot > 0)),
             );
-            allocate(c.toggle.upcast_ref(), button_x, button);
+            allocate(c.toggle.upcast_ref(), width - button, button);
         }
     }
 }
@@ -118,8 +112,17 @@ glib::wrapper! {
 impl SearchHeader {
     pub(super) fn new(tabs: &gtk::Box, entry: &gtk::SearchEntry, toggle: &gtk::Button) -> Self {
         let header: Self = glib::Object::new();
+        // The toolbar expands; GTK aligns our natural-width group inside it
+        // and only reduces its allocation when the window actually needs it.
         header.set_hexpand(true);
+        header.set_halign(gtk::Align::Center);
         header.set_overflow(gtk::Overflow::Hidden);
+        // GTK propagates resize requests between size-group members, including
+        // changes to the unmapped tabs while the field occupies their slot.
+        // Binding height leaves horizontal measurement entirely to the tabs.
+        let row_height = gtk::SizeGroup::new(gtk::SizeGroupMode::Vertical);
+        row_height.add_widget(tabs);
+        row_height.add_widget(entry);
         let slot = |child: &gtk::Widget| {
             let viewport = gtk::Viewport::builder()
                 .scroll_to_focus(false)
@@ -129,11 +132,13 @@ impl SearchHeader {
             viewport
         };
         let tabs = slot(tabs.upcast_ref());
+        entry.set_width_chars(1);
         let field = slot(entry.upcast_ref());
         entry.set_can_focus(false);
         field.set_child_visible(false);
         field.set_can_focus(false);
         field.set_can_target(false);
+        field.update_state(&[gtk::accessible::State::Hidden(true)]);
         toggle.update_relation(&[gtk::accessible::Relation::Controls(&[entry.upcast_ref()])]);
         toggle.update_state(&[gtk::accessible::State::Expanded(Some(false))]);
         toggle.set_parent(&header);
@@ -150,6 +155,8 @@ impl SearchHeader {
         let target = adw::CallbackAnimationTarget::new(move |value| {
             if let Some(header) = weak.upgrade() {
                 header.imp().progress.set(value);
+                let children = header.imp().children.get().unwrap();
+                children.tabs.set_opacity(1.0 - value);
                 header.queue_allocate();
             }
         });
@@ -169,10 +176,18 @@ impl SearchHeader {
             return;
         }
         let c = imp.children.get().unwrap();
-        if open {
-            c.field.set_child_visible(true);
-        }
-        c.field.set_can_focus(open);
+        let (incoming, outgoing) = if open {
+            (&c.field, &c.tabs)
+        } else {
+            (&c.tabs, &c.field)
+        };
+        incoming.set_child_visible(true);
+        incoming.set_can_focus(true);
+        incoming.update_state(&[gtk::accessible::State::Hidden(false)]);
+        outgoing.set_can_focus(false);
+        outgoing.update_state(&[gtk::accessible::State::Hidden(true)]);
+        // A tab still under the pointer during the slide can finish its
+        // navigation. The clipped allocations give it a separate hit area.
         c.field.set_can_target(open);
         let label = if open {
             "Закрыть поиск"
@@ -180,6 +195,11 @@ impl SearchHeader {
             "Поиск музыки"
         };
         c.toggle.set_tooltip_text(Some(label));
+        c.toggle.set_icon_name(if open {
+            "window-close-symbolic"
+        } else {
+            "system-search-symbolic"
+        });
         c.toggle
             .update_property(&[gtk::accessible::Property::Label(label)]);
         c.toggle

@@ -1585,8 +1585,58 @@ collapsed button. This covers the accessibility API. Spoken output on Fedora
 remains a manual check. The revision-specific
 Cloud results and synthetic GTK captures are recorded in the
 [PR checks](https://github.com/tracerxbrhd/karin/pull/29/checks).
-Visible line motion in the corrected build on physical KDE/Wayland remains
-pending the [combined Fedora run](BUILDING.md#v08-final-fedora-acceptance).
+The owner's subsequent visual check is recorded below.
+
+### Follow-up on PR #29 at `ffcea0d`
+
+The owner repeated ordinary karaoke playback on Fedora Native and installed
+Flatpak. The larger, more expressive active line was still missing on both.
+Other exercised v0.8 features drew no further comments. The remaining
+regression cases have no individual owner results in this report.
+
+In the archived GTK fixture at this commit, each adjacent row's ink occupied
+225×34 device pixels at 1× and 453×69 at 2× in all twelve frames per scale.
+The measurement excludes the edge marker and counts pixels where an RGB
+channel differs from the row background by more than 16/255. At an
+890-logical-pixel allocation the 320-pixel tabs stayed visible beside a
+512-pixel entry, and the toggle moved from x=591 to x=850. The 1440- and
+1920-pixel-wide captures showed entry widths of 1050 and 1530 pixels, both
+beside the full 322-pixel tab group.
+[Source](https://github.com/tracerxbrhd/karin/tree/ffcea0d99ae869abd031ea508dc5e9833be213e0) ·
+[GTK playback and search frames](https://github.com/tracerxbrhd/karin/actions/runs/44590949651/artifacts/14565477260) ·
+[wide and maximized frames](https://github.com/tracerxbrhd/karin/actions/runs/44590949651/artifacts/14564941322).
+
+The revised search fixture passed on GTK 4.18.6 / Libadwaita 1.7.6 and
+GTK 4.14.5 / Libadwaita 1.5.0 under Xvfb. Each stack exercised Light/Dark and
+both motion settings at 1×/2× across six allocations, including 420×720,
+1920×1080 and an actual 2800×1600 logical maximize. At 1× the former tabs and
+open field both measured 320 logical pixels on GTK 4.14 and 322 on GTK 4.18.
+At 2× both stacks measured 322. The group measured 360 or 362 pixels
+respectively, with a 34-pixel toggle and 48-pixel HeaderBar in both states.
+Relabeling while open and right-to-left layout also passed. Four further
+input runs covered focus, entering/clearing a query, clicking empty space,
+result navigation and a search response held until after confirmed logout.
+
+The Light playback fixture captured two original Cyrillic words at a natural
+LRC boundary in the pinned panel. The table gives width × height of each
+word's painted glyphs in device pixels. This local observer chose intermediate
+frames by measured width. The CI observer also checks chronological quarters
+against the production easing curve.
+
+| Scale and word | Before | Early | Toward 25% | Mid-transition | Toward 75% | After |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1× outgoing Журавли | 89×19 | 88×18 | 84×18 | 79×16 | 74×16 | 69×14 |
+| 1× incoming Фонари | 57×14 | 58×14 | 61×16 | 66×16 | 70×18 | 75×19 |
+| 2× outgoing Журавли | 179×36 | 171×34 | 162×33 | 158×32 | 147×31 | 137×29 |
+| 2× incoming Фонари | 114×29 | 120×29 | 128×31 | 131×32 | 140×33 | 148×36 |
+
+In the 2× strip the emphasis moves between the first two lines while the third
+retains its original stroke and position. The regular light-theme glyphs have
+solid strokes at full emphasis. This receipt covers the pictured boundary.
+Desktop acceptance uses one short sequence on the same Native and installed
+Flatpak revision.
+[Native image strips and provenance](screenshots/README.md#pr-29-search-and-synchronized-lyrics) ·
+[UI quality gate](UI_QUALITY_GATE.md) · [Fedora procedure](BUILDING.md#v08-final-fedora-acceptance).
 
 ### v08 implementation and Cloud evidence
 

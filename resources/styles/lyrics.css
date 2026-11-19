@@ -1,29 +1,13 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
-/* Both native label layers have identical wrapping and metrics. Only the
- * selectable base measures the row; Libadwaita animates the accent opacity. */
 .karin-style-system .karin-lyrics-lines,
 .karin-style-system .karin-lyrics-lines row { background-color: transparent; }
 .karin-style-system .karin-lyrics-line {
-  font-size: 1.2em;
-  font-weight: 600;
-  padding: 10px 8px;
-  border-left: 3px solid transparent;
-}
-.karin-style-system .karin-lyrics-line:not(.karin-lyrics-accent) {
-  color: alpha(@window_fg_color, .68);
-}
-.karin-style-system .karin-lyrics-accent {
-  color: @accent_color;
-  border-left-color: @accent_color;
-  background-color: alpha(@accent_bg_color, .10);
+  color: @window_fg_color;
+  font-size: 1.1em;
+  padding: 5px 4px;
 }
 .karin-style-system .karin-lyrics-stanza {
   font-size: 1.1em;
   padding: 12px 4px;
   line-height: 1.5;
-}
-.karin-style-system.karin-high-contrast .karin-lyrics-line:not(.karin-lyrics-accent) { color: @window_fg_color; }
-.karin-style-system.karin-high-contrast .karin-lyrics-line.karin-lyrics-accent {
-  color: @window_fg_color;
-  border-left-color: @window_fg_color;
 }

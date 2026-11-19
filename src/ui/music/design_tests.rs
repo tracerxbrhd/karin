@@ -30,9 +30,9 @@ const TITLES: [&str; 8] = [
 ];
 const ARTISTS: [&str; 4] = ["Aster Field", "Mira Vale", "Новая глава", "Elian"];
 
-struct WindowManager(Option<Child>);
+pub(super) struct WindowManager(Option<Child>);
 impl WindowManager {
-    fn start() -> Self {
+    pub(super) fn start() -> Self {
         let present = Command::new("wmctrl")
             .arg("-m")
             .output()

@@ -51,13 +51,20 @@ pub(in crate::ui::music) struct Fixture {
 
 impl Fixture {
     pub(in crate::ui::music) fn new() -> Self {
+        Self::with_karaoke_audio(false)
+    }
+
+    fn with_karaoke_audio(karaoke: bool) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let origin = format!("http://{}/", listener.local_addr().unwrap());
         let counts = Arc::new(Mutex::new(Counts::default()));
         let gate = Arc::new((Mutex::new(true), Condvar::new()));
         let stop = Arc::new(AtomicBool::new(false));
-        let media = Arc::new(super::super::player::tests::generated_mp3());
+        let media = Arc::new((
+            super::super::player::tests::generated_mp3(),
+            karaoke.then(|| super::super::player::tests::generated_mp3_for_seconds(7)),
+        ));
         let server = {
             let (counts, gate, stop, origin) =
                 (counts.clone(), gate.clone(), stop.clone(), origin.clone());
@@ -115,8 +122,12 @@ impl Drop for Fixture {
     }
 }
 
+fn duration_ms(id: u64) -> u64 {
+    if id == 46 { 7000 } else { 4000 }
+}
+
 fn canonical(id: u64) -> serde_json::Value {
-    json!({"id":id,"title":format!("Original fixture {id}"),"available":true,"durationMs":4000,"artists":[{"id":11,"name":"Karin original fixture"}],"albums":[{"id":7,"title":"Original fixture collection"}]})
+    json!({"id":id,"title":format!("Original fixture {id}"),"available":true,"durationMs":duration_ms(id),"artists":[{"id":11,"name":"Karin original fixture"}],"albums":[{"id":7,"title":"Original fixture collection"}]})
 }
 
 pub(in crate::ui::music) fn track(id: u64) -> Track {
@@ -127,7 +138,7 @@ pub(in crate::ui::music) fn track(id: u64) -> Track {
         artist_links: Vec::new(),
         album_id: Some("7".into()),
         album_title: Some("Original fixture collection".into()),
-        duration_ms: Some(4000),
+        duration_ms: Some(duration_ms(id)),
         cover: None,
         explicit: false,
         available: true,
@@ -148,7 +159,7 @@ fn serve(
     origin: &str,
     counts: &Mutex<Counts>,
     gate: &(Mutex<bool>, Condvar),
-    media: &[u8],
+    media: &(Vec<u8>, Option<Vec<u8>>),
 ) {
     stream
         .set_read_timeout(Some(Duration::from_secs(4)))
@@ -224,7 +235,10 @@ fn serve(
         // fits the pinned pane and includes both an ordinary adjacent change
         // and simultaneous LRC timestamps (the last line in a group wins).
         let timestamps = if name == "Original fixture 46" {
-            vec![0, 1000, 2200, 2200, 2200, 2200]
+            let mut times = vec![0, 1400, 3300, 3300, 3300, 3300];
+            times.extend([5000; 6]);
+            times.extend((1..20).map(|i| 7000 + i * 100));
+            times
         } else {
             (0..100).map(|i| i * 40).collect()
         };
@@ -232,18 +246,30 @@ fn serve(
             .into_iter()
             .enumerate()
             .map(|(i, ms)| {
-                format!(
-                    "[00:{:02}.{:03}]Original synthetic line {i} · строка",
-                    ms / 1000,
-                    ms % 1000
-                )
+                let text = if name == "Original fixture 46" {
+                    match i {
+                        // The em space separates the measured first word on the
+                        // long line even when the rest of the sentence rewraps.
+                        0 => "Журавли",
+                        1 => "Фонари",
+                        2 => "Ночной ветер",
+                        3 => "Следы у реки",
+                        4 => "Стихает дождь",
+                        5 => "Берёзы отражаются в воде. За рекой ещё горят огни, а вдоль тропы цветёт иван-чай — до са́мой зари.",
+                        _ => ["Над водой — тишина", "Дальний берег спит", "Ветви шепчут", "Свет уходит за холмы", "Снова утро", "Тает синий лёд"][i % 6],
+                    }
+                    .to_owned()
+                } else {
+                    format!("Original synthetic line {i} · строка")
+                };
+                format!("[00:{:02}.{:03}]{text}", ms / 1000, ms % 1000)
             })
             .collect::<Vec<_>>()
             .join("\n");
         json_response(
             &mut stream,
             200,
-            json!({"trackName":name,"artistName":"Karin original fixture","albumName":"Original fixture collection","duration":4,"instrumental":false,"plainLyrics":"Original synthetic plain text","syncedLyrics":lrc}),
+            json!({"trackName":name,"artistName":"Karin original fixture","albumName":"Original fixture collection","duration":if name == "Original fixture 46" {7} else {4},"instrumental":false,"plainLyrics":"Original synthetic plain text","syncedLyrics":lrc}),
         );
     } else if parts.len() == 4 && parts[1] == "tracks" && parts[3] == "supplement" {
         let id = parts[2].parse::<u64>().unwrap();
@@ -351,6 +377,11 @@ fn serve(
             xml.len()
         );
     } else if url.path().starts_with("/get-mp3/") {
+        let media = if url.path().ends_with("fixture-46.mp3") {
+            media.1.as_ref().expect("seven-second karaoke recording")
+        } else {
+            &media.0
+        };
         let range = header("range").map(|range| {
             let (start, end) = range
                 .strip_prefix("bytes=")
@@ -472,17 +503,17 @@ fn click(window: &adw::ApplicationWindow, id: &str, widget: &impl IsA<gtk::Widge
     if widget.native().and_then(|native| native.surface()) == window.surface() {
         let scale = f64::from(window.scale_factor());
         let (dx, dy) = window.surface_transform();
-        let picked = window.pick(
-            f64::from(x) / scale - dx,
-            f64::from(y) / scale - dy,
-            gtk::PickFlags::DEFAULT,
-        );
-        assert!(
-            picked
-                .as_ref()
-                .is_some_and(|picked| picked == widget || picked.is_ancestor(widget)),
-            "new native extras target must be visible and unobscured"
-        );
+        // GtkStack may already allocate the destination at its final bounds
+        // while the previous pane still covers it during the native transition.
+        pump_until(|| {
+            window
+                .pick(
+                    f64::from(x) / scale - dx,
+                    f64::from(y) / scale - dy,
+                    gtk::PickFlags::DEFAULT,
+                )
+                .is_some_and(|picked| &picked == widget || picked.is_ancestor(widget))
+        });
     }
     input(&[
         "mousemove",
@@ -728,8 +759,28 @@ fn window_for(app: &adw::Application, fixture: &Fixture) -> crate::ui::MainWindo
 fn native_v08_lyrics_similar_seek_and_stale_selection() {
     gtk::init().unwrap();
     adw::init().unwrap();
-    let fixture = Fixture::new();
     let app = fixture_app();
+    if std::env::var_os("KARIN_TEST_LYRIC_HIGH_CONTRAST").is_some() {
+        assert!(adw::StyleManager::default().is_high_contrast());
+        playing_frames::ordinary_lyrics_playback(&app);
+        return;
+    }
+    // Adwaita reads the desktop contrast setting once at initialization.
+    let contrast = Command::new("timeout")
+        .arg("90")
+        .arg(std::env::current_exe().unwrap())
+        .args([
+            "native_v08_lyrics_similar_seek_and_stale_selection",
+            "--ignored",
+            "--test-threads=1",
+            "--nocapture",
+        ])
+        .env("ADW_DEBUG_HIGH_CONTRAST", "1")
+        .env("KARIN_TEST_LYRIC_HIGH_CONTRAST", "1")
+        .status()
+        .unwrap();
+    assert!(contrast.success(), "high contrast lyric playback");
+    let fixture = Fixture::new();
     // Static layout capture deliberately switches the test process to Reduced
     // Motion. Exercise ordinary playback first, on the untouched GTK settings.
     playing_frames::ordinary_lyrics_playback(&app);
@@ -1269,100 +1320,34 @@ fn native_line_transitions() {
     let old = mapped_line(2).unwrap();
     let next = mapped_line(3).unwrap();
     let heights = (old.height(), next.height());
-    let old_accent = accent_layer(&old);
-    let next_accent = accent_layer(&next);
-    assert_ne!(
-        old_accent.color(),
-        next.color(),
-        "System style distinguishes the accent from the base text"
-    );
-    assert_eq!((old_accent.opacity(), next_accent.opacity()), (1.0, 0.0));
-    let before = lyric_motion_node(&window);
-
+    let sizes = || (label_scale(&old), label_scale(&next));
+    let endpoints = sizes();
+    assert!(endpoints.0 > 1.2 && endpoints.1 == 1.0);
     let samples = Rc::new(RefCell::new(Vec::new()));
-    let intermediate = Rc::new(RefCell::new(None));
-    let finished = Rc::new(Cell::new(false));
     let clock = window.frame_clock().unwrap();
     let handler = clock.connect_after_paint({
-        let (old, next, window) = (old_accent.clone(), next_accent.clone(), window.downgrade());
-        let (samples, intermediate, finished) =
-            (samples.clone(), intermediate.clone(), finished.clone());
+        let (old, next, samples) = (old.clone(), next.clone(), samples.clone());
         move |_| {
-            let emphasis = (old.opacity(), next.opacity());
-            if emphasis == (0.0, 1.0) {
-                finished.set(true);
-            }
-            if emphasis.0 > 0.0 && emphasis.0 < 1.0 && emphasis.1 > 0.0 && emphasis.1 < 1.0 {
-                samples.borrow_mut().push(emphasis);
-                let distance = (emphasis.0 - 0.5).abs() + (emphasis.1 - 0.5).abs();
-                let closer = intermediate
-                    .borrow()
-                    .as_ref()
-                    .is_none_or(|(best, _)| distance < *best);
-                if closer && let Some(node) = window.upgrade().as_ref().and_then(lyric_motion_node)
-                {
-                    intermediate.replace(Some((distance, node)));
-                }
-            }
+            samples
+                .borrow_mut()
+                .push((label_scale(&old), label_scale(&next)))
         }
     });
     snapshot.position = Some(Duration::from_secs(3));
     view.update_position(Some(&snapshot), 1);
-    let deadline = Instant::now() + Duration::from_secs(1);
     pump_until(|| {
-        // Repeated observations of the same playhead must not restart an
-        // animation or rebind any lyric rows.
+        // Repeated snapshots must not restart the transition or rebind rows.
         view.update_position(Some(&snapshot), 1);
-        finished.get() || Instant::now() >= deadline
+        sizes() == (endpoints.1, endpoints.0)
     });
     clock.disconnect(handler);
-    assert!(
-        !samples.borrow().is_empty(),
-        "promotion and demotion must both paint an intermediate color"
-    );
-    assert!(finished.get(), "settled colors must actually paint");
-    assert_eq!((old_accent.opacity(), next_accent.opacity()), (0.0, 1.0));
-    assert_eq!(
-        heights,
-        (old.height(), next.height()),
-        "lyric motion must not reflow rows"
-    );
-    eprintln!(
-        "Karin synthetic lyric motion: {} frames with both lines interpolating",
-        samples.borrow().len()
-    );
-    if let Ok(directory) = std::env::var("KARIN_TEST_CAPTURE_DIR") {
-        let directory = std::path::Path::new(&directory);
-        std::fs::create_dir_all(directory).unwrap();
-        let scale = window.scale_factor();
-        let renderer = window.renderer().unwrap();
-        let frames = [
-            ("before", before),
-            ("transition", intermediate.take().map(|(_, node)| node)),
-            ("after", lyric_motion_node(&window)),
-        ]
-        .map(|(phase, node)| {
-            let snapshot = gtk::Snapshot::new();
-            snapshot.scale(scale as f32, scale as f32);
-            snapshot.append_node(node.expect("painted lyric motion frame"));
-            let png = renderer
-                .render_texture(snapshot.to_node().unwrap(), None)
-                .save_to_png_bytes();
-            (phase, png)
-        });
-        assert!(
-            frames[0].1 != frames[1].1 && frames[1].1 != frames[2].1,
-            "captured transition must show a frame distinct from both endpoints"
-        );
-        for (phase, png) in frames {
-            std::fs::write(
-                directory.join(format!("v08-lyrics-row-{phase}-scale{scale}.png")),
-                png,
-            )
-            .unwrap();
-        }
-    }
-
+    assert!(samples.borrow().iter().any(|&(a, b)| {
+        (endpoints.1..endpoints.0).contains(&a)
+            && a > endpoints.1
+            && (endpoints.1..endpoints.0).contains(&b)
+            && b > endpoints.1
+    }));
+    assert_eq!(heights, (old.height(), next.height()));
     snapshot.state = PlaybackState::Paused;
     view.update_position(Some(&snapshot), 1);
     assert_eq!(view.inner.active.get(), Some(3));
@@ -1370,13 +1355,32 @@ fn native_line_transitions() {
     snapshot.position = Some(Duration::from_secs(2));
     view.update_position(Some(&snapshot), 1);
     assert!(old.has_css_class("lyrics-active"));
-    assert_eq!((old_accent.opacity(), next_accent.opacity()), (1.0, 0.0));
+    assert_eq!(sizes(), endpoints);
     settings.set_gtk_enable_animations(false);
     snapshot.state = PlaybackState::Playing;
     snapshot.position = Some(Duration::from_secs(3));
     view.update_position(Some(&snapshot), 1);
     assert!(next.has_css_class("lyrics-active"));
-    assert_eq!((old_accent.opacity(), next_accent.opacity()), (0.0, 1.0));
+    assert_eq!(sizes(), (endpoints.1, endpoints.0));
+
+    // A third quick boundary retargets the still-growing fourth row.
+    // The first row keeps shrinking and the new target grows from its rest size.
+    settings.set_gtk_enable_animations(true);
+    let fourth = mapped_line(4).unwrap();
+    let fifth = mapped_line(5).unwrap();
+    snapshot.position = Some(Duration::from_secs(4));
+    view.update_position(Some(&snapshot), 1);
+    pump_until(|| label_scale(&fourth) > 1.04 && label_scale(&fourth) < endpoints.0);
+    let reversing = label_scale(&fourth);
+    let shrinking = label_scale(&next);
+    snapshot.position = Some(Duration::from_secs(5));
+    view.update_position(Some(&snapshot), 1);
+    assert_eq!(label_scale(&fourth), reversing);
+    assert_eq!(label_scale(&next), shrinking);
+    pump_until(|| label_scale(&fourth) < reversing && label_scale(&fifth) > 1.0);
+    settings.set_gtk_enable_animations(false);
+    pump_until(|| label_scale(&fifth) == endpoints.0);
+    assert_eq!((label_scale(&fourth), label_scale(&next)), (1.0, 1.0));
 
     // A different native source/seek target is styled from the model after
     // virtualization brings the new row into view, without a stale fade.
@@ -1390,12 +1394,7 @@ fn native_line_transitions() {
     pump_until(|| mapped_line(151).is_some() && mapped_line(152).is_some());
     let active = mapped_line(151).unwrap();
     assert!(active.has_css_class("lyrics-active"));
-    assert_eq!(accent_layer(&active).opacity(), 1.0);
-    assert_eq!(
-        accent_layer(&active).color(),
-        mapped_line(152).unwrap().color(),
-        "High Contrast uses foreground with the separate current marker"
-    );
+    assert_eq!(label_scale(&active), endpoints.0);
     assert!(
         view.inner
             .visible_lines
@@ -1404,7 +1403,7 @@ fn native_line_transitions() {
             .all(|(index, label)| {
                 label.upgrade().is_none_or(|label| {
                     label.has_css_class("lyrics-active") == (*index == 151)
-                        && accent_layer(&label).opacity() == if *index == 151 { 1.0 } else { 0.0 }
+                        && label_scale(&label) == if *index == 151 { endpoints.0 } else { 1.0 }
                 })
             })
     );
@@ -1426,15 +1425,15 @@ fn native_line_transitions() {
     manager.set_color_scheme(scheme);
 }
 
-fn lyric_motion_node(window: &gtk::Window) -> Option<gtk::gsk::RenderNode> {
-    // Construct from the current node instead of a long-lived paintable's
-    // previous idle publication.
-    let paintable = gtk::WidgetPaintable::new(Some(window));
-    let snapshot = gtk::Snapshot::new();
-    paintable.snapshot(
-        &snapshot,
-        f64::from(paintable.intrinsic_width()),
-        f64::from(paintable.intrinsic_height()),
-    );
-    snapshot.to_node()
+fn label_scale(label: &gtk::Label) -> f64 {
+    label
+        .attributes()
+        .and_then(|attrs| {
+            attrs
+                .iterator()
+                .get(gtk::pango::AttrType::Scale)
+                .and_then(|attr| attr.downcast::<gtk::pango::AttrFloat>().ok())
+                .map(|attr| attr.value())
+        })
+        .unwrap_or(1.0)
 }

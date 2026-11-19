@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Bounded lyrics and related tracks in separate modes of the existing pane.
 
+mod lyric_row;
+
 use std::{
     cell::{Cell, RefCell},
     collections::BTreeMap,
@@ -22,7 +24,7 @@ use crate::{
 };
 
 const RELATED_PAGE: usize = 10;
-const LINE_TRANSITION_MS: u32 = 220;
+const LINE_TRANSITION_MS: u32 = 300;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Ticket {
@@ -84,8 +86,8 @@ struct Inner {
     follow_revision: Cell<u64>,
     scroll_animation: RefCell<Option<adw::TimedAnimation>>,
     visible_lines: RefCell<BTreeMap<u32, glib::WeakRef<gtk::Label>>>,
-    line_fade: Cell<Option<LineFade>>,
-    line_animation: RefCell<Option<adw::TimedAnimation>>,
+    line_transitions: RefCell<BTreeMap<u32, LineTransition>>,
+    line_tick: RefCell<Option<gtk::TickCallbackId>>,
     lyrics_title: gtk::Label,
     lyrics_artist: gtk::Label,
     lyrics_status: gtk::Label,
@@ -120,15 +122,31 @@ struct LyricClock {
     seek_serial: u64,
 }
 
-// Timeline indices survive GTK recycling during Follow. Opacity is the
-// presentation of an already observed line change, never a playback clock.
+// Timeline indices survive row recycling during Follow. This progress only
+// presents a line change already observed on the player clock.
 #[derive(Clone, Copy)]
-struct LineFade {
-    outgoing: Option<u32>,
-    incoming: u32,
-    outgoing_start: f64,
-    incoming_start: f64,
-    progress: f64,
+struct LineTransition {
+    started: Option<i64>,
+    from: f64,
+    to: f64,
+    value: f64,
+}
+
+impl LineTransition {
+    fn advance(&mut self, frame_time: i64) -> bool {
+        // A mapped list can still be between paints when the player reports a
+        // new line. Give both glyph runs their start frame on the same GTK tick.
+        let start = *self.started.get_or_insert(frame_time);
+        let elapsed = (frame_time - start).max(0);
+        let duration = i64::from(LINE_TRANSITION_MS) * 1000;
+        if elapsed >= duration {
+            self.value = self.to;
+            return false;
+        }
+        let progress = adw::Easing::EaseInOutSine.ease(elapsed as f64 / duration as f64);
+        self.value = self.from + (self.to - self.from) * progress;
+        true
+    }
 }
 
 pub(super) struct ExtrasView {
@@ -214,6 +232,9 @@ impl ExtrasView {
         lyrics_list.add_css_class("karin-lyrics-lines");
         lyrics_list.set_single_click_activate(false);
         let lyrics_scroll = gtk::ScrolledWindow::builder()
+            // Give the wrapped text the clear column even when the native
+            // scrollbar is revealed by a pointer or a Follow movement.
+            .overlay_scrolling(false)
             .hscrollbar_policy(gtk::PolicyType::Never)
             .vscrollbar_policy(gtk::PolicyType::Automatic)
             .vexpand(true)
@@ -260,8 +281,8 @@ impl ExtrasView {
             follow_revision: Cell::new(0),
             scroll_animation: RefCell::new(None),
             visible_lines: RefCell::new(BTreeMap::new()),
-            line_fade: Cell::new(None),
-            line_animation: RefCell::new(None),
+            line_transitions: RefCell::default(),
+            line_tick: RefCell::default(),
             lyrics_title,
             lyrics_artist,
             lyrics_status,
@@ -291,34 +312,7 @@ impl ExtrasView {
             let Some(item) = item.downcast_ref::<gtk::ListItem>() else {
                 return;
             };
-            let label = wrap("", "body");
-            label.set_selectable(true);
-            let overlay = gtk::Overlay::new();
-            overlay.set_margin_start(2);
-            overlay.set_margin_end(2);
-            overlay.set_child(Some(&label));
-            let accent = wrap("", "karin-lyrics-accent");
-            accent.add_css_class("karin-lyrics-line");
-            accent.set_can_target(false);
-            accent.set_focusable(false);
-            accent.update_state(&[gtk::accessible::State::Hidden(true)]);
-            accent.set_opacity(0.0);
-            // The untargetable, translucent accent leaves the base label's
-            // selection background, focus handling and clipboard intact.
-            overlay.add_overlay(&accent);
-            // GtkOverlay's default placement can use the wrapped accent's
-            // unconstrained natural height and center its ink below this row.
-            // The measured, selectable label defines the exact shared bounds.
-            overlay.connect_get_child_position(|overlay, _| {
-                Some(gtk::gdk::Rectangle::new(
-                    0,
-                    0,
-                    overlay.width(),
-                    overlay.height(),
-                ))
-            });
-            overlay.set_clip_overlay(&accent, true);
-            item.set_child(Some(&overlay));
+            item.set_child(Some(&lyric_row::LyricRow::new()));
         });
         factory.connect_bind({
             let weak = Rc::downgrade(&inner);
@@ -328,22 +322,19 @@ impl ExtrasView {
                 else {
                     return;
                 };
-                let (Some(value), Some(label)) = (
+                let (Some(value), Some(row)) = (
                     item.item().and_downcast::<gtk::StringObject>(),
-                    base_label(item),
+                    item.child().and_downcast::<lyric_row::LyricRow>(),
                 ) else {
                     return;
                 };
                 let position = item.position();
-                label.set_text(&value.string());
-                let accent = accent_layer(&label);
-                if this.synchronized.get() {
-                    accent.set_text(&value.string());
-                } else {
-                    accent.set_text("");
-                }
+                let label = row.bind(
+                    &value.string(),
+                    this.synchronized.get(),
+                    this.line_strength(position),
+                );
                 style_line(&label, position, this.active.get(), this.synchronized.get());
-                accent.set_opacity(this.line_strength(position));
                 this.visible_lines
                     .borrow_mut()
                     .insert(position, label.downgrade());
@@ -352,18 +343,19 @@ impl ExtrasView {
         factory.connect_unbind({
             let weak = Rc::downgrade(&inner);
             move |_, item| {
-                let Some(label) = item.downcast_ref::<gtk::ListItem>().and_then(base_label) else {
+                let Some(row) = item
+                    .downcast_ref::<gtk::ListItem>()
+                    .and_then(|item| item.child())
+                    .and_downcast::<lyric_row::LyricRow>()
+                else {
                     return;
                 };
+                let label = row.unbind();
                 if let Some(this) = weak.upgrade() {
                     this.visible_lines
                         .borrow_mut()
                         .retain(|_, old| old.upgrade().is_some_and(|old| old != label));
                 }
-                label.set_text("");
-                let accent = accent_layer(&label);
-                accent.set_text("");
-                accent.set_opacity(0.0);
             }
         });
         connect(&inner);
@@ -589,10 +581,6 @@ impl ExtrasView {
         if old == next && same_clock {
             return;
         }
-        let outgoing_start = old.map_or(0.0, |old| this.line_strength(old));
-        let incoming_start = next.map_or(0.0, |next| this.line_strength(next));
-        this.active.set(next);
-        this.finish_line_transitions();
         // Several timestamped lines may start within one 80 ms player poll.
         // Only the confirmed seek/occurrence/source revision denotes a jump.
         let animate_to = next.filter(|&next| {
@@ -603,23 +591,28 @@ impl ExtrasView {
                 && this.lyrics_list.is_mapped()
                 && this.lyrics_list.settings().is_gtk_enable_animations()
         });
-        if let Some(incoming) = animate_to {
-            this.start_line_transition(LineFade {
-                outgoing: old,
-                incoming,
-                outgoing_start,
-                incoming_start,
-                progress: 0.0,
-            });
+        if let Some(index) = animate_to {
+            // Sample before changing the active index. A third fast boundary
+            // can retarget the growing line while the first one keeps shrinking.
+            this.start_line_transitions(old, index);
         }
-        for (position, label) in this.visible_lines.borrow().iter() {
+        this.active.set(next);
+        let a = old.unwrap_or(0);
+        let b = next.unwrap_or(0);
+        for (position, label) in this.visible_lines.borrow().range(a.min(b)..=a.max(b)) {
             if let Some(label) = label.upgrade() {
                 style_line(&label, *position, next, this.synchronized.get());
-                accent_layer(&label).set_opacity(this.line_strength(*position));
             }
         }
-        let animate = animate_to.is_some();
-        this.follow_active(!animate);
+        if animate_to.is_none() {
+            this.finish_line_transitions();
+            if old != next {
+                for index in old.into_iter().chain(next) {
+                    this.paint_line(index, f64::from(next == Some(index)));
+                }
+            }
+        }
+        this.follow_active(animate_to.is_none());
     }
 
     fn defer_unmapped_request(&self, action: &ExtrasAction) {
@@ -646,63 +639,72 @@ impl ExtrasView {
 
 impl Inner {
     fn line_strength(&self, position: u32) -> f64 {
-        if let Some(fade) = self.line_fade.get() {
-            if Some(position) == fade.outgoing {
-                return fade.outgoing_start * (1.0 - fade.progress);
-            }
-            if position == fade.incoming {
-                return fade.incoming_start + (1.0 - fade.incoming_start) * fade.progress;
-            }
-        }
-        f64::from(self.active.get() == Some(position))
+        self.line_transitions.borrow().get(&position).map_or_else(
+            || f64::from(self.active.get() == Some(position)),
+            |motion| motion.value,
+        )
     }
 
-    fn paint_fade(&self, fade: LineFade) {
-        let bound = self.visible_lines.borrow();
-        for index in fade.outgoing.into_iter().chain([fade.incoming]) {
-            if let Some(label) = bound.get(&index).and_then(glib::WeakRef::upgrade) {
-                accent_layer(&label).set_opacity(self.line_strength(index));
-            }
+    fn paint_line(&self, index: u32, strength: f64) {
+        if let Some(label) = self
+            .visible_lines
+            .borrow()
+            .get(&index)
+            .and_then(glib::WeakRef::upgrade)
+        {
+            lyric_row::emphasize(&label, strength);
         }
     }
 
     fn finish_line_transitions(&self) {
-        if let Some(animation) = self.line_animation.take()
-            && animation.state() == adw::AnimationState::Playing
-        {
-            animation.pause();
+        if let Some(tick) = self.line_tick.take() {
+            tick.remove();
         }
-        if let Some(fade) = self.line_fade.take() {
-            self.paint_fade(fade);
+        for index in self.line_transitions.take().into_keys() {
+            self.paint_line(index, f64::from(self.active.get() == Some(index)));
         }
     }
 
-    fn start_line_transition(self: &Rc<Self>, fade: LineFade) {
-        self.line_fade.set(Some(fade));
+    fn start_line_transitions(self: &Rc<Self>, old: Option<u32>, next: u32) {
+        let mut transitions = self.line_transitions.borrow_mut();
+        for index in old.into_iter().chain([next]) {
+            let from = transitions
+                .get(&index)
+                .map_or_else(|| f64::from(old == Some(index)), |motion| motion.value);
+            transitions.insert(
+                index,
+                LineTransition {
+                    started: None,
+                    from,
+                    to: f64::from(index == next),
+                    value: from,
+                },
+            );
+        }
+        drop(transitions);
+        if self.line_tick.borrow().is_some() {
+            return;
+        }
         let weak = Rc::downgrade(self);
-        let target = adw::CallbackAnimationTarget::new(move |progress| {
-            if let Some(this) = weak.upgrade()
-                && let Some(mut fade) = this.line_fade.get()
-            {
-                fade.progress = progress;
-                this.line_fade.set(Some(fade));
-                this.paint_fade(fade);
+        let tick = self.lyrics_list.add_tick_callback(move |_, clock| {
+            let Some(this) = weak.upgrade() else {
+                return glib::ControlFlow::Break;
+            };
+            let frame = clock.frame_time();
+            let mut transitions = this.line_transitions.borrow_mut();
+            transitions.retain(|&index, motion| {
+                let running = motion.advance(frame);
+                this.paint_line(index, motion.value);
+                running
+            });
+            if transitions.is_empty() {
+                this.line_tick.take();
+                glib::ControlFlow::Break
+            } else {
+                glib::ControlFlow::Continue
             }
         });
-        let animation =
-            adw::TimedAnimation::new(&self.lyrics_list, 0.0, 1.0, LINE_TRANSITION_MS, target);
-        animation.set_easing(adw::Easing::EaseInOutSine);
-        let weak = Rc::downgrade(self);
-        animation.connect_done(move |_| {
-            if let Some(this) = weak.upgrade() {
-                this.line_animation.take();
-                if let Some(fade) = this.line_fade.take() {
-                    this.paint_fade(fade);
-                }
-            }
-        });
-        self.line_animation.replace(Some(animation.clone()));
-        animation.play();
+        self.line_tick.replace(Some(tick));
     }
 
     fn request_lyrics(self: &Rc<Self>, request: LyricsRequest, force: bool) {
@@ -999,6 +1001,36 @@ impl Inner {
 }
 
 fn connect(this: &Rc<Inner>) {
+    let manager = adw::StyleManager::default();
+    let weak = Rc::downgrade(this);
+    let handler = manager.connect_high_contrast_notify(move |_| {
+        if let Some(this) = weak.upgrade()
+            && this.synchronized.get()
+        {
+            for (position, label) in this.visible_lines.borrow().iter() {
+                if let Some(label) = label.upgrade() {
+                    lyric_row::update_contrast(&label, this.line_strength(*position));
+                }
+            }
+        }
+    });
+    let settings = this.lyrics_list.settings();
+    let weak = Rc::downgrade(this);
+    let motion_handler = settings.connect_gtk_enable_animations_notify(move |settings| {
+        if !settings.is_gtk_enable_animations()
+            && let Some(this) = weak.upgrade()
+        {
+            this.finish_line_transitions();
+            this.follow_active(true);
+        }
+    });
+    let handlers = Cell::new(Some((handler, motion_handler)));
+    this.lyrics_list.connect_destroy(move |_| {
+        if let Some((contrast, motion)) = handlers.take() {
+            manager.disconnect(contrast);
+            settings.disconnect(motion);
+        }
+    });
     let weak = Rc::downgrade(this);
     this.lyrics_list.connect_unmap(move |_| {
         if let Some(this) = weak.upgrade() {
@@ -1165,23 +1197,9 @@ fn schedule_visible(this: &Rc<Inner>) {
     });
 }
 
-fn base_label(item: &gtk::ListItem) -> Option<gtk::Label> {
-    item.child()
-        .and_downcast::<gtk::Overlay>()?
-        .child()
-        .and_downcast()
-}
-
-fn accent_layer(label: &gtk::Label) -> gtk::Label {
-    label
-        .next_sibling()
-        .and_downcast()
-        .expect("lyric accent overlay")
-}
-
 fn style_line(label: &gtk::Label, position: u32, active: Option<u32>, synchronized: bool) {
     let (class, description) = if !synchronized {
-        ("karin-lyrics-stanza", "Без синхронизации")
+        ("lyrics-plain", "Без синхронизации")
     } else if active == Some(position) {
         ("lyrics-active", "Текущая строка")
     } else if active.is_some_and(|active| position < active) {
@@ -1193,16 +1211,12 @@ fn style_line(label: &gtk::Label, position: u32, active: Option<u32>, synchroniz
         return;
     }
     for class in [
-        "karin-lyrics-line",
-        "karin-lyrics-stanza",
+        "lyrics-plain",
         "lyrics-active",
         "lyrics-past",
         "lyrics-future",
     ] {
         label.remove_css_class(class);
-    }
-    if synchronized {
-        label.add_css_class("karin-lyrics-line");
     }
     label.add_css_class(class);
     label.update_property(&[gtk::accessible::Property::Description(description)]);

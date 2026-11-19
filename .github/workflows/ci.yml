@@ -202,6 +202,7 @@ jobs:
               'native_library_interactions_confirmed_fixture',
               'native_catalog_rows_mouse_keyboard_details_and_delivery',
               'native_search_retry_normalized_results_and_density',
+              'native_global_search_measured_slot_and_motion',
               'native_music_session_catalog_queue_and_logout',
               'native_music_context_mpris_shared_player_and_cleanup',
               'native_wave_shared_player_feedback_batches_and_cleanup',
@@ -426,6 +427,19 @@ jobs:
           GSK_DEBUG: full-redraw
         run: |
           KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/v08-application/scale-1/search" dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_search_retry_normalized_results_and_density -- --ignored --test-threads=1
+      - name: Global search replaces the measured tabs at both scales
+        env:
+          GTK_A11Y: none
+          G_DEBUG: fatal-warnings
+          GSK_RENDERER: cairo
+          GDK_DPI_SCALE: 1
+        run: |
+          for scale in 1 2; do
+            export GDK_SCALE="$scale"
+            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/v08-application/scale-$scale/search"
+            screen="$((2800 * scale))x$((1600 * scale))x24"
+            dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_global_search_measured_slot_and_motion -- --ignored --test-threads=1 --nocapture
+          done
       - name: Account menu, safe default cancellation and explicit confirmed logout
         env:
           GTK_A11Y: none

@@ -390,6 +390,15 @@ impl MusicPane {
         ] {
             button.set_widget_name(name);
             button.set_hexpand(true);
+            // Keep each full label for measurement and accessibility, and
+            // let GTK shorten its rendering when the window runs out of room.
+            let fit_label = |button: &gtk::ToggleButton| {
+                if let Some(label) = button.child().and_downcast::<gtk::Label>() {
+                    label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+                }
+            };
+            fit_label(button);
+            button.connect_label_notify(fit_label);
             segments.append(button);
         }
         nav_wave.set_action_name(Some("win.music-home"));

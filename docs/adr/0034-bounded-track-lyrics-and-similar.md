@@ -4,7 +4,7 @@
 
 Status: v0.8 implementation decision; live content acceptance is separate.
 Date: 2026-11-14
-Refined: 2026-11-18
+Refined: 2026-11-20
 Extends: ADR-0016, ADR-0022 and ADR-0031
 
 ## Context
@@ -67,20 +67,37 @@ no fabricated timestamps or editable TextView stand in for karaoke. A native
 Lyrics menu can copy the complete displayed Unicode text to the local clipboard,
 with LRC timestamps/metadata stripped by the existing parser. Selectable labels
 retain ordinary fragment selection and Ctrl+C. Synchronized lines use GtkListView
-virtualization and semantic past/current/future contrast. On a natural line
-change, a single 220 ms AdwTimedAnimation fades the accent and leading marker
-between the previous and current indices. The Lyrics view owns the transition.
-Rows keep fixed geometry and apply the current emphasis on binding, including
-when Follow scrolls a row into view during the transition.
-A Seek jump updates emphasis and the Follow target immediately. For adjacent
-lines, automatic following centers the active area with the existing native
-220 ms adjustment animation. Reduced motion suppresses decorative transitions
-while preserving the current-line marker. High Contrast keeps the marker and
-readable text. The native animations own no playback clock. Wheel, keyboard
-and touch scrolling suspend following until the user requests it again.
-Highlighting uses Playing/Paused/Ready
-position only while FollowingCurrent and the opaque inspected/current occurrence
-bindings agree. On entering Lyrics from an inspected row, bind to the playhead
+virtualization. Each `LyricRow` paints one selectable, start-aligned GtkLabel
+at a Pango scale of 1.00 to 1.28. Variable fonts receive a continuous
+`wght` value from 400 to 700. For static fonts, GTK snapshots the same Pango
+layout at adjacent subpixel offsets across a width up to 0.06 em. It applies
+the theme foreground opacity once to the combined strokes. The letters grow
+in weight while their advances follow the Pango size. GTK draws text selection and
+visible focus directly. Themed foreground opacity rises from 76% to 100%.
+
+A second GtkLabel measures that specific line at maximum emphasis, wrapped at
+the available width. The row uses GTK height-for-width measurement and paints
+only the selectable label. Each line's reservation keeps its neighbors stable
+through the transition. The scroll view allocates a native scrollbar gutter
+so wrapped text stays clear of the scrollbar while Follow is moving.
+
+At a natural line boundary the old line loses size, weight and contrast as
+the new one gains them. The Lyrics view uses one GTK frame-clock callback for
+all moving rows. Both directions start on the same frame, with Libadwaita
+sine easing over 300 ms. If another timestamp arrives during the transition,
+the newly outgoing line shrinks from its current emphasis while earlier
+outgoing lines finish shrinking on their original schedules. A recycled row reads
+the current position and emphasis when it binds, including during Follow. A
+seek applies the final styles and Follow destination immediately. Normal Follow
+centers the active area with a native adjustment animation. Reduced Motion
+selects the enlarged, bold current line immediately. High Contrast keeps all
+text at full foreground opacity. Wheel, keyboard and touch scrolling suspend
+centering until Follow is requested again. Playback continues to select the
+current line during manual scrolling.
+
+Highlighting uses Playing/Paused/Ready position only while FollowingCurrent
+and the opaque inspected/current occurrence bindings agree. On entering Lyrics
+from an inspected row, bind to the playhead
 when the source context proves it is the exact current occurrence. Inspected
 duplicates and ambiguous ID-only selections keep their own identity. Stop, EOS or another inspected occurrence clears the
 active line. Changing selection/account clears old content and retires its
@@ -100,6 +117,22 @@ queue/player. Reactions share the existing write gate/independent confirmation
 and do not start unsolicited per-row membership reads.
 
 ## Evidence and consequences
+
+Yandex Music documents synchronized lyrics that follow playback and a separate
+view for reading plain text.
+[Yandex Music player guide](https://yandex.ru/support/music/ru/listening-and-settings/player-functions#tekstomuzyka).
+
+The released Cassette GTK row gives both label sizes the same start alignment
+and wrapping. It uses the theme's `title-4` and `title-1` sizes. Its panel
+demotes the old line and promotes the new one by switching label visibility.
+The published screenshot shows the larger, heavier current line amid quieter
+neighbors. This visual hierarchy informed the Karin design. Karin interpolates
+the size of the glyphs in its visible label using the existing player snapshots
+and selection model.
+[GitHub v0.2.5 row template](https://github.com/Rirusha/Cassette/blob/b1c55e5fb71e60c9ff5421db42695f4dd5526a26/data/ui/lyrics-line.ui#L11-L35) ·
+[line selection](https://github.com/Rirusha/Cassette/blob/b1c55e5fb71e60c9ff5421db42695f4dd5526a26/src/widgets/lyrics/lyrics-panel.vala#L34-L47) ·
+[visibility binding](https://github.com/Rirusha/Cassette/blob/b1c55e5fb71e60c9ff5421db42695f4dd5526a26/src/widgets/lyrics/lyrics-line.vala#L60-L74) ·
+[GitLab synchronized-text screenshot](https://gitlab.gnome.org/Rirusha/Cassette/-/blob/c09c69a2d7e84be25bf03111a98c5e462e68d21d/data/images/3-sync-lyrics.png).
 
 The endpoint shapes were compared with current MarshalX
 `9ca132e5c18a72aab779c1fc68c169380a9357d0` track/supplement/similar models

@@ -539,7 +539,11 @@ impl Drop for GeneratedDirectory {
 }
 
 pub(in crate::ui::music) fn generated_mp3() -> Vec<u8> {
-    // Original four-second signal, encoded by the installed normal MP3 plugin.
+    generated_mp3_for_seconds(4)
+}
+
+pub(in crate::ui::music) fn generated_mp3_for_seconds(seconds: i32) -> Vec<u8> {
+    // Original signal, encoded by the installed normal MP3 plugin.
     // A private temporary encoding file is removed before HTTP playback; these
     // bytes never contain service music or establish real Music audibility.
     gst::init().unwrap();
@@ -561,7 +565,7 @@ pub(in crate::ui::music) fn generated_mp3() -> Vec<u8> {
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
     let pipeline = gst::Pipeline::new();
     let source = gst::ElementFactory::make("audiotestsrc")
-        .property("num-buffers", 400_i32)
+        .property("num-buffers", 100 * seconds)
         .property("samplesperbuffer", 441_i32)
         .property("volume", 0.03_f64)
         .build()

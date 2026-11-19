@@ -561,31 +561,19 @@ and use its ordinary launcher. Run the following sequence once in each build.
 1. **Play and read.** Start an entitled track with line-timed lyrics, open Lyrics
    from the footer and let several lines advance naturally. Also open Lyrics
    from the playing row's Track Info menu. With desktop animations enabled,
-   watch the old line lose emphasis while the new line and its edge marker gain
-   emphasis on both paths. Suspend Follow by scrolling and watch a boundary with both
-   rows visible. Resume Follow, pause and seek both ways. Check immediate emphasis
-   with Reduced Motion, readability in High Contrast and retirement on Next.
-   Plain text shows ordinary stanzas. LRCLIB lookup requires explicit consent.
-2. **Resize and filter.** In Liked, a playlist, album and artist track list, resize
-   through approximately 420, 900, 1440 and 1920 logical pixels and maximize.
-   Open and close the side panel. The field should fill the track-list column
-   with the square sort button visible on its right. Try Light/Dark and the
-   available 1×/2× scales. Type a Unicode match, use Tab and Enter/Space to
-   change sort, clear the query and check that playback and the queue continue.
-3. **Search from a detail page.** From an album or playlist press Ctrl+F. Watch
-   the field reveal and the magnifier move. Before typing, confirm the original
-   detail is still visible. Type quickly, wait for results and open a result
-   detail, then go Back. Clear the field and check the original detail returns
-   with focus ready for input. Submit again with Enter and close with Escape.
-   Repeat using the magnifier and Home action. Switch tabs during a search and
-   confirm the chosen tab retains focus and content when the response arrives.
-4. **Check playback continuity.** Keep a duplicate queue occurrence, note its
-   position, volume, Shuffle/Repeat and KDE metadata. Pause a real track for
-   at least ten minutes, record the interval and resume once. Check heard audio,
-   position and EOS/Next. Across the two builds cover a cached and an uncached
-   track. Verify edited queue order after restart, and Stop/logout cleanup.
+   the outgoing letters should visibly shrink while the incoming letters grow
+   and gain weight. Scroll by hand and watch another boundary. Tap Follow,
+   pause and seek both ways. Check that a long line fits, the current line
+   stays large when paused and Reduced Motion selects its final size immediately.
+2. **Search from a detail page.** From an album or playlist, open search with
+   Ctrl+F. The focused field should replace the three tabs, even maximized,
+   with the toggle in place and the detail still visible. Type, open a result
+   and go Back. Clear using the icon, then click the empty field. The detail
+   and field should stay open. Click blank background to restore the tabs.
+   Repeat briefly at a narrow width using the toggle and Escape. Continue
+   playback throughout.
 
-Record the commit, packaging type and observed result for each step.
-Keep account details, song text and screenshots containing personal data on
-Fedora. The [earlier v0.8 checklist](https://github.com/tracerxbrhd/karin/blob/55b9e42cc0b35851014717a3620c7aa00f58b9a7/docs/BUILDING.md#v08-final-fedora-acceptance)
-retains the detailed background for queue, playlist, cache and long-Pause cases.
+Record the commit, package, desktop scale/theme and observed result for search
+and Lyrics in one reply. Keep account details, song text and personal screenshots
+on Fedora. The earlier collection-filter and playback-continuity procedures remain
+in the [previous checklist](https://github.com/tracerxbrhd/karin/blob/ffcea0d99ae869abd031ea508dc5e9833be213e0/docs/BUILDING.md#v08-final-fedora-acceptance).

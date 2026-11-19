@@ -42,12 +42,22 @@ bounds do not justify skipping containment or guessing coordinates.
   Pause/Continue/Retry and retired replies. Count actual HTTP work for fast typing,
   Enter, clearing, navigation and reusing an index beyond 2,000 positions. Preserve
   the ordinary 2,000-position/100-page bounds, initial fill limit and indexed
-  20,000-position/50-position-batch/200-row-window bounds. Exercise debounced
-  global search from the top button, Ctrl+F and Home. Sample the moving icon and
-  revealing field in native frames. Check focus, unchanged origin before input,
-  sections/paging/Retry after submission, clear and Escape from a detail origin,
-  and response retirement after a tab switch or logout.
+  20,000-position/50-position-batch/200-row-window bounds.
   See [ADR-0035](adr/0035-incremental-whole-collection-index.md).
+- For global search, measure the closed three-tab group, open entry, toggle
+  bounds, total group width and HeaderBar height in logical pixels at 420×720,
+  900×650, 1440×900, 1920×1080 and maximized. The entry fills the former tab
+  slot at each size. The toggle and group center stay in place. Inspect native
+  closed, intermediate and open frames, including reverse motion, Light/Dark,
+  1×/2× and immediate Reduced Motion endpoints.
+- Open the same entry via the toggle, Ctrl+F and Home. From a detail route,
+  check focus before typing, the 350 ms debounce, immediate Enter, results in
+  all four sections, paging, Retry and Back from a result detail. Click inside
+  empty entry padding, use its clear icon, and activate a result or menu with
+  the pointer. A background click, Escape with text, or a second toggle click
+  restores the origin and tabs. Clear alone restores the origin with the field
+  open. Exercise rapid reversals, deliberate navigation and logout with a late
+  response in flight.
 - Test the whole metadata Info target and independent Like/Dislike focus. A
   reaction click must not open Info; unknown Dislike stays hidden and pending
   state is not optimistic. An unavailable Dislike must not disable a separately
@@ -78,14 +88,25 @@ playback preserve mode; explicit close/Back restores focus. Content switching
 must not close/reopen the host. Current-occurrence changes resume following;
 inspecting details must not play. See [ADR-0022](adr/0022-universal-music-panel.md).
 
-Play original fixture audio through PlaybackController with Lyrics visible.
-Across a natural LRC boundary compare rendered pixels inside both affected
-rows before, during and after emphasis changes, accounting for Follow movement.
-Require multiple distinct intermediate frames and stable row geometry.
-Run the same passage with Reduced Motion and check immediate emphasis. Check seek, pause, next/previous/EOS, virtual row reuse, old-track
-retirement and manual scrolling without recentering before Follow. Verify
-instant current-line emphasis with reduced motion, readable High Contrast,
-and plain selectable TEXT without synchronization. [ADR-0034](adr/0034-bounded-track-lyrics-and-similar.md).
+Play original fixture audio and LRC through the ordinary PlaybackController,
+snapshot subscription, active-line lookup and mapped GTK view. Exercise both
+the Player Bar and the current row's Track Info menu. At a natural boundary
+capture the frame before the transition, its start, the nearest painted frames
+to 25/50/75% of the 300 ms duration, and the settled frame. Record actual frame
+times and check both glyph widths against the easing curve. Compare
+each row's glyph ink with its own endpoints after accounting for scroll and
+device scale. Both rows must change physical glyph size in opposite directions
+in the same sequence. Report measured bounds and inspect the images for
+hierarchy, clipping, overlap, legibility and stable Follow movement.
+
+Include a long wrapped Cyrillic/Unicode line at narrow and wide allocations,
+Light/Dark, High Contrast and 1×/2×. Reduced Motion must reach the enlarged,
+legible current line on the first painted update. Check pause/resume,
+seek forward/back, equal timestamps, next/previous/EOS, source renewal,
+recycled rows, rapid track changes, closing Lyrics and logout. Manual scroll
+suspends centering while the active line continues to update. Follow returns
+to that line. Plain TEXT retains selectable stanzas.
+[ADR-0034](adr/0034-bounded-track-lyrics-and-similar.md).
 
 With normal animation enabled, observe opening and closing near 0/25/50/75/100%
 openness using five distinct native frame times and indices. Closing is presented

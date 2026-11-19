@@ -63,13 +63,19 @@ preserving order, duplicates, unavailable records and paging. Optional display
 fields cannot invalidate valid IDs. Reaction/playlist writes require independent
 confirmation; ambiguous POSTs are not replayed.
 
-The top navigation owns the global search entry. Opening it from the search
-button, Ctrl+F or Home focuses the field over the existing route. After 350 ms
-of quiet input, or on Enter, the catalog presents results for a nonempty query.
-Clear restores the originating route with the entry open. Closing search
-returns focus to navigation. A new tab selection takes precedence over the
-original route. The bounded search lane guards results, paging and Retry with
-the current request generation. Collection filters project their own metadata.
+The top navigation owns one global search entry. Its field replaces the three
+tabs within their measured natural width, including their layout spacing. At
+narrow widths the available allocation constrains this slot. A separate
+compact toggle stays beside it throughout the 220 ms native reveal. Both states
+share the same group center and HeaderBar height. The top button, Ctrl+F and Home focus
+the field over the existing route. After 350 ms of quiet input, or on Enter,
+the catalog presents results for a nonempty query. Clear restores the
+originating route with the entry open. Escape, the toggle and a click on empty
+space dismiss search. The pointer target determines whether a click is on
+background, preserving entry editing and interactive result/menu actions.
+A new tab selection takes precedence over the original route. The bounded
+search lane guards results, paging and Retry with the current request generation.
+Collection filters project their own metadata.
 
 `music::interactions` distinguishes Like, Unlike, account Dislike and removing
 Dislike. Current-track reactions use compact live reads of both collections,
@@ -135,12 +141,15 @@ scrolled lyric stays under user control until following is requested again.
 External requests disclose public
 metadata sharing and never receive Music tokens/account or track IDs. Text is
 memory-only and source-labelled. TEXT uses selectable stanza/line labels; LRC
-uses virtualized lines, semantic past/current/future states and native scrolling.
-A 220 ms Libadwaita timed animation belongs to the Lyrics view. Its progress
-controls the accent and leading marker on the previous and current lines.
-A recycled row takes its emphasis from the current transition and position
-when bound. Seek applies the endpoint immediately. Reduced Motion preserves
-the same current-line emphasis with direct updates. Copy exports only the displayed text to the local
+uses virtualized lines and native scrolling. A height-for-width GTK widget
+reserves the height of its own text wrapped at maximum emphasis. It paints a
+selectable label with interpolated Pango scale, stroke weight and contrast.
+One GTK frame-clock callback grows the new line and shrinks its predecessor
+over 300 ms. Rapid boundaries redirect the affected line from its current
+emphasis. A recycled row takes its emphasis from the current transition and
+position when bound. Seek and Reduced Motion apply the final size and weight
+immediately.
+Copy exports only the displayed text to the local
 clipboard. Opening Lyrics starts the Yandex read; LRCLIB remains an explicitly
 disclosed user request. Track Info displays related tracks under an ordinary
 heading, without expanders or a nested lyrics viewport. Similar rows use one

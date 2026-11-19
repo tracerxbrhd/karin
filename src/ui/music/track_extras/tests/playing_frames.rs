@@ -2,16 +2,24 @@
 //! Inspect the ordinary mapped application's rendered text during real playback.
 
 use super::*;
-use gtk::{gdk, graphene, gsk};
+use gtk::{graphene, gsk};
+
+#[path = "glyph_pixels.rs"]
+mod glyph_pixels;
+use glyph_pixels::verify_transition;
 
 struct Frame {
     frame_time: i64,
     position: Duration,
     node: gsk::RenderNode,
+    scroll: f64,
+    active: Option<u32>,
+    settled: bool,
+    rows: [graphene::Rect; 3],
 }
 
 pub(super) fn ordinary_lyrics_playback(app: &adw::Application) {
-    let fixture = Fixture::new();
+    let fixture = Fixture::with_karaoke_audio(true);
     let ui = window_for(app, &fixture);
     let window = &ui.window;
     let this = &ui.music.controller;
@@ -90,17 +98,42 @@ pub(super) fn ordinary_lyrics_playback(app: &adw::Application) {
     );
     let style = adw::StyleManager::default();
     let original_scheme = style.color_scheme();
-    let originally_dark = style.is_dark();
-    for motion in [true, false] {
-        if !motion {
-            settings.set_gtk_enable_animations(false);
-            style.set_color_scheme(if originally_dark {
-                adw::ColorScheme::ForceLight
-            } else {
-                adw::ColorScheme::ForceDark
-            });
-            pump_until(|| style.is_dark() != originally_dark);
+    let hc = style.is_high_contrast();
+    assert_eq!(hc, window.has_css_class("karin-high-contrast"));
+    // Keep both sampled pairs fully visible at the top of the text. The
+    // third boundary scrolls to row 11 and is measured separately below.
+    super::super::super::player::tests::resize_player_window(&ui, 900, 960);
+    let surface = std::iter::successors(view.lyrics_widget.parent(), gtk::Widget::parent)
+        .find(|widget| widget.has_css_class("music-information-view"))
+        .expect("mapped native sidebar with its themed background");
+    let host = surface.parent().unwrap();
+    let panel = || surface.compute_bounds(&host).unwrap();
+    for (dark, motion) in [(false, true), (true, true), (true, false), (false, false)] {
+        settings.set_gtk_enable_animations(motion);
+        style.set_color_scheme(if dark {
+            adw::ColorScheme::ForceDark
+        } else {
+            adw::ColorScheme::ForceLight
+        });
+        pump_until(|| style.is_dark() == dark);
+        if dark {
+            // Reopen the same synchronized selection through the footer in a
+            // compact window. No extra provider lookup or timer is involved.
+            click(window, id, &this.track_pane.close, false);
+            pump_until(|| !view.lyrics_widget.is_mapped());
+            super::super::super::player::tests::resize_player_window(&ui, 420, 900);
+            click(window, id, &this.widgets.lyrics, false);
+            pump_until(|| view.lyrics_widget.is_mapped() && view.inner.synchronized.get());
+            assert!(this.information_follows_current_playback());
+        } else {
+            super::super::super::player::tests::resize_player_window(&ui, 900, 960);
         }
+        let theme = match (hc, dark) {
+            (false, false) => "light",
+            (false, true) => "dark",
+            (true, false) => "hc-light",
+            (true, true) => "hc-dark",
+        };
         let serial = this.music_snapshot().unwrap().seek_serial;
         this.seek_music(Duration::from_millis(160));
         pump_until(|| {
@@ -109,43 +142,46 @@ pub(super) fn ordinary_lyrics_playback(app: &adw::Application) {
                 && view.inner.active.get() == Some(0)
         });
         settle();
-        let region = |row| {
+        let rows = [0, 1, 5].map(|index| {
             let label = view
                 .inner
                 .visible_lines
                 .borrow()
-                .get(&row)
+                .get(&index)
                 .and_then(glib::WeakRef::upgrade)
                 .unwrap();
             assert!(label.is_mapped());
-            let bounds = label.compute_bounds(window).unwrap();
-            let accent = accent_layer(&label);
-            assert_eq!(
-                accent.text(),
-                label.text(),
-                "accent must paint the same bound line"
-            );
-            assert_eq!(
-                accent.compute_bounds(window),
-                Some(bounds),
-                "accent must fit its own measured row"
-            );
-            let viewport = view.inner.lyrics_scroll.compute_bounds(window).unwrap();
-            assert!(
-                bounds.y() >= viewport.y()
-                    && bounds.y() + bounds.height() <= viewport.y() + viewport.height()
-            );
-            bounds
-        };
-        let regions = [region(0), region(1), region(5)];
-        // Sampling the complete application's painted GSK nodes avoids styling
-        // labels in isolation. Download only the two row regions after playback.
+            label.parent().expect("measured lyric row")
+        });
+        let viewport = view.inner.lyrics_scroll.compute_bounds(&host).unwrap();
+        // The scroll widget includes its native scrollbar. Measure physical
+        // ink only in its exposed content column, including the final pixel
+        // next to the scrollbar in the compact footer-opened pane.
+        let bar = view
+            .inner
+            .lyrics_scroll
+            .vscrollbar()
+            .compute_bounds(&host)
+            .unwrap();
+        let exposed_width = viewport.width().min(bar.x() - viewport.x());
+        let viewport =
+            graphene::Rect::new(viewport.x(), viewport.y(), exposed_width, viewport.height());
+        let horizontal = view.inner.lyrics_scroll.hadjustment();
+        assert!(
+            horizontal.upper() <= horizontal.page_size() + 1.0,
+            "lyrics overflow horizontally"
+        );
+        let adjustment = view.inner.lyrics_scroll.vadjustment();
+        // Retain the actual mapped scene and row positions from each paint.
+        // Texture downloads happen after playback so sampling cannot drive it.
         let frames = Rc::new(RefCell::new(Vec::new()));
         let clock = window.frame_clock().unwrap();
         let handler = clock.connect_after_paint({
             let frames = frames.clone();
-            let paintable = gtk::WidgetPaintable::new(Some(window));
             let controller = Rc::downgrade(this);
+            let lyrics = view.inner.clone();
+            let surface = surface.clone();
+            let host = host.clone();
             move |clock| {
                 let Some(snapshot) = controller.upgrade().and_then(|c| c.music_snapshot()) else {
                     return;
@@ -156,31 +192,39 @@ pub(super) fn ordinary_lyrics_playback(app: &adw::Application) {
                 let Some(position) = snapshot.position else {
                     return;
                 };
-                // Observe one paintable across the run. Attaching a fresh
-                // paintable to the full window every frame needlessly
-                // invalidates GTK's observer and snapshot caches under HiDPI.
-                let image = paintable.current_image();
+                // After GTK has painted the mapped sidebar, snapshot_child
+                // returns its cached node, including its normal theme and
+                // clipping. Observing the subtree leaves toplevel damage and
+                // its idle publication schedule out of the sampling path.
                 let scene = gtk::Snapshot::new();
-                image.snapshot(
-                    &scene,
-                    f64::from(image.intrinsic_width()),
-                    f64::from(image.intrinsic_height()),
-                );
+                host.snapshot_child(&surface, &scene);
                 if let Some(node) = scene.to_node() {
                     frames.borrow_mut().push(Frame {
                         frame_time: clock.frame_time(),
                         position,
                         node,
+                        scroll: adjustment.value(),
+                        active: lyrics.active.get(),
+                        settled: lyrics.line_tick.borrow().is_none(),
+                        rows: rows.each_ref().map(|r| r.compute_bounds(&host).unwrap()),
                     });
                 }
             }
         });
         this.toggle_music();
         pump_until(|| {
-            this.music_snapshot().is_some_and(|s| {
-                s.state == PlaybackState::Playing
-                    && s.position.is_some_and(|p| p >= Duration::from_millis(2950))
-            }) && view.inner.active.get() == Some(5)
+            let frames = frames.borrow();
+            frames.last().is_some_and(|f| {
+                f.active == Some(11)
+                    && f.settled
+                    && f.position >= Duration::from_millis(5500)
+                    && view
+                        .inner
+                        .scroll_animation
+                        .borrow()
+                        .as_ref()
+                        .is_none_or(|a| a.state() != adw::AnimationState::Playing)
+            })
         });
         clock.disconnect(handler);
         this.pause_music();
@@ -188,28 +232,43 @@ pub(super) fn ordinary_lyrics_playback(app: &adw::Application) {
             this.music_snapshot()
                 .is_some_and(|s| s.state == PlaybackState::Paused)
         });
-        assert_eq!(
-            regions,
-            [region(0), region(1), region(5)],
-            "row capture geometry moved"
-        );
         let samples = frames.take();
-        for (old, next, milliseconds, name) in
-            [(0, 1, 1000, "adjacent"), (1, 2, 2200, "simultaneous")]
-        {
-            let transition = Duration::from_millis(milliseconds);
-            let start = transition - Duration::from_millis(350);
-            let end = transition + Duration::from_millis(600);
-            let frames: Vec<_> = samples
+        verify_follow(&samples, motion);
+        for (old, next, old_index, next_index, timestamp, name) in [
+            (0, 1, 0, 1, 1400, "adjacent"),
+            (1, 2, 1, 5, 3300, "simultaneous"),
+        ] {
+            // Locate the actual LRC handoff and its settled GTK presentation.
+            // Only the scene pixels below determine the two physical scales.
+            let changed = samples
                 .iter()
-                .filter(|f| (start..=end).contains(&f.position))
-                .collect();
-            verify_transition(window, &frames, [regions[old], regions[next]], motion, name);
+                .position(|f| f.active == Some(next_index))
+                .unwrap();
+            assert!(samples[changed].position >= Duration::from_millis(timestamp));
+            let before = samples[..changed]
+                .iter()
+                .rposition(|f| f.active == Some(old_index) && f.settled)
+                .unwrap();
+            let after = samples[changed..]
+                .iter()
+                .rposition(|f| f.active == Some(next_index) && f.settled)
+                .unwrap()
+                + changed;
+            let frames: Vec<_> = samples[before..=after].iter().collect();
+            verify_transition(
+                window,
+                &frames,
+                [old, next],
+                [panel(), viewport],
+                motion,
+                name,
+                theme,
+            );
         }
     }
     settings.set_gtk_enable_animations(true);
     style.set_color_scheme(original_scheme);
-    // Let the decoded four-second MP3 finish normally. Both EOS and a
+    // Let the decoded seven-second MP3 finish normally. Both EOS and a
     // subsequent Previous must follow the new occurrence and retire old LRC.
     this.toggle_music();
     let plain_for = |id: &str| {
@@ -230,150 +289,43 @@ pub(super) fn ordinary_lyrics_playback(app: &adw::Application) {
     ui.close_for_smoke()(true);
 }
 
-fn verify_transition(
-    window: &adw::ApplicationWindow,
-    frames: &[&Frame],
-    rows: [graphene::Rect; 2],
-    motion: bool,
-    name: &str,
-) {
+// The 5 s boundary advances across a timestamp group to row 11. The
+// remaining stanzas make this a real, nonzero Follow movement in both widths.
+fn verify_follow(samples: &[Frame], motion: bool) {
+    let changed = samples.iter().position(|f| f.active == Some(11)).unwrap();
+    let passage = &samples[changed - 1..];
+    let start = passage.first().unwrap().scroll;
+    let end = passage.last().unwrap().scroll;
     assert!(
-        frames.len() >= 3,
-        "capture natural Playing frames across {name}"
-    );
-    let scale = window.scale_factor();
-    let renderer = window.renderer().unwrap();
-    let crop = |frame: &Frame, rect: graphene::Rect| {
-        let snapshot = gtk::Snapshot::new();
-        snapshot.scale(scale as f32, scale as f32);
-        snapshot.append_node(&frame.node);
-        let scale = scale as f32;
-        let crop = graphene::Rect::new(
-            rect.x() * scale,
-            rect.y() * scale,
-            rect.width() * scale,
-            rect.height() * scale,
-        );
-        renderer.render_texture(snapshot.to_node().unwrap(), Some(&crop))
-    };
-
-    let save_frame = |index: usize, phase: &str| {
-        if let Ok(directory) = std::env::var("KARIN_TEST_CAPTURE_DIR") {
-            let filename =
-                format!("v08-playing-lyrics-{name}-motion-{motion}-{phase}-scale{scale}.png");
-            crop(frames[index], rows[0].union(&rows[1]))
-                .save_to_png(std::path::Path::new(&directory).join(filename))
-                .unwrap();
-        }
-    };
-    save_frame(0, "before");
-    save_frame(frames.len() - 1, "after");
-    let mut progress = Vec::new();
-    for rect in rows {
-        // Exclude the leading marker. Both independent comparisons must detect
-        // intermediate color in actual glyphs, even when Follow holds still.
-        let text = graphene::Rect::new(
-            rect.x() + 20.,
-            rect.y(),
-            (rect.width() - 24.).min(230.),
-            rect.height(),
-        );
-        let pixels = |texture: gdk::Texture| {
-            let stride = texture.width() as usize * 4;
-            let mut data = vec![0; stride * texture.height() as usize];
-            texture.download(&mut data, stride);
-            data
-        };
-        let before = pixels(crop(frames.first().unwrap(), text));
-        let after = pixels(crop(frames.last().unwrap(), text));
-        let mask = before
-            .iter()
-            .zip(&after)
-            .enumerate()
-            .filter_map(|(i, (&a, &b))| {
-                // The first pixel is the row's empty top padding. Require ink
-                // at both endpoints to exclude the fading background tint.
-                let channel = i % 4;
-                (a.abs_diff(b) >= 20
-                    && a.abs_diff(before[channel]) >= 45
-                    && b.abs_diff(after[channel]) >= 45)
-                    .then_some(i)
-            })
-            .collect::<Vec<_>>();
-        assert!(
-            mask.len() >= 100,
-            "{name}: only {} glyph channels changed visibly between endpoints (row {:?}, extent {:?}, maximum delta {})",
-            mask.len(),
-            rect,
-            text,
-            before
-                .iter()
-                .zip(&after)
-                .map(|(&a, &b)| a.abs_diff(b))
-                .max()
-                .unwrap()
-        );
-        let denominator: f64 = mask
-            .iter()
-            .map(|&i| (f64::from(after[i]) - f64::from(before[i])).powi(2))
-            .sum();
-        progress.push(
-            frames
-                .iter()
-                .map(|frame| {
-                    let sample = pixels(crop(frame, text));
-                    mask.iter()
-                        .map(|&i| {
-                            (f64::from(sample[i]) - f64::from(before[i]))
-                                * (f64::from(after[i]) - f64::from(before[i]))
-                        })
-                        .sum::<f64>()
-                        / denominator
-                })
-                .collect::<Vec<_>>(),
-        );
-    }
-    for fractions in &progress {
-        assert!(
-            fractions.windows(2).all(|pair| pair[1] + 0.025 >= pair[0]),
-            "{name}: a settled row flashed back toward its original emphasis"
-        );
-    }
-    let mut intermediate = Vec::new();
-    for (i, (&old, &new)) in progress[0].iter().zip(&progress[1]).enumerate() {
-        if motion
-            && (0.02..0.98).contains(&old)
-            && (0.02..0.98).contains(&new)
-            && intermediate
-                .last()
-                .is_none_or(|&prev: &usize| (new - progress[1][prev]).abs() > 0.02)
-        {
-            intermediate.push(i);
-        }
-        if !motion {
-            assert!(
-                !(0.02..0.98).contains(&old) && !(0.02..0.98).contains(&new),
-                "Reduced Motion interpolated {name} text at frame {i}: {old:.2}, {new:.2}"
-            );
-        }
-    }
-    let longest_gap_us = frames
-        .windows(2)
-        .map(|p| p[1].frame_time - p[0].frame_time)
-        .max()
-        .unwrap_or_default();
-    eprintln!(
-        "Karin ordinary lyric playback: {name} motion={motion} captured={} distinct-intermediate={} max-frame-gap-us={longest_gap_us}",
-        frames.len(),
-        intermediate.len()
+        end - start > 20.0,
+        "ordinary Follow must move: {start} → {end}"
     );
     if motion {
+        let mut positions = Vec::new();
+        for frame in passage {
+            if frame.scroll > start + 1.0
+                && frame.scroll < end - 1.0
+                && positions
+                    .last()
+                    .is_none_or(|previous: &f64| (frame.scroll - previous).abs() > 1.0)
+            {
+                positions.push(frame.scroll);
+            }
+        }
         assert!(
-            intermediate.len() >= 2,
-            "{name}: both rendered glyph regions must interpolate over multiple distinct frames: {progress:.2?}"
+            positions.len() >= 3,
+            "Follow jumped to the next center: {positions:?}"
         );
-    }
-    for (n, &index) in intermediate.iter().enumerate() {
-        save_frame(index, &format!("during-{n:02}"));
+        assert!(
+            passage.windows(2).all(|pair| {
+                let delta = pair[1].scroll - pair[0].scroll;
+                delta >= -1.0 && delta <= (end - start) * 0.5
+            }),
+            "Follow reversed or jumped over half the displacement in one frame: {:?}",
+            passage
+                .iter()
+                .map(|f| (f.frame_time, f.scroll))
+                .collect::<Vec<_>>()
+        );
     }
 }

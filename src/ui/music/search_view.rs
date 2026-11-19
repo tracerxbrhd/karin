@@ -57,6 +57,34 @@ impl Controller {
                 glib::Propagation::Proceed
             });
             window.add_controller(keys);
+
+            let click = gtk::GestureClick::new();
+            click.set_button(gtk::gdk::BUTTON_PRIMARY);
+            click.set_propagation_limit(gtk::PropagationLimit::SameNative);
+            click.set_propagation_phase(gtk::PropagationPhase::Capture);
+            // Observe both ends without claiming the sequence. An action can
+            // change the page before release and a drag can leave an entry.
+            let began_on_backdrop = Rc::new(Cell::new(false));
+            let began = began_on_backdrop.clone();
+            let weak = Rc::downgrade(self);
+            click.connect_pressed(move |_, _, x, y| {
+                began.set(
+                    weak.upgrade()
+                        .is_some_and(|this| this.search_backdrop_at(x, y)),
+                );
+            });
+            let began = began_on_backdrop.clone();
+            click.connect_stopped(move |_| began.set(false));
+            let weak = Rc::downgrade(self);
+            click.connect_released(move |_, _, x, y| {
+                if began_on_backdrop.replace(false)
+                    && let Some(this) = weak.upgrade()
+                    && this.search_backdrop_at(x, y)
+                {
+                    this.close_global_search(true);
+                }
+            });
+            window.add_controller(click);
         }
         let weak = Rc::downgrade(self);
         // A replacement can emit "changed" twice, once for the temporary
@@ -73,6 +101,52 @@ impl Controller {
                 this.search(0);
             }
         });
+    }
+
+    fn search_backdrop_at(&self, x: f64, y: f64) -> bool {
+        if !self.search_header_active() {
+            return false;
+        }
+        let Some(window) = self.window.upgrade() else {
+            return false;
+        };
+        if window.visible_dialog().is_some() {
+            return false;
+        }
+        let Some(target) = window.pick(x, y, gtk::PickFlags::DEFAULT) else {
+            return false;
+        };
+        // A pick can return the image, label or padding inside a control.
+        // Walk out to the window so those descendants inherit its action.
+        let field = self.widgets.search.parent();
+        for widget in std::iter::successors(Some(target), |w| w.parent()) {
+            if widget.is::<gtk::Window>() {
+                break;
+            }
+            if field.as_ref() == Some(&widget)
+                || widget == *self.widgets.player_revealer.upcast_ref::<gtk::Widget>()
+                || widget.is::<gtk::Actionable>()
+                || widget.is::<gtk::Editable>()
+                || widget.is::<gtk::MenuButton>()
+                || widget.is::<gtk::Popover>()
+                || widget.is::<gtk::Scrollbar>()
+                || widget.is::<gtk::ListBoxRow>()
+                || widget.is::<gtk::FlowBoxChild>()
+            {
+                return false;
+            }
+            // Scroll containers themselves take keyboard focus even when the
+            // picked pixel belongs to the empty space beside or below a list.
+            if widget.is_focusable()
+                && !widget.is::<gtk::ScrolledWindow>()
+                && !widget.is::<gtk::Viewport>()
+                && !widget.is::<gtk::ListBox>()
+                && !widget.is::<gtk::FlowBox>()
+            {
+                return false;
+            }
+        }
+        true
     }
 
     fn search_origin(&self) -> SearchOrigin {
