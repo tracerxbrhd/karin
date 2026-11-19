@@ -1556,6 +1556,18 @@ between endpoints across 56 captures. The test sampled glyph pixels inside the
 two rows at fixed geometry. The Fedora observation does not identify which
 path or timestamps the owner encountered.
 
+In the revised ordinary-player fixture both lines changed text color over
+multiple painted frames on GTK 4.14 and 4.18. Reduced Motion settled directly
+at both endpoints. Additional Xvfb trials with forced full redraw and concurrent
+work sometimes missed intermediate frames. The strict pixel assertion failed
+in those samples. Isolated repetitions preserved the pixel and geometry gates.
+
+GTK 4.14 also exposed a focus regression when resizing a paused player from
+850 to 420 logical pixels. The seek scale now stays mounted under the same grid
+while its attachments change. GTK 4.18 exposed a stale desktop minimum during
+the first narrow height measurement. The footer measures within GTK's valid
+size range and allocates its child at the actual content width.
+
 The collection row now follows its content column. Check actual width growth
 and the sort button with the pane open and closed. Global search opens an
 entry in the top navigation before submitting a query. Check opening motion,

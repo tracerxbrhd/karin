@@ -36,11 +36,20 @@ mod imp {
             let Some(child) = widget.first_child() else {
                 return (0, 0, -1, -1);
             };
-            let (min, natural, base, natural_base) = child.measure(direction, for_size);
+            let (current_min, natural, ..) = child.measure(gtk::Orientation::Horizontal, -1);
             if direction == gtk::Orientation::Horizontal {
                 return (0, natural, -1, -1);
             }
-            (min, natural, base, natural_base)
+            // During a shrink the grid still has the desktop attachments until
+            // allocate(). GTK only accepts a height-for-width request at or
+            // above that layout's minimum. The changed attachments queue their
+            // own height measurement at the newly allocated compact width.
+            let width = if for_size < 0 {
+                -1
+            } else {
+                for_size.max(current_min)
+            };
+            child.measure(direction, width)
         }
 
         fn allocate(&self, widget: &gtk::Widget, width: i32, height: i32, baseline: i32) {
