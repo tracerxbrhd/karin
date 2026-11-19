@@ -25,6 +25,7 @@ use crate::{
 
 const RELATED_PAGE: usize = 10;
 const LINE_TRANSITION_MS: u32 = 300;
+const MAX_LINE_FRAME_US: i64 = 30_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Ticket {
@@ -84,10 +85,10 @@ struct Inner {
     lyric_clock: Cell<Option<LyricClock>>,
     following: Cell<bool>,
     follow_revision: Cell<u64>,
-    scroll_animation: RefCell<Option<adw::TimedAnimation>>,
+    scroll_transition: Cell<Option<LineTransition>>,
     visible_lines: RefCell<BTreeMap<u32, glib::WeakRef<gtk::Label>>>,
     line_transitions: RefCell<BTreeMap<u32, LineTransition>>,
-    line_tick: RefCell<Option<gtk::TickCallbackId>>,
+    presentation_tick: RefCell<Option<gtk::TickCallbackId>>,
     lyrics_title: gtk::Label,
     lyrics_artist: gtk::Label,
     lyrics_status: gtk::Label,
@@ -122,28 +123,40 @@ struct LyricClock {
     seek_serial: u64,
 }
 
-// Timeline indices survive row recycling during Follow. This progress only
-// presents a line change already observed on the player clock.
+// Row emphasis and its Follow movement share a native presentation tick.
+// The existing player clock decides the line independently of either effect.
 #[derive(Clone, Copy)]
 struct LineTransition {
-    started: Option<i64>,
+    last_frame: Option<i64>,
+    elapsed: i64,
     from: f64,
     to: f64,
     value: f64,
 }
 
 impl LineTransition {
+    fn new(from: f64, to: f64) -> Self {
+        Self {
+            last_frame: None,
+            elapsed: 0,
+            from,
+            to,
+            value: from,
+        }
+    }
+
     fn advance(&mut self, frame_time: i64) -> bool {
-        // A mapped list can still be between paints when the player reports a
-        // new line. Give both glyph runs their start frame on the same GTK tick.
-        let start = *self.started.get_or_insert(frame_time);
-        let elapsed = (frame_time - start).max(0);
+        // GTK may deliver the next paint hundreds of milliseconds late.
+        // Neither glyphs nor the viewport should cross the whole distance on
+        // the first frame after such a stall.
+        let previous = self.last_frame.replace(frame_time).unwrap_or(frame_time);
+        self.elapsed += (frame_time - previous).clamp(0, MAX_LINE_FRAME_US);
         let duration = i64::from(LINE_TRANSITION_MS) * 1000;
-        if elapsed >= duration {
+        if self.elapsed >= duration {
             self.value = self.to;
             return false;
         }
-        let progress = adw::Easing::EaseInOutSine.ease(elapsed as f64 / duration as f64);
+        let progress = adw::Easing::EaseInOutSine.ease(self.elapsed as f64 / duration as f64);
         self.value = self.from + (self.to - self.from) * progress;
         true
     }
@@ -279,10 +292,10 @@ impl ExtrasView {
             lyric_clock: Cell::new(None),
             following: Cell::new(true),
             follow_revision: Cell::new(0),
-            scroll_animation: RefCell::new(None),
+            scroll_transition: Cell::new(None),
             visible_lines: RefCell::new(BTreeMap::new()),
             line_transitions: RefCell::default(),
-            line_tick: RefCell::default(),
+            presentation_tick: RefCell::default(),
             lyrics_title,
             lyrics_artist,
             lyrics_status,
@@ -646,22 +659,29 @@ impl Inner {
     }
 
     fn paint_line(&self, index: u32, strength: f64) {
-        if let Some(label) = self
+        let label = self
             .visible_lines
             .borrow()
             .get(&index)
-            .and_then(glib::WeakRef::upgrade)
-        {
+            .and_then(glib::WeakRef::upgrade);
+        if let Some(label) = label {
             lyric_row::emphasize(&label, strength);
         }
     }
 
     fn finish_line_transitions(&self) {
-        if let Some(tick) = self.line_tick.take() {
-            tick.remove();
-        }
         for index in self.line_transitions.take().into_keys() {
             self.paint_line(index, f64::from(self.active.get() == Some(index)));
+        }
+        self.retire_idle_tick();
+    }
+
+    fn retire_idle_tick(&self) {
+        if self.line_transitions.borrow().is_empty()
+            && self.scroll_transition.get().is_none()
+            && let Some(tick) = self.presentation_tick.take()
+        {
+            tick.remove();
         }
     }
 
@@ -671,18 +691,20 @@ impl Inner {
             let from = transitions
                 .get(&index)
                 .map_or_else(|| f64::from(old == Some(index)), |motion| motion.value);
-            transitions.insert(
-                index,
-                LineTransition {
-                    started: None,
-                    from,
-                    to: f64::from(index == next),
-                    value: from,
-                },
-            );
+            let to = f64::from(index == next);
+            if from == to {
+                // A line can be superseded before GTK has ever painted it.
+                transitions.remove(&index);
+                continue;
+            }
+            transitions.insert(index, LineTransition::new(from, to));
         }
         drop(transitions);
-        if self.line_tick.borrow().is_some() {
+        self.ensure_presentation_tick();
+    }
+
+    fn ensure_presentation_tick(self: &Rc<Self>) {
+        if self.presentation_tick.borrow().is_some() {
             return;
         }
         let weak = Rc::downgrade(self);
@@ -692,19 +714,29 @@ impl Inner {
             };
             let frame = clock.frame_time();
             let mut transitions = this.line_transitions.borrow_mut();
+            let mut paint = Vec::with_capacity(transitions.len());
             transitions.retain(|&index, motion| {
                 let running = motion.advance(frame);
-                this.paint_line(index, motion.value);
+                paint.push((index, motion.value));
                 running
             });
-            if transitions.is_empty() {
-                this.line_tick.take();
+            drop(transitions);
+            for (index, value) in paint {
+                this.paint_line(index, value);
+            }
+            if let Some(mut movement) = this.scroll_transition.get() {
+                let running = movement.advance(frame);
+                this.scroll_transition.set(running.then_some(movement));
+                this.lyrics_scroll.vadjustment().set_value(movement.value);
+            }
+            if this.line_transitions.borrow().is_empty() && this.scroll_transition.get().is_none() {
+                this.presentation_tick.take();
                 glib::ControlFlow::Break
             } else {
                 glib::ControlFlow::Continue
             }
         });
-        self.line_tick.replace(Some(tick));
+        self.presentation_tick.replace(Some(tick));
     }
 
     fn request_lyrics(self: &Rc<Self>, request: LyricsRequest, force: bool) {
@@ -818,12 +850,8 @@ impl Inner {
     fn stop_scroll_animation(&self) {
         self.follow_revision
             .set(self.follow_revision.get().wrapping_add(1));
-        let animation = self.scroll_animation.borrow_mut().take();
-        if let Some(animation) = animation
-            && animation.state() == adw::AnimationState::Playing
-        {
-            animation.pause();
-        }
+        self.scroll_transition.set(None);
+        self.retire_idle_tick();
     }
 
     fn follow_active(self: &Rc<Self>, immediate: bool) {
@@ -878,25 +906,12 @@ impl Inner {
                     (adjustment.upper() - adjustment.page_size()).max(adjustment.lower()),
                 );
                 if (target - adjustment.value()).abs() > 1.0 {
-                    if immediate {
+                    if immediate || !this.lyrics_scroll.settings().is_gtk_enable_animations() {
                         adjustment.set_value(target);
                     } else {
-                        let weak = Rc::downgrade(&this);
-                        let target_callback = adw::CallbackAnimationTarget::new(move |value| {
-                            if let Some(this) = weak.upgrade() {
-                                this.lyrics_scroll.vadjustment().set_value(value);
-                            }
-                        });
-                        let animation = adw::TimedAnimation::new(
-                            &this.lyrics_scroll,
-                            adjustment.value(),
-                            target,
-                            LINE_TRANSITION_MS,
-                            target_callback,
-                        );
-                        animation.set_easing(adw::Easing::EaseInOutSine);
-                        animation.play();
-                        this.scroll_animation.replace(Some(animation));
+                        this.scroll_transition
+                            .set(Some(LineTransition::new(adjustment.value(), target)));
+                        this.ensure_presentation_tick();
                     }
                 }
                 return glib::ControlFlow::Break;
@@ -1449,6 +1464,32 @@ impl Controller {
             .extras
             .update_position(snapshot.as_ref(), self.music_serial());
     }
+}
+
+// Exercise the presentation clock on the native test's initialized GTK thread.
+#[cfg(test)]
+fn check_line_transition_timing() {
+    let transition = || LineTransition::new(0.0, 1.0);
+    let mut steady = transition();
+    for frame in 0..18 {
+        assert!(steady.advance(frame * 1_000_000 / 60));
+        if frame == 9 {
+            assert!((steady.value - 0.5).abs() < 1e-6);
+        }
+    }
+    assert!(!steady.advance(300_000));
+    assert_eq!(steady.value, 1.0);
+
+    let mut delayed = transition();
+    assert!(delayed.advance(0));
+    assert!(delayed.advance(1_000_000));
+    assert_eq!(delayed.elapsed, MAX_LINE_FRAME_US);
+    assert!((0.0..0.05).contains(&delayed.value) && delayed.value > 0.0);
+    for frame in 1..17 {
+        assert!(delayed.advance(1_000_000 + frame * 1_000_000 / 60));
+    }
+    assert!(!delayed.advance(1_000_000 + 17 * 1_000_000 / 60));
+    assert_eq!(delayed.value, 1.0);
 }
 
 #[cfg(test)]

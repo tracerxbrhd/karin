@@ -1074,13 +1074,7 @@ fn native_v08_lyrics_similar_seek_and_stale_selection() {
             .is_some_and(|snapshot| snapshot.seek_serial > seek)
     });
     settle();
-    assert!(
-        view.inner
-            .scroll_animation
-            .borrow()
-            .as_ref()
-            .is_none_or(|animation| animation.state() != adw::AnimationState::Playing)
-    );
+    assert!(view.inner.scroll_transition.get().is_none());
     assert!(view.inner.following.get());
     settings.set_gtk_enable_animations(animations);
     for (width, height, name) in [
@@ -1267,6 +1261,7 @@ fn native_v08_lyrics_similar_seek_and_stale_selection() {
 // application scenario above verifies that real GStreamer seek/position,
 // occurrence changes, and logout feed that same presentation.
 fn native_line_transitions() {
+    check_line_transition_timing();
     let settings = gtk::Settings::default().unwrap();
     let animations = settings.is_gtk_enable_animations();
     settings.set_gtk_enable_animations(true);

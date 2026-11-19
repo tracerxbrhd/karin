@@ -11,12 +11,14 @@ use glyph_pixels::verify_transition;
 struct Frame {
     frame_time: i64,
     position: Duration,
+    playing: bool,
     node: gsk::RenderNode,
     scroll: f64,
     active: Option<u32>,
     settled: bool,
     center_error: Option<f32>,
     rows: [graphene::Rect; 3],
+    scales: [f64; 3],
 }
 
 pub(super) fn ordinary_lyrics_playback(app: &adw::Application) {
@@ -108,6 +110,9 @@ pub(super) fn ordinary_lyrics_playback(app: &adw::Application) {
         .find(|widget| widget.has_css_class("music-information-view"))
         .expect("mapped native sidebar with its themed background");
     let host = surface.parent().unwrap();
+    let sidebar = host
+        .downcast_ref::<crate::ui::music::sliding_panel::SlidingPanel>()
+        .unwrap();
     let panel = || surface.compute_bounds(&host).unwrap();
     for (dark, motion) in [(false, true), (true, true), (true, false), (false, false)] {
         settings.set_gtk_enable_animations(motion);
@@ -149,16 +154,17 @@ pub(super) fn ordinary_lyrics_playback(app: &adw::Application) {
                     .get(&index)
                     .and_then(glib::WeakRef::upgrade)
                     .filter(|label| label.is_mapped() && label.height() > 0)
-                    .and_then(|label| label.parent())
             })
         };
         // The snapshot and GtkListView binding/allocation run in different
         // callbacks on a resize or backwards seek. Wait for the actual rows.
         pump_until(|| {
-            mapped_rows().iter().all(Option::is_some)
+            sidebar.is_child_revealed()
+                && mapped_rows().iter().all(Option::is_some)
                 && view.inner.lyrics_scroll.vadjustment().value() < 1.0
         });
-        let rows = mapped_rows().map(Option::unwrap);
+        let labels = mapped_rows().map(Option::unwrap);
+        let rows = labels.each_ref().map(|l| l.parent().unwrap());
         let viewport = view.inner.lyrics_scroll.compute_bounds(&host).unwrap();
         // The scroll widget includes its native scrollbar. Measure physical
         // ink only in its exposed content column, including the final pixel
@@ -192,7 +198,10 @@ pub(super) fn ordinary_lyrics_playback(app: &adw::Application) {
                 let Some(snapshot) = controller.upgrade().and_then(|c| c.music_snapshot()) else {
                     return;
                 };
-                if snapshot.state != PlaybackState::Playing {
+                if !matches!(
+                    snapshot.state,
+                    PlaybackState::Playing | PlaybackState::Paused
+                ) {
                     return;
                 }
                 let Some(position) = snapshot.position else {
@@ -208,6 +217,7 @@ pub(super) fn ordinary_lyrics_playback(app: &adw::Application) {
                     frames.borrow_mut().push(Frame {
                         frame_time: clock.frame_time(),
                         position,
+                        playing: snapshot.state == PlaybackState::Playing,
                         node,
                         scroll: adjustment.value(),
                         active: lyrics.active.get(),
@@ -220,12 +230,43 @@ pub(super) fn ordinary_lyrics_playback(app: &adw::Application) {
                                     .abs(),
                             )
                         }),
-                        settled: lyrics.line_tick.borrow().is_none(),
+                        settled: lyrics.line_transitions.borrow().is_empty(),
                         rows: rows.each_ref().map(|r| r.compute_bounds(&host).unwrap()),
+                        scales: labels.each_ref().map(label_scale),
                     });
                 }
             }
         });
+        this.toggle_music();
+        // Observe uninterrupted Playing through both the adjacent and grouped
+        // natural handoffs before preparing the deep, adjacent Follow passage.
+        pump_until(|| {
+            frames.borrow().last().is_some_and(|f| {
+                f.playing
+                    && f.active == Some(5)
+                    && f.settled
+                    && f.position >= Duration::from_millis(3900)
+            })
+        });
+        let first_passage_end = frames.borrow().len();
+        this.pause_music();
+        pump_until(|| {
+            this.music_snapshot()
+                .is_some_and(|s| s.state == PlaybackState::Paused)
+        });
+        let previous_seek = this.music_snapshot().unwrap().seek_serial;
+        this.seek_music(Duration::from_millis(5050));
+        pump_until(|| {
+            this.music_snapshot()
+                .is_some_and(|s| s.seek_serial > previous_seek)
+                && frames.borrow().last().is_some_and(|f| {
+                    !f.playing
+                        && f.active == Some(11)
+                        && f.settled
+                        && f.center_error.is_some_and(|error| error <= 2.0)
+                })
+        });
+        let follow_start = frames.borrow().len() - 1;
         this.toggle_music();
         pump_until(|| {
             let frames = frames.borrow();
@@ -233,12 +274,7 @@ pub(super) fn ordinary_lyrics_playback(app: &adw::Application) {
                 f.active == Some(12)
                     && f.settled
                     && f.position >= Duration::from_millis(6350)
-                    && view
-                        .inner
-                        .scroll_animation
-                        .borrow()
-                        .as_ref()
-                        .is_none_or(|a| a.state() != adw::AnimationState::Playing)
+                    && view.inner.scroll_transition.get().is_none()
             })
         });
         clock.disconnect(handler);
@@ -248,31 +284,33 @@ pub(super) fn ordinary_lyrics_playback(app: &adw::Application) {
                 .is_some_and(|s| s.state == PlaybackState::Paused)
         });
         let samples = frames.take();
-        verify_follow(&samples, motion);
+        let optical: Vec<_> = samples[..first_passage_end]
+            .iter()
+            .filter(|f| f.playing)
+            .collect();
         for (old, next, old_index, next_index, timestamp, name) in [
             (0, 1, 0, 1, 1400, "adjacent"),
             (1, 2, 1, 5, 3300, "simultaneous"),
         ] {
             // Locate the actual LRC handoff and its settled GTK presentation.
             // Only the scene pixels below determine the two physical scales.
-            let changed = samples
+            let changed = optical
                 .iter()
                 .position(|f| f.active == Some(next_index))
                 .unwrap();
-            assert!(samples[changed].position >= Duration::from_millis(timestamp));
-            let before = samples[..changed]
+            assert!(optical[changed].position >= Duration::from_millis(timestamp));
+            let before = optical[..changed]
                 .iter()
                 .rposition(|f| f.active == Some(old_index) && f.settled)
                 .unwrap();
-            let after = samples[changed..]
+            let after = optical[changed..]
                 .iter()
                 .rposition(|f| f.active == Some(next_index) && f.settled)
                 .unwrap()
                 + changed;
-            let frames: Vec<_> = samples[before..=after].iter().collect();
             verify_transition(
                 window,
-                &frames,
+                &optical[before..=after],
                 [old, next],
                 [panel(), viewport],
                 motion,
@@ -280,6 +318,7 @@ pub(super) fn ordinary_lyrics_playback(app: &adw::Application) {
                 theme,
             );
         }
+        verify_follow(&samples[follow_start..], samples[0].scroll, motion);
     }
     settings.set_gtk_enable_animations(true);
     style.set_color_scheme(original_scheme);
@@ -304,21 +343,15 @@ pub(super) fn ordinary_lyrics_playback(app: &adw::Application) {
     ui.close_for_smoke()(true);
 }
 
-// The simultaneous group first brings row 11 into the center. The next
-// natural boundary follows its adjacent, already visible row by one line.
-fn verify_follow(samples: &[Frame], motion: bool) {
-    let group = samples.iter().position(|f| f.active == Some(11)).unwrap();
+// A confirmed paused seek materializes the grouped winner. Start at its
+// actual centered paint, then follow its adjacent row during ordinary Resume.
+fn verify_follow(samples: &[Frame], initial_scroll: f64, motion: bool) {
+    let baseline = &samples[0];
+    assert_eq!(baseline.active, Some(11));
+    assert!(baseline.scroll - initial_scroll > 20.0 && !baseline.playing);
+    assert!(baseline.center_error.is_some_and(|error| error <= 2.0));
     let changed = samples.iter().position(|f| f.active == Some(12)).unwrap();
-    assert!(
-        samples[changed - 1].scroll - samples[group - 1].scroll > 20.,
-        "Follow must bring the group winner into view"
-    );
-    assert!(
-        samples[changed - 1]
-            .center_error
-            .is_some_and(|error| error <= 2.0),
-        "the grouped timestamp should settle with its winning row centered"
-    );
+    assert!(samples[changed..].iter().all(|f| f.playing));
     assert!(
         samples
             .last()

@@ -144,8 +144,13 @@ memory-only and source-labelled. TEXT uses selectable stanza/line labels; LRC
 uses virtualized lines and native scrolling. A height-for-width GTK widget
 reserves the height of its own text wrapped at maximum emphasis. It paints a
 selectable label with interpolated Pango scale, stroke weight and contrast.
-One GTK frame-clock callback grows the new line and shrinks its predecessor
-over 300 ms. Rapid boundaries redirect the affected line from its current
+One GTK frame-clock callback grows the new line, shrinks its predecessor and
+advances the scroll adjustment when Follow is centering the active row. Both
+text and scrolling use a 300 ms sine curve at normal frame cadence. Each tick
+advances at most 30 ms along that curve, so a stalled compositor extends the
+wall time. Manual scrolling cancels centering while text transitions continue.
+The player snapshot still selects the current line immediately. Rapid
+boundaries redirect the affected line from its current
 emphasis. A recycled row takes its emphasis from the current transition and
 position when bound. Seek and Reduced Motion apply the final size and weight
 immediately.

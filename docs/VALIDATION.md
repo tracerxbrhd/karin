@@ -1620,8 +1620,10 @@ result navigation and a search response held until after confirmed logout.
 The Light playback fixture captured two original Cyrillic words at a natural
 LRC boundary in the pinned panel. The table gives width × height of each
 word's painted glyphs in device pixels. This local observer chose intermediate
-frames by measured width. The CI observer also checks chronological quarters
-against the production easing curve.
+frames by measured width. The CI observer selects chronological frames near
+each quarter of the presented animation, checks both words' painted glyphs
+and records wall time separately. A compositor stall can extend the visible
+transition because each GTK tick advances at most 30 ms of its 300 ms curve.
 
 | Scale and word | Before | Early | Toward 25% | Mid-transition | Toward 75% | After |
 | --- | --- | --- | --- | --- | --- | --- |

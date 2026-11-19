@@ -255,18 +255,42 @@ pub(super) fn verify_transition(
     let last = frames.len() - 1;
     let mut phases = vec![("before", 0)];
     let start_us = frames.iter().find(|f| !f.settled).map(|f| f.frame_time);
-    let duration_us = f64::from(LINE_TRANSITION_MS) * 1000.0;
-    let time_fraction =
-        |i: usize| start_us.map(|start| (frames[i].frame_time - start) as f64 / duration_us);
+    // The native Pango size identifies the presented phase after easing.
+    // All assertions about the old/new visible sizes below use texture ink.
+    let incoming = indices[1];
+    let initial_scale = frames[0].scales[incoming];
+    let scale_range = frames[last].scales[incoming] - initial_scale;
+    assert!(scale_range > 0.2);
+    let time_fraction = |i: usize| {
+        let strength = ((frames[i].scales[incoming] - initial_scale) / scale_range).clamp(0.0, 1.0);
+        motion.then(|| (1.0 - 2.0 * strength).acos() / std::f64::consts::PI)
+    };
     if motion {
         assert!(
             start_us.is_some(),
             "at least one native GTK paint during the handoff"
         );
+        let first = frames.iter().position(|f| !f.settled).unwrap();
+        let done = frames[first..].iter().position(|f| f.settled).unwrap() + first;
+        let observed = &frames[first..=done];
+        let wall_ms = (frames[done].frame_time - frames[first].frame_time) / 1000;
+        if observed
+            .windows(2)
+            .all(|p| p[1].frame_time - p[0].frame_time <= MAX_LINE_FRAME_US)
+        {
+            assert!(
+                (270..=350).contains(&wall_ms),
+                "healthy {name} took {wall_ms}ms"
+            );
+        }
         for pair in progress.windows(2) {
             for i in 0..2 {
                 // A rasterized edge can move by one device pixel under hinting.
                 let extent = before[i].first_word_px[0].abs_diff(after[i].first_word_px[0]) as f64;
+                assert!(
+                    (pair[1][i] - pair[0][i]) * extent <= 0.17 * extent + 2.5 * f64::from(scale),
+                    "{name} jumped in one painted frame: {pair:?}"
+                );
                 assert!(
                     pair[1][i] + (1.5 * f64::from(scale)) / extent >= pair[0][i],
                     "{name} reverses {progress:.2?}"
@@ -358,6 +382,7 @@ pub(super) fn verify_transition(
             "phase": phase, "frame_time_us": frame.frame_time, "playhead_ms": frame.position.as_millis(),
             "old": old, "new": new, "width_progress": progress[index], "scroll": frame.scroll,
             "phase_time_fraction": time_fraction(index),
+            "wall_elapsed_ms": start_us.map(|start| (frame.frame_time - start)/1000),
         }));
     }
     if let Some(directory) = directory {

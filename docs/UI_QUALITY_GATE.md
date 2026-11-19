@@ -92,8 +92,13 @@ Play original fixture audio and LRC through the ordinary PlaybackController,
 snapshot subscription, active-line lookup and mapped GTK view. Exercise both
 the Player Bar and the current row's Track Info menu. At a natural boundary
 capture the frame before the transition, its start, the nearest painted frames
-to 25/50/75% of the 300 ms duration, and the settled frame. Record actual frame
-times and check both glyph widths against the easing curve. Compare
+to 25/50/75% of the 300 ms presentation duration, and the settled frame.
+Record actual frame times and wall duration separately. Check both painted
+glyph widths against the easing curve. When every tick interval is at most
+30 ms, verify the expected wall duration. After a longer interval, check
+that the affected rows continue changing together on subsequent paints and
+that Follow approaches its new target across those frames.
+Compare
 each row's glyph ink with its own endpoints after accounting for scroll and
 device scale. Both rows must change physical glyph size in opposite directions
 in the same sequence. Report measured bounds and inspect the images for

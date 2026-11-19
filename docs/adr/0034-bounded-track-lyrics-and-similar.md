@@ -83,17 +83,23 @@ so wrapped text stays clear of the scrollbar while Follow is moving.
 
 At a natural line boundary the old line loses size, weight and contrast as
 the new one gains them. The Lyrics view uses one GTK frame-clock callback for
-all moving rows. Both directions start on the same frame, with Libadwaita
-sine easing over 300 ms. If another timestamp arrives during the transition,
-the newly outgoing line shrinks from its current emphasis while earlier
-outgoing lines finish shrinking on their original schedules. A recycled row reads
+all moving rows and the pending Follow scroll adjustment. Both text directions
+start on the same frame. Text and centering use Libadwaita sine easing over
+300 ms of presentation time. Each subsequent GTK tick advances these transitions
+by the elapsed interval, capped at 30 ms. At a
+healthy refresh cadence the transition takes about 300 ms of wall time.
+Following a compositor stall the letters continue changing over subsequent
+frames. Playback snapshots still select the current line as soon as they arrive.
+If another timestamp arrives during the transition, the newly outgoing line
+shrinks from its current emphasis while earlier outgoing lines continue their
+own transitions. A recycled row reads
 the current position and emphasis when it binds, including during Follow. A
-seek applies the final styles and Follow destination immediately. Normal Follow
-centers the active area with a native adjustment animation. Reduced Motion
-selects the enlarged, bold current line immediately. High Contrast keeps all
-text at full foreground opacity. Wheel, keyboard and touch scrolling suspend
-centering until Follow is requested again. Playback continues to select the
-current line during manual scrolling.
+seek applies the final styles and Follow destination immediately. Reduced Motion
+applies the enlarged, bold current line and the enabled Follow destination
+immediately. High Contrast keeps all text at full foreground opacity. Wheel,
+keyboard and touch scrolling cancel the pending centering adjustment and
+suspend Follow until requested again. Text transitions and playback-derived
+line selection continue during manual scrolling.
 
 Highlighting uses Playing/Paused/Ready position only while FollowingCurrent
 and the opaque inspected/current occurrence bindings agree. On entering Lyrics
