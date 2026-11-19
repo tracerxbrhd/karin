@@ -237,6 +237,7 @@ fn serve(
         let timestamps = if name == "Original fixture 46" {
             let mut times = vec![0, 1400, 3300, 3300, 3300, 3300];
             times.extend([5000; 6]);
+            times.push(5800);
             times.extend((1..20).map(|i| 7000 + i * 100));
             times
         } else {
@@ -1004,7 +1005,7 @@ fn native_v08_lyrics_similar_seek_and_stale_selection() {
     );
     assert!((view.inner.lyrics_scroll.vadjustment().value() - before).abs() < 8.0);
     click(window, id, &view.inner.follow, false);
-    assert!(view.inner.following.get());
+    pump_until(|| view.inner.following.get());
     // A separately inspected occurrence with the same service ID is not the
     // queue's actual playing occurrence. It must not acquire that playhead.
     this.select_track_info(track(42), None, false);
@@ -1062,7 +1063,7 @@ fn native_v08_lyrics_similar_seek_and_stale_selection() {
     });
     assert!(!view.inner.following.get());
     click(window, id, &view.inner.follow, false);
-    assert!(view.inner.following.get());
+    pump_until(|| view.inner.following.get());
     let settings = gtk::Settings::default().unwrap();
     let animations = settings.is_gtk_enable_animations();
     settings.set_gtk_enable_animations(false);

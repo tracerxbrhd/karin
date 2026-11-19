@@ -15,6 +15,7 @@ struct Frame {
     scroll: f64,
     active: Option<u32>,
     settled: bool,
+    center_error: Option<f32>,
     rows: [graphene::Rect; 3],
 }
 
@@ -141,18 +142,23 @@ pub(super) fn ordinary_lyrics_playback(app: &adw::Application) {
                 .is_some_and(|s| s.seek_serial > serial)
                 && view.inner.active.get() == Some(0)
         });
-        settle();
-        let rows = [0, 1, 5].map(|index| {
-            let label = view
-                .inner
-                .visible_lines
-                .borrow()
-                .get(&index)
-                .and_then(glib::WeakRef::upgrade)
-                .unwrap();
-            assert!(label.is_mapped());
-            label.parent().expect("measured lyric row")
+        let mapped_rows = || {
+            let bound = view.inner.visible_lines.borrow();
+            [0, 1, 5].map(|index| {
+                bound
+                    .get(&index)
+                    .and_then(glib::WeakRef::upgrade)
+                    .filter(|label| label.is_mapped() && label.height() > 0)
+                    .and_then(|label| label.parent())
+            })
+        };
+        // The snapshot and GtkListView binding/allocation run in different
+        // callbacks on a resize or backwards seek. Wait for the actual rows.
+        pump_until(|| {
+            mapped_rows().iter().all(Option::is_some)
+                && view.inner.lyrics_scroll.vadjustment().value() < 1.0
         });
+        let rows = mapped_rows().map(Option::unwrap);
         let viewport = view.inner.lyrics_scroll.compute_bounds(&host).unwrap();
         // The scroll widget includes its native scrollbar. Measure physical
         // ink only in its exposed content column, including the final pixel
@@ -205,6 +211,15 @@ pub(super) fn ordinary_lyrics_playback(app: &adw::Application) {
                         node,
                         scroll: adjustment.value(),
                         active: lyrics.active.get(),
+                        center_error: lyrics.active.get().filter(|&i| i >= 11).and_then(|i| {
+                            let label = lyrics.visible_lines.borrow().get(&i)?.upgrade()?;
+                            let b = label.compute_bounds(&lyrics.lyrics_scroll)?;
+                            Some(
+                                (b.y() + b.height() / 2.
+                                    - lyrics.lyrics_scroll.height() as f32 / 2.)
+                                    .abs(),
+                            )
+                        }),
                         settled: lyrics.line_tick.borrow().is_none(),
                         rows: rows.each_ref().map(|r| r.compute_bounds(&host).unwrap()),
                     });
@@ -215,9 +230,9 @@ pub(super) fn ordinary_lyrics_playback(app: &adw::Application) {
         pump_until(|| {
             let frames = frames.borrow();
             frames.last().is_some_and(|f| {
-                f.active == Some(11)
+                f.active == Some(12)
                     && f.settled
-                    && f.position >= Duration::from_millis(5500)
+                    && f.position >= Duration::from_millis(6350)
                     && view
                         .inner
                         .scroll_animation
@@ -289,10 +304,29 @@ pub(super) fn ordinary_lyrics_playback(app: &adw::Application) {
     ui.close_for_smoke()(true);
 }
 
-// The 5 s boundary advances across a timestamp group to row 11. The
-// remaining stanzas make this a real, nonzero Follow movement in both widths.
+// The simultaneous group first brings row 11 into the center. The next
+// natural boundary follows its adjacent, already visible row by one line.
 fn verify_follow(samples: &[Frame], motion: bool) {
-    let changed = samples.iter().position(|f| f.active == Some(11)).unwrap();
+    let group = samples.iter().position(|f| f.active == Some(11)).unwrap();
+    let changed = samples.iter().position(|f| f.active == Some(12)).unwrap();
+    assert!(
+        samples[changed - 1].scroll - samples[group - 1].scroll > 20.,
+        "Follow must bring the group winner into view"
+    );
+    assert!(
+        samples[changed - 1]
+            .center_error
+            .is_some_and(|error| error <= 2.0),
+        "the grouped timestamp should settle with its winning row centered"
+    );
+    assert!(
+        samples
+            .last()
+            .unwrap()
+            .center_error
+            .is_some_and(|error| error <= 2.0),
+        "the adjacent line should finish centered"
+    );
     let passage = &samples[changed - 1..];
     let start = passage.first().unwrap().scroll;
     let end = passage.last().unwrap().scroll;

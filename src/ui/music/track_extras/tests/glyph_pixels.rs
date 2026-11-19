@@ -137,10 +137,15 @@ pub(super) fn verify_transition(
         renderer.render_texture(snapshot.to_node().unwrap(), Some(&crop))
     };
 
+    let separation = frames[0].rows[indices[1]].y() - frames[0].rows[indices[0]].y();
     let ink: Vec<[Ink; 2]> = frames
         .iter()
         .map(|frame| {
             let [a, b] = indices.map(|i| frame.rows[i]);
+            assert!(
+                (b.y() - a.y() - separation).abs() <= 1.,
+                "Follow or scaling shifted rows relative to one another"
+            );
             assert!(
                 a.y() + a.height() <= b.y(),
                 "overlapping lyric row allocations"
