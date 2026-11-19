@@ -337,7 +337,6 @@ fn build_with_music_pane(
         .build();
     header.pack_end(&menu_button);
     toolbar.add_top_bar(&header);
-    window.set_content(Some(&toolbar));
 
     let (diagnostics, diagnostics_heading) = page(
         "Диагностика",
@@ -466,7 +465,7 @@ fn build_with_music_pane(
         .build();
     workspace_bin.set_child(Some(&track_info));
     toolbar.set_content(Some(&workspace_bin));
-    toolbar.add_bottom_bar(&music.player_bar);
+    window.set_content(Some(&music.toolbar_with_player(&toolbar)));
     {
         let saved_focus: Rc<RefCell<Option<glib::WeakRef<gtk::Widget>>>> = Rc::default();
         let window_unmap = window.downgrade();

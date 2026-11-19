@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Measure the footer for its available width without imposing the desktop
-//! grid's minimum on the window before the compact allocation can run.
+//! Measure the responsive footer and place it in the native ToolbarView.
 
 use gtk::{glib, prelude::*, subclass::prelude::*};
 use std::{cell::OnceCell, rc::Rc};
@@ -10,7 +9,7 @@ mod imp {
 
     #[derive(Default)]
     pub struct FooterLayout {
-        pub(super) arrange: OnceCell<Rc<dyn Fn(i32)>>,
+        pub(super) before_toolbar_allocate: OnceCell<Rc<dyn Fn(i32)>>,
     }
 
     #[glib::object_subclass]
@@ -23,7 +22,12 @@ mod imp {
     impl ObjectImpl for FooterLayout {}
 
     impl LayoutManagerImpl for FooterLayout {
-        fn request_mode(&self, _: &gtk::Widget) -> gtk::SizeRequestMode {
+        fn request_mode(&self, widget: &gtk::Widget) -> gtk::SizeRequestMode {
+            if self.before_toolbar_allocate.get().is_some()
+                && let Some(toolbar) = widget.first_child()
+            {
+                return toolbar.request_mode();
+            }
             gtk::SizeRequestMode::HeightForWidth
         }
 
@@ -36,14 +40,15 @@ mod imp {
             let Some(child) = widget.first_child() else {
                 return (0, 0, -1, -1);
             };
+            if self.before_toolbar_allocate.get().is_some() {
+                return child.measure(direction, for_size);
+            }
             let (current_min, natural, ..) = child.measure(gtk::Orientation::Horizontal, -1);
             if direction == gtk::Orientation::Horizontal {
                 return (0, natural, -1, -1);
             }
-            // During a shrink the grid still has the desktop attachments until
-            // allocate(). GTK only accepts a height-for-width request at or
-            // above that layout's minimum. The changed attachments queue their
-            // own height measurement at the newly allocated compact width.
+            // While probing a possible width, GTK requires measurements to
+            // respect the minimum of the current grid arrangement.
             let width = if for_size < 0 {
                 -1
             } else {
@@ -53,7 +58,7 @@ mod imp {
         }
 
         fn allocate(&self, widget: &gtk::Widget, width: i32, height: i32, baseline: i32) {
-            if let Some(arrange) = self.arrange.get() {
+            if let Some(arrange) = self.before_toolbar_allocate.get() {
                 arrange(width);
             }
             if let Some(child) = widget.first_child() {
@@ -67,12 +72,27 @@ glib::wrapper! {
     pub struct FooterLayout(ObjectSubclass<imp::FooterLayout>) @extends gtk::LayoutManager;
 }
 
-pub(super) fn install(footer: &gtk::Box, arrange: Rc<dyn Fn(i32)>) {
+pub(super) fn install(footer: &gtk::Box) {
+    footer.set_layout_manager(Some(glib::Object::new::<FooterLayout>()));
+}
+
+/// Libadwaita 1.5 measures native bottom bars at width -1, even during
+/// allocation. Arrange the grid at the actual incoming width before
+/// ToolbarView decides how much height to give it in that very frame.
+pub(in crate::ui::music) fn toolbar_frame(
+    toolbar: &adw::ToolbarView,
+    arrange: Rc<dyn Fn(i32)>,
+) -> gtk::Box {
+    let frame = gtk::Box::builder()
+        .accessible_role(gtk::AccessibleRole::Presentation)
+        .build();
     let layout: FooterLayout = glib::Object::new();
     layout
         .imp()
-        .arrange
+        .before_toolbar_allocate
         .set(arrange)
         .unwrap_or_else(|_| unreachable!());
-    footer.set_layout_manager(Some(layout));
+    frame.set_layout_manager(Some(layout));
+    frame.append(toolbar);
+    frame
 }

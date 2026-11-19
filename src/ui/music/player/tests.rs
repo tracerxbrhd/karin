@@ -2225,7 +2225,38 @@ fn native_music_playback_media_error_visibility_stop_retry_and_catalog_preservat
     )
     .unwrap();
     capture_native("music-player-media-http403");
+    // A settled allocation can hide a clipped first compact frame. Observe
+    // the real paint before requesting the resize, while Retry is visible.
+    let first_paint = Rc::new(RefCell::new(None));
+    let painted = first_paint.clone();
+    let window = ui.window.clone();
+    let retry = this.widgets.play.clone();
+    let clock = window.frame_clock().unwrap();
+    let observer = clock.connect_after_paint(move |_| {
+        if painted.borrow().is_none()
+            && window
+                .surface()
+                .is_some_and(|surface| surface.width() == 420 && surface.height() == 720)
+        {
+            let bounds = retry.compute_bounds(&window).filter(|_| retry.is_mapped());
+            painted.replace(Some((bounds, window.width(), window.height())));
+        }
+    });
     resize_player_window(&ui, 420, 720);
+    ui.window.queue_draw();
+    pump_until(|| first_paint.borrow().is_some());
+    clock.disconnect(observer);
+    let (retry, width, height) = first_paint.take().unwrap();
+    let retry = retry.expect("Retry must be mapped in the first compact frame");
+    assert!(
+        retry.width() > 0.0
+            && retry.height() > 0.0
+            && retry.x() >= 0.0
+            && retry.y() >= 0.0
+            && retry.x() + retry.width() <= width as f32
+            && retry.y() + retry.height() <= height as f32,
+        "Retry was clipped in the first compact frame: {retry:?} in {width}×{height}"
+    );
     eprintln!("Karin synthetic player-error phase=compact-pinned-footer");
     assert!(this.info_is_open());
     assert!(!this.widgets.stack.is_mapped());

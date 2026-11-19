@@ -80,6 +80,7 @@ use crate::{
 pub(super) struct MusicPane {
     pub widget: gtk::Box,
     pub player_bar: gtk::Box,
+    arrange_player_for_width: Rc<dyn Fn(i32)>,
     controller: Rc<Controller>,
 }
 
@@ -557,6 +558,7 @@ impl MusicPane {
         stack.add_named(&detail, Some("detail"));
         let player_bar::PlayerBarParts {
             player_bar,
+            arrange_for_width,
             player_revealer,
             player_main,
             current,
@@ -753,8 +755,14 @@ impl MusicPane {
         Self {
             widget,
             player_bar,
+            arrange_player_for_width: arrange_for_width,
             controller,
         }
+    }
+
+    pub(super) fn toolbar_with_player(&self, toolbar: &adw::ToolbarView) -> gtk::Box {
+        toolbar.add_bottom_bar(&self.player_bar);
+        player_bar::toolbar_frame(toolbar, self.arrange_player_for_width.clone())
     }
 
     /// Explicit metadata-only delivery experiment using this Music session.

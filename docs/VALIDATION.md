@@ -1566,7 +1566,11 @@ GTK 4.14 also exposed a focus regression when resizing a paused player from
 850 to 420 logical pixels. The seek scale now stays mounted under the same grid
 while its attachments change. GTK 4.18 exposed a stale desktop minimum during
 the first narrow height measurement. The footer measures within GTK's valid
-size range and allocates its child at the actual content width.
+size range and allocates its child at the actual content width. On GTK 4.14
+the first painted compact frame still used the old one-row height. At
+420×720 the lower 36 pixels of the 48-pixel Retry button fell outside the
+window. Selecting the footer grid before the native toolbar allocates it
+keeps the complete pointer target visible from the first compact frame.
 
 The collection row now follows its content column. Check actual width growth
 and the sort button with the pane open and closed. Global search opens an
@@ -1575,7 +1579,10 @@ keyboard focus, delayed replies and detail-route return. During query replacemen
 GTK emitted a temporary empty edit and Karin fetched the displaced playlist
 again. Observing the completed text property change preserves the route until
 a genuine clear. The ordinary catalog fixture verifies the exact request
-sequence through replacement, a late reply and logout. The revision-specific
+sequence through replacement, a late reply and logout. A separate AT-SPI2 client
+observed Ctrl+F focus the named search box and Escape return focus to the
+collapsed button. This covers the accessibility API. Spoken output on Fedora
+remains a manual check. The revision-specific
 Cloud results and synthetic GTK captures are recorded in the
 [PR checks](https://github.com/tracerxbrhd/karin/pull/29/checks).
 Visible line motion in the corrected build on physical KDE/Wayland remains

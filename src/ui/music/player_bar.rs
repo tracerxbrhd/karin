@@ -4,9 +4,11 @@
 use super::*;
 
 mod responsive_layout;
+pub(super) use responsive_layout::toolbar_frame;
 
 pub(super) struct PlayerBarParts {
     pub player_bar: gtk::Box,
+    pub arrange_for_width: Rc<dyn Fn(i32)>,
     pub player_revealer: gtk::Revealer,
     pub player_main: gtk::Box,
     pub current: gtk::Label,
@@ -342,7 +344,7 @@ impl PlayerBarParts {
                 bar.remove_css_class("music-player-compact");
             }
         });
-        responsive_layout::install(&footer, layout_player.clone());
+        responsive_layout::install(&footer);
 
         // No queue selection or placeholder makes a player appear. The
         // existing controller reveals this one native surface only for an
@@ -356,6 +358,7 @@ impl PlayerBarParts {
         player_revealer.set_widget_name("music-player-revealer");
         let weak_host = footer.downgrade();
         let weak_bar = player_bar.downgrade();
+        let arrange_for_width = layout_player.clone();
         player_revealer.connect_reveal_child_notify(move |revealer| {
             if !revealer.reveals_child() {
                 return;
@@ -382,6 +385,7 @@ impl PlayerBarParts {
 
         Self {
             player_bar: footer,
+            arrange_for_width,
             player_revealer,
             player_main,
             current,
