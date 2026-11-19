@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Original synthetic HTTP media; this is not a real Music/Fedora sound test.
 
+mod resume;
+
 use super::super::tests::{capture_native, contains_text, pump_until};
 use super::*;
 use gst::prelude::*;
@@ -361,7 +363,11 @@ fn serve(
             json!({"result":ids.into_iter().rev().map(|id| json!({"id":id,"title":"Synthetic remote player track","durationMs":4000,
             "available":!unavailable.contains(&id),"artists":[{"name":"Synthetic artist"}]})).collect::<Vec<_>>()}),
         );
-    } else if url.path().starts_with("/tracks/") {
+    } else if let Some(response) = crate::ui::music::tests::empty_similar_response(url.path()) {
+        json_response(&mut stream, response);
+    } else if url.path().starts_with("/tracks/") && url.path().ends_with("/supplement") {
+        json_response(&mut stream, json!({"result":{"lyrics":null}}));
+    } else if url.path().starts_with("/tracks/") && url.path().ends_with("/download-info") {
         let track: usize = url.path().split('/').nth(2).unwrap().parse().unwrap();
         assert!((42..=45).contains(&track));
         let rejected = {
@@ -533,7 +539,11 @@ impl Drop for GeneratedDirectory {
 }
 
 pub(in crate::ui::music) fn generated_mp3() -> Vec<u8> {
-    // Original four-second signal, encoded by the installed normal MP3 plugin.
+    generated_mp3_for_seconds(4)
+}
+
+pub(in crate::ui::music) fn generated_mp3_for_seconds(seconds: i32) -> Vec<u8> {
+    // Original signal, encoded by the installed normal MP3 plugin.
     // A private temporary encoding file is removed before HTTP playback; these
     // bytes never contain service music or establish real Music audibility.
     gst::init().unwrap();
@@ -555,7 +565,7 @@ pub(in crate::ui::music) fn generated_mp3() -> Vec<u8> {
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
     let pipeline = gst::Pipeline::new();
     let source = gst::ElementFactory::make("audiotestsrc")
-        .property("num-buffers", 400_i32)
+        .property("num-buffers", 100 * seconds)
         .property("samplesperbuffer", 441_i32)
         .property("volume", 0.03_f64)
         .build()
@@ -826,9 +836,8 @@ fn native_music_playback_resolver_queue_controls_and_logout() {
     let (_app, ui) = player_window(&fixture);
     let pane = &ui.music;
     let this = &pane.controller;
-    this.widgets.stack.set_visible_child_name("search");
+    ui.show_page("music-search");
     this.widgets.search.set_text("Synthetic playable search");
-    native_click(&ui.window, &this.widgets.search_button);
     pump_until(|| {
         !this.model.borrow().busy
             && contains_text(
@@ -856,6 +865,26 @@ fn native_music_playback_resolver_queue_controls_and_logout() {
     for id in ["43", "44"] {
         this.enqueue(track(id));
     }
+    // A different header query refreshes the catalog while the first result
+    // is already playing through the ordinary GStreamer worker.
+    let before_search = this.music_snapshot().unwrap();
+    let context = this.model.borrow().queue.context().cloned();
+    let occurrence = this.model.borrow().queue.current_occurrence_id().cloned();
+    this.widgets
+        .search
+        .set_text("Second catalog query during playback");
+    this.widgets.search.emit_by_name::<()>("activate", &[]);
+    pump_until(|| fixture.counts.lock().unwrap().searches == 2 && !this.model.borrow().busy);
+    let after_search = this.music_snapshot().unwrap();
+    assert_eq!(after_search.state, PlaybackState::Playing);
+    assert_eq!(after_search.generation, before_search.generation);
+    assert_eq!(after_search.source_revision, before_search.source_revision);
+    assert_eq!(after_search.seek_serial, before_search.seek_serial);
+    assert_eq!(this.model.borrow().queue.context(), context.as_ref());
+    assert_eq!(
+        this.model.borrow().queue.current_occurrence_id(),
+        occurrence.as_ref()
+    );
     this.toggle_queue_panel();
     assert!(this.widgets.play.is_sensitive());
     assert!(contains_text(
@@ -1275,7 +1304,15 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
     // owner and independent storage authority. Persistent bytes alone cannot
     // authorize local playback, and every hit must resolve the online source.
     let checks_before_restart = fixture.counts.lock().unwrap().account_checks;
+    // Deliberately leave a real presence task pending at close. Its weak GTK
+    // callback still owns the cache until the bounded read has completed.
+    this.register_cache_indicator("42", &this.widgets.current_cache);
+    this.tick_cache_presence();
+    assert!(this.cache_presence_query_running_for_test());
     this.close();
+    // Closing fences reads immediately; same-process namespace reconstruction
+    // must also await the old asynchronous owner, rather than racing its flock.
+    pump_until(|| !this.cache_presence_query_running_for_test() && cache.lookup_settled_for_test());
     ui.window.close();
     drop(cache);
     drop(ui);
@@ -2192,7 +2229,38 @@ fn native_music_playback_media_error_visibility_stop_retry_and_catalog_preservat
     )
     .unwrap();
     capture_native("music-player-media-http403");
+    // A settled allocation can hide a clipped first compact frame. Observe
+    // the real paint before requesting the resize, while Retry is visible.
+    let first_paint = Rc::new(RefCell::new(None));
+    let painted = first_paint.clone();
+    let window = ui.window.clone();
+    let retry = this.widgets.play.clone();
+    let clock = window.frame_clock().unwrap();
+    let observer = clock.connect_after_paint(move |_| {
+        if painted.borrow().is_none()
+            && window
+                .surface()
+                .is_some_and(|surface| surface.width() == 420 && surface.height() == 720)
+        {
+            let bounds = retry.compute_bounds(&window).filter(|_| retry.is_mapped());
+            painted.replace(Some((bounds, window.width(), window.height())));
+        }
+    });
     resize_player_window(&ui, 420, 720);
+    ui.window.queue_draw();
+    pump_until(|| first_paint.borrow().is_some());
+    clock.disconnect(observer);
+    let (retry, width, height) = first_paint.take().unwrap();
+    let retry = retry.expect("Retry must be mapped in the first compact frame");
+    assert!(
+        retry.width() > 0.0
+            && retry.height() > 0.0
+            && retry.x() >= 0.0
+            && retry.y() >= 0.0
+            && retry.x() + retry.width() <= width as f32
+            && retry.y() + retry.height() <= height as f32,
+        "Retry was clipped in the first compact frame: {retry:?} in {width}×{height}"
+    );
     eprintln!("Karin synthetic player-error phase=compact-pinned-footer");
     assert!(this.info_is_open());
     assert!(!this.widgets.stack.is_mapped());

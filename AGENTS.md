@@ -65,18 +65,47 @@ reviewable and consistent with the accepted application.
 - Keep one queue/PlaybackController/GStreamer engine. MPRIS adapts actual snapshots
   and confirmed seek/volume; export supported capabilities, opaque track paths and
   decoded local covers only. Do not widen Flatpak D-Bus/filesystem permissions.
-- Row click/Enter/Space plays the exact occurrence; Details is separate. Preserve
-  duplicates and original source positions. Views stay bounded at 2,000 positions/
-  100 pages; new contexts at 500. Filtering/appending must not rewrite active Queue.
+- Row click/Enter/Space plays the exact occurrence; the separate Info action opens
+  shared Track Info without playing, never a standalone track page. Preserve
+  duplicates and original source positions. Ordinary views stay bounded at 2,000
+  positions/100 pages. Whole-collection indexing supports 20,000 original
+  positions with 50-position batches and 200-row result windows. New contexts
+  remain at 500. Filtering/sorting/indexing/appending must not rewrite active Queue.
   Info/MPRIS use queue-owned opaque occurrence IDs, never mutable indices or IDs
   of service tracks. Original source positions remain separate provenance.
-- Search admitted collection metadata with Unicode matching and honest partial
-  coverage. No whole-library drain on typing. Total duration needs complete data
-  with every duration known and a checked sum.
-- Preserve pinned Track Info/Queue intent across outside clicks/navigation/resize;
+- Allocate the shared collection search row to the content column. Let the
+  entry expand beside its compact native sort button as the window or pinned
+  panel changes size. Match admitted title/artist/album metadata immediately with Unicode
+  normalization and honest partial coverage. In an eligible incomplete
+  collection, a nonempty query after debounce or Enter expresses search intent.
+  Reuse one bounded index under the latest query, suspend on clear or leaving
+  the view, and require a final membership recheck. Startup, opening a view and
+  individual keystrokes must not trigger full scans or per-key requests. Date
+  sorting requires valid occurrence timestamps. Total duration needs complete
+  data with every duration known and a checked sum. Route global search actions
+  to one entry in the top navigation. The three measured tabs and the field
+  share the same centered slot at every width. Keep the compact toggle beside
+  that slot. Opening preserves the route until a query presents results.
+  Clear restores the source route with the field open. Escape, the toggle or
+  a click on empty space dismisses search and retires its work. Preserve
+  interactive targets and honor deliberate navigation.
+- Preserve pinned Track Info/Lyrics/Queue intent across outside clicks/navigation/resize;
   actual new current occurrences resume following. Footer: hidden before Play,
   retained through Pause/retryable active failure, hidden on Stop/clear/logout.
   No visible Stop. Keep local Shuffle/Repeat and existing system controls.
+- Resolve LRC lines from the current player's actual position and exact opaque
+  occurrence. At natural boundaries the old glyphs shrink as the new glyphs
+  grow in size, weight and contrast. Reduced Motion applies the final size
+  immediately. Manual scrolling suspends centering while emphasis continues.
+  Rebound rows reflect the current model. Seek, selection and session changes
+  retire stale transitions. Measure the painted glyph bounds of both rows in
+  the same GTK frames during ordinary player updates. TEXT has no timing.
+- An explicit Resume may renew an expired source for the same queue occurrence
+  through fresh access/cache/resolver admission. Preserve its confirmed position,
+  queue/modes/volume and Wave/MPRIS identity; bound recovery to one attempt and
+  fence late work after changed intent/account. Pause must stay Paused without
+  periodic network renewal or a visible technical expiry error. Keep true access,
+  network and unseekable failures honest; never extend signed URL lifetimes.
 - Ordinary continuation is IDs-only, account-bound, bounded and worker-written.
   Restore only after fresh Music validation, without autoplay/player preparation;
   preserve duplicate occurrences and shuffle history. Stop/forget/logout delete
@@ -122,6 +151,10 @@ reviewable and consistent with the accepted application.
   provisionally accepted pending the designer's work. Prior cache failures remain
   historical evidence, not the current technical status. #5/#22 distribution
   questions remain independent; no public content rights are established.
+  The owner separately accepted exact `949d1f9` for v0.7 with 68/68 Fedora checks
+  (Native 34/34, installed Flatpak 34/34); #28 normally merged at `2ab6d28`,
+  preserving history. Restoration, real playlist edits and System appearance
+  are accepted; future v0.8 features and unavailable Karin Style are not.
   Unreported individual scenarios and unresolved Cloud cold gaps are not PASS.
   This is not a published release. Read [LIMITATIONS](docs/LIMITATIONS.md).
 

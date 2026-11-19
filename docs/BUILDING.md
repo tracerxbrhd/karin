@@ -509,8 +509,10 @@ and uninterrupted playback in the normal desktop session.
 ## v07 final Fedora acceptance
 
 PR #26 cache acceptance at `c1de869` is recorded separately and was merged with
-its history. The v0.7 Draft PR adds continuation, playlist editing and independent
-style/color preferences; Cloud fixtures do not accept these against a real account.
+its history. The owner completed this v0.7 procedure at `949d1f9`: 68/68 PASS,
+Native 34/34 and installed Flatpak 34/34; #28 normally merged at `2ab6d28`.
+The procedure is retained for reproducible regression checks, not an outstanding
+v0.7 acceptance request. Cloud fixtures remain distinct from that owner report.
 Use the final PR-head `karin-fedora-prototype-1.98.1` CI artifact, verify
 `BUILD-INFO.txt` and its checksum, and run `./karin` without diagnostic flags.
 The same commit's Flatpak source is prepared with
@@ -548,3 +550,30 @@ Perform this **one combined check** first Native and then installed Flatpak:
 Record Native/installed-Flatpak PASS/FAIL by action and commit, without exporting
 identifiers, tokens, playlist contents or signed URLs. Public distribution rights
 and unresolved cold-frame issue #23 remain separate from this functional check.
+
+## v08 final Fedora acceptance
+
+Use the same PR #29 commit for Native and installed Flatpak. Check the Native
+artifact’s `SHA256SUMS` and `BUILD-INFO.txt`, then launch ordinary `./karin`.
+Build and install that commit with the [Flatpak instructions](#flatpak-source-build)
+and use its ordinary launcher. Run the following sequence once in each build.
+
+1. **Play and read.** Start an entitled track with line-timed lyrics, open Lyrics
+   from the footer and let several lines advance naturally. Also open Lyrics
+   from the playing row's Track Info menu. With desktop animations enabled,
+   the outgoing letters should visibly shrink while the incoming letters grow
+   and gain weight. Scroll by hand and watch another boundary. Tap Follow,
+   pause and seek both ways. Check that a long line fits, the current line
+   stays large when paused and Reduced Motion selects its final size immediately.
+2. **Search from a detail page.** From an album or playlist, open search with
+   Ctrl+F. The focused field should replace the three tabs, even maximized,
+   with the toggle in place and the detail still visible. Type, open a result
+   and go Back. Clear using the icon, then click the empty field. The detail
+   and field should stay open. Click blank background to restore the tabs.
+   Repeat briefly at a narrow width using the toggle and Escape. Continue
+   playback throughout.
+
+Record the commit, package, desktop scale/theme and observed result for search
+and Lyrics in one reply. Keep account details, song text and personal screenshots
+on Fedora. The earlier collection-filter and playback-continuity procedures remain
+in the [previous checklist](https://github.com/tracerxbrhd/karin/blob/ffcea0d99ae869abd031ea508dc5e9833be213e0/docs/BUILDING.md#v08-final-fedora-acceptance).

@@ -132,6 +132,25 @@ fn counts(input: &Input) -> Counts {
     serde_json::from_slice(&fs::read(input.directory.join("completion-wire.json")).unwrap())
         .unwrap()
 }
+/// Preserve only fixed numeric transport counters when a child exits. Do not
+/// copy the complete fixture state or any request/session identifiers.
+pub(super) fn safe_http_counts(directory: &Path) -> Option<serde_json::Value> {
+    let counts: Counts =
+        serde_json::from_slice(&fs::read(directory.join("completion-wire.json")).ok()?).ok()?;
+    Some(json!({
+        "offers": counts.offers,
+        "descriptors": counts.descriptors,
+        "media_gets": counts.media_gets,
+        "native_full_gets": counts.native_full_gets,
+        "background_full_gets": counts.background_full_gets,
+        "media_heads": counts.media_heads,
+        "background_requests": counts.background_requests,
+        "sent_bytes": counts.sent_bytes,
+        "range_gets": counts.range_gets,
+        "partial_responses": counts.partial_responses,
+        "expired_old_requests": counts.expired_old_requests,
+    }))
+}
 fn release(directory: &Path, name: &str) {
     fs::write(directory.join(format!("release-{name}")), b"release").unwrap();
 }
@@ -492,6 +511,10 @@ fn serve(
             });
         }
         return;
+    } else if first[0] == "GET"
+        && let Some(response) = crate::ui::music::tests::empty_similar_response(path)
+    {
+        response
     } else {
         panic!("unexpected completion fixture route")
     };

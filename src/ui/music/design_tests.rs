@@ -3,6 +3,7 @@
 //! original synthetic loopback data; no fixture is compiled into production.
 
 use super::*;
+use crate::music::{PlaylistId, SearchPlaylist};
 use gtk::gdk;
 use serde_json::{Value, json};
 use std::{
@@ -29,9 +30,9 @@ const TITLES: [&str; 8] = [
 ];
 const ARTISTS: [&str; 4] = ["Aster Field", "Mira Vale", "Новая глава", "Elian"];
 
-struct WindowManager(Option<Child>);
+pub(super) struct WindowManager(Option<Child>);
 impl WindowManager {
-    fn start() -> Self {
+    pub(super) fn start() -> Self {
         let present = Command::new("wmctrl")
             .arg("-m")
             .output()
@@ -403,11 +404,16 @@ impl Fixture {
                                 "title":"Открытый горизонт","trackCount":8,
                                 "cover":{"itemsUri":[cover(4)]}}}]})
                         }
-                        "/users/1234/playlists/3"
+                        "/users/4321/playlists/8"
+                        | "/users/1234/playlists/3"
                         | "/users/1234/playlists/4"
                         | "/users/1234/playlists/5" => json!({"result":{"tracks":references}}),
                         "/albums/7/with-tracks" => {
                             json!({"result":{"id":7,"title":"Тихие улицы","coverUri":cover(1),"artists":[{"id":11,"name":"Aster Field"}],"volumes":[tracks]}})
+                        }
+                        "/artists/11/tracks" => {
+                            assert!(headers.starts_with("GET "));
+                            json!({"result":{"tracks":tracks,"pager":{"page":0,"perPage":50,"total":8}}})
                         }
                         "/tracks" => {
                             let form = reqwest::Url::parse(&format!(
@@ -425,11 +431,33 @@ impl Fixture {
                             assert!(!ids.is_empty());
                             json!({"result":ids.iter().map(|id| track(id.split(':').next().unwrap().parse::<usize>().unwrap()-1)).collect::<Vec<_>>()})
                         }
+                        "/search"
+                            if url
+                                .query_pairs()
+                                .any(|(key, value)| key == "text" && value == "Нет совпадений") =>
+                        {
+                            json!({"result":{"text":"Нет совпадений"}})
+                        }
                         "/search" => json!({"result":{"text":"Синтетическая музыка",
                             "tracks":{"total":8,"perPage":20,"page":0,"results":(1..=8).map(|id| json!({"id":id})).collect::<Vec<_>>()},
                             "albums":{"total":1,"perPage":20,"page":0,"results":[{"id":7,"title":"Тихие улицы","coverUri":cover(1),"artists":[{"id":11,"name":"Aster Field"}]}]},
                             "artists":{"total":1,"perPage":20,"page":0,"results":[{"id":11,"name":"Aster Field","cover":{"uri":cover(0)}}]},
                             "playlists":{"total":3,"perPage":20,"page":0,"results":(0..3).map(playlist).collect::<Vec<_>>()}}}),
+                        path if headers.starts_with("GET ")
+                            && tests::empty_similar_response(path).is_some() =>
+                        {
+                            tests::empty_similar_response(path).unwrap()
+                        }
+                        path if headers.starts_with("GET ")
+                            && path
+                                .strip_prefix("/tracks/")
+                                .and_then(|id| id.strip_suffix("/supplement"))
+                                .and_then(|id| id.parse::<usize>().ok())
+                                .is_some_and(|id| (1..=8).contains(&id)) =>
+                        {
+                            json!({"result":{"lyrics":{"hasRights":true,
+                                "fullLyrics":(1..=18).map(|line| format!("Original lyric verse {line}\nОригинальная строка для проверки интерфейса")).collect::<Vec<_>>().join("\n\n")}}})
+                        }
                         _ => panic!("unexpected synthetic design API route"),
                     };
                     reply(
@@ -473,12 +501,19 @@ fn set_panel(ui: &crate::ui::MainWindow, mode: workspace::PanelMode) {
     let this = &ui.music.controller;
     let previous = this.panel_mode.get();
     if previous != mode {
-        let action = match (previous, mode) {
-            (PanelMode::Queue, PanelMode::Closed) => "win.music-queue",
-            (_, PanelMode::Queue) => "win.music-queue",
-            _ => "win.music-info",
-        };
-        gtk::prelude::WidgetExt::activate_action(&ui.window, action, None).unwrap();
+        if mode == PanelMode::Lyrics || (previous == PanelMode::Lyrics && mode == PanelMode::Closed)
+        {
+            // Lyrics is the existing footer's native toggle, not the Info
+            // action: using Info here would switch to a different mode.
+            native_click(ui, &this.widgets.lyrics);
+        } else {
+            let action = match (previous, mode) {
+                (PanelMode::Queue, PanelMode::Closed) => "win.music-queue",
+                (_, PanelMode::Queue) => "win.music-queue",
+                _ => "win.music-info",
+            };
+            gtk::prelude::WidgetExt::activate_action(&ui.window, action, None).unwrap();
+        }
     }
     pump(|| this.panel_mode.get() == mode);
     pump(|| {
@@ -524,7 +559,7 @@ fn primary_destination(ui: &crate::ui::MainWindow, route: &str) {
         descendants(ui.music.widget.upcast_ref())
             .into_iter()
             .all(|widget| !widget.is::<gtk::DropDown>()),
-        "primary navigation must not retain parented technical dropdowns"
+        "music routes must use the compact native sort menu; technical dropdowns remain forbidden"
     );
 }
 fn resize(ui: &crate::ui::MainWindow, width: i32, height: i32) {
@@ -791,7 +826,11 @@ fn assert_short_info_actions_visible(ui: &crate::ui::MainWindow) {
     let pane = &ui.music.controller.track_pane;
     let scroll = named_widget(&pane.widget, "music-track-pane-scroll");
     let viewport = scroll.compute_bounds(&ui.window).unwrap();
-    for action in [&pane.play, &pane.enqueue, &pane.details] {
+    for action in [
+        pane.play.upcast_ref::<gtk::Widget>(),
+        pane.enqueue.upcast_ref::<gtk::Widget>(),
+        pane.menu.upcast_ref::<gtk::Widget>(),
+    ] {
         assert!(
             action.is_mapped(),
             "normal TrackInfo action must actually map"
@@ -864,6 +903,138 @@ fn responsive_collection_evidence(ui: &crate::ui::MainWindow, name: &str) {
     }
 }
 
+fn collection_toolbar_layout(
+    ui: &crate::ui::MainWindow,
+    entry: &gtk::Widget,
+    sort: &gtk::Widget,
+) -> Value {
+    assert!(entry.is::<gtk::SearchEntry>());
+    let row = entry.parent().expect("mapped search entry has a toolbar");
+    assert_eq!(row.widget_name(), "music-search-toolbar");
+    let row_rect = row.compute_bounds(&ui.window).unwrap();
+    let entry_rect = entry.compute_bounds(&ui.window).unwrap();
+    let page_rect = ui
+        .music
+        .controller
+        .widgets
+        .stack
+        .visible_child()
+        .unwrap()
+        .compute_bounds(&ui.window)
+        .unwrap();
+    let right = |rect: &gtk::graphene::Rect| rect.x() + rect.width();
+    assert!(
+        row_rect.x() >= -1.0
+            && right(&row_rect) <= ui.window.width() as f32 + 1.0
+            && (row_rect.x() - page_rect.x()).abs() <= 1.0
+            && (right(&row_rect) - right(&page_rect)).abs() <= 1.0,
+        "the toolbar must fill its actual collection page allocation: {row_rect:?}/{page_rect:?}"
+    );
+    assert!(
+        entry_rect.width() >= 120.0 && entry_rect.height() <= 48.0 && entry_rect.height() > 0.0,
+        "the search entry must remain usable and compact: {entry_rect:?}"
+    );
+    assert!((entry_rect.x() - row_rect.x()).abs() <= 1.0);
+    let menu = sort.downcast_ref::<gtk::MenuButton>().unwrap();
+    assert_eq!(menu.parent().as_ref(), Some(&row));
+    assert_eq!(menu.tooltip_text().as_deref(), Some("Сортировка"));
+    assert!(
+        menu.popover().is_some(),
+        "the sort button opens a native menu"
+    );
+    let rect = menu.compute_bounds(&ui.window).unwrap();
+    let gap = rect.x() - right(&entry_rect);
+    let center_y = |bounds: &gtk::graphene::Rect| bounds.y() + bounds.height() / 2.0;
+    assert!(
+        (28.0..=52.0).contains(&rect.width())
+            && (28.0..=52.0).contains(&rect.height())
+            && (rect.width() - rect.height()).abs() <= 8.0,
+        "sort needs a square-sized native hit target: {rect:?}"
+    );
+    assert!(
+        (2.0..=16.0).contains(&gap)
+            && (center_y(&rect) - center_y(&entry_rect)).abs() <= 2.0
+            && (right(&rect) - right(&row_rect)).abs() <= 1.0,
+        "sort must share the entry's line without crowding or clipping: {entry_rect:?}/{rect:?}"
+    );
+    json!({
+        "toolbar": [row_rect.x(),row_rect.y(),row_rect.width(),row_rect.height()],
+        "entry": [entry_rect.x(),entry_rect.y(),entry_rect.width(),entry_rect.height()],
+        "sort": [rect.x(),rect.y(),rect.width(),rect.height()],
+        "page_width": page_rect.width(),
+    })
+}
+
+fn global_search_layout(ui: &crate::ui::MainWindow) -> Option<Value> {
+    let widgets = &ui.music.controller.widgets;
+    if widgets.stack.visible_child_name().as_deref() != Some("search") || !widgets.stack.is_mapped()
+    {
+        return None;
+    }
+    let header = &widgets.primary_navigation;
+    assert!(widgets.search.is_mapped() && widgets.search.is_ancestor(header));
+    assert!(
+        descendants(&widgets.stack.visible_child().unwrap())
+            .iter()
+            .all(|widget| !widget.is::<gtk::SearchEntry>()),
+        "the results page shares the header entry"
+    );
+    let entry = widgets.search.compute_bounds(&ui.window).unwrap();
+    let toggle = widgets.nav_search.compute_bounds(&ui.window).unwrap();
+    let header_rect = header.compute_bounds(&ui.window).unwrap();
+    assert!(entry.width() >= 120.0 && entry.height() > 0.0);
+    assert!(
+        entry.x() >= header_rect.x() - 1.0
+            && entry.x() + entry.width() <= toggle.x() + 1.0
+            && toggle.x() + toggle.width() <= header_rect.x() + header_rect.width() + 1.0,
+        "header entry and toggle fit the navigation: {entry:?}/{toggle:?}/{header_rect:?}"
+    );
+    Some(json!({
+        "entry": [entry.x(),entry.y(),entry.width(),entry.height()],
+        "toggle": [toggle.x(),toggle.y(),toggle.width(),toggle.height()],
+        "header": [header_rect.x(),header_rect.y(),header_rect.width(),header_rect.height()],
+    }))
+}
+
+fn collection_sort_evidence(ui: &crate::ui::MainWindow) {
+    let page = ui.music.controller.widgets.stack.visible_child().unwrap();
+    let sort = named_widget(&page, "music-collection-sort")
+        .downcast::<gtk::MenuButton>()
+        .unwrap();
+    let this = &ui.music.controller;
+    let context = this.model.borrow().queue.context().cloned();
+    resize(ui, 420, 720);
+    gtk::prelude::WidgetExt::activate_action(
+        &sort,
+        "collection-sort.order",
+        Some(&"reverse".to_variant()),
+    )
+    .unwrap();
+    pump(|| sort.has_css_class("music-collection-sort-active"));
+    native_click(ui, &sort);
+    let popup = sort.popover().unwrap();
+    super::test_input::wait_for_layout(&ui.window, &popup);
+    for label in [
+        "Порядок коллекции",
+        "Обратный порядок",
+        "По названию",
+        "По исполнителю",
+    ] {
+        assert!(tests::contains_text(popup.upcast_ref(), label), "{label}");
+    }
+    evidence(ui, "surface-liked-sort-menu-compact");
+    popup.popdown();
+    pump(|| !popup.is_mapped());
+    gtk::prelude::WidgetExt::activate_action(
+        &sort,
+        "collection-sort.order",
+        Some(&"provider".to_variant()),
+    )
+    .unwrap();
+    pump(|| !sort.has_css_class("music-collection-sort-active"));
+    assert_eq!(this.model.borrow().queue.context(), context.as_ref());
+}
+
 fn collection_layout(ui: &crate::ui::MainWindow) -> Value {
     let page = ui.music.controller.widgets.stack.visible_child().unwrap();
     let widgets = descendants(&page);
@@ -914,29 +1085,56 @@ fn collection_layout(ui: &crate::ui::MainWindow) -> Value {
         filters.len() <= 1,
         "one reusable filter per visible collection"
     );
-    for filter in &filters {
-        let rect = filter.compute_bounds(&ui.window).unwrap();
+    let filter_layout = filters.first().map(|filter| {
+        let sort = named_widget(&page, "music-collection-sort");
         assert!(
-            rect.width() >= 120.0 && rect.height() <= 56.0,
-            "collection search must remain usable and compact: {rect:?}"
+            sort.is_mapped(),
+            "a visible collection entry must retain the adjacent sort control"
         );
-        assert!(
-            rect.x() >= -1.0 && rect.x() + rect.width() <= ui.window.width() as f32 + 1.0,
-            "collection search must not horizontally overflow the window: {rect:?}"
-        );
-    }
+        let status_row = named_widget(&page, "music-collection-filter-status-row");
+        if filter
+            .downcast_ref::<gtk::SearchEntry>()
+            .unwrap()
+            .text()
+            .is_empty()
+        {
+            assert!(!status_row.is_mapped(), "idle search has no progress row");
+        }
+        let mut layout = collection_toolbar_layout(ui, filter, &sort);
+        if status_row.is_mapped() {
+            let rect = status_row.compute_bounds(&ui.window).unwrap();
+            assert!(
+                rect.height() <= 56.0,
+                "search status and its contextual action stay in one compact area: {rect:?}"
+            );
+            layout["status"] = json!([rect.x(), rect.y(), rect.width(), rect.height()]);
+        }
+        layout
+    });
+    let global_layout = global_search_layout(ui);
+    assert!(
+        widgets.iter().all(|widget| {
+            !matches!(
+                widget.widget_name().as_str(),
+                "music-collection-index-all" | "music-search-button"
+            )
+        }),
+        "compact search must not retain the old standalone submission controls"
+    );
     json!({
         "liked_hero_size":hero.map(|widget| [widget.width(),widget.height()]),
         "liked_cover_size":art.map(|widget| [widget.width(),widget.height()]),
         "filter_size":filters.first().map(|widget| [widget.width(),widget.height()]),
         "filter_active":filters.first().is_some_and(|widget| !widget.downcast_ref::<gtk::SearchEntry>().unwrap().text().is_empty()),
+        "filter_layout":filter_layout,
+        "global_search_layout":global_layout,
         "visible_track_rows":visible_collection_tracks(ui),
     })
 }
 
 fn evidence(ui: &crate::ui::MainWindow, name: &str) {
     assert_footer_geometry(ui);
-    let collection = collection_layout(ui);
+    collection_layout(ui);
     assert!(
         descendants(ui.music.widget.upcast_ref())
             .into_iter()
@@ -945,7 +1143,10 @@ fn evidence(ui: &crate::ui::MainWindow, name: &str) {
     );
     let scale = ui.window.scale_factor();
     let name = format!("{name}-scale{scale}");
-    super::tests::capture_native(&name);
+    let mut themed_collection_layouts = BTreeMap::new();
+    super::tests::capture_native_themed(&name, |theme| {
+        themed_collection_layouts.insert(theme, collection_layout(ui));
+    });
     if std::env::var_os("KARIN_TEST_COMPARE_RENDER_READBACK").is_some()
         && (name.starts_with("surface-home-wide-scale")
             || name.starts_with("matrix-wide-panel-track-scale"))
@@ -971,6 +1172,7 @@ fn evidence(ui: &crate::ui::MainWindow, name: &str) {
             .open(path)
             .unwrap();
         for theme in ["light", "dark"] {
+            let collection = &themed_collection_layouts[theme];
             writeln!(file,"{}",json!({"capture":format!("{name}-{theme}.png"),"logical_width":ui.window.width(),"logical_height":ui.window.height(),"scale":scale,"maximized":ui.window.is_maximized(),"pane_open":pane_open(&ui.music.controller),"panel_mode":format!("{:?}",ui.music.controller.panel_mode.get()),"renderer":ui.window.renderer().unwrap().type_().name(),"rows":heights,"fully_visible_rows":visible,"collection":collection,"source":"synthetic-loopback-musicservice-http-decoded-artwork","tracks":8,"footer_art_hit":[ui.music.controller.widgets.current_art_button.width(),ui.music.controller.widgets.current_art_button.height()],"footer_track_hit":[ui.music.controller.widgets.current_art_button.width(),ui.music.controller.widgets.current_art_button.height()],"footer_cover_size":[ui.music.controller.widgets.current_art.width(),ui.music.controller.widgets.current_art.height()],"footer_like_mapped":ui.music.controller.widgets.current_like_slot.is_mapped(),"footer_title_width":ui.music.controller.widgets.current.width(),"player_requested_visible":ui.music.controller.widgets.player_revealer.reveals_child(),"player_child_revealed":ui.music.controller.widgets.player_revealer.is_child_revealed(),"player_height":ui.music.player_bar.height(),"player_state":format!("{:?}",ui.music.controller.music_snapshot().map(|snapshot|snapshot.state))})).unwrap();
         }
     }
@@ -1257,10 +1459,11 @@ fn native_design_matched_matrix_and_populated_surfaces() {
         .set_gtk_enable_animations(true);
     activate_design_player_observed(&ui, &fixture, true);
     evidence(&ui, "surface-player-visible-paused");
-    // Nine geometries × three genuine panel modes × two themes × two
-    // separate scale processes =108 current images. The archived 2e3 baseline
+    // Nine geometries × four genuine panel modes × two themes × two
+    // separate scale processes =144 current images. The archived 2e3 baseline
     // adds only this reference-size tuple to its original test harness; its
     // application source and complete motion checks remain unchanged.
+    let mut previous_entry_width = 0;
     for (width, height, name) in [
         (420, 720, "compact"),
         (720, 650, "narrow"),
@@ -1273,9 +1476,16 @@ fn native_design_matched_matrix_and_populated_surfaces() {
     ] {
         set_pane(&ui, false);
         resize(&ui, width, height);
+        let entry_width = current_collection_search(&ui).width();
+        assert!(
+            entry_width > previous_entry_width,
+            "collection entry must grow with the content allocation at {name}: {previous_entry_width} → {entry_width}"
+        );
+        previous_entry_width = entry_width;
         for (mode, label) in [
             (workspace::PanelMode::Closed, "closed"),
             (workspace::PanelMode::TrackInfo, "track"),
+            (workspace::PanelMode::Lyrics, "lyrics"),
             (workspace::PanelMode::Queue, "queue"),
         ] {
             set_panel(&ui, mode);
@@ -1284,6 +1494,13 @@ fn native_design_matched_matrix_and_populated_surfaces() {
                 assert_short_info_actions_visible(&ui);
             } else if mode == workspace::PanelMode::Queue {
                 pump(|| textures(&this.widgets.queue_rows) > 0);
+            } else if mode == workspace::PanelMode::Lyrics {
+                pump(|| {
+                    tests::contains_text(
+                        this.track_pane.extras.lyrics_widget.upcast_ref(),
+                        "Original lyric verse 1",
+                    )
+                });
             } else {
                 pump(|| textures(&this.widgets.library_rows) > 0);
             }
@@ -1311,6 +1528,7 @@ fn native_design_matched_matrix_and_populated_surfaces() {
     for (mode, label) in [
         (workspace::PanelMode::Closed, "closed"),
         (workspace::PanelMode::TrackInfo, "track"),
+        (workspace::PanelMode::Lyrics, "lyrics"),
         (workspace::PanelMode::Queue, "queue"),
     ] {
         set_panel(&ui, mode);
@@ -1330,10 +1548,43 @@ fn native_design_matched_matrix_and_populated_surfaces() {
     evidence(&ui, "surface-liked-tab");
     set_collection_query(&ui, "гОриЗоНт", 1);
     responsive_collection_evidence(&ui, "surface-liked-filter");
+    let full_width = current_collection_search(&ui).width();
+    set_panel(&ui, workspace::PanelMode::Queue);
+    let narrowed = current_collection_search(&ui);
+    assert!(narrowed.width() < full_width);
+    assert_eq!(narrowed.text(), "гОриЗоНт");
+    evidence(&ui, "surface-liked-filter-wide-queue");
+    // Closing the native panel invalidates allocation immediately. Sample the first
+    // GTK frame actually painted with the panel closed, even on slow software GL.
+    let reveal = this
+        .info_host
+        .borrow()
+        .as_ref()
+        .unwrap()
+        .revealer()
+        .unwrap();
+    let clock = ui.window.frame_clock().unwrap();
+    let painted_width = Rc::new(Cell::new(None));
+    let handler = clock.connect_after_paint({
+        let width = painted_width.clone();
+        move |_| {
+            if width.get().is_none() && !reveal.reveals_child() && reveal.progress() <= f64::EPSILON
+            {
+                width.set(Some(narrowed.width()));
+            }
+        }
+    });
+    let deadline = Instant::now() + Duration::from_secs(3);
+    set_panel(&ui, workspace::PanelMode::Closed);
+    pump(|| painted_width.get().is_some() || Instant::now() >= deadline);
+    clock.disconnect(handler);
+    assert_eq!(painted_width.get(), Some(full_width));
+    assert_eq!(current_collection_search(&ui).width(), full_width);
     set_collection_query(&ui, "Нет такой синтетической композиции", 0);
     resize(&ui, 850, 750);
     evidence(&ui, "surface-liked-filter-empty");
     set_collection_query(&ui, "", 8);
+    collection_sort_evidence(&ui);
     // At the reference width the four owned/Create tiles wrap, placing the
     // liked section below the viewport. Its artwork correctly waits for real
     // visibility before HTTP. Admit all four decoded covers in the wide view
@@ -1363,14 +1614,62 @@ fn native_design_matched_matrix_and_populated_surfaces() {
     set_collection_query(&ui, "mIRA", 2);
     responsive_collection_evidence(&ui, "surface-playlist-filter");
     set_collection_query(&ui, "", 8);
+    let cover = album.cover.clone();
     this.render_album(Rc::new(album), 0);
     pump(|| textures(&this.widgets.detail) >= 6);
     evidence(&ui, "surface-album");
-    this.widgets.stack.set_visible_child_name("search");
+    set_collection_query(&ui, "mIRA", 2);
+    resize(&ui, 900, 650);
+    evidence(&ui, "surface-album-filter-medium");
+    set_collection_query(&ui, "", 8);
+    this.open_artist(
+        Artist {
+            id: "11".into(),
+            name: "Aster Field".into(),
+            cover: cover.clone(),
+        },
+        0,
+    );
+    pump(|| !this.model.borrow().busy && visible_collection_tracks(&ui) == 8);
+    set_collection_query(&ui, "mIRA", 2);
+    evidence(&ui, "surface-artist-filter-medium");
+    this.open_search_playlist(
+        SearchPlaylist {
+            id: PlaylistId {
+                owner: "4321".into(),
+                kind: "8".into(),
+            },
+            title: "Открытый горизонт".into(),
+            track_count: Some(8),
+            cover,
+        },
+        0,
+    );
+    pump(|| !this.model.borrow().busy && visible_collection_tracks(&ui) == 8);
+    set_collection_query(&ui, "mIRA", 2);
+    evidence(&ui, "surface-open-playlist-filter-medium");
+
+    let origin_page = this.widgets.stack.visible_child().unwrap();
+    gtk::prelude::WidgetExt::activate_action(&ui.window, "win.music-search", None).unwrap();
+    super::test_input::wait_for_layout(&ui.window, &this.widgets.search);
+    assert_eq!(this.widgets.stack.visible_child().unwrap(), origin_page);
+    evidence(&ui, "surface-global-search-open");
     this.widgets.search.set_text("Синтетическая музыка");
     this.widgets.search.emit_by_name::<()>("activate", &[]);
     pump(|| !this.model.borrow().busy && textures(&this.widgets.search_sections) >= 5);
+    responsive_collection_evidence(&ui, "surface-global-search");
     evidence(&ui, "surface-unified-search");
+    resize(&ui, 900, 650);
+    evidence(&ui, "surface-global-search-medium");
+    resize(&ui, 1920, 1080);
+    evidence(&ui, "surface-global-search-large");
+    ui.window.maximize();
+    pump(|| ui.window.is_maximized());
+    settle_geometry(&ui, "search-maximized");
+    evidence(&ui, "surface-global-search-maximized");
+    ui.window.unmaximize();
+    pump(|| !ui.window.is_maximized());
+    resize(&ui, 1440, 900);
     set_panel(&ui, workspace::PanelMode::Queue);
     pump(|| textures(&this.widgets.queue_rows) >= 6);
     evidence(&ui, "surface-queue");
@@ -1386,7 +1685,10 @@ fn native_design_matched_matrix_and_populated_surfaces() {
     ui.window.visible_dialog().unwrap().force_close();
     pump(|| ui.window.visible_dialog().is_none());
 
-    this.widgets.stack.set_visible_child_name("search");
+    assert_eq!(
+        this.widgets.stack.visible_child_name().as_deref(),
+        Some("search")
+    );
     fixture.search_error.store(true, Ordering::Release);
     this.widgets.search.emit_by_name::<()>("activate", &[]);
     pump(|| !this.model.borrow().busy && this.widgets.search_feedback.is_visible());
@@ -1420,16 +1722,13 @@ fn native_design_matched_matrix_and_populated_surfaces() {
     settle();
     evidence(&ui, "surface-keyboard-focus");
     this.widgets.search.set_text("Нет совпадений");
-    this.model.borrow_mut().search_scope = Some(SearchKind::Tracks);
-    // Empty state uses the same confirmed typed render boundary, with no
-    // fabricated service feature or production demonstration catalog.
-    clear_list(&this.widgets.search_rows);
-    this.reset_search_sections();
-    set_empty(
-        &this.widgets.search_rows,
-        "Ничего не найдено. Попробуйте другой запрос.",
-    );
-    this.widgets.search_feedback.set_visible(false);
+    pump(|| {
+        !this.model.borrow().busy
+            && tests::contains_text(
+                this.widgets.search_sections.upcast_ref(),
+                "Ничего не найдено. Попробуйте другой запрос.",
+            )
+    });
     settle();
     evidence(&ui, "surface-search-empty");
 
@@ -2435,6 +2734,16 @@ fn record_motion(
     save_motion_frames(ui, &frames, phases, name);
 }
 
+fn native_open_panel_mode(ui: &crate::ui::MainWindow, mode: workspace::PanelMode) {
+    let this = &ui.music.controller;
+    match mode {
+        workspace::PanelMode::TrackInfo => native_click(ui, &this.widgets.current_art_button),
+        workspace::PanelMode::Lyrics => native_click(ui, &this.widgets.lyrics),
+        workspace::PanelMode::Queue => native_click(ui, &this.widgets.queue),
+        workspace::PanelMode::Closed => panic!("this native action opens a panel mode"),
+    }
+}
+
 #[test]
 #[ignore = "real ordinary GTK animation after recorded graphics initialization; run at both scales"]
 fn native_universal_panel_whole_surface_motion_and_mode_switch() {
@@ -2468,6 +2777,7 @@ fn native_universal_panel_whole_surface_motion_and_mode_switch() {
             resize(&ui, width, height);
             for (mode, label) in [
                 (workspace::PanelMode::TrackInfo, "track"),
+                (workspace::PanelMode::Lyrics, "lyrics"),
                 (workspace::PanelMode::Queue, "queue"),
             ] {
                 let surface = panel.surface().unwrap();
@@ -2499,6 +2809,11 @@ fn native_universal_panel_whole_surface_motion_and_mode_switch() {
                     if this.track_pane.album.is_visible() {
                         children.push(this.track_pane.album.clone().upcast());
                     }
+                } else if mode == workspace::PanelMode::Lyrics {
+                    children.extend([
+                        this.track_pane.back_info.clone().upcast(),
+                        this.track_pane.extras.lyrics_widget.clone().upcast(),
+                    ]);
                 } else {
                     children.extend([
                         this.widgets.queue_count.clone().upcast(),
@@ -2511,16 +2826,7 @@ fn native_universal_panel_whole_surface_motion_and_mode_switch() {
                     &panel,
                     children.clone(),
                     &format!("{shape}-{theme}-{label}"),
-                    || {
-                        if mode == workspace::PanelMode::TrackInfo {
-                            native_click(&ui, &this.widgets.current_art_button);
-                        } else {
-                            native_click(
-                                &ui,
-                                &named_widget(&ui.music.player_bar, "music-queue-toggle"),
-                            );
-                        }
-                    },
+                    || native_open_panel_mode(&ui, mode),
                     || native_click(&ui, &this.track_pane.close),
                 );
                 assert_eq!(this.panel_mode.get(), workspace::PanelMode::Closed);
@@ -2530,16 +2836,7 @@ fn native_universal_panel_whole_surface_motion_and_mode_switch() {
                     children.clone(),
                     true,
                     &format!("{shape}-{theme}-{label}-opening"),
-                    || {
-                        if mode == workspace::PanelMode::TrackInfo {
-                            native_click(&ui, &this.widgets.current_art_button);
-                        } else {
-                            native_click(
-                                &ui,
-                                &named_widget(&ui.music.player_bar, "music-queue-toggle"),
-                            );
-                        }
-                    },
+                    || native_open_panel_mode(&ui, mode),
                 );
                 assert_eq!(this.panel_mode.get(), mode);
                 record_motion(
@@ -2559,6 +2856,31 @@ fn native_universal_panel_whole_surface_motion_and_mode_switch() {
             let surface = panel.surface().unwrap();
             let before = surface.compute_bounds(&ui.window).unwrap();
             let close = this.track_pane.close.compute_bounds(&ui.window).unwrap();
+            native_click(&ui, &this.widgets.lyrics);
+            pump(|| this.panel_mode.get() == workspace::PanelMode::Lyrics);
+            settle();
+            assert!(panel.is_child_revealed());
+            assert_eq!(surface, panel.surface().unwrap());
+            assert_eq!(before, surface.compute_bounds(&ui.window).unwrap());
+            let lyrics_close = this.track_pane.close.compute_bounds(&ui.window).unwrap();
+            if this.info_host.borrow().as_ref().unwrap().presentation()
+                == super::workspace::InfoPresentation::Compact
+            {
+                // Compact Info/Queue have Back to Music. Lyrics has the
+                // different Back to Info action in that same leading slot,
+                // plus an explicit Close at the trailing edge.
+                assert_eq!(
+                    close,
+                    this.track_pane
+                        .back_info
+                        .compute_bounds(&ui.window)
+                        .unwrap()
+                );
+                let trailing = before.x() + before.width();
+                assert!((trailing - lyrics_close.x() - lyrics_close.width()).abs() <= 24.0);
+            } else {
+                assert_eq!(close, lyrics_close);
+            }
             native_click(
                 &ui,
                 &named_widget(&ui.music.player_bar, "music-queue-toggle"),

@@ -2,7 +2,7 @@
 
 # Application screenshots
 
-These are unchanged GTK captures from the owner-accepted
+The first three images are unchanged GTK captures from the owner-accepted
 [`97093ee`](https://github.com/tracerxbrhd/karin/commit/97093ee71f8df7b47b5809ca8c1d4774a2c5b22d)
 application. They were captured on 2 November 2026 (Europe/Samara) under Xvfb
 with GTK 4.18.6, Libadwaita 1.7.6 and scale 1. Selecting them for the current
@@ -26,6 +26,30 @@ SHA-256, in the same order:
 27012b0c5bd61f7e9006b14d8b2262e308c086674b8206876aeedf3979884812  playlists.png
 732489ecfbd7f38d7af605450ff2e5a5a88a9d72fc016fa6119ed427cf399bc1  track-info.png
 ```
+
+## PR #29 search and synchronized lyrics
+
+These 20 November 2026 (Samara) working-tree captures use GTK 4.18.6,
+Libadwaita 1.7.6, Cairo and Xvfb at 2×. The strips preserve the native pixels
+and add phase labels in the surrounding margins. Original synthetic GTK
+fixture captures and their composition are included under the
+[repository license](../../LICENSE).
+
+- On a 1920×1080 logical window, the same crop follows the three tabs, the
+  revealing entry and the fully open field. The window's 322-pixel tab slot
+  and 34-pixel toggle keep their logical bounds throughout.
+  [Global search](v08-global-search.png) ·
+  [Layout and input fixture](../../src/ui/music/search_tests/header.rs).
+- During local GStreamer playback of the original test signal and LRC,
+  “Журавли” shrinks and “Фонари” grows while the third line stays still.
+  The three crops show the same pixels of the pinned panel across the
+  handoff, with the intermediate frame selected by painted width. In this
+  static-font run, GTK draws the Pango glyphs at subpixel offsets and applies
+  the theme foreground once. Variable fonts use the `wght` axis.
+  The playback fixture executable had SHA-256
+  `ffd99c3a1ea4ae62f931a458992323ec9471e3a4e0dce236607df9906d1b7bc7`.
+  [Synchronized lyrics](v08-karaoke.png) ·
+  [Player fixture](../../src/ui/music/track_extras/tests/playing_frames.rs).
 
 ## My Wave Home preview
 

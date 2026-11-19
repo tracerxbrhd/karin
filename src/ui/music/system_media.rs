@@ -226,6 +226,7 @@ impl Controller {
         let snapshot = self.music_snapshot();
         let state = snapshot.as_ref().map_or(PlaybackState::Idle, |s| s.state);
         let requested = self.music_requested();
+        let renewing = self.source_renewal_active();
         let mut media = self.system_media.borrow_mut();
         if media.binding != key {
             media.binding = key;
@@ -344,7 +345,7 @@ impl Controller {
             // stopped track that the same media key can explicitly restart.
             can_pause: ready
                 && selected.is_some_and(|track| track.available)
-                && !requested
+                && (!requested || renewing)
                 && state != PlaybackState::Loading
                 && (radio_navigation || resumable_audio),
             can_seek,
@@ -356,7 +357,7 @@ impl Controller {
         };
         // A stopped/replaced/loading pipeline cannot acknowledge a seek from
         // the previous worker, even when the same queue item remains selected.
-        if !can_seek {
+        if !can_seek && !renewing {
             media.seek = None;
         }
         // A same-occurrence replay keeps its opaque track path. Acknowledge

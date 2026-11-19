@@ -288,9 +288,6 @@ impl Controller {
             };
             state.generation = Some(generation);
             state.lease = Some((cache.clone(), lease.clone()));
-            state
-                .bindings
-                .retain(|binding| binding.slot.upgrade().is_some());
             slots
         };
         for slot in cleared {
@@ -302,6 +299,12 @@ impl Controller {
             if state.running || state.next.is_some_and(|next| Instant::now() < next) {
                 return;
             }
+            // Expired weak rows matter only when composing a new worker
+            // batch. The 80 ms player tick must not rescan a large catalog
+            // while its existing 500 ms presence result is still current.
+            state
+                .bindings
+                .retain(|binding| binding.slot.upgrade().is_some());
             let mut tracks = Vec::new();
             let mut selected = BTreeSet::new();
             // Fixed slots are first; bounded hidden lists cannot starve the

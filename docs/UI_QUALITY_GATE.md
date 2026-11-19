@@ -31,10 +31,33 @@ bounds do not justify skipping containment or guessing coordinates.
 - Activate exact track occurrences by mouse/Enter/Space, including duplicate IDs
   across filtered 500-position windows. Details must not play. Filtering,
   appending and navigation must not rewrite the active queue or restart audio.
-- Type Cyrillic/Unicode title, artist and album queries; test clear/reset, empty
-  matches, partial coverage, next-part errors/Retry and retired replies. Count
-  HTTP work to exclude per-key page/N+1 reads. Retain the 2,000-position/100-page
-  bounds and initial fill limit. See [ADR-0025](adr/0025-loaded-collection-search-and-playback-provenance.md).
+- Inspect the shared one-row track filter and native sort button in all track
+  feeds. Measure the entry and sort allocations at 420, 900, 1440 and 1920 logical
+  pixels and maximized, at 1× and 2×. Check that the field grows with the list,
+  shrinks when a pinned pane takes space and grows back on close. The sort
+  button must stay square, reachable and inside the content column. Open and select sort options with
+  mouse and Tab/Enter/Space. Verify selected order, active styling and date
+  availability. Type Unicode title, artist and album queries, then check immediate
+  local results, clear/reset, empty matches, honest partial coverage, compact
+  Pause/Continue/Retry and retired replies. Count actual HTTP work for fast typing,
+  Enter, clearing, navigation and reusing an index beyond 2,000 positions. Preserve
+  the ordinary 2,000-position/100-page bounds, initial fill limit and indexed
+  20,000-position/50-position-batch/200-row-window bounds.
+  See [ADR-0035](adr/0035-incremental-whole-collection-index.md).
+- For global search, measure the closed three-tab group, open entry, toggle
+  bounds, total group width and HeaderBar height in logical pixels at 420×720,
+  900×650, 1440×900, 1920×1080 and maximized. The entry fills the former tab
+  slot at each size. The toggle and group center stay in place. Inspect native
+  closed, intermediate and open frames, including reverse motion, Light/Dark,
+  1×/2× and immediate Reduced Motion endpoints.
+- Open the same entry via the toggle, Ctrl+F and Home. From a detail route,
+  check focus before typing, the 350 ms debounce, immediate Enter, results in
+  all four sections, paging, Retry and Back from a result detail. Click inside
+  empty entry padding, use its clear icon, and activate a result or menu with
+  the pointer. A background click, Escape with text, or a second toggle click
+  restores the origin and tabs. Clear alone restores the origin with the field
+  open. Exercise rapid reversals, deliberate navigation and logout with a late
+  response in flight.
 - Test the whole metadata Info target and independent Like/Dislike focus. A
   reaction click must not open Info; unknown Dislike stays hidden and pending
   state is not optimistic. An unavailable Dislike must not disable a separately
@@ -60,10 +83,35 @@ bounds do not justify skipping containment or guessing coordinates.
 
 ## Pinned panel and motion
 
-Info/Queue share one fixed-size surface. Outside clicks, navigation, resize and
+Info/Lyrics/Queue share one surface. Outside clicks, navigation, resize and
 playback preserve mode; explicit close/Back restores focus. Content switching
 must not close/reopen the host. Current-occurrence changes resume following;
 inspecting details must not play. See [ADR-0022](adr/0022-universal-music-panel.md).
+
+Play original fixture audio and LRC through the ordinary PlaybackController,
+snapshot subscription, active-line lookup and mapped GTK view. Exercise both
+the Player Bar and the current row's Track Info menu. At a natural boundary
+capture the frame before the transition, its start, the nearest painted frames
+to 25/50/75% of the 300 ms presentation duration, and the settled frame.
+Record actual frame times and wall duration separately. Check both painted
+glyph widths against the easing curve. When every tick interval is at most
+30 ms, verify the expected wall duration. After a longer interval, check
+that the affected rows continue changing together on subsequent paints and
+that Follow approaches its new target across those frames.
+Compare
+each row's glyph ink with its own endpoints after accounting for scroll and
+device scale. Both rows must change physical glyph size in opposite directions
+in the same sequence. Report measured bounds and inspect the images for
+hierarchy, clipping, overlap, legibility and stable Follow movement.
+
+Include a long wrapped Cyrillic/Unicode line at narrow and wide allocations,
+Light/Dark, High Contrast and 1×/2×. Reduced Motion must reach the enlarged,
+legible current line on the first painted update. Check pause/resume,
+seek forward/back, equal timestamps, next/previous/EOS, source renewal,
+recycled rows, rapid track changes, closing Lyrics and logout. Manual scroll
+suspends centering while the active line continues to update. Follow returns
+to that line. Plain TEXT retains selectable stanzas.
+[ADR-0034](adr/0034-bounded-track-lyrics-and-similar.md).
 
 With normal animation enabled, observe opening and closing near 0/25/50/75/100%
 openness using five distinct native frame times and indices. Closing is presented

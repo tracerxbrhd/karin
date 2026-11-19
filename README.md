@@ -26,17 +26,27 @@ is not affiliated with or endorsed by Yandex.
   <img src="docs/screenshots/track-info.png" width="49%" alt="Dark theme with the pinned track information panel" />
 </p>
 
-Actual GTK captures with synthetic library data and original test artwork.
-[Capture details](docs/screenshots/README.md).
+GTK captures of the accepted v0.4 baseline with synthetic library data and
+original test artwork. [Capture details](docs/screenshots/README.md).
 
 ## Features
 
 - Yandex sign-in, liked tracks, personal playlists and catalog search.
-- Collection-local search, track details and server-confirmed playlist creation.
+- Compact collection search and sorting, with Unicode title/artist/album matching
+  and automatic bounded indexing when you search in an eligible collection.
+- Track information in one pinned panel and confirmed owned-playlist creation/editing.
+- A dedicated plain/LRC Lyrics mode in that same panel, with animated line
+  emphasis, copying, Follow and an explicit external source option.
+- Similar tracks using ordinary playback, queue and reaction actions.
+- Playback queue, position and Shuffle/Repeat restoration without autoplay.
 - Distinct Like/Dislike controls with account-bound read-after-write confirmation.
-- Contextual queues, Shuffle/Repeat, seek and volume through GStreamer.
+- Contextual queues, Play Next, exact drag/keyboard reordering, Shuffle/Repeat,
+  seek and volume through GStreamer.
+- Explicit Resume renews expired source admission for the same occurrence and
+  restores its position through the existing cache/resolver path.
 - My Wave personal radio from Home, using the same queue, player and MPRIS.
-- A pinned track information / queue panel, responsive layouts, light/dark themes and HiDPI.
+- A shared Track Info / Lyrics / Queue panel, a footer Lyrics action and
+  volume-wheel control, responsive layouts, light/dark themes and HiDPI.
 - MPRIS media controls and metadata for KDE Plasma and other Linux desktops.
 - Protected remembered sign-in and one account-scoped cache for metadata,
   artwork and eligible online-revalidated MP3 responses.
@@ -63,9 +73,10 @@ merged at `ddf93ea`. Removal and Like do not advance playback; late confirmation
 are guarded by queue occurrence and session generations. See the
 [backlog audit](docs/ISSUES_AUDIT.md) for remaining independent work.
 
-The Music API is unofficial and may change. Separate recommendation shelves,
-lyrics and offline audio are not implemented. Cold first-player appearance in Cloud
-still has unresolved frame gaps; desktop acceptance does not establish their
+The Music API is unofficial and may change. v0.8 lyrics/related tracks and the
+larger-library workflow are proposed additions with separate live acceptance;
+offline audio is not implemented. Cold first-player appearance in Cloud still
+has unresolved frame gaps; ordinary desktop acceptance does not establish their
 cause or resolution. See [known limitations](docs/LIMITATIONS.md).
 
 [PR #26](https://github.com/tracerxbrhd/karin/pull/26) merged normally at
@@ -80,12 +91,30 @@ are provisionally accepted pending future design refinement. This is private
 online-revalidated caching, not an offline library or a public distribution
 license. See [cache policy](docs/AUDIO_CACHE_REVIEW.md).
 
-[Draft PR #28](https://github.com/tracerxbrhd/karin/pull/28) combines bounded
-account-bound playback continuation without autoplay, server-confirmed owned
-playlist editing and independent System style/color settings. Karin Style is
-explicitly unavailable until approved designer materials arrive. These additions
-await their own final desktop acceptance; the accepted audio path stays shared.
-See the [single Native/Flatpak check](docs/BUILDING.md#v07-final-fedora-acceptance).
+[PR #28](https://github.com/tracerxbrhd/karin/pull/28) merged normally at
+`2ab6d28`, preserving its development history. The owner accepted exact revision
+`949d1f9`: **68/68 Fedora checks, Native 34/34 and installed Flatpak 34/34**,
+including playback continuation, real owned-playlist edits, appearance/adaptivity
+and the existing auth/audio/MPRIS/Wave path. System style and color scheme stay
+independent; Karin Style remains unavailable until approved designer materials
+arrive. See [validation](docs/VALIDATION.md#owner-acceptance-of-pr-28--2026-11-14).
+
+The integrated **v0.8** work adds plain/synchronized text, related tracks,
+compact search and sorting, exact queue edits and fewer repeated UI updates. Track
+Info has a compact action row and native menu. Lyrics and Queue switch inside
+the existing panel. Synchronized text follows the player position. As one line
+shrinks back to normal, the next grows larger and bolder. Lyrics use the allowed
+legacy full-text contract or an explicitly disclosed LRCLIB lookup by public metadata. Collection search
+fills the track-list column beside the sort button, filters available tracks
+immediately and continues the index after a short typing pause or Enter. The
+supported index reaches 20,000 original positions with bounded batches and result
+windows. The top search button, Ctrl+F and Home open one global search field
+in the space occupied by the three navigation tabs. Submitting a query shows
+catalog results. Clear returns to the originating page with the field open.
+Press Escape, use the close button or click empty space to bring back the tabs.
+New real-content/large-library/gesture acceptance is separate from v0.7 and is
+covered by [one final Native/Flatpak procedure](docs/BUILDING.md#v08-final-fedora-acceptance).
+There is no v0.8 release/tag or automatic merge authorization.
 
 ## Build and run
 

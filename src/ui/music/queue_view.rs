@@ -3,6 +3,17 @@
 
 use super::*;
 
+/// An in-process GTK value, with no serializer or textual MIME representation.
+/// A second window/account or retired presentation cannot consume the gesture.
+#[derive(Clone, glib::Boxed)]
+#[boxed_type(name = "KarinQueueOccurrenceDrag")]
+struct QueueDrag {
+    owner: glib::WeakRef<gtk::ListBox>,
+    generation: u64,
+    context: Option<PlaybackContext>,
+    occurrence: crate::queue::OccurrenceId,
+}
+
 impl Controller {
     pub(super) fn render_queue(self: &Rc<Self>) {
         self.guard_music_binding();
@@ -100,12 +111,20 @@ impl Controller {
                 .map(|duration| format!("— / {}", format_duration(duration)))
                 .unwrap_or_else(|| "— / —".into()),
         );
-        clear_box(&self.widgets.current_art);
-        self.widgets.current_art.append(&cover_widget(
-            self.artwork.as_ref(),
-            selected.and_then(|track| track.cover.as_ref()),
-            56,
-        ));
+        let requested_cover = selected.and_then(|track| track.cover.clone());
+        if self.widgets.current_art.first_child().is_none()
+            || self.current_art_cover.borrow().as_ref() != Some(&requested_cover)
+        {
+            // Future-queue edits and transport/mode updates do not invalidate
+            // the current texture or its in-flight native artwork task.
+            clear_box(&self.widgets.current_art);
+            self.widgets.current_art.append(&cover_widget(
+                self.artwork.as_ref(),
+                requested_cover.as_ref(),
+                56,
+            ));
+            *self.current_art_cover.borrow_mut() = Some(requested_cover);
+        }
         self.widgets
             .home_queue
             .set_text(&if model.queue.items().is_empty() {
@@ -129,6 +148,7 @@ impl Controller {
             .set_sensitive(!model.queue.items().is_empty());
         let current_index = model.queue.current_index();
         let upcoming = model.queue.upcoming_indices();
+        let editable_upcoming = model.queue.editable_upcoming();
         let history = model.queue.history_indices();
         let next_index = upcoming.first().copied();
         let repeat_one = model.queue.repeat_mode() == crate::queue::RepeatMode::One;
@@ -144,6 +164,18 @@ impl Controller {
         let queue_snapshot = model.queue.context().cloned();
         for index in order {
             let track = &model.queue.items()[index];
+            let occurrence = model
+                .queue
+                .occurrence_id(index)
+                .expect("admitted occurrence")
+                .clone();
+            let ordinary = model
+                .queue
+                .context()
+                .is_some_and(|context| context.source_kind() != ContextKind::Wave);
+            let upcoming_slot = editable_upcoming
+                .iter()
+                .position(|position| *position == index);
             let (row, body) = catalog_layout::catalog_item(&track.title, &track.artists.join(", "));
             body.set_spacing(4);
             if let Some(line) = body
@@ -192,6 +224,14 @@ impl Controller {
                 track.cover.as_ref(),
                 40,
             ));
+            if ordinary && upcoming_slot.is_some() {
+                let handle = gtk::Image::from_icon_name("list-drag-handle-symbolic");
+                handle.set_widget_name("music-queue-drag-handle");
+                handle.add_css_class("dim-label");
+                handle.set_tooltip_text(Some("Перетащите трек; с клавиатуры — Alt+↑ или Alt+↓"));
+                handle.set_cursor_from_name(Some("grab"));
+                body.prepend(&handle);
+            }
             let caption = queue_badge(index, current_index, next_index)
                 .map(|caption| {
                     if caption == "Далее" && repeat_one {
@@ -299,13 +339,52 @@ impl Controller {
                 }
             });
             let actions = gtk::Box::new(gtk::Orientation::Vertical, 4);
+            let next = gtk::Button::with_label("Воспроизвести следующим");
+            next.set_widget_name("music-queue-play-next");
+            next.add_css_class("flat");
+            next.set_sensitive(ordinary && track.available && current_index != Some(index));
+            let weak = Rc::downgrade(self);
+            let expected = queue_snapshot.clone();
+            let selected = occurrence.clone();
+            next.connect_clicked(move |_| {
+                if let Some(this) = weak.upgrade()
+                    && queue_action_is_current(&this, generation, &expected)
+                {
+                    this.promote_queue_occurrence(&selected);
+                }
+            });
+            let up = gtk::Button::with_label("Поднять выше · Alt+↑");
+            up.set_widget_name("music-queue-move-up");
+            up.add_css_class("flat");
+            up.set_sensitive(ordinary && upcoming_slot.is_some_and(|slot| slot > 0));
+            let down = gtk::Button::with_label("Опустить ниже · Alt+↓");
+            down.set_widget_name("music-queue-move-down");
+            down.add_css_class("flat");
+            down.set_sensitive(
+                ordinary && upcoming_slot.is_some_and(|slot| slot + 1 < editable_upcoming.len()),
+            );
+            for (button, delta) in [(&up, -1), (&down, 1)] {
+                let weak = Rc::downgrade(self);
+                let expected = queue_snapshot.clone();
+                let selected = occurrence.clone();
+                button.connect_clicked(move |_| {
+                    if let Some(this) = weak.upgrade()
+                        && queue_action_is_current(&this, generation, &expected)
+                    {
+                        this.shift_queue_occurrence(&selected, delta);
+                    }
+                });
+            }
+            actions.append(&next);
+            actions.append(&up);
+            actions.append(&down);
             actions.append(&details);
             actions.append(&add_playlist);
             actions.append(&remove);
             let popover = gtk::Popover::new();
             popover.set_child(Some(&actions));
             menu.set_popover(Some(&popover));
-            for button in [&details, &add_playlist, &remove] {
+            for button in [&next, &up, &down, &details, &add_playlist, &remove] {
                 let weak = popover.downgrade();
                 button.connect_clicked(move |_| {
                     if let Some(popover) = weak.upgrade() {
@@ -314,6 +393,77 @@ impl Controller {
                 });
             }
             body.append(&menu);
+            if ordinary && upcoming_slot.is_some() {
+                let source = gtk::DragSource::new();
+                source.set_actions(gtk::gdk::DragAction::MOVE);
+                let payload = QueueDrag {
+                    owner: self.widgets.queue_rows.downgrade(),
+                    generation,
+                    context: queue_snapshot.clone(),
+                    occurrence: occurrence.clone(),
+                };
+                let weak = Rc::downgrade(self);
+                let anchor = row.downgrade();
+                source.connect_prepare(move |_, _, _| {
+                    let this = weak.upgrade()?;
+                    if !anchor.upgrade().is_some_and(|row| row.is_mapped())
+                        || !queue_action_is_current(&this, payload.generation, &payload.context)
+                    {
+                        return None;
+                    }
+                    Some(gtk::gdk::ContentProvider::for_value(&payload.to_value()))
+                });
+                row.add_controller(source);
+                let target =
+                    gtk::DropTarget::new(QueueDrag::static_type(), gtk::gdk::DragAction::MOVE);
+                let weak = Rc::downgrade(self);
+                let selected = occurrence.clone();
+                let expected = queue_snapshot.clone();
+                let anchor = row.downgrade();
+                target.connect_drop(move |_, value, _, y| {
+                    let (Some(this), Some(row), Ok(payload)) =
+                        (weak.upgrade(), anchor.upgrade(), value.get::<QueueDrag>())
+                    else {
+                        return false;
+                    };
+                    if !row.is_mapped()
+                        || payload.owner.upgrade().as_ref() != Some(&this.widgets.queue_rows)
+                        || !queue_action_is_current(&this, generation, &expected)
+                        || !queue_action_is_current(&this, payload.generation, &payload.context)
+                    {
+                        return false;
+                    }
+                    this.move_queue_occurrence(
+                        &payload.occurrence,
+                        &selected,
+                        y >= f64::from(row.height()) / 2.0,
+                    )
+                });
+                row.add_controller(target);
+            }
+            let keys = gtk::EventControllerKey::new();
+            let weak = Rc::downgrade(self);
+            let expected = queue_snapshot.clone();
+            let selected = occurrence.clone();
+            let anchor = row.downgrade();
+            keys.connect_key_pressed(move |_, key, _, modifiers| {
+                let delta = match key {
+                    gtk::gdk::Key::Up => -1,
+                    gtk::gdk::Key::Down => 1,
+                    _ => return glib::Propagation::Proceed,
+                };
+                if modifiers.contains(gtk::gdk::ModifierType::ALT_MASK)
+                    && let Some(this) = weak.upgrade()
+                    && anchor.upgrade().is_some_and(|row| row.is_mapped())
+                    && queue_action_is_current(&this, generation, &expected)
+                {
+                    this.shift_queue_occurrence(&selected, delta);
+                    glib::Propagation::Stop
+                } else {
+                    glib::Propagation::Proceed
+                }
+            });
+            row.add_controller(keys);
             self.row_action(&row, RowAction::Queue(index));
             row.set_activatable(track.available && radio_playable);
             let state = queue_badge(index, current_index, next_index)
@@ -350,6 +500,100 @@ impl Controller {
         drop(model);
         self.sync_current_like();
         self.render_music_player();
+    }
+
+    fn finish_queue_edit(self: &Rc<Self>, occurrence: &crate::queue::OccurrenceId) {
+        // Index changes alone must not stop/reprepare the currently bound engine.
+        self.note_playback_intent();
+        self.cancel_pending_wave_for_ordinary_action();
+        self.observe_current_occurrence();
+        self.render_queue();
+        self.publish_mpris();
+        let display = {
+            let model = self.model.borrow();
+            model.queue.occurrence_index(occurrence).and_then(|index| {
+                let order = display_order(
+                    model.queue.items().len(),
+                    model.queue.current_index(),
+                    &model.queue.upcoming_indices(),
+                );
+                order.iter().position(|position| *position == index)
+            })
+        };
+        if let Some(display) = display
+            && let Some(row) = self.widgets.queue_rows.row_at_index(display as i32)
+        {
+            row.grab_focus();
+        }
+    }
+
+    pub(super) fn move_queue_occurrence(
+        self: &Rc<Self>,
+        occurrence: &crate::queue::OccurrenceId,
+        target: &crate::queue::OccurrenceId,
+        after: bool,
+    ) -> bool {
+        if self.model.borrow().closed
+            || !self.model.borrow().account_valid
+            || !self.wave_manual_append_allowed()
+        {
+            return false;
+        }
+        let changed = self
+            .model
+            .borrow_mut()
+            .queue
+            .move_upcoming(occurrence, target, after);
+        if changed {
+            self.finish_queue_edit(occurrence);
+        }
+        changed
+    }
+
+    pub(super) fn shift_queue_occurrence(
+        self: &Rc<Self>,
+        occurrence: &crate::queue::OccurrenceId,
+        delta: i32,
+    ) -> bool {
+        let target = {
+            let model = self.model.borrow();
+            let Some(index) = model.queue.occurrence_index(occurrence) else {
+                return false;
+            };
+            let future = model.queue.editable_upcoming();
+            let Some(slot) = future.iter().position(|position| *position == index) else {
+                return false;
+            };
+            let Some(target) = slot
+                .checked_add_signed(delta as isize)
+                .and_then(|slot| future.get(slot))
+            else {
+                return false;
+            };
+            model
+                .queue
+                .occurrence_id(*target)
+                .expect("admitted future")
+                .clone()
+        };
+        self.move_queue_occurrence(occurrence, &target, delta > 0)
+    }
+
+    pub(super) fn promote_queue_occurrence(
+        self: &Rc<Self>,
+        occurrence: &crate::queue::OccurrenceId,
+    ) -> bool {
+        if self.model.borrow().closed
+            || !self.model.borrow().account_valid
+            || !self.wave_manual_append_allowed()
+        {
+            return false;
+        }
+        let changed = self.model.borrow_mut().queue.move_next(occurrence);
+        if changed {
+            self.finish_queue_edit(occurrence);
+        }
+        changed
     }
 
     /// Reflect a retired radio identity without rebuilding the queue on every
@@ -409,7 +653,11 @@ fn queue_action_is_current(
     !model.closed
         && model.account_valid
         && model.generation == generation
-        && model.queue.context() == expected.as_ref()
+        && match (model.queue.context(), expected.as_ref()) {
+            (None, None) => true,
+            (Some(current), Some(expected)) => current.same_presentation_snapshot(expected),
+            _ => false,
+        }
 }
 
 /// Keep each physical position once. A repeat-cycle preview may include the

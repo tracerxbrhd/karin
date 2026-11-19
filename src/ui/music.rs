@@ -40,14 +40,18 @@ mod reactions;
 mod requests;
 #[cfg(test)]
 mod row_activation_tests;
+mod search_header;
 #[cfg(test)]
 mod search_tests;
+mod search_toolbar;
 mod search_view;
 pub(in crate::ui) mod sliding_panel;
 mod system_media;
 #[cfg(test)]
 mod test_input;
+mod track_extras;
 mod track_pane;
+mod volume_scroll;
 mod workspace;
 use requests::{Operation, Requests};
 type PendingJob = Box<dyn FnOnce(&Rc<Controller>, u64)>;
@@ -76,6 +80,7 @@ use crate::{
 pub(super) struct MusicPane {
     pub widget: gtk::Box,
     pub player_bar: gtk::Box,
+    arrange_player_for_width: Rc<dyn Fn(i32)>,
     controller: Rc<Controller>,
 }
 
@@ -133,6 +138,7 @@ struct Widgets {
     nav_liked: gtk::ToggleButton,
     nav_playlists: gtk::ToggleButton,
     nav_search: gtk::Button,
+    search_header: search_header::SearchHeader,
     library_feedback: gtk::Box,
     library_refresh: gtk::Button,
     library_rows: gtk::ListBox,
@@ -145,7 +151,6 @@ struct Widgets {
     search_sections: gtk::Box,
     search_all: gtk::Button,
     search_scope_title: gtk::Label,
-    search_button: gtk::Button,
     search_feedback: gtk::Box,
     search_rows: gtk::ListBox,
     search_previous: gtk::Button,
@@ -168,14 +173,16 @@ struct Widgets {
     shuffle: gtk::ToggleButton,
     repeat: gtk::Button,
     queue: gtk::Button,
+    lyrics: gtk::ToggleButton,
     progress: gtk::Scale,
     volume: gtk::Scale,
+    volume_menu: gtk::MenuButton,
     previous: gtk::Button,
     next: gtk::Button,
     clear_queue: gtk::Button,
 }
 
-type DetailRefresh = Rc<dyn Fn(&Rc<Controller>)>;
+type DetailRefresh = Rc<dyn Fn(&Rc<Controller>, bool)>;
 
 struct Controller {
     app: glib::WeakRef<adw::Application>,
@@ -186,9 +193,11 @@ struct Controller {
     login_dialog: RefCell<Option<LoginDialog>>,
     retiring_logins: RefCell<Vec<glib::WeakRef<adw::Dialog>>>,
     logout_confirmation: RefCell<Option<account::LogoutConfirmation>>,
+    delivery_dialog: RefCell<Option<adw::Dialog>>,
     model: RefCell<Model>,
     widgets: Widgets,
     requests: RefCell<Requests<PendingJob>>,
+    search_input: search_view::SearchInput,
     mutation_busy: Cell<bool>,
     artwork: Option<ArtworkLoader>,
     player: RefCell<player::MusicPlayback>,
@@ -202,7 +211,8 @@ struct Controller {
     info_observed: RefCell<Option<workspace::CurrentOccurrence>>,
     info_target_epoch: Cell<u64>,
     panel_mode: Cell<workspace::PanelMode>,
-    catalog_rows: RefCell<Vec<catalog_layout::CatalogRow>>,
+    catalog_rows: RefCell<catalog_layout::CatalogRows>,
+    current_art_cover: RefCell<Option<Option<CoverArt>>>,
     current_like_key: RefCell<Option<(u64, String)>>,
     detail_like_controls: RefCell<Vec<interactions::DetailLike>>,
     catalog: RefCell<Option<crate::catalog_cache::CachedCatalog>>,
@@ -366,7 +376,7 @@ impl MusicPane {
         let segments = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         segments.add_css_class("linked");
         segments.set_hexpand(true);
-        navigation.set_halign(gtk::Align::Center);
+        navigation.set_hexpand(true);
         navigation.set_size_request(-1, 42);
         let nav_wave = gtk::ToggleButton::with_label("Главная");
         let nav_liked = gtk::ToggleButton::with_label("Нравится");
@@ -380,17 +390,27 @@ impl MusicPane {
         ] {
             button.set_widget_name(name);
             button.set_hexpand(true);
+            // Keep each full label for measurement and accessibility, and
+            // let GTK shorten its rendering when the window runs out of room.
+            let fit_label = |button: &gtk::ToggleButton| {
+                if let Some(label) = button.child().and_downcast::<gtk::Label>() {
+                    label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+                }
+            };
+            fit_label(button);
+            button.connect_label_notify(fit_label);
             segments.append(button);
         }
         nav_wave.set_action_name(Some("win.music-home"));
         nav_liked.set_action_name(Some("win.music-library"));
         nav_playlists.set_action_name(Some("win.music-playlists"));
         nav_wave.set_active(true);
-        navigation.append(&segments);
+
         let nav_search = icon_button("system-search-symbolic", "Поиск музыки");
         nav_search.set_widget_name("music-navigation-search");
-        nav_search.set_action_name(Some("win.music-search"));
-        navigation.append(&nav_search);
+        let search = search_toolbar::entry("Поиск музыки…", "music-search", "Поиск музыки");
+        let search_header = search_header::SearchHeader::new(&segments, &search, &nav_search);
+        navigation.append(&search_header);
         widget.append(&navigation);
         let stack = gtk::Stack::new();
         // Measure the visible page. GTK 4.14 otherwise measures hidden wrapped
@@ -467,23 +487,9 @@ impl MusicPane {
         // Track pagination is driven by the outer scroll threshold.
         stack.add_titled(&library, Some("library"), "Библиотека");
 
-        // The HeaderBar already names this page. Give the entry and results
-        // priority; wide windows place both control groups on one native row.
         let search_page = gtk::Box::new(gtk::Orientation::Vertical, 12);
-        let search_tools = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-        let search = gtk::SearchEntry::new();
-        search.set_placeholder_text(Some("Что хотите послушать?"));
-        search.set_hexpand(true);
-        search.set_width_request(120);
-        search.set_widget_name("music-search");
-        search.update_property(&[gtk::accessible::Property::Label("Поиск музыки")]);
-        let search_button = gtk::Button::with_label("Найти");
-        search_button.set_widget_name("music-search-button");
-        search_button.add_css_class("suggested-action");
-        search_tools.append(&search);
-        search_tools.append(&search_button);
-        search_page.append(&search_tools);
         let scope_header = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        scope_header.set_visible(false);
         let search_all = gtk::Button::with_label("Все результаты");
         search_all.set_widget_name("music-search-all");
         search_all.set_icon_name("go-previous-symbolic");
@@ -493,9 +499,15 @@ impl MusicPane {
         search_scope_title.set_wrap(false);
         search_scope_title.set_hexpand(false);
         search_scope_title.set_visible(false);
+        let scope_header_weak = scope_header.downgrade();
+        search_scope_title.connect_visible_notify(move |title| {
+            if let Some(header) = scope_header_weak.upgrade() {
+                header.set_visible(title.get_visible());
+            }
+        });
         scope_header.append(&search_all);
         scope_header.append(&search_scope_title);
-        search_tools.prepend(&scope_header);
+        search_page.append(&scope_header);
         let search_feedback = gtk::Box::new(gtk::Orientation::Vertical, 8);
         search_feedback.set_widget_name("music-search-feedback");
         search_feedback.set_visible(false);
@@ -555,6 +567,7 @@ impl MusicPane {
         stack.add_named(&detail, Some("detail"));
         let player_bar::PlayerBarParts {
             player_bar,
+            arrange_for_width,
             player_revealer,
             player_main,
             current,
@@ -570,10 +583,12 @@ impl MusicPane {
             previous,
             next,
             queue,
+            lyrics,
             shuffle,
             repeat,
             progress,
             volume,
+            volume_menu,
         } = player_bar::PlayerBarParts::new();
 
         let cache_notice = adw::Banner::builder()
@@ -621,6 +636,7 @@ impl MusicPane {
             nav_liked,
             nav_playlists,
             nav_search,
+            search_header,
             library_feedback,
             library_refresh,
             library_rows,
@@ -633,7 +649,6 @@ impl MusicPane {
             search_sections,
             search_all,
             search_scope_title,
-            search_button,
             search_feedback,
             search_rows,
             search_previous,
@@ -656,8 +671,10 @@ impl MusicPane {
             shuffle,
             repeat,
             queue,
+            lyrics,
             progress,
             volume,
+            volume_menu,
             previous,
             next,
             clear_queue,
@@ -671,6 +688,7 @@ impl MusicPane {
             login_dialog: RefCell::new(None),
             retiring_logins: RefCell::new(Vec::new()),
             logout_confirmation: RefCell::new(None),
+            delivery_dialog: RefCell::new(None),
             model: RefCell::new(Model {
                 token: None,
                 account_valid: false,
@@ -696,6 +714,7 @@ impl MusicPane {
             }),
             widgets,
             requests: RefCell::new(Requests::default()),
+            search_input: search_view::SearchInput::default(),
             mutation_busy: Cell::new(false),
             artwork,
             player: RefCell::new(player::MusicPlayback::default()),
@@ -709,7 +728,8 @@ impl MusicPane {
             info_observed: RefCell::new(None),
             info_target_epoch: Cell::new(0),
             panel_mode: Cell::new(workspace::PanelMode::Closed),
-            catalog_rows: RefCell::new(Vec::new()),
+            catalog_rows: RefCell::new(catalog_layout::CatalogRows::default()),
+            current_art_cover: RefCell::new(None),
             current_like_key: RefCell::new(None),
             detail_like_controls: RefCell::new(Vec::new()),
             catalog: RefCell::new(None),
@@ -735,6 +755,7 @@ impl MusicPane {
         controller.connect(window);
         controller.connect_workspace();
         controller.connect_music_player();
+        controller.connect_footer_extras();
         controller.connect_playlist_management();
         controller.connect_system_media();
         controller.render_controls();
@@ -743,8 +764,14 @@ impl MusicPane {
         Self {
             widget,
             player_bar,
+            arrange_player_for_width: arrange_for_width,
             controller,
         }
+    }
+
+    pub(super) fn toolbar_with_player(&self, toolbar: &adw::ToolbarView) -> gtk::Box {
+        toolbar.add_bottom_bar(&self.player_bar);
+        player_bar::toolbar_frame(toolbar, self.arrange_player_for_width.clone())
     }
 
     /// Explicit metadata-only delivery experiment using this Music session.
@@ -1060,6 +1087,7 @@ impl Controller {
         }
         self.cancel_radio();
         self.stop_music();
+        self.cancel_search_input();
         self.requests.borrow_mut().invalidate_all();
         self.cancel_delivery();
         if let Some(artwork) = &self.artwork {
@@ -1437,6 +1465,7 @@ impl Controller {
             let weak = Rc::downgrade(self);
             button.connect_clicked(move |_| {
                 if let Some(this) = weak.upgrade() {
+                    this.close_global_search(false);
                     this.widgets.stack.set_visible_child_name(if mode == 0 {
                         "library"
                     } else {
@@ -1453,8 +1482,7 @@ impl Controller {
         let weak = Rc::downgrade(self);
         self.widgets.home_search.connect_clicked(move |_| {
             if let Some(this) = weak.upgrade() {
-                this.widgets.stack.set_visible_child_name("search");
-                this.widgets.search.grab_focus();
+                this.open_global_search();
             }
         });
         let weak = Rc::downgrade(self);
@@ -1499,24 +1527,7 @@ impl Controller {
                 this.load_library(page);
             }
         });
-        let weak = Rc::downgrade(self);
-        self.widgets.search_button.connect_clicked(move |_| {
-            if let Some(this) = weak.upgrade() {
-                this.search(0);
-            }
-        });
-        let weak = Rc::downgrade(self);
-        self.widgets.search.connect_activate(move |_| {
-            if let Some(this) = weak.upgrade() {
-                this.search(0);
-            }
-        });
-        let weak = Rc::downgrade(self);
-        self.widgets.search.connect_changed(move |_| {
-            if let Some(this) = weak.upgrade() {
-                this.invalidate_search();
-            }
-        });
+        self.connect_search_entry();
         let weak = Rc::downgrade(self);
         self.widgets.search_all.connect_clicked(move |_| {
             if let Some(this) = weak.upgrade() {
@@ -1545,6 +1556,12 @@ impl Controller {
                 if let Some(this) = weak.upgrade() {
                     let route = this.widgets.stack.visible_child_name();
                     this.reset_collection_filters();
+                    if this.widgets.search_header.is_open()
+                        && !this.widgets.search.text().is_empty()
+                        && !matches!(route.as_deref(), Some("search" | "detail"))
+                    {
+                        this.close_global_search(false);
+                    }
                     this.widgets
                         .nav_wave
                         .set_active(route.as_deref() == Some("home"));
@@ -1603,6 +1620,11 @@ impl Controller {
             let weak = Rc::downgrade(self);
             action.connect_activate(move |_, _| {
                 if let Some(this) = weak.upgrade() {
+                    if page == "search" {
+                        this.open_global_search();
+                        return;
+                    }
+                    this.close_global_search(false);
                     this.widgets.stack.set_visible_child_name(page);
                     if page == "library" || page == "playlists" {
                         let mode = u32::from(page == "playlists");
@@ -1611,9 +1633,6 @@ impl Controller {
                         if !changed {
                             this.show_library();
                         }
-                    }
-                    if page == "search" {
-                        this.widgets.search.grab_focus();
                     }
                 }
             });
@@ -1669,7 +1688,6 @@ impl Controller {
         self.widgets
             .search
             .set_sensitive(model.account_valid && !model.closed);
-        self.widgets.search_button.set_sensitive(ready);
         self.widgets.library_next.set_sensitive(ready);
         self.widgets.library_previous.set_sensitive(ready);
         self.widgets.search_next.set_sensitive(ready);
@@ -1716,6 +1734,7 @@ impl Controller {
         self.cancel_radio();
         self.close_persistence();
         self.clear_cache_presence();
+        self.dismiss_delivery_probe();
         self.dismiss_logout_confirmation();
         self.stop_music();
         self.clear_system_media();
@@ -1723,6 +1742,8 @@ impl Controller {
         self.detail_like_controls.borrow_mut().clear();
         self.playlist_refreshing.set([false, false]);
         self.clear_text_focus();
+        self.retire_global_search();
+        self.cancel_search_input();
         self.requests.borrow_mut().invalidate_all();
         self.cancel_delivery();
         if let Some(artwork) = &self.artwork {
@@ -1760,6 +1781,7 @@ impl Controller {
     }
 
     fn logout(self: &Rc<Self>) {
+        self.dismiss_delivery_probe();
         self.retire_playlist_management();
         self.clear_cache_presence();
         self.cancel_radio();
@@ -1773,6 +1795,8 @@ impl Controller {
         self.detail_like_controls.borrow_mut().clear();
         self.playlist_refreshing.set([false, false]);
         self.clear_text_focus();
+        self.close_global_search(false);
+        self.cancel_search_input();
         self.requests.borrow_mut().invalidate_all();
         self.cancel_delivery();
         if let Some(artwork) = &self.artwork {
@@ -1838,28 +1862,6 @@ impl Controller {
     fn cancel_delivery(&self) {
         if let Some(cancellation) = self.model.borrow_mut().delivery_cancellation.take() {
             cancellation.cancel();
-        }
-    }
-
-    fn invalidate_search(&self) {
-        self.track_feeds
-            .borrow_mut()
-            .retain(|feed| feed.rows != self.widgets.search_rows);
-        self.clear_search_feedback();
-        self.requests.borrow_mut().invalidate(Operation::Search);
-        let mut model = self.model.borrow_mut();
-        model.view_generation += 1;
-        model.search_page = 0;
-        model.search_scope = None;
-        drop(model);
-        self.reset_search_sections();
-        self.widgets.search_next.set_visible(false);
-        self.widgets.search_previous.set_visible(false);
-        if self.model.borrow().account_valid {
-            set_empty(
-                &self.widgets.search_rows,
-                "Запрос изменён. Нажмите Enter или «Найти».",
-            );
         }
     }
 
@@ -1994,7 +1996,34 @@ impl Controller {
         self.widgets.status.set_subtitle(message);
     }
 
-    fn delivery_action(self: &Rc<Self>, id: String) {
+    fn dismiss_delivery_probe(&self) {
+        self.cancel_delivery();
+        let dialog = self.delivery_dialog.borrow_mut().take();
+        if let Some(dialog) = dialog {
+            dialog.close();
+        }
+    }
+
+    fn present_delivery_probe(self: &Rc<Self>, id: String) {
+        {
+            let model = self.model.borrow();
+            if model.closed || !model.account_valid || !model.delivery_diagnostic {
+                return;
+            }
+        }
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        self.dismiss_delivery_probe();
+        let dialog = adw::Dialog::builder()
+            .title("Диагностика доставки аудио")
+            .content_width(420)
+            .content_height(260)
+            .build();
+        let toolbar = adw::ToolbarView::new();
+        toolbar.add_top_bar(&adw::HeaderBar::new());
+        let body = gtk::Box::new(gtk::Orientation::Vertical, 12);
+        super::margins(&body, 20);
         let action = gtk::Button::with_label("Проверить доставку аудио без загрузки");
         action.set_widget_name("music-delivery-probe");
         action.set_halign(gtk::Align::Start);
@@ -2003,8 +2032,20 @@ impl Controller {
             "dim-label",
         );
         report.set_widget_name("music-delivery-report");
-        self.widgets.detail.append(&action);
-        self.widgets.detail.append(&report);
+        body.append(&report);
+        body.append(&action);
+        toolbar.set_content(Some(&body));
+        dialog.set_child(Some(&toolbar));
+        let weak = Rc::downgrade(self);
+        dialog.connect_closed(move |dialog| {
+            let Some(this) = weak.upgrade() else { return };
+            let current = this.delivery_dialog.borrow().as_ref() == Some(dialog);
+            if current {
+                this.delivery_dialog.borrow_mut().take();
+                this.cancel_delivery();
+            }
+        });
+        self.delivery_dialog.replace(Some(dialog.clone()));
         let weak = Rc::downgrade(self);
         action.connect_clicked(move |action| {
             let Some(this) = weak.upgrade() else {
@@ -2040,6 +2081,7 @@ impl Controller {
                 },
             );
         });
+        dialog.present(Some(&window));
     }
 
     fn enqueue(self: &Rc<Self>, track: Track) {
@@ -2049,14 +2091,40 @@ impl Controller {
         self.note_playback_intent();
         self.cancel_pending_wave_for_ordinary_action();
         let result = self.model.borrow_mut().queue.append(track);
-        match result {
-            Ok(_) => self.widgets.status.set_title("Трек добавлен в очередь."),
-            Err(_) => self
-                .widgets
-                .status
-                .set_title("Очередь заполнена. Удалите ненужные треки."),
-        }
+        self.show_queue_addition(result.is_ok(), "Трек добавлен в очередь.");
         self.render_queue();
+    }
+
+    fn enqueue_next(self: &Rc<Self>, track: Track) {
+        if !self.wave_manual_append_allowed() {
+            return;
+        }
+        self.note_playback_intent();
+        self.cancel_pending_wave_for_ordinary_action();
+        let result = self.model.borrow_mut().queue.insert_next(track);
+        self.show_queue_addition(result.is_ok(), "Трек будет воспроизведён следующим.");
+        self.render_queue();
+        self.publish_mpris();
+    }
+
+    fn show_queue_addition(&self, accepted: bool, title: &str) {
+        const FULL: &str =
+            "В очереди не более 500 треков. Удалите ненужный трек и повторите действие.";
+        if !accepted {
+            self.widgets.status.set_title("Очередь заполнена");
+            // The native status row is revealed by its subtitle, not title.
+            self.widgets.status.set_subtitle(FULL);
+        } else if self.widgets.status.subtitle().as_deref() == Some(FULL) {
+            self.widgets.status.set_title(title);
+            self.widgets.status.set_subtitle("");
+        } else if self
+            .widgets
+            .status
+            .subtitle()
+            .is_none_or(|message| message.is_empty())
+        {
+            self.widgets.status.set_title(title);
+        }
     }
 }
 
@@ -2337,6 +2405,10 @@ fn music_error_message(error: MusicError) -> (&'static str, &'static str) {
             "Доступ ограничен сервисом",
             "Яндекс Музыка ограничила доступ к этим данным.",
         ),
+        MusicError::LyricsNotPermitted => (
+            "Текст недоступен",
+            "Источник не предоставил разрешение показать текст.",
+        ),
         MusicError::RateLimited => (
             "Слишком много запросов",
             "Подождите и повторите запрос вручную.",
@@ -2399,6 +2471,17 @@ mod tests {
         time::{Duration, Instant},
     };
 
+    /// Empty related results for older focused native fixtures. Only the new
+    /// exact read-only route is admitted; all other server assertions remain.
+    pub(super) fn empty_similar_response(path: &str) -> Option<serde_json::Value> {
+        let id = path.strip_prefix("/tracks/")?.strip_suffix("/similar")?;
+        if id.is_empty() || id.len() > 20 || !id.bytes().all(|byte| byte.is_ascii_digit()) {
+            return None;
+        }
+        Some(json!({"result":{"track":{"id":id},"similarTracks":[]}}))
+    }
+
+    #[track_caller]
     pub(super) fn pump_until(mut condition: impl FnMut() -> bool) {
         let context = glib::MainContext::default();
         let deadline = Instant::now() + Duration::from_secs(8);
@@ -2421,6 +2504,10 @@ mod tests {
     // Optional review evidence from this test-only fixture window. No synthetic
     // catalog, account or token is compiled into the normal application.
     pub(super) fn capture_native(name: &str) {
+        capture_native_themed(name, |_| {});
+    }
+
+    pub(super) fn capture_native_themed(name: &str, mut inspect: impl FnMut(&'static str)) {
         let Ok(directory) = std::env::var("KARIN_TEST_CAPTURE_DIR") else {
             return;
         };
@@ -2440,6 +2527,7 @@ mod tests {
             adw::StyleManager::default().set_color_scheme(scheme);
             let painted = Instant::now() + Duration::from_millis(180);
             pump_until(|| Instant::now() >= painted);
+            inspect(theme);
             let result = std::process::Command::new("xdotool")
                 .args([
                     "search",
@@ -2814,7 +2902,6 @@ mod tests {
             ("GET /users/1234/playlists/3", playlist, false),
             ("POST /tracks", tracks.clone(), false),
             ("GET /search", search.clone(), false),
-            ("POST /tracks", tracks.clone(), false),
             ("POST /tracks", tracks, false),
             ("GET /albums/7/with-tracks", album, false),
             ("GET /search", search, true),
@@ -2862,7 +2949,12 @@ mod tests {
                 let independent_dislike = request.starts_with("GET /users/1234/dislikes/tracks");
                 let independent_membership = !request.starts_with(prefix)
                     && (request.starts_with("GET /users/1234/likes/tracks") || independent_dislike);
-                assert!(request.starts_with(prefix) || independent_membership);
+                let independent_similar = request
+                    .strip_prefix("GET ")
+                    .and_then(|line| line.split_whitespace().next())
+                    .and_then(empty_similar_response);
+                let independent_read = independent_membership || independent_similar.is_some();
+                assert!(request.starts_with(prefix) || independent_read);
                 assert!(
                     !request
                         .to_ascii_lowercase()
@@ -2879,13 +2971,15 @@ mod tests {
                     .unwrap_or(0);
                 assert!(length < 32 * 1024);
                 stream.read_exact(&mut vec![0; length]).unwrap();
-                if *delayed && !independent_membership {
+                if *delayed && !independent_read {
                     server_late_started.store(true, Ordering::Release);
                     wait_for_release
                         .recv_timeout(Duration::from_secs(8))
                         .unwrap();
                 }
-                let body = if independent_dislike {
+                let body = if let Some(response) = independent_similar {
+                    response.to_string()
+                } else if independent_dislike {
                     dislike_body.clone()
                 } else if independent_membership {
                     membership_body.clone()
@@ -2893,7 +2987,7 @@ mod tests {
                     response.to_string()
                 };
                 write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
-                if !independent_membership {
+                if !independent_read {
                     responses.next();
                 }
             }
@@ -3052,8 +3146,10 @@ mod tests {
         this.widgets.home_search.emit_clicked();
         assert_eq!(
             this.widgets.stack.visible_child_name().as_deref(),
-            Some("search")
+            Some("home"),
+            "opening global search keeps Home visible until a query is submitted"
         );
+        assert!(this.widgets.search.is_mapped());
         this.widgets.home_liked.emit_clicked();
         assert_eq!(
             this.widgets.stack.visible_child_name().as_deref(),
@@ -3191,7 +3287,7 @@ mod tests {
             this.widgets.detail.upcast_ref(),
             "Synthetic UI track"
         ));
-        this.widgets.stack.set_visible_child_name("search");
+        ui.show_page("music-search");
         this.widgets.search.set_text("Synthetic");
         this.widgets.search.emit_by_name::<()>("activate", &[]);
         pump_until(|| !this.model.borrow().busy);
@@ -3239,15 +3335,53 @@ mod tests {
         )
         .unwrap()
         .emit_clicked();
-        pump_until(|| !this.model.borrow().busy);
-        this.widgets
-            .detail
-            .last_child()
-            .unwrap()
-            .downcast::<gtk::Button>()
-            .unwrap()
-            .emit_clicked();
-        pump_until(|| !this.model.borrow().busy);
+        pump_until(|| {
+            this.panel_mode.get() == workspace::PanelMode::TrackInfo
+                && !menu.popover().unwrap().is_mapped()
+                && this.track_pane.album.is_mapped()
+                && this.track_pane.album.is_sensitive()
+        });
+        assert_eq!(
+            this.widgets.stack.visible_child_name().as_deref(),
+            Some("search")
+        );
+        let native = std::process::Command::new("xdotool")
+            .args([
+                "search",
+                "--onlyvisible",
+                "--name",
+                "^Karin synthetic HTTP fixture$",
+            ])
+            .output()
+            .unwrap();
+        assert!(native.status.success());
+        let native = String::from_utf8(native.stdout).unwrap();
+        let native = native.lines().next().unwrap();
+        assert!(native.bytes().all(|byte| byte.is_ascii_digit()));
+        let (x, y) = super::test_input::pointer(
+            &window,
+            &this.track_pane.album,
+            super::test_input::Target::Center,
+        );
+        assert!(
+            std::process::Command::new("xdotool")
+                .args([
+                    "mousemove",
+                    "--window",
+                    native,
+                    &x.to_string(),
+                    &y.to_string(),
+                    "click",
+                    "1"
+                ])
+                .status()
+                .unwrap()
+                .success()
+        );
+        pump_until(|| {
+            this.widgets.stack.visible_child_name().as_deref() == Some("detail")
+                && !this.model.borrow().busy
+        });
         // A collection's Play action belongs inside its hero. Locate the
         // actual track list by type instead of an obsolete child position.
         let album_rows = {
@@ -3274,19 +3408,19 @@ mod tests {
         assert_eq!(rows(&album_rows), 63);
         assert_eq!(album_rows.row_at_index(0), Some(original_album_row));
         assert!(!album_feed.data.borrow().has_more);
-        this.widgets.stack.set_visible_child_name("search");
+        ui.show_page("music-search");
         this.widgets.search.set_text("Late result");
-        this.widgets.search_button.emit_clicked();
+        this.widgets.search.emit_by_name::<()>("activate", &[]);
         assert!(this.model.borrow().busy);
         assert!(this.widgets.search.is_sensitive());
+        // Hold a real response before editing, so the test also covers the
+        // case where cancellation cannot prevent the original HTTP request.
+        pump_until(|| late_started.load(Ordering::Acquire));
         let previous_view = this.model.borrow().view_generation;
         this.widgets
             .search
             .set_text("Changed before the old response");
         assert!(this.model.borrow().view_generation > previous_view);
-        // Exercise an actual in-flight response. A merely queued request is now
-        // correctly suppressed by the shared token invalidation on logout.
-        pump_until(|| late_started.load(Ordering::Acquire));
         this.logout();
         release_search.send(()).unwrap();
         pump_until(|| served.load(Ordering::Acquire));

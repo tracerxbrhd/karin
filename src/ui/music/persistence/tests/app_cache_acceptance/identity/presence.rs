@@ -214,6 +214,7 @@ pub(super) fn run_child(original: &Input, phase: &str) {
         wait_presence(this, "42", Presence::Stored);
         assert!(find_named(this.widgets.detail.upcast_ref(), "music-track-cache").is_some());
         capture_native(&ui.window, "audio-cache-saved-playlist");
+        ui.show_page("music-search");
         this.widgets.search.set_text("Original");
         this.search(0);
         pump_until(|| {
@@ -237,6 +238,8 @@ pub(super) fn run_child(original: &Input, phase: &str) {
         );
         assert_eq!(server.counts().background_gets, 1);
         capture_native(&ui.window, "audio-cache-saved-search");
+        pointer(&ui.window, &this.widgets.nav_search);
+        pump_until(|| this.widgets.nav_liked.is_mapped() && !this.widgets.search.is_mapped());
         pointer(&ui.window, &this.widgets.nav_liked);
         pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("library"));
         this.toggle_queue_panel();

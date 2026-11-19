@@ -217,6 +217,10 @@ fn local_first_failure_after_actual_playing_preserves_the_listening_ledger() {
             total: Duration::from_secs(2),
             since: None,
         },
+        restore: None,
+        source_played: true,
+        test_age: Duration::ZERO,
+        expire_next_resume: false,
     };
     worker.fail(PlaybackError::Playback);
     let snapshot = shared.snapshot();

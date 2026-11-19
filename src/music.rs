@@ -8,7 +8,10 @@
 use std::{
     fmt,
     io::{Cursor, Read},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
@@ -27,8 +30,10 @@ use crate::session::AccessToken;
 
 pub mod cache_codec;
 pub mod interactions;
+pub mod library_index;
 pub mod playlist_creation;
 pub mod playlist_management;
+pub mod track_extras;
 pub mod wave;
 
 const ORIGIN: &str = "https://api.music.yandex.net/";
@@ -51,6 +56,8 @@ pub enum MusicError {
     MissingScopes,
     #[error("Music API access is restricted")]
     Restricted,
+    #[error("The lyrics provider did not permit displaying this text")]
+    LyricsNotPermitted,
     #[error("Music API rate limit reached; retry explicitly later")]
     RateLimited,
     #[error("Music service could not be reached")]
@@ -83,6 +90,7 @@ impl MusicError {
             Self::Forbidden => "forbidden",
             Self::MissingScopes => "missing-scopes",
             Self::Restricted => "restricted",
+            Self::LyricsNotPermitted => "lyrics-not-permitted",
             Self::RateLimited => "rate-limited",
             Self::Network => "network",
             Self::Timeout => "timeout",
@@ -389,6 +397,7 @@ pub struct MusicService {
     client: Client,
     origin: Url,
     account: Arc<Mutex<AccountCache>>,
+    external_lyrics: Arc<Mutex<track_extras::ExternalHttpState>>,
 }
 impl fmt::Debug for MusicService {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -430,6 +439,7 @@ impl MusicService {
                 .expect("fixture client"),
             origin,
             account: Arc::new(Mutex::new(AccountCache::default())),
+            external_lyrics: Arc::default(),
         }
     }
     pub fn new() -> Result<Self, MusicError> {
@@ -445,6 +455,7 @@ impl MusicService {
             client,
             origin: Url::parse(ORIGIN).map_err(|_| MusicError::Configuration)?,
             account: Arc::new(Mutex::new(AccountCache::default())),
+            external_lyrics: Arc::default(),
         })
     }
     pub fn clear_session(&self) {
@@ -653,6 +664,17 @@ impl MusicService {
         kind: SearchKind,
         page: u32,
     ) -> Result<SearchResults, MusicError> {
+        self.search_cancellable(token, query, kind, page, None)
+    }
+
+    pub(crate) fn search_cancellable(
+        &self,
+        token: &AccessToken,
+        query: &str,
+        kind: SearchKind,
+        page: u32,
+        cancellation: Option<&AtomicBool>,
+    ) -> Result<SearchResults, MusicError> {
         validate_search_input(query, page)?;
         let binding = self.search_binding(token)?;
         let category = match kind {
@@ -661,9 +683,10 @@ impl MusicService {
             SearchKind::Artists => "artist",
             SearchKind::Playlists => "playlist",
         };
-        let (body, http) = self.search_body(token, query, category, page, &binding)?;
+        let (body, http) =
+            self.search_body(token, query, category, page, &binding, cancellation)?;
         let (results, hits) = parse_search(&body, kind, page, http)?;
-        self.normalize_search_tracks(token, results, hits, http, &binding)
+        self.normalize_search_tracks(token, results, hits, http, &binding, cancellation)
     }
     /// Initial unified search is one `type=all` request, plus at most one
     /// existing bounded track batch. A malformed section or failed track
@@ -674,9 +697,18 @@ impl MusicService {
         token: &AccessToken,
         query: &str,
     ) -> Result<UnifiedSearchResults, MusicError> {
+        self.search_all_cancellable(token, query, None)
+    }
+
+    pub(crate) fn search_all_cancellable(
+        &self,
+        token: &AccessToken,
+        query: &str,
+        cancellation: Option<&AtomicBool>,
+    ) -> Result<UnifiedSearchResults, MusicError> {
         validate_search_input(query, 0)?;
         let binding = self.search_binding(token)?;
-        let (body, http) = self.search_body(token, query, "all", 0, &binding)?;
+        let (body, http) = self.search_body(token, query, "all", 0, &binding, cancellation)?;
         let wire = parse_search_wire(&body, http)?;
         if !valid_search_echo(&wire.text)
             && wire.tracks.is_none()
@@ -708,7 +740,7 @@ impl MusicService {
             });
         let tracks = parse_search_section(wire.tracks, SearchKind::Tracks, 0, http, true)
             .and_then(|(results, hits)| {
-                self.normalize_search_tracks(token, results, hits, http, &binding)
+                self.normalize_search_tracks(token, results, hits, http, &binding, cancellation)
             })
             .map(|results| SearchSection {
                 items: results.tracks,
@@ -721,6 +753,7 @@ impl MusicService {
         if let Err(error @ (MusicError::AccessDenied | MusicError::Unauthenticated)) = &tracks {
             return Err(*error);
         }
+        check_search_cancellation(cancellation)?;
         Ok(UnifiedSearchResults {
             http_status: http,
             tracks,
@@ -736,7 +769,9 @@ impl MusicService {
         category: &str,
         page: u32,
         binding: &SearchBinding,
+        cancellation: Option<&AtomicBool>,
     ) -> Result<(Zeroizing<Vec<u8>>, u16), MusicError> {
+        check_search_cancellation(cancellation)?;
         let page_text = page.to_string();
         let response = self.request_response(
             token,
@@ -752,10 +787,12 @@ impl MusicService {
         );
         self.check_search_binding(token, binding)?;
         let response = response?;
+        check_search_cancellation(cancellation)?;
         let http = response.status().as_u16();
         let body = read_body(response)
             .map_err(|error| search_failure(error, SearchParseStage::Envelope, http))?;
         self.check_search_binding(token, binding)?;
+        check_search_cancellation(cancellation)?;
         Ok((body, http))
     }
     fn normalize_search_tracks(
@@ -765,8 +802,10 @@ impl MusicService {
         hits: Vec<SearchTrackHit>,
         http: u16,
         binding: &SearchBinding,
+        cancellation: Option<&AtomicBool>,
     ) -> Result<SearchResults, MusicError> {
         self.check_search_binding(token, binding)?;
+        check_search_cancellation(cancellation)?;
         if !hits.is_empty() {
             // Bound both the HTTP batch and the number of owned normalized
             // Track clones retained for duplicate positions in one UI page.
@@ -792,11 +831,13 @@ impl MusicService {
                     http,
                 ));
             }
+            check_search_cancellation(cancellation)?;
             let response = self.track_batch_response(token, &distinct);
             self.check_search_binding(token, binding)?;
             // Before headers, preserve transport errors without inventing a
             // successful POST status from the earlier search HTTP 200.
             let response = response?;
+            check_search_cancellation(cancellation)?;
             let lookup_http = response.status().as_u16();
             let body = read_body(response).map_err(|error| {
                 search_failure(error, SearchParseStage::TrackLookup, lookup_http)
@@ -812,6 +853,7 @@ impl MusicService {
             results.omitted_tracks = ordered.1;
         }
         self.check_search_binding(token, binding)?;
+        check_search_cancellation(cancellation)?;
         Ok(results)
     }
     pub fn track(&self, token: &AccessToken, id: &str) -> Result<Track, MusicError> {
@@ -1188,6 +1230,16 @@ fn order_search_tracks(
     }
     Ok((ordered, omitted))
 }
+fn check_search_cancellation(cancellation: Option<&AtomicBool>) -> Result<(), MusicError> {
+    if cancellation.is_some_and(|cancelled| cancelled.load(Ordering::Acquire)) {
+        // The caller retires the matching UI ticket before this result can
+        // arrive. Stop between bounded blocking stages without inventing a
+        // session error or starting a second search worker.
+        return Err(MusicError::Network);
+    }
+    Ok(())
+}
+
 fn validate_search_input(query: &str, page: u32) -> Result<(), MusicError> {
     if query.trim().is_empty()
         || query.len() > 512

@@ -15,6 +15,7 @@ pub mod catalog_cache;
 pub mod config;
 pub mod credentials;
 pub mod domain;
+pub mod lyrics;
 pub mod mpris;
 pub mod music;
 pub mod oauth;

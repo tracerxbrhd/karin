@@ -235,6 +235,22 @@ pub(super) fn exercise_parallel_more() {
                     assert!(!headers.contains("cookie:"));
                     assert!(!headers.contains("x-yandex-music-client:"));
                     requests.fetch_add(1, Ordering::AcqRel);
+                    let path = request
+                        .lines()
+                        .next()
+                        .unwrap()
+                        .split_whitespace()
+                        .nth(1)
+                        .unwrap()
+                        .split('?')
+                        .next()
+                        .unwrap();
+                    if request.starts_with("GET ")
+                        && let Some(response) = crate::ui::music::tests::empty_similar_response(path)
+                    {
+                        respond(stream, response);
+                        return;
+                    }
                     if request.starts_with("GET /account/status ") {
                         respond(
                             stream,
