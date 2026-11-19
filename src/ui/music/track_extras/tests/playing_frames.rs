@@ -17,8 +17,13 @@ struct Frame {
     active: Option<u32>,
     settled: bool,
     center_error: Option<f32>,
-    rows: [graphene::Rect; 3],
-    scales: [f64; 3],
+    rows: [Option<(graphene::Rect, f64)>; 3],
+}
+
+impl Frame {
+    fn optical_row(&self, index: usize) -> (graphene::Rect, f64) {
+        self.rows[index].expect("both lyrics in the optical passage must be mapped and allocated")
+    }
 }
 
 pub(super) fn ordinary_lyrics_playback(app: &adw::Application) {
@@ -163,8 +168,6 @@ pub(super) fn ordinary_lyrics_playback(app: &adw::Application) {
                 && mapped_rows().iter().all(Option::is_some)
                 && view.inner.lyrics_scroll.vadjustment().value() < 1.0
         });
-        let labels = mapped_rows().map(Option::unwrap);
-        let rows = labels.each_ref().map(|l| l.parent().unwrap());
         let viewport = view.inner.lyrics_scroll.compute_bounds(&host).unwrap();
         // The scroll widget includes its native scrollbar. Measure physical
         // ink only in its exposed content column, including the final pixel
@@ -231,8 +234,18 @@ pub(super) fn ordinary_lyrics_playback(app: &adw::Application) {
                             )
                         }),
                         settled: lyrics.line_transitions.borrow().is_empty(),
-                        rows: rows.each_ref().map(|r| r.compute_bounds(&host).unwrap()),
-                        scales: labels.each_ref().map(label_scale),
+                        // GtkListView recycles the upper rows when Follow
+                        // moves deep into the document. Resolve each current
+                        // binding at paint time, and require the measured pair
+                        // on every frame of its own optical passage.
+                        rows: [0, 1, 5].map(|index| {
+                            let label = lyrics.visible_lines.borrow().get(&index)?.upgrade()?;
+                            if !label.is_mapped() || label.height() == 0 {
+                                return None;
+                            }
+                            let bounds = label.parent()?.compute_bounds(&host)?;
+                            Some((bounds, label_scale(&label)))
+                        }),
                     });
                 }
             }
@@ -241,12 +254,10 @@ pub(super) fn ordinary_lyrics_playback(app: &adw::Application) {
         // Observe uninterrupted Playing through both the adjacent and grouped
         // natural handoffs before preparing the deep, adjacent Follow passage.
         pump_until(|| {
-            frames.borrow().last().is_some_and(|f| {
-                f.playing
-                    && f.active == Some(5)
-                    && f.settled
-                    && f.position >= Duration::from_millis(3900)
-            })
+            frames
+                .borrow()
+                .last()
+                .is_some_and(|f| f.playing && f.active == Some(5) && f.settled)
         });
         let first_passage_end = frames.borrow().len();
         this.pause_music();
@@ -271,9 +282,11 @@ pub(super) fn ordinary_lyrics_playback(app: &adw::Application) {
         pump_until(|| {
             let frames = frames.borrow();
             frames.last().is_some_and(|f| {
-                f.active == Some(12)
+                f.playing
+                    && f.active == Some(12)
                     && f.settled
-                    && f.position >= Duration::from_millis(6350)
+                    && f.position >= Duration::from_millis(5800)
+                    && f.center_error.is_some_and(|error| error <= 2.0)
                     && view.inner.scroll_transition.get().is_none()
             })
         });

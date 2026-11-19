@@ -120,7 +120,12 @@ pub(super) fn verify_transition(
     name: &str,
     theme: &str,
 ) {
-    assert!(frames.len() >= 3, "natural Playing frames across {name}");
+    // Reduced Motion may paint exactly the two sides of the cut.
+    let minimum = if motion { 3 } else { 2 };
+    assert!(
+        frames.len() >= minimum,
+        "natural Playing frames across {name}"
+    );
     let scale = window.scale_factor();
     let renderer = window.renderer().unwrap();
     let crop = |frame: &Frame, rect: graphene::Rect| {
@@ -137,11 +142,12 @@ pub(super) fn verify_transition(
         renderer.render_texture(snapshot.to_node().unwrap(), Some(&crop))
     };
 
-    let separation = frames[0].rows[indices[1]].y() - frames[0].rows[indices[0]].y();
+    let [a, b] = indices.map(|i| frames[0].optical_row(i).0);
+    let separation = b.y() - a.y();
     let ink: Vec<[Ink; 2]> = frames
         .iter()
         .map(|frame| {
-            let [a, b] = indices.map(|i| frame.rows[i]);
+            let [a, b] = indices.map(|i| frame.optical_row(i).0);
             assert!(
                 (b.y() - a.y() - separation).abs() <= 1.,
                 "Follow or scaling shifted rows relative to one another"
@@ -258,11 +264,12 @@ pub(super) fn verify_transition(
     // The native Pango size identifies the presented phase after easing.
     // All assertions about the old/new visible sizes below use texture ink.
     let incoming = indices[1];
-    let initial_scale = frames[0].scales[incoming];
-    let scale_range = frames[last].scales[incoming] - initial_scale;
+    let initial_scale = frames[0].optical_row(incoming).1;
+    let scale_range = frames[last].optical_row(incoming).1 - initial_scale;
     assert!(scale_range > 0.2);
     let time_fraction = |i: usize| {
-        let strength = ((frames[i].scales[incoming] - initial_scale) / scale_range).clamp(0.0, 1.0);
+        let strength =
+            ((frames[i].optical_row(incoming).1 - initial_scale) / scale_range).clamp(0.0, 1.0);
         motion.then(|| (1.0 - 2.0 * strength).acos() / std::f64::consts::PI)
     };
     if motion {
@@ -340,10 +347,15 @@ pub(super) fn verify_transition(
         let matches = |sample: &Ink, end: &Ink| {
             sample.first_word_px == end.first_word_px && sample.contrast.abs_diff(end.contrast) <= 2
         };
-        for pair in &ink {
+        for (frame, pair) in frames.iter().zip(&ink) {
+            let expected = if frame.active == frames[0].active {
+                before
+            } else {
+                assert_eq!(frame.active, frames[last].active);
+                after
+            };
             assert!(
-                pair.iter().zip(before).all(|(p, b)| matches(p, b))
-                    || pair.iter().zip(after).all(|(p, a)| matches(p, a)),
+                pair.iter().zip(expected).all(|(p, e)| matches(p, e)),
                 "reduced motion painted a partial transition: {pair:?}"
             );
         }
