@@ -1554,7 +1554,31 @@ fn native_design_matched_matrix_and_populated_surfaces() {
     assert!(narrowed.width() < full_width);
     assert_eq!(narrowed.text(), "гОриЗоНт");
     evidence(&ui, "surface-liked-filter-wide-queue");
+    // Closing the native panel invalidates allocation immediately. Sample the first
+    // GTK frame actually painted with the panel closed, even on slow software GL.
+    let reveal = this
+        .info_host
+        .borrow()
+        .as_ref()
+        .unwrap()
+        .revealer()
+        .unwrap();
+    let clock = ui.window.frame_clock().unwrap();
+    let painted_width = Rc::new(Cell::new(None));
+    let handler = clock.connect_after_paint({
+        let width = painted_width.clone();
+        move |_| {
+            if width.get().is_none() && !reveal.reveals_child() && reveal.progress() <= f64::EPSILON
+            {
+                width.set(Some(narrowed.width()));
+            }
+        }
+    });
+    let deadline = Instant::now() + Duration::from_secs(3);
     set_panel(&ui, workspace::PanelMode::Closed);
+    pump(|| painted_width.get().is_some() || Instant::now() >= deadline);
+    clock.disconnect(handler);
+    assert_eq!(painted_width.get(), Some(full_width));
     assert_eq!(current_collection_search(&ui).width(), full_width);
     set_collection_query(&ui, "Нет такой синтетической композиции", 0);
     resize(&ui, 850, 750);

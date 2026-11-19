@@ -1571,7 +1571,11 @@ size range and allocates its child at the actual content width.
 The collection row now follows its content column. Check actual width growth
 and the sort button with the pane open and closed. Global search opens an
 entry in the top navigation before submitting a query. Check opening motion,
-keyboard focus, delayed replies and detail-route return. The revision-specific
+keyboard focus, delayed replies and detail-route return. During query replacement,
+GTK emitted a temporary empty edit and Karin fetched the displaced playlist
+again. Observing the completed text property change preserves the route until
+a genuine clear. The ordinary catalog fixture verifies the exact request
+sequence through replacement, a late reply and logout. The revision-specific
 Cloud results and synthetic GTK captures are recorded in the
 [PR checks](https://github.com/tracerxbrhd/karin/pull/29/checks).
 Visible line motion in the corrected build on physical KDE/Wayland remains

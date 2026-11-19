@@ -59,7 +59,10 @@ impl Controller {
             window.add_controller(keys);
         }
         let weak = Rc::downgrade(self);
-        self.widgets.search.connect_changed(move |_| {
+        // A replacement can emit "changed" twice, once for the temporary
+        // empty buffer. Observe the completed edit so only an actual clear
+        // restores the previous route.
+        self.widgets.search.connect_text_notify(move |_| {
             if let Some(this) = weak.upgrade() {
                 this.search_entry_changed();
             }
