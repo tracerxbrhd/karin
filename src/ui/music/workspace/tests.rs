@@ -27,11 +27,22 @@ impl WindowManager {
                 .spawn()
                 .expect("the isolated maximized-layout fixture requires Openbox")
         });
+        // Openbox publishes its identity before all root workspace properties.
+        // Connect GDK only once an actual desktop and work area are present.
         pump_until(|| {
             Command::new("wmctrl")
-                .arg("-m")
+                .arg("-d")
                 .output()
-                .is_ok_and(|result| result.status.success())
+                .is_ok_and(|result| {
+                    result.status.success()
+                        && String::from_utf8_lossy(&result.stdout)
+                            .lines()
+                            .any(|desktop| {
+                                desktop.contains(" * ")
+                                    && desktop.contains(" WA: ")
+                                    && !desktop.contains("WA: N/A")
+                            })
+                })
         });
         Self(owned)
     }
@@ -97,6 +108,10 @@ fn click(window: &adw::ApplicationWindow, id: &str, widget: &impl IsA<gtk::Widge
 fn resize(ui: &crate::ui::MainWindow, width: i32, height: i32) {
     eprintln!("Karin synthetic shell phase: resize {width}x{height}");
     ui.window.set_default_size(width, height);
+    wait_for_size(ui, width, height);
+}
+
+fn wait_for_size(ui: &crate::ui::MainWindow, width: i32, height: i32) {
     let previous = Cell::new(None);
     pump_until(|| {
         // The CSD surface includes a compositor-dependent shadow/frame. The
@@ -421,12 +436,12 @@ fn projected_occurrence_identity_preserves_provenance_and_manual_reindexing() {
 #[test]
 #[ignore = "requires isolated Xvfb, xdotool, Openbox and GTK; synthetic metadata only"]
 fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() {
+    let _wm = WindowManager::start();
     gtk::init().unwrap();
     adw::init().unwrap();
     if let Some(settings) = gtk::Settings::default() {
         settings.set_gtk_enable_animations(false);
     }
-    let _wm = WindowManager::start();
     let app = adw::Application::builder()
         .application_id("io.github.tracerxbrhd.Karin.WorkspaceShellFixture")
         .flags(gio::ApplicationFlags::NON_UNIQUE)
@@ -480,8 +495,10 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
     this.render_queue();
     this.render_music_player();
     ui.window.present();
-    pump_until(|| ui.window.is_mapped());
-    resize(&ui, 1440, 900);
+    // GtkWidget is mapped before X11 returns its initial configure. GTK 4.14
+    // queues a resize even for the same dimensions, so observe the existing
+    // request here instead of issuing it a second time at a 0×0 allocation.
+    wait_for_size(&ui, 1440, 900);
     assert_idle_footer_has_no_horizontal_minimum(&ui);
     let found = Command::new("xdotool")
         .args([

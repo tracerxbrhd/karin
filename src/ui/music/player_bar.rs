@@ -3,6 +3,8 @@
 
 use super::*;
 
+mod responsive_layout;
+
 pub(super) struct PlayerBarParts {
     pub player_bar: gtk::Box,
     pub player_revealer: gtk::Revealer,
@@ -129,10 +131,9 @@ impl PlayerBarParts {
         metadata.append(&current_like_slot);
         columns.attach(&metadata, 0, 0, 2, 1);
 
-        let middle = gtk::Box::new(gtk::Orientation::Vertical, 2);
-        middle.set_valign(gtk::Align::Center);
         let transport = gtk::Box::new(gtk::Orientation::Horizontal, 2);
         transport.set_halign(gtk::Align::Center);
+        transport.set_valign(gtk::Align::Center);
         transport.add_css_class("music-transport");
         transport.set_widget_name("music-transport");
         let shuffle = gtk::ToggleButton::new();
@@ -200,7 +201,7 @@ impl PlayerBarParts {
         transport.append(&play);
         transport.append(&next);
         transport.append(&repeat);
-        middle.append(&transport);
+        columns.attach(&transport, 0, 1, 3, 1);
 
         let timeline = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         timeline.add_css_class("music-player-timeline");
@@ -224,8 +225,7 @@ impl PlayerBarParts {
             .child(&timeline)
             .build();
         timeline_clamp.set_widget_name("music-player-timeline-clamp");
-        player_bar.append(&timeline_clamp);
-        columns.attach(&middle, 0, 1, 3, 1);
+        columns.attach(&timeline_clamp, 0, 2, 3, 1);
 
         let utilities = gtk::Box::new(gtk::Orientation::Horizontal, 4);
         utilities.set_widget_name("music-player-utilities");
@@ -274,14 +274,17 @@ impl PlayerBarParts {
         utilities.append(&volume_menu);
         columns.attach(&utilities, 2, 0, 1, 1);
         let layout = columns.layout_manager().expect("native player grid layout");
-        let metadata_cell = layout
-            .layout_child(&metadata)
-            .downcast::<gtk::GridLayoutChild>()
-            .expect("native metadata grid cell");
-        let transport_cell = layout
-            .layout_child(&middle)
-            .downcast::<gtk::GridLayoutChild>()
-            .expect("native transport grid cell");
+        let grid_cell = |widget: &gtk::Widget| {
+            layout
+                .layout_child(widget)
+                .downcast::<gtk::GridLayoutChild>()
+                .expect("native player grid cell")
+                .downgrade()
+        };
+        let metadata_cell = grid_cell(metadata.upcast_ref());
+        let transport_cell = grid_cell(transport.upcast_ref());
+        let timeline_cell = grid_cell(timeline_clamp.upcast_ref());
+        let utility_cell = grid_cell(utilities.upcast_ref());
 
         // Stop remains an internal/system command. Keeping its existing object
         // preserves controller/test hooks without placing it in the music UI.
@@ -290,70 +293,56 @@ impl PlayerBarParts {
         stop.set_visible(false);
         stop.set_sensitive(false);
 
-        // All five existing transport controls fit one compact native group.
-        // Responsive changes move only its timeline and grid attachment; the
-        // same focused mode widgets remain mounted, with one playback model.
-        let weak_middle = middle.downgrade();
-        let weak_timeline = timeline_clamp.downgrade();
+        // A focused scale, transport button or utility never changes parents.
+        // Only the attachments of the same grid children change at 720px.
         let weak_columns = columns.downgrade();
-        let weak_metadata_cell = metadata_cell.downgrade();
-        let weak_transport_cell = transport_cell.downgrade();
         let weak_content = player_bar.downgrade();
-        let compact_state = Cell::new(Some(true));
+        let compact_state = Cell::new(true);
         let layout_player = Rc::new(move |width: i32| {
-            let compact = width < 720;
-            if width <= 0 || compact_state.replace(Some(compact)) == Some(compact) {
-                return;
-            }
-            let (
-                Some(bar),
-                Some(middle),
-                Some(timeline),
-                Some(columns),
-                Some(metadata_cell),
-                Some(transport_cell),
-            ) = (
-                weak_content.upgrade(),
-                weak_middle.upgrade(),
-                weak_timeline.upgrade(),
-                weak_columns.upgrade(),
-                weak_metadata_cell.upgrade(),
-                weak_transport_cell.upgrade(),
-            )
-            else {
+            let Some(bar) = weak_content.upgrade() else {
                 return;
             };
+            let compact = width - bar.margin_start() - bar.margin_end() < 720;
+            if width <= 0 || compact_state.replace(compact) == compact {
+                return;
+            }
+            let (Some(columns), Some(metadata), Some(transport), Some(timeline), Some(utilities)) = (
+                weak_columns.upgrade(),
+                metadata_cell.upgrade(),
+                transport_cell.upgrade(),
+                timeline_cell.upgrade(),
+                utility_cell.upgrade(),
+            ) else {
+                return;
+            };
+            columns.set_column_homogeneous(!compact);
             if compact {
-                columns.set_column_homogeneous(false);
-                metadata_cell.set_column_span(2);
-                transport_cell.set_column(0);
-                transport_cell.set_row(1);
-                transport_cell.set_column_span(3);
+                metadata.set_column_span(2);
+                metadata.set_row_span(1);
+                utilities.set_row_span(1);
+                transport.set_column(0);
+                transport.set_row(1);
+                transport.set_column_span(3);
+                timeline.set_column(0);
+                timeline.set_row(2);
+                timeline.set_column_span(3);
                 columns.set_row_spacing(4);
-                middle.remove(&timeline);
-                bar.append(&timeline);
                 bar.add_css_class("music-player-compact");
             } else {
-                columns.set_column_homogeneous(true);
-                metadata_cell.set_column_span(1);
-                transport_cell.set_column(1);
-                transport_cell.set_row(0);
-                transport_cell.set_column_span(1);
-                columns.set_row_spacing(0);
-                bar.remove(&timeline);
-                middle.append(&timeline);
+                metadata.set_column_span(1);
+                metadata.set_row_span(2);
+                utilities.set_row_span(2);
+                transport.set_column(1);
+                transport.set_row(0);
+                transport.set_column_span(1);
+                timeline.set_column(1);
+                timeline.set_row(1);
+                timeline.set_column_span(1);
+                columns.set_row_spacing(2);
                 bar.remove_css_class("music-player-compact");
             }
         });
-        let weak_bar = player_bar.downgrade();
-        let layout = Rc::clone(&layout_player);
-        footer.add_tick_callback(move |host, _| {
-            let Some(bar) = weak_bar.upgrade() else {
-                return glib::ControlFlow::Break;
-            };
-            layout(host.width() - bar.margin_start() - bar.margin_end());
-            glib::ControlFlow::Continue
-        });
+        responsive_layout::install(&footer, layout_player.clone());
 
         // No queue selection or placeholder makes a player appear. The
         // existing controller reveals this one native surface only for an
@@ -374,7 +363,7 @@ impl PlayerBarParts {
             if let (Some(host), Some(bar)) = (weak_host.upgrade(), weak_bar.upgrade()) {
                 // The same idempotent arrangement runs before revealing a
                 // previously unmapped child, using only actual host geometry.
-                layout_player(host.width() - bar.margin_start() - bar.margin_end());
+                layout_player(host.width());
                 bar.set_visible(true);
             }
         });

@@ -457,23 +457,16 @@ fn build_with_music_pane(
     information_view.set_widget_name("music-track-info-revealer");
     track_info.add_overlay(&information_view);
     track_info.set_measure_overlay(&information_view, false);
-    // Both breakpoints affect workspace content. Keeping their bin below the
-    // fixed navigation prevents Libadwaita's breakpoint remap and deferred focus
-    // traversal from taking keyboard focus out of the header search entry.
+    // BreakpointBin briefly unmaps its child while applying a breakpoint.
+    // Only the body changes presentation. The search entry and active player
+    // controls stay in their original mapped parents throughout a resize.
     let workspace_bin = adw::BreakpointBin::builder()
-        // The scrollable body fits inside the existing 360×480 window
-        // minimum alongside the fixed header and compact transport.
         .width_request(320)
         .height_request(200)
         .build();
-    // Include the responsive footer in the same bin. Its desktop grid can
-    // request more width than the compact minimum until it receives the new
-    // allocation. That temporary request must not constrain the window.
-    let workspace = adw::ToolbarView::new();
-    workspace.set_content(Some(&track_info));
-    workspace.add_bottom_bar(&music.player_bar);
-    workspace_bin.set_child(Some(&workspace));
+    workspace_bin.set_child(Some(&track_info));
     toolbar.set_content(Some(&workspace_bin));
+    toolbar.add_bottom_bar(&music.player_bar);
     {
         let saved_focus: Rc<RefCell<Option<glib::WeakRef<gtk::Widget>>>> = Rc::default();
         let window_unmap = window.downgrade();
@@ -481,7 +474,7 @@ fn build_with_music_pane(
         // GTK 4.14 can overwrite a pending focus-move reference when adaptive
         // layout hides focused content repeatedly before the next paint.
         // Clear focus to prevent that overwrite; restore a valid control on map.
-        workspace.connect_unmap(move |content| {
+        track_info.connect_unmap(move |content| {
             if let Some(window) = window_unmap.upgrade() {
                 let focus = gtk::prelude::GtkWindowExt::focus(&window).filter(|focus| {
                     focus == content.upcast_ref::<gtk::Widget>() || focus.is_ancestor(content)
@@ -494,7 +487,7 @@ fn build_with_music_pane(
             }
         });
         let window = window.downgrade();
-        workspace.connect_map(move |_| {
+        track_info.connect_map(move |_| {
             let focus = saved_focus.borrow_mut().take();
             if let (Some(window), Some(focus)) = (window.upgrade(), focus)
                 && gtk::prelude::GtkWindowExt::focus(&window).is_none()
