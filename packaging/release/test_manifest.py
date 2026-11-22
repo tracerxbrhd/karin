@@ -53,6 +53,7 @@ class ReleaseTests(unittest.TestCase):
         expected = {p["checksum"] for p in lock["package"] if "source" in p}
         self.assertEqual({p["sha256"] for p in downloads[1:]}, expected)
         self.assertEqual(len(downloads) - 1, sum("source" in p for p in lock["package"]))
+        self.assertTrue(all(p["archive-type"] == "tar-gzip" for p in downloads[1:]))
         self.assertEqual(downloads[0]["sha256"], checksum)
         self.assertIn(revision, downloads[0]["url"])
         self.assertFalse(any(p["type"] in ("dir", "git") for p in sources))

@@ -48,7 +48,7 @@ def make_manifest(base: dict, lock: dict, revision: str, source_sha256: str) -> 
         directory = f"vendor/{name}-{version}"
         filename = urllib.parse.quote(f"{name}-{version}.crate", safe="-._")
         sources.extend([
-            {"type": "archive", "url": f"https://static.crates.io/crates/{name}/{filename}",
+            {"type": "archive", "archive-type": "tar-gzip", "url": f"https://static.crates.io/crates/{name}/{filename}",
              "sha256": package["checksum"], "dest": directory, "strip-components": 1},
             {"type": "inline", "dest": directory, "dest-filename": ".cargo-checksum.json",
              "contents": json.dumps({"package": package["checksum"], "files": {}}, sort_keys=True)},
