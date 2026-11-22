@@ -275,6 +275,38 @@ def log_contains(value):
     return value in application_log.read_text(errors="replace")
 
 
+def current_info_menu():
+    # Row menus intentionally share this visible action label. Start at the
+    # current Info heading and take its closest owning pane, never the window.
+    ref = widget("О треке", "label")["ref"]
+    scopes = []
+    for depth in range(6):
+        ref = prop(ref, ACCESS, "Parent")
+        items = tree(ref)
+        menus = [
+            item
+            for item in items
+            if visible(item)
+            and item["role"] == "button"
+            and item["name"] == "Действия с треком"
+        ]
+        panel_close = any(
+            visible(item)
+            and item["name"] in ["Закрыть правую панель", "Закрыть сведения о треке"]
+            for item in items
+        )
+        scopes.append(
+            dict(ancestor=depth + 1, menu_count=len(menus), panel_close=panel_close)
+        )
+        (out / "native-info-scope.json").write_text(json.dumps(scopes, indent=2) + "\n")
+        if menus:
+            assert (
+                len(menus) == 1 and panel_close
+            ), "Info pane menu ownership is ambiguous"
+            return menus[0]
+    raise AssertionError("Current Info pane has no owned native menu")
+
+
 def media_property(name):
     return session_bus.call_sync(
         "org.mpris.MediaPlayer2.io.github.tracerxbrhd.Karin",
@@ -817,7 +849,7 @@ try:
         "current track info",
     )
     click(info)
-    click(widget("Действия с треком", "button"))
+    click(current_info_menu())
     # GTK model-button menu items expose no Name on these runtime versions.
     # The ordinary Info menu has three queue actions followed by Lyrics.
     # Prove its four mapped entries, save its actual painted labels, and drive
