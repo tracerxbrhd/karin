@@ -16,6 +16,7 @@
 Listen to your library in a native GTK4/Libadwaita application, with GStreamer
 playback and Linux desktop media controls. Karin is independent and is not
 affiliated with or endorsed by Yandex.
+The application interface is currently in Russian.
 
 ## Features
 
@@ -39,24 +40,20 @@ affiliated with or endorsed by Yandex.
 
 ## Screenshots
 
-![Liked tracks with collection search and the player](docs/screenshots/liked.png)
+![System presentation with the player and synchronized lyrics](packaging/screenshots/karin-system-dark.png)
 
-<p>
-  <img src="docs/screenshots/playlists.png" width="49%" alt="Owned and liked playlist collections" />
-  <img src="docs/screenshots/track-info.png" width="49%" alt="Dark theme with the pinned track information panel" />
-</p>
-
-These illustrate the accepted v0.4 UI using synthetic library data and original
-artwork; they are retained references rather than current v0.8 captures.
-[Capture provenance](docs/screenshots/README.md).
+Installed v0.8 System presentation with original synthetic tracks and text;
+no personal account or service content was used.
+[Capture provenance](packaging/screenshots/karin-system-dark.png.license).
 
 ## Status and limitations
 
-The owner completed Fedora acceptance of v0.8 functionality. Final repository
-cleanup and exact-head CI are tracked in [PR #29](https://github.com/tracerxbrhd/karin/pull/29).
-[Validation](docs/VALIDATION.md) separates that report from automated evidence and
-retains links to earlier accepted milestones. Cargo remains at `0.0.0`; no v0.8
-tag, public release or Flathub publication is announced.
+The owner completed Fedora acceptance of v0.8 functionality; the cleanup and
+optimized CI were merged in [PR #29](https://github.com/tracerxbrhd/karin/pull/29).
+The engineering candidate is **0.8.0-rc.1**, not a published release.
+[Validation](docs/VALIDATION.md) separates owner acceptance, automated checks and
+remaining release gates. No public tag, GitHub Release or Flathub publication
+is announced.
 
 The Music API is unofficial and may change. Lyrics availability and matching
 are provider-dependent. Private audio caching requires current online access and

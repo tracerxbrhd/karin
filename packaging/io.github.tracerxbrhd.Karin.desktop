@@ -1,12 +1,16 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 [Desktop Entry]
 Name=Karin
+GenericName=Music Player
+GenericName[ru]=Музыкальный проигрыватель
 Comment=Independent native client for Yandex Music
+Comment[ru]=Независимый клиент Яндекс Музыки для Linux
 Exec=karin
 Icon=io.github.tracerxbrhd.Karin
 Terminal=false
 Type=Application
-Categories=AudioVideo;Audio;Player;GTK;
+Categories=AudioVideo;Audio;Player;
 Keywords=Music;Yandex;Audio;
+Keywords[ru]=Музыка;Яндекс;Аудио;
 StartupNotify=true
 DBusActivatable=false

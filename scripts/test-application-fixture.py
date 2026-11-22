@@ -435,6 +435,15 @@ try:
     )[0]
     input_("windowfocus", "--sync", window)
     capture("00-startup")
+    # Release metadata must reach the actual native About dialog, not just CLI.
+    click(widget("Меню приложения"))
+    click(widget("О Karin", "menu item"))
+    application_version = version.splitlines()[0].removeprefix("Karin ")
+    widget(application_version)
+    widget("Karin contributors")
+    capture("00b-about")
+    key("Escape")
+    wait(lambda: not find(application_version), "native About closed")
     click(widget("Нравится", "toggle button"))
     # The actual library has arrived from the authenticated loopback request.
     row = wait(
@@ -708,6 +717,7 @@ try:
         ).hexdigest(),
         version=version,
         ordinary_executable=True,
+        native_about_version_checked=True,
         remembered_consent_after_restart=True,
         theme=args.theme,
         style="system",

@@ -10,8 +10,14 @@ theme icons, service content and user material retain their respective rights.
 
 ## Adapted code and notices
 
+AppStream metadata declares the per-file `CC0-1.0` exception in
+[`io.github.tracerxbrhd.Karin.metainfo.xml`](../packaging/io.github.tracerxbrhd.Karin.metainfo.xml).
+The original Karin icon and curated synthetic screenshot remain GPL-3.0-or-later;
+the screenshot's adjacent `.license` file records its source and content scope.
+
 The browser-session authentication contract is adapted from Cassette v0.2.4,
-revision `fc6c6e689bd0c60fa662b03aa2aa3c05534b4811`, under GPL-3.0-or-later,
+source commit `9d34251d01bcd414ffbec2bef7931090d33c9124` (behind annotated tag
+`fc6c6e689bd0c60fa662b03aa2aa3c05534b4811`), under GPL-3.0-or-later,
 Copyright 2023–2024 Vladimir Vaskov. Preserve:
 
 - [Cassette COPYING](../packaging/third-party-licenses/cassette-auth/COPYING)
@@ -35,6 +41,44 @@ v0.2.4/v0.2.5 local-first/background-save pattern. The
 Vladimir Vaskov and GPL-3.0-or-later. No cache source, reversible encoding,
 graphics, client secrets or new signing material is copied by this change;
 existing authentication/playback attribution remains intact.
+
+## Integration and public-distribution gate
+
+The focused official-document review on **2026-11-22** separates four questions:
+
+| Right or condition | Established basis and remaining limit |
+| --- | --- |
+| Karin and adapted source code | GPL-3.0-or-later permits reuse/distribution under its terms; preserve notices and provide corresponding source. |
+| OAuth registration | The owner registered Karin's separate application. The working provider instead ships Cassette's published shared `client_id` and `client_secret` fields. Their actual registration holder and permission for Karin's reuse are not established by source attribution. |
+| Music endpoints | Owner-accepted private sessions work with the existing provider. Karin's own PKCE token/Yandex ID success followed by generic 403 on both account methods does not establish an effective Music grant or its refusal's cause. |
+| Integrated public Native/Flatpak distribution and service material | No applicable provider/registration-holder approval or other sufficient basis is recorded. GPL, a subscription, HTTP cacheability and local playback do not supply it. |
+
+The [Yandex ID API terms](https://yandex.com/legal/authid_api/en/) (publication
+21.08.2026) require other APIs' own terms (§2.5.1), allow additional access
+requirements (§2.5.2), and restrict supplying/transferring the API Key to third
+parties (§4.4). Their application to the shared registration and Linux client
+must be clarified, rather than inferred from published configuration.
+
+The [Music terms](https://yandex.ru/legal/music_termsofuse/ru/) (Russia/Belarus
+Russian version, published/effective 25.08.2025) reserve service-material rights
+(§2.1), specify personal noncommercial use within supplied capabilities (§2.7),
+and allow varying restrictions (§2.8). The
+[official-program license](https://yandex.ru/legal/music_mobile_agreement/ru/)
+(Russia/Belarus Russian version, published/effective 03.04.2026) covers Yandex's
+mobile/Windows/MacOS program (§1.1), not a grant to Karin's independent Linux
+implementation; it also reserves recordings, lyrics and cover rights (§2.2).
+These documents do not establish a blanket prohibition of every third-party
+client, nor affirmative approval for this integration. This is a bounded
+engineering evidence review, not a determination of the owner's applicable law.
+
+The owner can send the [finished request](../packaging/release/YANDEX_REQUEST_RU.md)
+through the verified official developer channel to establish registration,
+endpoint, embedded-browser, content/cache and public-distribution conditions.
+The request has not been sent; no private correspondence is included. [Issue #5](https://github.com/tracerxbrhd/karin/issues/5)
+stays open until the applicable basis and its conditions are established and
+permitted Music access is locally confirmed; the integrated public-release gate
+in [#22](https://github.com/tracerxbrhd/karin/issues/22) remains separate from
+completing source, notices, packages and engineering checks.
 
 ## Locked Rust dependencies
 
@@ -84,7 +128,7 @@ Before conveying a covered binary, provide complete corresponding source and
 build/install information through an applicable GPL section 6 method. Preserve
 dependency and runtime distributors' obligations. A repository link or LICENSE
 file alone is not a universal substitute. Inspect generated source snapshots for
-unintended files before distribution. v0.4 acceptance does not publish a release.
+unintended files before distribution. Owner acceptance does not publish a release.
 
 ## Service material
 

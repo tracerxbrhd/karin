@@ -118,11 +118,11 @@ reviewable and consistent with the owner-accepted v0.8 application.
 
 ## Workflow and verification
 
-- The owner accepted v0.8 Fedora functionality and authorized normal merge of
-  **PR #29** after the requested cleanup and final checks pass. This supersedes
-  older separate-approval/pending-full-acceptance wording for that PR. Do not ask
-  for a repeat of the accepted full matrix. No release/tag, new PR, v0.9, squash,
-  rebase merge, force push or shared-history rewrite is authorized.
+- The owner accepted v0.8 Fedora functionality; **PR #29** was merged with its
+  cleanup and optimized CI. Current release-readiness work prepares engineering
+  candidate `0.8.0-rc.1` and addresses #5/#22/#23 in one Draft PR. Do not request a
+  repeat of the accepted full matrix. No public release/tag, Flathub submission,
+  merge, v0.9, force push or shared-history rewrite is authorized by that task.
 - For other work, follow the branch/PR and merge authorization actually supplied.
   Keep docs concise, audit consumers before deletion and verify tracked links/
   assets. Preserve essential history through immutable commits/PRs rather than

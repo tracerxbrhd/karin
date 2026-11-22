@@ -165,6 +165,9 @@ region or access-control workaround. The [original owner result](https://github.
 and [token/header comparison](https://github.com/tracerxbrhd/karin/issues/5#issuecomment-6471631991)
 remain separate evidence. Current ordinary sign-in is described in
 [AUTHENTICATION_REVIEW.md](AUTHENTICATION_REVIEW.md).
+The [2026-11-22 integration review](AUTHENTICATION_REVIEW.md#integration-review-2026-11-22)
+records the official registration/API conditions and the completed owner-send
+request. It adds no new login trial or explanation for those generic 403 results.
 
 Reviewed [yamu 0.1.2](https://github.com/okhsunrog/yamu/tree/9803f319b9ea6f81befbc3117e4592132ed07d0e)
 and [yamuse 0.3.2](https://github.com/flxxxxddd/yamuse/tree/368c74646520e8bcd30c44a9887e1bf99cb58172)

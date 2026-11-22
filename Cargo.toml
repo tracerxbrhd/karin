@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 [package]
 name = "karin"
-version = "0.0.0"
+version = "0.8.0-rc.1"
 edition = "2024"
 rust-version = "1.98"
 description = "An independent native Linux client for Yandex Music"
 repository = "https://github.com/tracerxbrhd/karin"
+homepage = "https://github.com/tracerxbrhd/karin"
 license = "GPL-3.0-or-later"
 publish = false
 

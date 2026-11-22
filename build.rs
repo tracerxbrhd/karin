@@ -70,4 +70,37 @@ fn main() {
         "cargo:rustc-env=KARIN_BUILD_PROFILE={}",
         env::var("PROFILE").unwrap()
     );
+    let compiler = Command::new(env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()))
+        .arg("--version")
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .map(|version| version.trim().to_owned())
+        .unwrap_or_else(|| "unknown".into());
+    println!("cargo:rustc-env=KARIN_BUILD_COMPILER={compiler}");
+    println!(
+        "cargo:rustc-env=KARIN_BUILD_TARGET={}",
+        env::var("TARGET").unwrap()
+    );
+    let features = [
+        ("auth-webkit", "CARGO_FEATURE_AUTH_WEBKIT"),
+        ("cassette-auth", "CARGO_FEATURE_CASSETTE_AUTH"),
+        (
+            "experimental-device-auth",
+            "CARGO_FEATURE_EXPERIMENTAL_DEVICE_AUTH",
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(name, variable)| env::var_os(variable).is_some().then_some(name))
+    .collect::<Vec<_>>()
+    .join(",");
+    println!(
+        "cargo:rustc-env=KARIN_BUILD_FEATURES={}",
+        if features.is_empty() {
+            "none"
+        } else {
+            &features
+        }
+    );
 }

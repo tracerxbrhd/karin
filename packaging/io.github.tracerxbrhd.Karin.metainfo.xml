@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: CC0-1.0 -->
+<component type="desktop-application">
+  <id>io.github.tracerxbrhd.Karin</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Karin</name>
+  <summary>Play your Yandex Music library</summary>
+  <summary xml:lang="ru">Музыка из библиотеки Яндекс Музыки</summary>
+  <developer id="io.github.tracerxbrhd">
+    <name>Karin contributors</name>
+  </developer>
+  <description>
+    <p>Karin is an independent native Linux client for Yandex Music. Browse your
+    library and listen using your account in an interface that follows your
+    desktop's light or dark appearance.</p>
+    <p xml:lang="ru">Karin — независимый нативный Linux-клиент Яндекс Музыки.
+    Просматривайте свою библиотеку и слушайте музыку через свой аккаунт
+    в интерфейсе со светлым и тёмным оформлением.</p>
+    <p>The application interface is currently available in Russian.</p>
+    <p xml:lang="ru">Интерфейс приложения сейчас доступен на русском языке.</p>
+    <ul>
+      <li>Search your library and the music catalog.</li>
+      <li xml:lang="ru">Ищите музыку в своей библиотеке и каталоге.</li>
+      <li>Manage playlists and a queue with shuffle and repeat.</li>
+      <li xml:lang="ru">Управляйте плейлистами и очередью с перемешиванием и повтором.</li>
+      <li>Listen to My Wave and use desktop media controls.</li>
+      <li xml:lang="ru">Слушайте Мою волну и управляйте воспроизведением средствами рабочего стола.</li>
+      <li>Look up synchronized lyrics with explicit consent.</li>
+      <li xml:lang="ru">Ищите синхронизированный текст после явного согласия.</li>
+    </ul>
+    <p>Karin is not affiliated with or endorsed by Yandex. Music access depends
+    on your account and the applicable service conditions.</p>
+    <p xml:lang="ru">Karin не связан с Яндексом и не одобрен им. Доступ к музыке
+    зависит от аккаунта и применимых условий сервиса.</p>
+  </description>
+  <launchable type="desktop-id">io.github.tracerxbrhd.Karin.desktop</launchable>
+  <provides>
+    <binary>karin</binary>
+  </provides>
+  <url type="homepage">https://github.com/tracerxbrhd/karin</url>
+  <url type="vcs-browser">https://github.com/tracerxbrhd/karin</url>
+  <url type="bugtracker">https://github.com/tracerxbrhd/karin/issues</url>
+  <branding>
+    <color type="primary" scheme_preference="light">#613583</color>
+    <color type="primary" scheme_preference="dark">#613583</color>
+  </branding>
+  <content_rating type="oars-1.1" />
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </supports>
+  <screenshots>
+    <screenshot type="default">
+      <image type="source" width="2880" height="1800">https://raw.githubusercontent.com/tracerxbrhd/karin/e5adeed716040a0711e745582b07e9844c94decc/packaging/screenshots/karin-system-dark.png</image>
+      <caption>Playback and synchronized lyrics with original demonstration tracks</caption>
+      <caption xml:lang="ru">Воспроизведение и синхронизированный текст на оригинальных демонстрационных треках</caption>
+    </screenshot>
+  </screenshots>
+  <releases>
+    <release version="0.8.0-rc.1" date="2026-11-22" type="development">
+      <description>
+        <p>Technical release candidate for the v0.8 feature set.</p>
+        <p xml:lang="ru">Технический релиз-кандидат с функциональностью v0.8.</p>
+        <ul>
+          <li>Native playback, playlists, My Wave, queue restoration and synchronized lyrics.</li>
+          <li xml:lang="ru">Нативное воспроизведение, плейлисты, Моя волна, восстановление очереди и синхронизированный текст.</li>
+          <li>Versioned desktop metadata and verifiable source-based packaging.</li>
+          <li xml:lang="ru">Версионированные метаданные и проверяемая сборка из исходников.</li>
+        </ul>
+      </description>
+    </release>
+  </releases>
+</component>

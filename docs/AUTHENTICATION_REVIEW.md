@@ -76,9 +76,63 @@ ephemeral storage, cancellation and Music validation; it does not copy upstream
 substring matching, persistent cookie databases, URL logging, Android Music
 identity headers or close-before-validation behavior.
 
+The default native/Flatpak binary includes the published registration's
+`client_id` and `client_secret` fields through `include_str!` in
+[`CassetteProvider`](../src/auth/cassette.rs). They match the pinned public
+Cassette source; they are extractable application configuration, not confidential
+native-client credentials or a Karin-owned registration. The actual registration
+holder and their authority to allow Karin's reuse are **not established** by that
+source attribution. No values or account credentials belong in this review.
+
 [RFC 8252 §8.12](https://www.rfc-editor.org/rfc/rfc8252.html#section-8.12) rejects
 embedded native OAuth agents. Yandex's documented [mobile LoginSDK](https://yandex.ru/dev/id/doc/ru/mobileauthsdk/about)
 WebView support does not establish standalone Linux WebKit permission or a
 blanket provider ban. Express registration-reuse/public-distribution approval
 remains unresolved independently of working private sessions and GPL reuse.
 See [LICENSING.md](LICENSING.md) and [ADR-0011](adr/0011-cassette-session-auth-prototype.md).
+
+## Integration review, 2026-11-22
+
+The [registration guide](https://yandex.ru/dev/id/doc/ru/register-client) requires
+registration and accurate application information. The
+[user-authorization guide](https://yandex.ru/dev/id/doc/ru/register-auth) describes
+registered platforms, consent identity and matching redirect addresses; it does
+not confirm Karin's Music endpoint grant or Linux embedded-flow eligibility.
+The owner's Karin registration, successful PKCE/token/Yandex ID binding and
+**both** generic Music 403 results are established separate facts, including the
+[TUN on/off result](https://github.com/tracerxbrhd/karin/issues/5#issuecomment-6470853664).
+Their cause remains unknown. No repeat account experiment or new endpoint probe
+is required to restate them.
+
+The current [Yandex ID API terms](https://yandex.com/legal/authid_api/en/), published
+21.08.2026, explicitly make other-service APIs subject to their own terms
+(§2.5.1) and possible additional access requirements (§2.5.2). §4.4 restricts
+obtaining/providing/transferring an API Key for/to third parties. How those
+conditions apply to the published shared registration and a distributed native
+client needs provider clarification; successful token issuance is no answer.
+The [licensing review](LICENSING.md#integration-and-public-distribution-gate)
+separates this from GPL and service-content rights.
+
+The existing `AuthProvider` boundary isolates registration/grant acquisition from
+GTK and identity-neutral `MusicService`; browser mode and opaque attempts are
+explicit. Only Music validation admits a session. There is no automatic provider
+fallback. A provider-approved Karin registration would require the approved
+grant, exact registered callback/browser policy and Music access conditions,
+then local validation through this boundary. Merely replacing a Client ID, or
+embedding a new private client secret, would not establish those contracts.
+The working provider and separate opt-in PKCE diagnostic remain unchanged.
+
+Existing local fixtures cover expired/invalidated worker tokens, delayed account
+validation after logout, newer-session isolation, typed HTTP 401 versus generic
+403, and cancelled/late protected-storage writes. A current-session 401 triggers
+local logout and credential deletion with an explicit failure state; a failed restore with generic 403
+does not invent revocation or a specific entitlement diagnosis. Network failures
+remain retryable. These are local rejection/cleanup contracts, not a tested
+remote-revocation API; refresh and remote revocation remain absent.
+
+The [completed Russian request](../packaging/release/YANDEX_REQUEST_RU.md) is ready
+for the owner through the documented official Yandex ID feedback form, requesting
+routing to Music and the appropriate rights team. It has **not been sent**.
+[Issue #5](https://github.com/tracerxbrhd/karin/issues/5) remains open until an
+applicable integration basis, its conditions and working permitted Music access
+are established. Engineering readiness does not establish that external decision.

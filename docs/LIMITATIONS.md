@@ -21,6 +21,14 @@ remain unresolved in [#5](https://github.com/tracerxbrhd/karin/issues/5) and
 [licensing](LICENSING.md), [authentication](AUTHENTICATION_REVIEW.md) and
 [stream delivery](STREAM_DELIVERY_REVIEW.md).
 
+`0.8.0-rc.1` is a verifiable engineering candidate, not an authorized public
+release. The [completed owner-send request](../packaging/release/YANDEX_REQUEST_RU.md)
+has not been sent. Flathub has a separate
+[AI-manifest/submission policy](https://docs.flathub.org/docs/for-app-authors/requirements#generative-ai-policy):
+these AI-assisted standalone manifests are not claimed submission-eligible.
+That store-specific condition does not prevent preparing or testing an independent
+source-based Flatpak bundle. No tag, release or store submission is authorized.
+
 Yandex supplement text needs explicit rights and full text; it has no timing.
 Synchronized LRCLIB text depends on external catalog availability and metadata
 matching. External lookup needs explicit consent or the separately saved,
@@ -91,11 +99,14 @@ semantic surfaces; Reduced Motion applies immediate endpoints. The legacy GTK4
 appearance; the exact source on the owner's desktop remains unestablished.
 The optional [read-only check](BUILDING.md#theme-input-check) does not alter settings.
 
-Cloud first-player smoothness remains unresolved in
-[#23](https://github.com/tracerxbrhd/karin/issues/23). Historical Mesa/Xvfb runs
-contain roughly 0.77–1.12 s frame gaps; LLVM JIT is a measured contributor rather
-than a complete causal explanation. Owner desktop acceptance and initialized
-motion do not resolve these cold observations. Xvfb/generated-media fixtures
-also do not independently establish physical GPU/Wayland performance, heard
-service music or every optional keyring/portal/media-key scenario. Report missing
-SDK/user namespaces without weakening WebKit's sandbox or TLS.
+Cloud first-player rendering in [#23](https://github.com/tracerxbrhd/karin/issues/23)
+has a measured software-GL boundary: actual llvmpipe context and matching GTK/
+Gallium/LLVM stacks locate substantial cold time in lazy native draw-variant JIT,
+with much shorter Cairo and repeated-Play controls. No newly measured Karin
+production defect has justified a workaround. The remaining costs are not fully
+split; closing the issue still needs a disposition accepted by the owner.
+[VALIDATION](VALIDATION.md#remaining-evidence-limits) records the bounded numbers,
+and [one isolated desktop diagnostic](BUILDING.md#bounded-cold-render-diagnostic)
+can check the real platform without repeating full v0.8 acceptance. Cloud results
+do not establish physical GPU/Wayland behavior, heard service music or every
+optional keyring/portal/media-key scenario. Keep WebKit's sandbox and TLS enabled.

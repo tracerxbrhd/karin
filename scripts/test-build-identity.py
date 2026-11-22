@@ -13,6 +13,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import tomllib
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--toolchain")
@@ -22,6 +23,7 @@ parser.add_argument(
     default=Path(__file__).resolve().parents[1] / "build.rs",
 )
 args = parser.parse_args()
+package_version = tomllib.loads((Path(__file__).resolve().parents[1] / "Cargo.toml").read_text())["package"]["version"]
 cargo = ["cargo"] + ([f"+{args.toolchain}"] if args.toolchain else [])
 rustc = ["rustc"] + ([f"+{args.toolchain}"] if args.toolchain else [])
 
@@ -83,7 +85,7 @@ with tempfile.TemporaryDirectory(prefix="karin-build-identity-") as temporary:
     (project / ".gitignore").write_text("/target/\n")
     (project / "Cargo.toml").write_text(
         '[package]\nname = "karin-build-identity-probe"\n'
-        'version = "0.0.0"\nedition = "2024"\n'
+        f'version = "{package_version}"\nedition = "2024"\n'
     )
     (project / "src" / "main.rs").write_text(
         'fn main() { println!("revision={}\\nstate={}\\nprofile={}", '

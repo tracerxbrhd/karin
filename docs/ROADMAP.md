@@ -4,10 +4,10 @@
 
 ## Current product
 
-The owner has accepted v0.8 functionality on Fedora. The final cleanup and CI
-work is tracked in [PR #29](https://github.com/tracerxbrhd/karin/pull/29).
-[VALIDATION](VALIDATION.md) records acceptance and exact evidence boundaries;
-this roadmap does not announce a release, version change, tag or Flathub package.
+The owner has accepted v0.8 functionality on Fedora. Cleanup and optimized CI
+were merged in [PR #29](https://github.com/tracerxbrhd/karin/pull/29).
+The next engineering candidate is `0.8.0-rc.1`; it is not a published release.
+[VALIDATION](VALIDATION.md) records acceptance and exact evidence boundaries.
 
 The native application now includes protected sign-in, library/catalog search,
 GStreamer playback, MPRIS, My Wave, confirmed reactions and playlist editing,
@@ -34,19 +34,20 @@ Earlier milestones and merges are linked from
   [designer handoff](design/KARIN_STYLE_INTEGRATION.md) and
   [ADR-0033](adr/0033-independent-ui-style-and-color-scheme.md).
 
-## Independent future decisions
+## Public release gates
 
 - [#5](https://github.com/tracerxbrhd/karin/issues/5): applicable OAuth registration,
   service and public-distribution conditions. Working local sign-in/audio and GPL
   source licensing do not resolve these questions.
-- [#22](https://github.com/tracerxbrhd/karin/issues/22): a separately authorized
-  release process, declared scope/version, reproducible artifacts/source/notices
-  and target-platform checks after the distribution conditions are resolved.
+- [#22](https://github.com/tracerxbrhd/karin/issues/22): prepare the versioned
+  candidate, validated metadata, pinned source-based packaging and verifiable
+  artifacts/source/notices now. Publication still needs applicable integration
+  rights, a decision on #23 and the owner's specific release authorization.
 - Offline playback, downloads and mass prefetch require a separate design with
   actual access, lifetime, storage and revalidation rules. They are not part of
   the current online-revalidated private HTTP cache.
 
 My Wave, reactions, real cache reuse, restoration and owned-playlist editing are
 implemented and accepted milestones rather than missing release features.
-No new v0.9 work is authorized by the final v0.8 cleanup. Current bounds and
-remaining platform limitations are in [LIMITATIONS](LIMITATIONS.md).
+This release-readiness work does not start v0.9. Current bounds and remaining
+platform limitations are in [LIMITATIONS](LIMITATIONS.md).

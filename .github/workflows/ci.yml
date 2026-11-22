@@ -84,7 +84,8 @@ jobs:
               gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
               libssl-dev libdbus-1-dev libsecret-1-dev libwebkitgtk-6.0-dev dbus-x11 xvfb xauth \
               librsvg2-common openbox imagemagick xdotool wmctrl x11-utils apparmor \
-              playerctl libglib2.0-bin python3-gi at-spi2-core libgl1-mesa-dri libegl-mesa0 libglx-mesa0
+              playerctl libglib2.0-bin python3-gi at-spi2-core libgl1-mesa-dri libegl-mesa0 libglx-mesa0 \
+              appstream desktop-file-utils
           }
           if ! install_native; then
             # A resolved kernel-mirror IPv4 timed out during package fetching on
@@ -189,6 +190,19 @@ jobs:
           assert "--socket=session-bus" not in finish_args
           assert not any(arg.startswith("--talk-name=") or arg.startswith("--system-talk-name=") for arg in finish_args)
           PY
+      - name: Validate release metadata and pinned-source packaging contracts
+        if: matrix.lane == 'stable'
+        run: |
+          python3 - <<'PY'
+          import unittest
+          suite = unittest.defaultTestLoader.discover('packaging/release', pattern='test_*.py')
+          assert suite.countTestCases() > 0, 'Release packaging tests were not discovered'
+          raise SystemExit(not unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful())
+          PY
+          appstreamcli validate --no-net --pedantic packaging/io.github.tracerxbrhd.Karin.metainfo.xml
+          desktop-file-validate packaging/io.github.tracerxbrhd.Karin.desktop
+          bash -n scripts/observe-cold-playerbar.sh
+          cc -O2 -Wall -Wextra -Werror -shared -fPIC scripts/cold-playerbar-timing.c -ldl -o /tmp/karin-cold-timing.so
       - name: Strict Clippy and default/all/minimal tests on both toolchains
         run: |
           cargo clippy --workspace --all-targets --locked -- -D warnings

@@ -1,10 +1,16 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-name: Extended native capture gallery (manual)
+name: Extended native diagnostics (manual)
 
 # Optional signed-out diagnostic gallery. Populated System, motion, cold footer,
 # lyrics glyphs, High Contrast and targeted HiDPI remain required in ci.yml.
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: Signed-out gallery or bounded software-GL/Cairo cold profiling
+        type: choice
+        options: [gallery, cold-profile]
+        default: gallery
 
 permissions:
   contents: read
@@ -15,6 +21,7 @@ concurrency:
 
 jobs:
   gallery:
+    name: ${{ inputs.mode == 'cold-profile' && 'Cold render profiling (software GL/Cairo)' || 'Native capture gallery' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     container:
@@ -39,6 +46,7 @@ jobs:
             libssl-dev libdbus-1-dev libsecret-1-dev libwebkitgtk-6.0-dev \
             dbus-x11 xvfb xauth librsvg2-common adwaita-icon-theme fonts-cantarell \
             fonts-dejavu-core openbox imagemagick xdotool wmctrl x11-utils \
+            gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
             libgl1-mesa-dri libegl-mesa0 libglx-mesa0
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6, Node.js 24
       - name: Configure this isolated capture runner
@@ -67,18 +75,49 @@ jobs:
             /usr/local/cargo/registry
             /usr/local/cargo/git
             target
-          key: cargo-debian13-${{ steps.rust.outputs.version }}-x86_64-default-capture-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'build.rs') }}-${{ hashFiles('src/**', 'resources/**') }}
-          restore-keys: cargo-debian13-${{ steps.rust.outputs.version }}-x86_64-default-capture-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'build.rs') }}-
+          key: cargo-debian13-${{ steps.rust.outputs.version }}-x86_64-manual-${{ inputs.mode }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'build.rs') }}-${{ hashFiles('src/**', 'resources/**') }}
+          restore-keys: cargo-debian13-${{ steps.rust.outputs.version }}-x86_64-manual-${{ inputs.mode }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'build.rs') }}-
       - name: Build the ordinary client and capture both scales
+        if: inputs.mode != 'cold-profile'
         run: |
           cargo build --workspace --locked
           scripts/capture-ui.sh build/ui-captures
           KARIN_CAPTURE_SCALE=2 scripts/capture-ui.sh build/ui-captures/hidpi
       - name: Retain the optional gallery
-        if: always()
+        if: always() && inputs.mode != 'cold-profile'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6, Node.js 24
         with:
           name: karin-extended-gallery-${{ github.sha }}
           path: build/ui-captures/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Profile first and repeated footer reveals in fresh processes
+        if: inputs.mode == 'cold-profile'
+        run: |
+          cargo test --lib --all-features --locked --no-run --message-format=json > /tmp/karin-cold-artifacts.jsonl
+          binary=$(python3 scripts/ci-native-tests.py artifact /tmp/karin-cold-artifacts.jsonl)
+          mkdir -p build/cold-render
+          {
+            git rev-parse HEAD
+            git diff --exit-code
+            rustc --version --verbose
+            for package in gtk4 libadwaita-1 gstreamer-1.0 webkitgtk-6.0; do
+              printf '%s: ' "$package"; pkg-config --modversion "$package"
+            done
+            sha256sum "$binary" scripts/observe-cold-playerbar.sh scripts/cold-playerbar-timing.c src/ui/music/design_tests.rs
+          } > build/cold-render/source-and-environment.txt
+          for attempt in 1 2; do
+            for renderer in ngl cairo; do
+              for mode in control trace; do
+                scripts/observe-cold-playerbar.sh "$mode" "$binary" "build/cold-render/$renderer-$mode-$attempt" "$renderer" xvfb
+              done
+            done
+          done
+      - name: Retain bounded cold-render traces and provenance
+        if: always() && inputs.mode == 'cold-profile'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6, Node.js 24
+        with:
+          name: karin-cold-render-${{ github.sha }}
+          path: build/cold-render/
           retention-days: 7
           if-no-files-found: error

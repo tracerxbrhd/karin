@@ -6,6 +6,7 @@ Run commands from the repository root. Requirements: Rust 1.98+, GTK 4.14+,
 Libadwaita 1.5+, GStreamer and WebKitGTK 6.0. CI checks current stable and exact
 **Rust 1.98.1** with the committed `Cargo.lock`. The reference desktop is Fedora
 44, KDE Plasma, Wayland and PipeWire.
+Release helpers additionally require Python 3.11+ and Git.
 
 ## Fedora prerequisites
 
@@ -35,6 +36,11 @@ rustup toolchain install 1.98.1 --profile minimal --component rustfmt --componen
 cargo +stable build --release --locked
 ./target/release/karin
 ```
+
+`0.8.0-rc.1` is an engineering candidate. Check `--version` and About for the
+source commit, clean/modified state, package and profile. Preparing a candidate
+does not publish a tag or release, establish Yandex integration rights, or
+authorize Flathub submission.
 
 Builds/tests need no Yandex account. Ordinary **Войти** uses the supported
 Cassette-compatible sign-in flow, without technical credentials, registration,
@@ -145,6 +151,96 @@ The [manifest](../packaging/flatpak/io.github.tracerxbrhd.Karin.json) retains GN
 and PulseAudio-compatible PipeWire audio. No broad session-bus/host-filesystem
 grant is required. Preserve [licensing](LICENSING.md). Source preparation/offline
 Cargo and a full installed Flatpak runtime check are distinct results.
+
+### Pinned release-candidate sources
+
+The development manifest above is not a standalone publication manifest. For an
+existing pushed, reviewed commit, generate a separate source-based manifest:
+
+```sh
+python3 packaging/release/manifest.py --revision "$(git rev-parse HEAD)" \
+  --output build/release/io.github.tracerxbrhd.Karin.json
+flatpak-builder --user --install --force-clean build/flatpak-rc \
+  build/release/io.github.tracerxbrhd.Karin.json
+```
+
+For the complete candidate set, prepare matching sources, build Native once,
+then use the artifact commands (the `flatpak` command replaces the direct
+`flatpak-builder` invocation above and also exports a bundle):
+
+```sh
+karin_release_revision=$(git rev-parse HEAD)
+RUSTUP_TOOLCHAIN=1.98.1 python3 packaging/flatpak/prepare-source.py
+(
+  cd build/flatpak-source
+  CARGO_TARGET_DIR=../../target cargo +1.98.1 build --release --offline --locked \
+    --no-default-features --features cassette-auth
+)
+python3 packaging/release/artifacts.py native --revision "$karin_release_revision" \
+  --binary target/release/karin --source-dir build/flatpak-source --output build/release
+python3 packaging/release/artifacts.py flatpak --revision "$karin_release_revision" \
+  --manifest build/release/io.github.tracerxbrhd.Karin.json \
+  --source-dir build/flatpak-source --output build/release
+```
+
+The Native tar contains `run-karin`, desktop/icon/metainfo assets and licenses;
+use that launcher so the private `share` directory is visible. It bundles no
+system libraries; `NATIVE-LIBRARIES.json` records the packaging host's dependencies.
+The matching source tar includes locked vendor, notices and build markers.
+`artifacts.py checksums --output build/release/SHA256SUMS FILE...` takes an explicit
+list of delivered archives, bundle, manifest and BUILD-INFO files; verify with
+`sha256sum --check SHA256SUMS` from their directory. The source validator requires
+the original `.crate` cache from locked Cargo fetch to authenticate vendor bytes.
+
+The generator pins the project's Git archive and its SHA-256, registry crate
+archives from `Cargo.lock`, and offline Cargo configuration. It does not package
+local build outputs or require a sibling generated development source directory.
+Use the release artifact tooling for the matching corresponding source, notices,
+BUILD-INFO and checksum manifest. These are source-repeatable and
+checksum-verifiable artifacts; independent byte-for-byte reproducibility is not
+claimed.
+
+Public distribution still depends on the recorded integration/release gates.
+Separately, the [current Flathub requirements](https://docs.flathub.org/docs/for-app-authors/requirements#generative-ai-policy)
+prohibit AI-generated or AI-assisted Flathub manifests, require disclosure of other
+known generated material and prohibit automated submission interactions. These
+AI-assisted standalone manifests are not represented as submission-eligible;
+disclosure or review does not override that manifest restriction. No Flathub
+submission, public release or tag is performed by these commands.
+
+### Bounded cold-render diagnostic
+
+The existing native cold fixture remains a required regression; a passing fixture
+does not certify cold latency. Detailed interposition is optional and runs outside
+ordinary app sessions. The manual extended workflow's `cold-profile` mode collects
+two fresh control/trace pairs for software GL and Cairo, with source/ELF identities.
+Raw traces and PNGs are artifacts, not repository assets. Hook spans overlap and
+missing hooks do not prove zero cost.
+
+For one targeted Fedora check, compile the current fixture and run it on the
+existing desktop without forcing a renderer or exporting screenshots:
+
+```sh
+cargo +1.98.1 test --lib --all-features --locked --no-run --message-format=json > /tmp/karin-cold-build.jsonl
+karin_cold_binary=$(python3 scripts/ci-native-tests.py artifact /tmp/karin-cold-build.jsonl)
+karin_cold_output=$(mktemp -d "${TMPDIR:-/tmp}/karin-cold.XXXXXXXX")
+{
+  git rev-parse HEAD
+  git diff --binary | sha256sum
+  rustc +1.98.1 --version --verbose
+  sha256sum "$karin_cold_binary" | cut -d ' ' -f 1
+} > "$karin_cold_output/build-identity.txt"
+scripts/observe-cold-playerbar.sh trace "$karin_cold_binary" \
+  "$karin_cold_output/run" default desktop
+```
+
+This synthetic test uses a private profile and session bus, its own generated
+audio and native GTK row activation; the Cloud/Xvfb path retains real XTest input.
+It measures first Play → Stop → repeat Play → Stop with the same 240 ms reveal.
+It neither logs into Yandex nor reads the real account. Retain `summary.json` and
+the build identity locally; no private desktop capture or full Fedora acceptance
+repeat is needed. The reported actual GDK/GSK/GL identity determines its platform
+scope; Xvfb/llvmpipe results cannot certify physical Wayland/GPU behavior.
 
 ## Desktop regression checks
 

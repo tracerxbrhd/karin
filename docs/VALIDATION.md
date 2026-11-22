@@ -24,11 +24,27 @@ support. This supersedes the intermediate v0.8 pending/failed acceptance wording
 the historical failures remain identifiable below. No repeat of the full owner
 acceptance is required for this cleanup.
 
-The owner conditionally authorized an ordinary merge of **PR #29** after the
-cleanup and required exact-head checks succeed. That authorization does not
-publish a release or tag, accept the unavailable Karin design, establish public
-service/content rights or resolve the independent cold-rendering investigation.
-Do not claim a merge until GitHub confirms it.
+**PR #29** was merged normally as
+[`3619f37`](https://github.com/tracerxbrhd/karin/commit/3619f3754bf07d47d7f343f5e4c18a8466081a0d).
+Its [post-merge CI](https://github.com/tracerxbrhd/karin/actions/runs/45046867381)
+passed all four jobs and 95 artifact-audit checks; all 46 native selectors were
+executed in 66 runs. The cold-cache run took 20.65 minutes/43.73 runner-minutes.
+This did not publish a release or resolve public service/content rights.
+
+## Release-candidate engineering
+
+`0.8.0-rc.1` is a technical candidate with consistent Cargo/build/About/AppStream
+identity, a standalone commit/SHA-pinned source manifest and corresponding-source,
+Native/Flatpak, BUILD-INFO, license and checksum tooling. See
+[BUILDING](BUILDING.md#pinned-release-candidate-sources) and the Draft PR's final
+checks for exact source/ELF identities and actually executed results. Artifacts
+are source-repeatable/checksum-verifiable, not certified binary-reproducible.
+
+The [official-document audit](AUTHENTICATION_REVIEW.md#integration-review-2026-11-22)
+and [ready-to-send request](../packaging/release/YANDEX_REQUEST_RU.md) leave #5 open
+pending the applicable registration/API/content/distribution decision. #22 also
+requires a #23 disposition and the owner's specific publication authorization.
+The request was not sent and no tag, public release or Flathub submission was made.
 
 ## Required automated evidence
 
@@ -62,12 +78,19 @@ A source build, installed Cloud Flatpak and heard Fedora Music are separate resu
 - Public OAuth/service/content distribution conditions remain unresolved in
   [#5](https://github.com/tracerxbrhd/karin/issues/5) and
   [#22](https://github.com/tracerxbrhd/karin/issues/22).
-- Cloud cold Player Bar rendering remains unresolved in
-  [#23](https://github.com/tracerxbrhd/karin/issues/23). Historical fresh-process
-  Mesa/Xvfb observations contained roughly 0.77–1.12 s adjacent-frame gaps.
-  Bounded profiling found substantial LLVM optimization/JIT work, without proving
-  the whole cause or ordinary physical-GPU/Wayland relevance. Successful lifecycle,
-  initialized motion or desktop acceptance does not convert this into PASS.
+- [#23](https://github.com/tracerxbrhd/karin/issues/23) now has a localized measured
+  boundary: paired fresh System-only GTK 4.18.6/X11 controls showed first-Play
+  gaps around 0.58–0.60 s versus roughly 0.033–0.050 s with Cairo. Actual app-context
+  evidence identifies Mesa 25.0.7 llvmpipe/LLVM 19.1.7. Matching-symbol stacks show
+  GTK's `gsk_gpu_shader_op_gl_command_n` drawing through Gallium into lazy fragment/
+  vertex variant compilation. LLVM APIs occupied 0.664–0.709 s in traced first-Play
+  intervals of 1.17–1.24 s; recorded layout/activation were much shorter. Stage
+  spans overlap and internally bound calls leave incomplete coverage. Raw controls,
+  trace self-costs and exact instrumented-source/ELF identities belong in #23 and
+  the manual cold-profile artifacts. No artificial prewarm, renderer override in
+  production or timing relaxation was added. The entire remaining cost and physical
+  Fedora/Wayland/GPU behavior are not proved; owner acceptance of that boundary
+  is still required before closing #23.
 - General owner acceptance does not certify every optional keyring/portal backend,
   media key, refusal, network-failure or catalog-matching scenario. Synthetic
   failures protect those contracts without making live-service claims.

@@ -1924,7 +1924,10 @@ fn native_first_footer_reveal_after_startup_without_graphics_initialization() {
     gtk::Settings::default()
         .unwrap()
         .set_gtk_enable_animations(true);
-    let _manager = WindowManager::start();
+    // The opt-in desktop diagnostic also runs on native Wayland, where XTest
+    // and an X11 window manager cannot drive the application. CI keeps XTest.
+    let desktop = std::env::var_os("KARIN_COLD_DESKTOP").is_some();
+    let _manager = (!desktop).then(WindowManager::start);
     // Only normal startup readiness (mapped library rows/decoded visible art)
     // precedes Play. In particular there is no static capture, resize, settle,
     // initialized-panel fixture or offscreen renderer call before this click.
@@ -1950,9 +1953,17 @@ fn native_first_footer_reveal_after_startup_without_graphics_initialization() {
     assert!(!this.widgets.player_revealer.reveals_child());
     assert_eq!(this.widgets.player_revealer.height(), 0);
     assert_hidden_footer_geometry(&ui);
+    let activate_row = |row: &gtk::ListBoxRow| {
+        if desktop {
+            assert!(row.is_mapped());
+            assert!(gtk::prelude::WidgetExt::activate(row));
+        } else {
+            native_click(&ui, row);
+        }
+    };
     let first = this.widgets.library_rows.row_at_index(0).unwrap();
     observe_footer_transition_with_baseline(&ui, "startup-first-start", true, false, false, || {
-        native_click(&ui, &first)
+        activate_row(&first)
     });
     pump(|| {
         this.music_snapshot()
@@ -1965,10 +1976,12 @@ fn native_first_footer_reveal_after_startup_without_graphics_initialization() {
             .is_some_and(|snapshot| snapshot.state == crate::playback::PlaybackState::Paused)
     });
     assert!(this.widgets.player_revealer.is_child_revealed());
-    super::tests::capture_native(&format!(
-        "startup-footer-paused-scale{}",
-        ui.window.scale_factor()
-    ));
+    if !desktop {
+        super::tests::capture_native(&format!(
+            "startup-footer-paused-scale{}",
+            ui.window.scale_factor()
+        ));
+    }
     gtk::Settings::default()
         .unwrap()
         .set_gtk_enable_animations(true);
@@ -1981,7 +1994,7 @@ fn native_first_footer_reveal_after_startup_without_graphics_initialization() {
     // the first click and is not evidence of cold first-use responsiveness.
     let repeat = this.widgets.library_rows.row_at_index(0).unwrap();
     observe_footer_transition_with_baseline(&ui, "startup-repeat-start", true, false, true, || {
-        native_click(&ui, &repeat)
+        activate_row(&repeat)
     });
     pump(|| {
         this.music_snapshot()
@@ -2076,7 +2089,9 @@ fn observe_footer_transition_with_baseline(
         pump(|| !frames.borrow().is_empty());
     }
     let activation_started_us = started.elapsed().as_micros();
+    let activation_started_monotonic_us = glib::monotonic_time();
     activate();
+    let activation_returned_us = started.elapsed().as_micros();
     pump(|| {
         reveal.reveals_child() == opening
             && if opening {
@@ -2085,6 +2100,8 @@ fn observe_footer_transition_with_baseline(
                 reveal.height() == 0 && !ui.music.controller.widgets.play.is_mapped()
             }
     });
+    let endpoint_observed_us = started.elapsed().as_micros();
+    let endpoint_observed_monotonic_us = glib::monotonic_time();
     ui.window.queue_draw();
     let endpoint_count = frames.borrow().len();
     pump(|| frames.borrow().len() > endpoint_count);
@@ -2147,6 +2164,11 @@ fn observe_footer_transition_with_baseline(
         selected.extend(pair.iter().copied());
     }
     selected.retain(|index| frames[*index].node.is_some());
+    let desktop = std::env::var_os("KARIN_COLD_DESKTOP").is_some();
+    if desktop {
+        // The existing-display diagnostic writes timing/structure only.
+        selected.clear();
+    }
     let natural_child_heights = frames
         .iter()
         .filter_map(|frame| frame.child.map(|rect| rect.height() as i32))
@@ -2167,7 +2189,7 @@ fn observe_footer_transition_with_baseline(
     } else {
         "raw-first-start-or-stop-observation"
     };
-    let summary = json!({"transition":name,"scope":scope,
+    let mut summary = json!({"transition":name,"scope":scope,
         "cold_first_use_latency_accepted":false,"synthetic_frames":false,
         "animations_enabled":gtk::Settings::default().unwrap().is_gtk_enable_animations(),
         "transition_type":"SlideUp","transition_duration_ms":240,
@@ -2186,6 +2208,26 @@ fn observe_footer_transition_with_baseline(
         "observed_height_reversal_count":reversals.len(),"reversal_capture_limit":4,
         "selected_reversal_frame_pairs":saved_reversals,
         "selection_coordinate":"nearest-observed-allocation-height-not-animation-time-or-progress"});
+    let Value::Object(metrics) = json!({
+        "activation_started_monotonic_us":activation_started_monotonic_us,
+        "activation_returned_us":activation_returned_us,
+        "activation_duration_us":activation_returned_us-activation_started_us,
+        "endpoint_observed_us":endpoint_observed_us,
+        "endpoint_observed_monotonic_us":endpoint_observed_monotonic_us,
+        "activation_to_endpoint_us":endpoint_observed_us-activation_started_us,
+        "first_requested_after_paint_us":frames.iter().find(|frame| frame.requested == opening).map(|frame|frame.callback_enter_us),
+        "first_visible_after_paint_us":frames.iter().find(|frame|frame.height > 0 && frame.child_mapped).map(|frame|frame.callback_enter_us),
+        "maximum_native_frame_gap_us":frames.windows(2).map(|pair|pair[1].time-pair[0].time).max(),
+        "sum_native_frame_gaps_us":frames.windows(2).map(|pair|pair[1].time-pair[0].time).sum::<i64>(),
+        "observation_callback_total_us":frames.iter().map(|frame|frame.observation_duration_us).sum::<u128>(),
+        "observation_callback_max_us":frames.iter().map(|frame|frame.observation_duration_us).max(),
+        "display":gtk::gdk::Display::default().unwrap().type_().name(),
+        "input_driver":if desktop{"gtk-row-activation"}else{"x11-xtest"},
+        "image_exports_enabled":!desktop,
+    }) else {
+        unreachable!()
+    };
+    summary.as_object_mut().unwrap().extend(metrics);
     std::fs::write(
         directory.join(format!("footer-{name}-scale{scale}.json")),
         serde_json::to_vec_pretty(&summary).unwrap(),
