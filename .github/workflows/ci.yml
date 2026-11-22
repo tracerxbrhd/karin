@@ -727,55 +727,28 @@ jobs:
             printf 'Binary SHA256: '; sha256sum target/release/karin
           } > "$artifact/BUILD-INFO.txt"
           cat > "$artifact/README.txt" <<'EOF'
-          Karin v0.8: integrated music, library and performance acceptance build.
-          Verify SHA256SUMS and BUILD-INFO.txt against this PR's exact head.
+          Karin v0.8: System/Liquid Glass final UI polish acceptance build.
+          Verify SHA256SUMS, BUILD-INFO.txt and ./karin --version against this PR's exact head.
           This is an Ubuntu 24.04 x86_64 native prototype, not a Flatpak/public release.
           Fedora runtime: sudo dnf install gtk4 libadwaita gstreamer1 gstreamer1-plugins-base gstreamer1-plugins-good webkitgtk6.0 librsvg2 libsecret
           Optional MPRIS tool: sudo dnf install playerctl
           ulimit -c 0
           ./karin
-          No experimental flag or developer credentials required. Keep the desktop keyring unlocked.
-          Follow docs/BUILDING.md#v08-final-fedora-acceptance at the source commit in BUILD-INFO.txt.
-          Test the real account/library/search/playlists/context queue, audible Music playback and KDE MPRIS.
-          Inspect light/dark, HiDPI, 420x720,850x750,720x650,900x650,1280x800,1440x900,1650x930,1920x1080 and maximized.
-          Open Track Info, Lyrics or Queue in the same right panel; outside click/scroll/navigation must not close it.
-          Check the entire surface slides together and switching Track Info/Lyrics/Queue never closes/reopens it.
-          Track Info has Play, compact Append and a native menu. Next, Add to Playlist and Lyrics belong to that menu; no separate track-detail page remains.
-          Play a track with confirmed LRC, open Lyrics from the footer, and watch both lines change emphasis during natural playback with Follow. Check again after manual scrolling and with Reduced Motion.
-          Wheel over Volume changes it by five percentage points without opening the slider or scrolling the page; smooth touchpad input must remain controlled and MPRIS must agree.
-          After a long Pause, one Play must recheck access and resume the same occurrence/position/modes/volume automatically through the existing local-first/resolver path. No expiry-driven network timer or second Play is required.
-          Test Shuffle, Repeat Queue/One, previous-history, actual upcoming order and external playerctl modes.
-          Queue is reached from the Player Bar/Ctrl+J; no separate queue navigation or visible Stop remains.
-          Before Play the footer is hidden; real Play reveals it from below, Pause retains it, Stop/clear/logout hides it.
-          Click cover/title/artist/metadata space or press Enter/Space to open Track Info; Like remains independent.
-          From a collection or album, open the header search with the magnifier or Ctrl+F. Type, clear, and press Escape to return to the original content.
-          Resize with the side pane open and closed. The collection filter and adjacent sort button should fill the available content row.
-          Scroll track collections continuously; exercise loading/end/error/Retry without manual track pages.
-          In Liked and opened playlists, typing matches loaded title/artist/album immediately. A typing pause or Enter continues the bounded index. Check partial coverage and duplicate queue occurrences.
-          Ordinary browsing admits up to 2000 positions, collection indexing up to 20000 and playback contexts up to 500.
-          Inspect the heart hero/truthful duration, larger playlist covers and tight centered footer at 850x750 and compact/wide sizes.
-          Direct Like must read membership and confirm the server result; unconfirmed Dislike is hidden.
-          Next/Previous/EOS/MPRIS must follow the actual occurrence without closing/reopening.
-          Explicit other-track selection must survive pause/seek/volume; current occurrence changes resume following.
-          Resize wide/medium/compact and suspend via Diagnostics; open intent must survive.
-          Close only via X, Ctrl+I or explicit compact Back. Logout must clear private state and pending jobs.
-          Recheck restart/protected login/cache clearing/preferences and safe default-cancel logout.
-          Cloud fixtures establish synthetic GTK behavior, not Fedora audio/keyring/KDE/Flatpak acceptance.
-          Native and current Flatpak acceptance require separate local checks; no broad bus grants.
-          Preserve GPL and third-party notices. Shared OAuth public-distribution/service permission remains unresolved separately.
-          Do not enable network/GStreamer logs or share tokens, URLs, account data, private screenshots or audio.
-          Private HTTP audio caching uses the current validated Legacy MP3 session, actual response directives and fresh representation validation; it is not a provider entitlement or an offline mode.
-          The owner accepted audio caching at c1de869 and v0.7 at949d1f9 (68/68: Native34/34, installedFlatpak34/34); PR28 merged normally at2ab6d28. Follow docs/BUILDING.md#v08-final-fedora-acceptance for this build: lyrics/TEXT/LRC, similar tracks, full-collection indexing and sort, exact queue editing, and preserved playback/cache/auth/MPRIS/Wave. Cloud original-audio fixtures do not replace real-service acceptance of the new features.
-          LRCLIB is a separate explicitly requested text source; its disclosed public artist/title/album/duration lookup sends no Music token or private account identifiers. Modern extracted-key lyrics signing is excluded. Karin Style remains unavailable pending designer materials.
-          Settings has one enabled-by-default 2GiB shared cache allowance, six-position slider (500MiB/1/2/3/4GiB/Unlimited), measured total and Clear; no download/offline or permission-override controls.
-          Active-footer Like and Dislike require independent live membership confirmation; Dislike stays hidden if unavailable, while fresh Like-only remains supported.
-          Test separate marks, their removal/opposite clearing, pending/error GET recovery and exactly one Next after confirmed current Dislike; removal/Like/errors never advance or add new Wave events.
-          My Wave is available in ordinary ./karin; no experimental flag is required and radio never starts automatically.
-          Sign in normally or use the existing protected session, then Home -> Моя волна -> Слушать.
-          Read docs/BUILDING.md#my-wave-local-acceptance for the complete bounded acceptance sequence.
-          Keep only fixed Wave stage/category/http/event/phase/origin/finish and bounded counters; never enable network logs.
-          A generated-media fixture is not proof of real radio, accepted service feedback or heard Yandex music.
-          Report exact source revision and anonymized PASS/FAIL/not-assessed results only.
+          Ordinary sign-in uses the existing provider; keep the desktop keyring unlocked.
+          The owner confirmed synchronized karaoke on Fedora at the reported d345fec baseline.
+          Follow ONLY the short final-polish procedure in docs/BUILDING.md#v08-final-fedora-acceptance at the source commit in BUILD-INFO.txt.
+          Use Native and an installed Flatpak from this same final PR HEAD; close older instances first.
+          1. Play an existing LRC track. Inspect compact provider/Similar captions and Lyrics -> Track Info via the repeated footer action, Back, Close and Queue.
+          2. Check the 24-logical-pixel inner footer gap and actual Seek target at maximized/compact sizes; hidden footer must leave no strip.
+          3. While Playing, select System -> Liquid Glass -> System -> Liquid Glass in Preferences. Check independent Light/Dark/System, High Contrast/Reduced Motion, readability and retained track/position/queue/volume/search/pane.
+          4. Restart and confirm saved style/color and Lyrics permission; start playback explicitly and check audible sound and natural karaoke changes, then return to System.
+          This is the final polish check, not a request to repeat the full previously accepted music/cache/Wave/account acceptance.
+          Liquid Glass blurs original Karin-owned scenery, not the Wayland desktop or foreground text. Karin Style remains disabled.
+          Cloud original-audio fixtures and installed Cloud Flatpak checks have a separate scope; physical Fedora/KDE/Wayland comfort and smoothness remain for this check.
+          The known raw first-footer cold gap remains unaccepted under #23; this build does not claim to resolve it.
+          Preserve GPL and third-party notices. OAuth public-distribution/service permission remains unresolved separately under #5/#22.
+          Keep private screenshots local. Report revision/package, scheme/scale and anonymized polish PASS/FAIL/not-assessed only.
+          Do not enable network/GStreamer logs or share tokens, signed URLs, account data or audio.
           EOF
           tar -C build -czf build/karin-fedora-prototype-1.98.1.tar.gz karin-fedora-prototype-1.98.1
           (cd build && sha256sum karin-fedora-prototype-1.98.1.tar.gz > SHA256SUMS)
