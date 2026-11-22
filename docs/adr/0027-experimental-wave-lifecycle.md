@@ -130,7 +130,7 @@ GTK snapshots, duplicates, bounded work, cancellation, source switching, mode
 restoration and uncertain feedback without replay. Native synthetic media must
 use the shared player. Executed results belong in [VALIDATION](../VALIDATION.md).
 
-The owner's final [Native/Flatpak procedure](../BUILDING.md#my-wave-local-acceptance)
+The reusable [Native/Flatpak regression guide](../BUILDING.md#desktop-regression-checks)
 checks ordinary no-argument startup, sign-in/restoration without automatic radio,
 explicit Listen, transport/EOS/continuation, source replacement, MPRIS and
 logout/restart. Require no `radioFinished` request or unhandled new refusal.

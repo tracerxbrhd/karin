@@ -80,10 +80,8 @@ pub(super) struct PreferencesView {
     state: Rc<State>,
     page: adw::PreferencesPage,
     style_system: gtk::CheckButton,
-    style_liquid_glass: gtk::CheckButton,
     style_karin: gtk::CheckButton,
     system_style_row: adw::ActionRow,
-    liquid_glass_style_row: adw::ActionRow,
     scheme: adw::ComboRow,
     remember: adw::SwitchRow,
     external_lyrics: adw::SwitchRow,
@@ -160,35 +158,6 @@ impl PreferencesView {
             move |_| state.change(|values| values.ui_style = UiStyle::System)
         });
         styles.add(&system_style_row);
-        let liquid_glass_style_row = adw::ActionRow::builder()
-            .title("Liquid Glass")
-            .title_lines(0)
-            .use_markup(false)
-            .activatable(true)
-            .build();
-        liquid_glass_style_row.set_widget_name("preferences-style-liquid-glass-row");
-        let style_liquid_glass = gtk::CheckButton::new();
-        style_liquid_glass.set_widget_name("preferences-style-liquid-glass");
-        style_liquid_glass.set_group(Some(&style_system));
-        style_liquid_glass.set_valign(gtk::Align::Center);
-        style_liquid_glass.update_property(&[gtk::accessible::Property::Label(
-            "Стиль интерфейса: Liquid Glass",
-        )]);
-        style_liquid_glass.connect_toggled({
-            let state = Rc::clone(&state);
-            move |button| {
-                if button.is_active() {
-                    state.change(|values| values.ui_style = UiStyle::LiquidGlass);
-                }
-            }
-        });
-        liquid_glass_style_row.add_prefix(&style_liquid_glass);
-        liquid_glass_style_row.set_activatable_widget(Some(&style_liquid_glass));
-        liquid_glass_style_row.connect_activated({
-            let state = Rc::clone(&state);
-            move |_| state.change(|values| values.ui_style = UiStyle::LiquidGlass)
-        });
-        styles.add(&liquid_glass_style_row);
         let karin_style_row = adw::ActionRow::builder()
             .title("Karin")
             .subtitle("В разработке — новый дизайн ещё не интегрирован.")
@@ -472,10 +441,8 @@ impl PreferencesView {
             state,
             page,
             style_system,
-            style_liquid_glass,
             style_karin,
             system_style_row,
-            liquid_glass_style_row,
             scheme,
             remember,
             external_lyrics,
@@ -519,10 +486,6 @@ impl PreferencesView {
         } else {
             "Нативное оформление GTK и Libadwaita."
         });
-        self.style_liquid_glass
-            .set_active(effective_style == UiStyle::LiquidGlass);
-        self.style_liquid_glass.set_sensitive(ready);
-        self.liquid_glass_style_row.set_sensitive(ready);
         self.style_karin.set_active(false);
         self.style_karin.set_sensitive(false);
         self.scheme

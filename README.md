@@ -14,8 +14,28 @@
 [![GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 
 Listen to your library in a native GTK4/Libadwaita application, with GStreamer
-playback and Linux desktop media controls. Karin is an independent project and
-is not affiliated with or endorsed by Yandex.
+playback and Linux desktop media controls. Karin is independent and is not
+affiliated with or endorsed by Yandex.
+
+## Features
+
+- Ordinary Yandex sign-in, protected remembered sessions, liked tracks and playlists.
+- Global catalog search and Unicode collection search/sorting. Searching eligible
+  collections indexes up to 20,000 positions in bounded batches.
+- Confirmed owned-playlist creation and editing, including exact duplicate occurrences.
+- One pinned Track Info / Lyrics / Queue panel with related tracks and ordinary
+  playback, queue and reaction actions.
+- Yandex plain text and optional LRCLIB synchronized lyrics after disclosed consent.
+  Animated line emphasis and Follow use the actual player position.
+- Contextual queues, Play Next, drag/keyboard reordering, Shuffle/Repeat, seek and
+  volume. Ordinary queue and position restore without autoplay.
+- Explicit Resume renews an expired source for the same occurrence and position.
+- My Wave from Home, started only by **Слушать**, using the same player and MPRIS.
+- Confirmed Like/Dislike; adding Dislike to the current occurrence advances once.
+- Adaptive System presentation, independent System/Light/Dark colors and HiDPI.
+  The future designer's Karin style remains visibly unavailable.
+- One account-scoped cache for metadata, artwork and eligible online-revalidated
+  MP3 responses, with a shared 2 GiB default budget, Clear and Retry.
 
 ## Screenshots
 
@@ -26,127 +46,42 @@ is not affiliated with or endorsed by Yandex.
   <img src="docs/screenshots/track-info.png" width="49%" alt="Dark theme with the pinned track information panel" />
 </p>
 
-GTK captures of the accepted v0.4 baseline with synthetic library data and
-original test artwork. [Capture details](docs/screenshots/README.md).
+These illustrate the accepted v0.4 UI using synthetic library data and original
+artwork; they are retained references rather than current v0.8 captures.
+[Capture provenance](docs/screenshots/README.md).
 
-PR #29's native System/Liquid Glass comparison: [Light](docs/screenshots/v08-system-liquid-glass-light.png)
-and [Dark](docs/screenshots/v08-system-liquid-glass-dark.png).
-These are reduced overviews of real GTK captures using original test data;
-[source and capture provenance](docs/screenshots/README.md#v08-system-and-liquid-glass)
-distinguishes them from desktop acceptance.
+## Status and limitations
 
-## Features
+The owner completed Fedora acceptance of v0.8 functionality. Final repository
+cleanup and exact-head CI are tracked in [PR #29](https://github.com/tracerxbrhd/karin/pull/29).
+[Validation](docs/VALIDATION.md) separates that report from automated evidence and
+retains links to earlier accepted milestones. Cargo remains at `0.0.0`; no v0.8
+tag, public release or Flathub publication is announced.
 
-- Yandex sign-in, liked tracks, personal playlists and catalog search.
-- Compact collection search and sorting, with Unicode title/artist/album matching
-  and automatic bounded indexing when you search in an eligible collection.
-- Track information in one pinned panel and confirmed owned-playlist creation/editing.
-- A dedicated Lyrics mode with plain Yandex text and optional synchronized
-  LRCLIB text after disclosed consent. Matching LRC enables animated line
-  emphasis and Follow; copying remains available for both formats.
-- Similar tracks using ordinary playback, queue and reaction actions.
-- Playback queue, position and Shuffle/Repeat restoration without autoplay.
-- Distinct Like/Dislike controls with account-bound read-after-write confirmation.
-- Contextual queues, Play Next, exact drag/keyboard reordering, Shuffle/Repeat,
-  seek and volume through GStreamer.
-- Explicit Resume renews expired source admission for the same occurrence and
-  restores its position through the existing cache/resolver path.
-- My Wave personal radio from Home, using the same queue, player and MPRIS.
-- A shared Track Info / Lyrics / Queue panel, a footer Lyrics action and
-  volume-wheel control, responsive layouts, light/dark themes and HiDPI.
-- Native System and a separate Liquid Glass style, with independent color
-  selection. Liquid Glass uses a cached, original background beneath the normal
-  GTK controls; the future designer's Karin style remains unavailable.
-- MPRIS media controls and metadata for KDE Plasma and other Linux desktops.
-- Protected remembered sign-in and one account-scoped cache for metadata,
-  artwork and eligible online-revalidated MP3 responses.
-
-## Status
-
-The v0.4 baseline is merged into `master` through
-[PR #15](https://github.com/tracerxbrhd/karin/pull/15). The owner accepted its native
-functionality, UI and Flatpak build on Fedora 44 with KDE Plasma, Wayland and PipeWire.
-This is a development milestone, not a published release; the Cargo package
-version remains `0.0.0`. See [validation](docs/VALIDATION.md) for the accepted scope.
-
-The accepted stability update [PR #24](https://github.com/tracerxbrhd/karin/pull/24)
-is merged at `920fd71`. **My Wave** is now an ordinary Home function after
-Music-validated sign-in. Press **Слушать** to start it; launching Karin,
-restoring sign-in or opening Home creates no radio session. The owner retested
-the corrected `2e4b978` candidate on Fedora without reporting new problems,
-following earlier confirmed real audio, feedback and batch continuation.
-Later owner acceptance includes the installed Flatpak; follow the [Native/Flatpak procedure](docs/BUILDING.md#my-wave-local-acceptance).
-
-The owner accepted confirmed Dislike→Next, the ordinary queue and My Wave on
-Fedora Native and installed Flatpak after [PR #27](https://github.com/tracerxbrhd/karin/pull/27)
-merged at `ddf93ea`. Removal and Like do not advance playback; late confirmations
-are guarded by queue occurrence and session generations. See the
-[backlog audit](docs/ISSUES_AUDIT.md) for remaining independent work.
-
-The Music API is unofficial and may change. v0.8 lyrics/related tracks and the
-larger-library workflow are proposed additions with separate live acceptance;
-offline audio is not implemented. Cold first-player appearance in Cloud still
-has unresolved frame gaps; ordinary desktop acceptance does not establish their
-cause or resolution. See [known limitations](docs/LIMITATIONS.md).
-
-[PR #26](https://github.com/tracerxbrhd/karin/pull/26) merged normally at
-`1fd4028`. The owner accepted `c1de869` real Native and installed-Flatpak MP3
-playback, background saving, local hits and local replay after restart. One
-policy covers metadata, artwork and eligible private HTTP audio: enabled by
-default, 2 GiB, measured combined usage, Clear/Retry and six discrete limits.
-Current Music access, offer selection, integrity and response freshness decide
-local-first reuse before XML/CDN resolution. Stale/no-cache data requires strict
-revalidation; failed caching preserves online audio. Downloading/Saved graphics
-are provisionally accepted pending future design refinement. This is private
-online-revalidated caching, not an offline library or a public distribution
-license. See [cache policy](docs/AUDIO_CACHE_REVIEW.md).
-
-[PR #28](https://github.com/tracerxbrhd/karin/pull/28) merged normally at
-`2ab6d28`, preserving its development history. The owner accepted exact revision
-`949d1f9`: **68/68 Fedora checks, Native 34/34 and installed Flatpak 34/34**,
-including playback continuation, real owned-playlist edits, appearance/adaptivity
-and the existing auth/audio/MPRIS/Wave path. System style and color scheme stay
-independent; Karin Style remains unavailable until approved designer materials
-arrive. See [validation](docs/VALIDATION.md#owner-acceptance-of-pr-28--2026-11-14).
-
-The integrated **v0.8** work adds plain/synchronized text, related tracks,
-compact search and sorting, exact queue edits and fewer repeated UI updates. Track
-Info has a compact action row and native menu. Lyrics and Queue switch inside
-the existing panel. Synchronized text follows the player position. As one line
-shrinks back to normal, the next grows larger and bolder. Lyrics use the allowed
-legacy full-text contract or an explicitly disclosed LRCLIB lookup by public metadata. Collection search
-fills the track-list column beside the sort button, filters available tracks
-immediately and continues the index after a short typing pause or Enter. The
-supported index reaches 20,000 original positions with bounded batches and result
-windows. The top search button, Ctrl+F and Home open one global search field
-in the space occupied by the three navigation tabs. Submitting a query shows
-catalog results. Clear returns to the originating page with the field open.
-Press Escape, use the close button or click empty space to bring back the tabs.
-The owner confirmed synchronized karaoke on real Fedora at `d345fec`.
-The final polish removes routine Lyrics/Similar captions, returns Lyrics to
-Track Info in place, gives the footer safe inner spacing and adds the separate
-Liquid Glass presentation. This work has its own
-[short Native/Flatpak check](docs/BUILDING.md#v08-final-fedora-acceptance);
-it does not repeat or expand the scope of prior owner acceptance.
-There is no v0.8 release/tag or automatic merge authorization.
+The Music API is unofficial and may change. Lyrics availability and matching
+are provider-dependent. Private audio caching requires current online access and
+HTTP reuse proof; offline playback and mass downloads are not implemented.
+Public service/content distribution conditions and Cloud cold-first-player
+frame gaps remain unresolved. See [limitations](docs/LIMITATIONS.md),
+[cache policy](docs/AUDIO_CACHE_REVIEW.md) and [roadmap](docs/ROADMAP.md).
 
 ## Build and run
 
-Install the native dependencies using the [Fedora and Flatpak build guide](docs/BUILDING.md), then:
+Install dependencies using the [Native/Flatpak build guide](docs/BUILDING.md), then:
 
 ```sh
 cargo build --release --locked
 ./target/release/karin
 ```
 
-Use the ordinary **Войти** action to sign in with your Yandex account.
-Flatpak builds use the [repository manifest](packaging/flatpak/io.github.tracerxbrhd.Karin.json)
-and the same application code.
+Use **Войти** to sign in normally. Flatpak uses the
+[repository manifest](packaging/flatpak/io.github.tracerxbrhd.Karin.json) and the
+same application code.
 
 ## Development
 
-Read [AGENTS.md](AGENTS.md), the [architecture](docs/ARCHITECTURE.md) and
-[build guide](docs/BUILDING.md) before changing the application.
+Read [AGENTS.md](AGENTS.md), [architecture](docs/ARCHITECTURE.md) and the
+[build guide](docs/BUILDING.md).
 
 ```sh
 cargo fmt --all -- --check
@@ -154,13 +89,11 @@ cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo test --workspace --locked
 ```
 
-CI also checks the pinned Rust 1.98.1 toolchain, feature configurations and
-native fixtures. The badge tracks `master`; proposed changes have their own PR checks.
-The [roadmap](docs/ROADMAP.md) describes the next work.
+CI also checks exact Rust 1.98.1, feature boundaries, native fixtures and packaging.
 
 ## License
 
 Karin's code and original materials use [GNU GPL-3.0-or-later](LICENSE), unless
-otherwise stated. Third-party notices and the attribution for the adapted
-Cassette authentication components are retained; see [licensing](docs/LICENSING.md).
-The software license does not grant access to Yandex Music, its API or music content.
+otherwise stated. Third-party notices and attribution for adapted Cassette
+authentication components are retained; see [licensing](docs/LICENSING.md).
+The software license does not grant access to Yandex Music, its API or content.

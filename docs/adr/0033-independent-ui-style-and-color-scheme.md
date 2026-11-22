@@ -7,10 +7,6 @@ Native/installed-Flatpak acceptance at `949d1f9`. External Karin design remains 
 Date: 2026-11-11
 Extends: ADR-0013, ADR-0018 and ADR-0030
 
-The original System-only availability below records the v0.7 decision.
-[ADR-0039](0039-liquid-glass-presentation.md) adds the independently available
-Liquid Glass style in PR #29 without activating the reserved Karin design.
-
 ## Context
 
 Karin already has a working GTK4/Libadwaita workspace and persistent

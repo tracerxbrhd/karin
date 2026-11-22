@@ -2,7 +2,7 @@
 
 # ADR-0034: Bounded track lyrics and related metadata
 
-Status: v0.8 implementation decision; live content acceptance is separate.
+Status: v0.8 implementation decision; functionality owner-accepted.
 Date: 2026-11-14
 Refined: 2026-11-22
 Extends: ADR-0016, ADR-0022 and ADR-0031
@@ -168,10 +168,11 @@ fixtures test normalization, negative/error cases, identity/bounds, literal text
 clock lookup and stale/cancelled presentation. Native fixtures exercise the real
 pane and player.
 
-Availability and matching depend on each provider's current catalog. Yandex
-plain text and LRCLIB plain/synchronized text must be accepted separately on
-Fedora; Cloud fixtures prove neither live availability nor copyright/service
-permission. Keep issue #18 open until the enabled real-content workflows are
-accepted. Public-distribution #5/#22 and the absent Karin design remain separate.
-See [VALIDATION](../VALIDATION.md) and the
-[one final Fedora procedure](../BUILDING.md#v08-final-fedora-acceptance).
+Availability and matching depend on each provider's current catalog. The owner
+has accepted v0.8 functionality, including synchronized karaoke; see
+[VALIDATION](../VALIDATION.md) for scope. General acceptance does not prove every
+provider/catalog/error scenario or content distribution right. Synthetic TEXT/LRC
+and local HTTP fixtures remain regression evidence distinct from live service
+results. Public-distribution #5/#22 and the unavailable Karin design remain
+separate. Future relevant desktop regressions use
+[BUILDING](../BUILDING.md#desktop-regression-checks).

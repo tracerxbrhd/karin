@@ -2,7 +2,7 @@
 
 # ADR-0035: Search-driven incremental indexing of complete supported collections
 
-Status: v0.8 implementation decision; live large-library acceptance is separate.
+Status: v0.8 implementation decision; functionality owner-accepted.
 Date: 2026-11-14
 Refined: 2026-11-18
 Extends: ADR-0016, ADR-0024, ADR-0025 and ADR-0031
@@ -100,5 +100,5 @@ query changes, cancellation and late account/logout replies. Native input tests
 must type and locate a result past the old prefix, exercise Enter, debounce,
 clear and cancellation, and use the sort menu by mouse and keyboard. They assert
 bounded requests and preserve the active queue, worker and occurrence identity.
-Record executed checks in [VALIDATION](../VALIDATION.md) and check live behavior
-with the [Native/installed-Flatpak procedure](../BUILDING.md#v08-final-fedora-acceptance).
+Record executed checks in [VALIDATION](../VALIDATION.md) and check future relevant regressions
+with the [Native/installed-Flatpak guide](../BUILDING.md#desktop-regression-checks).

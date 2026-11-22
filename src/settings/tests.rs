@@ -176,6 +176,55 @@ fn adding_ui_style_migrates_both_old_schemas_without_losing_color_or_private_cho
 }
 
 #[test]
+fn retired_style_migrates_to_system_and_roundtrips_every_independent_preference() {
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    store.save(&Preferences::default()).unwrap();
+    for version in [2, 3] {
+        for appearance in [Appearance::System, Appearance::Light, Appearance::Dark] {
+            for cache_limit in CacheLimit::ALL {
+                for private_choices in [false, true] {
+                    let expected = Preferences {
+                        ui_style: UiStyle::System,
+                        appearance,
+                        remember_login: private_choices,
+                        forget_pending: !private_choices,
+                        cache_enabled: private_choices,
+                        cache_limit,
+                        track_info_open: private_choices,
+                        lyrics_external_auto: !private_choices,
+                    };
+                    let mut values = serde_json::to_value(&expected).unwrap();
+                    values["ui_style"] = serde_json::json!("liquid-glass");
+                    fixture.replace(
+                        &serde_json::to_vec(&serde_json::json!({
+                            "version": version,
+                            "preferences": values
+                        }))
+                        .unwrap(),
+                    );
+                    let loaded = fixture.store().load().unwrap();
+                    assert_eq!(loaded.status, LoadStatus::Loaded);
+                    assert_eq!(loaded.preferences, expected);
+                    store.save(&loaded.preferences).unwrap();
+                    let reopened = fixture.store().load().unwrap();
+                    assert_eq!(reopened.status, LoadStatus::Loaded);
+                    assert_eq!(reopened.preferences, expected);
+                    let saved: serde_json::Value =
+                        serde_json::from_slice(&std::fs::read(fixture.file()).unwrap()).unwrap();
+                    assert_eq!(saved["version"], FORMAT_VERSION);
+                    assert_eq!(
+                        saved["preferences"],
+                        serde_json::to_value(expected).unwrap()
+                    );
+                    assert_eq!(saved["preferences"]["ui_style"], "system");
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn unknown_or_malformed_style_never_resets_session_deletion_barrier_or_cache_policy() {
     let fixture = Fixture::new();
     let store = fixture.store();
@@ -192,10 +241,10 @@ fn unknown_or_malformed_style_never_resets_session_deletion_barrier_or_cache_pol
     store.save(&expected).unwrap();
     for style in [
         serde_json::json!("future-style"),
-        serde_json::json!("LiquidGlass"),
-        serde_json::json!("liquid_glass"),
+        serde_json::json!("System"),
+        serde_json::json!("future_style"),
         serde_json::json!(false),
-        serde_json::json!(["liquid-glass"]),
+        serde_json::json!(["system"]),
         serde_json::json!({"access_token":"synthetic-untrusted-field"}),
         serde_json::Value::Null,
     ] {
@@ -208,6 +257,7 @@ fn unknown_or_malformed_style_never_resets_session_deletion_barrier_or_cache_pol
         assert_eq!(loaded.status, LoadStatus::Loaded);
         assert_eq!(loaded.preferences, expected);
         store.save(&loaded.preferences).unwrap();
+        assert_eq!(fixture.store().load().unwrap().preferences, expected);
         assert!(
             !std::fs::read_to_string(fixture.file())
                 .unwrap()
@@ -222,7 +272,7 @@ fn all_styles_and_color_schemes_roundtrip_independently_without_schema_change() 
     let store = fixture.store();
     assert_eq!(Preferences::default().ui_style, UiStyle::System);
     assert_eq!(Preferences::default().appearance, ColorScheme::System);
-    for style in [UiStyle::System, UiStyle::LiquidGlass, UiStyle::Karin] {
+    for style in [UiStyle::System, UiStyle::Karin] {
         assert_eq!(style.is_available(), style != UiStyle::Karin);
         for color in [ColorScheme::System, ColorScheme::Light, ColorScheme::Dark] {
             let values = Preferences {
@@ -252,7 +302,6 @@ fn all_styles_and_color_schemes_roundtrip_independently_without_schema_change() 
                 saved["preferences"]["ui_style"],
                 match style {
                     UiStyle::System => "system",
-                    UiStyle::LiquidGlass => "liquid-glass",
                     UiStyle::Karin => "karin",
                 }
             );
@@ -266,9 +315,9 @@ fn all_styles_and_color_schemes_roundtrip_independently_without_schema_change() 
             assert_eq!(store.load().unwrap().preferences, expected);
             // Replacing either available or reserved styles uses the same
             // atomic settings store; it cannot rewrite unrelated choices.
-            expected.ui_style = UiStyle::LiquidGlass;
+            expected.ui_style = UiStyle::System;
             store
-                .update(|values| values.ui_style = UiStyle::LiquidGlass)
+                .update(|values| values.ui_style = UiStyle::System)
                 .unwrap();
             assert_eq!(store.load().unwrap().preferences, expected);
         }

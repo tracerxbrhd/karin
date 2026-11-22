@@ -118,9 +118,8 @@ pub(super) fn ordinary_lyrics_playback(app: &adw::Application) {
     let sidebar = sidebar_widget
         .downcast_ref::<crate::ui::music::sliding_panel::SlidingPanel>()
         .unwrap();
-    // Liquid Glass paints the opaque application-owned backdrop below the
-    // translucent pane. All captured geometry therefore belongs to the real
-    // window scene, rather than an isolated pane without its backing sibling.
+    // Capture both glyph rows against the ordinary mapped window scene so
+    // geometry and contrast include the actual native pane background.
     let host: gtk::Widget = window.clone().upcast();
     let scene_child = window.child().unwrap();
     let panel = || surface.compute_bounds(&host).unwrap();

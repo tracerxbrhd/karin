@@ -2,196 +2,142 @@
 
 # Karin contributor instructions
 
-Karin is an independent native Linux client for Yandex Music. Keep changes small,
-reviewable and consistent with the accepted application.
+Karin is an independent native Linux client for Yandex Music. Keep changes
+reviewable and consistent with the owner-accepted v0.8 application.
 
-## Architecture
+## Architecture and ownership
 
-- Keep Rust, GTK4/Libadwaita, GStreamer, reqwest/serde, GIO D-Bus/MPRIS,
-  Secret Service and Cargo/Flatpak. WebKitGTK6 is confined to sign-in.
-- Preserve Rust 1.98 compatibility; check exact 1.98.1 and stable. Never use
-  `--ignore-rust-version` or change dependencies/runtime requirements casually.
-- Separate widgets, application state, API transport, audio and platform adapters.
-  Keep wire parsing and blocking network/storage work off the GTK thread.
-- Preserve cancellation, bounded work, account isolation, generations and weak UI
-  ownership. Late responses must not affect a replaced view/session/window.
-  Defer map-triggered membership work; avoid reentrant controller borrows in GTK.
-- Read [ARCHITECTURE](docs/ARCHITECTURE.md) and relevant [ADRs](docs/adr/)
-  before changing contracts; record significant decisions in an ADR.
+- Keep Rust 1.98 compatibility (exact 1.98.1 and stable), GTK4/Libadwaita,
+  GStreamer, reqwest/serde, GIO D-Bus/MPRIS, protected storage and Cargo/Flatpak.
+  WebKitGTK6 is sign-in only. Never use `--ignore-rust-version` or casually raise
+  dependency/runtime requirements.
+- Separate widgets, state, API, audio and platform adapters. Keep blocking I/O
+  and wire parsing off GTK. Preserve bounded work/cancellation, weak UI owners,
+  account/request/source generations and deferred membership reads without
+  reentrant controller borrows. Late work cannot update a replaced view/session.
+- Read [ARCHITECTURE](docs/ARCHITECTURE.md) and relevant [ADRs](docs/adr/) before
+  changing contracts; record significant decisions concisely.
 
 ## Security and service boundaries
 
-- Never collect passwords, import other applications' sessions, expose secrets,
-  log personal models or send real credentials/account data to Cloud/CI/GitHub.
-  Tests use synthetic local fixtures, without a live account.
+- Never collect passwords, import sessions, expose secrets/log personal models or
+  send real credentials/account content to Cloud/CI/GitHub. Use synthetic fixtures.
 - Preserve ordinary **Войти → Яндекс → validated Music account → library** with
-  the Cassette-compatible provider. No technical credentials, registration,
-  pasted tokens or manual codes in the normal UI. The opt-in own-client PKCE
-  diagnostic remains independent.
-- Follow [AUTHENTICATION_REVIEW](docs/AUTHENTICATION_REVIEW.md): ephemeral
-  WebKit session, exact origins/callback, state, cancellation and scoped in-memory
-  cookies. Never read password fields, inject login-reading JavaScript, persist
-  cookies, weaken TLS or disable the WebKit sandbox.
-- Store only validated tokens through supported protected storage; no plaintext
-  fallback or invented refresh/revocation. Allow memory-only login. Expose failed
-  logout/deletion; forgetting a saved login or clearing cache must preserve active
-  in-memory audio where specified. Normal close may retain permitted session/cache.
-- Treat the API as unofficial and unstable. Metadata is not playback entitlement.
-  Follow [STREAM_DELIVERY_REVIEW](docs/STREAM_DELIVERY_REVIEW.md); never bypass
-  DRM/access controls, import extracted keys, redistribute music, forward OAuth/
-  cookies to a CDN, or persist signed media URLs. Private audio caching separates
-  current playback access, HTTP storage policy, representation revalidation and
-  explicit content restrictions under [AUDIO_CACHE_REVIEW](docs/AUDIO_CACHE_REVIEW.md).
-  Do not invent a provider entitlement or treat HTTP caching as a legal license.
-  Do not use the absence of a bespoke storage-grant API as a blanket HTTP-cache
-  rejection. Reject protected/unsupported resources and explicit storage refusals;
-  honor `no-store` and current online Music access. Select a retained complete
-  MP3 before XML/CDN resolution when its authenticated API offer/variant matches,
-  integrity passes and its private HTTP reuse lease is fresh. Do not equate
-  logical storage identity with an immutable byte version. `no-cache` requires
-  revalidation; `must-revalidate` applies once stale. Missing receipt clocks
-  require strict validation, not automatic migration. Only pre-schema-2 records
-  or upgrades with unknown original response status may migrate after inconclusive
-  proof through a complete new response; never stamp old bytes fresh.
-  For an expired known selection, only fresh current probe and actual GET policy
-  can admit a complete replacement; no-cache/unproved policy stays conservative.
-  Protect retained records through quota reservation and atomic publication.
-- Preserve attribution and explicit OAuth-identity uncertainties. Code licensing
-  does not grant service/distribution permission or prove a provider ban.
-  Follow [LICENSING](docs/LICENSING.md); keep standard GPL and third-party notices.
+  the attributed Cassette-compatible provider. No registration, pasted tokens,
+  technical credentials or manual codes in normal UI. Own-client PKCE is separate.
+- Follow [AUTHENTICATION_REVIEW](docs/AUTHENTICATION_REVIEW.md): ephemeral WebKit,
+  exact origins/callback/state, scoped in-memory cookies and cancellation. Never
+  inspect password fields, inject login-reading JavaScript, persist cookies,
+  weaken TLS or disable sandboxing.
+- Store only Music-validated tokens in supported protected storage, with no
+  plaintext fallback, invented refresh or remote revocation. Permit memory-only
+  login. Keep durable forgetting barriers and visible failure/Retry; remember-off
+  preserves live audio/session. Logout clears personal state; close may retain
+  permitted credentials/cache.
+- Metadata is not playback entitlement. Follow
+  [STREAM_DELIVERY_REVIEW](docs/STREAM_DELIVERY_REVIEW.md); no DRM bypass, extracted
+  keys, arbitrary URIs, forwarded OAuth/cookies to media hosts, persisted signed
+  addresses or redistribution of music.
+- Follow [AUDIO_CACHE_REVIEW](docs/AUDIO_CACHE_REVIEW.md): separate current Music
+  access, authenticated offer/variant, integrity, HTTP storage policy, reuse proof
+  and content restrictions. HTTP caching is no legal license; absence of a bespoke
+  storage-grant API is no blanket cache ban. Honor explicit refusal/`no-store`;
+  `no-cache` needs revalidation and `must-revalidate` applies once stale. Match a
+  fresh complete retained MP3 before XML/CDN resolution. Logical selection is not
+  immutable byte identity, and replica validators are not globally comparable.
+  Missing modern receipt clocks require strict proof. Only pre-schema-2/unknown
+  original-status records may migrate after inconclusive proof via a complete new
+  response; never stamp old bytes fresh. Expired modern replacement requires fresh
+  current probe and actual GET policy. Protect retained records through quota
+  reservation, atomic publication and rollback; preserve admitted online playback
+  when caching fails.
+- Preserve [LICENSING](docs/LICENSING.md), standard GPL, SPDX and third-party
+  attribution/provenance. Source licensing, OAuth identity and service/content
+  distribution permission remain distinct.
 
-## Music and UI contracts
+## Music and presentation contracts
 
-- Keep one queue/PlaybackController/GStreamer engine. MPRIS adapts actual snapshots
-  and confirmed seek/volume; export supported capabilities, opaque track paths and
-  decoded local covers only. Do not widen Flatpak D-Bus/filesystem permissions.
-- Row click/Enter/Space plays the exact occurrence; the separate Info action opens
-  shared Track Info without playing, never a standalone track page. Preserve
-  duplicates and original source positions. Ordinary views stay bounded at 2,000
-  positions/100 pages. Whole-collection indexing supports 20,000 original
-  positions with 50-position batches and 200-row result windows. New contexts
-  remain at 500. Filtering/sorting/indexing/appending must not rewrite active Queue.
-  Info/MPRIS use queue-owned opaque occurrence IDs, never mutable indices or IDs
-  of service tracks. Original source positions remain separate provenance.
-- Allocate the shared collection search row to the content column. Let the
-  entry expand beside its compact native sort button as the window or pinned
-  panel changes size. Match admitted title/artist/album metadata immediately with Unicode
-  normalization and honest partial coverage. In an eligible incomplete
-  collection, a nonempty query after debounce or Enter expresses search intent.
-  Reuse one bounded index under the latest query, suspend on clear or leaving
-  the view, and require a final membership recheck. Startup, opening a view and
-  individual keystrokes must not trigger full scans or per-key requests. Date
-  sorting requires valid occurrence timestamps. Total duration needs complete
-  data with every duration known and a checked sum. Route global search actions
-  to one entry in the top navigation. The three measured tabs and the field
-  share the same centered slot at every width. Keep the compact toggle beside
-  that slot. Opening preserves the route until a query presents results.
-  Clear restores the source route with the field open. Escape, the toggle or
-  a click on empty space dismisses search and retires its work. Preserve
-  interactive targets and honor deliberate navigation.
-- Preserve pinned Track Info/Lyrics/Queue intent across outside clicks/navigation/resize;
-  actual new current occurrences resume following. Footer: hidden before Play,
-  retained through Pause/retryable active failure, hidden on Stop/clear/logout.
-  No visible Stop. Keep local Shuffle/Repeat and existing system controls.
-- Resolve LRC lines from the current player's actual position and exact opaque
-  occurrence. At natural boundaries the old glyphs shrink as the new glyphs
-  grow in size, weight and contrast. Reduced Motion applies the final size
-  immediately. Yandex supplement is plain TEXT and must never imply a timeline.
-  Offer a clear synchronized-text lookup with native disclosure. External
-  metadata requires explicit per-request consent or the separately saved,
-  default-off automatic preference. Auto lookup is limited to a visible Lyrics
-  selection after missing synchronization; revocation and account/request fences
-  remain effective. Manual scrolling suspends centering while emphasis continues.
-  Rebound rows reflect the current model. Seek, selection and session changes
-  retire stale transitions. Measure the painted glyph bounds of both rows in
-  the same GTK frames during ordinary player updates. TEXT has no timing.
-- An explicit Resume may renew an expired source for the same queue occurrence
-  through fresh access/cache/resolver admission. Preserve its confirmed position,
-  queue/modes/volume and Wave/MPRIS identity; bound recovery to one attempt and
-  fence late work after changed intent/account. Pause must stay Paused without
-  periodic network renewal or a visible technical expiry error. Keep true access,
-  network and unseekable failures honest; never extend signed URL lifetimes.
-- Ordinary continuation is IDs-only, account-bound, bounded and worker-written.
-  Restore only after fresh Music validation, without autoplay/player preparation;
-  preserve duplicate occurrences and shuffle history. Stop/forget/logout delete
-  continuation, Wave never persists. Keep UiStyle independent of color scheme;
-  unavailable Karin presentation must remain visibly unavailable.
-- System and Liquid Glass share the same widgets and music state. Keep Liquid
-  Glass scoped separately from the reserved Karin design. Its bounded cached
-  background may blur only Karin-owned scenery, never desktop contents or
-  foreground controls. Player ticks, scrolling and resize must not prepare or
-  reblur scenery. High Contrast uses opaque semantic surfaces. Keep a 24-logical-
-  pixel inner footer bottom margin without giving the hidden footer any height.
-- Playlist writes use exact complete positions/revision, one POST per intent and
-  independent readback. Unknown results permit GET-only reconciliation, never
-  write replay; metadata endpoints have no proven server revision CAS.
-- Mutations need server confirmation; never replay an ambiguous write. Use clear
-  loading/empty/error/Retry states. No fake radio, recommendations, lyrics,
-  offline mode or inert controls. My Wave is available in the ordinary signed-in
-  app after Music validation. Only explicit Listen creates a radio session;
-  startup, protected-login restore and opening Home must not start Wave.
-  Do not send a session-finished event on local retirement or persist radio IDs
-  and batch markers. The legacy Wave CLI flag is a no-op compatibility alias.
-  Preserve its original occurrence/batch markers, actual worker Playing ledger,
-  bounded serialized feedback and no replay after an ambiguous POST.
-- Cache metadata, artwork and policy-admitted audio under one shared budget
-  (default on/2 GiB, six discrete choices including Unlimited). Preserve worker
-  reservations, disk headroom, generation fences and v1/v2 settings migration to schema 3;
-  do not reintroduce separate user quotas or run disk scans while dragging.
-- Catalog refusals fence key epochs before cache I/O; cached UI replies recheck
-  those leases. Cold metadata stays Stale until a current positive write. Never
-  hold the cache state mutex used by GTK over filesystem operations.
-- Follow [UI_QUALITY_GATE](docs/UI_QUALITY_GATE.md) for substantial UI changes:
-  real captures plus GTK structure, compact/medium/wide/maximized, both themes,
-  HiDPI, mouse/keyboard/focus and normal/reduced motion. Private screenshots need
-  separate publication permission. Xvfb is not Fedora acceptance.
+- Keep one MusicQueue/PlaybackController/GStreamer engine. MPRIS exports actual
+  snapshots and confirmed seek/volume, opaque track paths and decoded local covers.
+  Never widen Flatpak D-Bus/filesystem permissions.
+- Mouse/Enter/Space plays the exact occurrence; separate Info never plays or opens
+  a standalone track route. Preserve duplicates, opaque occurrence IDs and separate
+  original source positions. Ordinary views: 2,000 positions/100 pages. Index:
+  20,000 original positions, 50-position batches, final membership recheck and
+  200-row windows. Playback context: 500. Filtering/sorting/indexing/appending and
+  server edits cannot rewrite the active queue.
+- The collection entry fills its content column beside a compact native sort
+  button. Unicode title/artist/album matching is immediate; eligible incomplete
+  index work starts after settled search intent/Enter, suspends on clear/leave and
+  reuses admitted data under the latest query. No startup or per-keystroke scans.
+  Date sorting needs valid timestamps; total duration needs complete known data.
+- One global entry shares the measured tab slot and group center at all widths.
+  Toggle/Ctrl+F/Home focus it without changing route until query results. Clear
+  restores the source route with the field open; Escape/toggle/background dismiss
+  and retire work while preserving interactive targets and deliberate navigation.
+- Preserve pinned Track Info/Lyrics/Queue intent across outside clicks/navigation/
+  resize. New current occurrences resume following. Lyrics toggle/Back return to
+  Track Info in place. Footer hides before Play and on Stop/clear/logout, remains
+  through Pause/retryable failure, and has no visible Stop. Keep 24 logical pixels
+  of inner bottom spacing and zero hidden height. Preserve System surface levels,
+  dividers, player padding and minimal successful Lyrics/Similar captions.
+- LRC uses actual player position for the exact following occurrence. Old glyphs
+  shrink as new glyphs grow in size/weight/contrast; measure both painted rows in
+  the same native frames. Reduced Motion/seek/selection fences apply immediate
+  final state. Manual scroll suspends centering; rebound rows use current emphasis.
+  Yandex supplement is literal TEXT without timing. LRCLIB requires explicit
+  per-request consent or separately saved default-off automatic permission;
+  automatic lookup is visible-Lyrics-only after missing synchronization, with
+  account/request fences and effective revocation. No cached/persisted lyrics.
+- Explicit Resume may renew an expired source once for the same occurrence,
+  preserving confirmed position, modes/volume and Wave/MPRIS identity. Pause has
+  no periodic network renewal or visible technical-expiry error. Preserve honest
+  access/network/unseekable failures and original signed-source lifetimes.
+- Continuation is bounded account-bound IDs-only worker-written state. Restore
+  after fresh Music validation without autoplay/player preparation. Stop/forget/
+  logout delete it; Wave never persists. Preserve exact duplicate/history state.
+- System is the available/default UiStyle, independent of System/Light/Dark color.
+  Karin remains reserved/unavailable until real designer materials exist. Do not
+  retain or reintroduce the removed experimental presentation, renderer layers,
+  effects or texture cache. A legacy `liquid-glass` settings value may appear only
+  in safe fallback/migration coverage and must preserve all other preferences.
+- Playlist writes use complete exact positions/revision, one POST per intent and
+  independent readback. Unknown results permit GET-only reconciliation; metadata/
+  deletion endpoints have no proven revision CAS. Never replay ambiguous writes.
+- My Wave is ordinary signed-in Home after Music validation. Only Listen creates
+  radio; startup/restore/Home do not. Keep original occurrence/batch markers,
+  actual worker Playing ledger and bounded serialized four-event feedback. No
+  session-finished event on local retirement, persisted radio data or POST replay.
+  The old Wave flag is a no-op alias. Do not invent fake content or inert controls.
+- Metadata/artwork/policy-admitted audio share one default-on 2 GiB budget and six
+  limits including Unlimited. Preserve disk headroom, worker reservations, LRU,
+  Clear/Disable generation fences and v1/v2-to-schema-3 migration. No disk scans
+  during quota dragging. Catalog refusals fence before I/O, replies recheck key
+  leases, cold metadata stays Stale until a positive write, and GTK's cache state
+  mutex cannot span filesystem work.
 
-## Workflow and documentation
+## Workflow and verification
 
-- Continue the branch/PR requested by the owner. Do not merge, close PRs, delete branches,
-  rewrite history or publish releases without explicit authorization.
-- Keep docs concise. Audit code/CI/packaging consumers before deleting a file;
-  verify links and assets are tracked in Git. Preserve important history through
-  immutable commits/PRs, not expiring artifacts alone. Retain SPDX/provenance.
-- Distinguish authored code, executed tests and owner acceptance. See
-  [VALIDATION](docs/VALIDATION.md): native/UI and Flatpak at `97093ee` are accepted;
-  Dislike→Next and available `707539b` Native/installed-Flatpak functions are
-  owner-accepted. The owner accepted `c1de869` real Native/installed-Flatpak MP3
-  playback, complete background saving, local hits and local replay after restart
-  on 2026-11-11; #26 merged normally at `1fd4028`. Downloading/Saved graphics are
-  provisionally accepted pending the designer's work. Prior cache failures remain
-  historical evidence, not the current technical status. #5/#22 distribution
-  questions remain independent; no public content rights are established.
-  The owner separately accepted exact `949d1f9` for v0.7 with 68/68 Fedora checks
-  (Native 34/34, installed Flatpak 34/34); #28 normally merged at `2ab6d28`,
-  preserving history. Restoration, real playlist edits and System appearance
-  are accepted; future v0.8 features and unavailable Karin Style are not.
-  Unreported individual scenarios and unresolved Cloud cold gaps are not PASS.
-  The owner confirmed synchronized karaoke on real Fedora at the reported
-  `d345fec` baseline on 2026-11-22. This accepts that reported workflow only;
-  package-specific scope and the subsequent System/Liquid Glass polish remain
-  separate. Do not repeat the entire earlier v0.8 acceptance for theme changes.
-  This is not a published release. Read [LIMITATIONS](docs/LIMITATIONS.md).
-
-## Verification
-
-Use [BUILDING](docs/BUILDING.md), including:
-
-```sh
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-cargo test --workspace --locked
-cargo test --workspace --all-features --locked
-cargo test --workspace --no-default-features --locked
-cargo build --workspace --locked
-```
-
-For Rust/dependency/packaging changes check stable and exact 1.98.1, feature
-compatibility and locked/offline release; also run explicit task-required checks.
-Keep complete native CI coverage, including sandboxed navigating WebKit and
-modern static/motion/cold observers. Ignored tests are not executed tests. Never
-relax timing, geometry, sandbox or renderer checks just to obtain green CI.
-
-Before handoff verify final-head CI, links, license inventory and packaging.
-Merge still needs a separate explicit instruction. Report actual checks and
-remaining limitations.
+- The owner accepted v0.8 Fedora functionality and authorized normal merge of
+  **PR #29** after the requested cleanup and final checks pass. This supersedes
+  older separate-approval/pending-full-acceptance wording for that PR. Do not ask
+  for a repeat of the accepted full matrix. No release/tag, new PR, v0.9, squash,
+  rebase merge, force push or shared-history rewrite is authorized.
+- For other work, follow the branch/PR and merge authorization actually supplied.
+  Keep docs concise, audit consumers before deletion and verify tracked links/
+  assets. Preserve essential history through immutable commits/PRs rather than
+  giant run logs or expiring artifacts alone.
+- Use [BUILDING](docs/BUILDING.md) for format, strict Clippy, default/all/minimal
+  tests, stable/exact-1.98.1 compatibility, locked release, Flatpak preparation
+  and license checks. Required native groups retain GTK/WebKit sandbox, audio/
+  MPRIS/Wave/cache/restoration/playlist/Lyrics/search regressions; full extended
+  galleries need not repeat on every toolchain. Ignored registration is no PASS.
+- Substantial UI work follows [UI_QUALITY_GATE](docs/UI_QUALITY_GATE.md): actual
+  captures/structure/input, compact through maximized, both schemes, targeted
+  HiDPI, focus, High Contrast and normal/Reduced Motion. Do not relax timing,
+  geometry, renderer or sandbox checks. Private captures require publication
+  permission; Xvfb is separate from Fedora acceptance.
+- Before handoff verify final-head CI, licenses, links, packaging and diff.
+  Report only executed checks and confirmed GitHub state. Read
+  [VALIDATION](docs/VALIDATION.md) and [LIMITATIONS](docs/LIMITATIONS.md): unresolved
+  Cloud cold-rendering and public-distribution #5/#22 remain independent.

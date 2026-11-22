@@ -71,4 +71,4 @@ the same queue/position through the real Retry action without audio requests.
 Process-restart tests use original permitted local audio and synthetic accounts.
 The owner separately accepted real Native/installed-Flatpak v0.7 behavior at
 `949d1f9`; that report does not turn each synthetic failure case into a live test.
-See [VALIDATION](../VALIDATION.md#owner-acceptance-of-pr-28--2026-11-14).
+See [VALIDATION](../VALIDATION.md#acceptance-history).

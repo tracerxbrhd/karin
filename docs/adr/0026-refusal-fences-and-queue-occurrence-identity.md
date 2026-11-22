@@ -64,6 +64,6 @@ accept the retained SetPosition, and reject it after an actual occurrence switch
 Record executed results in [VALIDATION](../VALIDATION.md).
 
 The owner accepted the earlier v0.4 runtime; these fixes need a fresh scoped
-[Fedora check](../BUILDING.md#stability-acceptance). The separate unresolved
+[Fedora check](../BUILDING.md#desktop-regression-checks). The separate unresolved
 Cloud cold-rendering observation and public service/distribution conditions
 remain in [LIMITATIONS](../LIMITATIONS.md).

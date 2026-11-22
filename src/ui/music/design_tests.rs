@@ -1374,7 +1374,6 @@ fn populated_window_with_initial_selection(
         &fixture.origin,
         &fixture.origin,
     ));
-    theme_review::startup_style(&ui);
     ui.window.set_title(Some("Karin synthetic HTTP fixture"));
     ui.window.set_default_size(1440, 900);
     ui.window.present();
@@ -2983,4 +2982,4 @@ fn native_universal_panel_whole_surface_motion_and_mode_switch() {
     settle();
 }
 
-mod theme_review;
+mod system_visual;

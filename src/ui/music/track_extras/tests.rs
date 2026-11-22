@@ -764,18 +764,6 @@ fn window_for(app: &adw::Application, fixture: &Fixture) -> crate::ui::MainWindo
     ui.window.set_title(Some("Karin synthetic HTTP fixture"));
     ui.window.set_default_size(1440, 900);
     let this = &ui.music.controller;
-    if let Ok(style) = std::env::var("KARIN_TEST_THEME_STYLE") {
-        let style = serde_json::from_value(serde_json::Value::String(style)).unwrap();
-        let mut values = this.persistence.borrow().values.clone();
-        values.ui_style = style;
-        values.appearance = match adw::StyleManager::default().color_scheme() {
-            adw::ColorScheme::ForceLight => crate::settings::Appearance::Light,
-            adw::ColorScheme::ForceDark => crate::settings::Appearance::Dark,
-            _ => values.appearance,
-        };
-        this.persistence.borrow_mut().values = values.clone();
-        crate::ui::style::apply(&values, &ui.window);
-    }
     ui.window.present();
     this.set_fixture_resolver(crate::stream::StreamResolver::for_test(
         &fixture.origin,

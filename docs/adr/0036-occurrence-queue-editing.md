@@ -2,7 +2,7 @@
 
 # ADR-0036: Exact-occurrence editing of the upcoming queue
 
-Status: v0.8 implementation decision; executed checks and owner acceptance are separate.
+Status: v0.8 implementation decision; functionality owner-accepted.
 Date: 2026-11-14
 Extends: ADR-0017, ADR-0023, ADR-0026 and ADR-0031
 
@@ -68,7 +68,7 @@ playing edits, restored queues and stale gestures. Assert stable current
 occurrence, worker/source/position and coherent MPRIS; a list reorder is not
 proof of audible playback. Tests use original synthetic media and accounts.
 
-Execution results belong in [VALIDATION](../VALIDATION.md); the one real
-Native/installed-Flatpak acceptance remains in
-[BUILDING](../BUILDING.md#v08-final-fedora-acceptance). The owner-accepted v0.7
-restoration is preserved, not inferred acceptance of these new v0.8 gestures.
+Execution and current owner acceptance are recorded in
+[VALIDATION](../VALIDATION.md). Future relevant Native/installed-Flatpak regressions
+use [BUILDING](../BUILDING.md#desktop-regression-checks), without repeating the
+already accepted full v0.8 matrix.

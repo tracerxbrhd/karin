@@ -66,7 +66,7 @@ one-POST behavior, lost/negative ACK, readback mismatch, concurrent admission,
 account retirement, ownership and bounded data. Ordinary-window integration
 also exercises playlist edits alongside the existing player. Consult
 [VALIDATION](VALIDATION.md) for what actually executed and
-[retained Fedora procedure](BUILDING.md#v07-final-fedora-acceptance). The owner
+[desktop regression guide](BUILDING.md#desktop-regression-checks). The owner
 accepted real playlist operations on Native and installed Flatpak at `949d1f9`
 in the 68/68 v0.7 matrix; PR #28 normally merged at `2ab6d28`. No public service
 rights or server-side CAS guarantee is inferred from that acceptance.

@@ -64,7 +64,7 @@ Observer SHA-256: `8138b2eef4754d8d3a9c28d571c7c38850196bde25387adf97622a13c39b1
 Baseline ELF: `ca1fbecbdab95713c90179d778c6524de9788c1dbee608e92f91fb6bc2447b86`.
 Candidate ELF: `99921b14cd4574dedcb6623030b4c9c6c52f23882028daf71b5ae70131a21b52`.
 Full conditions, candidate source-map identity and the separate unaccepted NGL
-cold observations are recorded in [VALIDATION](../VALIDATION.md#v08-matched-application-work-measurement).
+cold observations are recorded in [VALIDATION](../VALIDATION.md#acceptance-history).
 These values measure GTK main-thread construction/update work, not scrolling
 FPS, production release speed, first-frame latency or physical Fedora Wayland.
 

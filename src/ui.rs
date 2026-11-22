@@ -478,10 +478,7 @@ fn build_with_music_pane(
         .build();
     workspace_bin.set_child(Some(&track_info));
     toolbar.set_content(Some(&workspace_bin));
-    window.set_content(Some(&style::wrap(
-        &window,
-        &music.toolbar_with_player(&toolbar),
-    )));
+    window.set_content(Some(&music.toolbar_with_player(&toolbar)));
     {
         let saved_focus: Rc<RefCell<Option<glib::WeakRef<gtk::Widget>>>> = Rc::default();
         let window_unmap = window.downgrade();

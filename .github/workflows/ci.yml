@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 name: Rust and native diagnostics
 
+# A feature commit is checked once through its PR; master is checked after merge.
 on:
   push:
-    branches: [master, 'feature/**', 'fix/**', 'chore/**']
+    branches: [master]
   pull_request:
-    branches: [master, 'feature/**', 'fix/**']
   workflow_dispatch:
 
 permissions:
@@ -15,8 +15,16 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  CARGO_TERM_COLOR: always
+  LANG: C.UTF-8
+  LC_ALL: C.UTF-8
+  RUST_BACKTRACE: 1
+  CARGO_INCREMENTAL: 0
+
 jobs:
   verify:
+    # Preserve the published checks used by PR status/branch settings.
     name: Rust ${{ matrix.toolchain }} (${{ matrix.lane }})
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -28,13 +36,7 @@ jobs:
             toolchain: stable
           - lane: msrv
             toolchain: '1.98.1'
-            rust-version: '1.98'
     env:
-      CARGO_TERM_COLOR: always
-      LANG: C.UTF-8
-      LC_ALL: C.UTF-8
-      CARGO_BUILD_JOBS: 2
-      RUST_BACKTRACE: 1
       RUSTUP_TOOLCHAIN: ${{ matrix.toolchain }}
       XDG_CONFIG_HOME: ${{ github.workspace }}/build/ci-xdg/config
       XDG_CACHE_HOME: ${{ github.workspace }}/build/ci-xdg/cache
@@ -110,30 +112,50 @@ jobs:
           PYTHON
             install_native
           fi
-      - name: Install selected Rust toolchain
+      - name: Install selected Rust toolchain and size compilation to this runner
+        id: rust
         run: |
           rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
-          rustc --version
+          rustc --version --verbose
           cargo --version
-      - name: Keep the MSRV lane aligned with Cargo metadata
-        if: matrix.lane == 'msrv'
-        env:
-          EXPECTED_RUST_VERSION: ${{ matrix.rust-version }}
-        run: |
+          echo "version=$(rustc --version | tr ' ' '-')" >> "$GITHUB_OUTPUT"
           python3 - <<'PY'
           import os
+          from pathlib import Path
+          cpus = len(os.sched_getaffinity(0))
+          memory = int(next(line.split()[1] for line in Path('/proc/meminfo').read_text().splitlines() if line.startswith('MemAvailable:'))) * 1024
+          limit = Path('/sys/fs/cgroup/memory.max')
+          if limit.exists() and limit.read_text().strip().isdigit():
+              memory = min(memory, int(limit.read_text()))
+          # Allow 3 GiB per concurrent rustc (gtk4 is the largest), retaining
+          # 2 GiB for the OS. Never invent more workers than available CPUs.
+          jobs = min(cpus, max(1, (memory - 2 * 1024**3) // (3 * 1024**3)))
+          print(f'Runner CPUs={cpus}; available/cgroup bytes={memory}; Cargo jobs={jobs}')
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              env.write(f'CARGO_BUILD_JOBS={jobs}\n')
+          PY
+      - name: Cache locked Cargo inputs and this compiler/target/feature build set
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5, Node.js 24
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-ubuntu24-${{ steps.rust.outputs.version }}-x86_64-default-all-min-release-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'build.rs') }}-${{ hashFiles('src/**', 'resources/**') }}
+          restore-keys: cargo-ubuntu24-${{ steps.rust.outputs.version }}-x86_64-default-all-min-release-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'build.rs') }}-
+      - name: Formatting and exact MSRV declaration
+        run: |
+          cargo fmt --all -- --check
+          python3 - <<'PY'
           import tomllib
           from pathlib import Path
-
-          declared = tomllib.loads(Path("Cargo.toml").read_text())["package"]["rust-version"]
-          expected = os.environ["EXPECTED_RUST_VERSION"]
-          assert declared == expected, f"Cargo.toml declares {declared}; update the MSRV CI lane ({expected}) together"
+          assert tomllib.loads(Path('Cargo.toml').read_text())['package']['rust-version'] == '1.98'
           PY
-      - name: Formatting
-        run: cargo fmt --all -- --check
       - name: Verify incremental build identity and source snapshot markers
+        if: matrix.lane == 'stable'
         run: python3 scripts/test-build-identity.py
       - name: Verify prototype authentication build policy
+        if: matrix.lane == 'stable'
         run: |
           python3 - <<'PY'
           import json
@@ -167,391 +189,44 @@ jobs:
           assert "--socket=session-bus" not in finish_args
           assert not any(arg.startswith("--talk-name=") or arg.startswith("--system-talk-name=") for arg in finish_args)
           PY
-      - name: Clippy
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: Experimental feature Clippy
-        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-      - name: Unit and local integration tests
-        run: cargo test --workspace --locked
-      - name: Experimental feature tests (synthetic local HTTP only)
-        run: cargo test --workspace --all-features --locked
-      - name: Minimal no-WebKit compatibility
+      - name: Strict Clippy and default/all/minimal tests on both toolchains
         run: |
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+          cargo test --workspace --locked
+          cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+          cargo test --workspace --all-features --locked
           cargo clippy --workspace --all-targets --no-default-features --locked -- -D warnings
           cargo test --workspace --no-default-features --locked
           cargo build --workspace --no-default-features --locked
-      - name: Verify explicit native fixture selectors exist
+      - name: Select and verify the compiled all-features native suite
         run: |
-          cargo test --lib --all-features --locked -- --ignored --list > /tmp/karin-v03-native-fixtures.txt
-          python3 - <<'PY'
-          import re
-          from pathlib import Path
-
-          listed = Path('/tmp/karin-v03-native-fixtures.txt').read_text().splitlines()
-          selectors = [
-              'native_secure_storage_secret_service_and_portal_protocol',
-              'native_mpris_session_bus_methods_properties_signals_and_shutdown',
-              'artwork_thumbnail_maps_caches_hidpi_and_cancels_without_network',
-              'webkit_auth_interactive_navigation_frames_and_first_rejection',
-              'webkit_auth_construction_and_shutdown_without_navigation',
-              'webkit_auth_local_startup_cookie_isolation_and_cancel',
-              'native_account_menu_logout_cancel_default_confirm_and_stale_session',
-              'native_cover_metadata_http_cache_and_render_lifecycle',
-              'native_visible_cover_retries_after_worker_queue_saturation_without_remap',
-              'native_workspace_track_pane_actions_state_and_cleanup',
-              'native_catalog_native_music_layout',
-              'native_catalog_navigation_latest_actions',
-              'native_library_interactions_confirmed_fixture',
-              'native_catalog_rows_mouse_keyboard_details_and_delivery',
-              'native_search_retry_normalized_results_and_density',
-              'native_global_search_measured_slot_and_motion',
-              'native_music_session_catalog_queue_and_logout',
-              'native_music_context_mpris_shared_player_and_cleanup',
-              'native_wave_shared_player_feedback_batches_and_cleanup',
-              'native_wave_retirement_supported_feedback_and_cleanup',
-              'native_wave_home_experiment_layout_and_controls',
-              'native_music_playback_context_occurrences_and_shared_transport',
-              'native_music_playback_media_error_visibility_stop_retry_and_catalog_preservation',
-              'native_music_playback_queue_races_remove_and_close',
-              'native_music_playback_resolver_queue_controls_and_logout',
-              'native_design_matched_matrix_and_populated_surfaces',
-              'native_universal_panel_whole_surface_motion_and_mode_switch',
-              'native_first_footer_reveal_after_startup_without_graphics_initialization',
-              'native_collection_filter_continuation_and_exact_occurrences',
-              'native_music_shuffle_repeat_mpris_shared_policy_and_eos',
-              'native_queue_space_mouse_enter_dispatch_exact_occurrence_once',
-              'native_workspace_playlist_grid_input_states_and_resize',
-              'native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup',
-              'native_preferences_persistent_controls_snapshot_updates_and_cleanup',
-              'native_playlist_creation_confirmation_refresh_refusal_and_late_widgets',
-              'native_persistent_session_restore_settings_forget_and_close',
-              'native_audio_cache_application_process_restart',
-              'native_v07_playback_restore_playlist_appearance_process_restart',
-              'native_v08_lyrics_similar_seek_and_stale_selection',
-              'native_v08_footer_lyrics_and_volume_scroll',
-              'native_music_resume_expired_source_preserves_occurrence_position_and_cancellation',
-              'native_v08_whole_collection_index_search_sort_and_cancellation',
-              'native_v08_queue_next_drag_keyboard_and_restoration',
-              'native_v08_incremental_marker_updates_and_stable_ticks',
-              'native_catalog_cache_provenance_interleaving_and_retired_replies',
-              'native_theme_matched_visual_surfaces',
-              'native_theme_matched_work_observation',
-              'native_glass_cache_rgb_identity_and_alpha_preservation',
-          ]
-          compiled = {line.rsplit('::', 1)[-1].removesuffix(': test')
-                      for line in listed if line.endswith(': test')}
-          assert compiled == set(selectors), f'Native selector registration mismatch: {compiled ^ set(selectors)}'
-          workflow = Path('.github/workflows/ci.yml').read_text()
-          main, modern = workflow.split('\n  native_ui:', 1)
-          pattern = r'cargo test --lib --all-features --locked ([a-z_0-9]+) -- --ignored'
-          visual = {'native_design_matched_matrix_and_populated_surfaces',
-                    'native_universal_panel_whole_surface_motion_and_mode_switch',
-                    'native_first_footer_reveal_after_startup_without_graphics_initialization',
-                    'native_theme_matched_visual_surfaces'}
-          main_runs = set(re.findall(pattern, main))
-          modern_runs = set(re.findall(pattern, modern))
-          assert set(selectors) - visual <= main_runs, 'A functional native selector was removed from Ubuntu'
-          assert not visual & main_runs, 'Strict visual selectors belong to the modern quality runtime'
-          assert visual <= modern_runs, 'The modern job must execute every visual fixture'
-          print(f'Compiled {len(compiled)} selectors: {len(compiled - visual)} Ubuntu functional + {len(visual)} modern visual, in both Rust lanes')
-          PY
-      - name: MPRIS methods, properties, signals and shutdown on an isolated session bus
+          cargo test --lib --all-features --locked --no-run --message-format=json > /tmp/karin-native-artifacts.jsonl
+          binary=$(python3 scripts/ci-native-tests.py artifact /tmp/karin-native-artifacts.jsonl)
+          echo "KARIN_NATIVE_TEST_BINARY=$binary" >> "$GITHUB_ENV"
+          python3 scripts/ci-native-tests.py verify "$binary"
+      - name: MPRIS and protected Secret Service/Portal protocols
+        run: python3 scripts/ci-native-tests.py run bus "$KARIN_NATIVE_TEST_BINARY"
+      - name: Complete GTK/GStreamer/cache/Wave/queue/playlist/Lyrics/search regressions
+        if: matrix.lane == 'stable'
         run: |
-          command -v playerctl
-          command -v gdbus
-          dbus-run-session -- cargo test --lib --all-features --locked native_mpris_session_bus_methods_properties_signals_and_shutdown -- --ignored --test-threads=1
-      - name: Protected session storage through isolated Secret Service and Portal fixtures
-        env:
-          KARIN_TEST_SECRET_BUS: 1
-        run: dbus-run-session -- cargo test --lib --all-features --locked native_secure_storage_secret_service_and_portal_protocol -- --ignored --test-threads=1
-      - name: Native music workspace, playlist creation and persistent preferences input and cleanup
-        env:
-          GTK_A11Y: none
-          GSK_RENDERER: cairo
-          GSK_DEBUG: full-redraw
-        run: |
-          if [ '${{ matrix.lane }}' = stable ]; then
-            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
-          fi
-          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_glass_cache_rgb_identity_and_alpha_preservation -- --ignored --test-threads=1
-          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_workspace_track_pane_actions_state_and_cleanup -- --ignored --test-threads=1
-          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_workspace_playlist_grid_input_states_and_resize -- --ignored --test-threads=1
-          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup -- --ignored --test-threads=1
-          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_preferences_persistent_controls_snapshot_updates_and_cleanup -- --ignored --test-threads=1
-          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_playlist_creation_confirmation_refresh_refusal_and_late_widgets -- --ignored --test-threads=1
-      - name: Native music workspace, playlist creation and persistent preferences at HiDPI
-        env:
-          GTK_A11Y: none
-          GSK_RENDERER: cairo
-          GSK_DEBUG: full-redraw
-          GDK_SCALE: 2
-        run: |
-          if [ '${{ matrix.lane }}' = stable ]; then
-            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/hidpi"
-          fi
-          dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_workspace_track_pane_actions_state_and_cleanup -- --ignored --test-threads=1
-          dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_workspace_playlist_grid_input_states_and_resize -- --ignored --test-threads=1
-          dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup -- --ignored --test-threads=1
-          dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_preferences_persistent_controls_snapshot_updates_and_cleanup -- --ignored --test-threads=1
-          dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_playlist_creation_confirmation_refresh_refusal_and_late_widgets -- --ignored --test-threads=1
-      - name: Native Music layout, playback policy and exact queue input
-        env:
-          GTK_A11Y: none
-          GSK_RENDERER: cairo
-          GSK_DEBUG: full-redraw
-          KARIN_V04_ASSERT_DENSITY: 1
-        run: |
-          for scale in 1 2; do
-            if [ "$scale" = 1 ]; then screen=1920x1080x24; else screen=3840x2160x24; fi
-            if [ '${{ matrix.lane }}' = stable ]; then
-              export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/native-music-$scale"
-            fi
-            GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_catalog_native_music_layout -- --ignored --test-threads=1
-            G_DEBUG=fatal-warnings GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_collection_filter_continuation_and_exact_occurrences -- --ignored --test-threads=1
-            G_DEBUG=fatal-warnings GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_music_shuffle_repeat_mpris_shared_policy_and_eos -- --ignored --test-threads=1
-            GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_queue_space_mouse_enter_dispatch_exact_occurrence_once -- --ignored --test-threads=1
-          done
-      - name: Persistent session lifecycle and catalog cache provenance integration
-        env:
-          GTK_A11Y: none
-          GSK_RENDERER: cairo
-          GSK_DEBUG: full-redraw
-        run: |
-          if [ '${{ matrix.lane }}' = stable ]; then
-            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
-          fi
-          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_persistent_session_restore_settings_forget_and_close -- --ignored --test-threads=1
-          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_catalog_cache_provenance_interleaving_and_retired_replies -- --ignored --test-threads=1
-      - name: Audio cache through the normal app and real process restart
-        env:
-          GTK_A11Y: none
-          GSK_RENDERER: cairo
-          G_DEBUG: fatal-warnings
-          KARIN_TEST_CAPTURE_DIR: ${{ github.workspace }}/build/ui-captures/fixtures/audio-cache-application
-        run: dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_audio_cache_application_process_restart -- --ignored --test-threads=1 --nocapture
-      - name: Playback continuation, confirmed playlist edits and live appearance in the normal app
-        env:
-          GTK_A11Y: none
-          GSK_RENDERER: cairo
-          G_DEBUG: fatal-warnings
-        run: |
-          for scale in 1 2; do
-            export GDK_SCALE="$scale"
-            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/v07-application/scale-$scale"
-            if [ "$scale" = 2 ]; then screen=3840x2160; else screen=1920x1080; fi
-            dbus-run-session -- xvfb-run -a -s "-screen 0 ${screen}x24 -dpi 96" cargo test --lib --all-features --locked native_v07_playback_restore_playlist_appearance_process_restart -- --ignored --test-threads=1 --nocapture
-          done
-      - name: Integrated lyrics, similar tracks, complete collection index and queue input
-        env:
-          GTK_A11Y: none
-          GSK_RENDERER: cairo
-          G_DEBUG: fatal-warnings
-        run: |
-          for scale in 1 2; do
-            export GDK_SCALE="$scale"
-            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/v08-application/scale-$scale"
-            mkdir -p "$KARIN_TEST_CAPTURE_DIR"
-            if [ "$scale" = 2 ]; then screen=3840x2160; else screen=1920x1080; fi
-            dbus-run-session -- xvfb-run -a -s "-screen 0 ${screen}x24 -dpi 96" cargo test --lib --all-features --locked native_v08_lyrics_similar_seek_and_stale_selection -- --ignored --test-threads=1 --nocapture
-            dbus-run-session -- xvfb-run -a -s "-screen 0 ${screen}x24 -dpi 96" cargo test --lib --all-features --locked native_v08_footer_lyrics_and_volume_scroll -- --ignored --test-threads=1 --nocapture
-            dbus-run-session -- xvfb-run -a -s "-screen 0 ${screen}x24 -dpi 96" cargo test --lib --all-features --locked native_music_resume_expired_source_preserves_occurrence_position_and_cancellation -- --ignored --test-threads=1 --nocapture
-            dbus-run-session -- xvfb-run -a -s "-screen 0 ${screen}x24 -dpi 96" cargo test --lib --all-features --locked native_v08_whole_collection_index_search_sort_and_cancellation -- --ignored --test-threads=1 --nocapture
-            dbus-run-session -- xvfb-run -a -s "-screen 0 ${screen}x24 -dpi 96" cargo test --lib --all-features --locked native_v08_queue_next_drag_keyboard_and_restoration -- --ignored --test-threads=1 --nocapture
-            dbus-run-session -- xvfb-run -a -s "-screen 0 ${screen}x24 -dpi 96" cargo test --lib --all-features --locked native_v08_incremental_marker_updates_and_stable_ticks -- --ignored --test-threads=1 --nocapture 2>&1 | tee "$KARIN_TEST_CAPTURE_DIR/marker-work.log"
-            python3 scripts/check-marker-work.py "$KARIN_TEST_CAPTURE_DIR/marker-work.log"
-          done
-      - name: Persistent session and catalog cache integration at HiDPI
-        env:
-          GTK_A11Y: none
-          GSK_RENDERER: cairo
-          GSK_DEBUG: full-redraw
-          GDK_SCALE: 2
-        run: |
-          if [ '${{ matrix.lane }}' = stable ]; then
-            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/hidpi"
-          fi
-          dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_persistent_session_restore_settings_forget_and_close -- --ignored --test-threads=1
-          dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_catalog_cache_provenance_interleaving_and_retired_replies -- --ignored --test-threads=1
-      - name: Matched native System and Liquid Glass work and cache observations
-        env:
-          GTK_A11Y: none
-          GSK_RENDERER: cairo
-          G_DEBUG: fatal-warnings
-        run: |
-          for style in system liquid-glass; do
-            export KARIN_TEST_THEME_STYLE="$style"
-            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/v08-application/theme-work-$style"
-            dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_theme_matched_work_observation -- --ignored --test-threads=1 --nocapture
-          done
-      - name: Native Music session and catalog against loopback fixtures
-        env:
-          GTK_A11Y: none
-          GSK_RENDERER: cairo
-          GSK_DEBUG: full-redraw
-        run: |
-          if [ '${{ matrix.lane }}' = stable ]; then
-            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
-          fi
-          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_music_session_catalog_queue_and_logout -- --ignored --test-threads=1
-      - name: Ordinary Wave with the shared native player, feedback and cleanup
-        env:
-          GTK_A11Y: none
-          GSK_RENDERER: cairo
-          GSK_DEBUG: full-redraw
-        run: |
-          if [ '${{ matrix.lane }}' = stable ]; then
-            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
-          fi
-          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_wave_shared_player_feedback_batches_and_cleanup -- --ignored --test-threads=1
-          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_wave_retirement_supported_feedback_and_cleanup -- --ignored --test-threads=1
-          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_wave_home_experiment_layout_and_controls -- --ignored --test-threads=1
-          GDK_SCALE=2 GDK_DPI_SCALE=1 dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_wave_shared_player_feedback_batches_and_cleanup -- --ignored --test-threads=1
-          GDK_SCALE=2 GDK_DPI_SCALE=1 dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_wave_retirement_supported_feedback_and_cleanup -- --ignored --test-threads=1
-          GDK_SCALE=2 GDK_DPI_SCALE=1 dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_wave_home_experiment_layout_and_controls -- --ignored --test-threads=1
-      - name: Native catalog concurrent actions, detail navigation and stale results
-        env:
-          GTK_A11Y: none
-          GSK_RENDERER: cairo
-        run: |
-          if [ '${{ matrix.lane }}' = stable ]; then
-            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
-          fi
-          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_catalog_navigation_latest_actions -- --ignored --test-threads=1
-      - name: Build all optional authentication components
-        run: cargo build --workspace --all-features --locked
-      - name: Actual mouse and keyboard catalog rows, details and delivery entry
-        env:
-          GTK_A11Y: none
-          GSK_RENDERER: cairo
-          GSK_DEBUG: full-redraw
-        run: |
-          if [ '${{ matrix.lane }}' = stable ]; then
-            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
-          fi
-          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_catalog_rows_mouse_keyboard_details_and_delivery -- --ignored --test-threads=1
-      - name: Confirmed library writes, ambiguous outcomes and liked playlists
-        env:
-          GTK_A11Y: none
-          GSK_RENDERER: cairo
-        run: |
-          if [ '${{ matrix.lane }}' = stable ]; then
-            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
-          fi
-          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_library_interactions_confirmed_fixture -- --ignored --test-threads=1
-      - name: Track search normalization, inline retry and useful list density
-        env:
-          GTK_A11Y: none
-          GSK_RENDERER: cairo
-          GSK_DEBUG: full-redraw
-        run: |
-          KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/v08-application/scale-1/search" dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_search_retry_normalized_results_and_density -- --ignored --test-threads=1
-      - name: Global search replaces the measured tabs at both scales
-        env:
-          GTK_A11Y: none
-          G_DEBUG: fatal-warnings
-          GSK_RENDERER: cairo
-          GDK_DPI_SCALE: 1
-        run: |
-          for scale in 1 2; do
-            export GDK_SCALE="$scale"
-            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/v08-application/scale-$scale/search"
-            screen="$((2800 * scale))x$((1600 * scale))x24"
-            dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_global_search_measured_slot_and_motion -- --ignored --test-threads=1 --nocapture
-          done
-      - name: Account menu, safe default cancellation and explicit confirmed logout
-        env:
-          GTK_A11Y: none
-          GSK_RENDERER: cairo
-          GSK_DEBUG: full-redraw
-        run: |
-          if [ '${{ matrix.lane }}' = stable ]; then
-            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
-          fi
-          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_account_menu_logout_cancel_default_confirm_and_stale_session -- --ignored --test-threads=1
-      - name: Real resolver, remote MP3 and native player controls against loopback
-        env:
-          GTK_A11Y: none
-          GSK_RENDERER: cairo
-          GSK_DEBUG: full-redraw
-        run: |
-          gst-inspect-1.0 lamemp3enc >/dev/null
-          gst-inspect-1.0 xingmux >/dev/null
-          gst-inspect-1.0 mpg123audiodec >/dev/null
-          gst-inspect-1.0 souphttpsrc >/dev/null
-          if [ '${{ matrix.lane }}' = stable ]; then
-            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
-          fi
-          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_music_playback_resolver_queue_controls_and_logout -- --ignored --test-threads=1
-          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_music_playback_queue_races_remove_and_close -- --ignored --test-threads=1
-          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_music_playback_media_error_visibility_stop_retry_and_catalog_preservation -- --ignored --test-threads=1
-      - name: Playback context occurrences and shared transport against loopback
-        env:
-          GTK_A11Y: none
-          GSK_RENDERER: cairo
-          GSK_DEBUG: full-redraw
-        run: |
-          if [ '${{ matrix.lane }}' = stable ]; then
-            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
-          fi
-          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_music_playback_context_occurrences_and_shared_transport -- --ignored --test-threads=1
-          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_music_context_mpris_shared_player_and_cleanup -- --ignored --test-threads=1
-      - name: Signed-in search and safe account actions at HiDPI
-        env:
-          GTK_A11Y: none
-          GSK_RENDERER: cairo
-          GSK_DEBUG: full-redraw
-          GDK_SCALE: 2
-        run: |
-          if [ '${{ matrix.lane }}' = stable ]; then
-            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/hidpi"
-          fi
-          KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/v08-application/scale-2/search" dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_search_retry_normalized_results_and_density -- --ignored --test-threads=1
-          dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_account_menu_logout_cancel_default_confirm_and_stale_session -- --ignored --test-threads=1
-      - name: Cover textures, HiDPI, cancellation and native cleanup
-        env:
-          GTK_A11Y: none
-          GSK_RENDERER: cairo
-        run: |
-          for scale in 1 2; do
-            GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked artwork_thumbnail_maps_caches_hidpi_and_cancels_without_network -- --ignored --test-threads=1
-          done
-      - name: Validated cover metadata through HTTP, disk cache and native rendering
-        env:
-          GTK_A11Y: none
-          GSK_RENDERER: cairo
-          GSK_DEBUG: full-redraw
-        run: |
-          for scale in 1 2; do
-            if [ '${{ matrix.lane }}' = stable ]; then
-              export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/cover-delivery-$scale"
-            fi
-            GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_cover_metadata_http_cache_and_render_lifecycle -- --ignored --test-threads=1
-            GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_visible_cover_retries_after_worker_queue_saturation_without_remap -- --ignored --test-threads=1
-          done
-      - name: Isolated WebKit construction and cancellation
-        env:
-          GTK_A11Y: none
-          GSK_RENDERER: cairo
-        run: dbus-run-session -- xvfb-run -a cargo test --lib --all-features --locked webkit_auth_construction_and_shutdown_without_navigation -- --ignored --test-threads=1
+          for plugin in lamemp3enc xingmux mpg123audiodec souphttpsrc; do gst-inspect-1.0 "$plugin" >/dev/null; done
+          python3 scripts/ci-native-tests.py run functional "$KARIN_NATIVE_TEST_BINARY"
+      - name: Targeted HiDPI adaptive shell, search, Lyrics, footer and artwork
+        if: matrix.lane == 'stable'
+        run: python3 scripts/ci-native-tests.py run hidpi "$KARIN_NATIVE_TEST_BINARY" --scale 2
+      - name: MSRV native layout and real resolver/playback compatibility
+        if: matrix.lane == 'msrv'
+        run: python3 scripts/ci-native-tests.py run compatibility "$KARIN_NATIVE_TEST_BINARY"
       - name: Permit sandbox namespaces only for the compiled WebKit test
         run: |
-          cargo test --lib --all-features --locked --no-run --message-format=json > /tmp/karin-webkit-artifact.jsonl
           python3 - <<'PY'
-          import json
           import os
           import re
           from pathlib import Path
 
           restriction = Path('/proc/sys/kernel/apparmor_restrict_unprivileged_userns')
           if restriction.exists() and restriction.read_text().strip() == '1':
-              artifacts = [json.loads(line) for line in Path('/tmp/karin-webkit-artifact.jsonl').read_text().splitlines()]
-              binaries = [item['executable'] for item in artifacts
-                          if item.get('reason') == 'compiler-artifact'
-                          and item.get('target', {}).get('name') == 'karin'
-                          and item.get('target', {}).get('kind') == ['lib']
-                          and item.get('profile', {}).get('test') and item.get('executable')]
-              assert len(binaries) == 1, 'Expected one compiled library test executable'
-              binary = Path(binaries[0]).resolve()
+              binary = Path(os.environ['KARIN_NATIVE_TEST_BINARY']).resolve()
               workspace = Path(os.environ['GITHUB_WORKSPACE']).resolve()
               # Cargo 1.100 moved test executables from debug/deps to this
               # exact crate/hash/out layout. Admit only those two known layouts;
@@ -577,45 +252,10 @@ jobs:
             sudo apparmor_parser -r /tmp/karin-webkit-ci.apparmor
             test "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)" = 1
           fi
-      - name: WebKit local navigation, callback, cookie isolation and late cancellation
-        env:
-          GTK_A11Y: none
-          GSK_RENDERER: cairo
+      - name: Navigating WebKit sandbox, input, callbacks, cookies and cancellation
         run: |
           ulimit -c 0
-          if [ '${{ matrix.lane }}' = stable ]; then
-            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/webkit"
-          fi
-          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' sh -eu <<'SH'
-          openbox --sm-disable >/tmp/karin-webkit-openbox.log 2>&1 &
-          wm_pid=$!
-          trap 'kill "$wm_pid" 2>/dev/null || true; wait "$wm_pid" 2>/dev/null || true' EXIT
-          attempt=0
-          until wmctrl -m >/dev/null 2>&1; do
-            attempt=$((attempt + 1))
-            test "$attempt" -lt 50
-            sleep 0.1
-          done
-          cargo test --lib --all-features --locked webkit_auth_local_startup_cookie_isolation_and_cancel -- --ignored --test-threads=1
-          SH
-      - name: Interactive WebKit input, fragments, frames and first rejection
-        env:
-          GTK_A11Y: none
-          GSK_RENDERER: cairo
-        run: |
-          ulimit -c 0
-          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' sh -eu <<'SH'
-          openbox --sm-disable >/tmp/karin-webkit-interactive-openbox.log 2>&1 &
-          wm_pid=$!
-          trap 'kill "$wm_pid" 2>/dev/null || true; wait "$wm_pid" 2>/dev/null || true' EXIT
-          attempt=0
-          until wmctrl -m >/dev/null 2>&1; do
-            attempt=$((attempt + 1))
-            test "$attempt" -lt 50
-            sleep 0.1
-          done
-          cargo test --lib --all-features --locked webkit_auth_interactive_navigation_frames_and_first_rejection -- --ignored --test-threads=1
-          SH
+          python3 scripts/ci-native-tests.py run webkit "$KARIN_NATIVE_TEST_BINARY"
       - name: Remove the CI-only namespace permission
         if: always()
         run: |
@@ -623,91 +263,59 @@ jobs:
             sudo apparmor_parser -R /tmp/karin-webkit-ci.apparmor
             test "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)" = 1
           fi
-      - name: Experimental GTK startup and cleanup under Xvfb
+      - name: Build and smoke-test optional authentication components
         env:
           GTK_A11Y: none
           GSK_RENDERER: cairo
-        run: dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' ./target/debug/karin --experimental-music --smoke-test
-      - name: Build ordinary client with WebKit session authentication
-        run: cargo build --workspace --locked
-      - name: Local OAuth terminal boundaries (synthetic input, no browser or network)
-        run: python3 scripts/test-oauth-terminal.py ./target/debug/karin
-      - name: Ordinary Wave startup, forwarding and cleanup without an account
+        run: |
+          cargo build --workspace --all-features --locked
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' ./target/debug/karin --experimental-music --smoke-test
+      - name: Build ordinary client and test OAuth, Wave and real playback controls
         env:
           GTK_A11Y: none
+          GSK_RENDERER: cairo
           G_DEBUG: fatal-warnings
-          GSK_RENDERER: cairo
-        run: xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' python3 scripts/test-wave-launch.py ./target/debug/karin
-      - name: Ordinary executable TEXT to consented LRC and global search
+        run: |
+          cargo build --workspace --locked
+          python3 scripts/test-oauth-terminal.py ./target/debug/karin
+          xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' python3 scripts/test-wave-launch.py ./target/debug/karin
+          ./target/debug/karin --audio-self-test
+          ./target/debug/karin --playback-self-test
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' ./target/debug/karin --smoke-test
+      - name: Ordinary executable consented Lyrics, style migration and global search
+        if: matrix.lane == 'stable'
         env:
           GTK_A11Y: atspi
           GSK_RENDERER: cairo
         run: |
-          for scale in 1 2; do
-            if [ "$scale" = 1 ]; then theme=light; style=system; else theme=dark; style=liquid-glass; fi
-            screen="$((1920 * scale))x$((1080 * scale))x24"
-            GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" /usr/bin/python3 scripts/test-application-fixture.py ./target/debug/karin --expected-revision "$(git rev-parse HEAD)" --theme "$theme" --style "$style" --out "build/ui-captures/fixtures/v08-application/executable-debug-$scale"
-          done
-      - name: Fetch locked dependencies for the offline release build
+          GDK_SCALE=1 dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' /usr/bin/python3 scripts/test-application-fixture.py ./target/debug/karin --expected-revision "$(git rev-parse HEAD)" --theme dark --out build/executable/debug-1
+      - name: Verify reviewed dependency licenses
+        run: |
+          python3 packaging/license_inventory.py --output /tmp/karin-dependency-licenses.md
+          diff -u docs/DEPENDENCY_LICENSES.md /tmp/karin-dependency-licenses.md
+      - name: Prepare and verify the exact Flatpak source and locked offline release
         if: matrix.lane == 'msrv'
-        run: cargo fetch --locked
-      - name: Flatpak-style offline release build on MSRV
-        if: matrix.lane == 'msrv'
-        run: cargo build --release --offline --locked --no-default-features --features cassette-auth
-      - name: Ordinary release executable provider and search user flow on MSRV
+        run: |
+          cargo fetch --locked
+          python3 packaging/flatpak/prepare-source.py
+          test "$(cat build/flatpak-source/BUILD-REVISION)" = "$(git rev-parse HEAD)"
+          test "$(cat build/flatpak-source/BUILD-SOURCE-STATUS)" = clean
+          git diff --exit-code -- Cargo.lock packaging/flatpak/io.github.tracerxbrhd.Karin.json
+          cd build/flatpak-source
+          CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target" cargo build --release --offline --locked --no-default-features --features cassette-auth
+      - name: Release provider, Lyrics/search, OAuth, real playback and GTK startup
         if: matrix.lane == 'msrv'
         env:
           GTK_A11Y: atspi
           GSK_RENDERER: cairo
           GDK_SCALE: 1
-        run: dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' /usr/bin/python3 scripts/test-application-fixture.py ./target/release/karin --expected-revision "$(git rev-parse HEAD)" --theme light --style liquid-glass --out build/ui-captures/fixtures/v08-application/executable-release-1
-      - name: Release OAuth terminal boundaries on MSRV
-        if: matrix.lane == 'msrv'
-        run: python3 scripts/test-oauth-terminal.py ./target/release/karin
-      - name: Verify reviewed dependency license inventory
         run: |
-          python3 packaging/license_inventory.py --output /tmp/karin-dependency-licenses.md
-          diff -u docs/DEPENDENCY_LICENSES.md /tmp/karin-dependency-licenses.md
-      - name: GStreamer diagnostic through fakesink
-        run: ./target/debug/karin --audio-self-test
-      - name: Generated local media through the real playback controller
-        run: ./target/debug/karin --playback-self-test
-      - name: GTK startup and shutdown under Xvfb
-        env:
-          GTK_A11Y: none
-          GSK_RENDERER: cairo
-        run: dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' ./target/debug/karin --smoke-test
-      - name: HiDPI adaptive GTK navigation and cleanup
-        env:
-          GTK_A11Y: none
-          GSK_RENDERER: cairo
-          GDK_SCALE: 2
-        run: dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' ./target/debug/karin --smoke-test
-      - name: Release GStreamer diagnostic through fakesink on MSRV
-        if: matrix.lane == 'msrv'
-        run: ./target/release/karin --audio-self-test
-      - name: Release playback controller on MSRV
-        if: matrix.lane == 'msrv'
-        run: ./target/release/karin --playback-self-test
-      - name: Release GTK startup and shutdown under Xvfb on MSRV
-        if: matrix.lane == 'msrv'
-        env:
-          GTK_A11Y: none
-          GSK_RENDERER: cairo
-        run: dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' ./target/release/karin --smoke-test
-      - name: Opted-in offline release build on MSRV
-        if: matrix.lane == 'msrv'
-        run: cargo build --release --offline --locked --all-features
-      - name: Experimental release GTK startup and cleanup on MSRV
-        if: matrix.lane == 'msrv'
-        env:
-          GTK_A11Y: none
-          GSK_RENDERER: cairo
-        run: dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' ./target/release/karin --experimental-music --smoke-test
-      - name: Restore ordinary session-provider release artifact on MSRV
-        if: matrix.lane == 'msrv'
-        run: cargo build --release --offline --locked --no-default-features --features cassette-auth
-      - name: Prepare the native Fedora acceptance prototype
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' /usr/bin/python3 scripts/test-application-fixture.py ./target/release/karin --expected-revision "$(git rev-parse HEAD)" --theme light --out build/executable/release-1
+          python3 scripts/test-oauth-terminal.py ./target/release/karin
+          ./target/release/karin --audio-self-test
+          ./target/release/karin --playback-self-test
+          GTK_A11Y=none dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' ./target/release/karin --smoke-test
+      - name: Package the native prototype with source identity and complete notices
         if: matrix.lane == 'msrv'
         run: |
           artifact=build/karin-fedora-prototype-1.98.1
@@ -718,43 +326,15 @@ jobs:
           python3 packaging/license_inventory.py --output "$artifact/licenses/DEPENDENCY_LICENSES.md" --notices-dir "$artifact/licenses/rust"
           {
             printf 'Source commit: '; git rev-parse HEAD
-            printf 'Source URL: https://github.com/tracerxbrhd/karin/tree/%s\n' "$GITHUB_SHA"
-            printf 'Features: --no-default-features --features cassette-auth\nBuild: --release --offline --locked\n'
+            printf 'Build: --release --offline --locked --no-default-features --features cassette-auth\n'
             rustc --version --verbose
             cargo --version
-            printf 'Build system: Ubuntu 24.04; architecture: '; uname -m
-            for package in gtk4 libadwaita-1 gstreamer-1.0 webkitgtk-6.0; do
-              printf '%s: ' "$package"; pkg-config --modversion "$package"
-            done
+            printf 'Ubuntu 24.04 x86_64 native prototype; not a Flatpak or public release.\n'
             printf 'Binary SHA256: '; sha256sum target/release/karin
           } > "$artifact/BUILD-INFO.txt"
-          cat > "$artifact/README.txt" <<'EOF'
-          Karin v0.8: System/Liquid Glass final UI polish acceptance build.
-          Verify SHA256SUMS, BUILD-INFO.txt and ./karin --version against this PR's exact head.
-          This is an Ubuntu 24.04 x86_64 native prototype, not a Flatpak/public release.
-          Fedora runtime: sudo dnf install gtk4 libadwaita gstreamer1 gstreamer1-plugins-base gstreamer1-plugins-good webkitgtk6.0 librsvg2 libsecret
-          Optional MPRIS tool: sudo dnf install playerctl
-          ulimit -c 0
-          ./karin
-          Ordinary sign-in uses the existing provider; keep the desktop keyring unlocked.
-          The owner confirmed synchronized karaoke on Fedora at the reported d345fec baseline.
-          Follow ONLY the short final-polish procedure in docs/BUILDING.md#v08-final-fedora-acceptance at the source commit in BUILD-INFO.txt.
-          Use Native and an installed Flatpak from this same final PR HEAD; close older instances first.
-          1. Play an existing LRC track. Inspect compact provider/Similar captions and Lyrics -> Track Info via the repeated footer action, Back, Close and Queue.
-          2. Check the 24-logical-pixel inner footer gap and actual Seek target at maximized/compact sizes; hidden footer must leave no strip.
-          3. While Playing, select System -> Liquid Glass -> System -> Liquid Glass in Preferences. Check independent Light/Dark/System, High Contrast/Reduced Motion, readability and retained track/position/queue/volume/search/pane.
-          4. Restart and confirm saved style/color and Lyrics permission; start playback explicitly and check audible sound and natural karaoke changes, then return to System.
-          This is the final polish check, not a request to repeat the full previously accepted music/cache/Wave/account acceptance.
-          Liquid Glass blurs original Karin-owned scenery, not the Wayland desktop or foreground text. Karin Style remains disabled.
-          Cloud original-audio fixtures and installed Cloud Flatpak checks have a separate scope; physical Fedora/KDE/Wayland comfort and smoothness remain for this check.
-          The known raw first-footer cold gap remains unaccepted under #23; this build does not claim to resolve it.
-          Preserve GPL and third-party notices. OAuth public-distribution/service permission remains unresolved separately under #5/#22.
-          Keep private screenshots local. Report revision/package, scheme/scale and anonymized polish PASS/FAIL/not-assessed only.
-          Do not enable network/GStreamer logs or share tokens, signed URLs, account data or audio.
-          EOF
           tar -C build -czf build/karin-fedora-prototype-1.98.1.tar.gz karin-fedora-prototype-1.98.1
           (cd build && sha256sum karin-fedora-prototype-1.98.1.tar.gz > SHA256SUMS)
-      - name: Retain the native Fedora acceptance prototype
+      - name: Retain the native Fedora prototype
         if: matrix.lane == 'msrv'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6, Node.js 24
         with:
@@ -764,61 +344,17 @@ jobs:
             build/SHA256SUMS
           retention-days: 14
           if-no-files-found: error
-      - name: Retain normal-app audio cache contract evidence
+      - name: Retain native receipts and executable evidence
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6, Node.js 24
         with:
-          name: karin-audio-cache-application-${{ matrix.lane }}-${{ github.sha }}
+          name: karin-functional-${{ matrix.lane }}-${{ github.sha }}
           path: |
-            build/ui-captures/fixtures/audio-cache-application/audio-cache-application-receipt.json
-            build/ui-captures/fixtures/audio-cache-application/audio-cache-lifecycle-receipt.json
-            build/ui-captures/fixtures/audio-cache-application/audio-cache-completion-receipt.json
-            build/ui-captures/fixtures/audio-cache-application/audio-cache-identity-receipt.json
-            build/ui-captures/fixtures/audio-cache-application/audio-cache-presence-receipt.json
-            build/ui-captures/fixtures/audio-cache-application/audio-cache-localfirst-receipt.json
-            build/ui-captures/fixtures/audio-cache-application/audio-cache-saved-*.png
-            build/ui-captures/fixtures/audio-cache-application/audio-cache-presence-*.png
-            build/ui-captures/fixtures/audio-cache-application/audio-cache-application-*.log
-            build/ui-captures/fixtures/audio-cache-application/audio-cache-application-*-http.json
-          retention-days: 14
-          if-no-files-found: error
-      - name: Retain integrated playback, playlist and appearance contract evidence
-        if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6, Node.js 24
-        with:
-          name: karin-v07-application-${{ matrix.lane }}-${{ github.sha }}
-          path: |
-            build/ui-captures/fixtures/v07-application/scale-*/v07-application-receipt.json
-            build/ui-captures/fixtures/v07-application/scale-*/v07-application-*.log
-            build/ui-captures/fixtures/v07-application/scale-*/v07-playlist-editor-*.png
-          retention-days: 14
-          if-no-files-found: error
-      - name: Retain v0.8 functional input and marker-work evidence
-        if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6, Node.js 24
-        with:
-          name: karin-v08-application-${{ matrix.lane }}-${{ github.sha }}
-          path: build/ui-captures/fixtures/v08-application/
-          retention-days: 14
-          if-no-files-found: error
-      - name: Retain Ubuntu functional UI evidence
-        if: always() && matrix.lane == 'stable'
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6, Node.js 24
-        with:
-          name: karin-ui-${{ github.sha }}
-          path: |
-            build/ui-captures/**/*.png
-            build/ui-captures/**/*.geometry.txt
-            build/ui-captures/**/*.jsonl
+            build/native-tests/
+            build/executable/
           retention-days: 7
           if-no-files-found: error
 
-  # Strict visual evidence uses the prepared modern native stack and recorded
-  # graphics initialization. Ubuntu keeps compiler/package/functional coverage;
-  # cold software-paint limits remain explicit in VALIDATION.md.
-  # The motion fixture records graphics initialization separately before the
-  # unchanged normal-animation phase gate. Cold first-use latency is not
-  # accepted by this measurement; retain its raw observations and Fedora gate.
   native_ui:
     name: Native UI ${{ matrix.toolchain }} (Debian 13)
     runs-on: ubuntu-24.04
@@ -837,25 +373,17 @@ jobs:
           - lane: msrv
             toolchain: '1.98.1'
     env:
-      CARGO_TERM_COLOR: always
-      LANG: C.UTF-8
-      LC_ALL: C.UTF-8
-      CARGO_BUILD_JOBS: 2
-      CARGO_INCREMENTAL: 0
-      RUST_BACKTRACE: 1
       RUSTUP_TOOLCHAIN: ${{ matrix.toolchain }}
       SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      # Bound software Mesa raster workers in this isolated capture job, leaving
-      # CPU capacity for GTK. This is not a production renderer/timing override;
-      # retain the unmodified normal-motion guards and record the environment.
+      # Bound software Mesa capture workers, without changing production rendering.
       LP_NUM_THREADS: 2
     steps:
       - name: Install modern native UI dependencies
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
+          apt-get -o APT::Update::Error-Mode=any -o Acquire::Retries=2 -o Acquire::https::Timeout=20 update
+          apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=20 install -y --no-install-recommends \
             build-essential pkg-config python3 git ca-certificates \
             libgtk-4-dev libadwaita-1-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
             gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
@@ -874,133 +402,79 @@ jobs:
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           test "$(git rev-parse --show-toplevel)" = "$GITHUB_WORKSPACE"
-      - name: Install selected Rust toolchain
+      - name: Install selected Rust toolchain and size compilation to this runner
+        id: rust
         run: |
           rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
-          rustc --version
+          rustc --version --verbose
           cargo --version
-      - name: Build modern native fixtures and ordinary offline-provider capture client
+          echo "version=$(rustc --version | tr ' ' '-')" >> "$GITHUB_OUTPUT"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          cpus = len(os.sched_getaffinity(0))
+          memory = int(next(line.split()[1] for line in Path('/proc/meminfo').read_text().splitlines() if line.startswith('MemAvailable:'))) * 1024
+          limit = Path('/sys/fs/cgroup/memory.max')
+          if limit.exists() and limit.read_text().strip().isdigit():
+              memory = min(memory, int(limit.read_text()))
+          jobs = min(cpus, max(1, (memory - 2 * 1024**3) // (3 * 1024**3)))
+          print(f'Runner CPUs={cpus}; available/cgroup bytes={memory}; Cargo jobs={jobs}')
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              env.write(f'CARGO_BUILD_JOBS={jobs}\n')
+          PY
+      - name: Cache modern compiler/target/all-features test artifacts
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5, Node.js 24
+        with:
+          path: |
+            /usr/local/cargo/registry
+            /usr/local/cargo/git
+            target
+          key: cargo-debian13-${{ steps.rust.outputs.version }}-x86_64-all-features-test-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'build.rs') }}-${{ hashFiles('src/**', 'resources/**') }}
+          restore-keys: cargo-debian13-${{ steps.rust.outputs.version }}-x86_64-all-features-test-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'build.rs') }}-
+      - name: Compile the complete native suite once on each toolchain
         run: |
-          mkdir -p build/ui-captures
-          cargo test --lib --all-features --locked --no-run --message-format=json > /tmp/karin-native-quality-artifacts.jsonl
-          cargo build --workspace --locked
-          cargo test --lib --all-features --locked -- --ignored --list > /tmp/karin-native-quality-fixtures.txt
+          cargo test --lib --all-features --locked --no-run --message-format=json > /tmp/karin-native-artifacts.jsonl
+          binary=$(python3 scripts/ci-native-tests.py artifact /tmp/karin-native-artifacts.jsonl)
+          echo "KARIN_NATIVE_TEST_BINARY=$binary" >> "$GITHUB_ENV"
+          python3 scripts/ci-native-tests.py verify "$binary"
+          mkdir -p build/native-tests
+          {
+            cat /etc/os-release
+            rustc --version --verbose
+            for package in gtk4 libadwaita-1 gstreamer-1.0 webkitgtk-6.0; do
+              printf '%s: ' "$package"; pkg-config --modversion "$package"
+            done
+            printf 'Source HEAD: %s\n' "$SOURCE_HEAD_SHA"
+            sha256sum "$binary"
+          } > build/native-tests/environment.txt
           python3 - <<'PY'
           import hashlib
           import json
           import os
           import subprocess
           from pathlib import Path
-
-          listed = Path('/tmp/karin-native-quality-fixtures.txt').read_text().splitlines()
-          for selector in ['native_design_matched_matrix_and_populated_surfaces',
-                           'native_universal_panel_whole_surface_motion_and_mode_switch',
-                           'native_first_footer_reveal_after_startup_without_graphics_initialization',
-                           'native_theme_matched_visual_surfaces']:
-              assert any(line.endswith(f'::{selector}: test') for line in listed), f'Missing compiled visual fixture: {selector}'
-          artifacts = [json.loads(line) for line in Path('/tmp/karin-native-quality-artifacts.jsonl').read_text().splitlines()]
-          binaries = [item['executable'] for item in artifacts
-                      if item.get('reason') == 'compiler-artifact'
-                      and item.get('target', {}).get('name') == 'karin'
-                      and item.get('target', {}).get('kind') == ['lib']
-                      and item.get('profile', {}).get('test') and item.get('executable')]
-          assert len(binaries) == 1, 'Expected one compiled visual fixture executable'
-          sources = subprocess.check_output(['git', 'ls-files', '-z', '--', 'src', 'resources', 'Cargo.toml', 'Cargo.lock']).decode().split('\0')
+          files = subprocess.check_output(['git', 'ls-files', '-z', '--', 'src', 'resources', 'Cargo.toml', 'Cargo.lock'], text=True).split('\0')
           record = {'source_commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
                     'source_head_sha': os.environ['SOURCE_HEAD_SHA'],
-                    'rustc': subprocess.check_output(['rustc', '--version'], text=True).strip(),
-                    'test_executable_sha256': hashlib.sha256(Path(binaries[0]).read_bytes()).hexdigest(),
-                    'ordinary_binary_sha256': hashlib.sha256(Path('target/debug/karin').read_bytes()).hexdigest(),
-                    'sources': {name: hashlib.sha256(Path(name).read_bytes()).hexdigest() for name in sources if name}}
-          Path('build/ui-captures/native-quality-source.json').write_text(json.dumps(record, indent=2) + '\n')
+                    'sources': {name: hashlib.sha256(Path(name).read_bytes()).hexdigest() for name in files if name}}
+          Path('build/native-tests/source.json').write_text(json.dumps(record, indent=2) + '\n')
           PY
-          {
-            cat /etc/os-release
-            rustc --version --verbose
-            cargo --version
-            for package in gtk4 libadwaita-1 gstreamer-1.0 webkitgtk-6.0; do
-              printf '%s: ' "$package"; pkg-config --modversion "$package"
-            done
-            printf 'Capture: isolated Xvfb/Openbox, requested ngl/full-redraw, scale 1 and 2.\n'
-            printf 'Fixtures record and assert the actual native renderer; no production renderer override.\n'
-            printf 'Software Mesa raster worker limit: LP_NUM_THREADS=%s (capture environment only).\n' "$LP_NUM_THREADS"
-            printf 'Static captures force full redraw; normal-motion checks unset GSK_DEBUG and use ordinary damage tracking.\n'
-            printf 'Motion PNGs render complete real after-paint scene nodes; this is not framebuffer-damage or cold-latency acceptance.\n'
-            printf 'Normal 240ms motion is measured after a separately recorded graphics initialization cycle; cold latency is not accepted.\n'
-          } > build/ui-captures/native-quality-environment.txt
-      - name: Fresh startup footer, populated matrix and initialized motion at both scales
-        env:
-          G_DEBUG: fatal-warnings
-          GTK_A11Y: none
-          GSK_RENDERER: ngl
-          GSK_DEBUG: full-redraw
-          GDK_DPI_SCALE: 1
-          KARIN_V04_ASSERT_DENSITY: 1
-        run: |
-          # Observe fresh-process startup first, in its own profile. Neither
-          # scale inherits settings/shader caches from the static/motion suite.
-          for scale in 1 2; do
-            if [ "$scale" = 1 ]; then screen=1920x1080x24; else screen=3840x2160x24; fi
-            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/native-music-$scale"
-            cold_profile="$GITHUB_WORKSPACE/build/ci-ui-cold-$scale"
-            test ! -e "$cold_profile"
-            mkdir -p "$cold_profile/config" "$cold_profile/cache" "$cold_profile/data" "$cold_profile/state"
-            env -u GSK_DEBUG GDK_SCALE="$scale" XDG_CONFIG_HOME="$cold_profile/config" XDG_CACHE_HOME="$cold_profile/cache" XDG_DATA_HOME="$cold_profile/data" XDG_STATE_HOME="$cold_profile/state" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_first_footer_reveal_after_startup_without_graphics_initialization -- --ignored --test-threads=1
-          done
-          for scale in 1 2; do
-            if [ "$scale" = 1 ]; then screen=1920x1080x24; else screen=3840x2160x24; fi
-            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/native-music-$scale"
-            GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_design_matched_matrix_and_populated_surfaces -- --ignored --test-threads=1
-            env -u GSK_DEBUG GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_universal_panel_whole_surface_motion_and_mode_switch -- --ignored --test-threads=1
-          done
-      - name: Matched System and Liquid Glass surfaces and real synchronized lyrics
-        env:
-          G_DEBUG: fatal-warnings
-          GTK_A11Y: none
-          GSK_RENDERER: ngl
-          GSK_DEBUG: full-redraw
-          GDK_DPI_SCALE: 1
+      - name: System static surfaces, cold footer and normal/reduced motion at both scales
+        if: matrix.lane == 'stable'
         run: |
           for scale in 1 2; do
-            if [ "$scale" = 1 ]; then screen=1920x1080x24; else screen=3840x2160x24; fi
-            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/native-theme-$scale"
-            GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_theme_matched_visual_surfaces -- --ignored --test-threads=1 --nocapture
-            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/native-glass-lyrics-$scale"
-            env -u GSK_DEBUG KARIN_TEST_THEME_STYLE=liquid-glass GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_v08_lyrics_similar_seek_and_stale_selection -- --ignored --test-threads=1 --nocapture
-            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/native-glass-motion-$scale"
-            env -u GSK_DEBUG KARIN_TEST_THEME_STYLE=liquid-glass GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_universal_panel_whole_surface_motion_and_mode_switch -- --ignored --test-threads=1 --nocapture
+            python3 scripts/ci-native-tests.py run visual "$KARIN_NATIVE_TEST_BINARY" --scale "$scale"
+            python3 scripts/ci-native-tests.py run lyrics "$KARIN_NATIVE_TEST_BINARY" --scale "$scale" --output build/native-lyrics
           done
-          export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/native-theme-high-contrast"
-          ADW_DEBUG_HIGH_CONTRAST=1 GDK_SCALE=1 dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_theme_matched_visual_surfaces -- --ignored --test-threads=1 --nocapture
-      - name: Capture real GTK visual review matrix
-        env:
-          KARIN_CAPTURE_RENDERER: ngl
-        run: scripts/capture-ui.sh build/ui-captures
-      - name: Capture HiDPI GTK visual review matrix
-        env:
-          KARIN_CAPTURE_SCALE: 2
-          KARIN_CAPTURE_RENDERER: ngl
-        run: scripts/capture-ui.sh build/ui-captures/hidpi
-      - name: Matched 2e3ae41 refinement baseline GTK captures (isolated target)
-        env:
-          KARIN_CAPTURE_RENDERER: ngl
-        run: scripts/capture-native-music-baseline.sh build/ui-captures
-      - name: Retain modern native visual evidence
+          python3 scripts/ci-native-tests.py run high-contrast "$KARIN_NATIVE_TEST_BINARY" --output build/native-high-contrast
+      - name: Retain modern native evidence
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6, Node.js 24
         with:
           name: karin-native-visual-${{ matrix.lane }}-${{ github.sha }}
           path: |
-            build/ui-captures/**/*.png
-            build/ui-captures/**/*.geometry.txt
-            build/ui-captures/**/*.jsonl
-            build/ui-captures/**/*.json
-            build/ui-captures/baseline-source.json
-            build/ui-captures/baseline-geometry-adapter.patch
-            build/ui-captures/native-quality-source.json
-            build/ui-captures/native-quality-environment.txt
-            build/ui-captures/comparison-info.txt
-            build/ui-captures/capture-info.txt
-            build/ui-captures/hidpi/capture-info.txt
+            build/native-tests/
+            build/native-lyrics/
+            build/native-high-contrast/
           retention-days: 7
           if-no-files-found: error

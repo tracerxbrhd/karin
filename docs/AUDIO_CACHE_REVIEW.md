@@ -202,7 +202,7 @@ Fixed diagnostics distinguish download progress, atomic publication and actual
 local reuse. Cloud tests use original permitted audio/local HTTP through the
 normal application. They cannot prove compatibility with a real Music CDN or
 Fedora/installed-Flatpak acceptance. See [VALIDATION](VALIDATION.md) and the
-[single final procedure](BUILDING.md#pr-26-corrected-cache-acceptance).
+[desktop regression guide](BUILDING.md#desktop-regression-checks).
 
 ## Provider-controlled evidence
 
@@ -311,7 +311,7 @@ after restart. A stale or unproved file cannot bypass a refusal or network
 failure. If validation returns no-store, remove the retained record while
 preserving any already admitted playback descriptor. The presence of max-age
 or a validator is not a copyright license. Actual deployed CDN freshness headers
-remain unknown until the owner's service acceptance; absent explicit max-age is
+remain unmeasured in Cloud despite accepted real cache reuse; absent explicit max-age is
 not itself proof that standard freshness is impossible.
 
 A changed download address is not itself a new audio representation. The old
@@ -430,7 +430,7 @@ corruption, Clear and cancellation without a real account. Results belong in
 
 The owner accepted real Native and installed-Flatpak local replay/restart at
 `c1de869`; PR #26 merged at `1fd4028`. The
-[Native/Flatpak procedure](BUILDING.md#pr-26-corrected-cache-acceptance) remains a
+[Native/Flatpak regression guide](BUILDING.md#desktop-regression-checks) remains a
 regression check using only finite diagnostics, never tokens, addresses,
 identifiers, response bodies or music uploads. Public distribution and offline
 access remain separate; this technical acceptance is not a content license.

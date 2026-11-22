@@ -96,6 +96,7 @@ fn native_v08_incremental_marker_updates_and_stable_ticks() {
         }
         let append_elapsed_us = started.elapsed().as_micros();
         let append_markers = calls.get();
+        assert_eq!(append_markers, count as u64);
         assert!(
             this.widgets
                 .search_rows
@@ -125,6 +126,7 @@ fn native_v08_incremental_marker_updates_and_stable_ticks() {
         }
         let stable_elapsed_us = started.elapsed().as_micros();
         let stable_markers = calls.get();
+        assert_eq!(stable_markers, 0);
 
         calls.set(0);
         this.model.borrow_mut().queue.select(1);
@@ -161,8 +163,7 @@ fn native_v08_incremental_marker_updates_and_stable_ticks() {
             "editing future items must not replace the current occurrence"
         );
 
-        // The same fixture is injected verbatim into the accepted baseline;
-        // its report is compared externally, without renderer/timing changes.
+        // Work counts are assertions above; elapsed times remain observations.
         eprintln!(
             "KARIN_MARKER_PERF {}",
             serde_json::json!({

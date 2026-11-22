@@ -2,7 +2,7 @@
 
 # ADR-0038: Bounded source renewal for the same paused occurrence
 
-Status: v0.8 implementation decision; execution and Fedora acceptance are separate
+Status: v0.8 implementation decision; functionality owner-accepted
 Date: 2026-11-14
 Extends: ADR-0015, ADR-0023, ADR-0027 and ADR-0031
 
@@ -75,9 +75,9 @@ failure/no-loop, nonseekable restoration, exact duplicates, modes/volume/MPRIS,
 latest-intent cancellation, Wave event counts and natural EOS to the next item.
 These are production-path fixtures, not real Music rights or heard service audio.
 
-The final [combined Fedora procedure](../BUILDING.md#v08-final-fedora-acceptance)
-requires heard continuation after an actual long Pause on Native and installed
-Flatpak. Record the duration and revision actually tested. Authored tests and
-this ADR do not establish PASS; final executed evidence belongs to
-[VALIDATION](../VALIDATION.md) and the exact-head PR checks. The earlier unexplained
-Cloud cache/EOS sample remains separate from this owner-reported expiry defect.
+The owner has accepted v0.8 functionality. Future relevant desktop regressions
+should verify heard continuation after an actual long Pause on Native and
+installed Flatpak, recording the duration and revision tested. The reusable
+[desktop guide](../BUILDING.md#desktop-regression-checks) and
+[VALIDATION](../VALIDATION.md) distinguish executed automation and owner reports.
+The unexplained Cloud cold-rendering observation remains separate.

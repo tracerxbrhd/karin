@@ -66,4 +66,4 @@ do not establish provider acceptance or public service/content distribution
 rights. The owner separately accepted the real playlist workflows on Native
 and installed Flatpak at `949d1f9`; issue #19 is technically complete. The
 metadata-endpoint CAS limitation remains. See
-[VALIDATION](../VALIDATION.md#owner-acceptance-of-pr-28--2026-11-14).
+[VALIDATION](../VALIDATION.md#acceptance-history).

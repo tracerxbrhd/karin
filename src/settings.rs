@@ -120,14 +120,16 @@ pub type ColorScheme = Appearance;
 #[serde(rename_all = "kebab-case")]
 pub enum UiStyle {
     #[default]
+    // Migrate the retired presentation at the value boundary; saving emits
+    // only `system` and leaves every independent preference untouched.
+    #[serde(alias = "liquid-glass")]
     System,
-    LiquidGlass,
     Karin,
 }
 
 impl UiStyle {
     pub const fn is_available(self) -> bool {
-        matches!(self, Self::System | Self::LiquidGlass)
+        matches!(self, Self::System)
     }
 
     /// A stored future choice must not pretend the current system view is a

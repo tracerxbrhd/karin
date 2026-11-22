@@ -3519,24 +3519,24 @@ fn native_wave_shared_player_feedback_batches_and_cleanup() {
         desktop_property("LoopStatus").get::<String>().unwrap(),
         "None"
     );
-    // Theme selection uses the same coordinator callback as native Preferences.
+    // Color selection uses the same coordinator callback as native Preferences.
     // This is an actual Playing Wave worker, with its initial feedback settled.
     pump_until(|| this.radio_idle_for_test() && this.wave_cycle_for_test().is_some());
     let wave_session = this.wave_session_for_test().unwrap();
     let wave_cycle = this.wave_cycle_for_test();
-    let context_before_style = this.model.borrow().queue.context().unwrap().clone();
-    let occurrences_before_style = {
+    let context_before_appearance = this.model.borrow().queue.context().unwrap().clone();
+    let occurrences_before_appearance = {
         let model = this.model.borrow();
         (0..model.queue.items().len())
             .map(|index| model.queue.occurrence_id(index).unwrap().clone())
             .collect::<Vec<_>>()
     };
     let (
-        sessions_before_style,
-        batches_before_style,
-        events_before_style,
-        offers_before_style,
-        descriptors_before_style,
+        sessions_before_appearance,
+        batches_before_appearance,
+        events_before_appearance,
+        offers_before_appearance,
+        descriptors_before_appearance,
     ) = {
         let counts = fixture.counts.lock().unwrap();
         (
@@ -3547,42 +3547,55 @@ fn native_wave_shared_player_feedback_batches_and_cleanup() {
             counts.descriptors,
         )
     };
-    let initial_style_snapshot = engine.snapshot();
-    assert_eq!(initial_style_snapshot.state, PlaybackState::Playing);
-    let mut last_position = initial_style_snapshot.position.unwrap();
-    let mut last_heard = initial_style_snapshot.playing_time;
+    let initial_appearance_snapshot = engine.snapshot();
+    assert_eq!(initial_appearance_snapshot.state, PlaybackState::Playing);
+    let mut last_position = initial_appearance_snapshot.position.unwrap();
+    let mut last_heard = initial_appearance_snapshot.playing_time;
     let first_desktop_position = desktop_property("Position").get::<i64>().unwrap();
     let mut last_desktop_position = first_desktop_position;
-    for style in [
-        crate::settings::UiStyle::System,
-        crate::settings::UiStyle::LiquidGlass,
-        crate::settings::UiStyle::System,
-        crate::settings::UiStyle::LiquidGlass,
+    for appearance in [
+        crate::settings::ColorScheme::Light,
+        crate::settings::ColorScheme::Dark,
+        crate::settings::ColorScheme::System,
     ] {
         let mut values = this.persistence.borrow().values.clone();
-        values.ui_style = style;
+        values.appearance = appearance;
         let painted = Rc::new(Cell::new(false));
         let observed = painted.clone();
         let clock = ui.window.frame_clock().unwrap();
         let handler = clock.connect_after_paint(move |_| observed.set(true));
         this.preferences_changed(values);
         ui.window.queue_draw();
-        pump_until(|| painted.get());
+        pump_until(|| {
+            painted.get()
+                && engine
+                    .snapshot()
+                    .position
+                    .is_some_and(|position| position > last_position)
+        });
         clock.disconnect(handler);
-        assert_eq!(this.persistence.borrow().values.ui_style, style);
+        assert_eq!(this.persistence.borrow().values.appearance, appearance);
+        assert!(ui.window.has_css_class("karin-style-system"));
         assert_eq!(
-            ui.window.has_css_class("karin-style-liquid-glass"),
-            style == crate::settings::UiStyle::LiquidGlass
+            adw::StyleManager::default().color_scheme(),
+            match appearance {
+                crate::settings::ColorScheme::Light => adw::ColorScheme::ForceLight,
+                crate::settings::ColorScheme::Dark => adw::ColorScheme::ForceDark,
+                crate::settings::ColorScheme::System => adw::ColorScheme::Default,
+            }
         );
         let snapshot = engine.snapshot();
         assert_eq!(snapshot.state, PlaybackState::Playing);
-        assert_eq!(snapshot.generation, initial_style_snapshot.generation);
+        assert_eq!(snapshot.generation, initial_appearance_snapshot.generation);
         assert_eq!(
             snapshot.source_revision,
-            initial_style_snapshot.source_revision
+            initial_appearance_snapshot.source_revision
         );
-        assert_eq!(snapshot.seek_serial, initial_style_snapshot.seek_serial);
-        assert_eq!(snapshot.volume, initial_style_snapshot.volume);
+        assert_eq!(
+            snapshot.seek_serial,
+            initial_appearance_snapshot.seek_serial
+        );
+        assert_eq!(snapshot.volume, initial_appearance_snapshot.volume);
         assert!(
             snapshot.position.unwrap() >= last_position,
             "appearance cannot reset the real Wave playhead"
@@ -3600,14 +3613,14 @@ fn native_wave_shared_player_feedback_batches_and_cleanup() {
         );
         {
             let model = this.model.borrow();
-            assert!(model.queue.context() == Some(&context_before_style));
+            assert!(model.queue.context() == Some(&context_before_appearance));
             assert!(!model.queue.shuffle());
             assert_eq!(model.queue.repeat_mode(), RepeatMode::Off);
             assert_eq!(
                 (0..model.queue.items().len())
                     .map(|index| model.queue.occurrence_id(index).unwrap().clone())
                     .collect::<Vec<_>>(),
-                occurrences_before_style
+                occurrences_before_appearance
             );
         }
         assert_eq!(this.radio_status().phase, RadioPhase::Active);
@@ -3626,29 +3639,29 @@ fn native_wave_shared_player_feedback_batches_and_cleanup() {
         );
         assert_eq!(
             desktop_property("Volume").get::<f64>(),
-            Some(initial_style_snapshot.volume)
+            Some(initial_appearance_snapshot.volume)
         );
         let desktop_position = desktop_property("Position").get::<i64>().unwrap();
         assert!(
             desktop_position >= last_desktop_position,
-            "the system media position cannot reset during a style change"
+            "the system media position cannot reset during an appearance change"
         );
         last_desktop_position = desktop_position;
         let counts = fixture.counts.lock().unwrap();
         assert_eq!(
             (counts.wave_sessions, counts.wave_batches),
-            (sessions_before_style, batches_before_style)
+            (sessions_before_appearance, batches_before_appearance)
         );
         assert!(
-            counts.wave_events == events_before_style,
+            counts.wave_events == events_before_appearance,
             "appearance alone must not POST Wave feedback"
         );
-        assert_eq!(counts.offers, offers_before_style);
-        assert_eq!(counts.descriptors, descriptors_before_style);
+        assert_eq!(counts.offers, offers_before_appearance);
+        assert_eq!(counts.descriptors, descriptors_before_appearance);
     }
     assert!(
-        last_position > initial_style_snapshot.position.unwrap(),
-        "real audio must progress across the rendered style cycle"
+        last_position > initial_appearance_snapshot.position.unwrap(),
+        "real audio must progress across the rendered appearance cycle"
     );
     assert!(
         last_desktop_position > first_desktop_position,
@@ -3657,7 +3670,7 @@ fn native_wave_shared_player_feedback_batches_and_cleanup() {
     if let Some(directory) = std::env::var_os("KARIN_TEST_CAPTURE_DIR") {
         std::fs::create_dir_all(&directory).unwrap();
         std::fs::write(std::path::Path::new(&directory).join(format!("wave-appearance-continuity-scale{}.json", ui.window.scale_factor())),
-            serde_json::to_vec_pretty(&json!({"scope":"synthetic-native-playing-wave", "styles":["system","liquid-glass","system","liquid-glass"], "same_worker_and_occurrence":true, "mpris_playing_and_volume_unchanged":true, "wave_session_and_feedback_unchanged":true, "real_playhead_advanced":true})).unwrap()).unwrap();
+            serde_json::to_vec_pretty(&json!({"scope":"synthetic-native-playing-wave", "color_schemes":["light","dark","system"], "same_worker_and_occurrence":true, "mpris_playing_and_volume_unchanged":true, "wave_session_and_feedback_unchanged":true, "real_playhead_advanced":true})).unwrap()).unwrap();
     }
     let home_serial = this.music_serial();
     let home_sessions = fixture.counts.lock().unwrap().wave_sessions;
