@@ -19,7 +19,7 @@ jobs:
   verify:
     name: Rust ${{ matrix.toolchain }} (${{ matrix.lane }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -628,7 +628,7 @@ jobs:
           for scale in 1 2; do
             if [ "$scale" = 1 ]; then theme=light; else theme=dark; fi
             screen="$((1920 * scale))x$((1080 * scale))x24"
-            GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" /usr/bin/python3 scripts/test-application-fixture.py ./target/debug/karin --theme "$theme" --out "build/ui-captures/fixtures/v08-application/executable-debug-$scale"
+            GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" /usr/bin/python3 scripts/test-application-fixture.py ./target/debug/karin --expected-revision "$(git rev-parse HEAD)" --theme "$theme" --out "build/ui-captures/fixtures/v08-application/executable-debug-$scale"
           done
       - name: Fetch locked dependencies for the offline release build
         if: matrix.lane == 'msrv'
@@ -642,7 +642,7 @@ jobs:
           GTK_A11Y: atspi
           GSK_RENDERER: cairo
           GDK_SCALE: 1
-        run: dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' /usr/bin/python3 scripts/test-application-fixture.py ./target/release/karin --theme light --out build/ui-captures/fixtures/v08-application/executable-release-1
+        run: dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' /usr/bin/python3 scripts/test-application-fixture.py ./target/release/karin --expected-revision "$(git rev-parse HEAD)" --theme light --out build/ui-captures/fixtures/v08-application/executable-release-1
       - name: Release OAuth terminal boundaries on MSRV
         if: matrix.lane == 'msrv'
         run: python3 scripts/test-oauth-terminal.py ./target/release/karin

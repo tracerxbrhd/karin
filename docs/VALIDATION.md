@@ -1852,3 +1852,28 @@ separately accepts real TEXT/LRC and similar results, full-library coverage,
 queue gestures/restoration, heard audio/cache/Wave/MPRIS and ordinary Wayland
 responsiveness in Native and installed Flatpak. #18/#23 and public-distribution
 #5/#22 retain their individual closure conditions. No new release/tag is implied.
+
+### Aggregate CI budget after the expanded executable matrix
+
+On `f034d933e54db6acd54646baa97034f252328d28`, both MSRV jobs and all four
+modern visual jobs passed. The ordinary MSRV executable completed the full
+TEXT → consent → LRC → playback/Info/search → restart scenario in debug
+and release. The downloaded native release also passed that scenario.
+Both installed Flatpak appearances passed on the same clean source revision.
+
+The hosted stable jobs exhausted the aggregate 45-minute main-job budget
+during the existing playback-context checks. The branch job started at
+05:06:29 UTC and cancelled the running step at 05:51:40 UTC on 2026-11-22.
+Earlier completed steps succeeded. The passing MSRV main job took 36:57.
+The stable runner took longer in multiple existing steps, including workspace,
+HiDPI layout and Wave. [Branch run](https://github.com/tracerxbrhd/karin/actions/runs/44987939604)
+and [PR run](https://github.com/tracerxbrhd/karin/actions/runs/44987943259)
+retain this incomplete hosted result.
+
+The full main verification job now has a 60-minute aggregate budget for
+the expanded matrix. All individual native timing, glyph, geometry, network
+and sandbox assertions retain their existing strict checks. The modern
+visual job keeps its 45-minute budget. Each hosted ordinary-executable driver
+also checks its embedded source revision against the checkout commit.
+The recovery changes CI capacity and source verification. Physical Fedora
+acceptance remains pending.
