@@ -113,18 +113,27 @@ and ordinary animation frames.
 
 Captured on 22 November 2026 (UTC), GTK 4.18.6, Libadwaita 1.7.6, scale 1,
 GskGLRenderer under Xvfb, using the original local catalog, artwork, audio and
-lyrics fixtures. This is a precommit development build based on `d345fec`, with
-modified sources; its native test ELF SHA-256 is
-`d0256777225897a9cdacda0a8ac86e4625f4875ee60d13727e8309b084c62461`.
-The matching 140-case run passed native layout, lifecycle and paired painted-text
-contrast checks. It does not establish physical GPU performance or new Fedora,
-installed Flatpak or live Yandex-account acceptance. Exact committed-package
-verification is recorded separately in [validation](../VALIDATION.md).
+lyrics fixtures. These eight fresh native frames show the final matte panel and
+player surfaces over the cached Liquid Glass background. Only the documented
+thumbnail reduction and surrounding labels were applied; no application pixels
+were retouched.
+
+The native test ELF SHA-256 is
+`c731fcee278c75370a1b6a73c5b6fde2fe06553b05c8bbff42cda51a01de4490`.
+It was compiled before the commit, with embedded base `fad6465` and modified
+sources. Every runtime and test source hash in its build receipt matches
+[`0c395db`](https://github.com/tracerxbrhd/karin/commit/0c395dbaf8e141df97a3cdf2bb28d87121e534eb);
+this is source-equivalent development evidence, not a binary built at that
+commit. The fresh 140-case run passed native layout, lifecycle and paired
+painted-text contrast checks. It does not establish physical GPU performance or
+new Fedora, installed Flatpak or live Yandex-account acceptance. Exact
+committed-package verification is recorded separately in
+[validation](../VALIDATION.md).
 
 SHA-256:
 
 ```text
-b9e103b5a87041cf9f7f3e3b7c0291ce50860fd92aa9d41df36def9a7e24bbd1  docs/screenshots/v08-system-liquid-glass-light.png
-6272f48a7abb2da687535b7fdb91ebef9ae0403db6a12b994ae50a535d64c3e5  docs/screenshots/v08-system-liquid-glass-dark.png
+99ac0b01fd4f7b1a47066f84c1ca818cf853d1e8054093328ac91a6c209d0ddf  docs/screenshots/v08-system-liquid-glass-light.png
+54d72fe3508cd70084500d55c4f6dbdb8bf3a0798d84029b54114639313f5193  docs/screenshots/v08-system-liquid-glass-dark.png
 
 ```

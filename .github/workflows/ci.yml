@@ -779,6 +779,7 @@ jobs:
             build/ui-captures/fixtures/audio-cache-application/audio-cache-saved-*.png
             build/ui-captures/fixtures/audio-cache-application/audio-cache-presence-*.png
             build/ui-captures/fixtures/audio-cache-application/audio-cache-application-*.log
+            build/ui-captures/fixtures/audio-cache-application/audio-cache-application-*-http.json
           retention-days: 14
           if-no-files-found: error
       - name: Retain integrated playback, playlist and appearance contract evidence

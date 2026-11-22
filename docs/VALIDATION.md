@@ -1891,144 +1891,141 @@ acceptance remains pending.
 
 ### v08 final presentation polish and Liquid Glass — 2026-11-22
 
-In the next task the owner confirmed that synchronized karaoke works on real
-Fedora at the reported `d345fec` baseline. This accepts that reported workflow;
-no package-by-package checklist or acceptance of the subsequent presentation
-was inferred. PR #29 stays Draft. The [short final procedure](BUILDING.md#v08-final-fedora-acceptance)
-checks the five new presentation changes without repeating the whole earlier
-v0.8 acceptance.
+The owner confirmed synchronized karaoke on real Fedora at the reported
+`d345fec` baseline. This accepts that reported workflow, not the subsequent
+presentation. PR #29 remains Draft; the [one final procedure](BUILDING.md#v08-final-fedora-acceptance)
+checks this polish in Native and installed Flatpak without repeating the whole
+v0.8 acceptance. Earlier development measurements remain available in the
+[immutable preceding record](https://github.com/tracerxbrhd/karin/blob/0c395dbaf8e141df97a3cdf2bb28d87121e534eb/docs/VALIDATION.md#v08-final-presentation-polish-and-liquid-glass--2026-11-22).
 
-The implementation removes routine successful Lyrics/Similar captions, retains
-short meaningful TEXT/empty/error/partial states, and returns a repeated footer
-Lyrics action to Track Info without closing its host. Native input checks cover
-current versus explicitly inspected tracks, focus, Back, Close and Queue. The
-inner footer bottom margin is 24 logical pixels; actual complete hit targets for
-12 controls, including Seek, have at least that gap. The hidden footer remains
-zero height and the 900×650 library retains three complete track rows. No KDE
-panel setting or desktop-specific API is involved.
+#### Resulting UI and rendering boundary
 
-System now separates the main view, right pane, header, card and player through
-semantic surfaces, understated contours and shadows. Liquid Glass is a separate
-available style; System is still the default and the designer's Karin style is
-still unavailable. Schema 3 and the independent color preference are unchanged.
-One provider and one existing widget/music tree are retained during style changes.
-The [rendering decision](adr/0039-liquid-glass-presentation.md) describes the
-original cached scenery, actual GSK blur, four-texture bound, opaque High
-Contrast and Wayland/Flatpak boundary. Foreground controls/text and the desktop
-are never inputs to the blur.
+Successful Lyrics names its provider compactly; Similar success shows heading
+and rows. TEXT/empty/error/partial/loading feedback, consent, Copy and Follow
+remain. Repeating the footer Lyrics action returns to Track Info in the same
+open surface; Back does likewise, while Close and Queue retain their intent.
+The footer's inner bottom margin is 24 logical pixels. All 12 complete control
+hit targets have at least that gap; the hidden host is zero height and the
+900×650 library retains three complete rows. No KDE-specific API is involved.
 
-#### What ordinary-executable and native checks established
+System draws its semantic main-view background once at the window root;
+supporting containers are transparent. Header/card/pane/player materials and
+thin boundaries provide hierarchy. Liquid Glass adds an original cached,
+actually blurred scene, translucent header/hero treatment and readable matte
+pane/player surfaces. Foreground controls and desktop contents never enter the
+blur. [ADR-0039](adr/0039-liquid-glass-presentation.md) records independent
+style/color preferences, unchanged schema 3, four cache slots, guarded RGB
+normalization, sampling and High Contrast/Wayland boundaries. No player,
+service, queue or widget tree is reconstructed when switching styles.
 
-The precommit ordinary executable completed live Preferences transitions
-System → Liquid Glass → System → Liquid Glass during real local playback,
-including MPRIS identity/progress/volume, exact queue rows, pinned pane and the
-existing search query. Restart retained the selected style and explicit Lyrics
-permission. Light 1× passed before the overdraw simplification; optimized Dark
-2× passed after it, through native AT-SPI and keyboard/pointer events. All HTTP,
-account, text, artwork and media fixtures are original/local. This is not an
-account or physical Fedora result. Final clean-revision package identities and
-CI links are supplied in PR #29's executed-results record.
+#### Executed final-source visual and contrast checks
 
-The current source's complete System/GL geometry matrix and strict fresh-footer
-lifecycle passed. A separate actual Playing Wave/MPRIS regression applies the
-same Preferences callback and proves preserved worker/generation, source/seek,
-occurrence/context/order/volume, Wave session/cycle and request/feedback counts.
-The full Liquid Glass LRC/native GL selector, including its High Contrast child,
-passed with unchanged glyph size/ink, clipping, timing and intermediate-frame
-assertions. It uses the actual MusicService/provider/player path.
+The native test ELF `c731fcee…` was built with Rust 1.98.1 before `0c395db`, with
+embedded `fad6465`/modified metadata. Its complete runtime/test source hash map
+matches `0c395db`; it is source-equivalent development evidence, not a clean
+package built at that commit. GTK 4.18.6, Libadwaita 1.7.6, GskGLRenderer under
+Xvfb and original local account/catalog/art/audio/text fixtures were used.
 
-Two executed tests exposed measurement-contract errors during this work:
-
-- GTK `get_opacity` returns the explicit widget alpha; CSS opacity is applied
-  separately during snapshot. Multiplying that getter by the declared foreground
-  could overstate dim-label contrast. The corrected observer pairs real ink and
-  unchanged-layout background images and validates repeated stroke interiors,
-  excluding antialiasing fringes. A tiny 1× time font has four repeated core pixels
-  with adjacent real strokes, so a requirement for three identical-coverage
-  neighbors was invalid. The actual 4.5:1 contrast requirement was retained.
-- An isolated pane snapshot omitted Liquid Glass's opaque backing sibling. Its
-  alpha 249 was valid for that subtree, but did not represent the composed window.
-  The glyph recorder now retains the actual native window child scene after
-  paint, with pane/row/viewport bounds in the same coordinates. It adds no invented
-  flattening color. The original alpha-255 and optical/motion assertions remain.
-
-The actual-pixel baseline witness failed the old System Wave description at
-3.103:1 (332 stroke-core pixels); its strongest flat glyph RGB143 on white was
-about 3.22:1. Footer/title and time passed in the same record. System's semantic
-body opacity was raised, rather than weakening the requirement. The new test
-also caught a Liquid Glass selected artist at 4.336:1 in maximized Light; the
-secondary palette was corrected. The final 1× matrix passed **140 cases / 524
-painted-text samples**, with measured minima **6.804:1 System / 5.258:1 Liquid
-Glass** for the sampled title, time, description and visible track metadata.
-These measurements do not certify every disabled label or physical display.
-
-[Actual GTK comparisons and provenance](screenshots/README.md#v08-system-and-liquid-glass)
-record original synthetic content, renderer, source/binary identity and the
-uniformly reduced overview images. No owner's desktop or private screenshot was
-added to the repository. Full native frames and geometry belong in CI artifacts.
-
-#### Matched work observations and retained costs
-
-The comparison used three fresh isolated processes per lane, interleaved,
-Rust 1.98.1, GTK 4.18.6, ordinary software GL under Xvfb and original local
-HTTP/art/audio. The archived `d345fec` production source was unchanged; identical
-explicit test instrumentation and source maps record the observer differences.
-CPU ticks were verified at 100 ticks/s. No build competed with timed groups.
-
-| Workload, median | Archived System | Refined System | Optimized Liquid Glass |
+| Stable matrix | Cases | Painted-text samples | Minimum System / Glass |
 | --- | ---: | ---: | ---: |
-| Mapped loaded-library fixture ready, ms | 1328 | 1917 | 2240 |
-| CPU for that construction, ms | 1270 | 1870 | 2280 |
-| CPU during a controlled 1 s / 200-row scroll, ms | 560 | 570 | 970 |
+| Light/Dark, 1× | 140 | 524 | 6.804 / 5.258:1 |
+| Light/Dark, 2× | 140 | 524 | 6.698 / 5.187:1 |
+| High Contrast, 1× | 140 | 524 | 6.974 / 11.690:1 |
 
-Mapped-ready includes GTK, local fixture/server/audio construction, artwork and
-loaded-library setup; it is not an ordinary release first-paint measurement.
-No startup improvement or physical-GPU FPS is claimed. Scroll was initially
-1340 ms CPU in Liquid Glass. Removing two redundant full-window translucent
-workspace layers reduced it by **27.6%**, with the existing cached blurred
-scenery and foreground glass still visible. Painted scroll frames increased
-from median 51 to 57; maximum recorded gap stayed 33.334 ms. The remaining
-software-renderer CPU cost is **1.70×** refined System and is not described as
-free. Background preparation/blur counts stayed unchanged during scroll,
-panel modes, search and Next. Only a new scheme/scale may prepare another slot.
+All **420 cases / 1572 samples passed**. These Reduced Motion galleries cover
+seven content states, five window shapes and both styles. They establish
+layout/lifecycle and sampled actual-pixel contrast, not normal-motion or cold
+latency. High Contrast hides the scenery and performs zero preparations.
+[Fresh Light/Dark comparisons](screenshots/README.md#v08-system-and-liquid-glass)
+show actual GTK frames with documented thumbnail-only reduction and source
+provenance; no private desktop screenshots were published.
 
-The eight-case work observer's Lyrics transition uses TEXT/provider feedback;
-real synchronized karaoke is checked and compared separately through the
-ordinary playback optical recorder. Typical panel/search observations had
-16–50 ms gaps; provider and scheme transitions also had larger gaps. These are
-observations, not lowered timing gates or universal smoothness claims.
+The 4.5:1 requirement was retained. Paired real glyph/background samples exposed
+the original System body at 3.103:1 and an early Glass selected artist at
+4.336:1; foreground styling was corrected. The observer accounts for CSS
+opacity, not only the widget's explicit alpha. The LRC recorder uses the
+composed window scene including its backing sibling, with the original
+alpha-255, glyph-size, ink, timing and clipping assertions.
 
-The separate matched real-LRC witness ran the same ordinary provider/player and
-composed-window optical recorder, once per configuration, under quiet software
-GL. The explicit test-only PlayingOnly filter avoids unrelated provider-error
-cases; normal CI still runs the full selector and its High Contrast child.
+Native input now keeps GTK dispatching during X11 window search as well as
+click delivery. Graphics initialization uses the paintable's border-box size:
+319px of content had incorrectly resampled a real 320px pane. Independent
+host/border assertions now prevent that mismatch. The same six offscreen poses,
+240ms transition, clock and five distinct measured quarter-frame requirements
+remain. No production prewarming or native-target primer was added.
 
-| Complete LRC fixture and capture workload | Wall | Process CPU | Peak RSS |
+The frozen `c731fcee` local normal-motion batch passed System 1×/2× and Glass
+1×. Glass 2× failed at `medium-dark-track-closing` after 59.259s because five
+distinct quarter frames were unavailable. That failure is retained. All four
+GitHub Native UI jobs at `0c395db` subsequently passed the current matched
+System/Glass motion and LRC stage; complete final-head job evidence belongs in
+PR #29. Static contrast, one successful environment or LRC do not establish
+universal physical smoothness.
+
+#### Matched work and actual synchronized text
+
+Three fresh isolated processes per lane used the same original fixture,
+1× software GL and `LP_NUM_THREADS=2`. The archived `d345fec` production is
+unchanged and uses the identical theme-work observer. Its input helper retains
+the preceding synchronous window search and its footer spacing is older, so
+input/first-footer/setup deltas are package observations, not pure theme costs.
+
+| Median workload | Archived System | Current System | Liquid Glass |
 | --- | ---: | ---: | ---: |
-| Archived `d345fec` System | 28.80 s | 9.586 s | 366.8 MiB |
-| Refined System | 28.44 s | 9.353 s | 362.1 MiB |
-| Liquid Glass | 30.10 s | 11.797 s | 370.3 MiB |
+| Mapped loaded-library fixture ready | 1606ms | 1371ms | 2144ms |
+| CPU during controlled 1s / 200-row scroll | 630ms | 550ms | 690ms |
+| Painted scroll frames | 50 | 58 | 59 |
 
-All three retained the strict natural line-change, physical glyph, opacity,
-intermediate-frame, timing and clipping assertions. Settled normal-motion
-handoffs were 300/316 ms in each lane. Liquid Glass added about 26% process CPU
-and 5.9% wall time to this single complete workload; the measurements include
-data, playback and PNG/optical capture, not steady-state playback CPU or FPS.
-They are not a statistical performance guarantee. The retained passage's maximum
-gap was 33 ms in System and 66 ms in Liquid Glass, including work beyond the
-transition itself. No timeline was invented and no playback clock was replaced.
+All nine work runs passed. Glass used **25.5% more scroll CPU** than current
+System. Its preparation and blur counters stayed 1→1 during every scroll;
+589824 retained RGB bytes describe the visited 1× palette slot. Four visited
+scheme/resolution slots retain 5.625MiB RGB payload, with nominal 7.5MiB RGBA8
+fallback; these are not RSS/GPU-memory limits. Mapped-ready includes GTK and
+local server/audio/art/library construction. These observations are not ordinary
+release first-paint measurements or physical-GPU FPS, and initial Glass
+preparation remains measurable.
 
-The unchanged raw first-footer observer still records the known cold gap.
-Baseline first nonzero heights appeared at 1223/1294/1328 ms; refined System at
-1159/924/1133 ms; optimized Liquid Glass at 1311/1177/1311 ms. The first groups
-had one intermediate frame each; one Liquid Glass sample had none after a long
-native paint gap. Every sample retains `cold_latency_accepted: false`. No
-prewarming, artificial frames or extended animation hid that result. Issue #23
-and physical GPU/Wayland interpretation remain separate from functional success.
+The actual provider/player LRC observer ran once per lane, with eight passages
+each: Light/Dark, normal/reduced motion and adjacent/simultaneous changes.
+All **24 passages passed**. Current styles retained distinct early/25/50/75
+painted frames: one row shrank 89×18→69×13 while its neighbor grew 57×13→75×18.
+The playing-only comparison does not replace the full CI selector's provider
+failure cases or High Contrast child.
 
-The local initial gate passed stable formatting, strict default Clippy and
-720 library / 4 CLI tests; ignored fixtures were executed separately. Final
-stable/MSRV default/all/minimal, release/offline, native/sandboxed WebKit,
-license, installed Flatpak and exact-head CI results are recorded with PR #29
-before handoff. None of these Cloud results accepts the new styles on physical
-Fedora. The one final owner check covers this polish and retained audible audio.
+| Complete LRC/capture workload, single sample | Wall | Total workload CPU | Peak RSS |
+| --- | ---: | ---: | ---: |
+| Archived System | 29.415s | 10.819s | 359.69MiB |
+| Current System | 28.411s | 9.530s | 366.39MiB |
+| Liquid Glass | 29.289s | 10.469s | 366.16MiB |
+
+CPU includes the capture workload/children; this is neither steady playback
+CPU nor a statistical improvement claim. Retained passage maximum gaps were
+33ms in current styles versus 66ms in this baseline sample, including plateaus.
+
+#### Remaining limits and package verification
+
+The unchanged raw cold-footer observer remains **unaccepted**: current System
+first nonzero heights occurred at about 1.117–1.317s and Glass at 0.533–0.617s;
+the Glass trials contained zero intermediate frames. No extra warm cycle,
+artificial frame or extended duration hides that result. Issue #23 remains
+open; successful warm/LRC/static checks do not establish cold responsiveness.
+A finite LLVM diagnostic measured native JIT work after offscreen preparation,
+but the full cause of remaining stalls was not established. No diagnostic
+preload, shader logging, private GL API or manual native primer is shipped.
+
+Stable 1.100.0 and exact Rust 1.98.1 passed formatting and strict all-target,
+all-feature Clippy. The native RGB/alpha-fallback check passed. Full final-head
+feature matrices, release/offline builds, sandboxed WebKit, GStreamer, Wave,
+AudioCache, MPRIS, licenses, ordinary native preferences/restart and installed
+Flatpak/package identities are recorded with executed CI evidence in PR #29
+before handoff. Cloud fixtures do not accept new styles on physical Fedora or
+establish real account/service behavior. The single final owner check concerns
+this polish and retained audible playback/karaoke.
+
+One preceding `0c395db` PR/MSRV job failed `completion-eos`: replay selected a
+remote resource and reached EOS while the test expected a cached file. A single
+focused execution passed EOS and real restart with the same cached inode and
+no extra media GET; it does not explain or erase the failed sample. Source
+selection and its bounded wait are unchanged. Test-only finite selection
+receipts and retained safe HTTP counters make a recurrence inspectable; no
+timeout, cache assertion or playback policy was relaxed.
