@@ -19,7 +19,7 @@ jobs:
   verify:
     name: Rust ${{ matrix.toolchain }} (${{ matrix.lane }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -131,6 +131,8 @@ jobs:
           PY
       - name: Formatting
         run: cargo fmt --all -- --check
+      - name: Verify incremental build identity and source snapshot markers
+        run: python3 scripts/test-build-identity.py
       - name: Verify prototype authentication build policy
         run: |
           python3 - <<'PY'

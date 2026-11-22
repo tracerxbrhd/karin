@@ -1853,7 +1853,7 @@ queue gestures/restoration, heard audio/cache/Wave/MPRIS and ordinary Wayland
 responsiveness in Native and installed Flatpak. #18/#23 and public-distribution
 #5/#22 retain their individual closure conditions. No new release/tag is implied.
 
-### Aggregate CI budget after the expanded executable matrix
+### Source-identity rebuild loop found through the hosted matrix
 
 On `f034d933e54db6acd54646baa97034f252328d28`, both MSRV jobs and all four
 modern visual jobs passed. The ordinary MSRV executable completed the full
@@ -1870,10 +1870,21 @@ HiDPI layout and Wave. [Branch run](https://github.com/tracerxbrhd/karin/actions
 and [PR run](https://github.com/tracerxbrhd/karin/actions/runs/44987943259)
 retain this incomplete hosted result.
 
-The full main verification job now has a 60-minute aggregate budget for
-the expanded matrix. All individual native timing, glyph, geometry, network
-and sandbox assertions retain their existing strict checks. The modern
-visual job keeps its 45-minute budget. Each hosted ordinary-executable driver
-also checks its embedded source revision against the checkout commit.
-The recovery changes CI capacity and source verification. Physical Fedora
+The complete stable log then established the build-specific cause.
+Cargo recompiled Karin 66 times, including before unchanged ignored selectors,
+adding roughly 20–23 seconds per invocation. The new build script watched
+`BUILD-REVISION` and `BUILD-SOURCE-STATUS` even though Git checkouts have
+neither file. Cargo treats a missing watched path as dirty on every invocation.
+An isolated dependency-free Cargo reproduction confirmed repeated rebuilds
+and confirmed fresh results after watching only existing snapshot markers.
+
+The build script now tracks existing snapshot markers and Git revision changes
+without repeatedly invalidating an unchanged checkout. Prepared Flatpak source
+still supplies both markers before its first build. The build-identity
+regression checks incremental reuse and revision updates in an isolated project.
+
+Both CI jobs retain their original 45-minute aggregate budgets. All native
+timing, glyph, geometry, network and sandbox assertions retain their strict
+checks. Hosted ordinary-executable drivers additionally compare their
+embedded source revision against the checkout commit. Physical Fedora
 acceptance remains pending.

@@ -3,16 +3,16 @@
 use std::{env, fs, path::Path, process::Command};
 
 fn main() {
-    for path in [
-        "BUILD-REVISION",
-        "BUILD-SOURCE-STATUS",
-        "src",
-        "resources",
-        "packaging",
-        "Cargo.toml",
-        "Cargo.lock",
-    ] {
+    for path in ["src", "resources", "packaging", "Cargo.toml", "Cargo.lock"] {
         println!("cargo:rerun-if-changed={path}");
+    }
+    // Source-only packages provide these files before the first build. A Git
+    // checkout does not. Watching a missing file makes Cargo rerun this script
+    // and compile Karin again on every otherwise unchanged test invocation.
+    for marker in ["BUILD-REVISION", "BUILD-SOURCE-STATUS"] {
+        if Path::new(marker).is_file() {
+            println!("cargo:rerun-if-changed={marker}");
+        }
     }
     println!("cargo:rerun-if-changed=build.rs");
     let git = |args: &[&str]| {
@@ -30,7 +30,19 @@ fn main() {
     if let Some(reference) = git(&["symbolic-ref", "-q", "HEAD"])
         .and_then(|reference| git(&["rev-parse", "--git-path", &reference]))
     {
-        println!("cargo:rerun-if-changed={reference}");
+        let path = Path::new(&reference);
+        if path.is_file() {
+            println!("cargo:rerun-if-changed={reference}");
+        } else if let Some(parent) = path.ancestors().skip(1).find(|path| path.is_dir()) {
+            // A packed branch has no loose ref yet. Watch its existing parent
+            // so creating a loose ref on the next commit is still detected.
+            println!("cargo:rerun-if-changed={}", parent.display());
+        }
+    }
+    if let Some(packed) =
+        git(&["rev-parse", "--git-path", "packed-refs"]).filter(|path| Path::new(path).is_file())
+    {
+        println!("cargo:rerun-if-changed={packed}");
     }
     let revision = fs::read_to_string(Path::new("BUILD-REVISION"))
         .ok()
