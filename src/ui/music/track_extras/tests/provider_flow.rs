@@ -63,7 +63,7 @@ pub(super) fn run(app: &adw::Application) {
     click(window, id, &this.widgets.lyrics, false);
     pump_until(|| view.inner.lyrics.borrow().is_some());
     assert!(!view.inner.synchronized.get());
-    assert_eq!(view.inner.lyrics_status.text(), "Текст без синхронизации");
+    assert_eq!(view.inner.lyrics_status.text(), "Без синхронизации");
     assert_eq!(fixture.counts.lock().unwrap().external, 0);
 
     // Checking remember and then cancelling never grants permission or sends metadata.
@@ -117,9 +117,9 @@ pub(super) fn run(app: &adw::Application) {
         view.inner
             .lyrics_status
             .text()
-            .starts_with("Текст без синхронизации")
+            .starts_with("Без синхронизации")
     );
-    assert_eq!(view.inner.source.text(), "Источник: Яндекс Музыка");
+    assert_eq!(view.inner.source.text(), "Яндекс Музыка");
     assert!(view.inner.external_consent.borrow().is_none());
     request_spacing();
     assert_eq!(
@@ -142,7 +142,7 @@ pub(super) fn run(app: &adw::Application) {
     click(window, id, &view.inner.external, false);
     pump_until(|| fixture.counts.lock().unwrap().external == 4 && !view.inner.lyrics_loading.get());
     assert_eq!(view.inner.lyrics.borrow().as_ref().unwrap().plain, plain);
-    assert_eq!(view.inner.source.text(), "Источник: Яндекс Музыка");
+    assert_eq!(view.inner.source.text(), "Яндекс Музыка");
 
     // Revoking the saved preference takes effect for the very next selection.
     let mut values = this.persistence.borrow().values.clone();

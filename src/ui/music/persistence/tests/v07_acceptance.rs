@@ -538,20 +538,27 @@ fn child(input: &Input, phase: &str) {
                 let cache_binding = this.audio_cache_binding().unwrap().0;
                 let cache_stats = desktop(move || cache_binding.stats().unwrap());
                 for appearance in [Appearance::Light, Appearance::System, Appearance::Dark] {
-                    let mut values = this.persistence.borrow().values.clone();
-                    values.appearance = appearance;
-                    values.ui_style = UiStyle::System;
-                    this.preferences_changed(values);
-                    pump_until(|| settled(this));
-                    assert_eq!(QueueState::capture(this), expected);
-                    assert_eq!(this.music_serial(), serial);
-                    assert_eq!(this.music_snapshot().unwrap().generation, native.generation);
-                    assert_eq!(this.music_snapshot().unwrap().state, PlaybackState::Playing);
-                    let cache = this.audio_cache_binding().unwrap().0;
-                    assert_eq!(
-                        desktop(move || cache.stats().unwrap()).entries,
-                        cache_stats.entries
-                    );
+                    for style in [
+                        UiStyle::System,
+                        UiStyle::LiquidGlass,
+                        UiStyle::System,
+                        UiStyle::LiquidGlass,
+                    ] {
+                        let mut values = this.persistence.borrow().values.clone();
+                        values.appearance = appearance;
+                        values.ui_style = style;
+                        this.preferences_changed(values);
+                        pump_until(|| settled(this));
+                        assert_eq!(QueueState::capture(this), expected);
+                        assert_eq!(this.music_serial(), serial);
+                        assert_eq!(this.music_snapshot().unwrap().generation, native.generation);
+                        assert_eq!(this.music_snapshot().unwrap().state, PlaybackState::Playing);
+                        let cache = this.audio_cache_binding().unwrap().0;
+                        assert_eq!(
+                            desktop(move || cache.stats().unwrap()).entries,
+                            cache_stats.entries
+                        );
+                    }
                 }
                 assert_eq!(
                     adw::StyleManager::default().color_scheme(),
@@ -632,7 +639,8 @@ fn child(input: &Input, phase: &str) {
                         .preferences
                 });
                 assert_eq!(values.appearance, Appearance::Dark);
-                assert_eq!(values.ui_style, UiStyle::System);
+                assert_eq!(values.ui_style, UiStyle::LiquidGlass);
+                assert!(ui.window.has_css_class("karin-style-liquid-glass"));
                 assert_eq!(
                     adw::StyleManager::default().color_scheme(),
                     adw::ColorScheme::ForceDark

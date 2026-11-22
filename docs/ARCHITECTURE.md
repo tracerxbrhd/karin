@@ -444,7 +444,13 @@ revision CAS; fresh preflight/readback do not promise external-writer atomicity.
 
 `UiStyle` is independent of the existing System/Light/Dark color scheme. Settings
 schema 3 migrates v1/v2 without losing protected-session/cache/pane preferences.
-System is supported; Karin remains explicitly unavailable until designer assets
-exist. Scoped presentation CSS never owns application state.
+System and Liquid Glass are supported; Karin remains explicitly unavailable
+until designer assets exist. Both available styles reuse the same widget tree.
+A measured native overlay places a bounded, cached, application-owned scenery
+texture beneath the existing toolbar for Liquid Glass. Only that scenery is
+blurred; player ticks and resize do not rebuild it. High Contrast hides the
+scenery and uses opaque semantic surfaces. Scoped presentation CSS never owns
+application state. [ADR-0039](adr/0039-liquid-glass-presentation.md) records the
+rendering, memory, settings and Wayland boundaries.
 [ADR-0033](adr/0033-independent-ui-style-and-color-scheme.md) and
 [designer handoff](design/KARIN_STYLE_INTEGRATION.md) define that boundary.

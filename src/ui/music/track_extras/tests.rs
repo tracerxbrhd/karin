@@ -763,8 +763,20 @@ fn window_for(app: &adw::Application, fixture: &Fixture) -> crate::ui::MainWindo
     );
     ui.window.set_title(Some("Karin synthetic HTTP fixture"));
     ui.window.set_default_size(1440, 900);
-    ui.window.present();
     let this = &ui.music.controller;
+    if let Ok(style) = std::env::var("KARIN_TEST_THEME_STYLE") {
+        let style = serde_json::from_value(serde_json::Value::String(style)).unwrap();
+        let mut values = this.persistence.borrow().values.clone();
+        values.ui_style = style;
+        values.appearance = match adw::StyleManager::default().color_scheme() {
+            adw::ColorScheme::ForceLight => crate::settings::Appearance::Light,
+            adw::ColorScheme::ForceDark => crate::settings::Appearance::Dark,
+            _ => values.appearance,
+        };
+        this.persistence.borrow_mut().values = values.clone();
+        crate::ui::style::apply(&values, &ui.window);
+    }
+    ui.window.present();
     this.set_fixture_resolver(crate::stream::StreamResolver::for_test(
         &fixture.origin,
         &fixture.origin,
@@ -785,6 +797,10 @@ fn native_v08_lyrics_similar_seek_and_stale_selection() {
     gtk::init().unwrap();
     adw::init().unwrap();
     let app = fixture_app();
+    if std::env::var("KARIN_TEST_LYRIC_PLAYING_ONLY").as_deref() == Ok("1") {
+        playing_frames::ordinary_lyrics_playback(&app);
+        return;
+    }
     if std::env::var_os("KARIN_TEST_LYRIC_HIGH_CONTRAST").is_some() {
         assert!(adw::StyleManager::default().is_high_contrast());
         playing_frames::ordinary_lyrics_playback(&app);
@@ -855,7 +871,7 @@ fn native_v08_lyrics_similar_seek_and_stale_selection() {
     );
     click(window, id, &this.widgets.lyrics, false);
     pump_until(|| view.lyrics_widget.is_mapped() && view.inner.lyrics.borrow().is_some());
-    assert_eq!(view.inner.source.text(), "Источник: Яндекс Музыка");
+    assert_eq!(view.inner.source.text(), "Яндекс Музыка");
     assert_eq!(
         fixture.counts.lock().unwrap().external,
         0,
@@ -872,7 +888,7 @@ fn native_v08_lyrics_similar_seek_and_stale_selection() {
     );
     // Ordinary TEXT is divided into selectable Unicode stanzas, not an
     // editable TextView. Native Ctrl+C can copy a selected stanza fragment.
-    assert_eq!(view.inner.lyrics_status.text(), "Текст без синхронизации");
+    assert_eq!(view.inner.lyrics_status.text(), "Без синхронизации");
     assert_eq!(view.inner.lyrics_model.n_items(), 2);
     pump_until(|| {
         view.inner
@@ -952,11 +968,16 @@ fn native_v08_lyrics_similar_seek_and_stale_selection() {
         !copied.contains("[00:"),
         "copy exports displayed text, not LRC timestamp metadata"
     );
+    assert_eq!(view.inner.source.text(), "LRCLIB");
+    assert_eq!(
+        view.inner.source.tooltip_text().as_deref(),
+        Some("LRCLIB · внешний источник")
+    );
+    assert!(view.inner.lyrics_status.text().is_empty());
+    assert!(!view.inner.lyrics_status.is_visible());
     assert!(
-        view.inner
-            .source
-            .text()
-            .contains("LRCLIB · внешний источник")
+        !view.inner.lyrics_status.parent().unwrap().is_visible(),
+        "synchronized lyrics reserve no status row"
     );
     assert!(
         view.inner.following.get(),
@@ -1121,6 +1142,12 @@ fn native_v08_lyrics_similar_seek_and_stale_selection() {
     assert!(!view.inner.similar_status.text().contains("503"));
     click(window, id, &view.inner.similar_retry, false);
     pump_until(|| view.inner.related.borrow().len() == 12);
+    assert!(view.inner.similar_status.text().is_empty());
+    assert!(!view.inner.similar_status.is_visible());
+    assert!(
+        !view.inner.similar_status.parent().unwrap().is_visible(),
+        "successful recommendations reserve no status row"
+    );
     assert_eq!(
         fixture.counts.lock().unwrap().batches,
         1,
@@ -1176,6 +1203,11 @@ fn native_v08_lyrics_similar_seek_and_stale_selection() {
     pump_until(|| {
         view.inner.lyrics_loading.get() && fixture.counts.lock().unwrap().held_started == Some(43)
     });
+    assert!(view.inner.lyrics_status.text().is_empty());
+    assert!(!view.inner.lyrics_status.is_visible());
+    assert!(view.inner.lyrics_spinner.is_visible());
+    assert!(view.inner.lyrics_spinner.is_spinning());
+    assert!(view.inner.lyrics_status.parent().unwrap().is_visible());
     let old = Ticket {
         selection: view.inner.epoch.get(),
         request: view.inner.lyrics_serial.get(),
@@ -1286,6 +1318,7 @@ fn native_v08_lyrics_similar_seek_and_stale_selection() {
 // application scenario above verifies that real GStreamer seek/position,
 // occurrence changes, and logout feed that same presentation.
 fn native_line_transitions() {
+    native_feedback_states();
     check_line_transition_timing();
     let settings = gtk::Settings::default().unwrap();
     let animations = settings.is_gtk_enable_animations();
@@ -1457,4 +1490,63 @@ fn label_scale(label: &gtk::Label) -> f64 {
                 .map(|attr| attr.value())
         })
         .unwrap_or(1.0)
+}
+
+fn native_feedback_states() {
+    let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    let (status, spinner, retry) = feedback(&root, "", "synthetic-feedback");
+    let row = status.parent().unwrap();
+    assert!(!row.is_visible());
+    assert!(!status.is_visible());
+    assert_eq!(root.measure(gtk::Orientation::Vertical, -1).0, 0);
+    spinner.set_visible(true);
+    assert!(row.is_visible());
+    assert!(
+        !status.is_visible(),
+        "loading uses only its compact spinner"
+    );
+    status.set_text("Не удалось загрузить.");
+    spinner.set_visible(false);
+    retry.set_visible(true);
+    assert!(row.is_visible() && status.is_visible());
+    status.set_text("");
+    retry.set_visible(false);
+    assert!(!row.is_visible());
+    assert_eq!(root.measure(gtk::Orientation::Vertical, -1).0, 0);
+
+    let view = ExtrasView::new(Rc::new(|_| {}));
+    view.set_track(Some(&track(42)), None);
+    let ticket = Ticket {
+        selection: view.inner.epoch.get(),
+        request: view.inner.similar_serial.get(),
+    };
+    view.show_similar(
+        ticket,
+        Ok(SimilarTracks {
+            tracks: Vec::new(),
+            omitted: 0,
+        }),
+    );
+    assert_eq!(view.inner.similar_status.text(), "Похожих треков нет");
+    assert!(view.inner.similar_status.parent().unwrap().is_visible());
+    assert!(!view.inner.similar_rows.is_visible());
+    view.show_similar(
+        ticket,
+        Ok(SimilarTracks {
+            tracks: vec![track(43)],
+            omitted: 1,
+        }),
+    );
+    assert_eq!(view.inner.related.borrow().len(), 1);
+    assert!(view.inner.similar_rows.is_visible());
+    assert!(view.inner.similar_status.is_visible());
+    view.show_similar(
+        ticket,
+        Ok(SimilarTracks {
+            tracks: vec![track(43)],
+            omitted: 0,
+        }),
+    );
+    assert!(!view.inner.similar_status.parent().unwrap().is_visible());
+    assert_eq!(view.inner.related.borrow().len(), 1);
 }

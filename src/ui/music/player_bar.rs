@@ -39,6 +39,9 @@ impl PlayerBarParts {
         // rather than wait for the inner content's first visible frame.
         let footer = gtk::Box::new(gtk::Orientation::Vertical, 0);
         footer.set_widget_name("music-player-bar");
+        // The full toolbar surface paints through the safe inset to the
+        // window edge; only its revealed content owns the internal spacing.
+        footer.add_css_class("music-player-surface");
         let player_bar = gtk::Box::new(gtk::Orientation::Vertical, 0);
         player_bar.set_widget_name("music-player-content");
         // A closed vertical GtkRevealer still measures its child's horizontal
@@ -49,7 +52,9 @@ impl PlayerBarParts {
         player_bar.set_margin_start(12);
         player_bar.set_margin_end(12);
         player_bar.set_margin_top(8);
-        player_bar.set_margin_bottom(8);
+        // Keep the complete seek/button hit targets clear of desktop edge
+        // gestures. The inset collapses with the same native revealer.
+        player_bar.set_margin_bottom(24);
         // Start with the compact minimum so a first 420px allocation is never
         // forced wider by the desktop timeline before the initial frame.
         player_bar.add_css_class("music-player-compact");

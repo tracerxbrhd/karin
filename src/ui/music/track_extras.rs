@@ -16,7 +16,7 @@ use gtk::{gio, glib};
 use super::{Controller, MusicError, Operation, Track, icon_button};
 use crate::{
     artwork::ArtworkLoader,
-    lyrics::Lyrics,
+    lyrics::{Lyrics, LyricsSource},
     music::{
         interactions::{InteractionError, TrackReaction},
         track_extras::{LyricsRequest, SimilarTracks},
@@ -183,11 +183,14 @@ impl ExtrasView {
         similar_heading.set_widget_name("music-similar-heading");
         widget.append(&similar_heading);
         let (similar_status, similar_spinner, similar_retry) =
-            feedback(&widget, "Рекомендации Яндекс Музыки", "music-similar");
+            feedback(&widget, "", "music-similar");
+        similar_spinner
+            .update_property(&[gtk::accessible::Property::Label("Загрузка похожих треков")]);
         let similar_rows = super::list();
         similar_rows.set_widget_name("music-similar-rows");
         similar_rows.remove_css_class("boxed-list");
         similar_rows.add_css_class("music-track-list");
+        similar_rows.set_visible(false);
         widget.append(&similar_rows);
         let similar_more = gtk::Button::with_label("Показать ещё");
         similar_more.set_widget_name("music-similar-more");
@@ -243,6 +246,7 @@ impl ExtrasView {
             "Выберите композицию, чтобы загрузить текст.",
             "music-lyrics",
         );
+        lyrics_spinner.update_property(&[gtk::accessible::Property::Label("Загрузка текста")]);
         let factory = gtk::SignalListItemFactory::new();
         let lyrics_model = gtk::StringList::new(&[]);
         let selection = gtk::NoSelection::new(Some(lyrics_model.clone()));
@@ -456,6 +460,7 @@ impl ExtrasView {
         this.related.borrow_mut().clear();
         this.shown.set(0);
         super::clear_list(&this.similar_rows);
+        this.similar_rows.set_visible(false);
         this.similar_more.set_visible(false);
         this.lyrics_title
             .set_text(track.map_or("", |track| track.title.as_str()));
@@ -467,9 +472,8 @@ impl ExtrasView {
         this.lyrics_artist.set_text(&artist);
         this.lyrics_artist
             .set_tooltip_text((!artist.is_empty()).then_some(artist.as_str()));
-        this.lyrics_status
-            .set_text("Загрузка текста из Яндекс Музыки…");
-        this.similar_status.set_text("Рекомендации Яндекс Музыки");
+        this.lyrics_status.set_text("");
+        this.similar_status.set_text("");
         this.widget.set_visible(track.is_some());
         schedule_visible(this);
     }
@@ -516,27 +520,28 @@ impl ExtrasView {
                 if this.synchronized.get() && !synchronized {
                     // A later successful plain-only lookup must not replace an
                     // already matched timeline for this same track selection.
-                    this.lyrics_status
-                        .set_text("Найден только обычный текст. Караоке сохранено.");
+                    this.lyrics_status.set_text("");
                     return;
                 }
                 if this.lyrics_request.get() == LyricsRequest::External
                     && !synchronized
                     && this.lyrics.borrow().is_some()
                 {
-                    this.lyrics_status.set_text(
-                        "Текст без синхронизации. В LRCLIB найден только обычный текст; показанный текст сохранён.",
-                    );
+                    this.lyrics_status
+                        .set_text("Без синхронизации. Синхронизированный текст не найден.");
                     return;
                 }
                 let keep_manual = this.synchronized.get() && !this.following.get();
                 this.lyrics_status.set_text(if synchronized {
-                    "Караоке"
+                    ""
                 } else {
-                    "Текст без синхронизации"
+                    "Без синхронизации"
                 });
-                this.source
-                    .set_text(&format!("Источник: {}", lyrics.source.label()));
+                this.source.set_text(match lyrics.source {
+                    LyricsSource::YandexSupplement => "Яндекс Музыка",
+                    LyricsSource::Lrclib => "LRCLIB",
+                });
+                this.source.set_tooltip_text(Some(lyrics.source.label()));
                 this.source.set_visible(true);
                 this.stop_scroll_animation();
                 this.finish_line_transitions();
@@ -583,9 +588,9 @@ impl ExtrasView {
                 }
                 this.lyrics_status
                     .set_text(if this.lyrics.borrow().is_some() {
-                        "Синхронизированный текст не найден. Показанный текст сохранён."
+                        "Синхронизированный текст не найден."
                     } else {
-                        "Текст для этой композиции не найден."
+                        "Текст не найден."
                     });
             }
             Err(error) => this.lyrics_status.set_text(extras_error(error)),
@@ -595,9 +600,9 @@ impl ExtrasView {
             && this.lyrics_request.get() == LyricsRequest::External
         {
             let status = this.lyrics_status.text();
-            if !status.starts_with("Текст без синхронизации") {
+            if !status.starts_with("Без синхронизации") {
                 this.lyrics_status
-                    .set_text(&format!("Текст без синхронизации. {status}"));
+                    .set_text(&format!("Без синхронизации. {status}"));
             }
         }
         if yandex_without_timing {
@@ -618,12 +623,13 @@ impl ExtrasView {
             Ok(similar) => {
                 this.related.replace(similar.tracks);
                 let count = this.related.borrow().len();
+                this.similar_rows.set_visible(count > 0);
                 this.similar_status.set_text(if count == 0 {
-                    "Для этой композиции нет доступных рекомендаций."
+                    "Похожих треков нет"
                 } else if similar.omitted > 0 {
-                    "Рекомендации Яндекс Музыки · часть недоступна."
+                    "Часть треков недоступна."
                 } else {
-                    "Рекомендации Яндекс Музыки"
+                    ""
                 });
                 this.shown.set(0);
                 super::clear_list(&this.similar_rows);
@@ -840,13 +846,13 @@ impl Inner {
         self.lyrics_request.set(request);
         self.lyrics_serial
             .set(self.lyrics_serial.get().wrapping_add(1));
-        self.lyrics_status.set_text(match request {
-            LyricsRequest::Yandex => "Загрузка текста из Яндекс Музыки…",
-            LyricsRequest::External if self.lyrics.borrow().is_some() => {
-                "Текст без синхронизации. Ищем синхронизированный текст в LRCLIB…"
-            }
-            LyricsRequest::External => "Ищем синхронизированный текст в LRCLIB…",
-        });
+        self.lyrics_status.set_text(
+            if self.lyrics.borrow().is_some() && !self.synchronized.get() {
+                "Без синхронизации"
+            } else {
+                ""
+            },
+        );
         self.lyrics_retry.set_visible(false);
         self.lyrics_spinner.set_visible(true);
         self.lyrics_spinner.start();
@@ -877,7 +883,7 @@ impl Inner {
         self.similar_loading.set(true);
         self.similar_serial
             .set(self.similar_serial.get().wrapping_add(1));
-        self.similar_status.set_text("Загрузка рекомендаций…");
+        self.similar_status.set_text("");
         self.similar_retry.set_visible(false);
         self.similar_spinner.set_visible(true);
         self.similar_spinner.start();
@@ -1362,7 +1368,34 @@ fn feedback(
     let label = wrap(initial, "caption");
     label.set_widget_name(&format!("{name}-status"));
     label.set_hexpand(true);
+    label.set_visible(!initial.is_empty());
+    row.set_visible(!initial.is_empty());
     row.append(&label);
+    // Requested visibility wakes a hidden row; effective visibility would
+    // stay false until this parent is shown.
+    label.connect_label_notify({
+        let row = row.downgrade();
+        let spinner = spinner.downgrade();
+        move |label| {
+            label.set_visible(!label.text().is_empty());
+            if let Some(row) = row.upgrade() {
+                row.set_visible(
+                    label.get_visible() || spinner.upgrade().is_some_and(|s| s.get_visible()),
+                );
+            }
+        }
+    });
+    spinner.connect_visible_notify({
+        let row = row.downgrade();
+        let label = label.downgrade();
+        move |spinner| {
+            if let Some(row) = row.upgrade() {
+                row.set_visible(
+                    spinner.get_visible() || label.upgrade().is_some_and(|l| l.get_visible()),
+                );
+            }
+        }
+    });
     parent.append(&row);
     let retry = icon_button("view-refresh-symbolic", "Повторить загрузку");
     retry.set_widget_name(&format!("{name}-retry"));
@@ -1547,7 +1580,7 @@ impl Controller {
             }
             if this.track_pane.extras.similar_is_current(ticket) {
                 this.track_pane.extras.inner.similar_status.set_text(if result.is_ok() {
-                    "Отметка подтверждена Яндекс Музыкой."
+                    ""
                 } else { "Изменение не подтверждено. Обновите библиотеку перед новым действием; запись не повторяется." });
             }
             if super::reactions::confirmed_dislike_advances(

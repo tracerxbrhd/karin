@@ -1,0 +1,221 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Original glass surfaces over Karin's cached, blurred procedural backdrop.
+ * No blur is applied to foreground widgets, text, artwork or controls. */
+.karin-style-liquid-glass.music-shell {
+  background-color: #e1eaf5;
+  color: #1b293e;
+}
+.karin-style-liquid-glass .music-toolbar-surface {
+  background-color: transparent;
+}
+.karin-style-liquid-glass .music-header {
+  background-color: rgba(244, 249, 255, .78);
+  background-image: linear-gradient(to bottom, rgba(255, 255, 255, .55), rgba(232, 241, 252, .08));
+  box-shadow: inset 0 1px rgba(255, 255, 255, .90), 0 1px rgba(45, 67, 100, .12);
+}
+.karin-style-liquid-glass #music-primary-tabs {
+  background-color: rgba(237, 245, 255, .65);
+  background-image: linear-gradient(to bottom, rgba(255, 255, 255, .25), rgba(227, 235, 251, .10));
+  box-shadow: inset 0 1px rgba(255, 255, 255, .65), 0 1px rgba(45, 67, 100, .08);
+}
+.karin-style-liquid-glass #music-primary-tabs .linked > button {
+  background-color: rgba(255, 255, 255, .32);
+  background-image: none;
+  box-shadow: inset 0 1px rgba(255, 255, 255, .45);
+}
+.karin-style-liquid-glass #music-primary-tabs .linked > button:hover {
+  background-color: rgba(255, 255, 255, .62);
+}
+.karin-style-liquid-glass #music-primary-tabs .linked > button:checked {
+  background-color: alpha(@accent_bg_color, .22);
+  box-shadow: inset 0 1px rgba(255, 255, 255, .65), inset 0 -1px alpha(@accent_bg_color, .20);
+}
+.karin-style-liquid-glass .music-workspace {
+  background-color: transparent;
+  background-image: none;
+  border-radius: 18px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .46);
+}
+.karin-style-liquid-glass .music-wave-hero {
+  background-color: rgba(247, 251, 255, .69);
+  background-image: linear-gradient(to bottom right, rgba(255, 255, 255, .50), rgba(216, 235, 252, .17));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .95), inset 0 0 0 1px rgba(255, 255, 255, .68), 0 14px 32px rgba(42, 66, 105, .13);
+}
+.karin-style-liquid-glass .music-information-view {
+  background-color: rgba(237, 244, 253, .97);
+  background-image: linear-gradient(to bottom right, rgba(255, 255, 255, .30), rgba(220, 231, 250, .05));
+  border-left-color: rgba(255, 255, 255, .85);
+  box-shadow: inset 1px 0 rgba(255, 255, 255, .55), -8px 0 24px rgba(29, 50, 88, .10);
+}
+.karin-style-liquid-glass .music-player-surface {
+  background-color: rgba(235, 244, 255, .94);
+  background-image: linear-gradient(to bottom, rgba(255, 255, 255, .40), rgba(225, 236, 252, .12));
+  box-shadow: inset 0 1px rgba(255, 255, 255, .90), 0 -8px 24px rgba(30, 51, 87, .10);
+}
+.karin-style-liquid-glass .music-player {
+  background-color: transparent;
+}
+.karin-style-liquid-glass .music-liked-cover {
+  background-color: alpha(@accent_bg_color, .20);
+  box-shadow: inset 0 1px rgba(255, 255, 255, .65);
+}
+.karin-style-liquid-glass .music-track-row:hover,
+.karin-style-liquid-glass .music-catalog-tile:hover,
+.karin-style-liquid-glass .karin-playlist-tile:hover {
+  background-color: rgba(255, 255, 255, .34);
+}
+.karin-style-liquid-glass .music-track-row.music-current,
+.karin-style-liquid-glass .music-queue-row.music-current-row {
+  background-color: alpha(@accent_bg_color, .19);
+  box-shadow: inset 2px 0 alpha(@accent_bg_color, .70), inset 0 1px rgba(255, 255, 255, .34);
+}
+/* Metadata has a full-opacity foreground selected for these tinted surfaces. */
+.karin-style-liquid-glass .music-workspace label.dim-label,
+.karin-style-liquid-glass .music-information-view label.dim-label,
+.karin-style-liquid-glass .music-player-surface label.dim-label,
+.karin-style-liquid-glass .music-track-duration,
+.karin-style-liquid-glass .music-player-timeline label,
+.karin-style-liquid-glass .music-collection-facts {
+  color: #34435b;
+  opacity: 1;
+}
+.karin-style-liquid-glass .music-repeat-one-badge {
+  background-color: #e7effb;
+}
+.karin-style-liquid-glass popover > contents {
+  background-color: rgba(247, 250, 255, .97);
+  background-image: linear-gradient(to bottom right, rgba(255, 255, 255, .35), rgba(227, 236, 252, .08));
+  box-shadow: inset 0 1px rgba(255, 255, 255, .90), 0 8px 24px rgba(20, 36, 66, .18);
+}
+
+.karin-style-liquid-glass.karin-color-dark.music-shell {
+  background-color: #111c2f;
+  color: #edf4ff;
+}
+.karin-style-liquid-glass.karin-color-dark .music-header {
+  background-color: rgba(20, 32, 51, .83);
+  background-image: linear-gradient(to bottom, rgba(150, 186, 224, .08), rgba(13, 24, 44, .02));
+  box-shadow: inset 0 1px rgba(213, 234, 255, .12), 0 1px rgba(2, 8, 20, .22);
+}
+.karin-style-liquid-glass.karin-color-dark #music-primary-tabs {
+  background-color: rgba(21, 34, 57, .72);
+  background-image: linear-gradient(to bottom, rgba(179, 211, 241, .06), rgba(41, 48, 77, .04));
+  box-shadow: inset 0 1px rgba(212, 234, 255, .09), 0 1px rgba(0, 6, 18, .18);
+}
+.karin-style-liquid-glass.karin-color-dark #music-primary-tabs .linked > button {
+  background-color: rgba(108, 146, 187, .09);
+  box-shadow: inset 0 1px rgba(212, 234, 255, .12);
+}
+.karin-style-liquid-glass.karin-color-dark #music-primary-tabs .linked > button:hover {
+  background-color: rgba(153, 190, 225, .15);
+}
+.karin-style-liquid-glass.karin-color-dark #music-primary-tabs .linked > button:checked {
+  background-color: alpha(@accent_bg_color, .28);
+  box-shadow: inset 0 1px rgba(209, 234, 255, .22), inset 0 -1px alpha(@accent_bg_color, .30);
+}
+.karin-style-liquid-glass.karin-color-dark .music-workspace {
+  background-color: transparent;
+  background-image: none;
+  box-shadow: inset 0 0 0 1px rgba(189, 220, 247, .12);
+}
+.karin-style-liquid-glass.karin-color-dark .music-wave-hero {
+  background-color: rgba(25, 40, 64, .72);
+  background-image: linear-gradient(to bottom right, rgba(116, 187, 222, .10), rgba(137, 111, 180, .06));
+  box-shadow: inset 0 1px rgba(221, 241, 255, .23), inset 0 0 0 1px rgba(164, 204, 237, .14), 0 14px 32px rgba(1, 7, 20, .27);
+}
+.karin-style-liquid-glass.karin-color-dark .music-information-view {
+  background-color: rgba(21, 33, 54, .97);
+  background-image: linear-gradient(to bottom right, rgba(137, 182, 220, .045), rgba(82, 53, 111, .025));
+  border-left-color: rgba(192, 220, 247, .20);
+  box-shadow: inset 1px 0 rgba(214, 236, 255, .06), -8px 0 24px rgba(0, 5, 18, .23);
+}
+.karin-style-liquid-glass.karin-color-dark .music-player-surface {
+  background-color: rgba(21, 35, 57, .95);
+  background-image: linear-gradient(to bottom, rgba(143, 194, 230, .07), rgba(19, 27, 48, .03));
+  box-shadow: inset 0 1px rgba(209, 234, 255, .20), 0 -8px 24px rgba(0, 5, 18, .25);
+}
+.karin-style-liquid-glass.karin-color-dark .music-track-row:hover,
+.karin-style-liquid-glass.karin-color-dark .music-catalog-tile:hover,
+.karin-style-liquid-glass.karin-color-dark .karin-playlist-tile:hover {
+  background-color: rgba(182, 212, 244, .075);
+}
+.karin-style-liquid-glass.karin-color-dark .music-track-row.music-current,
+.karin-style-liquid-glass.karin-color-dark .music-queue-row.music-current-row {
+  background-color: alpha(@accent_bg_color, .23);
+  box-shadow: inset 2px 0 alpha(@accent_bg_color, .85), inset 0 1px rgba(188, 219, 248, .12);
+}
+.karin-style-liquid-glass.karin-color-dark .music-workspace label.dim-label,
+.karin-style-liquid-glass.karin-color-dark .music-information-view label.dim-label,
+.karin-style-liquid-glass.karin-color-dark .music-player-surface label.dim-label,
+.karin-style-liquid-glass.karin-color-dark .music-track-duration,
+.karin-style-liquid-glass.karin-color-dark .music-player-timeline label,
+.karin-style-liquid-glass.karin-color-dark .music-collection-facts {
+  color: #cbd8ea;
+}
+.karin-style-liquid-glass.karin-color-dark .music-repeat-one-badge {
+  background-color: #19283e;
+}
+.karin-style-liquid-glass.karin-color-dark popover > contents {
+  background-color: rgba(26, 40, 62, .98);
+  background-image: linear-gradient(to bottom right, rgba(146, 188, 227, .06), rgba(30, 26, 49, .03));
+  box-shadow: inset 0 1px rgba(221, 240, 255, .17), 0 8px 24px rgba(0, 3, 13, .35);
+}
+
+/* High Contrast uses the platform's opaque palette throughout the music UI. */
+.karin-style-liquid-glass.karin-high-contrast.music-shell,
+.karin-style-liquid-glass.karin-high-contrast .music-toolbar-surface,
+.karin-style-liquid-glass.karin-high-contrast .music-workspace,
+.karin-style-liquid-glass.karin-high-contrast .music-header,
+.karin-style-liquid-glass.karin-high-contrast #music-primary-tabs,
+.karin-style-liquid-glass.karin-high-contrast .music-information-view,
+.karin-style-liquid-glass.karin-high-contrast .music-player-surface,
+.karin-style-liquid-glass.karin-high-contrast .music-repeat-one-badge,
+.karin-style-liquid-glass.karin-high-contrast popover > contents {
+  background-color: @window_bg_color;
+  background-image: none;
+  box-shadow: none;
+  color: @window_fg_color;
+  border-color: @window_fg_color;
+}
+.karin-style-liquid-glass.karin-high-contrast .music-wave-hero {
+  background-color: @view_bg_color;
+  background-image: none;
+  box-shadow: inset 0 0 0 1px @window_fg_color;
+}
+.karin-style-liquid-glass.karin-high-contrast #music-primary-tabs .linked > button {
+  background-color: @window_bg_color;
+  box-shadow: none;
+  color: @window_fg_color;
+}
+.karin-style-liquid-glass.karin-high-contrast #music-primary-tabs .linked > button:checked {
+  background-color: @accent_bg_color;
+  color: @accent_fg_color;
+}
+.karin-style-liquid-glass.karin-high-contrast .music-workspace label.dim-label,
+.karin-style-liquid-glass.karin-high-contrast .music-information-view label.dim-label,
+.karin-style-liquid-glass.karin-high-contrast .music-player-surface label.dim-label,
+.karin-style-liquid-glass.karin-high-contrast .music-track-duration,
+.karin-style-liquid-glass.karin-high-contrast .music-player-timeline label,
+.karin-style-liquid-glass.karin-high-contrast .music-collection-facts {
+  color: @window_fg_color;
+}
+.karin-style-liquid-glass.karin-high-contrast .music-track-row.music-current,
+.karin-style-liquid-glass.karin-high-contrast .music-queue-row.music-current-row {
+  background-color: @window_bg_color;
+  box-shadow: inset 0 0 0 2px @window_fg_color;
+}
+.karin-style-liquid-glass.karin-high-contrast .music-liked-cover {
+  background-color: @view_bg_color;
+  box-shadow: none;
+  color: @window_fg_color;
+}
+.karin-style-liquid-glass.karin-high-contrast #music-primary-tabs .linked > button:hover {
+  background-color: @card_bg_color;
+  box-shadow: none;
+  color: @window_fg_color;
+}
+.karin-style-liquid-glass.karin-high-contrast .music-track-row:hover,
+.karin-style-liquid-glass.karin-high-contrast .music-catalog-tile:hover,
+.karin-style-liquid-glass.karin-high-contrast .karin-playlist-tile:hover {
+  background-color: @card_bg_color;
+}

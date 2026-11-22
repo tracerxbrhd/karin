@@ -573,48 +573,44 @@ tests and the separate physical Fedora procedure below.
 
 ## v08 final Fedora acceptance
 
-Use one PR #29 revision for Native and installed Flatpak. Check the Native
-archive's `SHA256SUMS` and `BUILD-INFO.txt`. Confirm the running executable's
-version, full source commit, Native/Flatpak package and build profile using
-`./karin --version` or `flatpak run io.github.tracerxbrhd.Karin --version`.
-The same information is available in the About dialog's diagnostic information.
-A source-only Flatpak snapshot preserves its commit in `BUILD-REVISION`.
-Build and install that revision with the [Flatpak instructions](#flatpak-source-build).
+The owner has confirmed synchronized karaoke on Fedora at the reported
+`d345fec` baseline. This final check concerns the subsequent UI polish and
+System/Liquid Glass; it does not request a repeat of the whole v0.8 acceptance.
+Use the same final PR #29 revision for Native and installed Flatpak. Close older
+instances first. Verify `SHA256SUMS`/`BUILD-INFO.txt`, `./karin --version` or
+`flatpak run io.github.tracerxbrhd.Karin --version`, and the running window's
+About diagnostic information. Commit, clean source state, package and release
+profile must match the selected artifact. [Flatpak installation](#flatpak-source-build).
 
-Perform this short sequence once in each ordinary package.
+Perform this short sequence once in each ordinary package:
 
-1. Start an entitled track and open Lyrics from the footer. If Yandex supplies
-   only TEXT, expect “Текст без синхронизации”. Choose “Найти синхронизированный
-   текст”, read the LRCLIB disclosure, and approve the lookup. Only matching LRC
-   can enable karaoke. If it is unavailable, the existing text stays readable.
-   The optional automatic-search checkbox is initially unchecked. Enabling it
-   permits later visible Lyrics selections to look up synchronization; revoke
-   it in Preferences using “Автоматически искать синхронизированный текст”.
-2. With matching LRC, watch a few natural boundaries. Open Lyrics from the
-   current track's Info menu as well. The outgoing letters should shrink while
-   the incoming letters grow and gain weight. Scroll, press Follow, pause and
-   seek both ways. Reduced Motion should select the final large line immediately.
-3. From an album or playlist, press Ctrl+F. The field should replace the three
-   tabs in the same slot, including while the window is maximized. Type, open a
-   result and go Back. Clear the query and click the empty field; the original
-   detail and field should remain. Click blank background to restore the tabs.
-   Briefly repeat with the top toggle and Escape at a narrow width, while audio
-   continues.
+1. Play a track with the already working LRC. In System, compare Home/Wave,
+   the track list and right pane in light/dark. Lyrics shows its compact provider
+   without a separate “Караоке” caption; Similar shows its heading and results.
+   TEXT, when selected, still says “Без синхронизации” and offers the disclosed
+   synchronized-text lookup. Repeat the footer Lyrics button: Lyrics returns to
+   Track Info without closing the pane. Back does the same; explicit Close and
+   Queue retain their own actions.
+2. Seek near the start/end while the window is maximized, then make it compact.
+   The complete scale target stays comfortably above the lower edge. Playback
+   continues, all controls stay reachable, and stopping through the existing
+   system control leaves no blank footer strip. Karin does not change KDE panel
+   behavior or use a KDE-specific API.
+3. Open Preferences → **Стиль интерфейса**. Switch System → Liquid Glass →
+   System → Liquid Glass while music plays. Check light/dark and the independent
+   System color choice. Compare the same Home, Info/Lyrics and Queue surfaces.
+   Search text/navigation, current track/position, queue, volume and modes must
+   remain. In the available desktop High Contrast/Reduced Motion settings,
+   confirm readable opaque surfaces/focus and stable Lyrics without decorative
+   movement. Karin remains disabled, “В разработке”.
+4. Restart normally and confirm Liquid Glass and the independent color choice
+   persist, along with the existing Lyrics permission preference. Start playback
+   explicitly as usual; check audible sound and natural line changes, then
+   return to System. No developer credentials, re-registration or token input
+   are required.
 
-If the outcome is unclear, close Karin and run just that package once with
-addressed diagnostics enabled. Native uses
-`KARIN_LYRICS_DIAGNOSTICS=1 ./karin`; installed Flatpak uses
-`flatpak run --env=KARIN_LYRICS_DIAGNOSTICS=1 io.github.tracerxbrhd.Karin`.
-At most 256 stderr events report provider, TEXT/LRC and synchronized-line count,
-playhead attachment and continuity, mapped/active state, animation/contrast
-settings and presentation/paint stages. They do
-not include song titles or text, track/account IDs, position values, tokens or
-URLs. Diagnostics are off at the next ordinary launch and create no files or
-background service. A plain-text result, detached clock and a paint problem
-have separate observable states.
-
-Report the commit, package, desktop scale/theme, whether TEXT or LRC appeared,
-and the search/Lyrics result together. Keep lyrics, account information and
-personal screenshots local. Fedora Wayland and installed-Flatpak acceptance
-requires this owner result. Cloud Xvfb, fixtures and source-only Flatpak builds
-have their own scope in [VALIDATION.md](VALIDATION.md).
+Liquid Glass blurs an original Karin-owned background, not the desktop behind
+its Wayland window. The complete UI uses the existing native widgets and player.
+Report commit/package, scheme/scale and these polish outcomes; keep account,
+lyrics and private screenshots local. Cloud fixtures and installed Cloud Flatpak
+results have separate scope in [VALIDATION.md](VALIDATION.md).

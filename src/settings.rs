@@ -121,12 +121,13 @@ pub type ColorScheme = Appearance;
 pub enum UiStyle {
     #[default]
     System,
+    LiquidGlass,
     Karin,
 }
 
 impl UiStyle {
     pub const fn is_available(self) -> bool {
-        matches!(self, Self::System)
+        matches!(self, Self::System | Self::LiquidGlass)
     }
 
     /// A stored future choice must not pretend the current system view is a

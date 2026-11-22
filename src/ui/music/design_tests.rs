@@ -501,10 +501,12 @@ fn set_panel(ui: &crate::ui::MainWindow, mode: workspace::PanelMode) {
     let this = &ui.music.controller;
     let previous = this.panel_mode.get();
     if previous != mode {
-        if mode == PanelMode::Lyrics || (previous == PanelMode::Lyrics && mode == PanelMode::Closed)
+        if mode == PanelMode::Closed {
+            // Closing is explicit. The current Lyrics toggle returns to Info.
+            native_click(ui, &this.track_pane.close);
+        } else if mode == PanelMode::Lyrics
+            || (previous == PanelMode::Lyrics && mode == PanelMode::TrackInfo)
         {
-            // Lyrics is the existing footer's native toggle, not the Info
-            // action: using Info here would switch to a different mode.
             native_click(ui, &this.widgets.lyrics);
         } else {
             let action = match (previous, mode) {
@@ -680,6 +682,7 @@ fn assert_footer_geometry(ui: &crate::ui::MainWindow) {
         assert!(badge.is_mapped(), "literal1 must actually be painted");
     }
     let footer = ui.music.player_bar.compute_bounds(&ui.window).unwrap();
+    safe_footer_geometry(ui);
     for name in [
         "music-current-info",
         "music-current-like",
@@ -787,6 +790,60 @@ fn assert_footer_geometry(ui: &crate::ui::MainWindow) {
             "wide transport must stay visually centered, independent of metadata: transport={transport:?} main={center:?} footer={footer:?}"
         );
     }
+}
+
+// Bounds include each native control's complete CSS box, not just the
+// painted slider trough. Edge gestures must remain outside its hit area.
+fn safe_footer_geometry(ui: &crate::ui::MainWindow) -> serde_json::Value {
+    let this = &ui.music.controller;
+    if !this.widgets.player_revealer.reveals_child() {
+        return serde_json::Value::Null;
+    }
+    let footer = ui.music.player_bar.compute_bounds(&ui.window).unwrap();
+    let edge = ui.window.height() as f32;
+    assert!(
+        (footer.y() + footer.height() - edge).abs() <= 1.0,
+        "the player surface must extend to the actual window edge: {footer:?} / {edge}"
+    );
+    assert!(ui.music.player_bar.has_css_class("music-player-surface"));
+    let mut controls = BTreeMap::new();
+    for name in [
+        "music-current-info",
+        "music-current-like",
+        "music-current-dislike",
+        "music-play",
+        "music-previous",
+        "music-next",
+        "music-shuffle",
+        "music-repeat",
+        "music-queue-toggle",
+        "music-lyrics-toggle",
+        "music-volume-menu",
+        "music-progress",
+    ] {
+        let control = named_widget(&ui.music.player_bar, name);
+        assert!(
+            control.is_mapped(),
+            "safe-edge target must be mapped: {name}"
+        );
+        let bounds = control.compute_bounds(&ui.window).unwrap();
+        let gap = edge - bounds.y() - bounds.height();
+        assert!(
+            gap >= 24.0,
+            "{name} complete hit box needs 24 logical pixels below it: {bounds:?} / edge {edge}, gap {gap}"
+        );
+        controls.insert(
+            name,
+            json!({
+                "bounds":[bounds.x(), bounds.y(), bounds.width(), bounds.height()],
+                "bottom_gap_logical":gap,
+                "bottom_gap_device":gap * ui.window.scale_factor() as f32,
+            }),
+        );
+    }
+    json!({"window_bottom_logical":edge,
+        "surface":[footer.x(),footer.y(),footer.width(),footer.height()],
+        "minimum_bottom_gap_logical":24,"controls":controls})
 }
 
 // A SlideUp Revealer alone may retain its concealed child's horizontal
@@ -1173,7 +1230,7 @@ fn evidence(ui: &crate::ui::MainWindow, name: &str) {
             .unwrap();
         for theme in ["light", "dark"] {
             let collection = &themed_collection_layouts[theme];
-            writeln!(file,"{}",json!({"capture":format!("{name}-{theme}.png"),"logical_width":ui.window.width(),"logical_height":ui.window.height(),"scale":scale,"maximized":ui.window.is_maximized(),"pane_open":pane_open(&ui.music.controller),"panel_mode":format!("{:?}",ui.music.controller.panel_mode.get()),"renderer":ui.window.renderer().unwrap().type_().name(),"rows":heights,"fully_visible_rows":visible,"collection":collection,"source":"synthetic-loopback-musicservice-http-decoded-artwork","tracks":8,"footer_art_hit":[ui.music.controller.widgets.current_art_button.width(),ui.music.controller.widgets.current_art_button.height()],"footer_track_hit":[ui.music.controller.widgets.current_art_button.width(),ui.music.controller.widgets.current_art_button.height()],"footer_cover_size":[ui.music.controller.widgets.current_art.width(),ui.music.controller.widgets.current_art.height()],"footer_like_mapped":ui.music.controller.widgets.current_like_slot.is_mapped(),"footer_title_width":ui.music.controller.widgets.current.width(),"player_requested_visible":ui.music.controller.widgets.player_revealer.reveals_child(),"player_child_revealed":ui.music.controller.widgets.player_revealer.is_child_revealed(),"player_height":ui.music.player_bar.height(),"player_state":format!("{:?}",ui.music.controller.music_snapshot().map(|snapshot|snapshot.state))})).unwrap();
+            writeln!(file,"{}",json!({"capture":format!("{name}-{theme}.png"),"logical_width":ui.window.width(),"logical_height":ui.window.height(),"scale":scale,"maximized":ui.window.is_maximized(),"pane_open":pane_open(&ui.music.controller),"panel_mode":format!("{:?}",ui.music.controller.panel_mode.get()),"renderer":ui.window.renderer().unwrap().type_().name(),"rows":heights,"fully_visible_rows":visible,"collection":collection,"source":"synthetic-loopback-musicservice-http-decoded-artwork","tracks":8,"footer_art_hit":[ui.music.controller.widgets.current_art_button.width(),ui.music.controller.widgets.current_art_button.height()],"footer_track_hit":[ui.music.controller.widgets.current_art_button.width(),ui.music.controller.widgets.current_art_button.height()],"footer_cover_size":[ui.music.controller.widgets.current_art.width(),ui.music.controller.widgets.current_art.height()],"footer_like_mapped":ui.music.controller.widgets.current_like_slot.is_mapped(),"footer_title_width":ui.music.controller.widgets.current.width(),"player_requested_visible":ui.music.controller.widgets.player_revealer.reveals_child(),"player_child_revealed":ui.music.controller.widgets.player_revealer.is_child_revealed(),"player_height":ui.music.player_bar.height(),"footer_safe_geometry":safe_footer_geometry(ui),"player_state":format!("{:?}",ui.music.controller.music_snapshot().map(|snapshot|snapshot.state))})).unwrap();
         }
     }
 }
@@ -1317,6 +1374,7 @@ fn populated_window_with_initial_selection(
         &fixture.origin,
         &fixture.origin,
     ));
+    theme_review::startup_style(&ui);
     ui.window.set_title(Some("Karin synthetic HTTP fixture"));
     ui.window.set_default_size(1440, 900);
     ui.window.present();
@@ -2910,3 +2968,5 @@ fn native_universal_panel_whole_surface_motion_and_mode_switch() {
     ui.window.close();
     settle();
 }
+
+mod theme_review;

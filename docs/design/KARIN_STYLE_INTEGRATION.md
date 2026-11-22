@@ -2,12 +2,15 @@
 
 # Integrating the future Karin presentation
 
-The current **System** presentation is the working GTK4/Libadwaita application.
+The **System** and **Liquid Glass** presentations use the working GTK4/Libadwaita
+application. Liquid Glass is a separate sibling style, not the reserved Karin
+design. Its own scenery/blur boundary is recorded in
+[ADR-0039](../adr/0039-liquid-glass-presentation.md).
 The designer's new Karin materials have not been supplied. **Karin is not an
 implemented theme**: its disabled Preferences row says «В разработке». Do not
 replace that row with an apparently working selector for a copy of System.
 
-`UiStyle::{System,Karin}` is independent of `ColorScheme::{System,Light,Dark}`.
+`UiStyle::{System,LiquidGlass,Karin}` is independent of `ColorScheme::{System,Light,Dark}`.
 `ColorScheme` aliases the existing `Appearance` type, so its persisted
 `appearance` field and values remain compatible. Settings schema 3 reads schemas
 1 and 2, retaining remembered-login/deletion intent, aggregate cache policy and
@@ -18,8 +21,10 @@ remain in their own stores.
 
 ## Presentation boundary
 
-`src/ui/style.rs` installs the existing System CSS from
-`resources/styles/system.css`. Selectors are scoped to `.karin-style-system`
+`src/ui/style.rs` installs shared native component metrics, System CSS from
+`resources/styles/system.css`, shared Lyrics rules and the separate
+`resources/styles/liquid-glass.css`. Style selectors are scoped to
+`.karin-style-system` or `.karin-style-liquid-glass`
 under `.karin-presentation-root`; a future provider uses `.karin-style-custom`.
 `resources/styles/karin.css` is a comment-only integration entry point and is
 **not loaded**. It contains no provisional designer work.

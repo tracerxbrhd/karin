@@ -116,6 +116,12 @@ reviewable and consistent with the accepted application.
   preserve duplicate occurrences and shuffle history. Stop/forget/logout delete
   continuation, Wave never persists. Keep UiStyle independent of color scheme;
   unavailable Karin presentation must remain visibly unavailable.
+- System and Liquid Glass share the same widgets and music state. Keep Liquid
+  Glass scoped separately from the reserved Karin design. Its bounded cached
+  background may blur only Karin-owned scenery, never desktop contents or
+  foreground controls. Player ticks, scrolling and resize must not prepare or
+  reblur scenery. High Contrast uses opaque semantic surfaces. Keep a 24-logical-
+  pixel inner footer bottom margin without giving the hidden footer any height.
 - Playlist writes use exact complete positions/revision, one POST per intent and
   independent readback. Unknown results permit GET-only reconciliation, never
   write replay; metadata endpoints have no proven server revision CAS.
@@ -161,6 +167,10 @@ reviewable and consistent with the accepted application.
   preserving history. Restoration, real playlist edits and System appearance
   are accepted; future v0.8 features and unavailable Karin Style are not.
   Unreported individual scenarios and unresolved Cloud cold gaps are not PASS.
+  The owner confirmed synchronized karaoke on real Fedora at the reported
+  `d345fec` baseline on 2026-11-22. This accepts that reported workflow only;
+  package-specific scope and the subsequent System/Liquid Glass polish remain
+  separate. Do not repeat the entire earlier v0.8 acceptance for theme changes.
   This is not a published release. Read [LIMITATIONS](docs/LIMITATIONS.md).
 
 ## Verification

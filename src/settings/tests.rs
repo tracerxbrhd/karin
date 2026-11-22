@@ -53,7 +53,7 @@ fn persistent_preferences_roundtrip_preserves_private_modes_and_all_choices() {
         cache_enabled: false,
         cache_limit: CacheLimit::Unlimited,
         track_info_open: false,
-        lyrics_external_auto: false,
+        lyrics_external_auto: true,
     };
     store.save(&preferences).unwrap();
     let reopened = fixture.store().load().unwrap();
@@ -187,12 +187,15 @@ fn unknown_or_malformed_style_never_resets_session_deletion_barrier_or_cache_pol
         cache_enabled: false,
         cache_limit: CacheLimit::GiB4,
         track_info_open: false,
-        lyrics_external_auto: false,
+        lyrics_external_auto: true,
     };
     store.save(&expected).unwrap();
     for style in [
         serde_json::json!("future-style"),
+        serde_json::json!("LiquidGlass"),
+        serde_json::json!("liquid_glass"),
         serde_json::json!(false),
+        serde_json::json!(["liquid-glass"]),
         serde_json::json!({"access_token":"synthetic-untrusted-field"}),
         serde_json::Value::Null,
     ] {
@@ -214,28 +217,61 @@ fn unknown_or_malformed_style_never_resets_session_deletion_barrier_or_cache_pol
 }
 
 #[test]
-fn color_scheme_and_reserved_style_roundtrip_independently() {
+fn all_styles_and_color_schemes_roundtrip_independently_without_schema_change() {
     let fixture = Fixture::new();
     let store = fixture.store();
     assert_eq!(Preferences::default().ui_style, UiStyle::System);
     assert_eq!(Preferences::default().appearance, ColorScheme::System);
-    for color in [ColorScheme::System, ColorScheme::Light, ColorScheme::Dark] {
-        let values = Preferences {
-            ui_style: UiStyle::Karin,
-            appearance: color,
-            ..Preferences::default()
-        };
-        store.save(&values).unwrap();
-        assert_eq!(fixture.store().load().unwrap().preferences, values);
-        assert_eq!(values.ui_style.effective(), UiStyle::System);
-        // A color edit does not silently turn an unavailable design into a
-        // ready theme or erase that persisted future request.
-        store
-            .update(|values| values.appearance = ColorScheme::Dark)
-            .unwrap();
-        let edited = store.load().unwrap().preferences;
-        assert_eq!(edited.ui_style, UiStyle::Karin);
-        assert_eq!(edited.appearance, ColorScheme::Dark);
+    for style in [UiStyle::System, UiStyle::LiquidGlass, UiStyle::Karin] {
+        assert_eq!(style.is_available(), style != UiStyle::Karin);
+        for color in [ColorScheme::System, ColorScheme::Light, ColorScheme::Dark] {
+            let values = Preferences {
+                ui_style: style,
+                appearance: color,
+                remember_login: false,
+                forget_pending: true,
+                cache_enabled: false,
+                cache_limit: CacheLimit::Unlimited,
+                track_info_open: false,
+                lyrics_external_auto: true,
+            };
+            store.save(&values).unwrap();
+            assert_eq!(fixture.store().load().unwrap().preferences, values);
+            assert_eq!(
+                style.effective(),
+                if style == UiStyle::Karin {
+                    UiStyle::System
+                } else {
+                    style
+                }
+            );
+            let saved: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(fixture.file()).unwrap()).unwrap();
+            assert_eq!(saved["version"], 3);
+            assert_eq!(
+                saved["preferences"]["ui_style"],
+                match style {
+                    UiStyle::System => "system",
+                    UiStyle::LiquidGlass => "liquid-glass",
+                    UiStyle::Karin => "karin",
+                }
+            );
+            // A color edit preserves the independently selected design and all
+            // nonvisual preferences, including external-lyrics consent.
+            let mut expected = values.clone();
+            expected.appearance = ColorScheme::Dark;
+            store
+                .update(|values| values.appearance = ColorScheme::Dark)
+                .unwrap();
+            assert_eq!(store.load().unwrap().preferences, expected);
+            // Replacing either available or reserved styles uses the same
+            // atomic settings store; it cannot rewrite unrelated choices.
+            expected.ui_style = UiStyle::LiquidGlass;
+            store
+                .update(|values| values.ui_style = UiStyle::LiquidGlass)
+                .unwrap();
+            assert_eq!(store.load().unwrap().preferences, expected);
+        }
     }
 }
 

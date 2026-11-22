@@ -324,6 +324,7 @@ fn build_with_music_pane(
     window.add_css_class("music-shell");
     style::attach(&window);
     let toolbar = adw::ToolbarView::new();
+    toolbar.add_css_class("music-toolbar-surface");
     let header = adw::HeaderBar::builder().height_request(48).build();
     header.add_css_class("music-header");
     header.set_show_start_title_buttons(false);
@@ -477,7 +478,10 @@ fn build_with_music_pane(
         .build();
     workspace_bin.set_child(Some(&track_info));
     toolbar.set_content(Some(&workspace_bin));
-    window.set_content(Some(&music.toolbar_with_player(&toolbar)));
+    window.set_content(Some(&style::wrap(
+        &window,
+        &music.toolbar_with_player(&toolbar),
+    )));
     {
         let saved_focus: Rc<RefCell<Option<glib::WeakRef<gtk::Widget>>>> = Rc::default();
         let window_unmap = window.downgrade();

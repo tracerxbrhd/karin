@@ -75,9 +75,13 @@ fn preference_edits_preserve_nonvisible_lifecycle_and_pane_fields() {
     let changes = Rc::new(RefCell::new(Vec::new()));
     let values = Preferences {
         ui_style: UiStyle::Karin,
+        appearance: Appearance::Light,
+        remember_login: false,
         forget_pending: true,
+        cache_enabled: false,
+        cache_limit: CacheLimit::Unlimited,
         track_info_open: false,
-        ..Preferences::default()
+        lyrics_external_auto: true,
     };
     let state = State {
         values: RefCell::new(values.clone()),
@@ -106,12 +110,19 @@ fn preference_edits_preserve_nonvisible_lifecycle_and_pane_fields() {
     assert!(!changed.track_info_open);
     assert_eq!(changed.remember_login, values.remember_login);
     assert_eq!(changed.ui_style, UiStyle::Karin);
+    state.change(|value| value.ui_style = UiStyle::LiquidGlass);
+    let mut expected = values;
+    expected.appearance = Appearance::Dark;
+    expected.ui_style = UiStyle::LiquidGlass;
+    assert_eq!(changes.borrow().last(), Some(&expected));
+    state.change(|value| value.ui_style = UiStyle::LiquidGlass);
+    assert_eq!(changes.borrow().len(), 2, "selected style is idempotent");
     state.updating.set(true);
-    state.change(|value| value.remember_login = false);
+    state.change(|value| value.ui_style = UiStyle::System);
     state.updating.set(false);
     state.ready.set(false);
-    state.change(|value| value.cache_enabled = false);
-    assert_eq!(changes.borrow().len(), 1);
+    state.change(|value| value.lyrics_external_auto = false);
+    assert_eq!(changes.borrow().len(), 2);
 }
 
 // Adwaita reads its documented debug settings once, at initialization. Isolate
@@ -514,6 +525,8 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
     assert!(view.remember.is_active());
     assert!(view.style_system.is_active());
     assert!(view.style_system.is_sensitive());
+    assert!(!view.style_liquid_glass.is_active());
+    assert!(view.style_liquid_glass.is_sensitive());
     assert!(!view.style_karin.is_active());
     assert!(!view.style_karin.is_sensitive());
     assert!(matches!(
@@ -523,6 +536,10 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
     assert_eq!(
         view.style_system.accessible_role(),
         view.style_karin.accessible_role()
+    );
+    assert_eq!(
+        view.style_system.accessible_role(),
+        view.style_liquid_glass.accessible_role()
     );
     assert_eq!(view.cache_limit.value(), 2.0);
     assert_eq!(view.cache_limit_label.label(), "2 ГБ");
@@ -674,6 +691,8 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
     }
     view.update(&snapshot.borrow());
     assert!(!view.scheme.is_sensitive());
+    assert!(!view.style_system.is_sensitive());
+    assert!(!view.style_liquid_glass.is_sensitive());
     assert!(!view.remember.is_sensitive());
     assert!(!view.cache_clear.is_sensitive());
     view.session_retry.emit_clicked();
@@ -883,6 +902,38 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
         count + 3,
         "already selected native radio is idempotent"
     );
+    // Both available presentations use the ordinary preference callback. Native
+    // pointer/keyboard selection must dispatch once, including reentrant renders,
+    // while retaining color, auth/deletion, cache, consent and pane preferences.
+    let before_style = changes.borrow().len();
+    let preserved = snapshot.borrow().values.clone();
+    click(&window, id, &view.liquid_glass_style_row);
+    pump_until(|| changes.borrow().len() == before_style + 1);
+    let mut expected = preserved.clone();
+    expected.ui_style = UiStyle::LiquidGlass;
+    assert_eq!(changes.borrow().last(), Some(&expected));
+    assert!(view.style_liquid_glass.is_active());
+    assert!(!view.style_system.is_active());
+    assert!(!view.style_karin.is_active());
+    assert!(!view.style_karin.is_sensitive());
+    capture(id, "preferences-liquid-glass-selected");
+    view.scheme.set_selected(1);
+    expected.appearance = Appearance::Light;
+    assert_eq!(changes.borrow().last(), Some(&expected));
+    assert_eq!(changes.borrow().len(), before_style + 2);
+    assert!(view.style_system.grab_focus());
+    input(&["key", "--window", id, "space"]);
+    pump_until(|| changes.borrow().len() == before_style + 3);
+    expected.ui_style = UiStyle::System;
+    assert_eq!(changes.borrow().last(), Some(&expected));
+    assert!(view.style_system.is_active());
+    assert!(!view.style_liquid_glass.is_active());
+    click(&window, id, &view.liquid_glass_style_row);
+    pump_until(|| changes.borrow().len() == before_style + 4);
+    expected.ui_style = UiStyle::LiquidGlass;
+    assert_eq!(changes.borrow().last(), Some(&expected));
+    assert!(view.style_liquid_glass.is_active());
+    assert_eq!(snapshot.borrow().values, expected);
     let before_external = changes.borrow().len();
     assert!(!view.external_lyrics.is_active());
     let external_switch = view.external_lyrics.activatable_widget().unwrap();

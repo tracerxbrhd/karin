@@ -234,6 +234,8 @@ jobs:
               'native_v08_queue_next_drag_keyboard_and_restoration',
               'native_v08_incremental_marker_updates_and_stable_ticks',
               'native_catalog_cache_provenance_interleaving_and_retired_replies',
+              'native_theme_matched_visual_surfaces',
+              'native_theme_matched_work_observation',
           ]
           compiled = {line.rsplit('::', 1)[-1].removesuffix(': test')
                       for line in listed if line.endswith(': test')}
@@ -243,7 +245,8 @@ jobs:
           pattern = r'cargo test --lib --all-features --locked ([a-z_0-9]+) -- --ignored'
           visual = {'native_design_matched_matrix_and_populated_surfaces',
                     'native_universal_panel_whole_surface_motion_and_mode_switch',
-                    'native_first_footer_reveal_after_startup_without_graphics_initialization'}
+                    'native_first_footer_reveal_after_startup_without_graphics_initialization',
+                    'native_theme_matched_visual_surfaces'}
           main_runs = set(re.findall(pattern, main))
           modern_runs = set(re.findall(pattern, modern))
           assert set(selectors) - visual <= main_runs, 'A functional native selector was removed from Ubuntu'
@@ -367,6 +370,17 @@ jobs:
           fi
           dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_persistent_session_restore_settings_forget_and_close -- --ignored --test-threads=1
           dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' cargo test --lib --all-features --locked native_catalog_cache_provenance_interleaving_and_retired_replies -- --ignored --test-threads=1
+      - name: Matched native System and Liquid Glass work and cache observations
+        env:
+          GTK_A11Y: none
+          GSK_RENDERER: cairo
+          G_DEBUG: fatal-warnings
+        run: |
+          for style in system liquid-glass; do
+            export KARIN_TEST_THEME_STYLE="$style"
+            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/v08-application/theme-work-$style"
+            dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_theme_matched_work_observation -- --ignored --test-threads=1 --nocapture
+          done
       - name: Native Music session and catalog against loopback fixtures
         env:
           GTK_A11Y: none
@@ -628,9 +642,9 @@ jobs:
           GSK_RENDERER: cairo
         run: |
           for scale in 1 2; do
-            if [ "$scale" = 1 ]; then theme=light; else theme=dark; fi
+            if [ "$scale" = 1 ]; then theme=light; style=system; else theme=dark; style=liquid-glass; fi
             screen="$((1920 * scale))x$((1080 * scale))x24"
-            GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" /usr/bin/python3 scripts/test-application-fixture.py ./target/debug/karin --expected-revision "$(git rev-parse HEAD)" --theme "$theme" --out "build/ui-captures/fixtures/v08-application/executable-debug-$scale"
+            GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" /usr/bin/python3 scripts/test-application-fixture.py ./target/debug/karin --expected-revision "$(git rev-parse HEAD)" --theme "$theme" --style "$style" --out "build/ui-captures/fixtures/v08-application/executable-debug-$scale"
           done
       - name: Fetch locked dependencies for the offline release build
         if: matrix.lane == 'msrv'
@@ -644,7 +658,7 @@ jobs:
           GTK_A11Y: atspi
           GSK_RENDERER: cairo
           GDK_SCALE: 1
-        run: dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' /usr/bin/python3 scripts/test-application-fixture.py ./target/release/karin --expected-revision "$(git rev-parse HEAD)" --theme light --out build/ui-captures/fixtures/v08-application/executable-release-1
+        run: dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' /usr/bin/python3 scripts/test-application-fixture.py ./target/release/karin --expected-revision "$(git rev-parse HEAD)" --theme light --style liquid-glass --out build/ui-captures/fixtures/v08-application/executable-release-1
       - name: Release OAuth terminal boundaries on MSRV
         if: matrix.lane == 'msrv'
         run: python3 scripts/test-oauth-terminal.py ./target/release/karin
@@ -905,7 +919,8 @@ jobs:
           listed = Path('/tmp/karin-native-quality-fixtures.txt').read_text().splitlines()
           for selector in ['native_design_matched_matrix_and_populated_surfaces',
                            'native_universal_panel_whole_surface_motion_and_mode_switch',
-                           'native_first_footer_reveal_after_startup_without_graphics_initialization']:
+                           'native_first_footer_reveal_after_startup_without_graphics_initialization',
+                           'native_theme_matched_visual_surfaces']:
               assert any(line.endswith(f'::{selector}: test') for line in listed), f'Missing compiled visual fixture: {selector}'
           artifacts = [json.loads(line) for line in Path('/tmp/karin-native-quality-artifacts.jsonl').read_text().splitlines()]
           binaries = [item['executable'] for item in artifacts
@@ -962,6 +977,25 @@ jobs:
             GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_design_matched_matrix_and_populated_surfaces -- --ignored --test-threads=1
             env -u GSK_DEBUG GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_universal_panel_whole_surface_motion_and_mode_switch -- --ignored --test-threads=1
           done
+      - name: Matched System and Liquid Glass surfaces and real synchronized lyrics
+        env:
+          G_DEBUG: fatal-warnings
+          GTK_A11Y: none
+          GSK_RENDERER: ngl
+          GSK_DEBUG: full-redraw
+          GDK_DPI_SCALE: 1
+        run: |
+          for scale in 1 2; do
+            if [ "$scale" = 1 ]; then screen=1920x1080x24; else screen=3840x2160x24; fi
+            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/native-theme-$scale"
+            GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_theme_matched_visual_surfaces -- --ignored --test-threads=1 --nocapture
+            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/native-glass-lyrics-$scale"
+            env -u GSK_DEBUG KARIN_TEST_THEME_STYLE=liquid-glass GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_v08_lyrics_similar_seek_and_stale_selection -- --ignored --test-threads=1 --nocapture
+            export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/native-glass-motion-$scale"
+            env -u GSK_DEBUG KARIN_TEST_THEME_STYLE=liquid-glass GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" cargo test --lib --all-features --locked native_universal_panel_whole_surface_motion_and_mode_switch -- --ignored --test-threads=1 --nocapture
+          done
+          export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures/native-theme-high-contrast"
+          ADW_DEBUG_HIGH_CONTRAST=1 GDK_SCALE=1 dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_theme_matched_visual_surfaces -- --ignored --test-threads=1 --nocapture
       - name: Capture real GTK visual review matrix
         env:
           KARIN_CAPTURE_RENDERER: ngl

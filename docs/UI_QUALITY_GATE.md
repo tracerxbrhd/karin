@@ -21,6 +21,20 @@ Assess density, hierarchy, contrast and actions. At 900×650, Liked leaves three
 complete 64-pixel rows, hero ≤32% viewport height and filter ≤56 pixels. Global
 search retains its density checks. Bounds alone are not visual acceptance.
 
+Compare System and Liquid Glass with identical content, sizes and schemes.
+Include Home/Wave, Liked, a playlist, Track Info, Lyrics, Queue and the player.
+Measure the complete Seek/control hit targets against the window edge: the
+inner bottom gap is at least 24 logical pixels, with no hidden-footer height.
+Check actual rendered foreground/background contrast (primary text ≥4.5:1),
+not a CSS-class assertion. High Contrast must hide the decorative background
+and retain opaque surfaces. A repeated footer Lyrics action returns to Track
+Info without changing the panel width or outer openness; explicit Close still
+closes it. Style changes retain player identity, position, modes, queue,
+MPRIS, Lyrics, open pane and search intent. Verify persistence after restart.
+For matched work observations retain wall/CPU/frame-gap data and background
+preparation counters. Scrolling and player ticks cannot reprepare/reblur the
+cached scenery. Xvfb timing is not physical-GPU FPS or desktop acceptance.
+
 Check HeaderBar/window controls, spacing, wrapping, scrolling, hit targets and no
 horizontal overflow. Compact footer controls stay reachable. Use the native
 [input helper](../src/ui/music/test_input.rs) for popovers; missing cross-native

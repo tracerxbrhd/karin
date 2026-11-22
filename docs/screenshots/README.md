@@ -95,3 +95,36 @@ SHA-256:
 73401e1e9e0ff873609f9c6d97380b3864d40b5075cd53d710f4c0680a429b7f  wave-home-light.png
 6a1a6d9301d4f8c188718c8197f0ba5e4bcccc9437b2ab168876b28c05664a9a  wave-home-dark.png
 ```
+
+## v0.8 System and Liquid Glass
+
+[Light comparison](v08-system-liquid-glass-light.png) ·
+[Dark comparison](v08-system-liquid-glass-dark.png)
+
+Each image compares the same Home and pinned Track Info content in System
+(left) and Liquid Glass (right). The four complete 1440×900 native GTK captures
+are reduced to 480×300 thumbnails with labels; the application pixels are not
+reconstructed. The originals are retained by
+[`native_theme_matched_visual_surfaces`](../../src/ui/music/design_tests/theme_review.rs),
+which captures all seven music states at five window sizes in both styles and
+color schemes. Stable gallery captures pause the existing GStreamer player and
+use Reduced Motion. Separate native tests observe actual synchronized playback
+and ordinary animation frames.
+
+Captured on 22 November 2026 (UTC), GTK 4.18.6, Libadwaita 1.7.6, scale 1,
+GskGLRenderer under Xvfb, using the original local catalog, artwork, audio and
+lyrics fixtures. This is a precommit development build based on `d345fec`, with
+modified sources; its native test ELF SHA-256 is
+`d0256777225897a9cdacda0a8ac86e4625f4875ee60d13727e8309b084c62461`.
+The matching 140-case run passed native layout, lifecycle and paired painted-text
+contrast checks. It does not establish physical GPU performance or new Fedora,
+installed Flatpak or live Yandex-account acceptance. Exact committed-package
+verification is recorded separately in [validation](../VALIDATION.md).
+
+SHA-256:
+
+```text
+b9e103b5a87041cf9f7f3e3b7c0291ce50860fd92aa9d41df36def9a7e24bbd1  docs/screenshots/v08-system-liquid-glass-light.png
+6272f48a7abb2da687535b7fdb91ebef9ae0403db6a12b994ae50a535d64c3e5  docs/screenshots/v08-system-liquid-glass-dark.png
+
+```

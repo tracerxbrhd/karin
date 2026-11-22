@@ -299,6 +299,20 @@ fn native_v08_footer_lyrics_and_volume_scroll() {
     pump_until(|| !popup.is_mapped());
     assert_eq!(this.panel_mode.get(), PanelMode::TrackInfo);
 
+    let reveal = this
+        .info_host
+        .borrow()
+        .as_ref()
+        .unwrap()
+        .revealer()
+        .unwrap();
+    pump_until(|| reveal.is_child_revealed());
+    let panel_width = host.width();
+    let progress = Rc::new(RefCell::new(Vec::new()));
+    let changes = progress.clone();
+    let progress_handler = reveal.connect_notify_local(Some("progress"), move |panel, _| {
+        changes.borrow_mut().push(panel.progress());
+    });
     let activations = Rc::new(Cell::new(0));
     let observed = activations.clone();
     this.widgets
@@ -316,9 +330,29 @@ fn native_v08_footer_lyrics_and_volume_scroll() {
         this.widgets.lyrics.tooltip_text().as_deref(),
         Some("Текст песни")
     );
+    this.seek_music(std::time::Duration::ZERO);
+    pump_until(|| {
+        playing
+            .snapshot()
+            .position
+            .is_some_and(|p| p < std::time::Duration::from_millis(200))
+    });
+    this.toggle_music();
+    pump_until(|| playing.snapshot().state == PlaybackState::Playing);
     assert!(this.widgets.lyrics.grab_focus());
     input(&["key", "--clearmodifiers", "space"]);
-    pump_until(|| this.panel_mode.get() == PanelMode::Closed && !this.widgets.lyrics.is_active());
+    pump_until(|| {
+        this.panel_mode.get() == PanelMode::TrackInfo && !this.widgets.lyrics.is_active()
+    });
+    assert!(this.info_is_open() && reveal.is_child_revealed());
+    assert_eq!(host.width(), panel_width);
+    assert_eq!(this.track_pane.selected().unwrap().id, "42");
+    assert!(this.information_follows_current_playback());
+    assert!(this.widgets.lyrics.has_focus());
+    assert_eq!(playing.snapshot().state, PlaybackState::Playing);
+    assert_eq!(playing.snapshot().generation, generation);
+    this.pause_music();
+    pump_until(|| playing.snapshot().state == PlaybackState::Paused);
     assert_eq!(activations.get(), 2);
     this.select_track_info(track(43), None, false);
     this.set_panel_mode(PanelMode::TrackInfo);
@@ -327,11 +361,43 @@ fn native_v08_footer_lyrics_and_volume_scroll() {
     pump_until(|| this.panel_mode.get() == PanelMode::Lyrics);
     assert_eq!(activations.get(), 3);
     assert_eq!(this.track_pane.selected().unwrap().id, "42");
+    click(&ui.window, window, &this.track_pane.back_info);
+    pump_until(|| {
+        this.panel_mode.get() == PanelMode::TrackInfo && this.track_pane.menu.is_mapped()
+    });
+    assert!(reveal.is_child_revealed());
+    assert_eq!(host.width(), panel_width);
+    assert_eq!(this.track_pane.selected().unwrap().id, "42");
+
+    // A footer activation while inspecting another song first selects the
+    // real current occurrence; the next activation returns its Info in place.
+    this.show_track_lyrics(track(43), None);
+    pump_until(|| this.panel_mode.get() == PanelMode::Lyrics);
+    assert!(!this.information_follows_current_playback());
+    click(&ui.window, window, &this.widgets.lyrics);
+    pump_until(|| this.information_follows_current_playback());
+    assert_eq!(this.panel_mode.get(), PanelMode::Lyrics);
+    assert_eq!(this.track_pane.selected().unwrap().id, "42");
+    click(&ui.window, window, &this.widgets.lyrics);
+    pump_until(|| this.panel_mode.get() == PanelMode::TrackInfo);
+    assert!(reveal.is_child_revealed());
+    assert_eq!(host.width(), panel_width);
+    assert!(
+        progress.borrow().iter().all(|&p| p >= 0.999),
+        "mode changes must keep the outer panel open"
+    );
+    reveal.disconnect(progress_handler);
+
     click(&ui.window, window, &this.widgets.queue);
     pump_until(|| this.panel_mode.get() == PanelMode::Queue && !this.widgets.lyrics.is_active());
     click(&ui.window, window, &this.widgets.current_art_button);
     pump_until(|| this.panel_mode.get() == PanelMode::TrackInfo);
     assert_eq!(this.track_pane.widget, host);
+    click(&ui.window, window, &this.track_pane.close);
+    pump_until(|| !this.info_is_open() && !reveal.reveals_child());
+    assert_eq!(this.panel_mode.get(), PanelMode::Closed);
+    click(&ui.window, window, &this.widgets.current_art_button);
+    pump_until(|| this.panel_mode.get() == PanelMode::TrackInfo && reveal.is_child_revealed());
 
     for (width, height, label) in [
         (420, 720, "compact"),

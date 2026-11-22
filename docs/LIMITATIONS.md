@@ -193,5 +193,9 @@ revision CAS; fresh preflight/readback cannot prevent every external-writer race
 Ambiguous writes remain Unknown with GET-only reconciliation.
 
 System presentation uses Libadwaita and supported desktop preferences, not KDE's
-Qt theme/CSS. Karin Style is reserved and unavailable until designer assets exist;
+Qt theme/CSS. Liquid Glass blurs only its own bounded original scenery and
+caches the resulting texture. It does not capture or blur desktop contents
+behind a Wayland window and needs no extra Flatpak permissions. High Contrast
+uses opaque surfaces. These presentation changes still require the separate
+short desktop check. Karin Style is reserved and unavailable until designer assets exist;
 its visual acceptance is not claimed. See [designer handoff](design/KARIN_STYLE_INTEGRATION.md).

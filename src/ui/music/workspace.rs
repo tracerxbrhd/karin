@@ -749,7 +749,7 @@ impl Controller {
         }
         if self.panel_mode.get() == PanelMode::Lyrics && self.information_follows_current_playback()
         {
-            self.set_panel_mode(PanelMode::Closed);
+            self.set_panel_mode(PanelMode::TrackInfo);
             self.widgets.lyrics.grab_focus();
             return;
         }

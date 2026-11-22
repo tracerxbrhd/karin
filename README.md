@@ -29,6 +29,12 @@ is not affiliated with or endorsed by Yandex.
 GTK captures of the accepted v0.4 baseline with synthetic library data and
 original test artwork. [Capture details](docs/screenshots/README.md).
 
+PR #29's native System/Liquid Glass comparison: [Light](docs/screenshots/v08-system-liquid-glass-light.png)
+and [Dark](docs/screenshots/v08-system-liquid-glass-dark.png).
+These are reduced overviews of real GTK captures using original test data;
+[source and capture provenance](docs/screenshots/README.md#v08-system-and-liquid-glass)
+distinguishes them from desktop acceptance.
+
 ## Features
 
 - Yandex sign-in, liked tracks, personal playlists and catalog search.
@@ -48,6 +54,9 @@ original test artwork. [Capture details](docs/screenshots/README.md).
 - My Wave personal radio from Home, using the same queue, player and MPRIS.
 - A shared Track Info / Lyrics / Queue panel, a footer Lyrics action and
   volume-wheel control, responsive layouts, light/dark themes and HiDPI.
+- Native System and a separate Liquid Glass style, with independent color
+  selection. Liquid Glass uses a cached, original background beneath the normal
+  GTK controls; the future designer's Karin style remains unavailable.
 - MPRIS media controls and metadata for KDE Plasma and other Linux desktops.
 - Protected remembered sign-in and one account-scoped cache for metadata,
   artwork and eligible online-revalidated MP3 responses.
@@ -113,8 +122,12 @@ windows. The top search button, Ctrl+F and Home open one global search field
 in the space occupied by the three navigation tabs. Submitting a query shows
 catalog results. Clear returns to the originating page with the field open.
 Press Escape, use the close button or click empty space to bring back the tabs.
-New real-content/large-library/gesture acceptance is separate from v0.7 and is
-covered by [one final Native/Flatpak procedure](docs/BUILDING.md#v08-final-fedora-acceptance).
+The owner confirmed synchronized karaoke on real Fedora at `d345fec`.
+The final polish removes routine Lyrics/Similar captions, returns Lyrics to
+Track Info in place, gives the footer safe inner spacing and adds the separate
+Liquid Glass presentation. This work has its own
+[short Native/Flatpak check](docs/BUILDING.md#v08-final-fedora-acceptance);
+it does not repeat or expand the scope of prior owner acceptance.
 There is no v0.8 release/tag or automatic merge authorization.
 
 ## Build and run

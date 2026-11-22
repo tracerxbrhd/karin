@@ -114,10 +114,15 @@ pub(super) fn ordinary_lyrics_playback(app: &adw::Application) {
     let surface = std::iter::successors(view.lyrics_widget.parent(), gtk::Widget::parent)
         .find(|widget| widget.has_css_class("music-information-view"))
         .expect("mapped native sidebar with its themed background");
-    let host = surface.parent().unwrap();
-    let sidebar = host
+    let sidebar_widget = surface.parent().unwrap();
+    let sidebar = sidebar_widget
         .downcast_ref::<crate::ui::music::sliding_panel::SlidingPanel>()
         .unwrap();
+    // Liquid Glass paints the opaque application-owned backdrop below the
+    // translucent pane. All captured geometry therefore belongs to the real
+    // window scene, rather than an isolated pane without its backing sibling.
+    let host: gtk::Widget = window.clone().upcast();
+    let scene_child = window.child().unwrap();
     let panel = || surface.compute_bounds(&host).unwrap();
     for (dark, motion) in [(false, true), (true, true), (true, false), (false, false)] {
         settings.set_gtk_enable_animations(motion);
@@ -195,8 +200,8 @@ pub(super) fn ordinary_lyrics_playback(app: &adw::Application) {
             let frames = frames.clone();
             let controller = Rc::downgrade(this);
             let lyrics = view.inner.clone();
-            let surface = surface.clone();
             let host = host.clone();
+            let scene_child = scene_child.clone();
             move |clock| {
                 let Some(snapshot) = controller.upgrade().and_then(|c| c.music_snapshot()) else {
                     return;
@@ -210,12 +215,20 @@ pub(super) fn ordinary_lyrics_playback(app: &adw::Application) {
                 let Some(position) = snapshot.position else {
                     return;
                 };
-                // After GTK has painted the mapped sidebar, snapshot_child
-                // returns its cached node, including its normal theme and
-                // clipping. Observing the subtree leaves toplevel damage and
-                // its idle publication schedule out of the sampling path.
+                // Read the cached native child scene after GTK has painted.
+                // It includes the real pane and its application backdrop;
+                // no artificial opaque layer is added by this observer. The
+                // explicit window bounds and matching row coordinates keep
+                // native window-decoration bounds out of the texture origin.
                 let scene = gtk::Snapshot::new();
-                host.snapshot_child(&surface, &scene);
+                scene.push_clip(&graphene::Rect::new(
+                    0.0,
+                    0.0,
+                    host.width() as f32,
+                    host.height() as f32,
+                ));
+                host.snapshot_child(&scene_child, &scene);
+                scene.pop();
                 if let Some(node) = scene.to_node() {
                     frames.borrow_mut().push(Frame {
                         frame_time: clock.frame_time(),
