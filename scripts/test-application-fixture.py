@@ -221,11 +221,22 @@ def click(item):
     # GTK 4.14/4.18 omit screen coordinates and GrabFocus. Use the same
     # accessible Click an assistive user sends to the native actionable child.
     actions = call(item["ref"], "org.a11y.atspi.Action", "GetActions")[0]
-    if not actions and item["role"] == "button":
-        item = wait(
-            lambda: find(item["name"], "toggle button"),
-            "native menu button child",
-        )
+    if item["role"] == "button":
+        # GtkMenuButton can expose its *menu entries* as outer actions. Index0
+        # may enqueue a track rather than open the menu. Activate only this
+        # button's own native toggle, never a global same-name match.
+        toggles = [
+            child
+            for child in tree(item["ref"])
+            if visible(child)
+            and child["role"] == "toggle button"
+            and child["name"] == item["name"]
+        ]
+        assert len(toggles) <= 1, "Ambiguous native MenuButton toggle"
+        if toggles:
+            item = toggles[0]
+        else:
+            assert actions, "Button has no native action or owned toggle"
     if item["role"] == "label":
         parent = prop(item["ref"], ACCESS, "Parent")
         item = next(
