@@ -145,6 +145,6 @@ On 2026-11-11 the owner accepted `c1de869` real Native and installed-Flatpak
 playback, complete saving, local hits and local replay after restart; graphics
 are provisionally accepted. PR #26 normally merged at `1fd4028`, preserving its
 history. Actual CDN headers remain unmeasured in Cloud. The
-[Native/installed-Flatpak check](../BUILDING.md#pr-26-corrected-cache-acceptance)
+[Native/installed-Flatpak check](../BUILDING.md#desktop-regression-checks)
 remains a regression procedure. Technical acceptance does not establish public
 client/content distribution or offline lifetimes.

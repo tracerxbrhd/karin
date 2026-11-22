@@ -201,6 +201,9 @@ fn native_library_interactions_confirmed_fixture() {
                         playlist_detail_reads.fetch_add(1, Ordering::AcqRel);
                         (200, json!({"result":{"kind":9,"trackCount":0}}).to_string())
                     },
+                    ("GET", path) if crate::ui::music::tests::empty_similar_response(path).is_some() => {
+                        (200, crate::ui::music::tests::empty_similar_response(path).unwrap().to_string())
+                    },
                     _ => panic!("unexpected synthetic interaction operation"),
                 };
                 let _ = write!(
@@ -243,7 +246,7 @@ fn native_library_interactions_confirmed_fixture() {
     }
     this.render_controls();
     window.present();
-    // These are the same production controls appended to actual track details;
+    // These use the same confirmed reaction logic in a focused widget host;
     // only the test metadata and HTTP service are synthetic.
     this.detail_header("Synthetic interaction track", "Synthetic artist");
     let controls = this.like_controls("42".into());
@@ -467,7 +470,7 @@ fn native_library_interactions_confirmed_fixture() {
         "hidden selection/render never reads Likes"
     );
     assert_eq!(posts.load(Ordering::Acquire), 4);
-    this.set_fixture_resolver_for_test(crate::stream::StreamResolver::for_test(
+    this.set_fixture_resolver(crate::stream::StreamResolver::for_test(
         &origin, &origin, &origin,
     ));
     this.play_music_queue(0);

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Original synthetic HTTP media; this is not a real Music/Fedora sound test.
 
+mod resume;
+
 use super::super::tests::{capture_native, contains_text, pump_until};
 use super::*;
 use gst::prelude::*;
@@ -361,7 +363,11 @@ fn serve(
             json!({"result":ids.into_iter().rev().map(|id| json!({"id":id,"title":"Synthetic remote player track","durationMs":4000,
             "available":!unavailable.contains(&id),"artists":[{"name":"Synthetic artist"}]})).collect::<Vec<_>>()}),
         );
-    } else if url.path().starts_with("/tracks/") {
+    } else if let Some(response) = crate::ui::music::tests::empty_similar_response(url.path()) {
+        json_response(&mut stream, response);
+    } else if url.path().starts_with("/tracks/") && url.path().ends_with("/supplement") {
+        json_response(&mut stream, json!({"result":{"lyrics":null}}));
+    } else if url.path().starts_with("/tracks/") && url.path().ends_with("/download-info") {
         let track: usize = url.path().split('/').nth(2).unwrap().parse().unwrap();
         assert!((42..=45).contains(&track));
         let rejected = {
@@ -533,7 +539,11 @@ impl Drop for GeneratedDirectory {
 }
 
 pub(in crate::ui::music) fn generated_mp3() -> Vec<u8> {
-    // Original four-second signal, encoded by the installed normal MP3 plugin.
+    generated_mp3_for_seconds(4)
+}
+
+pub(in crate::ui::music) fn generated_mp3_for_seconds(seconds: i32) -> Vec<u8> {
+    // Original signal, encoded by the installed normal MP3 plugin.
     // A private temporary encoding file is removed before HTTP playback; these
     // bytes never contain service music or establish real Music audibility.
     gst::init().unwrap();
@@ -555,7 +565,7 @@ pub(in crate::ui::music) fn generated_mp3() -> Vec<u8> {
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
     let pipeline = gst::Pipeline::new();
     let source = gst::ElementFactory::make("audiotestsrc")
-        .property("num-buffers", 400_i32)
+        .property("num-buffers", 100 * seconds)
         .property("samplesperbuffer", 441_i32)
         .property("volume", 0.03_f64)
         .build()
@@ -826,9 +836,8 @@ fn native_music_playback_resolver_queue_controls_and_logout() {
     let (_app, ui) = player_window(&fixture);
     let pane = &ui.music;
     let this = &pane.controller;
-    this.widgets.stack.set_visible_child_name("search");
+    ui.show_page("music-search");
     this.widgets.search.set_text("Synthetic playable search");
-    native_click(&ui.window, &this.widgets.search_button);
     pump_until(|| {
         !this.model.borrow().busy
             && contains_text(
@@ -856,6 +865,26 @@ fn native_music_playback_resolver_queue_controls_and_logout() {
     for id in ["43", "44"] {
         this.enqueue(track(id));
     }
+    // A different header query refreshes the catalog while the first result
+    // is already playing through the ordinary GStreamer worker.
+    let before_search = this.music_snapshot().unwrap();
+    let context = this.model.borrow().queue.context().cloned();
+    let occurrence = this.model.borrow().queue.current_occurrence_id().cloned();
+    this.widgets
+        .search
+        .set_text("Second catalog query during playback");
+    this.widgets.search.emit_by_name::<()>("activate", &[]);
+    pump_until(|| fixture.counts.lock().unwrap().searches == 2 && !this.model.borrow().busy);
+    let after_search = this.music_snapshot().unwrap();
+    assert_eq!(after_search.state, PlaybackState::Playing);
+    assert_eq!(after_search.generation, before_search.generation);
+    assert_eq!(after_search.source_revision, before_search.source_revision);
+    assert_eq!(after_search.seek_serial, before_search.seek_serial);
+    assert_eq!(this.model.borrow().queue.context(), context.as_ref());
+    assert_eq!(
+        this.model.borrow().queue.current_occurrence_id(),
+        occurrence.as_ref()
+    );
     this.toggle_queue_panel();
     assert!(this.widgets.play.is_sensitive());
     assert!(contains_text(
@@ -893,13 +922,18 @@ fn native_music_playback_resolver_queue_controls_and_logout() {
         this.music_snapshot()
             .is_some_and(|snapshot| (snapshot.volume - 0.23).abs() < 0.001)
     });
+    // Native acceptance may publish the target before the HTTP thread runs.
+    // Await both observations under the same existing deadline.
+    let before_seek = this.music_snapshot().unwrap().seek_serial;
     change_range(&this.widgets.progress, 1.0);
     pump_until(|| {
-        this.music_snapshot()
-            .and_then(|snapshot| snapshot.position)
-            .is_some_and(|position| {
-                position >= Duration::from_millis(900) && position < Duration::from_millis(1200)
-            })
+        this.music_snapshot().is_some_and(|snapshot| {
+            snapshot.seek_serial > before_seek
+                && snapshot.seek_position == Some(Duration::from_secs(1))
+                && snapshot.position.is_some_and(|position| {
+                    position >= Duration::from_millis(900) && position < Duration::from_millis(1200)
+                })
+        }) && fixture.counts.lock().unwrap().range_requests > 0
     });
     assert!(fixture.counts.lock().unwrap().range_requests > 0);
     capture_native("music-player-paused-controls");
@@ -1275,7 +1309,15 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
     // owner and independent storage authority. Persistent bytes alone cannot
     // authorize local playback, and every hit must resolve the online source.
     let checks_before_restart = fixture.counts.lock().unwrap().account_checks;
+    // Deliberately leave a real presence task pending at close. Its weak GTK
+    // callback still owns the cache until the bounded read has completed.
+    this.register_cache_indicator("42", &this.widgets.current_cache);
+    this.tick_cache_presence();
+    assert!(this.cache_presence_query_running_for_test());
     this.close();
+    // Closing fences reads immediately; same-process namespace reconstruction
+    // must also await the old asynchronous owner, rather than racing its flock.
+    pump_until(|| !this.cache_presence_query_running_for_test() && cache.lookup_settled_for_test());
     ui.window.close();
     drop(cache);
     drop(ui);
@@ -2192,7 +2234,38 @@ fn native_music_playback_media_error_visibility_stop_retry_and_catalog_preservat
     )
     .unwrap();
     capture_native("music-player-media-http403");
+    // A settled allocation can hide a clipped first compact frame. Observe
+    // the real paint before requesting the resize, while Retry is visible.
+    let first_paint = Rc::new(RefCell::new(None));
+    let painted = first_paint.clone();
+    let window = ui.window.clone();
+    let retry = this.widgets.play.clone();
+    let clock = window.frame_clock().unwrap();
+    let observer = clock.connect_after_paint(move |_| {
+        if painted.borrow().is_none()
+            && window
+                .surface()
+                .is_some_and(|surface| surface.width() == 420 && surface.height() == 720)
+        {
+            let bounds = retry.compute_bounds(&window).filter(|_| retry.is_mapped());
+            painted.replace(Some((bounds, window.width(), window.height())));
+        }
+    });
     resize_player_window(&ui, 420, 720);
+    ui.window.queue_draw();
+    pump_until(|| first_paint.borrow().is_some());
+    clock.disconnect(observer);
+    let (retry, width, height) = first_paint.take().unwrap();
+    let retry = retry.expect("Retry must be mapped in the first compact frame");
+    assert!(
+        retry.width() > 0.0
+            && retry.height() > 0.0
+            && retry.x() >= 0.0
+            && retry.y() >= 0.0
+            && retry.x() + retry.width() <= width as f32
+            && retry.y() + retry.height() <= height as f32,
+        "Retry was clipped in the first compact frame: {retry:?} in {width}×{height}"
+    );
     eprintln!("Karin synthetic player-error phase=compact-pinned-footer");
     assert!(this.info_is_open());
     assert!(!this.widgets.stack.is_mapped());
@@ -3451,6 +3524,159 @@ fn native_wave_shared_player_feedback_batches_and_cleanup() {
         desktop_property("LoopStatus").get::<String>().unwrap(),
         "None"
     );
+    // Color selection uses the same coordinator callback as native Preferences.
+    // This is an actual Playing Wave worker, with its initial feedback settled.
+    pump_until(|| this.radio_idle_for_test() && this.wave_cycle_for_test().is_some());
+    let wave_session = this.wave_session_for_test().unwrap();
+    let wave_cycle = this.wave_cycle_for_test();
+    let context_before_appearance = this.model.borrow().queue.context().unwrap().clone();
+    let occurrences_before_appearance = {
+        let model = this.model.borrow();
+        (0..model.queue.items().len())
+            .map(|index| model.queue.occurrence_id(index).unwrap().clone())
+            .collect::<Vec<_>>()
+    };
+    let (
+        sessions_before_appearance,
+        batches_before_appearance,
+        events_before_appearance,
+        offers_before_appearance,
+        descriptors_before_appearance,
+    ) = {
+        let counts = fixture.counts.lock().unwrap();
+        (
+            counts.wave_sessions,
+            counts.wave_batches,
+            counts.wave_events.clone(),
+            counts.offers,
+            counts.descriptors,
+        )
+    };
+    let initial_appearance_snapshot = engine.snapshot();
+    assert_eq!(initial_appearance_snapshot.state, PlaybackState::Playing);
+    let mut last_position = initial_appearance_snapshot.position.unwrap();
+    let mut last_heard = initial_appearance_snapshot.playing_time;
+    let first_desktop_position = desktop_property("Position").get::<i64>().unwrap();
+    let mut last_desktop_position = first_desktop_position;
+    for appearance in [
+        crate::settings::ColorScheme::Light,
+        crate::settings::ColorScheme::Dark,
+        crate::settings::ColorScheme::System,
+    ] {
+        let mut values = this.persistence.borrow().values.clone();
+        values.appearance = appearance;
+        let painted = Rc::new(Cell::new(false));
+        let observed = painted.clone();
+        let clock = ui.window.frame_clock().unwrap();
+        let handler = clock.connect_after_paint(move |_| observed.set(true));
+        this.preferences_changed(values);
+        ui.window.queue_draw();
+        pump_until(|| {
+            painted.get()
+                && engine
+                    .snapshot()
+                    .position
+                    .is_some_and(|position| position > last_position)
+        });
+        clock.disconnect(handler);
+        assert_eq!(this.persistence.borrow().values.appearance, appearance);
+        assert!(ui.window.has_css_class("karin-style-system"));
+        assert_eq!(
+            adw::StyleManager::default().color_scheme(),
+            match appearance {
+                crate::settings::ColorScheme::Light => adw::ColorScheme::ForceLight,
+                crate::settings::ColorScheme::Dark => adw::ColorScheme::ForceDark,
+                crate::settings::ColorScheme::System => adw::ColorScheme::Default,
+            }
+        );
+        let snapshot = engine.snapshot();
+        assert_eq!(snapshot.state, PlaybackState::Playing);
+        assert_eq!(snapshot.generation, initial_appearance_snapshot.generation);
+        assert_eq!(
+            snapshot.source_revision,
+            initial_appearance_snapshot.source_revision
+        );
+        assert_eq!(
+            snapshot.seek_serial,
+            initial_appearance_snapshot.seek_serial
+        );
+        assert_eq!(snapshot.volume, initial_appearance_snapshot.volume);
+        assert!(
+            snapshot.position.unwrap() >= last_position,
+            "appearance cannot reset the real Wave playhead"
+        );
+        assert!(
+            snapshot.playing_time >= last_heard,
+            "appearance cannot reset confirmed listening"
+        );
+        last_position = snapshot.position.unwrap();
+        last_heard = snapshot.playing_time;
+        assert_eq!(this.music_serial(), first_serial);
+        assert_eq!(
+            this.model.borrow().queue.current_occurrence_id(),
+            Some(&first_occurrence)
+        );
+        {
+            let model = this.model.borrow();
+            assert!(model.queue.context() == Some(&context_before_appearance));
+            assert!(!model.queue.shuffle());
+            assert_eq!(model.queue.repeat_mode(), RepeatMode::Off);
+            assert_eq!(
+                (0..model.queue.items().len())
+                    .map(|index| model.queue.occurrence_id(index).unwrap().clone())
+                    .collect::<Vec<_>>(),
+                occurrences_before_appearance
+            );
+        }
+        assert_eq!(this.radio_status().phase, RadioPhase::Active);
+        assert_eq!(this.wave_cycle_for_test(), wave_cycle);
+        assert!(!wave_session.is_cancelled());
+        assert!(
+            this.wave_session_for_test()
+                .is_some_and(|session| !session.is_cancelled())
+        );
+        assert_eq!(metadata_path(), first_path);
+        assert_eq!(
+            desktop_property("PlaybackStatus")
+                .get::<String>()
+                .as_deref(),
+            Some("Playing")
+        );
+        assert_eq!(
+            desktop_property("Volume").get::<f64>(),
+            Some(initial_appearance_snapshot.volume)
+        );
+        let desktop_position = desktop_property("Position").get::<i64>().unwrap();
+        assert!(
+            desktop_position >= last_desktop_position,
+            "the system media position cannot reset during an appearance change"
+        );
+        last_desktop_position = desktop_position;
+        let counts = fixture.counts.lock().unwrap();
+        assert_eq!(
+            (counts.wave_sessions, counts.wave_batches),
+            (sessions_before_appearance, batches_before_appearance)
+        );
+        assert!(
+            counts.wave_events == events_before_appearance,
+            "appearance alone must not POST Wave feedback"
+        );
+        assert_eq!(counts.offers, offers_before_appearance);
+        assert_eq!(counts.descriptors, descriptors_before_appearance);
+    }
+    assert!(
+        last_position > initial_appearance_snapshot.position.unwrap(),
+        "real audio must progress across the rendered appearance cycle"
+    );
+    assert!(
+        last_desktop_position > first_desktop_position,
+        "the system media position must advance with the same playing Wave"
+    );
+    if let Some(directory) = std::env::var_os("KARIN_TEST_CAPTURE_DIR") {
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(std::path::Path::new(&directory).join(format!("wave-appearance-continuity-scale{}.json", ui.window.scale_factor())),
+            serde_json::to_vec_pretty(&json!({"scope":"synthetic-native-playing-wave", "color_schemes":["light","dark","system"], "same_worker_and_occurrence":true, "mpris_playing_and_volume_unchanged":true, "wave_session_and_feedback_unchanged":true, "real_playhead_advanced":true})).unwrap()).unwrap();
+    }
     let home_serial = this.music_serial();
     let home_sessions = fixture.counts.lock().unwrap().wave_sessions;
     native_click(&ui.window, &this.widgets.nav_liked);

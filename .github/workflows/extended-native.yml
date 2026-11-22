@@ -1,0 +1,84 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+name: Extended native capture gallery (manual)
+
+# Optional signed-out diagnostic gallery. Populated System, motion, cold footer,
+# lyrics glyphs, High Contrast and targeted HiDPI remain required in ci.yml.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: extended-native-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gallery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    container:
+      image: rust:1.98.1-slim-trixie@sha256:4cd829461bd5c4d511c32e269da9cb8929223b666519d8004e35fc8d1d771ab7
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_INCREMENTAL: 0
+      RUSTUP_TOOLCHAIN: stable
+      KARIN_CAPTURE_RENDERER: ngl
+      LP_NUM_THREADS: 2
+    steps:
+      - name: Install native capture dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get -o APT::Update::Error-Mode=any -o Acquire::Retries=2 -o Acquire::https::Timeout=20 update
+          apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=20 install -y --no-install-recommends \
+            build-essential pkg-config git python3 ca-certificates \
+            libgtk-4-dev libadwaita-1-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+            libssl-dev libdbus-1-dev libsecret-1-dev libwebkitgtk-6.0-dev \
+            dbus-x11 xvfb xauth librsvg2-common adwaita-icon-theme fonts-cantarell \
+            fonts-dejavu-core openbox imagemagick xdotool wmctrl x11-utils \
+            libgl1-mesa-dri libegl-mesa0 libglx-mesa0
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6, Node.js 24
+      - name: Configure this isolated capture runner
+        id: rust
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          rustup toolchain install stable --profile minimal
+          echo "version=$(rustc --version | tr ' ' '-')" >> "$GITHUB_OUTPUT"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          cpus = len(os.sched_getaffinity(0))
+          memory = int(next(line.split()[1] for line in Path('/proc/meminfo').read_text().splitlines() if line.startswith('MemAvailable:'))) * 1024
+          limit = Path('/sys/fs/cgroup/memory.max')
+          if limit.exists() and limit.read_text().strip().isdigit():
+              memory = min(memory, int(limit.read_text()))
+          jobs = min(cpus, max(1, (memory - 2 * 1024**3) // (3 * 1024**3)))
+          print(f'Runner CPUs={cpus}; available/cgroup bytes={memory}; Cargo jobs={jobs}')
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              env.write(f'CARGO_BUILD_JOBS={jobs}\n')
+          PY
+      - name: Cache this compiler/target/default capture configuration
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5, Node.js 24
+        with:
+          path: |
+            /usr/local/cargo/registry
+            /usr/local/cargo/git
+            target
+          key: cargo-debian13-${{ steps.rust.outputs.version }}-x86_64-default-capture-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'build.rs') }}-${{ hashFiles('src/**', 'resources/**') }}
+          restore-keys: cargo-debian13-${{ steps.rust.outputs.version }}-x86_64-default-capture-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'build.rs') }}-
+      - name: Build the ordinary client and capture both scales
+        run: |
+          cargo build --workspace --locked
+          scripts/capture-ui.sh build/ui-captures
+          KARIN_CAPTURE_SCALE=2 scripts/capture-ui.sh build/ui-captures/hidpi
+      - name: Retain the optional gallery
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6, Node.js 24
+        with:
+          name: karin-extended-gallery-${{ github.sha }}
+          path: build/ui-captures/
+          retention-days: 7
+          if-no-files-found: error

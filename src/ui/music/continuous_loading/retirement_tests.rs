@@ -161,6 +161,9 @@ fn serve(
             counts.liked_playlists.fetch_add(1, Ordering::AcqRel);
             wire_playlists(true)
         }
+        ("GET", path) if crate::ui::music::tests::empty_similar_response(path).is_some() => {
+            crate::ui::music::tests::empty_similar_response(path).unwrap()
+        }
         _ => panic!("unexpected synthetic refresh/Like route"),
     };
     let body = response.to_string();

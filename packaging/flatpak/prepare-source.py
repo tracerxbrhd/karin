@@ -31,6 +31,21 @@ def main() -> None:
             ".git", "target", "build", "builddir", ".flatpak-builder", ".env", ".env.*", "*.log"
         ),
     )
+    # Git is intentionally omitted from the build sandbox. Retain the exact
+    # public revision so the installed executable can identify its own source.
+    revision = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repository, text=True
+    ).strip()
+    if len(revision) != 40 or any(c not in "0123456789abcdef" for c in revision):
+        raise SystemExit("Cannot identify the prepared source revision.")
+    (stage / "BUILD-REVISION").write_text(revision + "\n", encoding="ascii")
+    modified = subprocess.check_output(
+        ["git", "status", "--porcelain", "--untracked-files=normal"],
+        cwd=repository,
+    )
+    (stage / "BUILD-SOURCE-STATUS").write_text(
+        "modified\n" if modified else "clean\n", encoding="ascii"
+    )
     cargo_config = stage / ".cargo" / "config.toml"
     cargo_config.parent.mkdir(exist_ok=True)
     with cargo_config.open("w", encoding="utf-8") as configuration:

@@ -23,8 +23,15 @@ impl Lookup {
     /// Most reads have already finished in parallel. A busy/slow cache has a
     /// small bounded allowance, then ordinary online resolution continues.
     pub(crate) fn wait(self, current: impl Fn() -> bool) -> Option<PreparedSelection> {
+        #[cfg(test)]
+        let receipt = |outcome, error| {
+            let started = self.deadline - Duration::from_millis(250);
+            diagnostic::selection(outcome, error, Some(started.elapsed()));
+        };
         loop {
             if !current() {
+                #[cfg(test)]
+                receipt("lookup-cancelled", None);
                 return None;
             }
             let remaining = self.deadline.saturating_duration_since(Instant::now());
@@ -32,9 +39,29 @@ impl Lookup {
                 .result
                 .recv_timeout(remaining.min(Duration::from_millis(10)))
             {
-                Ok(result) => return result.ok(),
-                Err(mpsc::RecvTimeoutError::Disconnected) => return None,
+                Ok(result) => {
+                    #[cfg(test)]
+                    match &result {
+                        Ok(prepared) => receipt(
+                            if prepared.has_file() {
+                                "lookup-ready"
+                            } else {
+                                "lookup-record-missing"
+                            },
+                            None,
+                        ),
+                        Err(error) => receipt("lookup-error", Some(*error)),
+                    }
+                    return result.ok();
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    #[cfg(test)]
+                    receipt("lookup-disconnected", None);
+                    return None;
+                }
                 Err(mpsc::RecvTimeoutError::Timeout) if Instant::now() >= self.deadline => {
+                    #[cfg(test)]
+                    receipt("lookup-timeout", None);
                     return None;
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {}

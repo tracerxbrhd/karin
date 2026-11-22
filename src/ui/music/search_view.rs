@@ -2,8 +2,347 @@
 //! One search journey with independently usable typed result sections.
 use super::*;
 use crate::music::{SearchPlaylist, SearchSection, UnifiedSearchResults};
+use std::{
+    sync::atomic::{AtomicBool, Ordering},
+    time::Duration,
+};
+
+const SEARCH_DEBOUNCE: Duration = Duration::from_millis(350);
+
+#[derive(Default)]
+pub(super) struct SearchInput {
+    origin: RefCell<Option<SearchOrigin>>,
+    restoring_detail: Cell<bool>,
+    debounce: RefCell<Option<glib::SourceId>>,
+    unsent: Cell<bool>,
+    cancellation: RefCell<Option<Arc<AtomicBool>>>,
+}
+
+#[derive(Clone)]
+struct SearchOrigin {
+    page: String,
+    detail: Option<DetailRefresh>,
+    detail_parent: String,
+    detail_loading: bool,
+}
 
 impl Controller {
+    pub(super) fn connect_search_entry(self: &Rc<Self>) {
+        let weak = Rc::downgrade(self);
+        self.widgets.nav_search.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade() {
+                if this.widgets.search_header.is_open() {
+                    this.close_global_search(true);
+                } else {
+                    this.open_global_search();
+                }
+            }
+        });
+        if let Some(window) = self.window.upgrade() {
+            let keys = gtk::EventControllerKey::new();
+            keys.set_propagation_phase(gtk::PropagationPhase::Capture);
+            let weak = Rc::downgrade(self);
+            keys.connect_key_pressed(move |_, key, _, _| {
+                if key == gtk::gdk::Key::Escape
+                    && let Some(this) = weak.upgrade()
+                    && this.search_header_active()
+                    && let Some(window) = this.window.upgrade()
+                    && window.visible_dialog().is_none()
+                    && !gtk::prelude::GtkWindowExt::focus(&window)
+                        .is_some_and(|focus| focus.ancestor(gtk::Popover::static_type()).is_some())
+                {
+                    this.close_global_search(true);
+                    return glib::Propagation::Stop;
+                }
+                glib::Propagation::Proceed
+            });
+            window.add_controller(keys);
+
+            let click = gtk::GestureClick::new();
+            click.set_button(gtk::gdk::BUTTON_PRIMARY);
+            click.set_propagation_limit(gtk::PropagationLimit::SameNative);
+            click.set_propagation_phase(gtk::PropagationPhase::Capture);
+            // Observe both ends without claiming the sequence. An action can
+            // change the page before release and a drag can leave an entry.
+            let began_on_backdrop = Rc::new(Cell::new(false));
+            let began = began_on_backdrop.clone();
+            let weak = Rc::downgrade(self);
+            click.connect_pressed(move |_, _, x, y| {
+                began.set(
+                    weak.upgrade()
+                        .is_some_and(|this| this.search_backdrop_at(x, y)),
+                );
+            });
+            let began = began_on_backdrop.clone();
+            click.connect_stopped(move |_| began.set(false));
+            let weak = Rc::downgrade(self);
+            click.connect_released(move |_, _, x, y| {
+                if began_on_backdrop.replace(false)
+                    && let Some(this) = weak.upgrade()
+                    && this.search_backdrop_at(x, y)
+                {
+                    this.close_global_search(true);
+                }
+            });
+            window.add_controller(click);
+        }
+        let weak = Rc::downgrade(self);
+        // A replacement can emit "changed" twice, once for the temporary
+        // empty buffer. Observe the completed edit so only an actual clear
+        // restores the previous route.
+        self.widgets.search.connect_text_notify(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.search_entry_changed();
+            }
+        });
+        let weak = Rc::downgrade(self);
+        self.widgets.search.connect_activate(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.search(0);
+            }
+        });
+    }
+
+    fn search_backdrop_at(&self, x: f64, y: f64) -> bool {
+        if !self.search_header_active() {
+            return false;
+        }
+        let Some(window) = self.window.upgrade() else {
+            return false;
+        };
+        if window.visible_dialog().is_some() {
+            return false;
+        }
+        let Some(target) = window.pick(x, y, gtk::PickFlags::DEFAULT) else {
+            return false;
+        };
+        // A pick can return the image, label or padding inside a control.
+        // Walk out to the window so those descendants inherit its action.
+        for widget in std::iter::successors(Some(target), |w| w.parent()) {
+            if widget.is::<gtk::Window>() {
+                break;
+            }
+            if widget == *self.widgets.search.upcast_ref::<gtk::Widget>()
+                || widget == *self.widgets.player_revealer.upcast_ref::<gtk::Widget>()
+                || widget.is::<gtk::Actionable>()
+                || widget.is::<gtk::Editable>()
+                || widget.is::<gtk::MenuButton>()
+                || widget.is::<gtk::Popover>()
+                || widget.is::<gtk::Scrollbar>()
+                || widget.is::<gtk::ListBoxRow>()
+                || widget.is::<gtk::FlowBoxChild>()
+            {
+                return false;
+            }
+            // Scroll containers themselves take keyboard focus even when the
+            // picked pixel belongs to the empty space beside or below a list.
+            if widget.is_focusable()
+                && !widget.is::<gtk::ScrolledWindow>()
+                && !widget.is::<gtk::Viewport>()
+                && !widget.is::<gtk::ListBox>()
+                && !widget.is::<gtk::FlowBox>()
+            {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn search_origin(&self) -> SearchOrigin {
+        let page = self
+            .widgets
+            .stack
+            .visible_child_name()
+            .unwrap_or_else(|| "home".into());
+        SearchOrigin {
+            detail: (page == "detail")
+                .then(|| self.detail_refresh.borrow().clone())
+                .flatten(),
+            detail_parent: self.model.borrow().detail_origin.clone(),
+            detail_loading: page == "detail" && self.requests.borrow().active(Operation::Detail),
+            page: page.to_string(),
+        }
+    }
+
+    pub(super) fn open_global_search(self: &Rc<Self>) {
+        if !self.widgets.search.is_sensitive() {
+            return;
+        }
+        if !self.widgets.search_header.is_open() {
+            self.search_input.origin.replace(Some(self.search_origin()));
+            self.widgets.search.set_can_focus(true);
+            self.widgets.search_header.set_open(true);
+        }
+        self.widgets.search.grab_focus();
+    }
+
+    fn restore_search_origin(self: &Rc<Self>, origin: &SearchOrigin) {
+        let current = self.widgets.stack.visible_child_name();
+        if current.as_deref() != Some("search")
+            && !(current.as_deref() == Some("detail")
+                && self.model.borrow().detail_origin == "search")
+        {
+            return;
+        }
+        self.widgets.stack.set_visible_child_name(&origin.page);
+        if let Some(detail) = &origin.detail {
+            // Another result may have replaced the sole detail widget. Reopen
+            // the precise original entity with the ordinary cached read.
+            let displaced = self
+                .detail_refresh
+                .borrow()
+                .as_ref()
+                .is_none_or(|current| !Rc::ptr_eq(current, detail));
+            self.model
+                .borrow_mut()
+                .detail_origin
+                .clone_from(&origin.detail_parent);
+            if displaced || origin.detail_loading {
+                self.search_input.restoring_detail.set(true);
+                detail(self, false);
+                self.search_input.restoring_detail.set(false);
+            }
+        }
+    }
+
+    pub(super) fn entering_collection_detail(self: &Rc<Self>) {
+        if !self.widgets.search_header.is_open() || self.search_input.restoring_detail.get() {
+            return;
+        }
+        let route = self.widgets.stack.visible_child_name();
+        let from_results = route.as_deref() == Some("search")
+            || (route.as_deref() == Some("detail")
+                && self.model.borrow().detail_origin == "search");
+        if !from_results {
+            self.close_global_search(false);
+        }
+    }
+
+    pub(super) fn retire_global_search(&self) {
+        self.search_input.origin.take();
+        // Move focus before disabling the GtkText subtree. GTK otherwise
+        // queues a focus fallback that can run *after* Ctrl+F reopens it.
+        if self.window.upgrade().is_some_and(|window| {
+            gtk::prelude::GtkWindowExt::focus(&window).is_some_and(|focus| {
+                focus == *self.widgets.search.upcast_ref::<gtk::Widget>()
+                    || focus.is_ancestor(&self.widgets.search)
+            })
+        }) {
+            self.widgets.nav_search.grab_focus();
+        }
+        self.widgets.search.set_can_focus(false);
+        self.widgets.search_header.set_open(false);
+    }
+
+    pub(super) fn close_global_search(self: &Rc<Self>, restore: bool) {
+        if !self.widgets.search_header.is_open() {
+            return;
+        }
+        let origin = self.search_input.origin.take();
+        self.cancel_search_input();
+        self.requests.borrow_mut().invalidate(Operation::Search);
+        self.retire_global_search();
+        self.widgets.search.set_text("");
+        if restore {
+            if let Some(origin) = origin {
+                self.restore_search_origin(&origin);
+            }
+            self.widgets.nav_search.grab_focus();
+        }
+    }
+
+    fn cancel_search_debounce(&self) {
+        if let Some(source) = self.search_input.debounce.take() {
+            source.remove();
+        }
+    }
+
+    pub(super) fn cancel_search_input(&self) {
+        self.cancel_search_debounce();
+        self.search_input.unsent.set(false);
+        if let Some(cancellation) = self.search_input.cancellation.take() {
+            cancellation.store(true, Ordering::Release);
+        }
+    }
+
+    pub(super) fn search_cancellation(&self) -> Option<Arc<AtomicBool>> {
+        self.search_input.cancellation.borrow().clone()
+    }
+
+    fn search_header_active(&self) -> bool {
+        self.music_surface_visible.get() && self.widgets.search_header.is_open()
+    }
+
+    pub(super) fn sync_search_debounce_route(self: &Rc<Self>) {
+        if !self.search_header_active() {
+            self.cancel_search_debounce();
+            return;
+        }
+        if !self.search_input.unsent.get() || self.search_input.debounce.borrow().is_some() {
+            return;
+        }
+        let generation = self.model.borrow().generation;
+        let weak = Rc::downgrade(self);
+        self.search_input
+            .debounce
+            .replace(Some(glib::timeout_add_local_once(
+                SEARCH_DEBOUNCE,
+                move || {
+                    let Some(this) = weak.upgrade() else { return };
+                    this.search_input.debounce.take();
+                    let ready = {
+                        let model = this.model.borrow();
+                        model.account_valid && !model.closed && model.generation == generation
+                    };
+                    if ready && this.search_input.unsent.get() && this.search_header_active() {
+                        this.search(0);
+                    }
+                },
+            )));
+    }
+
+    fn search_entry_changed(self: &Rc<Self>) {
+        let already_cleared = self.search_input.unsent.get();
+        self.cancel_search_input();
+        self.requests.borrow_mut().invalidate(Operation::Search);
+        self.sync_busy();
+        self.track_feeds
+            .borrow_mut()
+            .retain(|feed| feed.rows != self.widgets.search_rows);
+        let ready = {
+            let mut model = self.model.borrow_mut();
+            model.view_generation += 1;
+            model.search_page = 0;
+            model.search_scope = None;
+            model.account_valid && !model.closed
+        };
+        let has_query = !self.widgets.search.text().trim().is_empty();
+        if !already_cleared || !has_query {
+            self.reset_search_sections();
+            self.clear_search_feedback();
+            clear_list(&self.widgets.search_rows);
+            self.widgets.search_next.set_visible(false);
+            self.widgets.search_previous.set_visible(false);
+        }
+        if ready && has_query {
+            self.search_input.unsent.set(true);
+            self.sync_search_debounce_route();
+        } else if ready {
+            self.show_empty_search();
+            let origin = self.search_input.origin.borrow().clone();
+            if let Some(origin) = origin {
+                self.restore_search_origin(&origin);
+            }
+        }
+    }
+
+    fn show_empty_search(&self) {
+        set_empty(
+            &self.widgets.search_rows,
+            "Что хотите послушать? Введите название или исполнителя.",
+        );
+    }
+
     pub(super) fn reset_search_sections(&self) {
         // Reparent the reusable track/section list before removing old sections.
         if let Some(parent) = self.widgets.search_rows.parent().and_downcast::<gtk::Box>() {
@@ -23,9 +362,13 @@ impl Controller {
     }
 
     pub(super) fn search(self: &Rc<Self>, page: u32) {
-        if !self.model.borrow().account_valid || self.model.borrow().closed {
+        if !self.search_header_active()
+            || !self.model.borrow().account_valid
+            || self.model.borrow().closed
+        {
             return;
         }
+        self.cancel_search_input();
         let query = self.widgets.search.text().trim().to_owned();
         let scope = self.model.borrow().search_scope;
         self.track_feeds
@@ -34,16 +377,24 @@ impl Controller {
         self.reset_search_sections();
         self.clear_search_feedback();
         clear_list(&self.widgets.search_rows);
-        if query.is_empty() {
-            set_empty(
-                &self.widgets.search_rows,
-                "Что хотите послушать? Введите название или исполнителя.",
-            );
-            return;
-        }
-        self.widgets.stack.set_visible_child_name("search");
         self.widgets.search_next.set_visible(false);
         self.widgets.search_previous.set_visible(false);
+        if query.is_empty() {
+            self.show_empty_search();
+            return;
+        }
+        // Capture a detail load at departure: it may have completed while
+        // the user was typing, or still need resuming after navigation.
+        if self.widgets.stack.visible_child_name().as_deref() == Some("detail")
+            && self.model.borrow().detail_origin != "search"
+        {
+            self.search_input.origin.replace(Some(self.search_origin()));
+        }
+        self.widgets.stack.set_visible_child_name("search");
+        let cancellation = Arc::new(AtomicBool::new(false));
+        self.search_input
+            .cancellation
+            .replace(Some(cancellation.clone()));
         let loading = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         let spinner = gtk::Spinner::new();
         spinner.set_spinning(true);
@@ -71,7 +422,9 @@ impl Controller {
             }
             self.run(
                 Operation::Search,
-                move |service, token| service.search(&token, &query, kind, page),
+                move |service, token| {
+                    service.search_cancellable(&token, &query, kind, page, Some(&cancellation))
+                },
                 move |this, result| match result {
                     Ok(result) => {
                         this.clear_search_feedback();
@@ -120,7 +473,9 @@ impl Controller {
         } else {
             self.run(
                 Operation::Search,
-                move |service, token| service.search_all(&token, &query),
+                move |service, token| {
+                    service.search_all_cancellable(&token, &query, Some(&cancellation))
+                },
                 |this, result| match result {
                     Ok(result) => this.render_unified_search(result),
                     Err(error) => this.search_error(error, 0),
@@ -356,9 +711,10 @@ impl Controller {
     fn open_search_playlist_policy(self: &Rc<Self>, playlist: SearchPlaylist, force: bool) {
         self.detail_loading(&playlist.title, "Загрузка плейлиста…");
         let refresh = playlist.clone();
-        self.detail_refresh.replace(Some(Rc::new(move |this| {
-            this.open_search_playlist_policy(refresh.clone(), true)
-        })));
+        self.detail_refresh
+            .replace(Some(Rc::new(move |this, force| {
+                this.open_search_playlist_policy(refresh.clone(), force)
+            })));
         self.detail_header(
             &playlist.title,
             &playlist

@@ -146,6 +146,15 @@ impl State {
     pub(super) fn disabled() -> Self {
         Self::new(false)
     }
+    pub(super) fn application_fixture() -> Self {
+        let mut state = Self::new(true);
+        state.injected = Some((
+            SettingsStore::for_application().expect("private fixture settings location"),
+            CredentialStore::with_backend(crate::application_fixture::NoCredentials),
+        ));
+        state
+    }
+
     fn new(enabled: bool) -> Self {
         let banner = gtk::Box::new(gtk::Orientation::Vertical, 0);
         banner.set_widget_name("session-persistence-banner");
@@ -1299,7 +1308,11 @@ impl Controller {
         if let Some(view) = &p.view {
             view.update(&p.snapshot());
         }
+        let lyrics_external_auto = p.values.lyrics_external_auto;
         drop(p);
+        self.track_pane
+            .extras
+            .set_external_preference(lyrics_external_auto);
         self.render_controls();
     }
     pub(super) fn present_preferences(self: &Rc<Self>) {
@@ -1358,7 +1371,7 @@ impl Controller {
         }
         self.reload_cache_stats();
     }
-    fn preferences_changed(self: &Rc<Self>, values: Preferences) {
+    pub(super) fn preferences_changed(self: &Rc<Self>, values: Preferences) {
         let (remember_changed, cache_changed, limit_only, enabled) = {
             let mut p = self.persistence.borrow_mut();
             if p.closed || p.critical || !p.ready || values.validate().is_err() {
@@ -1368,6 +1381,7 @@ impl Controller {
             p.values.appearance = values.appearance;
             p.values.ui_style = values.ui_style;
             p.values.track_info_open = values.track_info_open;
+            p.values.lyrics_external_auto = values.lyrics_external_auto;
             p.values.cache_enabled = values.cache_enabled;
             p.values.cache_limit = values.cache_limit;
             if !values.remember_login || (p.supported && !p.values.forget_pending) {
@@ -1381,7 +1395,8 @@ impl Controller {
                 && previous.appearance == p.values.appearance
                 && previous.ui_style == p.values.ui_style
                 && previous.remember_login == p.values.remember_login
-                && previous.track_info_open == p.values.track_info_open;
+                && previous.track_info_open == p.values.track_info_open
+                && previous.lyrics_external_auto == p.values.lyrics_external_auto;
             if cache_changed {
                 if let Some(budget) = &p.cache_budget {
                     let _ =

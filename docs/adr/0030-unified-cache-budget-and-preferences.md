@@ -2,7 +2,7 @@
 
 # ADR-0030: One cache policy and shared disk budget
 
-Status: Implemented; final verification and desktop acceptance recorded separately
+Status: Owner-accepted Native/installed-Flatpak cache at `c1de869`; merged in PR #26
 Date: 2026-11-06
 Extends: ADR-0018, ADR-0019, ADR-0026 and ADR-0029
 Supersedes their separate user quotas/defaults, not their data or admission rules
@@ -100,7 +100,8 @@ lease or scoped representation proof remain required; [AUDIO_CACHE_REVIEW](../AU
 The prepared provider questions are historical context, not an invented cache-hit
 API prerequisite. Audio presence indicators read the same store and disappear on
 shared LRU eviction; they neither reserve a second quota nor authorize local use.
-Issue #20 remains open until the complete real user scenario is accepted.
+The real Native/installed-Flatpak cache scenario was owner-accepted at `c1de869`;
+PR #26 normally merged at `1fd4028`. See [VALIDATION](../VALIDATION.md).
 
 ## Verification and consequences
 
@@ -110,7 +111,6 @@ round trips. Preserve the original store regressions and cache failure/online
 fallback. Native tests must drive the actual slider by pointer and keyboard,
 check all six values and capture compact/wide, themes and HiDPI without relaxing
 focus/hit-test deadlines. Verify Clear, cancellation, logout, normal music, Wave
-and MPRIS on both Rust compilers. Record executed results in
-[VALIDATION](../VALIDATION.md); owner acceptance of the previous revision does
-not establish acceptance of this new policy/UI. PR #26 stays Draft until its
-remaining service-storage and acceptance criteria are met.
+and MPRIS on both Rust compilers. Record executed results in [VALIDATION](../VALIDATION.md), keeping synthetic
+regression evidence distinct from the accepted real-service workflows and from
+unresolved public distribution rights.

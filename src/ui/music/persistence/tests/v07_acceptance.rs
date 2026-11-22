@@ -457,7 +457,7 @@ fn child(input: &Input, phase: &str) {
                 && this.playback_storage_idle_for_test()
         });
     }
-    this.set_fixture_resolver_for_test(StreamResolver::for_test(
+    this.set_fixture_resolver(StreamResolver::for_test(
         &input.origin,
         &input.origin,
         &input.origin,
@@ -633,6 +633,7 @@ fn child(input: &Input, phase: &str) {
                 });
                 assert_eq!(values.appearance, Appearance::Dark);
                 assert_eq!(values.ui_style, UiStyle::System);
+                assert!(ui.window.has_css_class("karin-style-system"));
                 assert_eq!(
                     adw::StyleManager::default().color_scheme(),
                     adw::ColorScheme::ForceDark
@@ -655,9 +656,13 @@ fn child(input: &Input, phase: &str) {
                 pump_until(|| property("CanSeek").get::<bool>() == Some(true));
                 exercise_delete(&ui.window, this);
                 method("Pause", ().to_variant());
+                // Native Pause can precede the published MPRIS state and
+                // capabilities that gate the next client's Seek command.
                 pump_until(|| {
                     this.music_snapshot()
                         .is_some_and(|snapshot| snapshot.state == PlaybackState::Paused)
+                        && property("PlaybackStatus").get::<String>().as_deref() == Some("Paused")
+                        && property("CanSeek").get::<bool>() == Some(true)
                 });
                 let seek_serial = this.music_snapshot().unwrap().seek_serial;
                 method("Seek", (1_000_000_i64,).to_variant());

@@ -10,13 +10,13 @@ use interactions::{interaction_diagnostic, interaction_message, like_icon_name};
 /// reindexing; the serial also fences Stop/restart or leaving and returning to
 /// the same occurrence. This token is never persisted or sent to the service.
 #[derive(PartialEq, Eq)]
-struct ReactionPlaybackTarget {
+pub(super) struct ReactionPlaybackTarget {
     generation: u64,
     occurrence: crate::queue::OccurrenceId,
     serial: u64,
 }
 
-fn confirmed_dislike_advances(
+pub(super) fn confirmed_dislike_advances(
     kind: TrackReaction,
     enabled: bool,
     result: Result<ReactionRead, InteractionError>,
@@ -51,7 +51,7 @@ struct ReactionControls {
 }
 
 #[derive(Clone, Copy)]
-enum ReactionRead {
+pub(super) enum ReactionRead {
     Both(TrackReactions),
     LikeOnly(bool, InteractionError),
 }
@@ -533,7 +533,7 @@ impl Controller {
         );
     }
 
-    fn reaction_playback_target(&self) -> Option<ReactionPlaybackTarget> {
+    pub(super) fn reaction_playback_target(&self) -> Option<ReactionPlaybackTarget> {
         let model = self.model.borrow();
         if model.closed
             || !model.account_valid

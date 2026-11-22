@@ -2,174 +2,100 @@
 
 # Known limitations
 
-The owner accepted native functionality and the v0.4 UI/UX at `97093ee` on
-Fedora 44, KDE Plasma, Wayland and PipeWire, and separately reported successful
-Flatpak acceptance. No official public release or per-backend/per-scenario acceptance matrix is
-implied. [VALIDATION.md](VALIDATION.md) separates owner and automated evidence.
+The owner has completed Fedora acceptance of v0.8 functionality.
+[VALIDATION](VALIDATION.md) separates that report from automated evidence and
+records historical failures. No public release or universal backend/hardware
+certification is implied.
 
-## Service and distribution
+## Service, content and distribution
 
-The Yandex Music API is unofficial and can change. A valid Music session, a
-subscription or previously cached metadata does not authorize every resource.
-Unknown schemas, origins, protection or delivery formats fail explicitly; Karin
-does not bypass DRM or import extracted official-client keys.
+The Music API is unofficial and can change. A valid account, subscription or
+cached metadata does not authorize every resource. Unknown delivery schemas,
+origins, DRM/protection and unsupported formats fail explicitly. Karin does not
+import official-client sessions, caches or extracted signing keys.
 
-GPL licensing and the provenance of the Cassette-compatible authentication code
-are separate from OAuth-registration, service/content and public-distribution
-rights. Public service/distribution conditions remain unresolved. See [LICENSING.md](LICENSING.md),
-[AUTHENTICATION_REVIEW.md](AUTHENTICATION_REVIEW.md) and
-[STREAM_DELIVERY_REVIEW.md](STREAM_DELIVERY_REVIEW.md).
+GPL and third-party source provenance are separate from OAuth-registration,
+service/content and public-distribution rights. Those distribution conditions
+remain unresolved in [#5](https://github.com/tracerxbrhd/karin/issues/5) and
+[#22](https://github.com/tracerxbrhd/karin/issues/22). See
+[licensing](LICENSING.md), [authentication](AUTHENTICATION_REVIEW.md) and
+[stream delivery](STREAM_DELIVERY_REVIEW.md).
 
-My Wave is an ordinary Home action after Music-validated sign-in, using the
-existing player. Corrected feedback, real audio and continued batches were
-confirmed on Fedora; PR #25 then merged at `860672b` with ordinary Native and
-installed Flatpak owner acceptance. Issue #16 is closed. This overall report does
-not certify each optional failure scenario, portal backend or physical media key.
-The [procedure](BUILDING.md#my-wave-local-acceptance) remains available for regressions.
+Yandex supplement text needs explicit rights and full text; it has no timing.
+Synchronized LRCLIB text depends on external catalog availability and metadata
+matching. External lookup needs explicit consent or the separately saved,
+default-off automatic preference, which can be revoked. Text stays in memory.
+Source software licenses do not license every lyric for redistribution.
+[ADR-0034](adr/0034-bounded-track-lyrics-and-similar.md) defines these contracts.
 
-Only **Слушать** starts a radio session. Startup, restored sign-in and Home
-navigation do not issue Wave requests, and session IDs/batch markers remain
-memory-only. The removed `radioFinished` is not sent. Fixed event/origin/phase/
-finish diagnostics remain available; HTTP 400 on any supported event still
-fails honestly without automatic replay.
+## Catalog, writes and playback
 
-An already admitted HTTP request cannot be unsent; logout/cancellation fence
-queued work and late results. Ambiguous POST outcomes are never automatically
-replayed. There is no separate user-facing Finish action: Pause retains radio,
-while ordinary source selection or MPRIS Stop retires it internally.
+- Ordinary views stop at 2,000 positions/100 pages. Search-driven indexing of
+  supported liked/playlist collections admits at most 20,000 original positions/
+  4 MiB, 50-position batches and 200-row result windows, with a final membership
+  recheck. Larger, changed or incomplete collections are labelled honestly.
+  Added-date sorting requires valid occurrence timestamps; no startup/full-library
+  scan or persistent second database is provided.
+- Playback contexts contain at most 500 occurrences. Search, sort, index growth
+  and server edits never rewrite the active queue. Wave reorder/Play Next is
+  unsupported to preserve its batch and feedback protocol.
+- Playlist editor snapshots require complete positions/revision and at most
+  2,000 entries. Rename/visibility/delete have no proven server revision CAS;
+  preflight/readback cannot exclude every external-writer race. Ambiguous writes
+  permit GET-only reconciliation and are never automatically replayed.
+- My Wave starts only after explicit **Слушать**. Radio sessions/batch markers are
+  not persisted or restored; local retirement sends no `radioFinished` event.
+  A request already sent cannot be recalled. Feedback errors remain visible.
+- Only independently confirmed Dislike addition on the same current occurrence
+  invokes Next. Unknown Dislike remains hidden; a successful independent Like
+  read can preserve Like/Unlike without guessing Dislike or recommendation effects.
+- The HTTPS descriptor/CDN allowlist is intentionally narrow. Admission expiry
+  does not interrupt an already playing track. Explicit Resume can renew once for
+  the same occurrence and restore a confirmed position. Network/access failures
+  and unseekable restoration remain honest errors; no periodic Pause renewal occurs.
+- Shutdown is cooperative; bounded deadlines cannot preempt a blocked native
+  plugin call, and forced termination cannot guarantee native cleanup.
 
-Account Dislike and removal use a source-backed contract with independent
-Like/Dislike readback. The new controls require successful state reads; refusals
-or schema conflicts leave Dislike hidden/unknown, without guessed state or
-mutation retry. A fresh independent Like membership read can still enable the
-existing Like/Unlike path and its confirmation; a Dislike refusal must not
-disable working Like. The fallback never establishes Dislike state.
-The owner confirmed live server reactions and opposite-mark interaction at
-`1877a6c`, then explicitly accepted the corrected Dislike→Next, ordinary queue and
-Wave behavior on Fedora Native and installed Flatpak after #27 merged at `ddf93ea`.
-Issue #17 is closed. Individual race/failure cases are covered by automated guards,
-not inferred as special owner tests. Unlike is not Dislike; opposite marks are confirmed independently.
-Only confirmed Dislike addition on the unchanged current occurrence invokes Next.
-For Wave this reuses its existing listening/Skip lifecycle, with no new negative
-Wave event or recommendation-effect guarantee. See
-[ADR-0028](adr/0028-confirmed-track-reactions.md).
+## Cache and protected storage
 
-Other recommendation shelves/similar tracks and lyrics are not implemented.
-The v0.6 audio store, player bridge and cleanup are ordinary production code.
-The owner accepted `c1de869` real Native and installed-Flatpak playback,
-background saving, local hits and local replay after restart on 2026-11-11;
-PR #26 merged at `1fd4028`. Indicator graphics are provisionally accepted. One shared policy/budget/usage
-and Clear covers all permitted categories, with
-2 GiB by default and an explicit Unlimited choice guarded by available disk space.
-The private HTTP-cache path independently saves a complete supported MP3 while
-online playback starts immediately. Current Music access and authenticated offer
-selection are checked before reuse. A matching logical object/MP3 variant,
-verified integrity and valid response-freshness lease select local audio before
-XML/CDN resolution. Explicit freshness or bounded RFC9111 Date/Last-Modified
-heuristics can admit reuse; no-cache, stale leases and old metadata without
-receipt clocks retain strict validation. No-store and explicit refusals are
-honored. Account/token epochs remain separate. This supplies neither offline
-rights nor a provider/content-distribution license; the API selection is not an
-immutable byte-version claim. Work remains off GTK and cache failure preserves
-permitted online playback.
+One shared cache defaults to 2 GiB with six quota choices including Unlimited;
+Unlimited still requires disk headroom and bounded records/work. Audio reuse
+requires current Music access, matching authenticated offer/variant, integrity
+and a fresh private HTTP lease or sufficient revalidation proof. `no-store`,
+`no-cache`, stale policy and explicit restrictions remain effective. A saved icon
+means complete local presence, not a guaranteed hit or offline availability.
+Cache failure preserves admitted online playback. Downloads, mass prefetch and
+Offline Mode are not implemented. See [AUDIO_CACHE_REVIEW](AUDIO_CACHE_REVIEW.md).
 
-Real local replay/restart is owner-confirmed at `c1de869` on both Native and
-installed Flatpak. Earlier `cac4d78`/`6ec2407` failures remain historical results.
-A fresh local-first hit avoids renewed signed locators. Stale/no-cache responses
-still need scoped/full-digest validation or online fallback; independent replica
-validators are not global byte versions. Expired known selections can renew only
-through an eligible fresh response. Legacy records migrate only through a newly
-validated complete body, never by stamping old bytes fresh. A modern missing clock
-does not repeatedly trigger that migration. Downloading/Saved graphics indicate
-actual work/presence; they do not promise offline availability.
+Known metadata refusals fence cached replies before disk work. If disk failure
+prevents durable refusal recording, inherited metadata starts Stale after
+restart; known tombstones are never served. The 8,192-key/account fence limit
+pauses persistence until successful Clear without stopping live playback.
 
-Cloud original-audio/HTTP checks and owner acceptance have separate scopes;
-real CDN headers remain unmeasured in Cloud. Issue #20's technical cache scope is
-complete, without inferring every optional error/backend case.
-Public client distribution questions remain separate in #5/#22. See
-[AUDIO_CACHE_REVIEW.md](AUDIO_CACHE_REVIEW.md) and the
-[single acceptance procedure](BUILDING.md#pr-26-corrected-cache-acceptance).
-The [post-acceptance audit](PR26_REVISION_AUDIT.md) remains historical evidence. Downloads,
-mass prefetch and offline playback are outside this iteration. A later offline
-mode needs its own actual lifetime/revalidation rules; it is not a prerequisite
-invented for transparent online-revalidated caching.
+Secret Service/Secret Portal availability depends on the desktop/backend.
+Missing or locked storage allows memory-only login without plaintext fallback.
+Restoration always needs fresh Music validation; no automatic token refresh or
+remote revocation is claimed. Uncertain forgetting/cache purge retains a durable
+barrier and visible Retry; failed barrier persistence leaves restart protection
+unconfirmed. Portal forgetting removes Karin's encrypted envelope, not a portal
+master key. Ordinary continuation restores IDs/order/position without autoplay;
+Stop/forget/logout remove it and Wave never persists.
+[ADR-0018](adr/0018-persistent-session-and-settings.md) defines storage lifecycle.
 
-## Catalog, workspace and playback
+## Presentation and evidence
 
-- Collection filtering searches admitted title/artist/album metadata only.
-  Views stop at 2,000 positions or 100 pages; a new playback context contains at
-  most 500 matching occurrences. Partial coverage is labelled. Loading more data
-  does not grow an active queue, and no complete remote sort is offered.
-- Queue occurrence identity now survives reindexing for both loaded and manual
-  duplicates; original source positions remain provenance. Queue/current-position
-  restoration after application restart is not implemented.
-- Refusal fences prevent rejected metadata from returning as fresh despite
-  Busy/I/O failure. A complete disk failure cannot durably record a new refusal:
-  after restart, inherited metadata is therefore Stale until a successful new
-  write, and only eligible transport errors allow labelled saved-data fallback.
-  Known tombstones are never served. The 8,192-key/account fence limit pauses
-  persistence until a successful Clear; this does not stop live playback. See
-  [ADR-0026](adr/0026-refusal-fences-and-queue-occurrence-identity.md).
-- The reviewed HTTPS descriptor/CDN policy is deliberately narrow, not an
-  exhaustive list of Yandex storage hosts. A source's sixty-second admission
-  lease can reject a new connection, resume or seek; an already playing track is
-  not interrupted merely because the lease ages. Explicit fresh Play resolves
-  again without changing identity or bypassing a refusal.
-- Shutdown is cooperative. Bounded state deadlines cannot preempt a blocked
-  native plugin call, and forced termination cannot guarantee native cleanup.
+System uses Libadwaita's supported preferences, not KDE Qt/Breeze CSS. Karin Style
+is unavailable until real designer materials exist. High Contrast uses opaque
+semantic surfaces; Reduced Motion applies immediate endpoints. The legacy GTK4
+`gtk-application-prefer-dark-theme` warning can originate before Karin applies
+appearance; the exact source on the owner's desktop remains unestablished.
+The optional [read-only check](BUILDING.md#theme-input-check) does not alter settings.
 
-## Session and system storage
-
-Secret Service and Secret Portal availability depends on the installed desktop
-and backend. Missing, locked, denied or broken storage allows process-only login,
-with no plaintext fallback. Only a newly Music-validated token establishes a
-restored session. No automatic token-refresh or server-revocation flow is claimed.
-
-Forget/delete must be confirmed. Uncertain native writes, deletion or personal
-cache purge retain a restoration barrier and visible Retry. A failed barrier
-write leaves restart protection unconfirmed. Memory-only login may resume after
-active cleanup settles, while persistent writes remain paused. Portal forgetting
-removes Karin's encrypted envelope, not the portal master key or remote consent.
-Owner acceptance does not certify every wallet/portal failure case. [ADR-0018](adr/0018-persistent-session-and-settings.md)
-describes the lifecycle.
-
-## Cold rendering and evidence scope
-
-Cloud first-appearance smoothness remains unresolved despite the accepted desktop
-UI. Fresh-process footer observations at the accepted code retain gaps of roughly
-0.77–1.12 seconds across local/hosted runs. Bounded profiling measured a
-substantial LLVM optimization/JIT contributor in the Cloud Mesa/Xvfb stack; the complete
-trigger, remaining time and ordinary Wayland relevance remain unresolved in
-[#23](https://github.com/tracerxbrhd/karin/issues/23). Exact observations remain in [VALIDATION.md](VALIDATION.md).
-No height reversal or successful initialized animation turns these observations
-into a cold-smoothness PASS. Earlier failures remain in Git/PR history.
-
-Xvfb/generated-media/HTTP fixtures do not independently prove physical GPU,
-Wayland, heard service music or every hardware key/backend. Do not infer those
-individual results from general owner acceptance. Missing cloud SDK/user
-namespaces must be reported, never worked around by weakening the sandbox.
-
-## Theme input
-
-Karin uses AdwStyleManager for Light/Dark/System. The Libadwaita warning about
-`gtk-application-prefer-dark-theme` was reproduced with an external legacy GTK4
-setting loaded before Adwaita initialization, using the unchanged earlier
-binary. The specific writer/source on the owner's Fedora remains unestablished.
-Karin does not suppress this warning or overwrite desktop settings. See the
-[read-only theme check](BUILDING.md#theme-input-check).
-
-## v0.7 additions awaiting desktop acceptance
-
-[Draft PR #28](https://github.com/tracerxbrhd/karin/pull/28) implements ordinary
-playback continuation and owned playlist editing. They remain pending one final
-Native/installed-Flatpak acceptance against the real service. Restore needs
-current account/track validation and explicit Play; radio and offline sessions
-are not restored. Saved queue provenance is independent of later playlist edits.
-Playlist edit snapshots require complete server positions and revision, at most
-2,000 entries. Rename/visibility/delete endpoints have no confirmed server
-revision CAS; fresh preflight/readback cannot prevent every external-writer race.
-Ambiguous writes remain Unknown with GET-only reconciliation.
-
-System presentation uses Libadwaita and supported desktop preferences, not KDE's
-Qt theme/CSS. Karin Style is reserved and unavailable until designer assets exist;
-its visual acceptance is not claimed. See [designer handoff](design/KARIN_STYLE_INTEGRATION.md).
+Cloud first-player smoothness remains unresolved in
+[#23](https://github.com/tracerxbrhd/karin/issues/23). Historical Mesa/Xvfb runs
+contain roughly 0.77–1.12 s frame gaps; LLVM JIT is a measured contributor rather
+than a complete causal explanation. Owner desktop acceptance and initialized
+motion do not resolve these cold observations. Xvfb/generated-media fixtures
+also do not independently establish physical GPU/Wayland performance, heard
+service music or every optional keyring/portal/media-key scenario. Report missing
+SDK/user namespaces without weakening WebKit's sandbox or TLS.

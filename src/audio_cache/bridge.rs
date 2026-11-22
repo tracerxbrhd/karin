@@ -49,6 +49,8 @@ pub(crate) fn resolve(
     };
     // Permission/integrity work overlaps the lightweight authenticated offer.
     let check = start_check(&binding, track);
+    #[cfg(test)]
+    let lookup_requested = check.is_some();
     // This projection can only retire the same still-current attempt. It
     // cannot authorize/commit a replay of the one-use online ticket.
     let refusal = check.as_ref().map(|check| (check.identity, check.sequence));
@@ -56,6 +58,18 @@ pub(crate) fn resolve(
         let (cache, lease) = binding.as_ref()?;
         cache.lookup(lease.clone(), check)
     });
+    #[cfg(test)]
+    if binding.is_some() && lookup.is_none() {
+        diagnostic::selection(
+            if lookup_requested {
+                "lookup-unavailable"
+            } else {
+                "lookup-check-unavailable"
+            },
+            None,
+            None,
+        );
+    }
     let refused = |report: &DeliveryReport| {
         if matches!(report.http_status, Some(401 | 403 | 451))
             && let (Some((cache, lease)), Some((identity, sequence))) = (&binding, refusal)
@@ -142,17 +156,30 @@ pub(crate) fn resolve(
         fill: None,
     };
     let Some((cache, lease)) = binding.filter(|_| authenticated) else {
+        #[cfg(test)]
+        diagnostic::selection(
+            if authenticated {
+                "binding-unavailable"
+            } else {
+                "account-unverified"
+            },
+            None,
+            None,
+        );
         return Ok(online());
     };
     let Some(mut prepared) = prepared else {
         // Speculative disk work is optional. A freshly authenticated source
         // still admits a bounded private HTTP write through memory-only state.
         let admitted = ResourceKey::track(track).ok().is_some_and(|key| {
-            cache
-                .admit_source_for_write(&lease, key, || {
-                    !cancellation.cancelled(token) && !remote.is_expired()
-                })
-                .is_ok()
+            let admission = cache.admit_source_for_write(&lease, key, || {
+                !cancellation.cancelled(token) && !remote.is_expired()
+            });
+            #[cfg(test)]
+            if let Err(error) = admission {
+                diagnostic::selection("speculative-admission-error", Some(error), None);
+            }
+            admission.is_ok()
         });
         return Ok(if admitted {
             diagnostic::report(Event::Miss, Cause::Empty);
@@ -248,7 +275,13 @@ pub(crate) fn resolve(
             service.clone(),
             fill_mode,
         )),
-        Err(_) => Ok(online()),
+        Err(error) => {
+            #[cfg(test)]
+            diagnostic::selection("prepared-admission-error", Some(error), None);
+            #[cfg(not(test))]
+            let _ = error;
+            Ok(online())
+        }
     }
 }
 

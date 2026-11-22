@@ -53,6 +53,7 @@ fn persistent_preferences_roundtrip_preserves_private_modes_and_all_choices() {
         cache_enabled: false,
         cache_limit: CacheLimit::Unlimited,
         track_info_open: false,
+        lyrics_external_auto: true,
     };
     store.save(&preferences).unwrap();
     let reopened = fixture.store().load().unwrap();
@@ -161,6 +162,7 @@ fn adding_ui_style_migrates_both_old_schemas_without_losing_color_or_private_cho
                     cache_enabled: false,
                     cache_limit: CacheLimit::GiB3,
                     track_info_open: false,
+                    lyrics_external_auto: false,
                 }
             );
             // Ordinary save upgrades the envelope, not another store or cache.
@@ -169,6 +171,55 @@ fn adding_ui_style_migrates_both_old_schemas_without_losing_color_or_private_cho
             let saved: serde_json::Value =
                 serde_json::from_slice(&std::fs::read(fixture.file()).unwrap()).unwrap();
             assert_eq!(saved["version"], 3);
+        }
+    }
+}
+
+#[test]
+fn retired_style_migrates_to_system_and_roundtrips_every_independent_preference() {
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    store.save(&Preferences::default()).unwrap();
+    for version in [2, 3] {
+        for appearance in [Appearance::System, Appearance::Light, Appearance::Dark] {
+            for cache_limit in CacheLimit::ALL {
+                for private_choices in [false, true] {
+                    let expected = Preferences {
+                        ui_style: UiStyle::System,
+                        appearance,
+                        remember_login: private_choices,
+                        forget_pending: !private_choices,
+                        cache_enabled: private_choices,
+                        cache_limit,
+                        track_info_open: private_choices,
+                        lyrics_external_auto: !private_choices,
+                    };
+                    let mut values = serde_json::to_value(&expected).unwrap();
+                    values["ui_style"] = serde_json::json!("liquid-glass");
+                    fixture.replace(
+                        &serde_json::to_vec(&serde_json::json!({
+                            "version": version,
+                            "preferences": values
+                        }))
+                        .unwrap(),
+                    );
+                    let loaded = fixture.store().load().unwrap();
+                    assert_eq!(loaded.status, LoadStatus::Loaded);
+                    assert_eq!(loaded.preferences, expected);
+                    store.save(&loaded.preferences).unwrap();
+                    let reopened = fixture.store().load().unwrap();
+                    assert_eq!(reopened.status, LoadStatus::Loaded);
+                    assert_eq!(reopened.preferences, expected);
+                    let saved: serde_json::Value =
+                        serde_json::from_slice(&std::fs::read(fixture.file()).unwrap()).unwrap();
+                    assert_eq!(saved["version"], FORMAT_VERSION);
+                    assert_eq!(
+                        saved["preferences"],
+                        serde_json::to_value(expected).unwrap()
+                    );
+                    assert_eq!(saved["preferences"]["ui_style"], "system");
+                }
+            }
         }
     }
 }
@@ -185,11 +236,15 @@ fn unknown_or_malformed_style_never_resets_session_deletion_barrier_or_cache_pol
         cache_enabled: false,
         cache_limit: CacheLimit::GiB4,
         track_info_open: false,
+        lyrics_external_auto: true,
     };
     store.save(&expected).unwrap();
     for style in [
         serde_json::json!("future-style"),
+        serde_json::json!("System"),
+        serde_json::json!("future_style"),
         serde_json::json!(false),
+        serde_json::json!(["system"]),
         serde_json::json!({"access_token":"synthetic-untrusted-field"}),
         serde_json::Value::Null,
     ] {
@@ -202,6 +257,7 @@ fn unknown_or_malformed_style_never_resets_session_deletion_barrier_or_cache_pol
         assert_eq!(loaded.status, LoadStatus::Loaded);
         assert_eq!(loaded.preferences, expected);
         store.save(&loaded.preferences).unwrap();
+        assert_eq!(fixture.store().load().unwrap().preferences, expected);
         assert!(
             !std::fs::read_to_string(fixture.file())
                 .unwrap()
@@ -211,28 +267,60 @@ fn unknown_or_malformed_style_never_resets_session_deletion_barrier_or_cache_pol
 }
 
 #[test]
-fn color_scheme_and_reserved_style_roundtrip_independently() {
+fn all_styles_and_color_schemes_roundtrip_independently_without_schema_change() {
     let fixture = Fixture::new();
     let store = fixture.store();
     assert_eq!(Preferences::default().ui_style, UiStyle::System);
     assert_eq!(Preferences::default().appearance, ColorScheme::System);
-    for color in [ColorScheme::System, ColorScheme::Light, ColorScheme::Dark] {
-        let values = Preferences {
-            ui_style: UiStyle::Karin,
-            appearance: color,
-            ..Preferences::default()
-        };
-        store.save(&values).unwrap();
-        assert_eq!(fixture.store().load().unwrap().preferences, values);
-        assert_eq!(values.ui_style.effective(), UiStyle::System);
-        // A color edit does not silently turn an unavailable design into a
-        // ready theme or erase that persisted future request.
-        store
-            .update(|values| values.appearance = ColorScheme::Dark)
-            .unwrap();
-        let edited = store.load().unwrap().preferences;
-        assert_eq!(edited.ui_style, UiStyle::Karin);
-        assert_eq!(edited.appearance, ColorScheme::Dark);
+    for style in [UiStyle::System, UiStyle::Karin] {
+        assert_eq!(style.is_available(), style != UiStyle::Karin);
+        for color in [ColorScheme::System, ColorScheme::Light, ColorScheme::Dark] {
+            let values = Preferences {
+                ui_style: style,
+                appearance: color,
+                remember_login: false,
+                forget_pending: true,
+                cache_enabled: false,
+                cache_limit: CacheLimit::Unlimited,
+                track_info_open: false,
+                lyrics_external_auto: true,
+            };
+            store.save(&values).unwrap();
+            assert_eq!(fixture.store().load().unwrap().preferences, values);
+            assert_eq!(
+                style.effective(),
+                if style == UiStyle::Karin {
+                    UiStyle::System
+                } else {
+                    style
+                }
+            );
+            let saved: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(fixture.file()).unwrap()).unwrap();
+            assert_eq!(saved["version"], 3);
+            assert_eq!(
+                saved["preferences"]["ui_style"],
+                match style {
+                    UiStyle::System => "system",
+                    UiStyle::Karin => "karin",
+                }
+            );
+            // A color edit preserves the independently selected design and all
+            // nonvisual preferences, including external-lyrics consent.
+            let mut expected = values.clone();
+            expected.appearance = ColorScheme::Dark;
+            store
+                .update(|values| values.appearance = ColorScheme::Dark)
+                .unwrap();
+            assert_eq!(store.load().unwrap().preferences, expected);
+            // Replacing either available or reserved styles uses the same
+            // atomic settings store; it cannot rewrite unrelated choices.
+            expected.ui_style = UiStyle::System;
+            store
+                .update(|values| values.ui_style = UiStyle::System)
+                .unwrap();
+            assert_eq!(store.load().unwrap().preferences, expected);
+        }
     }
 }
 
@@ -484,4 +572,57 @@ fn latest_ui_reservation_preserves_logout_barrier_against_stale_worker_saves() {
             .unwrap()
     );
     assert!(!fixture.store().load().unwrap().preferences.forget_pending);
+}
+
+#[test]
+fn external_lyrics_permission_defaults_off_and_survives_an_explicit_saved_choice() {
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    assert!(!store.load().unwrap().preferences.lyrics_external_auto);
+    store.save(&Preferences::default()).unwrap();
+    fixture.replace(br#"{"version":3,"preferences":{"track_info_open":true}}"#);
+    assert!(!store.load().unwrap().preferences.lyrics_external_auto);
+    store.update(|p| p.lyrics_external_auto = true).unwrap();
+    assert!(
+        fixture
+            .store()
+            .load()
+            .unwrap()
+            .preferences
+            .lyrics_external_auto
+    );
+    store.update(|p| p.lyrics_external_auto = false).unwrap();
+    assert!(
+        !fixture
+            .store()
+            .load()
+            .unwrap()
+            .preferences
+            .lyrics_external_auto
+    );
+}
+
+#[test]
+fn malformed_external_lyrics_permission_grants_nothing_and_preserves_barriers() {
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    let original = Preferences {
+        forget_pending: true,
+        remember_login: false,
+        appearance: Appearance::Dark,
+        ..Preferences::default()
+    };
+    store.save(&original).unwrap();
+    for untrusted in [
+        serde_json::json!("true"),
+        serde_json::json!(1),
+        serde_json::json!(null),
+    ] {
+        let mut values = serde_json::to_value(&original).unwrap();
+        values["lyrics_external_auto"] = untrusted;
+        fixture.replace(
+            &serde_json::to_vec(&serde_json::json!({"version":3,"preferences":values})).unwrap(),
+        );
+        assert_eq!(store.load().unwrap().preferences, original);
+    }
 }

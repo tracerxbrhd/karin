@@ -275,11 +275,11 @@ fn configure_source(source: &gst::Element, admission: &Admission) -> bool {
     {
         source.set_property("iradio-mode", false);
     }
-    #[cfg(test)]
     {
-        let loopback = Url::parse(admission.uri.as_str()).ok().is_some_and(|url| {
-            matches!(url.host_str(), Some("127.0.0.1" | "[::1]")) && url.port().is_some()
-        });
+        let loopback = admission.loopback_composition
+            && Url::parse(admission.uri.as_str()).ok().is_some_and(|url| {
+                matches!(url.host_str(), Some("127.0.0.1" | "[::1]")) && url.port().is_some()
+            });
         if loopback {
             // souphttpsrc copies http_proxy into an explicit GSimpleProxyResolver
             // and may therefore ignore NO_PROXY. Only synthetic loopback
@@ -293,6 +293,9 @@ fn configure_source(source: &gst::Element, admission: &Admission) -> bool {
             }
             source.set_property("proxy", "direct://");
         }
+    }
+    #[cfg(test)]
+    {
         if let Some(ca_file) = &admission.ca_file {
             // ssl-ca-file is a no-op with libsoup3. A fixture-local TLS database
             // trusts only its generated test CA; verification remains enabled.

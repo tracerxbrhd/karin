@@ -2,7 +2,7 @@
 
 # Integrating the future Karin presentation
 
-The current **System** presentation is the working GTK4/Libadwaita application.
+The **System** presentation uses the working GTK4/Libadwaita application.
 The designer's new Karin materials have not been supplied. **Karin is not an
 implemented theme**: its disabled Preferences row says «В разработке». Do not
 replace that row with an apparently working selector for a copy of System.
@@ -18,9 +18,10 @@ remain in their own stores.
 
 ## Presentation boundary
 
-`src/ui/style.rs` installs the existing System CSS from
-`resources/styles/system.css`. Selectors are scoped to `.karin-style-system`
-under `.karin-presentation-root`; a future provider uses `.karin-style-custom`.
+`src/ui/style.rs` installs shared native component metrics, System CSS from
+`resources/styles/system.css` and shared Lyrics rules. System selectors use
+`.karin-style-system` under `.karin-presentation-root`; a future provider uses
+`.karin-style-custom`.
 `resources/styles/karin.css` is a comment-only integration entry point and is
 **not loaded**. It contains no provisional designer work.
 

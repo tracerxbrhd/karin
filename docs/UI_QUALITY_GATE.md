@@ -2,100 +2,127 @@
 
 # UI quality gate
 
-Substantial UI changes need actual native image inspection, structural checks and
-real input. Neither build nor screenshot alone proves quality. Acceptance of
-`97093ee` in [VALIDATION.md](VALIDATION.md) does not waive later review.
+Substantial UI changes require real native image inspection, GTK structure and
+input checks. A successful build or screenshot alone proves neither usability
+nor desktop performance. The owner accepted v0.8 functionality; this gate covers
+changed behavior without requesting a full retake of accepted work.
 
 <a id="v04-native-music-gate"></a>
 
-## Visual matrix
+## Layout and visual checks
 
-Inspect 420×720, 850×750, 900×650, 1440×900, 1650×930, 1920×1080 and actual
-maximize, plus fixture cases 720×650/1280×800; light/dark and scales 1/2. Match
-before/current actual logical allocation, theme, scale and content role, not just
-requested outer-window size.
+Inspect compact (420×720), reference (850×750), medium (900×650), wide
+(1440×900), large (1920×1080) and actual maximized windows, both schemes and
+relevant 1×/2× cases. Preserve fixture-specific 720×650/1280×800/1650×930 bounds.
+Match actual logical allocations, content, theme and scale rather than requested
+outer size. Cover Home/Wave, collections, Search, Info/Lyrics/Queue and
+hidden/active/paused/error footer, with long/missing/partial data and Retry.
 
-Cover Home, Liked, playlists/details, Search, Info/Queue; hidden/active/paused/error
-player; empty/partial/large data, missing art, long text, loading/Retry and focus.
-Assess density, hierarchy, contrast and actions. At 900×650, Liked leaves three
-complete 64-pixel rows, hero ≤32% viewport height and filter ≤56 pixels. Global
-search retains its density checks. Bounds alone are not visual acceptance.
+- Inspect density, hierarchy, contrast, separators, clipping, wrapping, scrolling,
+  focus and all hit targets. At 900×650, Liked retains three complete 64-pixel
+  rows, hero ≤32% of viewport height and filter ≤56 pixels. Global search keeps
+  its density guards. Geometric containment alone does not establish visual quality.
+- System retains its distinct surface levels and native semantics. Measure painted
+  primary-text contrast ≥4.5:1. High Contrast uses opaque surfaces/visible outlines;
+  Reduced Motion uses immediate endpoints. Karin Style stays unavailable.
+- The complete Seek/control target retains at least 24 logical pixels of inner
+  bottom spacing. Hidden footer height is zero; loading cannot change its height.
+  Check focus/controls while resizing reference → compact → wide with no restart.
+- Use the native [input helper](../src/ui/music/test_input.rs) for popovers; missing
+  cross-native bounds never justify skipped containment or guessed coordinates.
 
-Check HeaderBar/window controls, spacing, wrapping, scrolling, hit targets and no
-horizontal overflow. Compact footer controls stay reachable. Use the native
-[input helper](../src/ui/music/test_input.rs) for popovers; missing cross-native
-bounds do not justify skipping containment or guessing coordinates.
+## Input, state and accessibility
 
-## Real interaction and state
+Exercise mouse, Tab, Enter, Space and meaningful keyboard alternatives with the
+real mapped widgets. Inspect ordinary executable AT-SPI names/roles as well as
+widget focus: the root must expose navigation, search, playback and Lyrics.
 
-- Activate exact track occurrences by mouse/Enter/Space, including duplicate IDs
-  across filtered 500-position windows. Details must not play. Filtering,
-  appending and navigation must not rewrite the active queue or restart audio.
-- Type Cyrillic/Unicode title, artist and album queries; test clear/reset, empty
-  matches, partial coverage, next-part errors/Retry and retired replies. Count
-  HTTP work to exclude per-key page/N+1 reads. Retain the 2,000-position/100-page
-  bounds and initial fill limit. See [ADR-0025](adr/0025-loaded-collection-search-and-playback-provenance.md).
-- Test the whole metadata Info target and independent Like/Dislike focus. A
-  reaction click must not open Info; unknown Dislike stays hidden and pending
-  state is not optimistic. An unavailable Dislike must not disable a separately
-  confirmed Like-only workflow. Confirmed Dislike addition advances the unchanged
-  current occurrence once through normal Next/Wave Skip. Removal, Like/Unlike,
-  refusals and ambiguous writes must not advance; neither may a late reply after
-  selecting a duplicate Track ID occurrence, logout or cancellation. Membership
-  confirmation and playlist creation must not invent success or replay ambiguous
-  POSTs. Logout needs a clear label and default Cancel confirmation.
-- Selection alone cannot reveal an idle footer. Real resolver/generated-media
-  playback must expose controls; Pause retains them, Stop/clear/logout hide them
-  without a focus trap or hidden width constraint. Loading must not change footer
-  height. Focus Seek at 850×750 and resize to 420×720/back without audio restart.
-- Exercise queue edits, unavailable items, Next/Previous/EOS, Shuffle/Repeat and
-  MPRIS transport/seek/volume/modes on the same player. Check session restore,
-  cache clear/off and teardown for stale callbacks/private views.
-- Cache indicators must follow actual complete AudioCache records across Liked,
-  playlists/search, Queue/Wave, footer and Info. Check downloading → stored,
-  replay/restart, multiple occurrences, Clear/LRU, failures and account/off fences.
-  Stored means a local record; only actual cached-file playback can show the
-  local-source cue. Inspect compact/light/dark/HiDPI density and accessibility,
-  preserve row/Like/menu keyboard actions, and exclude per-row HTTP or GTK file I/O.
+- Track activation selects the exact occurrence, including duplicates across
+  filtered windows; Info/reaction targets remain independent. Verify selection,
+  current marker and queue/player/MPRIS identity survive projections and future
+  queue edits. Unchanged player ticks must not rescan every marker.
+- Collection search fills its content column beside the compact native sort
+  button. Measure allocations with pane open/closed, then type Unicode title/
+  artist/album, choose sorts by mouse/keyboard and exercise index intent, Pause/
+  Continue/Retry/clear/leave. Count HTTP work for fast typing and reuse past 2,000
+  positions. Preserve bounds and final membership recheck in
+  [ADR-0035](adr/0035-incremental-whole-collection-index.md).
+- Global search entry/tabs share the same measured slot, group center and header
+  height. Inspect closed/intermediate/open/reverse frames, both schemes and scales:
+  pages crossfade in that slot without sliding beside each other. Test toggle/
+  Ctrl+F/Home, debounce/Enter, results/paging/Retry/detail navigation, clear versus
+  dismiss, entry padding/menu/result clicks, rapid reversal and late logout replies.
+- Check confirmed reactions, playlist writes and GET-only recovery; unknown state
+  must not look unmarked or replay a write. Confirmed current Dislike advances
+  once; Like/removal/refusal and stale duplicate replies do not. Logout confirmation
+  defaults to Cancel. Detailed write contracts are in
+  [API_FEASIBILITY](API_FEASIBILITY.md) and [PLAYLIST_MANAGEMENT](PLAYLIST_MANAGEMENT.md).
+- Check queue input, modes, transport/seek/volume/EOS, MPRIS, session restore and
+  teardown through the one player. Cache indicators follow actual complete records
+  across rows/pane/footer, including restart/Clear/eviction/account fences. A Stored
+  icon is not proof of local playback. No per-row network or GTK disk I/O is allowed.
+- Verify independent color preference persistence while audio/search/pane state
+  remains intact. A removed/unknown style falls back without resetting other
+  preferences. Test the unavailable Karin row and ordinary System startup.
 
-## Pinned panel and motion
+## Lyrics and pinned-panel motion
 
-Info/Queue share one fixed-size surface. Outside clicks, navigation, resize and
-playback preserve mode; explicit close/Back restores focus. Content switching
-must not close/reopen the host. Current-occurrence changes resume following;
-inspecting details must not play. See [ADR-0022](adr/0022-universal-music-panel.md).
+Info/Lyrics/Queue share one surface; outside clicks/navigation/resize preserve
+intent. Footer Lyrics/Back returns to Info in place; explicit Close restores focus.
+Current-occurrence changes resume following; inspection alone never plays.
+[ADR-0022](adr/0022-universal-music-panel.md).
 
-With normal animation enabled, observe opening and closing near 0/25/50/75/100%
-openness using five distinct native frame times and indices. Closing is presented
-chronologically as 100→75→50→25→0. Background, border, header, art, text and actions
-must translate together, with stable relative geometry and correct clipping.
-A moving cover, fully open endpoint or disabled animation does not prove this.
-Check reduced motion separately; keep normal 240 ms and phase/geometry guards.
+First exercise the ordinary executable's provider path: Yandex TEXT without
+timing → disclosed LRCLIB consent → MusicService LRC → actual player position.
+A renderer preseeded with LRC cannot prove this path. Check declined/saved/revoked
+consent, missing/malformed timing and retired account/request/selection results.
+Keep useful TEXT on lookup failure and successful captions minimal. Record
+executable revision/package identity.
 
-The strict fixture measures after a recorded setup open, six bounded renders of
-the mapped panel, then close. Setup changes no progress/clock and provides no
-proof PNGs; its quarters are not assessed. Separately
-observe fresh-process first Play before graphics initialization, using the actual
-request/worker and raw paint gaps. Monotonic height/lifecycle success is not cold
-smoothness. No delays, longer animation, conditional retries, synthetic frames or
-production prewarming may conceal failure.
+Play original audio/LRC through PlaybackController and the mapped native view.
+At a natural line boundary capture before/start, nearest painted frames to
+25/50/75% of the 300 ms presentation duration, and the endpoint. Measure actual
+frame times, wall duration and both rows' painted glyph bounds, accounting for
+scroll/device scale. The old/new line must shrink/grow together in size, weight
+and contrast; inspect hierarchy, clipping, overlap and Follow movement. With
+all tick intervals ≤30 ms verify expected wall duration; after a longer stall,
+verify continued paired change and centering on subsequent paints.
+
+Include long wrapped Cyrillic/Unicode, narrow/wide, both schemes, High Contrast
+and scales 1/2. Reduced Motion reaches the legible enlarged endpoint on its first
+paint. Check pause/resume, seek, equal timestamps, next/previous/EOS, source
+renewal, recycled rows, rapid selection, close/logout and manual scroll/Follow.
+TEXT remains selectable without pretending to have timing.
+[ADR-0034](adr/0034-bounded-track-lyrics-and-similar.md).
+
+Observe panel opening/closing at 0/25/50/75/100% using five distinct native frame
+times/indices; closing is chronological 100→75→50→25→0. Background/border/header/
+art/text/actions translate together under normal 240 ms timing with stable
+relative geometry and clipping. Initialized strict motion follows the recorded
+setup open and bounded mapped renders; it proves no cold-start smoothness.
+The separate fresh-process first-Play observer retains actual request/worker and
+raw paint gaps before graphics initialization. Do not hide failure through delays,
+longer motion, retries, synthetic frames, renderer changes or production prewarming.
 
 ## Evidence and CI
 
-Record source/binary identity, actual geometry, libraries, theme/scale, renderer,
-animation and test environment. Static uses full redraw; motion/cold use ordinary
-GTK damage. Render-node snapshots are not framebuffer-damage or physical-GPU proof.
-Record Mesa worker limits explicitly.
+Record source/binary identity, actual geometry/libraries/theme/scale/renderer,
+animation and Mesa worker settings. Static captures use full redraw; motion/cold
+use ordinary GTK damage. Render-node snapshots are no physical-framebuffer proof.
+Matched performance observations retain actual wall/CPU/frame data.
 
-Retain every native registration in both Rust lanes, including functional and
-modern visual/raw selectors, sandboxed WebKit, actual input, fatal warnings and
-strict motion. Record the final registered/executed counts with its source. Report namespace/SDK limits; do not disable sandbox
-or remove tests. Commands/platform placement live in
-[BUILDING.md](BUILDING.md) and the [workflow](../.github/workflows/ci.yml).
+Required CI covers every native registration: full functional execution once,
+modern visual/strict motion with targeted HiDPI/High Contrast/Lyrics, and exact
+MSRV compile/runtime compatibility. The registry rejects missing/unregistered
+selectors. The [extended native workflow](../.github/workflows/extended-native.yml) runs the
+current signed-out gallery manually; historical comparison sources remain in Git.
+Underlying regression assertions remain required. Ignored/skipped cases are no
+PASS. [BUILDING](BUILDING.md) and the [workflow](../.github/workflows/ci.yml)
+contain executable commands.
 
-Cloud/CI use synthetic accounts, original art and generated audio. Never publish
-personal screenshots/cache, credentials or signed resources. Keep few current
-images in source; full matrices/geometry/logs belong in artifacts. Preserve key
-results/failures with durable Git/PR references in [VALIDATION.md](VALIDATION.md),
-not only expiring artifacts. Do not relabel old captures or FAILs. Desktop
-acceptance does not resolve cloud cold-frame observations.
+Use synthetic accounts, original art/text/audio and local HTTP only. Private
+captures require publication permission; no credentials, private cache or signed
+resources belong in evidence. Keep few curated images in Git and full matrices/
+logs in bounded CI artifacts. Preserve essential outcomes with immutable links
+in [VALIDATION](VALIDATION.md). Report SDK/namespace limits without weakening
+sandboxing. Desktop acceptance does not resolve the Cloud cold-frame investigation.

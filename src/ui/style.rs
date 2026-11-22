@@ -6,7 +6,9 @@ use adw::prelude::*;
 
 use crate::settings::{ColorScheme, Preferences, UiStyle};
 
+const COMPONENT_CSS: &str = include_str!("../../resources/styles/components.css");
 const SYSTEM_CSS: &str = include_str!("../../resources/styles/system.css");
+const LYRICS_CSS: &str = include_str!("../../resources/styles/lyrics.css");
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct AppliedAppearance {
@@ -24,25 +26,25 @@ pub(super) fn attach(window: &adw::ApplicationWindow) {
     window.add_css_class("karin-style-system");
     window.remove_css_class("karin-style-custom");
     let manager = adw::StyleManager::default();
-    set_high_contrast(window, manager.is_high_contrast());
+    refresh(window, &manager);
     if !attached {
         let weak = window.downgrade();
-        let handler = manager.connect_high_contrast_notify(move |manager| {
+        let contrast = manager.connect_high_contrast_notify(move |manager| {
             if let Some(window) = weak.upgrade() {
-                set_high_contrast(&window, manager.is_high_contrast());
+                refresh(&window, manager);
             }
         });
-        let handler = std::cell::RefCell::new(Some(handler));
+        let handler = std::cell::RefCell::new(Some(contrast));
         window.connect_destroy(move |_| {
-            if let Some(handler) = handler.borrow_mut().take() {
-                manager.disconnect(handler);
+            if let Some(contrast) = handler.borrow_mut().take() {
+                manager.disconnect(contrast);
             }
         });
     }
 }
 
-fn set_high_contrast(window: &adw::ApplicationWindow, enabled: bool) {
-    if enabled {
+fn refresh(window: &adw::ApplicationWindow, manager: &adw::StyleManager) {
+    if manager.is_high_contrast() {
         window.add_css_class("karin-high-contrast");
     } else {
         window.remove_css_class("karin-high-contrast");
@@ -56,10 +58,9 @@ pub(super) fn apply(values: &Preferences, window: &adw::ApplicationWindow) -> Ap
         effective: values.ui_style.effective(),
         color_scheme: values.appearance,
     };
-    // Only System currently has a real presentation. A reserved preference
-    // must never activate a copy of it under a misleading branded name.
     attach(window);
     adw::StyleManager::default().set_color_scheme(adwaita_scheme(selected.color_scheme));
+    refresh(window, &adw::StyleManager::default());
     selected
 }
 
@@ -81,7 +82,9 @@ pub(super) fn install() {
             return;
         }
         let provider = gtk::CssProvider::new();
-        provider.load_from_string(SYSTEM_CSS);
+        // A single provider preserves native components and Lyrics geometry
+        // across independent color-scheme changes.
+        provider.load_from_string(&format!("{COMPONENT_CSS}\n{SYSTEM_CSS}\n{LYRICS_CSS}"));
         gtk::style_context_add_provider_for_display(
             &display,
             &provider,

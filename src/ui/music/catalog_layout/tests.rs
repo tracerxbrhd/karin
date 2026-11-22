@@ -5,6 +5,9 @@ use super::*;
 use crate::ui::music::tests::{capture_native, pump_until};
 use std::time::Duration;
 
+#[path = "performance_tests.rs"]
+mod performance_tests;
+
 fn track(id: &str, title: &str) -> Track {
     Track {
         id: id.into(),
@@ -53,6 +56,46 @@ fn current_row_binds_the_exact_loaded_occurrence_and_preserves_manual_appends() 
         let other = PlaybackContext::new(kind, source, records, 2, false).unwrap();
         assert!(!same_context_occurrence(&duplicate, &other));
     }
+}
+
+#[test]
+fn source_row_marker_survives_reindexing_and_interleaved_manual_entries() {
+    let tracks = vec![
+        track("42", "Duplicate"),
+        track("43", "Middle"),
+        track("42", "Duplicate"),
+    ];
+    let first = PlaybackContext::new(
+        ContextKind::Playlist,
+        Some("1234:7".into()),
+        tracks,
+        0,
+        false,
+    )
+    .unwrap();
+    let duplicate = first.with_current_index(2).unwrap();
+    let mut queue = MusicQueue::new();
+    queue.replace_context(duplicate.clone());
+    assert_eq!(queue.remove(0).unwrap().id, "42");
+    assert_eq!(queue.current_index(), Some(1));
+    assert!(same_context_occurrence(
+        &duplicate,
+        queue.context().unwrap()
+    ));
+    assert!(!same_context_occurrence(&first, queue.context().unwrap()));
+
+    queue.replace_context(first.clone());
+    queue
+        .insert_next(track("42", "Manual duplicate next"))
+        .unwrap();
+    let context = queue.context().unwrap();
+    assert_eq!(context.source_position(1), None);
+    assert!(same_context_occurrence(&first, context));
+    assert!(queue.select(1).is_some());
+    assert!(
+        !same_context_occurrence(&first, queue.context().unwrap()),
+        "a manual occurrence must not highlight the equal provider source row"
+    );
 }
 
 fn children(widget: &impl IsA<gtk::Widget>) -> Vec<gtk::Widget> {

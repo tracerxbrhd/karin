@@ -413,6 +413,10 @@ fn serve(
             counts.lock().unwrap().sent_bytes[n] += (end - start + 1) as u64;
         }
         return;
+    } else if first[0] == "GET"
+        && let Some(response) = crate::ui::music::tests::empty_similar_response(path)
+    {
+        response
     } else {
         panic!("unexpected lifecycle route")
     };
@@ -482,7 +486,7 @@ pub(super) fn normal_window(
     ui.window.present();
     let this = &ui.music.controller;
     pump_until(|| this.model.borrow().account_valid && settled(this));
-    this.set_fixture_resolver_for_test(StreamResolver::for_test(origin, origin, origin));
+    this.set_fixture_resolver(StreamResolver::for_test(origin, origin, origin));
     assert_idle_wave_after_startup(this, true);
     (app, ui)
 }

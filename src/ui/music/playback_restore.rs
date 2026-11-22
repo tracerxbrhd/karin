@@ -53,6 +53,13 @@ impl Default for State {
     }
 }
 impl State {
+    /// Native fixtures share their own path across reopen, never ambient XDG
+    /// application data. Production construction and restore remain unchanged.
+    #[cfg(test)]
+    pub(super) fn set_store_for_test(&mut self, store: PlaybackSessionStore) {
+        self.store = Some(store);
+    }
+
     pub(super) fn loading(&self) -> bool {
         self.loading
     }

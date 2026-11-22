@@ -14,16 +14,17 @@ success establishes neither playback entitlement nor public-distribution rights.
 | Account | Validate the actual Music account before admitting a session; Yandex ID success alone is insufficient. |
 | Library and playlists | Account-bound liked-track and own/liked playlist reads, strict owner/kind identities, bounded contents and explicit partial/end/error states. |
 | Search and details | Independent track/album/artist/playlist sections and paging. Validate minimal track-hit IDs, then normalize through one canonical batch lookup. |
-| Track reactions | Distinct Like/Unlike and account Dislike/removal. Valid dual reads enable paired mutations confirmed from both collections. Unavailable Dislike stays hidden; a fresh independent Like read preserves established Like-only confirmation. Server reactions confirmed at `1877a6c`; revised Dislike→Next, queue and Wave subsequently owner-accepted on Native and installed Flatpak. Issue #17 is closed. |
-| Playlist creation | One explicit create request followed by independent identity/title/visibility confirmation; ambiguous writes remain unresolved. |
+| Track reactions | Distinct Like/Unlike and account Dislike/removal. Valid dual reads enable paired mutations confirmed from both collections. Unavailable Dislike stays hidden; a fresh independent Like read preserves established Like-only confirmation. Only confirmed current-occurrence Dislike addition invokes Next once. |
+| Playlist creation and editing | Owned create/add/remove/reorder/rename/visibility/delete use current ownership, exact occurrences and independent readback; ambiguous writes remain unresolved. Contents use revision, while metadata/delete have no proven server revision CAS. The editor snapshot is bounded at 2,000 exact positions. |
+| Track text | Legacy Yandex supplement full text with explicit `hasRights == true`; separately disclosed, user-requested LRCLIB plain/LRC lookup by public metadata. No extracted modern lyrics signer. |
+| Similar tracks | Seed-bound `/tracks/{id}/similar`, at most 50 admitted selectors normalized in one canonical batch; ordinary queue/player/reactions. |
 | Online playback | Use the separate guarded [resolver](STREAM_DELIVERY_REVIEW.md) for an explicitly selected track. Availability metadata alone is insufficient. |
-| My Wave | Ordinary signed-in Home using the shared player; explicit Listen starts radio. Real sessions/audio/four feedback events/continuation confirmed; owner repeated the corrected candidate without reporting new issues. Ordinary Native and installed Flatpak owner acceptance is confirmed; Issue #16 is closed. |
+| My Wave | Ordinary signed-in Home using the shared player; explicit Listen starts radio. Four admitted feedback events use original batch markers and actual Playing time; no automatic startup or radio restoration. |
 
-Ambiguous writes require read/confirmation, never fabricated success or POST
-retries. Broader playlist edits, recommendations and lyrics are not shipped
-workflows merely because backend methods exist. Ordinary Home offers My Wave
-after Music validation without starting it automatically. The owner's general
-candidate report does not establish an unreported per-scenario acceptance matrix.
+Ambiguous writes require independent readback, never fabricated success or POST
+replay. The owner has accepted v0.8 functionality; see
+[VALIDATION](VALIDATION.md) for reported scope rather than inferring every optional
+catalog/backend/failure scenario from the general acceptance.
 
 ## Transport and models
 
@@ -43,9 +44,63 @@ strict; unsupported optional search display fields do not discard the whole
 result. Missing/unavailable data remains explicit. See
 [ADR-0016](adr/0016-search-identity-and-batch-normalization.md).
 
-Local collection search issues no per-key metadata requests. UI views admit
-2,000 positions/100 pages and playback snapshots at most 500 occurrences; neither
-filtering nor continuation rewrites an active queue. See [ADR-0025](adr/0025-loaded-collection-search-and-playback-provenance.md).
+Ordinary loaded collection views retain their 2,000-position/100-page startup
+bound. A settled nonempty query or Enter in an eligible incomplete collection
+can start or continue whole-collection indexing. It reads a compact liked or
+playlist manifest (at most 4 MiB/20,000 original positions), then batches of at
+most 50 and a final full membership/revision recheck. Work follows the current
+view and search intent. The process-only index supports Unicode title/artist/
+album search, title/artist/provider-order sorting, and added-date sorting only
+when all occurrence timestamps are valid. A bounded 200-row result window can
+reach positions beyond the old prefix; playback still snapshots at most 500
+occurrences. Unsupported larger collections and incomplete/changed membership
+are labelled explicitly. Indexing/filtering/sorting never rewrites an active
+queue. See [ADR-0035](adr/0035-incremental-whole-collection-index.md), extending
+[ADR-0025](adr/0025-loaded-collection-search-and-playback-provenance.md).
+
+## Lyrics and related tracks in v0.8
+
+`music::track_extras` uses `GET /tracks/{id}/supplement` for legacy Yandex
+plain text. Admit `lyrics.fullLyrics` only with explicit `hasRights == true`;
+the `lyrics.lyrics` opening excerpt cannot masquerade as the full song. Missing
+full text or unknown rights are unavailable. Explicitly refused rights have
+their own permission state. Transport and schema failures remain separate.
+The current modern `/lyrics` path in reviewed upstream code needs extracted
+client HMAC material and is not implemented. This is a restriction of that
+specific route, not a blanket claim that Yandex text is forbidden or unavailable.
+
+LRCLIB lookup discloses its external source and public metadata submission.
+It requires per-request consent or the separately saved default-off automatic
+preference. Automatic lookup runs only for visible Lyrics after missing
+synchronization, once per selected track; revocation and request/session fences
+remain effective. `GET https://lrclib.net/api/get` carries title, first artist,
+optional album/duration and a truthful Karin User-Agent/project URL. It carries
+no Music token, cookie, Music/account ID, private collection or history. The
+existing HTTP client disables redirects; require bounded JSON, matching title/
+artist and compatible duration. Prefer admitted synchronized LRC and preserve
+it when a later same-selection reply contains plain text only. A 404, an
+instrumental track or a missing text is reported as unavailable. One shared
+worker gate enforces sequential requests and the documented spacing/Retry-After;
+there is no undisclosed fallback or automatic retry. Lyrics remain memory-only with source
+attribution, literal rendering, bounded 128 KiB/2,000-line parsing and active-line
+lookup from the existing player's actual position. No text or transient resource
+is added to cache, playback persistence, D-Bus or logs.
+
+`GET /tracks/{id}/similar` must return the selected seed identity. Inspect at most
+200 wire candidates, admit at most 50 distinct non-seed selectors and use one
+canonical batch to normalize the result in provider order. Unsupported optional
+display fields do not invalidate checked identities. Omitted/unavailable results
+are counted, not synthesized. Current account binding is checked around the
+requests; Play/Next/Append/Details/reactions retain the accepted single-player
+and confirmation contracts. This read does not start My Wave.
+
+Endpoint comparisons and pinned source provenance are retained in
+[ADR-0034](adr/0034-bounded-track-lyrics-and-similar.md), including MarshalX,
+released Cassette and the [LRCLIB API](https://lrclib.net/docs.md). No upstream
+lyrics, private signer or response is copied into the repository. LRCLIB's
+software license does not license every lyric for redistribution. Availability
+and matching remain provider-dependent; automated original-text fixtures do not
+prove every real catalog result or distribution right.
 
 ## Track reactions
 
@@ -67,14 +122,8 @@ The [modern event model](https://github.com/MarshalX/yandex-music-api/blob/9ca13
 does not by itself establish Karin's negative-feedback lifecycle. Confirmed
 Dislike addition on the unchanged current occurrence now delegates to existing
 Next, including its established Wave Skip semantics. This adds no new Wave event
-and claims no measured recommendation effect. The accepted four-event protocol
-remains intact. The owner confirmed real server reactions and opposite-mark
-interaction at `1877a6c`, then accepted revised Dislike→Next, ordinary queue and
-Wave on Native and installed Flatpak. Issue #17 is closed; special races/failures
-are supported by CI rather than attributed to that general desktop report.
-See [ADR-0028](adr/0028-confirmed-track-reactions.md) and the
-[local procedure](BUILDING.md#track-reaction-acceptance). Fixtures and owner
-functional results establish no public API/distribution permission.
+and claims no measured recommendation effect. The accepted four-event protocol remains intact. Race, refusal and account-change
+guards use synthetic fixtures; current acceptance is in [VALIDATION](VALIDATION.md).
 
 ## My Wave
 
@@ -95,31 +144,13 @@ Cassette `event.from` contract. The reviewed yamu/yamuse station routes do not
 confirm this modern flow and are not automatic fallbacks. No new identity,
 OAuth mechanism, signing secret or API dependency is introduced.
 
-The owner confirmed real sessions, normalized tracks, heard Music, accepted
-`radioStarted`/`trackStarted`/`trackFinished`/`skip` and several further batches.
-The first eventless HTTP 400 report was inconclusive. The repeat at `a69dc79`
-identified an accepted retirement `skip` followed by rejected `radioFinished`
-on source change. That extra event is absent from the reviewed modern MarshalX
-event list; Cassette's reviewed Flow does not send its defined constant either.
-Karin now excludes it from its outgoing modern protocol. Retirement still drains
-one interrupted track's final skip when appropriate, then cancels locally; EOS
-does not gain another skip. This is local cleanup, not a remote deletion claim.
-Accepted `from`, original markers and actual heard-time fields stay unchanged.
-The owner then repeated candidate `2e4b978` on Fedora without reporting new
-problems and authorized ordinary integration. Do not infer individual unreported
-Stop/keyring/hardware scenarios or installed Flatpak v0.5 acceptance from that.
-
-Cloud fixtures cannot establish real service behavior. HTTP 200 with an admitted
-feedback acknowledgment proves receipt under this envelope contract, not its
-recommendation effect. Uncertain writes are not repeated; queued work and late
-results are retired on account/logout/close, while an in-flight request cannot
-be recalled. Only fixed stage/category/event/lifecycle classifications, known HTTP status and bounded counts may
-be reported, never wire bodies, session/batch/track identifiers or resources.
-
-See [ADR-0027](adr/0027-experimental-wave-lifecycle.md) and the
-[Fedora procedure](BUILDING.md#my-wave-local-acceptance). Keep Issue #16 open until
-the final ordinary-startup and installed Flatpak acceptance is reported.
-Successful local use still does not resolve public-distribution Issue #5.
+Local retirement can drain one interrupted heard track's final skip, then cancels
+without a session-finished event. Completed EOS/unheard tracks gain no extra skip.
+An in-flight HTTP request cannot be unsent; account/logout/close fence queued work
+and late replies. Ambiguous POSTs are not replayed. Safe diagnostics expose only
+fixed stage/category/event/lifecycle, known status and bounded counts, never
+session/batch/track IDs, resources or bodies.
+[ADR-0027](adr/0027-experimental-wave-lifecycle.md) records the protocol.
 
 ## Authorization evidence and client choice
 

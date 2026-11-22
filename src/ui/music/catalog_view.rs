@@ -227,7 +227,7 @@ impl Controller {
             Some("detail") => {
                 let action = self.detail_refresh.borrow().clone();
                 if let Some(action) = action {
-                    action(self);
+                    action(self, true);
                 }
             }
             _ => self.load_initial_library_policy(true),

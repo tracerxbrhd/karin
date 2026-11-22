@@ -106,15 +106,19 @@ impl QueueSnapshot {
                 .any(|id| crate::music::validate_id(id).is_err())
             || self.positions.len() != size
             || self.loaded_items > size
-            || self.positions[..self.loaded_items]
+            || self
+                .positions
                 .iter()
-                .any(|position| position.is_none_or(|value| value >= 2_000))
-            || self.positions[self.loaded_items..]
+                .flatten()
+                .any(|position| *position >= MAX_SOURCE_POSITIONS)
+            || self.positions.iter().flatten().count() != self.loaded_items
+            || self
+                .positions
                 .iter()
-                .any(Option::is_some)
-            || self.positions[..self.loaded_items]
-                .windows(2)
-                .any(|pair| pair[0] >= pair[1])
+                .flatten()
+                .collect::<BTreeSet<_>>()
+                .len()
+                != self.loaded_items
         {
             return Err(ContextError::InvalidSource);
         }
@@ -164,7 +168,7 @@ impl QueueSnapshot {
             mapping[index] = Some(items.len());
             items.push((**track).clone());
             positions.push(self.positions[index]);
-            loaded_items += usize::from(index < self.loaded_items);
+            loaded_items += usize::from(self.positions[index].is_some());
         }
         let omitted = self.ids.len() - items.len();
         let current_changed = mapping[self.current].is_none();

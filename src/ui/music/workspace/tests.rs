@@ -27,11 +27,22 @@ impl WindowManager {
                 .spawn()
                 .expect("the isolated maximized-layout fixture requires Openbox")
         });
+        // Openbox publishes its identity before all root workspace properties.
+        // Connect GDK only once an actual desktop and work area are present.
         pump_until(|| {
             Command::new("wmctrl")
-                .arg("-m")
+                .arg("-d")
                 .output()
-                .is_ok_and(|result| result.status.success())
+                .is_ok_and(|result| {
+                    result.status.success()
+                        && String::from_utf8_lossy(&result.stdout)
+                            .lines()
+                            .any(|desktop| {
+                                desktop.contains(" * ")
+                                    && desktop.contains(" WA: ")
+                                    && !desktop.contains("WA: N/A")
+                            })
+                })
         });
         Self(owned)
     }
@@ -97,6 +108,10 @@ fn click(window: &adw::ApplicationWindow, id: &str, widget: &impl IsA<gtk::Widge
 fn resize(ui: &crate::ui::MainWindow, width: i32, height: i32) {
     eprintln!("Karin synthetic shell phase: resize {width}x{height}");
     ui.window.set_default_size(width, height);
+    wait_for_size(ui, width, height);
+}
+
+fn wait_for_size(ui: &crate::ui::MainWindow, width: i32, height: i32) {
     let previous = Cell::new(None);
     pump_until(|| {
         // The CSD surface includes a compositor-dependent shadow/frame. The
@@ -421,12 +436,12 @@ fn projected_occurrence_identity_preserves_provenance_and_manual_reindexing() {
 #[test]
 #[ignore = "requires isolated Xvfb, xdotool, Openbox and GTK; synthetic metadata only"]
 fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() {
+    let _wm = WindowManager::start();
     gtk::init().unwrap();
     adw::init().unwrap();
     if let Some(settings) = gtk::Settings::default() {
         settings.set_gtk_enable_animations(false);
     }
-    let _wm = WindowManager::start();
     let app = adw::Application::builder()
         .application_id("io.github.tracerxbrhd.Karin.WorkspaceShellFixture")
         .flags(gio::ApplicationFlags::NON_UNIQUE)
@@ -480,8 +495,10 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
     this.render_queue();
     this.render_music_player();
     ui.window.present();
-    pump_until(|| ui.window.is_mapped());
-    resize(&ui, 1440, 900);
+    // GtkWidget is mapped before X11 returns its initial configure. GTK 4.14
+    // queues a resize even for the same dimensions, so observe the existing
+    // request here instead of issuing it a second time at a 0×0 allocation.
+    wait_for_size(&ui, 1440, 900);
     assert_idle_footer_has_no_horizontal_minimum(&ui);
     let found = Command::new("xdotool")
         .args([
@@ -876,22 +893,74 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
         this.render_music_player();
     }
 
-    // Details navigation preserves the pane and audio context. Compact Back is
-    // an explicit close, and a later occurrence must not reopen that intent.
+    // Native menu actions switch Info/Lyrics/Queue inside the same surface.
+    // The central destination and exact queue occurrence never become a
+    // redundant track-details page or another audio context.
     resize(&ui, 420, 720);
     assert_idle_footer_has_no_horizontal_minimum(&ui);
-    this.track_pane.details.grab_focus();
+    let central = this.widgets.stack.visible_child_name();
+    let surface = reveal.surface().unwrap();
+    let occurrence = this
+        .model
+        .borrow()
+        .queue
+        .current_occurrence_id()
+        .unwrap()
+        .clone();
+    let queue_context = this.model.borrow().queue.context().unwrap().clone();
+    click(&ui.window, id, &this.track_pane.menu);
+    let popover = this.track_pane.menu.popover().unwrap();
+    pump_until(|| {
+        test_input::menu_action_widget(&popover, "track-pane.lyrics")
+            .is_some_and(|item| item.is_mapped())
+    });
+    let lyrics = test_input::menu_action_widget(&popover, "track-pane.lyrics").unwrap();
+    assert!(lyrics.grab_focus());
     input(&["key", "--clearmodifiers", "Return"]);
-    pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("detail"));
-    assert!(this.info_is_open());
-    assert_eq!(this.model.borrow().queue.current().unwrap().id, "42");
+    pump_until(|| {
+        this.panel_mode.get() == PanelMode::Lyrics && this.track_pane.back_info.is_mapped()
+    });
+    assert_eq!(this.widgets.stack.visible_child_name(), central);
+    assert_eq!(reveal.surface().as_ref(), Some(&surface));
+    assert!(this.info_is_open() && reveal.is_child_revealed());
+    assert_eq!(this.track_pane.heading.text(), "Текст песни");
+    assert_eq!(
+        this.model.borrow().queue.current_occurrence_id(),
+        Some(&occurrence)
+    );
+    assert_eq!(
+        this.model.borrow().queue.context().unwrap().items(),
+        queue_context.items()
+    );
+    assert!(
+        this.music_snapshot().is_none(),
+        "view changes cannot create a player"
+    );
+    capture_native("workspace-shell-compact-lyrics-mode");
+    click(&ui.window, id, &this.track_pane.back_info);
+    pump_until(|| {
+        this.panel_mode.get() == PanelMode::TrackInfo && this.track_pane.menu.is_mapped()
+    });
+    assert_eq!(reveal.surface().as_ref(), Some(&surface));
+    assert!(reveal.is_child_revealed());
+    input(&["key", "--clearmodifiers", "ctrl+j"]);
+    pump_until(|| this.panel_mode.get() == PanelMode::Queue);
+    assert_eq!(reveal.surface().as_ref(), Some(&surface));
+    input(&["key", "--clearmodifiers", "ctrl+i"]);
+    pump_until(|| this.panel_mode.get() == PanelMode::TrackInfo);
+    assert_eq!(reveal.surface().as_ref(), Some(&surface));
+    assert_eq!(this.widgets.stack.visible_child_name(), central);
+    assert_eq!(
+        this.model.borrow().queue.current_occurrence_id(),
+        Some(&occurrence)
+    );
     click(&ui.window, id, &this.track_pane.close);
     pump_until(|| !this.info_is_open() && content.is_visible());
     assert!(!this.track_info_preference());
     this.model.borrow_mut().queue.select(0);
     this.render_music_player();
     assert!(!this.info_is_open());
-    capture_native("workspace-shell-compact-detail-explicit-back");
+    capture_native("workspace-shell-compact-info-explicit-back");
     ui.show_page("music-home");
     input(&["key", "--clearmodifiers", "ctrl+i"]);
     pump_until(|| this.info_is_open());

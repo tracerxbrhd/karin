@@ -311,3 +311,83 @@ fn filtering_is_bounded_cached_and_cannot_create_provider_requests() {
     assert_eq!(view.filter.visible().len(), count);
     assert!(view.loading && view.error.is_some());
 }
+
+#[test]
+fn indexed_sorted_projection_beyond_old_limit_preserves_source_holes_queue_and_duplicates() {
+    let mut view = LoadedTracks::new(ContextKind::LikedTracks, None, 91);
+    view.indexed = true;
+    let records = (0..2_403)
+        .filter(|position| *position != 77)
+        .map(|position| {
+            let mut track = track();
+            track.title = format!("Original {position:05}");
+            (position, track)
+        })
+        .collect::<Vec<_>>();
+    for records in records.chunks(50) {
+        view.append_indexed(
+            &IndexedBatch {
+                tracks: records.to_vec(),
+                next_position: records.last().unwrap().0 + 1,
+                omitted: 0,
+            },
+            None,
+        );
+    }
+    assert_eq!(view.items.len(), 2_402);
+    assert_eq!(view.positions.last(), Some(&2_402));
+    view.has_more = false;
+    let mut queue = MusicQueue::new();
+    queue.replace_context(view.context(42).unwrap());
+    let current = queue.context().unwrap().clone();
+    view.filter
+        .set_sort(collection_filter::CollectionSort::ReverseProvider);
+    view.contexts.borrow_mut().clear();
+    let index = view.filter.visible()[0];
+    let selected = view.context(index).unwrap();
+    assert_eq!(selected.source_position(0), Some(2_402));
+    assert_eq!(selected.source_position(1), Some(2_401));
+    assert_eq!(selected.items().len(), 500);
+    assert_eq!(
+        queue.context(),
+        Some(&current),
+        "projection changes do not replace the live queue"
+    );
+    assert!(view.matches_current(42, &current));
+    view.set_filter("02402");
+    let selected = view.context(index).unwrap();
+    assert_eq!(selected.items().len(), 1);
+    assert_eq!(selected.source_position(0), Some(2_402));
+    assert_eq!(queue.context(), Some(&current));
+}
+
+#[test]
+fn indexed_context_cache_stays_at_four_windows_without_retiring_the_active_queue() {
+    let mut view = LoadedTracks::new(ContextKind::LikedTracks, None, 92);
+    view.indexed = true;
+    for start in (0..5_000).step_by(50) {
+        view.append_indexed(
+            &IndexedBatch {
+                tracks: (start..start + 50)
+                    .map(|position| (position, track()))
+                    .collect(),
+                next_position: start + 50,
+                omitted: 0,
+            },
+            None,
+        );
+    }
+    let mut queue = MusicQueue::new();
+    queue.replace_context(view.context(0).unwrap());
+    let active = queue.context().unwrap().clone();
+    let pointer = active.items().as_ptr();
+    for index in (500..5_000).step_by(500) {
+        let context = view.context(index).unwrap();
+        assert_eq!(context.source_position(0), Some(index));
+        assert!(view.contexts.borrow().len() <= 4);
+    }
+    assert_eq!(view.contexts.borrow().len(), 4);
+    assert_eq!(queue.context(), Some(&active));
+    assert_eq!(queue.context().unwrap().items().as_ptr(), pointer);
+    assert_eq!(queue.context().unwrap().source_position(0), Some(0));
+}

@@ -115,6 +115,25 @@ pub(crate) fn report(event: Event, reason: Cause) {
     eprintln!("cache={cache} source={source} reason={}", reason.as_str());
 }
 
+/// Test receipts accept only fixed call-site categories and the finite cache
+/// error enum; never format a source, account, resource or underlying I/O error.
+#[cfg(test)]
+pub(super) fn selection(
+    outcome: &'static str,
+    error: Option<super::CacheError>,
+    elapsed: Option<std::time::Duration>,
+) {
+    if std::env::var_os("KARIN_AUDIO_CACHE_DIAGNOSTICS").as_deref()
+        != Some(std::ffi::OsStr::new("1"))
+    {
+        return;
+    }
+    eprintln!(
+        "Karin cache selection: outcome={outcome} error={error:?} elapsed-ms={:?}",
+        elapsed.map(|value| value.as_millis())
+    );
+}
+
 /// Classify only opaque equality comparisons; never format the underlying
 /// descriptor, URI, validators, account or track. Several dimensions may change.
 pub(crate) fn identity(

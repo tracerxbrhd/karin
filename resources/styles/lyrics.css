@@ -1,0 +1,13 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+.karin-presentation-root .karin-lyrics-lines,
+.karin-presentation-root .karin-lyrics-lines row { background-color: transparent; }
+.karin-presentation-root .karin-lyrics-line {
+  color: @window_fg_color;
+  font-size: 1.1em;
+  padding: 5px 4px;
+}
+.karin-presentation-root .karin-lyrics-stanza {
+  font-size: 1.1em;
+  padding: 12px 4px;
+  line-height: 1.5;
+}

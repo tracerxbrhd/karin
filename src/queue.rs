@@ -34,6 +34,8 @@ impl RepeatMode {
 }
 
 const MAX_QUEUE: usize = 500;
+/// Provenance is bounded independently from the small admitted playback window.
+pub(crate) const MAX_SOURCE_POSITIONS: usize = 20_000;
 
 /// Internal identity of one admitted queue entry, independent of its position
 /// and provider Track ID. Keeping a clone alive prevents allocation reuse while
@@ -83,7 +85,8 @@ pub enum ContextKind {
     Wave,
 }
 
-/// An admitted loaded context. Manual additions remain after its loaded prefix.
+/// An admitted loaded context. Manual additions retain None provenance even
+/// after explicit insertion/reordering among source occurrences.
 /// Track and source identifiers stay private in Debug output.
 #[derive(Clone, PartialEq, Eq)]
 pub struct PlaybackContext {
@@ -153,8 +156,8 @@ impl PlaybackContext {
     }
 
     /// Admit a bounded UI projection without renumbering its original source
-    /// occurrences. Filtering keeps provider order and may omit positions;
-    /// equal track IDs at different positions remain independent occurrences.
+    /// occurrences. Filtering/sorting may reorder or omit positions; equal
+    /// track IDs at different positions remain independent occurrences.
     pub(crate) fn with_source_positions(
         source_kind: ContextKind,
         source_id: Option<String>,
@@ -164,8 +167,14 @@ impl PlaybackContext {
         positions: Vec<usize>,
     ) -> Result<Self, ContextError> {
         if positions.len() != items.len()
-            || positions.iter().any(|position| *position >= 2_000)
-            || positions.windows(2).any(|pair| pair[0] >= pair[1])
+            || positions
+                .iter()
+                .any(|position| *position >= MAX_SOURCE_POSITIONS)
+            || positions
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+                != positions.len()
         {
             return Err(ContextError::InvalidSource);
         }
@@ -176,6 +185,18 @@ impl PlaybackContext {
 
     pub fn source_kind(&self) -> ContextKind {
         self.source_kind
+    }
+    /// Cheap presentation identity; content edits copy these immutable arrays.
+    /// Used only inside GTK, never exported as an address or persisted identity.
+    pub(crate) fn same_presentation_snapshot(&self, other: &Self) -> bool {
+        self.source_kind == other.source_kind
+            && self.source_id == other.source_id
+            && self.origin == other.origin
+            && self.current_index == other.current_index
+            && self.loaded_items == other.loaded_items
+            && self.partial == other.partial
+            && Arc::ptr_eq(&self.items, &other.items)
+            && Arc::ptr_eq(&self.source_positions, &other.source_positions)
     }
     pub(crate) fn origin(&self) -> &PlaybackOrigin {
         &self.origin
@@ -298,6 +319,136 @@ impl MusicQueue {
         }
         self.occurrences.push(OccurrenceId::new());
         Ok(())
+    }
+
+    /// A manual next intent adds a distinct occurrence without selecting it or
+    /// touching the active audio. It precedes both shuffled future/history and
+    /// the ordinary next position, retaining the selected occurrence identity.
+    pub fn insert_next(&mut self, track: Track) -> Result<(), QueueError> {
+        let Some(context) = self.context.as_mut() else {
+            return self.append(track);
+        };
+        if context.items.len() >= MAX_QUEUE || context.source_kind == ContextKind::Wave {
+            return Err(QueueError);
+        }
+        let index = context.current_index + 1;
+        let available = track.available;
+        Arc::make_mut(&mut context.items).insert(index, track);
+        Arc::make_mut(&mut context.source_positions).insert(index, None);
+        self.occurrences.insert(index, OccurrenceId::new());
+        self.order.insert_next(index, available);
+        Ok(())
+    }
+
+    pub(crate) fn occurrence_index(&self, occurrence: &OccurrenceId) -> Option<usize> {
+        self.occurrences.iter().position(|item| item == occurrence)
+    }
+
+    /// Move one future occurrence before/after another in the actual upcoming
+    /// policy. Track IDs and stale physical row numbers are not input identities.
+    pub(crate) fn move_upcoming(
+        &mut self,
+        occurrence: &OccurrenceId,
+        target: &OccurrenceId,
+        after: bool,
+    ) -> bool {
+        let (Some(from), Some(target)) = (
+            self.occurrence_index(occurrence),
+            self.occurrence_index(target),
+        ) else {
+            return false;
+        };
+        if from == target
+            || self
+                .context
+                .as_ref()
+                .is_none_or(|c| c.source_kind == ContextKind::Wave)
+        {
+            return false;
+        }
+        let mut future = self.editable_upcoming();
+        let (Some(source_slot), Some(_)) = (
+            future.iter().position(|index| *index == from),
+            future.iter().position(|index| *index == target),
+        ) else {
+            return false;
+        };
+        future.remove(source_slot);
+        let destination = future
+            .iter()
+            .position(|index| *index == target)
+            .expect("retained target")
+            + usize::from(after);
+        future.insert(destination, from);
+        if future == self.editable_upcoming() {
+            return false;
+        }
+        let to = if from < target { target - 1 } else { target } + usize::from(after);
+        let mapping = self.relocate(from, to);
+        if self.order.shuffle {
+            self.order
+                .replace_future(future.into_iter().map(|index| mapping[index]).collect());
+        }
+        true
+    }
+
+    /// Promote any non-current ordinary occurrence to next, including a past
+    /// occurrence. This changes future intent, not actual listening history.
+    pub(crate) fn move_next(&mut self, occurrence: &OccurrenceId) -> bool {
+        let Some(from) = self.occurrence_index(occurrence) else {
+            return false;
+        };
+        let Some(context) = self.context.as_ref() else {
+            return false;
+        };
+        if from == context.current_index
+            || context.source_kind == ContextKind::Wave
+            || !context.items[from].available
+        {
+            return false;
+        }
+        let mut future = self.editable_upcoming();
+        future.retain(|index| *index != from);
+        future.insert(0, from);
+        let current = context.current_index;
+        let to = current + usize::from(from > current);
+        let mapping = self.relocate(from, to);
+        if self.order.shuffle {
+            self.order
+                .replace_future(future.into_iter().map(|index| mapping[index]).collect());
+        }
+        true
+    }
+
+    pub(crate) fn editable_upcoming(&self) -> Vec<usize> {
+        let current = self.current_index();
+        self.upcoming_indices()
+            .into_iter()
+            .filter(|index| Some(*index) != current)
+            .collect()
+    }
+
+    /// Return old-to-new indices so all policy references survive permutation.
+    fn relocate(&mut self, from: usize, to: usize) -> Vec<usize> {
+        let context = self.context.as_mut().expect("admitted context");
+        let mut physical: Vec<_> = (0..context.items.len()).collect();
+        let value = physical.remove(from);
+        physical.insert(to, value);
+        let mut mapping = vec![0; physical.len()];
+        for (new, old) in physical.into_iter().enumerate() {
+            mapping[old] = new;
+        }
+        if from != to {
+            let track = Arc::make_mut(&mut context.items).remove(from);
+            Arc::make_mut(&mut context.items).insert(to, track);
+            let position = Arc::make_mut(&mut context.source_positions).remove(from);
+            Arc::make_mut(&mut context.source_positions).insert(to, position);
+            let occurrence = self.occurrences.remove(from);
+            self.occurrences.insert(to, occurrence);
+        }
+        context.current_index = mapping[context.current_index];
+        self.order.remap(&mapping);
+        mapping
     }
 
     /// Append one server-normalized radio batch without replacing identities
@@ -497,9 +648,9 @@ impl MusicQueue {
         };
         let context = self.context.as_mut()?;
         let removed = Arc::make_mut(&mut context.items).remove(index);
-        Arc::make_mut(&mut context.source_positions).remove(index);
+        let removed_position = Arc::make_mut(&mut context.source_positions).remove(index);
         self.occurrences.remove(index);
-        if index < context.loaded_items {
+        if removed_position.is_some() {
             context.loaded_items -= 1;
         }
         self.order.remove(index);
@@ -1279,7 +1430,7 @@ mod tests {
     #[test]
     fn projected_context_positions_validate_bounds_and_keep_occurrences_immutable() {
         let values = vec![track("42"), track("42")];
-        for positions in [vec![0], vec![0, 0], vec![7, 6], vec![0, 2_000]] {
+        for positions in [vec![0], vec![0, 0], vec![0, MAX_SOURCE_POSITIONS]] {
             assert_eq!(
                 PlaybackContext::with_source_positions(
                     ContextKind::Playlist,
@@ -1308,6 +1459,125 @@ mod tests {
         assert_eq!(source.source_position(0), Some(499));
         queue.append(track("42")).unwrap();
         assert_eq!(queue.context().unwrap().source_position(1), None);
+    }
+
+    #[test]
+    fn manual_next_is_a_distinct_occurrence_and_never_selects_or_rebinds_current() {
+        for shuffle in [false, true] {
+            let mut queue = MusicQueue::with_seed(18);
+            queue.replace_context(context(5, 2));
+            queue.set_shuffle(shuffle);
+            queue.next_track();
+            queue.previous_track();
+            let current = queue.current_occurrence_id().unwrap().clone();
+            let past = queue
+                .history_indices()
+                .into_iter()
+                .map(|index| queue.occurrence_id(index).unwrap().clone())
+                .collect::<Vec<_>>();
+            let source = queue.context().unwrap().clone();
+            let duplicate = queue.current().unwrap().clone();
+            queue.insert_next(duplicate).unwrap();
+            assert_eq!(queue.current_occurrence_id(), Some(&current));
+            let next = queue.upcoming_indices()[0];
+            assert_ne!(queue.occurrence_id(next), Some(&current));
+            assert_eq!(queue.context().unwrap().source_position(next), None);
+            assert_eq!(queue.context().unwrap().manual_items_len(), 1);
+            assert_eq!(queue.context().unwrap().loaded_items_len(), 5);
+            assert_eq!(
+                queue
+                    .history_indices()
+                    .into_iter()
+                    .map(|index| queue.occurrence_id(index).unwrap().clone())
+                    .collect::<Vec<_>>(),
+                past
+            );
+            assert_eq!(source.items().len(), 5, "existing view is immutable");
+            queue.next_track().unwrap();
+            assert_eq!(queue.current_index(), Some(next));
+            assert_policy_bounds(&queue);
+        }
+    }
+
+    #[test]
+    fn explicit_append_is_last_in_existing_shuffle_future() {
+        let mut queue = MusicQueue::with_seed(43);
+        queue.replace_context(context(5, 1));
+        queue.set_shuffle(true);
+        queue.next_track();
+        queue.previous_track();
+        let before = queue.upcoming_indices();
+        queue.append(track("manual-tail")).unwrap();
+        let mut expected = before;
+        expected.push(5);
+        assert_eq!(queue.upcoming_indices(), expected);
+    }
+
+    #[test]
+    fn reorder_uses_exact_occurrences_and_preserves_selected_and_original_positions() {
+        for shuffle in [false, true] {
+            for repeat in [RepeatMode::Off, RepeatMode::Queue, RepeatMode::One] {
+                let mut queue = MusicQueue::with_seed(29);
+                queue.replace_context(context(6, 2));
+                queue.set_shuffle(shuffle);
+                queue.set_repeat_mode(repeat);
+                let current = queue.current_occurrence_id().unwrap().clone();
+                let future = queue.editable_upcoming();
+                let source = queue
+                    .occurrence_id(*future.last().unwrap())
+                    .unwrap()
+                    .clone();
+                let target = queue.occurrence_id(future[0]).unwrap().clone();
+                let old_position = queue
+                    .context()
+                    .unwrap()
+                    .source_position(queue.occurrence_index(&source).unwrap());
+                assert!(queue.move_upcoming(&source, &target, false));
+                assert_eq!(queue.current_occurrence_id(), Some(&current));
+                let next = queue.upcoming_indices()[0];
+                assert_eq!(queue.occurrence_id(next), Some(&source));
+                assert_eq!(queue.context().unwrap().source_position(next), old_position);
+                assert_policy_bounds(&queue);
+                queue.next_track();
+                assert_eq!(queue.current_occurrence_id(), Some(&source));
+                queue.remove(queue.occurrence_index(&target).unwrap());
+                assert!(queue.occurrence_index(&target).is_none());
+                assert_eq!(queue.current_occurrence_id(), Some(&source));
+            }
+        }
+    }
+
+    #[test]
+    fn stale_replaced_occurrences_and_current_drag_cannot_retarget_equal_track_ids() {
+        let mut queue = MusicQueue::new();
+        queue.replace_context(context(4, 0));
+        let stale = queue.occurrence_id(1).unwrap().clone();
+        let old_current = queue.current_occurrence_id().unwrap().clone();
+        let old_snapshot = queue.context().unwrap().clone();
+        assert!(old_snapshot.same_presentation_snapshot(queue.context().unwrap()));
+        queue.insert_next(track("extra")).unwrap();
+        assert!(!old_snapshot.same_presentation_snapshot(queue.context().unwrap()));
+        assert!(!queue.move_upcoming(&old_current, &stale, false));
+        queue.replace_context(context(4, 0));
+        let target = queue.occurrence_id(2).unwrap().clone();
+        assert!(!queue.move_upcoming(&stale, &target, false));
+        assert!(!queue.move_next(&stale));
+        assert_eq!(queue.items().len(), 4);
+    }
+
+    #[test]
+    fn reordered_projection_accepts_unique_source_positions_past_old_prefix() {
+        let source = PlaybackContext::with_source_positions(
+            ContextKind::LikedTracks,
+            None,
+            vec![track("one"), track("same"), track("same")],
+            1,
+            true,
+            vec![19_999, 2_001, 8_222],
+        )
+        .unwrap();
+        assert_eq!(source.source_position(0), Some(19_999));
+        assert_eq!(source.source_position(1), Some(2_001));
     }
 
     #[test]

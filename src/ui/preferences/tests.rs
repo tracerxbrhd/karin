@@ -75,9 +75,13 @@ fn preference_edits_preserve_nonvisible_lifecycle_and_pane_fields() {
     let changes = Rc::new(RefCell::new(Vec::new()));
     let values = Preferences {
         ui_style: UiStyle::Karin,
+        appearance: Appearance::Light,
+        remember_login: false,
         forget_pending: true,
+        cache_enabled: false,
+        cache_limit: CacheLimit::Unlimited,
         track_info_open: false,
-        ..Preferences::default()
+        lyrics_external_auto: true,
     };
     let state = State {
         values: RefCell::new(values.clone()),
@@ -106,12 +110,19 @@ fn preference_edits_preserve_nonvisible_lifecycle_and_pane_fields() {
     assert!(!changed.track_info_open);
     assert_eq!(changed.remember_login, values.remember_login);
     assert_eq!(changed.ui_style, UiStyle::Karin);
+    state.change(|value| value.ui_style = UiStyle::System);
+    let mut expected = values;
+    expected.appearance = Appearance::Dark;
+    expected.ui_style = UiStyle::System;
+    assert_eq!(changes.borrow().last(), Some(&expected));
+    state.change(|value| value.ui_style = UiStyle::System);
+    assert_eq!(changes.borrow().len(), 2, "selected style is idempotent");
     state.updating.set(true);
-    state.change(|value| value.remember_login = false);
+    state.change(|value| value.ui_style = UiStyle::Karin);
     state.updating.set(false);
     state.ready.set(false);
-    state.change(|value| value.cache_enabled = false);
-    assert_eq!(changes.borrow().len(), 1);
+    state.change(|value| value.lyrics_external_auto = false);
+    assert_eq!(changes.borrow().len(), 2);
 }
 
 // Adwaita reads its documented debug settings once, at initialization. Isolate
@@ -306,6 +317,10 @@ fn coordinates(window: &adw::ApplicationWindow, widget: &gtk::Widget) -> Option<
     None
 }
 
+thread_local! {
+    static LAST_POINTER_CLICK: RefCell<Option<(String, Instant, i32, i32)>> = const { RefCell::new(None) };
+}
+
 pub(super) fn click(window: &adw::ApplicationWindow, id: &str, widget: &impl IsA<gtk::Widget>) {
     let widget = widget.as_ref();
     let focus_accepted = widget.grab_focus();
@@ -386,6 +401,21 @@ pub(super) fn click(window: &adw::ApplicationWindow, id: &str, widget: &impl IsA
         window.scale_factor(),
         widget.is_focusable(),
     );
+    // These calls express separate single-click intents. GTK retains the
+    // pointer's multi-click sequence across intervening keyboard input. Honor
+    // its configured time/distance before clicking the same location again;
+    // screenshots must not accidentally supply this separation for one lane.
+    let settings = gtk::Settings::default().unwrap();
+    let interval = Duration::from_millis(settings.gtk_double_click_time().max(0) as u64);
+    let distance = settings.gtk_double_click_distance().max(0) * window.scale_factor();
+    if let Some((previous_id, at, previous_x, previous_y)) =
+        LAST_POINTER_CLICK.with(|last| last.borrow().clone())
+        && previous_id == id
+        && (previous_x - x).abs() <= distance
+        && (previous_y - y).abs() <= distance
+    {
+        pump_until(|| at.elapsed() > interval);
+    }
     input(&[
         "mousemove",
         "--window",
@@ -395,6 +425,11 @@ pub(super) fn click(window: &adw::ApplicationWindow, id: &str, widget: &impl IsA
         "click",
         "1",
     ]);
+    // Completion is later than the native press timestamp, even if process
+    // creation or dispatch is delayed under CI load.
+    LAST_POINTER_CLICK.with(|last| {
+        *last.borrow_mut() = Some((id.to_owned(), Instant::now(), x, y));
+    });
     settle();
 }
 
@@ -674,6 +709,7 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
     }
     view.update(&snapshot.borrow());
     assert!(!view.scheme.is_sensitive());
+    assert!(!view.style_system.is_sensitive());
     assert!(!view.remember.is_sensitive());
     assert!(!view.cache_clear.is_sensitive());
     view.session_retry.emit_clicked();
@@ -883,6 +919,30 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
         count + 3,
         "already selected native radio is idempotent"
     );
+    // Independent color changes preserve System and the nonvisual choices,
+    // including during a reentrant render of the real preferences dialog.
+    let before_color = changes.borrow().len();
+    let mut expected = snapshot.borrow().values.clone();
+    view.scheme.set_selected(1);
+    expected.appearance = Appearance::Light;
+    assert_eq!(changes.borrow().last(), Some(&expected));
+    assert_eq!(changes.borrow().len(), before_color + 1);
+    assert!(view.style_system.is_active());
+    assert!(!view.style_karin.is_active());
+    assert!(!view.style_karin.is_sensitive());
+    click(&window, id, &view.system_style_row);
+    settle();
+    assert_eq!(changes.borrow().len(), before_color + 1);
+    assert_eq!(snapshot.borrow().values, expected);
+    let before_external = changes.borrow().len();
+    assert!(!view.external_lyrics.is_active());
+    let external_switch = view.external_lyrics.activatable_widget().unwrap();
+    click(&window, id, &external_switch);
+    pump_until(|| changes.borrow().len() == before_external + 1);
+    assert!(changes.borrow().last().unwrap().lyrics_external_auto);
+    click(&window, id, &external_switch);
+    pump_until(|| changes.borrow().len() == before_external + 2);
+    assert!(!changes.borrow().last().unwrap().lyrics_external_auto);
     view.dialog.close();
     pump_until(|| !view.dialog.is_mapped());
     window.close();

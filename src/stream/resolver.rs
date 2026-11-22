@@ -311,7 +311,6 @@ fn logical_descriptor_object(url: &Url) -> Option<[u8; 32]> {
 #[derive(Clone)]
 pub struct StreamResolver {
     transport: DeliveryProbe,
-    #[cfg(test)]
     media_fixture_origin: Option<Url>,
 }
 
@@ -325,7 +324,6 @@ impl StreamResolver {
     pub fn new() -> Result<Self, DeliveryReport> {
         Ok(Self {
             transport: DeliveryProbe::new()?,
-            #[cfg(test)]
             media_fixture_origin: None,
         })
     }
@@ -512,7 +510,6 @@ impl StreamResolver {
         let identity = HttpResourceIdentity::from_selected_descriptor(
             &parts, bitrate, &uri, logical, variant, 2,
         );
-        #[cfg(test)]
         if let Some(origin) = &self.media_fixture_origin {
             let parsed = Url::parse(&uri).map_err(|_| DeliveryReport {
                 category: DeliveryCategory::UnsafeResource,
@@ -523,7 +520,7 @@ impl StreamResolver {
                 origin.as_str().trim_end_matches('/'),
                 parsed.path()
             ));
-            return RemotePlaybackSource::from_test_resolver(&resource, expires_at)
+            return RemotePlaybackSource::from_loopback_composition(&resource, expires_at)
                 .map(|source| source.with_http_cache_resource(identity))
                 .map_err(|_| DeliveryReport {
                     category: DeliveryCategory::SourceExpired,
@@ -626,8 +623,20 @@ impl StreamResolver {
             .ok_or(failure)
     }
 
+    pub(crate) fn for_application_fixture(origin: &crate::application_fixture::Origin) -> Self {
+        Self::loopback_composition(
+            origin.url().as_str(),
+            origin.url().as_str(),
+            origin.url().as_str(),
+        )
+    }
+
     #[cfg(test)]
     pub(crate) fn for_test(api_origin: &str, metadata_origin: &str, media_origin: &str) -> Self {
+        Self::loopback_composition(api_origin, metadata_origin, media_origin)
+    }
+
+    fn loopback_composition(api_origin: &str, metadata_origin: &str, media_origin: &str) -> Self {
         let fixture = |value: &str| {
             let url = Url::parse(value).expect("synthetic loopback origin");
             assert_eq!(url.scheme(), "http");

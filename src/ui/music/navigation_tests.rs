@@ -51,6 +51,8 @@ fn native_catalog_navigation_latest_actions() {
     let server_failed = failed_requests.clone();
     let search_queries = Arc::new(Mutex::new(Vec::<String>::new()));
     let server_queries = search_queries.clone();
+    let stale_search_lookup = Arc::new(AtomicBool::new(false));
+    let server_stale_lookup = stale_search_lookup.clone();
     let gate = Arc::new((Mutex::new(false), Condvar::new()));
     let playlist_gate = Arc::new((Mutex::new(false), Condvar::new()));
     let server_playlist_gate = playlist_gate.clone();
@@ -75,6 +77,7 @@ fn native_catalog_navigation_latest_actions() {
             let library = server_library.clone();
             let failures = server_failed.clone();
             let search_queries = server_queries.clone();
+            let stale_lookup = server_stale_lookup.clone();
             children.push(thread::spawn(move || {
                 let mut stream = stream;
                 stream.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
@@ -127,6 +130,7 @@ fn native_catalog_navigation_latest_actions() {
                             normalized["id"] = json!(43);
                             normalized["title"] = json!("Fresh synthetic search");
                         } else if form.contains("44") {
+                            stale_lookup.store(true, Ordering::Release);
                             normalized["id"] = json!(44);
                             normalized["title"] = json!("Stale synthetic search");
                         }
@@ -206,10 +210,10 @@ fn native_catalog_navigation_latest_actions() {
             && mapped_loading_spinner(library_feed.status.upcast_ref())
     });
     assert!(
-        this.widgets.search_button.is_sensitive(),
+        this.widgets.search.is_sensitive(),
         "library loading must not disable search"
     );
-    this.widgets.stack.set_visible_child_name("search");
+    ui.show_page("music-search");
     // Unified four-section search has its own native fixture. Keep this
     // request-lane/latest-query regression explicitly in the track scope;
     // changing query text normally resets that scope, so reselect it below.
@@ -274,10 +278,10 @@ fn native_catalog_navigation_latest_actions() {
     );
     this.widgets.search.set_text("Новый запрос");
     this.model.borrow_mut().search_scope = Some(SearchKind::Tracks);
-    this.widgets.search_button.emit_clicked();
+    this.widgets.search.emit_by_name::<()>("activate", &[]);
     this.widgets.search.set_text("Final Latin query");
     this.model.borrow_mut().search_scope = Some(SearchKind::Tracks);
-    this.widgets.search_button.emit_clicked();
+    this.widgets.search.emit_by_name::<()>("activate", &[]);
     {
         let (lock, changed) = &*gate;
         *lock.lock().unwrap() = true;
@@ -300,6 +304,10 @@ fn native_catalog_navigation_latest_actions() {
         *search_queries.lock().unwrap(),
         vec!["slow".to_owned(), "Final Latin query".to_owned()],
         "only the latest pending query reaches the service"
+    );
+    assert!(
+        !stale_search_lookup.load(Ordering::Acquire),
+        "a retired search GET never sends a follow-up canonical track batch"
     );
     assert_eq!(
         library_feed.data.borrow().next_page,

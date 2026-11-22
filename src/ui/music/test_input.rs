@@ -11,6 +11,81 @@ pub(super) enum Target {
     DisclosureHeading,
 }
 
+/// GtkPopoverMenu model buttons need not expose their GMenu action through
+/// GtkActionable::action_name. Resolve the public model's exact action/label,
+/// then return its unique mapped native input target; never activate it here.
+pub(super) fn menu_action_widget(
+    root: &impl IsA<gtk::Widget>,
+    action: &str,
+) -> Option<gtk::Widget> {
+    fn action_label(model: &gio::MenuModel, action: &str, depth: u8) -> Option<String> {
+        if depth >= 8 {
+            return None;
+        }
+        for index in 0..model.n_items().min(100) {
+            if model
+                .item_attribute_value(index, "action", None)
+                .and_then(|value| value.get::<String>())
+                .as_deref()
+                == Some(action)
+            {
+                return model
+                    .item_attribute_value(index, "label", None)
+                    .and_then(|value| value.get::<String>());
+            }
+            for link in ["section", "submenu"] {
+                if let Some(child) = model.item_link(index, link)
+                    && let Some(label) = action_label(&child, action, depth + 1)
+                {
+                    return Some(label);
+                }
+            }
+        }
+        None
+    }
+    fn contains_label(widget: &gtk::Widget, text: &str) -> bool {
+        if widget
+            .downcast_ref::<gtk::Label>()
+            .is_some_and(|label| label.text() == text)
+        {
+            return true;
+        }
+        let mut child = widget.first_child();
+        while let Some(item) = child {
+            child = item.next_sibling();
+            if contains_label(&item, text) {
+                return true;
+            }
+        }
+        false
+    }
+    fn find(widget: &gtk::Widget, action: &str, label: Option<&str>, found: &mut Vec<gtk::Widget>) {
+        if widget.is_mapped()
+            && widget
+                .dynamic_cast_ref::<gtk::Actionable>()
+                .is_some_and(|item| {
+                    item.action_name().as_deref() == Some(action)
+                        || label.is_some_and(|text| contains_label(widget, text))
+                })
+        {
+            found.push(widget.clone());
+        }
+        let mut child = widget.first_child();
+        while let Some(item) = child {
+            child = item.next_sibling();
+            find(&item, action, label, found);
+        }
+    }
+    let root = root.as_ref();
+    let label = root
+        .downcast_ref::<gtk::PopoverMenu>()
+        .and_then(|menu| menu.menu_model())
+        .and_then(|model| action_label(&model, action, 0));
+    let mut found = Vec::new();
+    find(root, action, label.as_deref(), &mut found);
+    if found.len() == 1 { found.pop() } else { None }
+}
+
 /// Bounds in the main window's surface/application pixels. GTK 4.14 cannot
 /// compute widget bounds directly across GtkNative boundaries. Compute within
 /// the target's own native, then translate through its actual popup ancestry.
