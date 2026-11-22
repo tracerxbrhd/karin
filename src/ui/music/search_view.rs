@@ -118,12 +118,11 @@ impl Controller {
         };
         // A pick can return the image, label or padding inside a control.
         // Walk out to the window so those descendants inherit its action.
-        let field = self.widgets.search.parent();
         for widget in std::iter::successors(Some(target), |w| w.parent()) {
             if widget.is::<gtk::Window>() {
                 break;
             }
-            if field.as_ref() == Some(&widget)
+            if widget == *self.widgets.search.upcast_ref::<gtk::Widget>()
                 || widget == *self.widgets.player_revealer.upcast_ref::<gtk::Widget>()
                 || widget.is::<gtk::Actionable>()
                 || widget.is::<gtk::Editable>()

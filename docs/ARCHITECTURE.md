@@ -66,8 +66,11 @@ confirmation; ambiguous POSTs are not replayed.
 The top navigation owns one global search entry. Its field replaces the three
 tabs within their measured natural width, including their layout spacing. At
 narrow widths the available allocation constrains this slot. A separate
-compact toggle stays beside it throughout the 220 ms native reveal. Both states
-share the same group center and HeaderBar height. The top button, Ctrl+F and Home focus
+compact toggle stays beside a native homogeneous GtkStack. A 220 ms crossfade
+replaces its tab page with its field page in the same allocation. GTK measures
+the hidden tab page as well, so the natural width follows its labels and theme.
+The two pages share the same bounds and never slide into neighboring slots.
+Both states share the same group center and HeaderBar height. The top button, Ctrl+F and Home focus
 the field over the existing route. After 350 ms of quiet input, or on Enter,
 the catalog presents results for a nonempty query. Clear restores the
 originating route with the entry open. Escape, the toggle and a click on empty
@@ -155,8 +158,18 @@ emphasis. A recycled row takes its emphasis from the current transition and
 position when bound. Seek and Reduced Motion apply the final size and weight
 immediately.
 Copy exports only the displayed text to the local
-clipboard. Opening Lyrics starts the Yandex read; LRCLIB remains an explicitly
-disclosed user request. Track Info displays related tracks under an ordinary
+clipboard. Opening Lyrics starts the Yandex read. The supplement contract supplies
+TEXT through `Lyrics::from_text`, with no synchronized lines. The view labels
+this state “Текст без синхронизации” and offers “Найти синхронизированный текст”.
+A matching LRCLIB `syncedLyrics` reply passes `Lyrics::from_lrc`; its nonempty
+timeline replaces the TEXT view and uses the current player position. Unavailable
+LRC or a failed lookup preserves useful displayed text. External metadata is sent
+only after explicit consent or the saved `lyrics_external_auto` preference. This
+preference defaults off and requires a separate unchecked opt-in in the consent
+dialog. It can be revoked in Preferences. Automatic lookup is attempted once
+per selected track, after Yandex lacks synchronization, only while Lyrics is
+visible. It does not retry in the background. The preference is app-wide and
+contains no account or content data. Track Info displays related tracks under an ordinary
 heading, without expanders or a nested lyrics viewport. Similar rows use one
 canonical batch and the existing Play/Next/Append/Info/reaction paths, without
 creating Wave.

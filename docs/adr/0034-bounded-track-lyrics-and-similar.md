@@ -4,7 +4,7 @@
 
 Status: v0.8 implementation decision; live content acceptance is separate.
 Date: 2026-11-14
-Refined: 2026-11-20
+Refined: 2026-11-22
 Extends: ADR-0016, ADR-0022 and ADR-0031
 
 ## Context
@@ -38,13 +38,19 @@ the interface discloses that public title, first artist, optional album and
 known duration go to `https://lrclib.net/api/get`. Do not send Music account or
 track IDs, OAuth, cookies, headers, listening history or private collection names.
 The native confirmation dialog defaults to Cancel; only its explicit Search
-response submits metadata. Consent is per request, with no new saved preference.
+response submits metadata. An unchecked option may also save the independent
+`lyrics_external_auto` preference. It defaults off, persists in the existing
+private settings, and can be revoked in Preferences. It contains no account
+identity and survives logout. Consent to one lookup alone leaves it off.
 The existing no-redirect HTTP client supplies a truthful Karin User-Agent and
 accepts bounded JSON only. Require matching title/artist and compatible duration;
 404, instrumental or missing text are unavailable. Prefer admitted LRC and
 keep a matched timeline if a later reply for the same selection supplies only
-plain text. Display its actual source. Every external lookup is an explicit
-user request.
+plain text. Display its actual source. Without the saved preference, every
+external lookup requires the explicit disclosed action. With the preference,
+attempt one lookup for each visible Lyrics selection after the Yandex result
+lacks synchronization. Opening the app, playing a track with Lyrics closed and
+background retries do not send external metadata.
 
 Serialize external requests across MusicService clones; respect the explicit
 request spacing and provider Retry-After, with no automatic retry. Retired
@@ -62,8 +68,11 @@ PlaybackController position, including backward seek and Pause; it owns no
 elapsed-time accumulator. Lyrics is a distinct mode of the permanent universal
 panel, loaded lazily when that mode is visible. It has one full-height scroll
 area, not a GtkExpander or an embedded text field in Track Info. Plain TEXT uses
-selectable, spaced stanza/line labels and an honest “Без синхронизации” marker;
-no fabricated timestamps or editable TextView stand in for karaoke. A native
+selectable, spaced stanza/line labels and an honest “Текст без синхронизации” marker;
+no fabricated timestamps or editable TextView stand in for karaoke. Plain
+Yandex TEXT never starts a timeline. A prominent “Найти синхронизированный текст”
+action leads to the disclosed external search. Its successful LRC reply replaces
+the presentation without restarting playback or seeking the audio. A native
 Lyrics menu can copy the complete displayed Unicode text to the local clipboard,
 with LRC timestamps/metadata stripped by the existing parser. Selectable labels
 retain ordinary fragment selection and Ctrl+C. Synchronized lines use GtkListView

@@ -29,26 +29,47 @@ SHA-256, in the same order:
 
 ## PR #29 search and synchronized lyrics
 
-These 20 November 2026 (Samara) working-tree captures use GTK 4.18.6,
-Libadwaita 1.7.6, Cairo and Xvfb at 2×. The strips preserve the native pixels
-and add phase labels in the surrounding margins. Original synthetic GTK
-fixture captures and their composition are included under the
-[repository license](../../LICENSE).
+These working-tree GTK strips use original synthetic metadata and text. Their
+composition preserves the captured pixels without resampling and adds phase
+labels only in the surrounding margins. The fixture captures and composition
+are included under the [repository license](../../LICENSE).
 
-- On a 1920×1080 logical window, the same crop follows the three tabs, the
-  revealing entry and the fully open field. The window's 322-pixel tab slot
-  and 34-pixel toggle keep their logical bounds throughout.
+- The 22 November 2026 (Samara) search strip was captured under Xvfb with
+  GTK 4.18.6, Libadwaita 1.7.6, Cairo and scale 2. A 1920×1080 logical window
+  uses two native GtkStack pages occupying the same 322×36 logical-pixel slot.
+  The four 644×72 physical-pixel crops show closed, opening, open and closing
+  states. During the native crossfade the two pages overlap in that single
+  slot; they do not slide into adjacent regions. The crop omits the neighboring
+  toggle. Its unchanged 34×34 logical-pixel bounds and the 362-pixel group's
+  allocation are verified separately in the fixture's geometry JSON.
   [Global search](v08-global-search.png) ·
-  [Layout and input fixture](../../src/ui/music/search_tests/header.rs).
-- During local GStreamer playback of the original test signal and LRC,
-  “Журавли” shrinks and “Фонари” grows while the third line stays still.
-  The three crops show the same pixels of the pinned panel across the
-  handoff, with the intermediate frame selected by painted width. In this
-  static-font run, GTK draws the Pango glyphs at subpixel offsets and applies
-  the theme foreground once. Variable fonts use the `wght` axis.
-  The playback fixture executable had SHA-256
+  [Layout and input fixture](../../src/ui/music/search_tests/header.rs) ·
+  [Painted geometry fixture](../../src/ui/music/search_tests/geometry.rs).
+- The 22 November 2026 (Samara) provider strip comes from the ordinary debug
+  executable under its explicit local application fixture, GTK 4.18.6,
+  Libadwaita 1.7.6, Cairo, Light and scale 1. It places two 320×702
+  physical-pixel crops from the same right pane side by side. The first shows
+  Yandex TEXT and the synchronized-text action. The second follows explicit
+  native consent and the real MusicService LRCLIB request to the local fixture;
+  it shows LRC applied at the existing player's position. The run also passed
+  remembered consent after a process restart. Its executable SHA-256 was
+  `ee660070126be53d2a952b7ea8809d476f0cdf38f17c292287ae067a55880e30`.
+  This is an uncommitted-source development receipt, with a synthetic account,
+  original text/audio and loopback HTTP. Its embedded base commit identifies
+  `0bfc68a`; final exact-commit CI is separate. It is not Fedora or live-account
+  acceptance. [TEXT to synchronized view](v08-lyrics-provider-flow.png) ·
+  [Ordinary executable driver](../../scripts/test-application-fixture.py).
+- The 20 November 2026 (Samara) lyrics strip was captured under Xvfb with
+  GTK 4.18.6, Libadwaita 1.7.6, Cairo and scale 2. During local GStreamer
+  playback of the original test signal and LRC, “Журавли” shrinks and “Фонари”
+  grows while the third line stays still. The three crops show the same pixels
+  of the pinned panel across the handoff, with the intermediate frame selected
+  by painted width. In this static-font run, GTK draws the Pango glyphs at
+  subpixel offsets and applies the theme foreground once. Variable fonts use
+  the `wght` axis. The playback fixture executable had SHA-256
   `ffd99c3a1ea4ae62f931a458992323ec9471e3a4e0dce236607df9906d1b7bc7`.
-  [Synchronized lyrics](v08-karaoke.png) ·
+  This earlier renderer image does not prove the current ordinary executable's
+  provider/consent path. [Synchronized lyrics](v08-karaoke.png) ·
   [Player fixture](../../src/ui/music/track_extras/tests/playing_frames.rs).
 
 ## My Wave Home preview

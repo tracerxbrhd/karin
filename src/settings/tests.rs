@@ -53,6 +53,7 @@ fn persistent_preferences_roundtrip_preserves_private_modes_and_all_choices() {
         cache_enabled: false,
         cache_limit: CacheLimit::Unlimited,
         track_info_open: false,
+        lyrics_external_auto: false,
     };
     store.save(&preferences).unwrap();
     let reopened = fixture.store().load().unwrap();
@@ -161,6 +162,7 @@ fn adding_ui_style_migrates_both_old_schemas_without_losing_color_or_private_cho
                     cache_enabled: false,
                     cache_limit: CacheLimit::GiB3,
                     track_info_open: false,
+                    lyrics_external_auto: false,
                 }
             );
             // Ordinary save upgrades the envelope, not another store or cache.
@@ -185,6 +187,7 @@ fn unknown_or_malformed_style_never_resets_session_deletion_barrier_or_cache_pol
         cache_enabled: false,
         cache_limit: CacheLimit::GiB4,
         track_info_open: false,
+        lyrics_external_auto: false,
     };
     store.save(&expected).unwrap();
     for style in [
@@ -484,4 +487,57 @@ fn latest_ui_reservation_preserves_logout_barrier_against_stale_worker_saves() {
             .unwrap()
     );
     assert!(!fixture.store().load().unwrap().preferences.forget_pending);
+}
+
+#[test]
+fn external_lyrics_permission_defaults_off_and_survives_an_explicit_saved_choice() {
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    assert!(!store.load().unwrap().preferences.lyrics_external_auto);
+    store.save(&Preferences::default()).unwrap();
+    fixture.replace(br#"{"version":3,"preferences":{"track_info_open":true}}"#);
+    assert!(!store.load().unwrap().preferences.lyrics_external_auto);
+    store.update(|p| p.lyrics_external_auto = true).unwrap();
+    assert!(
+        fixture
+            .store()
+            .load()
+            .unwrap()
+            .preferences
+            .lyrics_external_auto
+    );
+    store.update(|p| p.lyrics_external_auto = false).unwrap();
+    assert!(
+        !fixture
+            .store()
+            .load()
+            .unwrap()
+            .preferences
+            .lyrics_external_auto
+    );
+}
+
+#[test]
+fn malformed_external_lyrics_permission_grants_nothing_and_preserves_barriers() {
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    let original = Preferences {
+        forget_pending: true,
+        remember_login: false,
+        appearance: Appearance::Dark,
+        ..Preferences::default()
+    };
+    store.save(&original).unwrap();
+    for untrusted in [
+        serde_json::json!("true"),
+        serde_json::json!(1),
+        serde_json::json!(null),
+    ] {
+        let mut values = serde_json::to_value(&original).unwrap();
+        values["lyrics_external_auto"] = untrusted;
+        fixture.replace(
+            &serde_json::to_vec(&serde_json::json!({"version":3,"preferences":values})).unwrap(),
+        );
+        assert_eq!(store.load().unwrap().preferences, original);
+    }
 }

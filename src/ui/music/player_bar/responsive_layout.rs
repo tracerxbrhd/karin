@@ -83,9 +83,7 @@ pub(in crate::ui::music) fn toolbar_frame(
     toolbar: &adw::ToolbarView,
     arrange: Rc<dyn Fn(i32)>,
 ) -> gtk::Box {
-    let frame = gtk::Box::builder()
-        .accessible_role(gtk::AccessibleRole::Presentation)
-        .build();
+    let frame = gtk::Box::new(gtk::Orientation::Vertical, 0);
     let layout: FooterLayout = glib::Object::new();
     layout
         .imp()

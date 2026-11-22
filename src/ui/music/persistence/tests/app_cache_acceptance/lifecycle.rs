@@ -486,7 +486,7 @@ pub(super) fn normal_window(
     ui.window.present();
     let this = &ui.music.controller;
     pump_until(|| this.model.borrow().account_valid && settled(this));
-    this.set_fixture_resolver_for_test(StreamResolver::for_test(origin, origin, origin));
+    this.set_fixture_resolver(StreamResolver::for_test(origin, origin, origin));
     assert_idle_wave_after_startup(this, true);
     (app, ui)
 }

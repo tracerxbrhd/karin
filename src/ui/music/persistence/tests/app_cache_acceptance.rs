@@ -929,7 +929,7 @@ fn application_child(input: &Input, phase: &str) {
         this.persistence.borrow().settings.is_some() && this.persistence.borrow().manager.is_some()
     );
     assert_idle_wave_after_startup(this, true);
-    this.set_fixture_resolver_for_test(StreamResolver::for_test(
+    this.set_fixture_resolver(StreamResolver::for_test(
         &input.origin,
         &input.origin,
         &input.origin,

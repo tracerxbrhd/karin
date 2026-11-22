@@ -586,7 +586,7 @@ fn native_persistent_session_restore_settings_forget_and_close() {
         this.persistence.borrow().manager.as_ref().unwrap().state(),
         crate::session_lifecycle::PersistenceState::Remembered
     );
-    this.set_fixture_resolver_for_test(StreamResolver::for_test(
+    this.set_fixture_resolver(StreamResolver::for_test(
         &api.origin,
         &api.origin,
         &api.origin,

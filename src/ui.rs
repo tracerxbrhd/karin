@@ -277,6 +277,18 @@ pub fn build_offline_ui_fixture(
     build_with_auth_mode(app, service, experimental, true)
 }
 
+/// The same executable's explicit isolated loopback acceptance composition.
+/// No actual login or desktop credential store participates in this mode.
+pub fn build_application_fixture(
+    app: &adw::Application,
+    service: ConnectionService,
+    fixture: &crate::application_fixture::ApplicationFixture,
+) -> MainWindow {
+    build_with_music_pane(app, service, |app, window| {
+        music::MusicPane::new_application_fixture(app, window, fixture)
+    })
+}
+
 fn build_with_auth_mode(
     app: &adw::Application,
     service: ConnectionService,

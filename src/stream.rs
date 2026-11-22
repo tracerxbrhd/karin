@@ -271,7 +271,6 @@ impl fmt::Display for DeliveryReport {
 pub struct DeliveryProbe {
     client: Client,
     origin: Url,
-    #[cfg(test)]
     metadata_fixture_origin: Option<Url>,
 }
 
@@ -299,7 +298,6 @@ impl DeliveryProbe {
             client,
             origin: Url::parse(ORIGIN)
                 .map_err(|_| DeliveryReport::new(DeliveryCategory::Configuration, None))?,
-            #[cfg(test)]
             metadata_fixture_origin: None,
         })
     }
@@ -471,7 +469,6 @@ impl DeliveryProbe {
         let permitted = url.scheme() == "https"
             && url.host_str() == Some("storage.mds.yandex.net")
             && url.port_or_known_default() == Some(443);
-        #[cfg(test)]
         let permitted = permitted
             || self
                 .metadata_fixture_origin

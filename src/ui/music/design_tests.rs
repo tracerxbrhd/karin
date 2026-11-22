@@ -1312,7 +1312,7 @@ fn populated_window_with_initial_selection(
     }
     this.widgets.stack.set_visible_child_name("library");
     this.widgets.nav_liked.set_active(true);
-    this.set_fixture_resolver_for_test(crate::stream::StreamResolver::for_test(
+    this.set_fixture_resolver(crate::stream::StreamResolver::for_test(
         &fixture.origin,
         &fixture.origin,
         &fixture.origin,

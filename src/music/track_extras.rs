@@ -338,8 +338,8 @@ impl MusicService {
     }
 
     fn lyrics_external_url(&self) -> Result<Url, MusicError> {
-        #[cfg(test)]
-        if self.origin.scheme() == "http" {
+        // Only explicit local fixture composition can construct this origin.
+        if self.origin.scheme() == "http" && self.origin.host_str() == Some("127.0.0.1") {
             return self
                 .origin
                 .join("external-lyrics")

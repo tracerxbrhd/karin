@@ -54,12 +54,18 @@ For Wave this reuses its existing listening/Skip lifecycle, with no new negative
 Wave event or recommendation-effect guarantee. See
 [ADR-0028](adr/0028-confirmed-track-reactions.md).
 
-The v0.8 branch adds seed-bound Similar Tracks and two explicit lyrics sources;
-these new real-content workflows are not inherited v0.7 acceptance. Legacy Yandex
+The owner reported failed v0.8 karaoke and global-search acceptance at
+`0bfc68a` in Native and installed Flatpak. These features require a new acceptance
+result. Prior Cloud rendering and green CI remain scoped automated evidence.
+The branch adds seed-bound Similar Tracks and two lyrics sources. Legacy Yandex
 plain text requires `hasRights == true` and `fullLyrics`; missing full text is
 unavailable, not a full song assembled from an excerpt. The modern extracted-key
-signer is excluded. LRCLIB TEXT/LRC is an explicitly disclosed external lookup
-by public metadata with no Music credentials/IDs and no content persistence.
+signer is excluded. This supplement supplies TEXT without timing; visible text
+alone cannot start karaoke. LRCLIB TEXT/LRC is a disclosed external lookup by
+public metadata with no Music credentials/IDs and no content persistence. An
+explicit search can find matching LRC; its availability depends on the catalog
+and metadata match. The optional saved automatic-search preference requires
+separate consent and can be disabled in Preferences.
 Catalog availability/matching and source/content rights remain independent.
 See [ADR-0034](adr/0034-bounded-track-lyrics-and-similar.md).
 The v0.6 audio store, player bridge and cleanup are ordinary production code.

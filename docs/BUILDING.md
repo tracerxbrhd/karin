@@ -551,29 +551,70 @@ Record Native/installed-Flatpak PASS/FAIL by action and commit, without exportin
 identifiers, tokens, playlist contents or signed URLs. Public distribution rights
 and unresolved cold-frame issue #23 remain separate from this functional check.
 
+## Ordinary executable lyrics and search regression
+
+Build the ordinary binary, then run
+`dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' python3 scripts/test-application-fixture.py target/debug/karin --theme light --out /tmp/karin-application-proof`.
+Use a fresh output directory and repeat with `--theme dark` and the 2× display
+configuration used by CI. This driver needs `at-spi2-core`, Python GObject
+Introspection, `xdotool`, ImageMagick and `playerctl` alongside the native runtime.
+
+The driver launches that ordinary executable with `--application-fixture`.
+This explicit fixture selects only a built-in synthetic identity, a process-owned
+loopback HTTP server and original generated MP3. It accepts no endpoint, token
+or account arguments. The application's account validation, MusicService,
+StreamResolver, PlaybackController and GTK presentation use their ordinary
+paths. Isolated marked XDG directories contain test preferences; the fixture
+credential backend cannot read or save a system login. Real keyboard/pointer
+input drives Yandex TEXT, disclosed LRCLIB consent and synchronized playback,
+as well as global-search opening, results and restoration. Inspect the receipt
+and PNGs in the output directory. This complements the component-level native
+tests and the separate physical Fedora procedure below.
+
 ## v08 final Fedora acceptance
 
-Use the same PR #29 commit for Native and installed Flatpak. Check the Native
-artifact’s `SHA256SUMS` and `BUILD-INFO.txt`, then launch ordinary `./karin`.
-Build and install that commit with the [Flatpak instructions](#flatpak-source-build)
-and use its ordinary launcher. Run the following sequence once in each build.
+Use one PR #29 revision for Native and installed Flatpak. Check the Native
+archive's `SHA256SUMS` and `BUILD-INFO.txt`. Confirm the running executable's
+version, full source commit, Native/Flatpak package and build profile using
+`./karin --version` or `flatpak run io.github.tracerxbrhd.Karin --version`.
+The same information is available in the About dialog's diagnostic information.
+A source-only Flatpak snapshot preserves its commit in `BUILD-REVISION`.
+Build and install that revision with the [Flatpak instructions](#flatpak-source-build).
 
-1. **Play and read.** Start an entitled track with line-timed lyrics, open Lyrics
-   from the footer and let several lines advance naturally. Also open Lyrics
-   from the playing row's Track Info menu. With desktop animations enabled,
-   the outgoing letters should visibly shrink while the incoming letters grow
-   and gain weight. Scroll by hand and watch another boundary. Tap Follow,
-   pause and seek both ways. Check that a long line fits, the current line
-   stays large when paused and Reduced Motion selects its final size immediately.
-2. **Search from a detail page.** From an album or playlist, open search with
-   Ctrl+F. The focused field should replace the three tabs, even maximized,
-   with the toggle in place and the detail still visible. Type, open a result
-   and go Back. Clear using the icon, then click the empty field. The detail
-   and field should stay open. Click blank background to restore the tabs.
-   Repeat briefly at a narrow width using the toggle and Escape. Continue
-   playback throughout.
+Perform this short sequence once in each ordinary package.
 
-Record the commit, package, desktop scale/theme and observed result for search
-and Lyrics in one reply. Keep account details, song text and personal screenshots
-on Fedora. The earlier collection-filter and playback-continuity procedures remain
-in the [previous checklist](https://github.com/tracerxbrhd/karin/blob/ffcea0d99ae869abd031ea508dc5e9833be213e0/docs/BUILDING.md#v08-final-fedora-acceptance).
+1. Start an entitled track and open Lyrics from the footer. If Yandex supplies
+   only TEXT, expect “Текст без синхронизации”. Choose “Найти синхронизированный
+   текст”, read the LRCLIB disclosure, and approve the lookup. Only matching LRC
+   can enable karaoke. If it is unavailable, the existing text stays readable.
+   The optional automatic-search checkbox is initially unchecked. Enabling it
+   permits later visible Lyrics selections to look up synchronization; revoke
+   it in Preferences using “Автоматически искать синхронизированный текст”.
+2. With matching LRC, watch a few natural boundaries. Open Lyrics from the
+   current track's Info menu as well. The outgoing letters should shrink while
+   the incoming letters grow and gain weight. Scroll, press Follow, pause and
+   seek both ways. Reduced Motion should select the final large line immediately.
+3. From an album or playlist, press Ctrl+F. The field should replace the three
+   tabs in the same slot, including while the window is maximized. Type, open a
+   result and go Back. Clear the query and click the empty field; the original
+   detail and field should remain. Click blank background to restore the tabs.
+   Briefly repeat with the top toggle and Escape at a narrow width, while audio
+   continues.
+
+If the outcome is unclear, close Karin and run just that package once with
+addressed diagnostics enabled. Native uses
+`KARIN_LYRICS_DIAGNOSTICS=1 ./karin`; installed Flatpak uses
+`flatpak run --env=KARIN_LYRICS_DIAGNOSTICS=1 io.github.tracerxbrhd.Karin`.
+At most 256 stderr events report provider, TEXT/LRC and synchronized-line count,
+playhead attachment and continuity, mapped/active state, animation/contrast
+settings and presentation/paint stages. They do
+not include song titles or text, track/account IDs, position values, tokens or
+URLs. Diagnostics are off at the next ordinary launch and create no files or
+background service. A plain-text result, detached clock and a paint problem
+have separate observable states.
+
+Report the commit, package, desktop scale/theme, whether TEXT or LRC appeared,
+and the search/Lyrics result together. Keep lyrics, account information and
+personal screenshots local. Fedora Wayland and installed-Flatpak acceptance
+requires this owner result. Cloud Xvfb, fixtures and source-only Flatpak builds
+have their own scope in [VALIDATION.md](VALIDATION.md).

@@ -530,7 +530,7 @@ fn native_search_retry_normalized_results_and_density() {
     let pane = &ui.music;
     let this = &pane.controller;
     let origin = format!("http://{address}/");
-    this.set_fixture_resolver_for_test(crate::stream::StreamResolver::for_test(
+    this.set_fixture_resolver(crate::stream::StreamResolver::for_test(
         &origin, &origin, &origin,
     ));
     {

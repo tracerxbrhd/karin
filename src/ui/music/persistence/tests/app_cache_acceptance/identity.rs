@@ -1031,7 +1031,7 @@ fn application(input: &Input) -> (adw::Application, crate::ui::MainWindow) {
     pump_until(|| this.model.borrow().account_valid && settled(this));
     assert_eq!(backend.loads.load(Ordering::Acquire), 1);
     assert_idle_wave_after_startup(this, true);
-    this.set_fixture_resolver_for_test(StreamResolver::for_test(
+    this.set_fixture_resolver(StreamResolver::for_test(
         &input.origin,
         &input.origin,
         &input.origin,

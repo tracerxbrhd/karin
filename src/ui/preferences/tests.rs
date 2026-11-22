@@ -883,6 +883,15 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
         count + 3,
         "already selected native radio is idempotent"
     );
+    let before_external = changes.borrow().len();
+    assert!(!view.external_lyrics.is_active());
+    let external_switch = view.external_lyrics.activatable_widget().unwrap();
+    click(&window, id, &external_switch);
+    pump_until(|| changes.borrow().len() == before_external + 1);
+    assert!(changes.borrow().last().unwrap().lyrics_external_auto);
+    click(&window, id, &external_switch);
+    pump_until(|| changes.borrow().len() == before_external + 2);
+    assert!(!changes.borrow().last().unwrap().lyrics_external_auto);
     view.dialog.close();
     pump_until(|| !view.dialog.is_mapped());
     window.close();

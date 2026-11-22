@@ -405,6 +405,10 @@ impl fmt::Debug for MusicService {
     }
 }
 impl MusicService {
+    pub(crate) fn for_application_fixture(origin: &crate::application_fixture::Origin) -> Self {
+        Self::loopback_fixture(origin.url().as_str(), Duration::from_secs(15))
+    }
+
     #[cfg(test)]
     pub(crate) fn for_test(base_url: &str) -> Self {
         Self::loopback_fixture(base_url, Duration::from_secs(2))
@@ -418,7 +422,6 @@ impl MusicService {
         Self::loopback_fixture(base_url, Duration::from_secs(15))
     }
 
-    #[cfg(test)]
     fn loopback_fixture(base_url: &str, timeout: Duration) -> Self {
         let origin = Url::parse(base_url).expect("synthetic fixture URL");
         assert_eq!(origin.scheme(), "http");

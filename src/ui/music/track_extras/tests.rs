@@ -26,12 +26,18 @@ use std::{
 
 #[path = "tests/playing_frames.rs"]
 mod playing_frames;
+#[path = "tests/provider_flow.rs"]
+mod provider_flow;
 
 const TOKEN: &str = "synthetic-v08-extras-token";
 
 #[derive(Default)]
 struct Counts {
     external: usize,
+    external_status: Option<u16>,
+    external_plain_only: bool,
+    external_held: bool,
+    external_entered: bool,
     similar: usize,
     batches: usize,
     posts: usize,
@@ -218,14 +224,32 @@ fn serve(
             json!({"result":{"account":{"uid":1234,"displayName":"Synthetic extras account"}}}),
         );
     } else if url.path() == "/external-lyrics" {
-        counts.lock().unwrap().external += 1;
+        let (status, plain_only, held) = {
+            let mut c = counts.lock().unwrap();
+            c.external += 1;
+            c.external_entered = true;
+            (c.external_status, c.external_plain_only, c.external_held)
+        };
+        if held {
+            let released = gate.0.lock().unwrap();
+            let (released, timeout) = gate
+                .1
+                .wait_timeout_while(released, Duration::from_secs(8), |r| !*r)
+                .unwrap();
+            assert!(!timeout.timed_out(), "release the held external fixture");
+            drop(released);
+        }
+        if let Some(status) = status {
+            json_response(&mut stream, status, json!({}));
+            return;
+        }
         let query = url
             .query_pairs()
             .collect::<std::collections::BTreeMap<_, _>>();
         let name = query.get("track_name").unwrap().as_ref();
         assert!(matches!(
             name,
-            "Original fixture 42" | "Original fixture 46"
+            "Original fixture 42" | "Original fixture 44" | "Original fixture 46"
         ));
         assert!(query.keys().all(|key| matches!(
             key.as_ref(),
@@ -270,7 +294,7 @@ fn serve(
         json_response(
             &mut stream,
             200,
-            json!({"trackName":name,"artistName":"Karin original fixture","albumName":"Original fixture collection","duration":if name == "Original fixture 46" {7} else {4},"instrumental":false,"plainLyrics":"Original synthetic plain text","syncedLyrics":lrc}),
+            json!({"trackName":name,"artistName":"Karin original fixture","albumName":"Original fixture collection","duration":if name == "Original fixture 46" {7} else {4},"instrumental":false,"plainLyrics":"Original synthetic plain text","syncedLyrics":if plain_only {None} else {Some(lrc)}}),
         );
     } else if parts.len() == 4 && parts[1] == "tracks" && parts[3] == "supplement" {
         let id = parts[2].parse::<u64>().unwrap();
@@ -741,7 +765,7 @@ fn window_for(app: &adw::Application, fixture: &Fixture) -> crate::ui::MainWindo
     ui.window.set_default_size(1440, 900);
     ui.window.present();
     let this = &ui.music.controller;
-    this.set_fixture_resolver_for_test(crate::stream::StreamResolver::for_test(
+    this.set_fixture_resolver(crate::stream::StreamResolver::for_test(
         &fixture.origin,
         &fixture.origin,
         &fixture.origin,
@@ -781,6 +805,7 @@ fn native_v08_lyrics_similar_seek_and_stale_selection() {
         .status()
         .unwrap();
     assert!(contrast.success(), "high contrast lyric playback");
+    provider_flow::run(&app);
     let fixture = Fixture::new();
     // Static layout capture deliberately switches the test process to Reduced
     // Motion. Exercise ordinary playback first, on the untouched GTK settings.
@@ -847,7 +872,7 @@ fn native_v08_lyrics_similar_seek_and_stale_selection() {
     );
     // Ordinary TEXT is divided into selectable Unicode stanzas, not an
     // editable TextView. Native Ctrl+C can copy a selected stanza fragment.
-    assert_eq!(view.inner.lyrics_status.text(), "Без синхронизации");
+    assert_eq!(view.inner.lyrics_status.text(), "Текст без синхронизации");
     assert_eq!(view.inner.lyrics_model.n_items(), 2);
     pump_until(|| {
         view.inner

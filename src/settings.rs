@@ -153,6 +153,9 @@ pub struct Preferences {
     pub cache_enabled: bool,
     pub cache_limit: CacheLimit,
     pub track_info_open: bool,
+    /// Explicit permission to share public track metadata with LRCLIB when
+    /// Lyrics is opened and Yandex supplies no synchronized text.
+    pub lyrics_external_auto: bool,
 }
 
 impl Default for Preferences {
@@ -165,6 +168,7 @@ impl Default for Preferences {
             cache_enabled: true,
             cache_limit: CacheLimit::default(),
             track_info_open: true,
+            lyrics_external_auto: false,
         }
     }
 }
@@ -267,6 +271,7 @@ fn decode_preferences(bytes: &[u8]) -> Option<Preferences> {
                 cache_enabled: legacy.cache_enabled.as_bool().unwrap_or(true),
                 cache_limit,
                 track_info_open: legacy.track_info_open,
+                lyrics_external_auto: false,
             })
         }
         2 | FORMAT_VERSION => {
@@ -290,6 +295,16 @@ fn decode_preferences(bytes: &[u8]) -> Option<Preferences> {
                 .and_then(|value| value.as_bool())
                 .unwrap_or(true);
             object.insert("cache_enabled".into(), serde_json::Value::Bool(enabled));
+            // An unrecognized consent value grants nothing while preserving
+            // independent session deletion and cache preferences.
+            let external = object
+                .remove("lyrics_external_auto")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
+            object.insert(
+                "lyrics_external_auto".into(),
+                serde_json::Value::Bool(external),
+            );
             serde_json::from_value(serde_json::Value::Object(object)).ok()
         }
         _ => None,

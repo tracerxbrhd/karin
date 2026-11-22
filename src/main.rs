@@ -67,7 +67,7 @@ fn main() -> glib::ExitCode {
     match args.as_slice() {
         [flag] if flag == "--help" || flag == "-h" => {
             println!(
-                "Karin\n\nUsage: karin [--smoke-test | --ui-fixture | --audio-self-test | --playback-self-test | --probe-service | --oauth-diagnostic | --delivery-diagnostic | --artwork-diagnostic | --experimental-wave | --version]\n\n--smoke-test          Verify GTK and local playback cleanup without network or sound\n--ui-fixture          Offline sign-in fixture for automated UI captures; never contacts OAuth\n--audio-self-test     Process a synthetic signal through GStreamer fakesink\n--playback-self-test  Decode a generated local WAV through playbin; test controls and cleanup\n--probe-service       Make an anonymous availability request (network required)\n--oauth-diagnostic    Opt-in local PKCE experiment; private terminal and system browser required\n--delivery-diagnostic Opt-in local delivery-info probe using this window's ordinary sign-in; no media request\n--artwork-diagnostic  Opt-in bounded image-stage categories in the ordinary app; no URLs or personal fields\n--experimental-wave   Deprecated no-op alias; My Wave is available in normal startup"
+                "Karin\n\nUsage: karin [--smoke-test | --ui-fixture | --application-fixture | --audio-self-test | --playback-self-test | --probe-service | --oauth-diagnostic | --delivery-diagnostic | --artwork-diagnostic | --experimental-wave | --version]\n\n--smoke-test          Verify GTK and local playback cleanup without network or sound\n--ui-fixture          Offline sign-in fixture for automated UI captures; never contacts OAuth\n--application-fixture Original local account/audio fixture; requires private XDG profile\n--audio-self-test     Process a synthetic signal through GStreamer fakesink\n--playback-self-test  Decode a generated local WAV through playbin; test controls and cleanup\n--probe-service       Make an anonymous availability request (network required)\n--oauth-diagnostic    Opt-in local PKCE experiment; private terminal and system browser required\n--delivery-diagnostic Opt-in local delivery-info probe using this window's ordinary sign-in; no media request\n--artwork-diagnostic  Opt-in bounded image-stage categories in the ordinary app; no URLs or personal fields\n--experimental-wave   Deprecated no-op alias; My Wave is available in normal startup"
             );
             if cfg!(feature = "experimental-device-auth") {
                 println!(
@@ -77,7 +77,7 @@ fn main() -> glib::ExitCode {
             return glib::ExitCode::SUCCESS;
         }
         [flag] if flag == "--version" => {
-            println!("Karin {}", config::VERSION);
+            println!("{}", config::build_identity());
             return glib::ExitCode::SUCCESS;
         }
         [flag] if flag == "--oauth-diagnostic" => {
@@ -118,7 +118,7 @@ fn main() -> glib::ExitCode {
         [flag]
             if matches!(
                 flag.as_str(),
-                "--smoke-test" | "--ui-fixture" | "--probe-service"
+                "--smoke-test" | "--ui-fixture" | "--application-fixture" | "--probe-service"
             ) => {}
         _ => {
             eprintln!("Unknown arguments. Run karin --help.");
@@ -147,12 +147,26 @@ fn main() -> glib::ExitCode {
             }
         };
     }
+    let application_fixture = args
+        .first()
+        .is_some_and(|flag| flag == "--application-fixture");
+    let fixture = if application_fixture {
+        match karin::application_fixture::ApplicationFixture::new() {
+            Ok(fixture) => Some(Rc::new(fixture)),
+            Err(error) => {
+                eprintln!("{error}");
+                return glib::ExitCode::FAILURE;
+            }
+        }
+    } else {
+        None
+    };
     let smoke = args.first().is_some_and(|flag| flag == "--smoke-test");
     let offline_auth = smoke || args.first().is_some_and(|flag| flag == "--ui-fixture");
     let smoke_passed = Rc::new(Cell::new(false));
     let app = adw::Application::builder()
         .application_id(config::APP_ID)
-        .flags(if offline_auth {
+        .flags(if offline_auth || application_fixture {
             gio::ApplicationFlags::NON_UNIQUE
         } else {
             gio::ApplicationFlags::FLAGS_NONE
@@ -185,6 +199,8 @@ fn main() -> glib::ExitCode {
                 .website("https://github.com/tracerxbrhd/karin")
                 .comments("Неофициальный музыкальный клиент для Linux: библиотека, поиск, персональное радио, очередь и воспроизведение. Проверенный вход можно сохранять в защищённом системном хранилище; настройки и кеш управляются отдельно.")
                 .build();
+            dialog.set_debug_info(&config::build_identity());
+            dialog.set_debug_info_filename("karin-build.txt");
             dialog.present(app.active_window().as_ref());
         }
     });
@@ -198,11 +214,17 @@ fn main() -> glib::ExitCode {
             window.present();
             return;
         }
-        let ui = if offline_auth {
+        let ui = if let Some(fixture) = &fixture {
+            ui::build_application_fixture(app, service.clone(), fixture)
+        } else if offline_auth {
             ui::build_offline_ui_fixture(app, service.clone(), experimental)
         } else {
             ui::build_with_options(app, service.clone(), experimental)
         };
+        if application_fixture {
+            ui.window.set_title(Some("Karin — original local acceptance fixture"));
+            ui.window.set_default_size(1440, 900);
+        }
         if delivery_diagnostic {
             ui.enable_delivery_diagnostic();
         }

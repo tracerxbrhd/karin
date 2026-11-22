@@ -47,7 +47,10 @@ bounds do not justify skipping containment or guessing coordinates.
 - For global search, measure the closed three-tab group, open entry, toggle
   bounds, total group width and HeaderBar height in logical pixels at 420×720,
   900×650, 1440×900, 1920×1080 and maximized. The entry fills the former tab
-  slot at each size. The toggle and group center stay in place. Inspect native
+  slot at each size. Inspect the painted pages as well as their allocations.
+  Tabs and field are two pages of one slot; an intermediate frame must not
+  put the outgoing strip beside the entry. The toggle and group center stay
+  in place. Inspect native
   closed, intermediate and open frames, including reverse motion, Light/Dark,
   1×/2× and immediate Reduced Motion endpoints.
 - Open the same entry via the toggle, Ctrl+F and Home. From a detail route,
@@ -87,6 +90,18 @@ Info/Lyrics/Queue share one surface. Outside clicks, navigation, resize and
 playback preserve mode; explicit close/Back restores focus. Content switching
 must not close/reopen the host. Current-occurrence changes resume following;
 inspecting details must not play. See [ADR-0022](adr/0022-universal-music-panel.md).
+
+First exercise the data path in an ordinary executable. Return Yandex TEXT
+without timestamps, check the explicit no-synchronization state, then use the
+actual consent dialog to request LRCLIB LRC through MusicService. Confirm a
+nonempty parsed timeline replaces the text at the current player position.
+Check declined consent produces no external request; saved consent, revocation,
+not-found, malformed timing and request/session retirement must each preserve
+their own result. A renderer seeded with LRC cannot prove this provider path.
+Record executable version, revision and package variant for these captures.
+Inspect the real executable's AT-SPI tree as well as direct widget focus.
+Navigation tabs, search, playback controls and Lyrics actions must be exposed
+through the ordinary shell; a presentation-only wrapper must not hide them.
 
 Play original fixture audio and LRC through the ordinary PlaybackController,
 snapshot subscription, active-line lookup and mapped GTK view. Exercise both

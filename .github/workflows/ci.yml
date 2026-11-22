@@ -82,7 +82,7 @@ jobs:
               gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
               libssl-dev libdbus-1-dev libsecret-1-dev libwebkitgtk-6.0-dev dbus-x11 xvfb xauth \
               librsvg2-common openbox imagemagick xdotool wmctrl x11-utils apparmor \
-              playerctl libglib2.0-bin libgl1-mesa-dri libegl-mesa0 libglx-mesa0
+              playerctl libglib2.0-bin python3-gi at-spi2-core libgl1-mesa-dri libegl-mesa0 libglx-mesa0
           }
           if ! install_native; then
             # A resolved kernel-mirror IPv4 timed out during package fetching on
@@ -620,12 +620,29 @@ jobs:
           G_DEBUG: fatal-warnings
           GSK_RENDERER: cairo
         run: xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' python3 scripts/test-wave-launch.py ./target/debug/karin
+      - name: Ordinary executable TEXT to consented LRC and global search
+        env:
+          GTK_A11Y: atspi
+          GSK_RENDERER: cairo
+        run: |
+          for scale in 1 2; do
+            if [ "$scale" = 1 ]; then theme=light; else theme=dark; fi
+            screen="$((1920 * scale))x$((1080 * scale))x24"
+            GDK_SCALE="$scale" dbus-run-session -- xvfb-run -a -s "-screen 0 $screen -dpi 96" /usr/bin/python3 scripts/test-application-fixture.py ./target/debug/karin --theme "$theme" --out "build/ui-captures/fixtures/v08-application/executable-debug-$scale"
+          done
       - name: Fetch locked dependencies for the offline release build
         if: matrix.lane == 'msrv'
         run: cargo fetch --locked
       - name: Flatpak-style offline release build on MSRV
         if: matrix.lane == 'msrv'
         run: cargo build --release --offline --locked --no-default-features --features cassette-auth
+      - name: Ordinary release executable provider and search user flow on MSRV
+        if: matrix.lane == 'msrv'
+        env:
+          GTK_A11Y: atspi
+          GSK_RENDERER: cairo
+          GDK_SCALE: 1
+        run: dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' /usr/bin/python3 scripts/test-application-fixture.py ./target/release/karin --theme light --out build/ui-captures/fixtures/v08-application/executable-release-1
       - name: Release OAuth terminal boundaries on MSRV
         if: matrix.lane == 'msrv'
         run: python3 scripts/test-oauth-terminal.py ./target/release/karin

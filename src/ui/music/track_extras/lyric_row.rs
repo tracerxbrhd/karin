@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! A selectable native line with space for its largest wrapped typography.
 
+use super::diagnostics;
+
 use std::cell::{Cell, OnceCell};
 
 use adw::prelude::*;
@@ -22,6 +24,8 @@ mod imp {
     pub struct LyricRow {
         pub(super) labels: OnceCell<Labels>,
         pub(super) strength: Cell<f64>,
+        pub(super) synchronized: Cell<bool>,
+        pub(super) painted_phase: Cell<Option<diagnostics::Paint>>,
         pub(super) variable_face: Cell<Option<(u32, bool)>>,
     }
 
@@ -73,6 +77,17 @@ mod imp {
             } else {
                 row.snapshot_child(text, snapshot);
             }
+            if self.synchronized.get() && !text.text().is_empty() {
+                let phase = diagnostics::Paint::for_strength(self.strength.get());
+                let previous = self.painted_phase.replace(Some(phase));
+                // Ordinary TEXT and newly bound resting lines carry no lyric
+                // handoff. Preserve the budget for actual size changes.
+                if previous != Some(phase)
+                    && (phase != diagnostics::Paint::Resting || previous.is_some())
+                {
+                    diagnostics::painted(phase);
+                }
+            }
         }
     }
 }
@@ -104,6 +119,8 @@ impl LyricRow {
     pub(super) fn bind(&self, value: &str, synchronized: bool, strength: f64) -> gtk::Label {
         let Labels { measure, text } = self.imp().labels.get().unwrap();
         self.imp().variable_face.set(None);
+        self.imp().synchronized.set(synchronized);
+        self.imp().painted_phase.set(None);
         let (class, previous) = if synchronized {
             ("karin-lyrics-line", "karin-lyrics-stanza")
         } else {

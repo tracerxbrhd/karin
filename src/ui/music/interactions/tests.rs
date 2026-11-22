@@ -470,7 +470,7 @@ fn native_library_interactions_confirmed_fixture() {
         "hidden selection/render never reads Likes"
     );
     assert_eq!(posts.load(Ordering::Acquire), 4);
-    this.set_fixture_resolver_for_test(crate::stream::StreamResolver::for_test(
+    this.set_fixture_resolver(crate::stream::StreamResolver::for_test(
         &origin, &origin, &origin,
     ));
     this.play_music_queue(0);

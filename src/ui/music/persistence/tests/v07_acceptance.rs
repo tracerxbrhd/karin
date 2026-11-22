@@ -457,7 +457,7 @@ fn child(input: &Input, phase: &str) {
                 && this.playback_storage_idle_for_test()
         });
     }
-    this.set_fixture_resolver_for_test(StreamResolver::for_test(
+    this.set_fixture_resolver(StreamResolver::for_test(
         &input.origin,
         &input.origin,
         &input.origin,

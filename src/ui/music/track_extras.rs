@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Bounded lyrics and related tracks in separate modes of the existing pane.
 
+mod diagnostics;
 mod lyric_row;
 
 use std::{
@@ -45,6 +46,7 @@ pub(super) enum RelatedAction {
 
 #[derive(Clone)]
 pub(super) enum ExtrasAction {
+    RememberExternal(bool),
     Lyrics {
         track: Track,
         ticket: Ticket,
@@ -79,6 +81,9 @@ struct Inner {
     lyrics_loading: Cell<bool>,
     similar_loading: Cell<bool>,
     lyrics_request: Cell<LyricsRequest>,
+    auto_external: Cell<bool>,
+    external_attempted: Cell<bool>,
+    external_eligible: Cell<bool>,
     lyrics: RefCell<Option<Lyrics>>,
     synchronized: Cell<bool>,
     active: Cell<Option<u32>>,
@@ -89,6 +94,7 @@ struct Inner {
     visible_lines: RefCell<BTreeMap<u32, glib::WeakRef<gtk::Label>>>,
     line_transitions: RefCell<BTreeMap<u32, LineTransition>>,
     presentation_tick: RefCell<Option<gtk::TickCallbackId>>,
+    diagnostics: diagnostics::Trace,
     lyrics_title: gtk::Label,
     lyrics_artist: gtk::Label,
     lyrics_status: gtk::Label,
@@ -262,11 +268,14 @@ impl ExtrasView {
         follow.set_halign(gtk::Align::Center);
         follow.set_visible(false);
         lyrics_widget.append(&follow);
-        let external = gtk::Button::with_label("Искать в LRCLIB");
+        let external = gtk::Button::new();
+        let external_label = wrap("Найти синхронизированный текст", "body");
+        external_label.set_xalign(0.5);
+        external.set_child(Some(&external_label));
         external.set_widget_name("music-lyrics-external");
-        external.set_tooltip_text(Some("Найти текст и караоке во внешнем источнике"));
-        external.set_halign(gtk::Align::Start);
-        external.add_css_class("flat");
+        external.set_tooltip_text(Some("Найти синхронизированный текст в LRCLIB"));
+        external.set_halign(gtk::Align::Fill);
+        external.add_css_class("suggested-action");
         external.set_sensitive(false);
         lyrics_widget.append(&external);
 
@@ -286,6 +295,9 @@ impl ExtrasView {
             lyrics_loading: Cell::new(false),
             similar_loading: Cell::new(false),
             lyrics_request: Cell::new(LyricsRequest::Yandex),
+            auto_external: Cell::new(false),
+            external_attempted: Cell::new(false),
+            external_eligible: Cell::new(false),
             lyrics: RefCell::new(None),
             synchronized: Cell::new(false),
             active: Cell::new(None),
@@ -296,6 +308,7 @@ impl ExtrasView {
             visible_lines: RefCell::new(BTreeMap::new()),
             line_transitions: RefCell::default(),
             presentation_tick: RefCell::default(),
+            diagnostics: diagnostics::Trace::default(),
             lyrics_title,
             lyrics_artist,
             lyrics_status,
@@ -379,6 +392,14 @@ impl ExtrasView {
         }
     }
 
+    pub(super) fn set_external_preference(&self, enabled: bool) {
+        if self.inner.auto_external.replace(enabled) != enabled && enabled {
+            // Settings can arrive while a controller render owns its model.
+            // Start the visible request only after that GTK dispatch returns.
+            schedule_visible(&self.inner);
+        }
+    }
+
     pub(super) fn set_modes(&self, info_visible: bool, lyrics_visible: bool) {
         let info_changed = self.inner.info_active.replace(info_visible) != info_visible;
         let lyrics_changed = self.inner.lyrics_active.replace(lyrics_visible) != lyrics_visible;
@@ -406,6 +427,8 @@ impl ExtrasView {
         this.selected.replace(track.cloned());
         this.loader.replace(loader.cloned());
         this.lyrics_started.set(false);
+        this.external_attempted.set(false);
+        this.external_eligible.set(false);
         this.similar_started.set(false);
         this.lyrics_loading.set(false);
         this.similar_loading.set(false);
@@ -428,6 +451,7 @@ impl ExtrasView {
         this.similar_spinner.stop();
         this.similar_spinner.set_visible(false);
         this.external.set_sensitive(track.is_some());
+        this.external.set_visible(true);
         this.external_action.set_enabled(track.is_some());
         this.related.borrow_mut().clear();
         this.shown.set(0);
@@ -466,6 +490,16 @@ impl ExtrasView {
             return;
         }
         let this = &self.inner;
+        diagnostics::result(this.lyrics_request.get(), &result);
+        let yandex_without_timing = this.lyrics_request.get() == LyricsRequest::Yandex
+            && result.as_ref().is_ok_and(|value| {
+                value
+                    .as_ref()
+                    .is_none_or(|lyrics| lyrics.synchronized.is_empty())
+            });
+        if this.lyrics_request.get() == LyricsRequest::Yandex {
+            this.external_eligible.set(yandex_without_timing);
+        }
         this.lyrics_loading.set(false);
         this.lyrics_spinner.stop();
         this.lyrics_spinner.set_visible(false);
@@ -486,11 +520,20 @@ impl ExtrasView {
                         .set_text("Найден только обычный текст. Караоке сохранено.");
                     return;
                 }
+                if this.lyrics_request.get() == LyricsRequest::External
+                    && !synchronized
+                    && this.lyrics.borrow().is_some()
+                {
+                    this.lyrics_status.set_text(
+                        "Текст без синхронизации. В LRCLIB найден только обычный текст; показанный текст сохранён.",
+                    );
+                    return;
+                }
                 let keep_manual = this.synchronized.get() && !this.following.get();
                 this.lyrics_status.set_text(if synchronized {
                     "Караоке"
                 } else {
-                    "Без синхронизации"
+                    "Текст без синхронизации"
                 });
                 this.source
                     .set_text(&format!("Источник: {}", lyrics.source.label()));
@@ -500,6 +543,7 @@ impl ExtrasView {
                 this.active.set(None);
                 this.lyric_clock.set(None);
                 this.synchronized.set(synchronized);
+                this.external.set_visible(!synchronized);
                 let lines = if synchronized {
                     lyrics
                         .synchronized
@@ -539,12 +583,25 @@ impl ExtrasView {
                 }
                 this.lyrics_status
                     .set_text(if this.lyrics.borrow().is_some() {
-                        "Другой текст не найден. Оставлен показанный текст."
+                        "Синхронизированный текст не найден. Показанный текст сохранён."
                     } else {
                         "Текст для этой композиции не найден."
                     });
             }
             Err(error) => this.lyrics_status.set_text(extras_error(error)),
+        }
+        if !this.synchronized.get()
+            && this.lyrics.borrow().is_some()
+            && this.lyrics_request.get() == LyricsRequest::External
+        {
+            let status = this.lyrics_status.text();
+            if !status.starts_with("Текст без синхронизации") {
+                this.lyrics_status
+                    .set_text(&format!("Текст без синхронизации. {status}"));
+            }
+        }
+        if yandex_without_timing {
+            this.maybe_request_external();
         }
     }
 
@@ -591,6 +648,14 @@ impl ExtrasView {
             .and_then(|position_ms| this.lyrics.borrow().as_ref()?.active_line(position_ms))
             .map(|line| line as u32);
         let old = this.active.get();
+        this.diagnostics.update(
+            snapshot,
+            this.synchronized.get(),
+            &this.lyrics_list,
+            next.is_some(),
+            old != next,
+            same_clock,
+        );
         if old == next && same_clock {
             return;
         }
@@ -682,6 +747,7 @@ impl Inner {
             && let Some(tick) = self.presentation_tick.take()
         {
             tick.remove();
+            diagnostics::tick(diagnostics::Tick::Cancelled);
         }
     }
 
@@ -707,6 +773,7 @@ impl Inner {
         if self.presentation_tick.borrow().is_some() {
             return;
         }
+        diagnostics::tick(diagnostics::Tick::Started);
         let weak = Rc::downgrade(self);
         let tick = self.lyrics_list.add_tick_callback(move |_, clock| {
             let Some(this) = weak.upgrade() else {
@@ -731,12 +798,26 @@ impl Inner {
             }
             if this.line_transitions.borrow().is_empty() && this.scroll_transition.get().is_none() {
                 this.presentation_tick.take();
+                diagnostics::tick(diagnostics::Tick::Completed);
                 glib::ControlFlow::Break
             } else {
                 glib::ControlFlow::Continue
             }
         });
         self.presentation_tick.replace(Some(tick));
+    }
+
+    fn maybe_request_external(self: &Rc<Self>) {
+        if self.auto_external.get()
+            && self.external_eligible.get()
+            && !self.external_attempted.get()
+            && self.lyrics_started.get()
+            && !self.synchronized.get()
+            && !self.lyrics_loading.get()
+        {
+            diagnostics::consent(true);
+            self.request_lyrics(LyricsRequest::External, true);
+        }
     }
 
     fn request_lyrics(self: &Rc<Self>, request: LyricsRequest, force: bool) {
@@ -750,12 +831,22 @@ impl Inner {
         let Some(track) = self.selected.borrow().clone() else {
             return;
         };
+        if request == LyricsRequest::External {
+            self.external_attempted.set(true);
+        }
+        diagnostics::request(request);
         self.lyrics_started.set(true);
         self.lyrics_loading.set(true);
         self.lyrics_request.set(request);
         self.lyrics_serial
             .set(self.lyrics_serial.get().wrapping_add(1));
-        self.lyrics_status.set_text("Загрузка текста…");
+        self.lyrics_status.set_text(match request {
+            LyricsRequest::Yandex => "Загрузка текста из Яндекс Музыки…",
+            LyricsRequest::External if self.lyrics.borrow().is_some() => {
+                "Текст без синхронизации. Ищем синхронизированный текст в LRCLIB…"
+            }
+            LyricsRequest::External => "Ищем синхронизированный текст в LRCLIB…",
+        });
         self.lyrics_retry.set_visible(false);
         self.lyrics_spinner.set_visible(true);
         self.lyrics_spinner.start();
@@ -814,16 +905,31 @@ impl Inner {
         {
             return;
         }
+        if self.auto_external.get() {
+            diagnostics::consent(true);
+            self.request_lyrics(LyricsRequest::External, true);
+            return;
+        }
         let Some(root) = self.lyrics_widget.root().and_downcast::<gtk::Window>() else {
             return;
         };
         let epoch = self.epoch.get();
         let dialog = adw::AlertDialog::new(
-            Some("Искать текст в LRCLIB?"),
+            Some("Найти синхронизированный текст?"),
             Some(
                 "Во внешний сервис LRCLIB будут переданы название композиции, исполнитель, альбом и длительность. Токены, cookies и данные аккаунта не передаются.",
             ),
         );
+        let remember = gtk::CheckButton::with_label(
+            "Автоматически искать синхронизированный текст для следующих композиций",
+        );
+        remember.set_widget_name("music-lyrics-remember-external");
+        if let Some(label) = remember.child().and_downcast::<gtk::Label>() {
+            label.set_wrap(true);
+            label.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+        }
+        remember.set_active(false);
+        dialog.set_extra_child(Some(&remember));
         dialog.add_responses(&[("cancel", "Отмена"), ("search", "Искать")]);
         dialog.set_default_response(Some("cancel"));
         dialog.set_close_response("cancel");
@@ -839,6 +945,12 @@ impl Inner {
                 }
                 this.external_consent.borrow_mut().take();
                 if response == "search" && this.epoch.get() == epoch && this.lyrics_active.get() {
+                    let automatic = remember.is_active();
+                    diagnostics::consent(automatic);
+                    if automatic {
+                        this.auto_external.set(true);
+                        (this.action)(ExtrasAction::RememberExternal(true));
+                    }
                     this.request_lyrics(LyricsRequest::External, true);
                 }
             }
@@ -1204,6 +1316,7 @@ fn schedule_visible(this: &Rc<Inner>) {
         this.visible_scheduled.set(false);
         if this.lyrics_active.get() && this.lyrics_widget.is_mapped() {
             this.request_lyrics(LyricsRequest::Yandex, false);
+            this.maybe_request_external();
             this.follow_active(true);
         }
         if this.info_active.get() && this.widget.is_mapped() {
@@ -1295,7 +1408,9 @@ impl Controller {
         };
         let mode = self.panel_mode.get();
         let appropriate = match &action {
-            ExtrasAction::Lyrics { .. } => mode == super::workspace::PanelMode::Lyrics,
+            ExtrasAction::Lyrics { .. } | ExtrasAction::RememberExternal(_) => {
+                mode == super::workspace::PanelMode::Lyrics
+            }
             ExtrasAction::Similar { .. } | ExtrasAction::Related { .. } => {
                 mode == super::workspace::PanelMode::TrackInfo
             }
@@ -1305,6 +1420,11 @@ impl Controller {
             return;
         }
         match action {
+            ExtrasAction::RememberExternal(enabled) => {
+                let mut values = self.persistence.borrow().values.clone();
+                values.lyrics_external_auto = enabled;
+                self.preferences_changed(values);
+            }
             ExtrasAction::Lyrics {
                 track,
                 ticket,
@@ -1324,6 +1444,7 @@ impl Controller {
                             error @ (MusicError::AccessDenied | MusicError::Unauthenticated),
                         ) = result
                         {
+                            diagnostics::result(request, &Err(error));
                             this.show_error(error);
                         } else {
                             this.track_pane.extras.show_lyrics(ticket, result);

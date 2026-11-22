@@ -136,7 +136,7 @@ fn native_v08_whole_collection_index_search_sort_and_cancellation() {
     window.set_title(Some("Karin synthetic HTTP fixture"));
     window.set_default_size(900, 750);
     let this = &ui.music.controller;
-    this.set_fixture_resolver_for_test(crate::stream::StreamResolver::for_test(
+    this.set_fixture_resolver(crate::stream::StreamResolver::for_test(
         &fixture.origin,
         &fixture.origin,
         &fixture.origin,

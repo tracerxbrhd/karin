@@ -96,7 +96,12 @@ reviewable and consistent with the accepted application.
 - Resolve LRC lines from the current player's actual position and exact opaque
   occurrence. At natural boundaries the old glyphs shrink as the new glyphs
   grow in size, weight and contrast. Reduced Motion applies the final size
-  immediately. Manual scrolling suspends centering while emphasis continues.
+  immediately. Yandex supplement is plain TEXT and must never imply a timeline.
+  Offer a clear synchronized-text lookup with native disclosure. External
+  metadata requires explicit per-request consent or the separately saved,
+  default-off automatic preference. Auto lookup is limited to a visible Lyrics
+  selection after missing synchronization; revocation and account/request fences
+  remain effective. Manual scrolling suspends centering while emphasis continues.
   Rebound rows reflect the current model. Seek, selection and session changes
   retire stale transitions. Measure the painted glyph bounds of both rows in
   the same GTK frames during ordinary player updates. TEXT has no timing.

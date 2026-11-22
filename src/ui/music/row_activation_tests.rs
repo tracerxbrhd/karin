@@ -298,7 +298,7 @@ fn native_catalog_rows_mouse_keyboard_details_and_delivery() {
         .unwrap();
     this.set_track_info_preference(false);
     this.sync_info_visibility();
-    this.set_fixture_resolver_for_test(crate::stream::StreamResolver::for_test(
+    this.set_fixture_resolver(crate::stream::StreamResolver::for_test(
         &fixture_origin,
         &fixture_origin,
         &fixture_origin,

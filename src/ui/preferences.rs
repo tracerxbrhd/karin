@@ -84,6 +84,7 @@ pub(super) struct PreferencesView {
     system_style_row: adw::ActionRow,
     scheme: adw::ComboRow,
     remember: adw::SwitchRow,
+    external_lyrics: adw::SwitchRow,
     session: adw::ActionRow,
     session_retry: gtk::Button,
     session_spinner: gtk::Spinner,
@@ -195,6 +196,24 @@ impl PreferencesView {
         });
         appearance.add(&scheme);
         page.add(&appearance);
+
+        let lyrics = adw::PreferencesGroup::builder()
+            .title("Тексты песен")
+            .build();
+        let external_lyrics = adw::SwitchRow::builder()
+            .title("Автоматически искать синхронизированный текст")
+            .subtitle("При открытии текста без синхронизации передавать в LRCLIB название, исполнителя, альбом и длительность. Данные аккаунта и токены не передаются.")
+            .title_lines(0)
+            .subtitle_lines(0)
+            .use_markup(false)
+            .build();
+        external_lyrics.set_widget_name("preferences-external-lyrics");
+        external_lyrics.connect_active_notify({
+            let state = Rc::clone(&state);
+            move |row| state.change(|values| values.lyrics_external_auto = row.is_active())
+        });
+        lyrics.add(&external_lyrics);
+        page.add(&lyrics);
 
         let authorization = adw::PreferencesGroup::builder()
             .title("Авторизация")
@@ -426,6 +445,7 @@ impl PreferencesView {
             system_style_row,
             scheme,
             remember,
+            external_lyrics,
             session,
             session_retry,
             session_spinner,
@@ -469,6 +489,9 @@ impl PreferencesView {
         self.scheme
             .set_selected(appearance_index(snapshot.values.appearance));
         self.scheme.set_sensitive(ready);
+        self.external_lyrics
+            .set_active(snapshot.values.lyrics_external_auto);
+        self.external_lyrics.set_sensitive(ready);
         self.remember.set_active(snapshot.values.remember_login);
         self.remember.set_sensitive(
             ready

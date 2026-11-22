@@ -467,7 +467,7 @@ fn native_collection_filter_continuation_and_exact_occurrences() {
     window.set_default_size(900, 750);
     window.present();
     let this = &ui.music.controller;
-    this.set_fixture_resolver_for_test(crate::stream::StreamResolver::for_test(
+    this.set_fixture_resolver(crate::stream::StreamResolver::for_test(
         &origin, &origin, &origin,
     ));
     {

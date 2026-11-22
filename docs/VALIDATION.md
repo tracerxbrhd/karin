@@ -1640,6 +1640,82 @@ Flatpak revision.
 [Native image strips and provenance](screenshots/README.md#pr-29-search-and-synchronized-lyrics) ·
 [UI quality gate](UI_QUALITY_GATE.md) · [Fedora procedure](BUILDING.md#v08-final-fedora-acceptance).
 
+### Failed Fedora acceptance of `0bfc68a` and critical repair
+
+The owner reported that Native and installed Flatpak acceptance failed again at
+`0bfc68a0df16af33d1b9f9917f9e5abeabd6ec4d`. The previous branch and PR each passed
+four hosted jobs, and cloud raster measurements showed changing glyph sizes.
+Those facts did not establish a successful provider-to-karaoke path for the
+owner's selection. Physical Fedora/Wayland behavior and the actual provider
+reply for that selection were not captured. The new repair does not assign a
+specific Fedora cause without that evidence.
+[Rejected source](https://github.com/tracerxbrhd/karin/tree/0bfc68a0df16af33d1b9f9917f9e5abeabd6ec4d) ·
+[Previous branch CI](https://github.com/tracerxbrhd/karin/actions/runs/44615132462) ·
+[Previous PR CI](https://github.com/tracerxbrhd/karin/actions/runs/44615149658).
+
+The source audit establishes the following coverage differences.
+
+| Hypothesis | Evidence and conclusion |
+| --- | --- |
+| Fixtures always supplied LRC | The native fixture did obtain TEXT from its local supplement endpoint and use the native external-consent action before requesting LRC through MusicService. It then measured its known matching LRC. It did not establish that any particular live selection has LRC. |
+| Plain text was presented as karaoke | The model already distinguished plain text and displayed “Без синхронизации”. However, opening Lyrics only requested Yandex supplement, which always called `Lyrics::from_text` and supplied zero timed lines. The external action was a separate per-track step. No preference could remember automatic synchronized lookup. This is an established gap in the normal user path. |
+| The real active-line state stopped | The cloud player fixture observed changing active indices and raster sizes. There is no trace of the failed Fedora session, so a live identity/snapshot failure remains unproved. Opt-in diagnostics distinguish no timeline, detached playhead, clock continuity, disabled animations and presentation updates. |
+| Tests bypassed ordinary startup | `window_for` set a validated synthetic account and replaced MusicService internally; playback setup called `play_music_context`. These tests covered production transport and widgets after injection, but did not prove the packaged executable's normal startup and production request configuration. |
+| A particular font or renderer failed | Previous cloud checks covered Cairo and OpenGL plus static and variable fonts. They establish only those tested environments. They do not identify the Fedora font/GPU compositor as the cause. |
+| Fedora launched another revision | The previous `--version` printed package version alone. External `BUILD-INFO.txt` identified the archive, but the running app did not expose its Git revision and package variant. No evidence says the owner launched an older build. The repair adds executable identity to make that observable. |
+| Widget widths proved visible correctness | The old allocator moved the full tab strip left and revealed the entry beside its surviving portion; it also allowed pointer input on outgoing tabs. Both allocations could match the endpoint gate while an intermediate frame contained neighboring strip and field. The repair uses two native GtkStack pages with the same slot. |
+| Test and packaged flags/resources differed | Native fixtures used `cfg(test)` transport injection and all features. Ordinary release and Flatpak-source binaries were built and smoke-tested, but those smokes did not exercise the same signed-in TEXT-to-LRC path. The repair requires an executable-level input/request scenario and recorded package identity. |
+
+The revised search regression uses real XTest input to click the former tab
+area while search is revealing. On archived `0bfc68a` it failed, and its captured
+intermediate frames showed the surviving tabs beside the entry. The revised
+native stack passed the same interaction at 1× and 2×. Its 48 size/theme/motion
+combinations measured a 322-pixel page slot, a 362-pixel total group and a
+34-pixel toggle without a position change. Separate checks relabel hidden tabs
+and use compact RTL. This confirms the revised X11/GTK presentation, while
+Fedora Wayland remains an owner check.
+[Search interaction regression](../src/ui/music/search_tests/header.rs) ·
+[Rendered geometry regression](../src/ui/music/search_tests/geometry.rs).
+
+The ordinary debug executable's local application scenario passed Yandex TEXT,
+explicit native LRCLIB consent, current-position synchronized playback, search
+and restoration, and remembered consent after a process restart. It used
+synthetic account data, original media and process-owned loopback HTTP through
+the ordinary adapters. Its precommit ELF SHA-256 was
+`ee660070126be53d2a952b7ea8809d476f0cdf38f17c292287ae067a55880e30`;
+the embedded base revision was `0bfc68a`. This development result precedes the
+final committed-source CI and does not establish live Fedora acceptance.
+[Provider-flow image and provenance](screenshots/README.md#pr-29-search-and-synchronized-lyrics).
+
+The ordinary executable revealed another coverage gap in the shell. Its
+`toolbar_frame` wrapper declared the GTK accessibility role `Presentation`,
+which hid its descendants from AT-SPI discovery. In the same isolated GTK 4.18
+session, removing that role changed the exposed application tree from five
+wrapper nodes with no navigation buttons to 106 nodes including all three tabs
+and search. The preceding in-process focus tests could drive the controller
+without proving discoverability in the actual application shell. This is a
+confirmed accessibility defect. It does not establish the cause of the owner's
+visual Fedora failure.
+[Toolbar wrapper](../src/ui/music/player_bar/responsive_layout.rs).
+
+The corrected provider flow starts with Yandex's available full text, labels its
+lack of timing, and exposes a prominent synchronized-text search. Explicit
+consent sends the disclosed public metadata to LRCLIB. A separate unchecked
+choice may remember automatic lookup for later visible Lyrics selections.
+Unavailable or invalid LRC retains useful existing TEXT. A parsed, matching LRC
+reply changes the presentation at the current player's position. Neither plain
+text nor an HTTP 200 alone establishes karaoke.
+[Provider path](../src/music/track_extras.rs) · [TEXT/LRC model](../src/lyrics.rs) ·
+[Presentation](../src/ui/music/track_extras.rs) ·
+[Rendering decision](adr/0034-bounded-track-lyrics-and-similar.md).
+
+An anonymous LRCLIB lookup on 2026-11-22 returned HTTP 200 and a synchronized
+reply with 58 timed lines for public metadata. Only shape/count/status flags
+were retained. No account credentials or private collection data were sent,
+and no response text was stored. This confirms that the public service can
+supply LRC. It does not establish a match for the owner's track or acceptance
+of Karin on Fedora. Automatic fixtures use original synthetic text and audio.
+
 ### v08 implementation and Cloud evidence
 
 The prepared Cloud toolchains for this integration are exact Rust 1.98.1 and

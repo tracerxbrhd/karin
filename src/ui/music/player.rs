@@ -62,7 +62,6 @@ pub(super) struct MusicPlayback {
     cache_fill_pending: VecDeque<crate::audio_cache::bridge::Fill>,
     // Prepared without a Play intent: never start a background download yet.
     cache_fill_prepared: Option<crate::audio_cache::bridge::Fill>,
-    #[cfg(test)]
     fixture_resolver: Option<StreamResolver>,
     renewal: Option<source_renewal::Renewal>,
     renewal_serial: u64,
@@ -96,7 +95,6 @@ impl Default for MusicPlayback {
             cache_fill_cancel: None,
             cache_fill_pending: VecDeque::new(),
             cache_fill_prepared: None,
-            #[cfg(test)]
             fixture_resolver: None,
             renewal: None,
             renewal_serial: 0,
@@ -105,8 +103,7 @@ impl Default for MusicPlayback {
 }
 
 impl Controller {
-    #[cfg(test)]
-    pub(super) fn set_fixture_resolver_for_test(&self, resolver: StreamResolver) {
+    pub(super) fn set_fixture_resolver(&self, resolver: StreamResolver) {
         let mut player = self.player.borrow_mut();
         player.fixture_resolver = Some(resolver);
         player.output = PlaybackOutput::Fakesink;
@@ -538,10 +535,7 @@ impl Controller {
             self.render_music_player();
             return;
         };
-        #[cfg(test)]
         let fixture_resolver = self.player.borrow().fixture_resolver.clone();
-        #[cfg(not(test))]
-        let fixture_resolver: Option<StreamResolver> = None;
         // A failed local-first source gets one lazy online replacement. It
         // must not select the same cached candidate again or start another
         // background copy of it, and it must not resolve a CDN URL on GTK.

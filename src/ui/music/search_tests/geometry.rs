@@ -12,7 +12,23 @@ fn painted_header(
 ) -> Option<gtk::gsk::RenderNode> {
     let paintable = gtk::WidgetPaintable::new(Some(window));
     let snapshot = gtk::Snapshot::new();
-    let bounds = header.compute_bounds(window)?;
+    // Observe exactly the shared presentation slot. Toggle icon/focus changes
+    // outside it cannot masquerade as a transitioning search field.
+    let group = header.first_child()?;
+    let group_bounds = group.compute_bounds(window)?;
+    let toggle = group.last_child()?;
+    let toggle = toggle.compute_bounds(window)?;
+    let x = if group.direction() == gtk::TextDirection::Rtl {
+        toggle.x() + toggle.width() + 6.0
+    } else {
+        group_bounds.x()
+    };
+    let bounds = Rect::new(
+        x,
+        group_bounds.y(),
+        group_bounds.width() - toggle.width() - 6.0,
+        group_bounds.height(),
+    );
     let (dx, dy) = window.surface_transform();
     snapshot.push_clip(&Rect::new(
         bounds.x() + dx as f32,
@@ -36,7 +52,7 @@ fn rect(bounds: Rect) -> [f32; 4] {
 struct Frame {
     width: i32,
     toggle_x: f32,
-    field_right: f32,
+    shared_slot: bool,
     group: Rect,
     header_height: i32,
     node: gtk::gsk::RenderNode,
@@ -46,7 +62,9 @@ fn transition(ui: &crate::ui::MainWindow, id: &str, open: bool) -> Vec<Frame> {
     let window = &ui.window;
     let this = &ui.music.controller;
     let widgets = &this.widgets;
-    let field = widgets.search.parent().unwrap();
+    let field = widgets.search.clone();
+    let tabs = widgets.nav_wave.parent().unwrap();
+    let slot = widgets.search.parent().and_downcast::<gtk::Stack>();
     let header = widgets.primary_navigation.clone();
     let group = widgets.search_header.clone();
     let title_bar = ui.header.clone();
@@ -63,10 +81,13 @@ fn transition(ui: &crate::ui::MainWindow, id: &str, open: bool) -> Vec<Frame> {
         let frames = frames.clone();
         move |_| {
             let bounds = field.compute_bounds(&window);
-            let width = if field.is_mapped() { field.width() } else { 0 };
+            let width = if field.is_mapped() {
+                bounds.map_or(0, |rect| rect.width().round() as i32)
+            } else {
+                0
+            };
             let mut frames = frames.borrow_mut();
-            if frames.last().is_none_or(|last| last.width != width)
-                && let Some(toggle) = toggle.compute_bounds(&window)
+            if let Some(toggle) = toggle.compute_bounds(&window)
                 && let Some(group) = group.compute_bounds(&window)
                 && let Some(node) = painted_header(&window, &header)
             {
@@ -75,7 +96,11 @@ fn transition(ui: &crate::ui::MainWindow, id: &str, open: bool) -> Vec<Frame> {
                     group,
                     header_height: title_bar.height(),
                     toggle_x: toggle.x(),
-                    field_right: bounds.map_or(0.0, |r| r.x() + r.width()),
+                    shared_slot: !field.is_mapped()
+                        || !tabs.is_mapped()
+                        || bounds
+                            .zip(tabs.compute_bounds(&window))
+                            .is_some_and(|(a, b)| a == b),
                     node,
                 });
             }
@@ -102,9 +127,17 @@ fn transition(ui: &crate::ui::MainWindow, id: &str, open: bool) -> Vec<Frame> {
     pump_until(|| {
         widgets.search_header.is_open() == open
             && if open {
-                entry_focused(window, this) && !widgets.nav_wave.is_mapped()
+                entry_focused(window, this)
+                    && !widgets.nav_wave.is_mapped()
+                    && slot
+                        .as_ref()
+                        .is_none_or(|slot| !slot.is_transition_running())
             } else {
-                !widgets.search.is_mapped() && widgets.nav_wave.is_mapped()
+                !widgets.search.is_mapped()
+                    && widgets.nav_wave.is_mapped()
+                    && slot
+                        .as_ref()
+                        .is_none_or(|slot| !slot.is_transition_running())
             }
     });
     super::super::test_input::wait_for_layout(window, &widgets.nav_search);
@@ -184,46 +217,50 @@ fn measure_state(ui: &crate::ui::MainWindow, id: &str, tag: &str, motion: bool) 
             Some(if name == "opening" { width } else { 0 }),
             "frame clock observed the settled endpoint"
         );
-        let between = widths.iter().filter(|w| (1..width).contains(w)).count();
-        if motion {
-            assert!(
-                between >= 2,
-                "{tag}/{name} needs intermediate painted slot widths, got {widths:?}"
-            );
-        } else {
-            assert_eq!(between, 0, "{tag}/{name} reduced motion");
+        if let Some(offending) = frames.iter().find(|frame| !frame.shared_slot)
+            && let Some(directory) = std::env::var_os("KARIN_TEST_CAPTURE_DIR")
+        {
+            std::fs::write(
+                std::path::Path::new(&directory).join("regression-neighboring-presentations.png"),
+                rendered_png(window, &offending.node),
+            )
+            .unwrap();
         }
-        assert!(widths.windows(2).all(|w| if name == "opening" {
-            w[0] <= w[1]
-        } else {
-            w[0] >= w[1]
-        }));
         assert!(
             frames.iter().all(|f| f.toggle_x == button.x()
                 && f.group == group
                 && f.header_height == header_height
-                && (f.width == 0 || (f.field_right - field.x() - field.width()).abs() <= 1.0)),
-            "{tag}/{name} field and button must stay anchored"
+                && f.shared_slot),
+            "{tag}/{name} pages must share the SAME painted slot and toggle anchor"
         );
     }
     let closed = rendered_png(window, &before);
     let opened = rendered_png(window, &after);
     assert!(closed != opened, "the rendered header changes on open");
     let mut pngs = vec![("closed", closed), ("open", opened)];
-    if motion {
-        for (phase, frames) in [("revealing", &opening), ("closing", &closing)] {
-            let mid = frames
-                .iter()
-                .filter(|f| (1..width).contains(&f.width))
-                .min_by_key(|f| (f.width - width / 2).abs())
-                .unwrap();
-            let png = rendered_png(window, &mid.node);
-            assert!(
-                png != pngs[0].1 && png != pngs[1].1,
-                "{tag}/{phase} renders an intermediate frame"
-            );
-            pngs.push((phase, png));
+    let mut distinct_frames = Vec::new();
+    for (phase, frames) in [("revealing", &opening), ("closing", &closing)] {
+        let mut distinct = Vec::new();
+        for frame in frames {
+            let png = rendered_png(window, &frame.node);
+            if png != pngs[0].1 && png != pngs[1].1 && !distinct.contains(&png) {
+                distinct.push(png);
+            }
         }
+        if motion {
+            assert!(
+                distinct.len() >= 2,
+                "{tag}/{phase} must PAINT at least two distinct crossfade stages, got {}",
+                distinct.len()
+            );
+            pngs.push((phase, distinct[distinct.len() / 2].clone()));
+        } else {
+            assert!(
+                distinct.is_empty(),
+                "{tag}/{phase} reduced motion paints only endpoints"
+            );
+        }
+        distinct_frames.push(distinct.len());
     }
     if let Some(directory) = std::env::var_os("KARIN_TEST_CAPTURE_DIR") {
         let directory = std::path::Path::new(&directory);
@@ -245,6 +282,8 @@ fn measure_state(ui: &crate::ui::MainWindow, id: &str, tag: &str, motion: bool) 
             "group_open": rect(open_group),
             "header_bar_height": header_height,
             "navigation_row_height": row_height,
+            "distinct_intermediate_painted_frames": distinct_frames,
+            "transition": "native-stack-crossfade-same-slot",
             "opening_widths": opening.iter().map(|f| f.width).collect::<Vec<_>>(),
             "closing_widths": closing.iter().map(|f| f.width).collect::<Vec<_>>(),
         });
@@ -350,6 +389,7 @@ fn native_global_search_measured_slot_and_motion() {
     let enlarged = this.widgets.search.compute_bounds(window).unwrap().width();
     input(&["key", "--clearmodifiers", "Escape"]);
     pump_until(|| liked.is_mapped() && !this.widgets.search.is_mapped());
+    super::super::test_input::wait_for_layout(window, liked);
     assert_eq!(
         liked
             .parent()

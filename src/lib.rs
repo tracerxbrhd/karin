@@ -3,6 +3,7 @@
 
 pub mod api;
 pub mod application;
+pub mod application_fixture;
 pub mod artwork;
 pub mod audio;
 // Production storage service; Music persistence requires a reviewed grant.

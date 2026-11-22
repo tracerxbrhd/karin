@@ -824,6 +824,9 @@ server.serve_forever()
             Instant::now() + Duration::from_secs(60),
         )
         .unwrap();
+        // This test owns its numeric HTTPS listener and generated private CA.
+        // Keep the test transport independent of the environment HTTP proxy.
+        source.loopback_composition = true;
         if trust_test_ca {
             source.ca_file = Some(self.media.directory.0.join("generated-test-ca.pem"));
         }

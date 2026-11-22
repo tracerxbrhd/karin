@@ -90,7 +90,7 @@ pub(super) fn open_by_mouse(window: &adw::ApplicationWindow, id: &str, this: &Co
     });
     click(window, id, &widgets.nav_wave);
     pump_until(|| widgets.stack.visible_child_name().as_deref() == Some("home"));
-    gap_and_revealing_tab(window, id, this);
+    gap_and_replaced_tab(window, id, this);
     input(&["key", "--clearmodifiers", "ctrl+f"]);
     pump_until(|| entry_focused(window, this));
     input(&["type", "--clearmodifiers", "--delay", "0", "short"]);
@@ -124,7 +124,7 @@ pub(super) fn open_by_mouse(window: &adw::ApplicationWindow, id: &str, this: &Co
     assert!(entry_focused(window, this));
 }
 
-fn gap_and_revealing_tab(window: &adw::ApplicationWindow, id: &str, this: &Controller) {
+fn gap_and_replaced_tab(window: &adw::ApplicationWindow, id: &str, this: &Controller) {
     let widgets = &this.widgets;
     input(&["key", "--clearmodifiers", "ctrl+f"]);
     pump_until(|| entry_focused(window, this) && !widgets.nav_liked.is_mapped());
@@ -142,35 +142,30 @@ fn gap_and_revealing_tab(window: &adw::ApplicationWindow, id: &str, this: &Contr
     click_at(id, x, y);
     pump_until(|| !widgets.search.is_mapped());
 
-    // Choose the exposed Liked tab as the field starts to reveal. Observe
-    // GTK's current pick and enqueue both button events before another frame.
+    // Reopening replaces the tabs' hit targets immediately, including while
+    // GTK paints the crossfade. A click in their former location reaches the
+    // SearchEntry and cannot accidentally navigate to another section.
     input(&["key", "--clearmodifiers", "ctrl+f"]);
     pump_until(|| widgets.search_header.is_open() && entry_focused(window, this));
-    let tab = widgets.nav_liked.compute_bounds(window).unwrap();
-    let x = tab.x() + tab.width() / 2.0;
-    let y = tab.y() + tab.height() / 2.0;
+    let bounds = widgets.search.compute_bounds(window).unwrap();
+    let x = bounds.x() + bounds.width() / 2.0;
+    let y = bounds.y() + bounds.height() / 2.0;
     let picked = window
         .pick(x.into(), y.into(), gtk::PickFlags::DEFAULT)
         .unwrap();
     assert!(
-        picked == *widgets.nav_liked.upcast_ref::<gtk::Widget>()
-            || picked.is_ancestor(&widgets.nav_liked)
+        picked == *widgets.search.upcast_ref::<gtk::Widget>()
+            || picked.is_ancestor(&widgets.search)
     );
     let (x, y) = surface_point(window, x, y);
-    input(&[
-        "mousemove",
-        "--window",
-        id,
-        &x.to_string(),
-        &y.to_string(),
-        "mousedown",
-        "1",
-        "mouseup",
-        "1",
-    ]);
+    click_at(id, x, y);
+    assert!(entry_focused(window, this));
+    assert_eq!(widgets.stack.visible_child_name().as_deref(), Some("home"));
+    input(&["key", "--clearmodifiers", "Escape"]);
+    pump_until(|| !widgets.search.is_mapped() && widgets.nav_liked.is_mapped());
+    click(window, id, &widgets.nav_liked);
     pump_until(|| {
         widgets.stack.visible_child_name().as_deref() == Some("library")
-            && !widgets.search.is_mapped()
             && !this.model.borrow().busy
     });
     click(window, id, &widgets.nav_wave);

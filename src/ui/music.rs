@@ -269,6 +269,29 @@ impl MusicPane {
         )
     }
 
+    pub(super) fn new_application_fixture(
+        app: &adw::Application,
+        window: &adw::ApplicationWindow,
+        fixture: &crate::application_fixture::ApplicationFixture,
+    ) -> Self {
+        let pane = Self::with_provider_state(
+            app,
+            window,
+            Some(MusicService::for_application_fixture(&fixture.origin)),
+            Arc::new(OfflineProvider),
+            launch_system_browser,
+            persistence::State::application_fixture(),
+        );
+        pane.controller.set_fixture_resolver(
+            crate::stream::StreamResolver::for_application_fixture(&fixture.origin),
+        );
+        // Use the normal account-validation and library-loading worker path.
+        let controller = pane.controller.clone();
+        let token = fixture.token();
+        glib::idle_add_local_once(move || controller.authenticate(token));
+        pane
+    }
+
     fn with_service(
         app: &adw::Application,
         window: &adw::ApplicationWindow,

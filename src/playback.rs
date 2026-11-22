@@ -308,6 +308,7 @@ pub struct RemotePlaybackSource {
     #[cfg(test)]
     test_age: Arc<AtomicU64>,
     http_resource: Option<Arc<crate::stream::HttpResourceIdentity>>,
+    loopback_composition: bool,
     #[cfg(test)]
     ca_file: Option<PathBuf>,
 }
@@ -362,6 +363,7 @@ impl RemotePlaybackSource {
             #[cfg(test)]
             test_age: Arc::new(AtomicU64::new(0)),
             http_resource: None,
+            loopback_composition: false,
             #[cfg(test)]
             ca_file: None,
         })
@@ -432,9 +434,9 @@ impl RemotePlaybackSource {
         let permitted = url.scheme() == "https"
             && url.port_or_known_default() == Some(443)
             && url.host_str().is_some_and(permitted_media_host);
-        #[cfg(test)]
         let permitted = permitted
-            || (url.scheme() == "http"
+            || (self.loopback_composition
+                && url.scheme() == "http"
                 && matches!(url.host_str(), Some("127.0.0.1" | "[::1]"))
                 && url.port().is_some_and(|port| port != 0));
         if !permitted {
@@ -448,6 +450,13 @@ impl RemotePlaybackSource {
         uri: &str,
         expires_at: Instant,
     ) -> Result<Self, PlaybackError> {
+        Self::from_loopback_composition(uri, expires_at)
+    }
+
+    pub(crate) fn from_loopback_composition(
+        uri: &str,
+        expires_at: Instant,
+    ) -> Result<Self, PlaybackError> {
         let url = checked_remote_url(uri)?;
         if url.scheme() != "http"
             || !matches!(url.host_str(), Some("127.0.0.1" | "[::1]"))
@@ -455,7 +464,9 @@ impl RemotePlaybackSource {
         {
             return Err(PlaybackError::SourcePolicy);
         }
-        Self::new_admission(url.as_str(), expires_at)
+        let mut source = Self::new_admission(url.as_str(), expires_at)?;
+        source.loopback_composition = true;
+        Ok(source)
     }
 }
 

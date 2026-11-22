@@ -35,8 +35,9 @@ original test artwork. [Capture details](docs/screenshots/README.md).
 - Compact collection search and sorting, with Unicode title/artist/album matching
   and automatic bounded indexing when you search in an eligible collection.
 - Track information in one pinned panel and confirmed owned-playlist creation/editing.
-- A dedicated plain/LRC Lyrics mode in that same panel, with animated line
-  emphasis, copying, Follow and an explicit external source option.
+- A dedicated Lyrics mode with plain Yandex text and optional synchronized
+  LRCLIB text after disclosed consent. Matching LRC enables animated line
+  emphasis and Follow; copying remains available for both formats.
 - Similar tracks using ordinary playback, queue and reaction actions.
 - Playback queue, position and Shuffle/Repeat restoration without autoplay.
 - Distinct Like/Dislike controls with account-bound read-after-write confirmation.
