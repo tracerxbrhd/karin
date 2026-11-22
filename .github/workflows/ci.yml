@@ -236,6 +236,7 @@ jobs:
               'native_catalog_cache_provenance_interleaving_and_retired_replies',
               'native_theme_matched_visual_surfaces',
               'native_theme_matched_work_observation',
+              'native_glass_cache_rgb_identity_and_alpha_preservation',
           ]
           compiled = {line.rsplit('::', 1)[-1].removesuffix(': test')
                       for line in listed if line.endswith(': test')}
@@ -272,6 +273,7 @@ jobs:
           if [ '${{ matrix.lane }}' = stable ]; then
             export KARIN_TEST_CAPTURE_DIR="$GITHUB_WORKSPACE/build/ui-captures/fixtures"
           fi
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_glass_cache_rgb_identity_and_alpha_preservation -- --ignored --test-threads=1
           dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_workspace_track_pane_actions_state_and_cleanup -- --ignored --test-threads=1
           dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_workspace_playlist_grid_input_states_and_resize -- --ignored --test-threads=1
           dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' cargo test --lib --all-features --locked native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup -- --ignored --test-threads=1

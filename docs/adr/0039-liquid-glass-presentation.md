@@ -16,9 +16,10 @@ without resetting session, cache, Lyrics permission or other preferences.
 
 One installed CSS provider contains shared native component metrics,
 separately scoped System and Liquid Glass resources, and shared Lyrics rules.
-Only the root style class changes. `AdwStyleManager` remains responsible for
-color selection and high contrast. Switching styles never recreates widgets,
-MusicService, the queue, Wave, MPRIS or PlaybackController.
+Style changes update root classes and the existing background leaf.
+`AdwStyleManager` remains responsible for color selection and high contrast.
+Switching styles never recreates widgets, MusicService, the queue, Wave, MPRIS
+or PlaybackController.
 
 One non-interactive background leaf sits behind the existing measured toolbar
 in a native GtkOverlay. Its input/accessibility state cannot cover controls.
@@ -29,16 +30,34 @@ GTK/Libadwaita widgets in either style.
 ## Rendering boundary
 
 Liquid Glass uses an original neutral scene: an opaque base, soft cyan/violet
-fields and a restrained light ribbon. GSK actually blurs that scene into a
-512×384 texture at the relevant device scale. The resulting texture is retained
-per light/dark and 1×/2× combination: at most four textures, about 7.5 MiB of
-pixel data if every combination is visited. Resize and player/Lyrics updates
-only stretch the retained texture; they do not rebuild or blur the scene.
+fields and a restrained light ribbon. GSK actually blurs that scene at a
+512×384 reference size, with retained 1×/2× cache resolutions. Each light/dark
+and resolution combination is prepared and read back once on a cache miss.
+The texture is retained as RGB only if every pixel has alpha 255, preserving
+its blurred color values and exposing its opacity to GSK. Otherwise the
+original texture and alpha are retained; no flattening color or forced opacity
+replaces them.
+
+The four cache slots retain 5.625 MiB of RGB pixel data when all combinations
+are visited, or at most a nominal 7.5 MiB of RGBA8 fallback pixel data. These
+figures exclude temporary preparation/readback buffers and renderer/driver
+allocations; they are not RSS or GPU-memory limits.
+
+At an actual native surface scale of exactly 1 or 2, only this background
+bitmap uses device-pixel coordinates and nearest sampling. The inverse scale
+inside its snapshot preserves the logical bounds and avoids an extra HiDPI
+offscreen sampling pass. Other scales retain the original linear path; the
+fractional-scale optimization is not claimed. Foreground widgets keep normal
+GTK logical coordinates and rendering. Resize and player/Lyrics updates reuse
+the retained texture; they do not prepare, read back or blur it again.
 There is no decorative timer, artwork request, screen capture, custom render
 thread or new persistent cache. No third-party graphic asset is copied.
 
-Tinted CSS surfaces, highlights, contours and shadows provide the foreground
-depth. Text, buttons and covers are never submitted to the background blur.
+The right pane and player use opaque matte colors and thin native edges,
+without full-surface gradients or outer blurred shadows. The header, Home
+hero and original backdrop retain the glass treatment, highlights and depth.
+System uses opaque computed native colors and boundaries for its pane/player.
+Text, buttons and covers are never submitted to the background blur.
 High Contrast disables the background and uses opaque semantic surfaces and
 visible outlines. The scene is static, including with Reduced Motion.
 

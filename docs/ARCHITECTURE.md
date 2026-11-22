@@ -448,9 +448,17 @@ System and Liquid Glass are supported; Karin remains explicitly unavailable
 until designer assets exist. Both available styles reuse the same widget tree.
 A measured native overlay places a bounded, cached, application-owned scenery
 texture beneath the existing toolbar for Liquid Glass. Only that scenery is
-blurred; player ticks and resize do not rebuild it. High Contrast hides the
-scenery and uses opaque semantic surfaces. Scoped presentation CSS never owns
-application state. [ADR-0039](adr/0039-liquid-glass-presentation.md) records the
-rendering, memory, settings and Wayland boundaries.
+blurred and read back once per light/dark and 1×/2× cache key. Verified opaque
+pixels retain their exact RGB; an alpha-bearing result keeps its original
+texture. Four slots retain 5.625 MiB of RGB payload, with a nominal 7.5 MiB
+RGBA8 fallback bound, excluding temporary buffers and renderer/GPU overhead.
+Only the background bitmap uses device-coordinate nearest sampling at surface
+scale 1 or 2; other scales keep the original linear path and foreground GTK
+coordinates stay unchanged. Player ticks and resize reuse the retained image.
+The right pane/player are opaque matte surfaces with thin edges; the header,
+Home hero and owned backdrop retain the glass treatment. High Contrast hides
+the scenery and uses opaque semantic surfaces. Scoped presentation CSS never
+owns application state. [ADR-0039](adr/0039-liquid-glass-presentation.md) records
+the rendering, memory, settings and Wayland boundaries.
 [ADR-0033](adr/0033-independent-ui-style-and-color-scheme.md) and
 [designer handoff](design/KARIN_STYLE_INTEGRATION.md) define that boundary.

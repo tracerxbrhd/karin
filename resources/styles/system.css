@@ -1,20 +1,24 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Calm native surfaces. Shared component metrics live in components.css. */
-.karin-style-system.music-shell { background: @window_bg_color; }
-.karin-style-system .music-toolbar-surface { background: @window_bg_color; }
+.karin-style-system.music-shell { background: @view_bg_color; }
+.karin-style-system .music-toolbar-surface { background: transparent; }
 .karin-style-system .music-header {
   background: @headerbar_bg_color;
   box-shadow: inset 0 -1px alpha(@borders, .45);
 }
-.karin-style-system .music-workspace { background: @view_bg_color; }
+.karin-style-system .music-workspace { background: transparent; }
 .karin-style-system .music-information-view {
-  background: mix(@window_bg_color, @theme_fg_color, .035);
+  /* Native foregrounds may carry alpha. With an opaque native window base,
+   * these weighted tints retain alpha >= .955; multiplying by 2 clamps it to
+   * 1 without changing their native RGB. One opaque color avoids a second
+   * full-surface tint pass or blending the moving pane with the whole window. */
+  background: alpha(mix(@window_bg_color, @theme_fg_color, .035), 2);
   border-left: 1px solid alpha(@borders, .72);
-  box-shadow: -5px 0 12px -9px alpha(black, .18);
+  box-shadow: inset 1px 0 alpha(@borders, .18);
 }
 .karin-style-system .music-player-surface {
-  background: mix(@window_bg_color, @theme_fg_color, .045);
-  box-shadow: inset 0 1px alpha(@borders, .65), 0 -3px 12px alpha(black, .035);
+  background: alpha(mix(@window_bg_color, @theme_fg_color, .045), 2);
+  box-shadow: inset 0 1px alpha(@borders, .65);
 }
 .karin-style-system .music-player { background: transparent; }
 .karin-style-system .music-wave-hero {

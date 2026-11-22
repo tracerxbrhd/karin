@@ -18,6 +18,12 @@ const HEIGHT: f32 = 384.0;
 const BLUR_RADIUS: f64 = 14.0;
 const CACHE_SLOTS: usize = 4;
 
+#[derive(Clone)]
+struct PreparedTexture {
+    texture: gdk::Texture,
+    pixel_bytes: u64,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(in crate::ui) struct RenderStats {
     pub preparation_count: u64,
@@ -36,7 +42,7 @@ mod imp {
         pub enabled: Cell<bool>,
         pub dark: Cell<bool>,
         pub high_contrast: Cell<bool>,
-        pub textures: RefCell<[Option<gdk::Texture>; CACHE_SLOTS]>,
+        pub(super) textures: RefCell<[Option<PreparedTexture>; CACHE_SLOTS]>,
         pub preparations: Cell<u64>,
         pub snapshots: Cell<u64>,
         pub blurs: Cell<u64>,
@@ -134,7 +140,31 @@ mod imp {
                     texture
                 }
             };
-            snapshot.append_texture(&texture, &bounds);
+            let device_scale = widget
+                .native()
+                .and_then(|native| native.surface())
+                .map_or_else(
+                    || f64::from(widget.scale_factor()),
+                    |surface| surface.scale(),
+                );
+            if device_scale == 1.0 || device_scale == 2.0 {
+                // Sample only this already blurred bitmap in device pixels.
+                // Cancelling the surface scale avoids TextureScaleNode's extra
+                // HiDPI offscreen pass. Native foreground widgets keep their
+                // normal scale and are never part of this sampling operation.
+                let scale = device_scale as f32;
+                snapshot.save();
+                snapshot.scale(scale.recip(), scale.recip());
+                snapshot.append_scaled_texture(
+                    &texture.texture,
+                    gsk::ScalingFilter::Nearest,
+                    &graphene::Rect::new(0.0, 0.0, bounds.width() * scale, bounds.height() * scale),
+                );
+                snapshot.restore();
+            } else {
+                // Preserve the original path for unverified fractional scales.
+                snapshot.append_texture(&texture.texture, &bounds);
+            }
         }
     }
 }
@@ -190,7 +220,7 @@ impl LiquidGlass {
             cache_pixel_bytes: textures
                 .iter()
                 .flatten()
-                .map(|texture| texture.width() as u64 * texture.height() as u64 * 4)
+                .map(|texture| texture.pixel_bytes)
                 .sum(),
         }
     }
@@ -209,14 +239,54 @@ fn base_color(dark: bool) -> gdk::RGBA {
     tint(if dark { [17, 28, 47] } else { [225, 234, 245] }, 1.0)
 }
 
-fn prepare(renderer: &gsk::Renderer, dark: bool, scale: i32) -> gdk::Texture {
+fn prepare(renderer: &gsk::Renderer, dark: bool, scale: i32) -> PreparedTexture {
     let snapshot = gtk::Snapshot::new();
     snapshot.scale(scale as f32, scale as f32);
     snapshot.push_blur(BLUR_RADIUS);
     draw_scene(&snapshot, dark);
     snapshot.pop();
     let viewport = graphene::Rect::new(0.0, 0.0, WIDTH * scale as f32, HEIGHT * scale as f32);
-    renderer.render_texture(snapshot.to_node().unwrap(), Some(&viewport))
+    opaque_cache_texture(renderer.render_texture(snapshot.to_node().unwrap(), Some(&viewport)))
+}
+
+fn opaque_cache_texture(texture: gdk::Texture) -> PreparedTexture {
+    // GSK's offscreen render exports an alpha-capable texture, including when
+    // every pixel is opaque. TextureNode determines opacity from its format,
+    // so retaining that format prevents ordinary opaque-background culling.
+    // Normalize once per bounded cache key, preserving the real blurred RGB
+    // pixels. Sampling is selected separately; never discard actual alpha.
+    let width = texture.width() as usize;
+    let height = texture.height() as usize;
+    let mut downloader = gdk::TextureDownloader::new(&texture);
+    downloader.set_format(gdk::MemoryFormat::R8g8b8a8Premultiplied);
+    let (bytes, stride) = downloader.download_bytes();
+    let rgba = bytes.as_ref();
+    let mut rgb = Vec::with_capacity(width * height * 3);
+    for row in 0..height {
+        for pixel in rgba[row * stride..row * stride + width * 4]
+            .as_chunks::<4>()
+            .0
+        {
+            if pixel[3] != 255 {
+                return PreparedTexture {
+                    texture,
+                    pixel_bytes: (width * height * 4) as u64,
+                };
+            }
+            rgb.extend_from_slice(&pixel[..3]);
+        }
+    }
+    PreparedTexture {
+        texture: gdk::MemoryTexture::new(
+            width as i32,
+            height as i32,
+            gdk::MemoryFormat::R8g8b8,
+            &glib::Bytes::from_owned(rgb),
+            width * 3,
+        )
+        .upcast(),
+        pixel_bytes: (width * height * 3) as u64,
+    }
 }
 
 fn draw_scene(snapshot: &gtk::Snapshot, dark: bool) {
@@ -282,4 +352,42 @@ fn draw_scene(snapshot: &gtk::Snapshot, dark: bool) {
     );
     snapshot.pop();
     snapshot.restore();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "native GTK texture format and transparency preservation"]
+    fn native_glass_cache_rgb_identity_and_alpha_preservation() {
+        gtk::init().unwrap();
+        let pixels = vec![12, 34, 56, 255, 65, 87, 109, 255];
+        let source: gdk::Texture = gdk::MemoryTexture::new(
+            2,
+            1,
+            gdk::MemoryFormat::R8g8b8a8Premultiplied,
+            &glib::Bytes::from_owned(pixels.clone()),
+            8,
+        )
+        .upcast();
+        let cached = opaque_cache_texture(source);
+        assert_eq!(cached.pixel_bytes, 6);
+        let mut downloader = gdk::TextureDownloader::new(&cached.texture);
+        downloader.set_format(gdk::MemoryFormat::R8g8b8a8Premultiplied);
+        let (bytes, _) = downloader.download_bytes();
+        assert_eq!(bytes.as_ref(), pixels);
+
+        let source: gdk::Texture = gdk::MemoryTexture::new(
+            2,
+            1,
+            gdk::MemoryFormat::R8g8b8a8Premultiplied,
+            &glib::Bytes::from_owned(vec![12, 34, 56, 255, 65, 87, 109, 128]),
+            8,
+        )
+        .upcast();
+        let cached = opaque_cache_texture(source.clone());
+        assert_eq!(cached.texture, source);
+        assert_eq!(cached.pixel_bytes, 8);
+    }
 }

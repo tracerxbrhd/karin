@@ -2281,15 +2281,20 @@ fn native_click(ui: &crate::ui::MainWindow, widget: &impl IsA<gtk::Widget>) {
     let initial_frame_time = clock.frame_time();
     let (x, y) = super::test_input::pointer(&ui.window, widget, super::test_input::Target::Center);
     let target_ready_us = started.elapsed().as_micros();
-    let result = Command::new("xdotool")
+    let mut search = Command::new("xdotool")
         .args([
             "search",
             "--onlyvisible",
             "--name",
             "^Karin synthetic HTTP fixture$",
         ])
-        .output()
+        .stdout(std::process::Stdio::piped())
+        .spawn()
         .unwrap();
+    // Searching X11 also crosses into another process. Keep GTK dispatching
+    // throughout input preparation, not only while delivering the click.
+    pump(|| search.try_wait().unwrap().is_some());
+    let result = search.wait_with_output().unwrap();
     assert!(result.status.success());
     let windows = String::from_utf8(result.stdout).unwrap();
     let id = windows.lines().next().unwrap();
@@ -2722,10 +2727,18 @@ fn prime_native_panel_graphics(
     assert_eq!(panel.progress(), 1.0);
     let surface = panel.surface().unwrap();
     assert!(surface.is_mapped());
-    let width = surface.width();
-    let height = surface.height();
-    assert!(width > 0 && height > 0);
     let paintable = gtk::WidgetPaintable::new(Some(&surface));
+    // Widget.width() excludes CSS borders. Paintable snapshots use the full
+    // border box; requesting 319 for a 320px pane silently fits it to 319/320.
+    // Prepare the actual unscaled material and the same clip/translation that
+    // SlidingPanel uses, rather than a resampled, narrower offscreen surface.
+    let width = paintable.intrinsic_width();
+    let height = paintable.intrinsic_height();
+    assert!(width > 0 && height > 0);
+    assert_eq!((width, height), (panel.width(), panel.height()));
+    let bounds = surface.compute_bounds(panel).unwrap();
+    assert!((bounds.width() - width as f32).abs() < 0.01);
+    assert!((bounds.height() - height as f32).abs() < 0.01);
     let snapshot = gtk::Snapshot::new();
     paintable.snapshot(&snapshot, f64::from(width), f64::from(height));
     let node = snapshot
@@ -2768,7 +2781,8 @@ fn prime_native_panel_graphics(
     }
     assert_eq!(panel.progress(), 1.0);
     let record = json!({"scope":"graphics-initialization","stage":"renderer-priming","animation_proof":false,
-        "quarter_phase_acceptance":"not-assessed","trajectory":name,"renderer":renderer.type_().name().to_string(),"scale":scale,"passes":passes});
+        "quarter_phase_acceptance":"not-assessed","trajectory":name,"renderer":renderer.type_().name().to_string(),"scale":scale,
+        "surface_content":[surface.width(),surface.height()],"paintable_intrinsic":[width,height],"host_allocation":[panel.width(),panel.height()],"passes":passes});
     eprintln!("Karin native graphics initialization: {record}");
     let directory = motion_diagnostic_directory();
     std::fs::create_dir_all(&directory).unwrap();
