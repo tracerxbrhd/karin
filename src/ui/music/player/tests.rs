@@ -922,13 +922,18 @@ fn native_music_playback_resolver_queue_controls_and_logout() {
         this.music_snapshot()
             .is_some_and(|snapshot| (snapshot.volume - 0.23).abs() < 0.001)
     });
+    // Native acceptance may publish the target before the HTTP thread runs.
+    // Await both observations under the same existing deadline.
+    let before_seek = this.music_snapshot().unwrap().seek_serial;
     change_range(&this.widgets.progress, 1.0);
     pump_until(|| {
-        this.music_snapshot()
-            .and_then(|snapshot| snapshot.position)
-            .is_some_and(|position| {
-                position >= Duration::from_millis(900) && position < Duration::from_millis(1200)
-            })
+        this.music_snapshot().is_some_and(|snapshot| {
+            snapshot.seek_serial > before_seek
+                && snapshot.seek_position == Some(Duration::from_secs(1))
+                && snapshot.position.is_some_and(|position| {
+                    position >= Duration::from_millis(900) && position < Duration::from_millis(1200)
+                })
+        }) && fixture.counts.lock().unwrap().range_requests > 0
     });
     assert!(fixture.counts.lock().unwrap().range_requests > 0);
     capture_native("music-player-paused-controls");
