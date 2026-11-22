@@ -168,6 +168,11 @@ def validate_tree(stage: Path, allowed_files: set[str]) -> None:
 
 def validate_prepared(repository: Path, stage: Path, revision: str) -> None:
     identity(repository, revision)
+    if any(path.is_symlink() for path in [stage, *stage.parents]):
+        raise ValueError("Prepared source must not follow an ancestor symlink")
+    # The inventory subprocess runs inside the source directory; passing a
+    # relative script path would otherwise prepend that directory twice.
+    stage = stage.resolve(strict=True)
     if any(path.is_symlink() for path in [stage, *stage.rglob("*")]):
         raise ValueError("Prepared source must not contain or follow symlinks")
     if (stage / "BUILD-REVISION").read_text() != revision + "\n" or (stage / "BUILD-SOURCE-STATUS").read_text() != "clean\n":

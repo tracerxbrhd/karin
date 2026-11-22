@@ -212,6 +212,12 @@ n=Path(a.notices_dir);(n/'fixture-1.0.0').mkdir(parents=True)
             (stage / "third-party-notices/DEPENDENCY_LICENSES.md").write_text("Original inventory fixture\n")
             with patch.dict(os.environ, {"CARGO_HOME": str(base / "cargo")}):
                 validate_prepared(repo, stage, revision)
+                previous = Path.cwd()
+                try:
+                    os.chdir(repo)
+                    validate_prepared(repo, Path("../stage"), revision)
+                finally:
+                    os.chdir(previous)
                 for extra in (stage / "private-profile.json", stage / ".cargo/credentials.toml"):
                     extra.write_text("Original private sentinel")
                     with self.assertRaises(ValueError):
