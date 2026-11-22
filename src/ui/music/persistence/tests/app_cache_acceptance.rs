@@ -1166,6 +1166,9 @@ fn wait_source(this: &Controller, kind: PlaybackSourceKind) {
 }
 fn wait_publication(this: &Controller, input: &Input) {
     let (cache, _) = this.audio_cache_binding().unwrap();
+    // Finish the selected background jobs before the observer takes their I/O
+    // gate. A concurrent stats scan can make no-store cleanup fail closed.
+    pump_until(|| this.cache_work_settled_for_test());
     let published = Arc::new(AtomicBool::new(false));
     let observed = published.clone();
     let root = input
@@ -1199,7 +1202,6 @@ fn wait_publication(this: &Controller, input: &Input) {
         thread::sleep(Duration::from_millis(2));
     }
     worker.join().unwrap();
-    pump_until(|| this.cache_work_settled_for_test());
 }
 fn completed_media_matches(root: &Path, expected_bytes: u64, expected_sha256: [u8; 32]) -> bool {
     let Ok(entries) = fs::read_dir(root) else {

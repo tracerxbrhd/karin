@@ -2029,3 +2029,17 @@ no extra media GET; it does not explain or erase the failed sample. Source
 selection and its bounded wait are unchanged. Test-only finite selection
 receipts and retained safe HTTP counters make a recurrence inspectable; no
 timeout, cache assertion or playback policy was relaxed.
+
+The later `b5ca911` push and PR MSRV jobs both failed `completion-skip` with
+`binding-unavailable`, no lookup/HEAD and a second native media GET. Their
+retained counters distinguish this from a lookup timeout. A separate local
+controlled diagnostic reproduced the mechanism: holding the exact I/O gate
+used by `stats()` while handling `no-store` made refusal cleanup fence the
+cache namespace; the uncontended control retained its lease. The application
+test itself had started a concurrent stats scan before that cleanup finished.
+Its publication observer now waits for the already tracked background work
+before scanning. The prior assertion that the next track plays while the first
+GET is held, byte/inode checks, local-source assertion, HTTP counts and all
+existing deadlines remain. This changes test observation ordering, not runtime
+cache policy. The temporary contention diagnostic is retained with its exact
+source patch and executable hash outside the checkout; it is not shipped.
