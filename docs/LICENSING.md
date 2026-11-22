@@ -110,6 +110,14 @@ The soup3 bindings supply their own MIT notices.
 
 ## Native components and distribution
 
+Candidate binaries also carry compiler-matched Rust standard-library and
+compiler-builtins copyright/license material, separate from the 207 locked crate
+notices. The [collector](../packaging/release/rust_runtime.py) uses the compiler's
+supplied library notices and matching `rust-src`, records their source/compiler/
+target and file hashes, and rejects mismatched compiler identity. Native tar,
+installed Flatpak and downloadable CI binaries include these static-runtime
+notices. They do not replace the notices of separately supplied system libraries.
+
 Rust-binding licenses do not replace the licenses of GTK, Libadwaita, GLib/GIO,
 WebKitGTK, JavaScriptCore, libsoup, GStreamer, codecs or system runtimes. These
 components have LGPL, BSD-style and other per-file terms. Review the exact

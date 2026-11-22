@@ -117,6 +117,9 @@ jobs:
         id: rust
         run: |
           rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+          if [ '${{ matrix.lane }}' = msrv ]; then
+            rustup component add rust-src --toolchain "$RUSTUP_TOOLCHAIN"
+          fi
           rustc --version --verbose
           cargo --version
           echo "version=$(rustc --version | tr ' ' '-')" >> "$GITHUB_OUTPUT"
@@ -338,6 +341,7 @@ jobs:
           cp LICENSE docs/LICENSING.md "$artifact/licenses/"
           cp packaging/third-party-licenses/cassette-auth/{COPYING,PROVENANCE.md} "$artifact/licenses/cassette-auth/"
           python3 packaging/license_inventory.py --output "$artifact/licenses/DEPENDENCY_LICENSES.md" --notices-dir "$artifact/licenses/rust"
+          python3 packaging/release/rust_runtime.py --binary target/release/karin --output "$artifact/licenses/rust-runtime"
           {
             printf 'Source commit: '; git rev-parse HEAD
             printf 'Build: --release --offline --locked --no-default-features --features cassette-auth\n'

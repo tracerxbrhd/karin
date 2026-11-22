@@ -170,13 +170,14 @@ then use the artifact commands (the `flatpak` command replaces the direct
 
 ```sh
 karin_release_revision=$(git rev-parse HEAD)
+rustup component add rust-src --toolchain 1.98.1
 RUSTUP_TOOLCHAIN=1.98.1 python3 packaging/flatpak/prepare-source.py
 (
   cd build/flatpak-source
   CARGO_TARGET_DIR=../../target cargo +1.98.1 build --release --offline --locked \
     --no-default-features --features cassette-auth
 )
-python3 packaging/release/artifacts.py native --revision "$karin_release_revision" \
+RUSTUP_TOOLCHAIN=1.98.1 python3 packaging/release/artifacts.py native --revision "$karin_release_revision" \
   --binary target/release/karin --source-dir build/flatpak-source --output build/release
 python3 packaging/release/artifacts.py flatpak --revision "$karin_release_revision" \
   --manifest build/release/io.github.tracerxbrhd.Karin.json \
@@ -185,7 +186,13 @@ python3 packaging/release/artifacts.py flatpak --revision "$karin_release_revisi
 
 The Native tar contains `run-karin`, desktop/icon/metainfo assets and licenses;
 use that launcher so the private `share` directory is visible. It bundles no
-system libraries; `NATIVE-LIBRARIES.json` records the packaging host's dependencies.
+shared system libraries; `NATIVE-LIBRARIES.json` records the packaging host's dependencies.
+Static Rust std/compiler-builtins notices are collected from the matching
+compiler's supplied library notices and `rust-src`; a compiler mismatch is rejected.
+For a stable-compiler package, install its `rust-src` component and set
+`RUSTUP_TOOLCHAIN=stable` when packing that binary. The SDK uses its own compiler
+and source component. These static-runtime notices are separate from Cargo crate
+notices and from non-bundled desktop/runtime libraries.
 The matching source tar includes locked vendor, notices and build markers.
 `artifacts.py checksums --output build/release/SHA256SUMS FILE...` takes an explicit
 list of delivered archives, bundle, manifest and BUILD-INFO files; verify with

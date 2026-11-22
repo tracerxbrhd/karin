@@ -29,6 +29,7 @@
       "build-commands": [
         "cargo build --release --offline --locked --no-default-features --features cassette-auth",
         "install -Dm755 target/release/karin /app/bin/karin",
+        "python3 packaging/release/rust_runtime.py --binary target/release/karin --output /app/share/licenses/io.github.tracerxbrhd.Karin/rust-runtime",
         "install -Dm644 packaging/io.github.tracerxbrhd.Karin.desktop /app/share/applications/io.github.tracerxbrhd.Karin.desktop",
         "install -Dm644 packaging/io.github.tracerxbrhd.Karin.metainfo.xml /app/share/metainfo/io.github.tracerxbrhd.Karin.metainfo.xml",
         "install -Dm644 packaging/icons/io.github.tracerxbrhd.Karin.svg /app/share/icons/hicolor/scalable/apps/io.github.tracerxbrhd.Karin.svg",

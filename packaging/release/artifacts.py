@@ -19,6 +19,7 @@ from common import (APP_ID, BUILD_FEATURES, REPOSITORY, identity, locked_crates,
                     committed_files, validate_prepared, validate_version_output,
                     verify_binary, write_json)
 from manifest import provenance
+from rust_runtime import binary_identity, runtime_entries, validate_runtime
 
 
 def capture(command: list[str]) -> str:
@@ -187,10 +188,13 @@ def native_artifact(repository: Path, revision: str, binary: Path,
         if stream.read(4) != b"\x7fELF":
             raise ValueError("Provide the actual compiled Native ELF")
     version = verify_binary(binary, metadata, "Native")
+    compiler, target = binary_identity(version)
+    runtime = runtime_entries(compiler, target)
     output = output_directory(output)
     source = source_artifact(repository, revision, output, stage)
     info = {**build_info(metadata, "Native Linux tar archive"), "binary_sha256": sha256(binary),
-            "binary_version": version, "packaging_host_architecture": platform.machine(),
+            "binary_version": version, "rust_runtime": json.loads(runtime["BUILD-INFO.json"]),
+            "packaging_host_architecture": platform.machine(),
             "native_libraries": native_libraries(binary),
             "corresponding_source": {"file": source.name, "sha256": sha256(source)}}
     entries = {"karin": binary, "BUILD-INFO.json": json_bytes(info)}
@@ -207,6 +211,7 @@ def native_artifact(repository: Path, revision: str, binary: Path,
                            (stage / "packaging/third-party-licenses/cassette-auth", f"share/licenses/{APP_ID}/cassette-auth")):
         for path in tree_files(folder):
             entries[f"{target}/{path.relative_to(folder)}"] = path
+    entries.update({f"share/licenses/{APP_ID}/rust-runtime/{name}": data for name, data in runtime.items()})
     entries["run-karin"] = b'#!/bin/sh\nset -eu\nroot=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)\nexport XDG_DATA_DIRS="$root/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"\nexec "$root/karin" "$@"\n'
     entries["NATIVE-LIBRARIES.json"] = json_bytes(info["native_libraries"])
     target = output / f"{artifact_name(metadata)}-linux-{platform.machine()}.tar.gz"
@@ -272,7 +277,7 @@ def runtime_commits(manifest: dict) -> dict:
     return {ref: capture(["flatpak", "info", "--user", "--show-commit", ref]) for ref in refs}
 
 
-def installed_licenses(stage: Path, location: Path) -> dict:
+def installed_licenses(stage: Path, location: Path, version: str) -> dict:
     root = location / "files/share/licenses" / APP_ID
     if not (root / "third-party").is_dir():
         raise ValueError("Installed Flatpak is missing its canonical application license directory")
@@ -293,8 +298,10 @@ def installed_licenses(stage: Path, location: Path) -> dict:
         relative = original.relative_to(stage / "packaging/third-party-licenses/cassette-auth")
         if sha256(root / "cassette-auth" / relative) != sha256(original):
             raise ValueError("Installed Cassette attribution differs from release source")
+    compiler, target = binary_identity(version)
+    runtime = validate_runtime(root / "rust-runtime", compiler, target)
     return {"path_in_application": str(root.relative_to(location)), "crate_notice_directories": len(expected),
-            "project_license_and_cassette_provenance_verified": True}
+            "project_license_and_cassette_provenance_verified": True, "rust_runtime": runtime}
 
 
 def flatpak_artifact(repository: Path, revision: str, manifest_path: Path, output: Path,
@@ -322,7 +329,7 @@ def flatpak_artifact(repository: Path, revision: str, manifest_path: Path, outpu
             "manifest_sha256": sha256(manifest_path), "binary_version": version,
             "binary_sha256": sha256(location / "files/bin/karin"), "permissions": permissions,
             "installed_commit": capture(["flatpak", "info", "--user", "--show-commit", app]),
-            "runtime_commits": runtime_commits(manifest), "licenses": installed_licenses(stage, location),
+            "runtime_commits": runtime_commits(manifest), "licenses": installed_licenses(stage, location, version),
             "corresponding_source": {"file": corresponding_source.name, "sha256": sha256(corresponding_source)},
             "flatpak": capture(["flatpak", "--version"]),
             "flatpak_builder": capture(["flatpak-builder", "--version"])}

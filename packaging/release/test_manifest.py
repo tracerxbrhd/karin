@@ -38,10 +38,11 @@ class ReleaseTests(unittest.TestCase):
         self.assertTrue(any("share/metainfo/io.github.tracerxbrhd.Karin.metainfo.xml" in c
                             for c in manifest["modules"][0]["build-commands"]))
         license_commands = [c for c in manifest["modules"][0]["build-commands"] if "/share/licenses/" in c]
-        self.assertEqual(len(license_commands), 6)
+        self.assertEqual(len(license_commands), 7)
         self.assertTrue(all("/app/share/licenses/io.github.tracerxbrhd.Karin/" in c for c in license_commands))
         self.assertTrue(any("third-party-notices/." in c for c in license_commands))
         self.assertTrue(any("cassette-auth/." in c for c in license_commands))
+        self.assertIn("python3 packaging/release/rust_runtime.py --binary target/release/karin --output /app/share/licenses/io.github.tracerxbrhd.Karin/rust-runtime", license_commands)
 
     def test_all_locked_downloads_are_pinned_and_cargo_is_offline(self):
         base = json.loads((REPOSITORY / DEVELOPMENT).read_text())

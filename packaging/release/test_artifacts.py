@@ -16,6 +16,7 @@ import artifacts
 REVISION = "a" * 40
 METADATA = {"version": "0.8.0-rc.1", "revision": REVISION,
             "source_status": "clean", "source_date_epoch": 1234567890}
+VERSION = "Karin 0.8.0-rc.1\nCompiler: rustc 1.98.1\nTarget: x86_64-unknown-linux-gnu\n"
 PERMISSIONS = """[Context]
 shared=network;ipc;
 sockets=wayland;x11;fallback-x11;pulseaudio;
@@ -67,6 +68,11 @@ class ArtifactTests(unittest.TestCase):
         stack = self.enterContext(ExitStack())
         stack.enter_context(patch.object(artifacts, "identity", return_value=METADATA.copy()))
         stack.enter_context(patch.object(artifacts, "validate_prepared"))
+        stack.enter_context(patch.object(artifacts, "runtime_entries", return_value={
+            "COPYRIGHT-library.html": b"compiler-matched standard library notices",
+            "compiler-builtins/LICENSE.txt": b"MIT and Apache LLVM notices",
+            "BUILD-INFO.json": b'{"compiler": "rustc 1.98.1", "target": "x86_64-unknown-linux-gnu"}\n'}))
+        stack.enter_context(patch.object(artifacts, "validate_runtime", return_value={"compiler": "rustc 1.98.1"}))
         stack.enter_context(patch.object(artifacts, "committed_files", return_value={name: (data, False) for name, data in self.project.items()}))
 
     def source(self):
@@ -124,7 +130,7 @@ class ArtifactTests(unittest.TestCase):
     def test_native_packages_verified_elf_metadata_icon_and_all_notices(self):
         binary = self.root / "actual-karin"
         binary.write_bytes(b"\x7fELFactual compiled bytes")
-        version = "Karin 0.8.0-rc.1\nCompiler: rustc 1.98.1\nTarget: x86_64-unknown-linux-gnu\n"
+        version = VERSION
         libraries = {"scope": "Packaging-host runtime observations", "pkg_config": {"gtk4": "4.18.6"}, "ldd": "libgtk-4.so.1 => /usr/lib/libgtk-4.so.1", "distribution": "No shared libraries are bundled"}
         with patch.object(artifacts, "verify_binary", return_value=version) as verify, patch.object(artifacts, "native_libraries", return_value=libraries):
             path = artifacts.native_artifact(self.repository, REVISION, binary, self.stage, self.output)
@@ -138,6 +144,8 @@ class ArtifactTests(unittest.TestCase):
             self.assertIn(f"share/metainfo/{artifacts.APP_ID}.metainfo.xml", names)
             self.assertIn(f"share/licenses/{artifacts.APP_ID}/third-party/example-1.0/LICENSE", names)
             self.assertIn(f"share/licenses/{artifacts.APP_ID}/cassette-auth/PROVENANCE.md", names)
+            self.assertIn(f"share/licenses/{artifacts.APP_ID}/rust-runtime/COPYRIGHT-library.html", names)
+            self.assertIn(f"share/licenses/{artifacts.APP_ID}/rust-runtime/compiler-builtins/LICENSE.txt", names)
             self.assertFalse(any(name.endswith(".so") for name in names))
             info = json.loads(tar.extractfile("BUILD-INFO.json").read())
             self.assertEqual(info["binary_sha256"], hashlib.sha256(binary.read_bytes()).hexdigest())
@@ -203,17 +211,17 @@ class ArtifactTests(unittest.TestCase):
         shutil.copy2(self.stage / "docs/LICENSING.md", licenses / "LICENSING.md")
         shutil.copytree(self.stage / "third-party-notices", licenses / "third-party")
         shutil.copytree(self.stage / "packaging/third-party-licenses/cassette-auth", licenses / "cassette-auth")
-        self.assertEqual(artifacts.installed_licenses(self.stage, location)["crate_notice_directories"], 1)
+        self.assertEqual(artifacts.installed_licenses(self.stage, location, VERSION)["crate_notice_directories"], 1)
         for name in ("example-1.0/LICENSE", "DEPENDENCY_LICENSES.md"):
             with self.subTest(name=name):
                 target = licenses / "third-party" / name
                 target.write_bytes(b"unreviewed changed notice")
                 with self.assertRaisesRegex(ValueError, "notice bytes"):
-                    artifacts.installed_licenses(self.stage, location)
+                    artifacts.installed_licenses(self.stage, location, VERSION)
                 shutil.copy2(self.stage / "third-party-notices" / name, target)
         (licenses / "third-party/private-extra").write_bytes(b"unexpected data")
         with self.assertRaisesRegex(ValueError, "notice bytes"):
-            artifacts.installed_licenses(self.stage, location)
+            artifacts.installed_licenses(self.stage, location, VERSION)
 
     def test_checksums_cover_exact_explicit_artifacts_and_reject_self_or_duplicates(self):
         self.output.mkdir()
