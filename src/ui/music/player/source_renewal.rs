@@ -320,10 +320,7 @@ impl Controller {
         } else {
             self.audio_cache_binding()
         };
-        #[cfg(test)]
         let fixture = self.player.borrow().fixture_resolver.clone();
-        #[cfg(not(test))]
-        let fixture: Option<StreamResolver> = None;
         let weak = Rc::downgrade(self);
         let hold = app.hold();
         glib::spawn_future_local(async move {

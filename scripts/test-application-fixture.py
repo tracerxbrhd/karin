@@ -494,7 +494,7 @@ def focused_search():
     wait(ready, "native Search keyboard focus")
 
 
-def exercise_live_styles():
+def exercise_live_styles(playback_started_at):
     # Ordinary desktop controls establish a non-default value and enough
     # duration for each measured transition, without a test player or clock.
     playerctl("volume", "0.43")
@@ -527,6 +527,48 @@ def exercise_live_styles():
                 lambda: log_contains("operation=search outcome=success"),
                 "search before style transition",
             )
+        # Slow software-rendered 2× capture can outlive the normal short
+        # admission before a later seek opens a new connection. Use the real
+        # public Pause/Play recovery, never a longer fixture or production lease.
+        elapsed_since_first_audio = time.monotonic() - playback_started_at
+        resumed_before_seek = elapsed_since_first_audio >= 45
+        resume_audio_requests = None
+        if resumed_before_seek:
+            requests_before = application_log.read_text().count(
+                "request=original-audio credential-free=true"
+            )
+            previous = media_snapshot()
+            playerctl("pause")
+            wait(
+                lambda: media_property("PlaybackStatus") == "Paused", "confirmed Pause"
+            )
+            paused = media_snapshot()
+            assert paused["occurrence"] == previous["occurrence"]
+            playerctl("play")
+            wait(
+                lambda: media_property("PlaybackStatus") == "Playing",
+                "confirmed Resume",
+            )
+            resumed = media_snapshot()
+            assert (
+                resumed["occurrence"] == previous["occurrence"]
+            ), "Resume replaced occurrence"
+            assert (
+                resumed["position"] >= paused["position"] - 200_000
+            ), "Resume reset position"
+            assert (
+                abs(resumed["volume"] - previous["volume"]) < 0.001
+            ), "Resume reset volume"
+            assert (resumed["previous"], resumed["next"]) == (
+                previous["previous"],
+                previous["next"],
+            ), "Resume changed queue capabilities"
+            resume_audio_requests = [
+                requests_before,
+                application_log.read_text().count(
+                    "request=original-audio credential-free=true"
+                ),
+            ]
         target_seconds = 4 if media_property("Position") <= 2_000_000 else 1
         playerctl("position", str(target_seconds))
         wait(
@@ -578,6 +620,9 @@ def exercise_live_styles():
                 style=style,
                 panel=panel,
                 setup_position_seconds=target_seconds,
+                ordinary_resume_before_late_seek=resumed_before_seek,
+                elapsed_since_first_audio_seconds=round(elapsed_since_first_audio, 3),
+                media_requests_around_resume=resume_audio_requests,
                 position_before_us=before["position"],
                 position_after_us=after["position"],
                 elapsed_seconds=round(elapsed, 3),
@@ -651,6 +696,7 @@ try:
         lambda: log_contains("request=original-audio credential-free=true"),
         "real GStreamer source request",
     )
+    playback_started_at = time.monotonic()
     # Footer Lyrics is reached through an ordinary accessible button.
     lyrics = wait(
         lambda: next(
@@ -744,7 +790,7 @@ try:
     )
     assert not find("Караоке", "label"), "redundant synchronized status remained"
     widget("LRCLIB", "label")
-    exercise_live_styles()
+    exercise_live_styles(playback_started_at)
     # The current occurrence's ordinary Info menu must bind the same player.
     info = wait(
         lambda: next(

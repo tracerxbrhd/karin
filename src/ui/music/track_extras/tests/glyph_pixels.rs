@@ -120,6 +120,12 @@ pub(super) fn verify_transition(
     name: &str,
     theme: &str,
 ) {
+    let directory = std::env::var_os("KARIN_TEST_CAPTURE_DIR").map(std::path::PathBuf::from);
+    if let Some(directory) = &directory {
+        // Each native selector can own a fresh output path, including its
+        // High Contrast child before any ordinary static capture has run.
+        std::fs::create_dir_all(directory).expect("create native lyric capture directory");
+    }
     // Reduced Motion may paint exactly the two sides of the cut.
     let minimum = if motion { 3 } else { 2 };
     assert!(
@@ -374,7 +380,6 @@ pub(super) fn verify_transition(
         .unwrap();
     phases.push(("after", endpoint));
     let basename = format!("v08-playing-lyrics-{name}-{theme}-motion-{motion}-scale{scale}");
-    let directory = std::env::var_os("KARIN_TEST_CAPTURE_DIR").map(std::path::PathBuf::from);
     let mut evidence = Vec::new();
     for (phase, index) in phases {
         let frame = frames[index];

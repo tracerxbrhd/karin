@@ -317,6 +317,10 @@ fn coordinates(window: &adw::ApplicationWindow, widget: &gtk::Widget) -> Option<
     None
 }
 
+thread_local! {
+    static LAST_POINTER_CLICK: RefCell<Option<(String, Instant, i32, i32)>> = const { RefCell::new(None) };
+}
+
 pub(super) fn click(window: &adw::ApplicationWindow, id: &str, widget: &impl IsA<gtk::Widget>) {
     let widget = widget.as_ref();
     let focus_accepted = widget.grab_focus();
@@ -397,6 +401,21 @@ pub(super) fn click(window: &adw::ApplicationWindow, id: &str, widget: &impl IsA
         window.scale_factor(),
         widget.is_focusable(),
     );
+    // These calls express separate single-click intents. GTK retains the
+    // pointer's multi-click sequence across intervening keyboard input. Honor
+    // its configured time/distance before clicking the same location again;
+    // screenshots must not accidentally supply this separation for one lane.
+    let settings = gtk::Settings::default().unwrap();
+    let interval = Duration::from_millis(settings.gtk_double_click_time().max(0) as u64);
+    let distance = settings.gtk_double_click_distance().max(0) * window.scale_factor();
+    if let Some((previous_id, at, previous_x, previous_y)) =
+        LAST_POINTER_CLICK.with(|last| last.borrow().clone())
+        && previous_id == id
+        && (previous_x - x).abs() <= distance
+        && (previous_y - y).abs() <= distance
+    {
+        pump_until(|| at.elapsed() > interval);
+    }
     input(&[
         "mousemove",
         "--window",
@@ -406,6 +425,11 @@ pub(super) fn click(window: &adw::ApplicationWindow, id: &str, widget: &impl IsA
         "click",
         "1",
     ]);
+    // Completion is later than the native press timestamp, even if process
+    // creation or dispatch is delayed under CI load.
+    LAST_POINTER_CLICK.with(|last| {
+        *last.borrow_mut() = Some((id.to_owned(), Instant::now(), x, y));
+    });
     settle();
 }
 
@@ -517,6 +541,18 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
         }),
     };
     let view = Rc::new(PreferencesView::new(&snapshot.borrow(), &callbacks));
+    let glass_presses = Rc::new(RefCell::new(Vec::new()));
+    let glass_clicks = gtk::GestureClick::new();
+    glass_clicks.set_button(gtk::gdk::BUTTON_PRIMARY);
+    glass_clicks.set_propagation_phase(gtk::PropagationPhase::Capture);
+    glass_clicks.connect_pressed({
+        let presses = glass_presses.clone();
+        move |gesture, count, _, _| {
+            presses.borrow_mut().push(count);
+            eprintln!("Karin synthetic preference press: target=liquid-glass native-click-count={count} time={}", gesture.current_event_time());
+        }
+    });
+    view.liquid_glass_style_row.add_controller(glass_clicks);
     *view_pointer.borrow_mut() = Rc::downgrade(&view);
     assert!(
         changes.borrow().is_empty(),
@@ -908,6 +944,11 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
     let before_style = changes.borrow().len();
     let preserved = snapshot.borrow().values.clone();
     click(&window, id, &view.liquid_glass_style_row);
+    assert_eq!(
+        *glass_presses.borrow(),
+        [1],
+        "one native single-click intent"
+    );
     pump_until(|| changes.borrow().len() == before_style + 1);
     let mut expected = preserved.clone();
     expected.ui_style = UiStyle::LiquidGlass;
@@ -929,6 +970,11 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
     assert!(view.style_system.is_active());
     assert!(!view.style_liquid_glass.is_active());
     click(&window, id, &view.liquid_glass_style_row);
+    assert_eq!(
+        *glass_presses.borrow(),
+        [1, 1],
+        "keyboard input separates user intents, not GTK's pointer click counter"
+    );
     pump_until(|| changes.borrow().len() == before_style + 4);
     expected.ui_style = UiStyle::LiquidGlass;
     assert_eq!(changes.borrow().last(), Some(&expected));
