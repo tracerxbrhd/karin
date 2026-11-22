@@ -121,7 +121,8 @@ Build tools installed on a developer machine are not automatically shipped.
 `third-party-notices/`. The inventory copies supplied LICENSE, COPYING, NOTICE,
 COPYRIGHT and related files at their original relative paths, including nested
 notices and the reviewed binding fallback. The Flatpak manifest installs Karin's
-GPL text, this document and the notice bundle under `/app/share/licenses/karin`.
+GPL text, this document and the notice bundle under
+`/app/share/licenses/io.github.tracerxbrhd.Karin`.
 Keep `packaging/third-party-licenses/` in source snapshots and binary notice bundles.
 
 Before conveying a covered binary, provide complete corresponding source and

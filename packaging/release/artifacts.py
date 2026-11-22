@@ -273,10 +273,9 @@ def runtime_commits(manifest: dict) -> dict:
 
 
 def installed_licenses(stage: Path, location: Path) -> dict:
-    candidates = [location / "files/share/licenses" / name for name in (APP_ID, "karin")]
-    root = next((path for path in candidates if (path / "third-party").is_dir()), None)
-    if root is None:
-        raise ValueError("Installed Flatpak is missing its third-party licenses")
+    root = location / "files/share/licenses" / APP_ID
+    if not (root / "third-party").is_dir():
+        raise ValueError("Installed Flatpak is missing its canonical application license directory")
     for name, source in (("LICENSE", "LICENSE"), ("LICENSING.md", "docs/LICENSING.md")):
         if sha256(root / name) != sha256(stage / source):
             raise ValueError("Installed project licensing differs from the release source")
