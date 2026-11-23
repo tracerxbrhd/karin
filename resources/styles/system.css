@@ -3,8 +3,10 @@
 .karin-style-system.music-shell { background: @view_bg_color; }
 .karin-style-system .music-toolbar-surface { background: transparent; }
 .karin-style-system .music-header {
-  background: @headerbar_bg_color;
-  box-shadow: inset 0 -1px alpha(@borders, .45);
+  /* ToolbarView's native flat header is continuous with its content. Keep
+   * that treatment for Karin's header instead of repainting a raised strip. */
+  background: transparent;
+  box-shadow: none;
 }
 .karin-style-system .music-workspace { background: transparent; }
 .karin-style-system .music-information-view {

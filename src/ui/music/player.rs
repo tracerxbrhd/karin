@@ -18,6 +18,58 @@ use crate::{
 
 mod source_renewal;
 
+/// One timeline projection for both the label and the native adjustment.
+/// Native position/duration queries can settle independently during preroll.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct ProgressPresentation {
+    position: Option<Duration>,
+    duration: Option<Duration>,
+}
+
+impl ProgressPresentation {
+    fn new(
+        snapshot: Option<&PlaybackSnapshot>,
+        metadata_duration_ms: Option<u64>,
+        initial_position: Option<Duration>,
+    ) -> Self {
+        let duration = snapshot
+            .and_then(|snapshot| snapshot.duration)
+            .filter(|duration| !duration.is_zero())
+            .or_else(|| {
+                metadata_duration_ms
+                    .filter(|ms| *ms > 0)
+                    .map(Duration::from_millis)
+            });
+        let position = snapshot
+            .and_then(|snapshot| snapshot.position)
+            .or(initial_position)
+            .map(|position| duration.map_or(position, |duration| position.min(duration)));
+        Self { position, duration }
+    }
+
+    fn apply(&self, scale: &gtk::Scale, label: &gtk::Label, can_seek: bool) {
+        // An unknown duration has no meaningful fraction or slider seek target.
+        // In particular, 150 ms is not 15% of an invented one-second track.
+        let value = self.duration.map_or(0.0, |_| {
+            self.position.map_or(0.0, |position| position.as_secs_f64())
+        });
+        scale.set_sensitive(can_seek && self.duration.is_some());
+        scale.adjustment().configure(
+            value,
+            0.0,
+            self.duration.map_or(1.0, |duration| duration.as_secs_f64()),
+            0.01,
+            0.1,
+            0.0,
+        );
+        label.set_text(&format!(
+            "{} / {}",
+            self.position.map_or_else(|| "—".into(), music_time),
+            self.duration.map_or_else(|| "—".into(), music_time),
+        ));
+    }
+}
+
 struct Intent {
     serial: u64,
     session: u64,
@@ -1518,42 +1570,14 @@ impl Controller {
                 state,
                 PlaybackState::Ready | PlaybackState::Playing | PlaybackState::Paused
             );
-        self.widgets.progress.set_sensitive(seekable);
-        if let Some(snapshot) = snapshot {
-            let duration = snapshot.duration;
-            self.widgets.progress.set_range(
-                0.0,
-                duration.map_or(1.0, |duration| duration.as_secs_f64().max(0.1)),
-            );
-            self.widgets.progress.set_value(
-                snapshot
-                    .position
-                    .map_or(0.0, |position| position.as_secs_f64()),
-            );
-            self.widgets.position.set_text(&format!(
-                "{} / {}",
-                snapshot.position.map_or_else(|| "—".into(), music_time),
-                duration.map_or_else(|| "—".into(), music_time)
-            ));
-        } else {
-            let position = player.restored_position;
-            self.widgets.progress.set_range(
-                0.0,
-                selected
-                    .and_then(|track| track.duration_ms)
-                    .map_or(1.0, |ms| (ms as f64 / 1000.0).max(0.1)),
-            );
-            self.widgets
-                .progress
-                .set_value(position.map_or(0.0, |value| value.as_secs_f64()));
-            self.widgets.position.set_text(&format!(
-                "{} / {}",
-                position.map_or_else(|| "—".into(), music_time),
-                selected
-                    .and_then(|track| track.duration_ms)
-                    .map_or_else(|| "—".into(), format_duration)
-            ));
-        }
+        ProgressPresentation::new(
+            snapshot.as_ref(),
+            selected.and_then(|track| track.duration_ms),
+            player
+                .restored_position
+                .or_else(|| selected.map(|_| Duration::ZERO)),
+        )
+        .apply(&self.widgets.progress, &self.widgets.position, seekable);
         drop(player);
         drop(model);
         self.publish_mpris();

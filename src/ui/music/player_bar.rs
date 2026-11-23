@@ -93,8 +93,10 @@ impl PlayerBarParts {
             .build();
         current_art_button.add_css_class("flat");
         current_art_button.add_css_class("music-current-track-button");
-        current_art_button.set_halign(gtk::Align::Start);
-        current_art_button.set_hexpand(false);
+        // One native button owns the whole available metadata wing, including
+        // whitespace after short titles. Reactions remain separate siblings.
+        current_art_button.set_halign(gtk::Align::Fill);
+        current_art_button.set_hexpand(true);
         current_art_button.set_widget_name("music-current-info");
         current_art_button.update_property(&[gtk::accessible::Property::Label(
             "Показать сведения о текущем треке",
