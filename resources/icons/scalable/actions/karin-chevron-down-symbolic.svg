@@ -15,5 +15,5 @@ unicode: "ea5f"
   stroke-linecap="round"
   stroke-linejoin="round"
 >
-  <path d="M6 9l6 6l6 -6" />
+  <path class="transparent-fill foreground-stroke" d="M6 9l6 6l6 -6" />
 </svg>

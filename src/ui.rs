@@ -63,6 +63,10 @@ impl MainWindow {
             eprintln!("GTK navigation allocation failure: {error}");
             return false;
         }
+        if !icons::verify_rendering(&self.window) {
+            eprintln!("GTK bundled symbolic icon contours are invalid");
+            return false;
+        }
         self.window.is_visible() && self.window.is_realized()
     }
 

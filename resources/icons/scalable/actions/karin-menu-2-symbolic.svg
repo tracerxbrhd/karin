@@ -15,7 +15,7 @@ unicode: "ec42"
   stroke-linecap="round"
   stroke-linejoin="round"
 >
-  <path d="M4 6l16 0" />
-  <path d="M4 12l16 0" />
-  <path d="M4 18l16 0" />
+  <path class="transparent-fill foreground-stroke" d="M4 6l16 0" />
+  <path class="transparent-fill foreground-stroke" d="M4 12l16 0" />
+  <path class="transparent-fill foreground-stroke" d="M4 18l16 0" />
 </svg>
