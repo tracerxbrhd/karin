@@ -1574,9 +1574,10 @@ impl Controller {
             snapshot.as_ref(),
             selected.and_then(|track| track.duration_ms),
             player.restored_position.or_else(|| {
-                // A rejected delivery never established a playback time.
+                // Delivery or an early worker failure never established a time.
+                // A fresh Error snapshot may precede the UI's failure flag.
                 selected
-                    .filter(|_| player.failure.is_none())
+                    .filter(|_| player.failure.is_none() && state != PlaybackState::Error)
                     .map(|_| Duration::ZERO)
             }),
         )

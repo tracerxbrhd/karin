@@ -1998,6 +1998,23 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
 #[test]
 #[ignore = "requires an isolated GTK display and GStreamer HTTP/MP3 plugins; run under Xvfb"]
 fn native_music_playback_queue_races_remove_and_close() {
+    let directory = std::env::temp_dir().join(format!(
+        "karin-early-player-error-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&directory)
+        .unwrap();
+    let directory = GeneratedDirectory(directory);
+    let path = directory.0.join("removed-before-prepare.mp3");
+    std::fs::write(&path, b"original synthetic missing-file fixture").unwrap();
+    let source = crate::playback::PlaybackSource::local_file(&path).unwrap();
+    std::fs::remove_file(&path).unwrap();
     gtk::init().unwrap();
     adw::init().unwrap();
     let fixture = Fixture::new();
@@ -2006,6 +2023,31 @@ fn native_music_playback_queue_races_remove_and_close() {
     for id in ["42", "43", "44", "45"] {
         this.enqueue(track(id));
     }
+
+    // Stage the real worker's first Error between polling and rendering. The
+    // UI has not yet recorded failure; no position query has ever succeeded.
+    let early_error = PlaybackController::new(PlaybackOutput::Fakesink).unwrap();
+    early_error.prepare(source).unwrap();
+    pump_until(|| early_error.snapshot().state == PlaybackState::Error);
+    assert!(early_error.snapshot().position.is_none());
+    assert!(this.player.borrow().failure.is_none());
+    this.player.borrow_mut().controller = Some(early_error.clone());
+    this.render_music_player();
+    assert!(this.player.borrow().failure.is_none());
+    assert_eq!(this.widgets.position.text(), "— / 0:04");
+    assert_eq!(this.widgets.progress.adjustment().value(), 0.0);
+    assert!(!this.widgets.progress.is_sensitive());
+    this.player.borrow_mut().restored_position = Some(Duration::from_secs(1));
+    this.render_music_player();
+    assert_eq!(this.widgets.position.text(), "0:01 / 0:04");
+    assert_eq!(this.widgets.progress.adjustment().value(), 1.0);
+    {
+        let mut player = this.player.borrow_mut();
+        player.controller = None;
+        player.restored_position = None;
+    }
+    early_error.shutdown();
+    pump_until(|| !early_error.snapshot().worker_running);
     this.toggle_queue_panel();
 
     // The already-running request is held after its offer, before any media.
