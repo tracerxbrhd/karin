@@ -38,7 +38,9 @@ cargo +stable build --release --locked
 ```
 
 `0.8.0-rc.1` is an engineering candidate. Check `--version` and About for the
-source commit, clean/modified state, package and profile. Preparing a candidate
+source commit, clean/modified state, package and profile. Any source-tree change
+requires newly built candidates and checksums; old files with the same version
+label do not prove the new commit. Preparing a candidate
 does not publish a tag or release, establish Yandex integration rights, or
 authorize Flathub submission.
 
@@ -46,8 +48,7 @@ Builds/tests need no Yandex account. Ordinary **Войти** uses the supported
 Cassette-compatible sign-in flow, without technical credentials, registration,
 pasted tokens or diagnostic flags. Music validation precedes library access.
 Unlock the desktop keyring for protected persistence; memory-only login remains
-available. **Главная → Моя волна → Слушать** starts radio explicitly. The old
-`--experimental-wave` flag is a no-op compatibility alias.
+available. **Главная → Моя волна → Слушать** starts radio explicitly.
 
 ## Development checks
 
@@ -121,8 +122,8 @@ loopback HTTP and original generated audio. It cannot accept an account/token or
 read/save a real system login. Real input drives TEXT, disclosed LRCLIB consent,
 LRC playback, search and restart preferences through the ordinary application.
 Repeat the relevant dark/2× cases using the workflow settings and a fresh output
-path. `--ui-fixture` is likewise a capture mode, not ordinary sign-in. See the
-[UI quality gate](UI_QUALITY_GATE.md) for inspection requirements.
+path. `--ui-fixture` is likewise a capture mode, not ordinary sign-in. Follow
+the [UI verification](#ui-verification) requirements for changed presentation.
 
 ## Flatpak source build
 
@@ -249,38 +250,31 @@ the build identity locally; no private desktop capture or full Fedora acceptance
 repeat is needed. The reported actual GDK/GSK/GL identity determines its platform
 scope; Xvfb/llvmpipe results cannot certify physical Wayland/GPU behavior.
 
-## Desktop regression checks
+## UI verification
 
-The owner has accepted v0.8 functionality on Fedora; this is a reusable guide
-for future relevant regressions, not a request to repeat that acceptance.
-Close older instances and verify `--version`, About and any `BUILD-INFO.txt`/
-`SHA256SUMS` against the intended commit/package. Use normal Native and installed
-Flatpak with the same source when the changed behavior affects both packages.
+For substantial UI changes inspect actual mapped widgets and native input,
+not only a successful build or static screenshot. Use original synthetic data;
+private desktop/account captures require publication permission.
 
-1. Verify ordinary sign-in/restoration and library navigation. Play entitled
-   Music and hear sound; exercise Pause/Resume, Seek, Volume, Next/Previous/EOS,
-   Shuffle/Repeat and KDE/MPRIS. Check long-pause Resume keeps the occurrence and
-   confirmed position without a second player or renewed radio cycle.
-2. Check exact duplicate queue edits and ordinary close/restart without autoplay.
-   Stop/forget/logout remove continuation; Wave never restores. For writes, use
-   a disposable owned playlist or deliberate reaction, require independent
-   readback and use GET-only Refresh after an uncertain outcome.
-3. Exercise collection/global search, sort and index continuation, then Lyrics
-   TEXT/LRC, consent/revocation, Follow/manual scroll and stale selection. Repeating
-   the footer Lyrics action and Back return to Track Info in the open panel.
-4. Check System in light/dark/system colors, compact/wide/maximized, 1×/2×,
-   keyboard/focus, High Contrast and Reduced Motion. Karin remains unavailable.
-   The footer retains a 24-logical-pixel inner bottom margin and zero hidden height.
-5. Check actual saving/local-source cues and replay/restart under current online
-   access. A Stored icon alone proves no hit or offline right. Clear must remove
-   saved indications while preserving admitted audio/live sign-in. My Wave starts
-   only from Listen and uses the existing four-event/no-replay lifecycle.
+- Check compact, medium, wide and maximized windows, both schemes, relevant
+  1×/2× cases, High Contrast and Reduced Motion. Measure actual logical
+  allocations, density, clipping, contrast and hit targets rather than requested
+  outer geometry alone. Preserve zero hidden-footer height and its active
+  24-logical-pixel inner bottom spacing.
+- Exercise mouse, Tab, Enter/Space and keyboard alternatives; inspect focus and
+  AT-SPI roles/names. Verify search/dismissal, pinned panels, duplicate occurrences,
+  queue/transport/MPRIS, consent and cancellation where affected.
+- Check real paired Lyrics glyph changes/Follow and panel motion in native frames,
+  retaining source/ELF, timing, backend/theme/scale and actual state identity.
+  Initialized motion does not prove first-use latency. Never add prewarm, force
+  renderer changes or weaken geometry/frame-gap assertions to hide failures.
+- Test relevant session/cache/playlist/Wave lifecycle effects without restarting
+  working playback. Report executed PASS/FAIL/not-tested and environment limits;
+  local HTTP/generated audio is not a live-service or physical-desktop acceptance.
 
-Report exact revision/package, environment and PASS/FAIL/not-tested for checks
-actually performed. Keep account content, credentials, lyrics and private captures
-local. Headless generated media cannot substitute for heard service audio.
-[VALIDATION](VALIDATION.md) records current acceptance;
-[LIMITATIONS](LIMITATIONS.md) retains independent cold-render/distribution bounds.
+The owner accepted v0.8 Fedora Native/Flatpak functionality; repeat only checks
+relevant to a later functional change. Documentation cleanup alone does not
+require full owner reacceptance. Current limits are in [LIMITATIONS](LIMITATIONS.md).
 
 ## Troubleshooting
 

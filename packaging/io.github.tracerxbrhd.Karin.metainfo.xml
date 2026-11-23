@@ -50,13 +50,6 @@
     <control>keyboard</control>
     <control>pointing</control>
   </supports>
-  <screenshots>
-    <screenshot type="default">
-      <image type="source" width="2880" height="1800">https://raw.githubusercontent.com/tracerxbrhd/karin/e5adeed716040a0711e745582b07e9844c94decc/packaging/screenshots/karin-system-dark.png</image>
-      <caption>Playback and synchronized lyrics with original demonstration tracks</caption>
-      <caption xml:lang="ru">Воспроизведение и синхронизированный текст на оригинальных демонстрационных треках</caption>
-    </screenshot>
-  </screenshots>
   <releases>
     <release version="0.8.0-rc.1" date="2026-11-22" type="development">
       <description>
