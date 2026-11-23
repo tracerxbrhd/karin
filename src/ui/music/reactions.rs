@@ -66,15 +66,7 @@ fn reaction_action(kind: TrackReaction, marked: bool) -> &'static str {
 }
 
 fn dislike_icon_name() -> &'static str {
-    if let Some(display) = gtk::gdk::Display::default() {
-        let theme = gtk::IconTheme::for_display(&display);
-        for name in ["thumb-down-symbolic", "action-unavailable-symbolic"] {
-            if theme.has_icon(name) {
-                return name;
-            }
-        }
-    }
-    "process-stop-symbolic"
+    "karin-thumb-down-symbolic"
 }
 
 impl ReactionControls {
@@ -259,7 +251,7 @@ impl Controller {
             spinners.push(spinner.downgrade());
         }
         let feedback = gtk::MenuButton::builder()
-            .icon_name("dialog-warning-symbolic")
+            .icon_name("karin-alert-triangle-symbolic")
             .build();
         feedback.set_widget_name("music-current-like-feedback");
         feedback.set_direction(gtk::ArrowType::Up);

@@ -207,10 +207,15 @@ def native_artifact(repository: Path, revision: str, binary: Path,
         "docs/BUILDING.md": "BUILDING.md",
     }.items():
         entries[target] = stage / source_name
-    for folder, target in ((stage / "third-party-notices", f"share/licenses/{APP_ID}/third-party"),
-                           (stage / "packaging/third-party-licenses/cassette-auth", f"share/licenses/{APP_ID}/cassette-auth")):
-        for path in tree_files(folder):
-            entries[f"{target}/{path.relative_to(folder)}"] = path
+    folder = stage / "third-party-notices"
+    for path in tree_files(folder):
+        entries[f"share/licenses/{APP_ID}/third-party/{path.relative_to(folder)}"] = path
+    # UI assets are embedded in the ELF; their original notices are separate
+    # files. Admit only committed upstream notices, never private stage extras.
+    prefix = "packaging/third-party-licenses/"
+    for name in sorted(committed_files(repository, revision)):
+        if name.startswith(prefix):
+            entries[f"share/licenses/{APP_ID}/{name.removeprefix(prefix)}"] = stage / name
     entries.update({f"share/licenses/{APP_ID}/rust-runtime/{name}": data for name, data in runtime.items()})
     entries["run-karin"] = b'#!/bin/sh\nset -eu\nroot=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)\nexport XDG_DATA_DIRS="$root/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"\nexec "$root/karin" "$@"\n'
     entries["NATIVE-LIBRARIES.json"] = json_bytes(info["native_libraries"])
@@ -294,14 +299,20 @@ def installed_licenses(stage: Path, location: Path, version: str) -> dict:
     required = {str(path.relative_to(source_notices)): sha256(path) for path in tree_files(source_notices)}
     if actual != required:
         raise ValueError("Installed crate notice bytes differ from authenticated prepared source")
-    for original in tree_files(stage / "packaging/third-party-licenses/cassette-auth"):
-        relative = original.relative_to(stage / "packaging/third-party-licenses/cassette-auth")
-        if sha256(root / "cassette-auth" / relative) != sha256(original):
-            raise ValueError("Installed Cassette attribution differs from release source")
+    upstream = stage / "packaging/third-party-licenses"
+    upstream_names = []
+    for folder in sorted(upstream.iterdir()):
+        required = {str(path.relative_to(folder)): sha256(path) for path in tree_files(folder)}
+        actual = {str(path.relative_to(root / folder.name)): sha256(path)
+                  for path in tree_files(root / folder.name)}
+        if actual != required:
+            raise ValueError("Installed upstream notice bytes differ from release source")
+        upstream_names.append(folder.name)
     compiler, target = binary_identity(version)
     runtime = validate_runtime(root / "rust-runtime", compiler, target)
     return {"path_in_application": str(root.relative_to(location)), "crate_notice_directories": len(expected),
-            "project_license_and_cassette_provenance_verified": True, "rust_runtime": runtime}
+            "project_license_and_cassette_provenance_verified": True,
+            "upstream_notice_directories": upstream_names, "rust_runtime": runtime}
 
 
 def flatpak_artifact(repository: Path, revision: str, manifest_path: Path, output: Path,

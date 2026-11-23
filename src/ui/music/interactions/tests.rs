@@ -500,12 +500,10 @@ fn native_library_interactions_confirmed_fixture() {
     assert!(footer_icon.has_css_class("accent") && footer_heart.has_css_class("liked"));
     let theme = gtk::IconTheme::for_display(&gtk::gdk::Display::default().unwrap());
     assert!(theme.has_icon(&footer_icon.icon_name().unwrap()));
-    if theme.has_icon("emote-love-symbolic") || theme.has_icon("love-symbolic") {
-        assert!(matches!(
-            footer_icon.icon_name().as_deref(),
-            Some("emote-love-symbolic" | "love-symbolic")
-        ));
-    }
+    assert_eq!(
+        footer_icon.icon_name().as_deref(),
+        Some("karin-heart-filled-symbolic")
+    );
     assert!(
         footer_heart
             .tooltip_text()
@@ -530,6 +528,11 @@ fn native_library_interactions_confirmed_fixture() {
         footer_icon.icon_name().as_deref(),
         Some(like_icon_name(Some(false)))
     );
+    assert_eq!(
+        footer_icon.icon_name().as_deref(),
+        Some("karin-heart-symbolic")
+    );
+    assert!(theme.has_icon("karin-heart-symbolic"));
     assert!(
         footer_heart
             .tooltip_text()

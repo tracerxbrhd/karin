@@ -110,9 +110,9 @@ impl SearchHeader {
         };
         c.toggle.set_tooltip_text(Some(label));
         c.toggle.set_icon_name(if open {
-            "window-close-symbolic"
+            "karin-x-symbolic"
         } else {
-            "system-search-symbolic"
+            "karin-search-symbolic"
         });
         c.toggle
             .update_property(&[gtk::accessible::Property::Label(label)]);

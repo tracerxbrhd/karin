@@ -24,6 +24,8 @@ WEBKIT = [
     "webkit_auth_interactive_navigation_frames_and_first_rejection",
 ]
 FUNCTIONAL = [
+    "native_bundled_typography",
+    "native_bundled_symbolic_icons_recolor",
     "artwork_thumbnail_maps_caches_hidpi_and_cancels_without_network",
     "native_account_menu_logout_cancel_default_confirm_and_stale_session",
     "native_cover_metadata_http_cache_and_render_lifecycle",
@@ -72,6 +74,8 @@ VISUAL = [
 # Targeted second-scale regressions, rather than replaying every account/network
 # fixture. The full native functional suite above still runs on every PR.
 HIDPI = [
+    "native_bundled_typography",
+    "native_bundled_symbolic_icons_recolor",
     "native_music_player_progress_duration_transitions",
     "native_music_playback_context_occurrences_and_shared_transport",
     "native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup",
@@ -82,6 +86,8 @@ HIDPI = [
     "artwork_thumbnail_maps_caches_hidpi_and_cancels_without_network",
 ]
 COMPATIBILITY = [
+    "native_bundled_typography",
+    "native_bundled_symbolic_icons_recolor",
     "native_music_player_progress_duration_transitions",
     "native_catalog_native_music_layout",
     "native_music_playback_resolver_queue_controls_and_logout",
@@ -89,7 +95,8 @@ COMPATIBILITY = [
 GROUPS = {"bus": BUS, "webkit": WEBKIT, "functional": FUNCTIONAL,
           "hidpi": HIDPI, "compatibility": COMPATIBILITY, "visual": VISUAL,
           "lyrics": ["native_v08_lyrics_similar_seek_and_stale_selection"],
-          "high-contrast": ["native_system_visual_surfaces"]}
+          "high-contrast": ["native_system_visual_surfaces", "native_bundled_typography",
+                            "native_bundled_symbolic_icons_recolor"]}
 
 
 def registered(binary):
@@ -118,6 +125,8 @@ def run_group(args):
         env["GSK_RENDERER"] = "ngl" if visual else "cairo"
         env["GSK_DEBUG"] = "full-redraw"
         if visual or selector in {
+            "native_bundled_typography",
+            "native_bundled_symbolic_icons_recolor",
             "native_collection_filter_continuation_and_exact_occurrences",
             "native_music_shuffle_repeat_mpris_shared_policy_and_eos",
             "native_audio_cache_application_process_restart",

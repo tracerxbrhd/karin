@@ -47,6 +47,11 @@ class ArtifactTests(unittest.TestCase):
             f"packaging/icons/{artifacts.APP_ID}.svg": b"original icon",
             "packaging/third-party-licenses/cassette-auth/COPYING": b"Cassette GPL",
             "packaging/third-party-licenses/cassette-auth/PROVENANCE.md": b"provider provenance",
+            "packaging/third-party-licenses/tabler-icons/LICENSE": b"original icon MIT notice",
+            "packaging/third-party-licenses/tabler-icons/PROVENANCE.md": b"pinned icon revision",
+            "packaging/third-party-licenses/fonts/Montserrat-OFL.txt": b"original Montserrat OFL notice",
+            "packaging/third-party-licenses/fonts/Inter-OFL.txt": b"original Inter OFL notice",
+            "packaging/third-party-licenses/fonts/PROVENANCE.md": b"pinned font sources",
         }
         generated = {
             "BUILD-REVISION": REVISION.encode(), "BUILD-SOURCE-STATUS": b"clean",
@@ -130,6 +135,9 @@ class ArtifactTests(unittest.TestCase):
     def test_native_packages_verified_elf_metadata_icon_and_all_notices(self):
         binary = self.root / "actual-karin"
         binary.write_bytes(b"\x7fELFactual compiled bytes")
+        # A prepared copy is not permission to convey arbitrary extra files.
+        private = self.stage / "packaging/third-party-licenses/tabler-icons/private-profile"
+        private.write_bytes(b"PRIVATE-SENTINEL")
         version = VERSION
         libraries = {"scope": "Packaging-host runtime observations", "pkg_config": {"gtk4": "4.18.6"}, "ldd": "libgtk-4.so.1 => /usr/lib/libgtk-4.so.1", "distribution": "No shared libraries are bundled"}
         with patch.object(artifacts, "verify_binary", return_value=version) as verify, patch.object(artifacts, "native_libraries", return_value=libraries):
@@ -144,6 +152,13 @@ class ArtifactTests(unittest.TestCase):
             self.assertIn(f"share/metainfo/{artifacts.APP_ID}.metainfo.xml", names)
             self.assertIn(f"share/licenses/{artifacts.APP_ID}/third-party/example-1.0/LICENSE", names)
             self.assertIn(f"share/licenses/{artifacts.APP_ID}/cassette-auth/PROVENANCE.md", names)
+            for component, name in (("tabler-icons", "LICENSE"), ("tabler-icons", "PROVENANCE.md"),
+                                    ("fonts", "Montserrat-OFL.txt"), ("fonts", "Inter-OFL.txt"),
+                                    ("fonts", "PROVENANCE.md")):
+                relative = f"{component}/{name}"
+                self.assertEqual(tar.extractfile(f"share/licenses/{artifacts.APP_ID}/{relative}").read(),
+                                 self.project[f"packaging/third-party-licenses/{relative}"])
+            self.assertNotIn(f"share/licenses/{artifacts.APP_ID}/tabler-icons/private-profile", names)
             self.assertIn(f"share/licenses/{artifacts.APP_ID}/rust-runtime/COPYRIGHT-library.html", names)
             self.assertIn(f"share/licenses/{artifacts.APP_ID}/rust-runtime/compiler-builtins/LICENSE.txt", names)
             self.assertFalse(any(name.endswith(".so") for name in names))
@@ -210,7 +225,8 @@ class ArtifactTests(unittest.TestCase):
         shutil.copy2(self.stage / "LICENSE", licenses / "LICENSE")
         shutil.copy2(self.stage / "docs/LICENSING.md", licenses / "LICENSING.md")
         shutil.copytree(self.stage / "third-party-notices", licenses / "third-party")
-        shutil.copytree(self.stage / "packaging/third-party-licenses/cassette-auth", licenses / "cassette-auth")
+        for folder in (self.stage / "packaging/third-party-licenses").iterdir():
+            shutil.copytree(folder, licenses / folder.name)
         self.assertEqual(artifacts.installed_licenses(self.stage, location, VERSION)["crate_notice_directories"], 1)
         for name in ("example-1.0/LICENSE", "DEPENDENCY_LICENSES.md"):
             with self.subTest(name=name):
@@ -221,6 +237,30 @@ class ArtifactTests(unittest.TestCase):
                 shutil.copy2(self.stage / "third-party-notices" / name, target)
         (licenses / "third-party/private-extra").write_bytes(b"unexpected data")
         with self.assertRaisesRegex(ValueError, "notice bytes"):
+            artifacts.installed_licenses(self.stage, location, VERSION)
+
+    def test_installed_upstream_assets_require_exact_original_notices(self):
+        location = self.root / "installed"
+        licenses = location / f"files/share/licenses/{artifacts.APP_ID}"
+        licenses.mkdir(parents=True)
+        shutil.copy2(self.stage / "LICENSE", licenses / "LICENSE")
+        shutil.copy2(self.stage / "docs/LICENSING.md", licenses / "LICENSING.md")
+        shutil.copytree(self.stage / "third-party-notices", licenses / "third-party")
+        for folder in (self.stage / "packaging/third-party-licenses").iterdir():
+            shutil.copytree(folder, licenses / folder.name)
+        proof = artifacts.installed_licenses(self.stage, location, VERSION)
+        self.assertEqual(proof["upstream_notice_directories"], ["cassette-auth", "fonts", "tabler-icons"])
+        for relative in ("cassette-auth/PROVENANCE.md", "fonts/Montserrat-OFL.txt",
+                         "fonts/Inter-OFL.txt", "tabler-icons/LICENSE"):
+            target = licenses / relative
+            original = target.read_bytes()
+            with self.subTest(relative=relative):
+                target.write_bytes(b"changed or truncated notice")
+                with self.assertRaisesRegex(ValueError, "upstream notice bytes"):
+                    artifacts.installed_licenses(self.stage, location, VERSION)
+                target.write_bytes(original)
+        (licenses / "fonts/private-extra").write_bytes(b"unexpected extra notice")
+        with self.assertRaisesRegex(ValueError, "upstream notice bytes"):
             artifacts.installed_licenses(self.stage, location, VERSION)
 
     def test_checksums_cover_exact_explicit_artifacts_and_reject_self_or_duplicates(self):

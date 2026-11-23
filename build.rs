@@ -3,6 +3,16 @@
 use std::{env, fs, path::Path, process::Command};
 
 fn main() {
+    let resource =
+        Path::new(&env::var_os("OUT_DIR").expect("Cargo supplies OUT_DIR")).join("karin.gresource");
+    let status = Command::new("glib-compile-resources")
+        .arg("resources/karin.gresource.xml")
+        .arg("--sourcedir=resources")
+        .arg("--target")
+        .arg(&resource)
+        .status()
+        .expect("glib-compile-resources is required by the native GTK build");
+    assert!(status.success(), "Cannot compile Karin's bundled icons");
     for path in ["src", "resources", "packaging", "Cargo.toml", "Cargo.lock"] {
         println!("cargo:rerun-if-changed={path}");
     }

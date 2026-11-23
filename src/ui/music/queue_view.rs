@@ -225,7 +225,7 @@ impl Controller {
                 40,
             ));
             if ordinary && upcoming_slot.is_some() {
-                let handle = gtk::Image::from_icon_name("list-drag-handle-symbolic");
+                let handle = gtk::Image::from_icon_name("karin-grip-vertical-symbolic");
                 handle.set_widget_name("music-queue-drag-handle");
                 handle.add_css_class("dim-label");
                 handle.set_tooltip_text(Some("Перетащите трек; с клавиатуры — Alt+↑ или Alt+↓"));
@@ -261,7 +261,7 @@ impl Controller {
                 credits.append(&badge);
             }
             if !track.available {
-                let unavailable = gtk::Image::from_icon_name("action-unavailable-symbolic");
+                let unavailable = gtk::Image::from_icon_name("karin-ban-symbolic");
                 unavailable.set_widget_name("music-queue-unavailable-mark");
                 unavailable.add_css_class("dim-label");
                 unavailable.set_tooltip_text(Some("Трек недоступен"));
@@ -271,7 +271,7 @@ impl Controller {
             if credits.first_child().is_some() {
                 labels.append(&credits);
             }
-            let play = icon_button("media-playback-start-symbolic", "Воспроизвести трек");
+            let play = icon_button("karin-player-play-symbolic", "Воспроизвести трек");
             play.set_widget_name("music-queue-play");
             play.add_css_class("flat");
             play.set_sensitive(track.available && radio_playable);
@@ -285,7 +285,7 @@ impl Controller {
                 }
             });
             body.append(&play);
-            let details = icon_button("dialog-information-symbolic", "Сведения о треке");
+            let details = icon_button("karin-info-circle-symbolic", "Сведения о треке");
             details.set_widget_name("music-queue-details");
             details.add_css_class("flat");
             let weak = Rc::downgrade(self);
@@ -304,7 +304,7 @@ impl Controller {
                 }
             });
 
-            let remove = icon_button("list-remove-symbolic", "Удалить трек из очереди");
+            let remove = icon_button("karin-minus-symbolic", "Удалить трек из очереди");
             remove.set_widget_name("music-queue-remove");
             remove.add_css_class("flat");
             let weak = Rc::downgrade(self);
@@ -317,7 +317,7 @@ impl Controller {
                 }
             });
             let menu = gtk::MenuButton::builder()
-                .icon_name("view-more-symbolic")
+                .icon_name("karin-dots-vertical-symbolic")
                 .tooltip_text("Действия с позицией очереди")
                 .build();
             menu.set_widget_name("music-queue-more");

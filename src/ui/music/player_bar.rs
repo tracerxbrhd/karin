@@ -104,6 +104,8 @@ impl PlayerBarParts {
         metadata.append(&current_art_button);
         let labels = gtk::Box::new(gtk::Orientation::Vertical, 2);
         labels.set_valign(gtk::Align::Center);
+        labels.set_hexpand(false);
+        labels.set_widget_name("music-current-labels");
         let current = metadata_label("Трек не выбран", "music-current-title");
         current.add_css_class("music-player-title");
         let current_artist = metadata_label("Выберите трек", "music-current-artist");
@@ -124,16 +126,22 @@ impl PlayerBarParts {
         player_status.set_margin_end(4);
         player_status.set_margin_bottom(4);
         player_status.set_visible(false);
-        let title_line = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        // The metadata group uses its natural text width inside the expanded
+        // Info button. Extra clickable space stays after the group, rather
+        // than separating the cache mark from its two text lines.
+        let text_and_cache = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        text_and_cache.set_widget_name("music-current-metadata-group");
+        text_and_cache.set_hexpand(false);
+        text_and_cache.set_halign(gtk::Align::Start);
         let current_cache = cache_presence::indicator("music-current-cache");
-        title_line.append(&current);
-        title_line.append(&current_cache);
-        labels.append(&title_line);
+        labels.append(&current);
         labels.append(&current_artist);
+        text_and_cache.append(&labels);
+        text_and_cache.append(&current_cache);
         // The bottom bar grows upward only while feedback is visible; the
         // transport and timeline keep their existing bottom anchoring.
         player_bar.prepend(&player_status);
-        current_track.append(&labels);
+        current_track.append(&text_and_cache);
         let current_like_slot = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         current_like_slot.set_widget_name("music-current-like-slot");
         current_like_slot.set_visible(false);
@@ -146,13 +154,13 @@ impl PlayerBarParts {
         transport.add_css_class("music-transport");
         transport.set_widget_name("music-transport");
         let shuffle = gtk::ToggleButton::new();
-        shuffle.set_icon_name("media-playlist-shuffle-symbolic");
+        shuffle.set_icon_name("karin-arrows-shuffle-symbolic");
         shuffle.set_widget_name("music-shuffle");
         shuffle.set_tooltip_text(Some("Перемешать очередь"));
         shuffle.update_property(&[gtk::accessible::Property::Label("Перемешать очередь")]);
         shuffle.add_css_class("flat");
         shuffle.set_size_request(44, 44);
-        let previous = icon_button("media-skip-backward-symbolic", "Предыдущий трек");
+        let previous = icon_button("karin-player-skip-back-symbolic", "Предыдущий трек");
         previous.set_widget_name("music-previous");
         let play = gtk::Button::new();
         play.set_valign(gtk::Align::Center);
@@ -161,7 +169,7 @@ impl PlayerBarParts {
             "Воспроизвести выбранный трек",
         )]);
         let play_surface = gtk::Overlay::new();
-        let play_icon = gtk::Image::from_icon_name("media-playback-start-symbolic");
+        let play_icon = gtk::Image::from_icon_name("karin-player-play-symbolic");
         play_icon.set_pixel_size(16);
         play_surface.set_child(Some(&play_icon));
         let play_loading = gtk::Spinner::new();
@@ -179,12 +187,12 @@ impl PlayerBarParts {
         play.add_css_class("circular");
         play.add_css_class("suggested-action");
         play.set_size_request(48, 48);
-        let next = icon_button("media-skip-forward-symbolic", "Следующий трек");
+        let next = icon_button("karin-player-skip-forward-symbolic", "Следующий трек");
         next.set_widget_name("music-next");
         let repeat = gtk::Button::new();
         repeat.set_valign(gtk::Align::Center);
         let repeat_surface = gtk::Overlay::new();
-        let repeat_icon = gtk::Image::from_icon_name("media-playlist-repeat-symbolic");
+        let repeat_icon = gtk::Image::from_icon_name("karin-repeat-symbolic");
         repeat_icon.set_pixel_size(16);
         repeat_surface.set_child(Some(&repeat_icon));
         let repeat_one = gtk::Label::new(Some("1"));
@@ -241,7 +249,7 @@ impl PlayerBarParts {
         utilities.set_halign(gtk::Align::End);
         utilities.set_valign(gtk::Align::Center);
         let lyrics = gtk::ToggleButton::new();
-        lyrics.set_icon_name("text-x-generic-symbolic");
+        lyrics.set_icon_name("karin-file-text-symbolic");
         lyrics.set_widget_name("music-lyrics-toggle");
         lyrics.set_tooltip_text(Some("Текст песни"));
         lyrics.update_property(&[gtk::accessible::Property::Label("Текст песни")]);
@@ -249,7 +257,7 @@ impl PlayerBarParts {
         lyrics.set_size_request(44, 44);
         lyrics.set_sensitive(false);
         utilities.append(&lyrics);
-        let queue = icon_button("view-list-symbolic", "Показать очередь");
+        let queue = icon_button("karin-playlist-symbolic", "Показать очередь");
         queue.set_widget_name("music-queue-toggle");
         queue.set_action_name(Some("win.music-queue"));
         queue.add_css_class("flat");
@@ -257,7 +265,7 @@ impl PlayerBarParts {
         utilities.append(&queue);
 
         let volume_menu = gtk::MenuButton::builder()
-            .icon_name("audio-volume-high-symbolic")
+            .icon_name("karin-volume-symbolic")
             .tooltip_text("Громкость")
             .build();
         volume_menu.set_widget_name("music-volume-menu");
@@ -297,7 +305,7 @@ impl PlayerBarParts {
 
         // Stop remains an internal/system command. Keeping its existing object
         // preserves controller/test hooks without placing it in the music UI.
-        let stop = icon_button("media-playback-stop-symbolic", "Остановить воспроизведение");
+        let stop = icon_button("karin-player-stop-symbolic", "Остановить воспроизведение");
         stop.set_widget_name("music-stop");
         stop.set_visible(false);
         stop.set_sensitive(false);
@@ -445,9 +453,9 @@ pub(super) fn set_play_presentation(button: &gtk::Button, playing: bool, loading
     };
     if let Some(icon) = surface.child().and_downcast::<gtk::Image>() {
         let name = if playing {
-            "media-playback-pause-symbolic"
+            "karin-player-pause-symbolic"
         } else {
-            "media-playback-start-symbolic"
+            "karin-player-play-symbolic"
         };
         if icon.icon_name().as_deref() != Some(name) {
             icon.set_icon_name(Some(name));

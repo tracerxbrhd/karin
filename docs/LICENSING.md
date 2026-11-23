@@ -42,6 +42,17 @@ Do not relax that fallback for other missing/unreviewed notices.
 
 ## Binary and corresponding-source obligations
 
+The interface also bundles these original upstream assets:
+
+- [Tabler Icons](../packaging/third-party-licenses/tabler-icons/PROVENANCE.md),
+  a selected outline set under its original MIT license.
+- Montserrat, under the original [SIL OFL 1.1](../packaging/third-party-licenses/fonts/Montserrat-OFL.txt).
+- Inter, under the original [SIL OFL 1.1](../packaging/third-party-licenses/fonts/Inter-OFL.txt).
+
+The [font provenance](../packaging/third-party-licenses/fonts/PROVENANCE.md)
+records pinned official sources and hashes. Preserve these licenses, copyrights
+and provenance with the embedded assets in Native and Flatpak packages.
+
 [Source preparation](../packaging/flatpak/prepare-source.py) vendors locked crates
 and copies their notices at original relative paths into `third-party-notices/`.
 Keep `packaging/third-party-licenses/` in source snapshots and binary notice bundles.

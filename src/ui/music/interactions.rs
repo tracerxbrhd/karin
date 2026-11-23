@@ -9,22 +9,13 @@ use gtk::glib;
 use super::{Controller, MusicError, Operation, text};
 use crate::music::interactions::{InteractionError, LikeState};
 
-/// Prefer an actual native-theme heart; Adwaita and Breeze use different
-/// published names. Unusual themes retain a functional native fallback rather
-/// than an absent glyph. This is presentation only, never membership evidence.
+/// Bundled hearts keep the same vocabulary across desktop icon themes.
+/// Only an independently confirmed membership selects the filled state.
 pub(super) fn like_icon_name(liked: Option<bool>) -> &'static str {
-    if let Some(display) = gtk::gdk::Display::default() {
-        let theme = gtk::IconTheme::for_display(&display);
-        for name in ["emote-love-symbolic", "love-symbolic"] {
-            if theme.has_icon(name) {
-                return name;
-            }
-        }
-    }
     if liked == Some(true) {
-        "starred-symbolic"
+        "karin-heart-filled-symbolic"
     } else {
-        "non-starred-symbolic"
+        "karin-heart-symbolic"
     }
 }
 
@@ -272,7 +263,7 @@ impl Controller {
         content.append(&label);
         button.set_child(Some(&content));
         actions.append(&button);
-        let refresh = gtk::Button::from_icon_name("view-refresh-symbolic");
+        let refresh = gtk::Button::from_icon_name("karin-refresh-symbolic");
         refresh.set_widget_name("music-like-refresh");
         refresh.set_tooltip_text(Some("Обновить отметку «Нравится»"));
         refresh.update_property(&[gtk::accessible::Property::Label(

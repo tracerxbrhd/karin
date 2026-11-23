@@ -462,6 +462,16 @@ impl Controller {
                 gtk::AccessibleTristate::False
             })]);
         let mode = host.presentation();
+        // Keep the translated surface inside the native workspace, rather
+        // than rounding a pane flush against the window edge. Compact uses
+        // small symmetric margins; desktop preserves the pane's useful width.
+        let (leading_gap, trailing_gap, content_gap) = match mode {
+            InfoPresentation::Compact => (6, 6, 0),
+            InfoPresentation::Medium => (0, 12, 16),
+            InfoPresentation::Wide => (0, 12, 20),
+        };
+        reveal.set_margin_start(leading_gap);
+        reveal.set_margin_end(trailing_gap);
         reveal.set_compact_presentation(mode == InfoPresentation::Compact);
         let hide_content = open && mode == InfoPresentation::Compact;
         // Clear focus before hiding its native subtree. Besides leaving a
@@ -513,10 +523,11 @@ impl Controller {
         // The overlay supplies the real viewport left by HeaderBar/navigation
         // and the animated footer. Budget artwork before the panel reveal,
         // without using the panel's transient offscreen allocation/progress.
+        let available_width = (overlay.width() - leading_gap - trailing_gap).max(1);
         let panel_width = if mode == InfoPresentation::Compact {
-            overlay.width()
+            available_width
         } else {
-            reveal.width_request().min(overlay.width())
+            reveal.width_request().min(available_width)
         };
         self.track_pane
             .set_available_size(panel_width, overlay.height());
@@ -536,10 +547,10 @@ impl Controller {
         // Reserve room for every persistent desktop pane. A medium overlay
         // without a reservation covered row menus and transport-side actions.
         // Compact is an explicit subview with the same retained pane.
-        let reserved = match mode {
-            InfoPresentation::Wide => 340.0,
-            InfoPresentation::Medium => 316.0,
-            InfoPresentation::Compact => 0.0,
+        let reserved = if mode == InfoPresentation::Compact {
+            0.0
+        } else {
+            f64::from(panel_width + trailing_gap + content_gap)
         };
         content.set_margin_end((reserved * reveal.progress()).ceil() as i32);
         content.set_visible(!hide_content);

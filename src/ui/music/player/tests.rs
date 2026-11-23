@@ -779,7 +779,7 @@ fn remove_queue_row(this: &Controller, index: i32) {
     let mut descendants = vec![row.upcast::<gtk::Widget>()];
     while let Some(widget) = descendants.pop() {
         if let Some(button) = widget.downcast_ref::<gtk::Button>()
-            && button.icon_name().as_deref() == Some("list-remove-symbolic")
+            && button.icon_name().as_deref() == Some("karin-minus-symbolic")
         {
             button.emit_clicked();
             return;

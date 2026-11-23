@@ -221,7 +221,7 @@ impl ExtrasView {
         source.set_visible(false);
         toolbar.append(&source);
         let lyrics_actions = gtk::MenuButton::builder()
-            .icon_name("view-more-symbolic")
+            .icon_name("karin-dots-vertical-symbolic")
             .build();
         lyrics_actions.set_widget_name("music-lyrics-actions");
         lyrics_actions.set_tooltip_text(Some("Действия с текстом"));
@@ -1082,7 +1082,7 @@ impl Inner {
             group.add_action(&activate);
             row.insert_action_group("catalog-row", Some(&group));
             let menu = gtk::MenuButton::builder()
-                .icon_name("view-more-symbolic")
+                .icon_name("karin-dots-vertical-symbolic")
                 .build();
             menu.set_widget_name("music-similar-actions");
             menu.set_tooltip_text(Some("Действия с похожим треком"));
@@ -1397,7 +1397,7 @@ fn feedback(
         }
     });
     parent.append(&row);
-    let retry = icon_button("view-refresh-symbolic", "Повторить загрузку");
+    let retry = icon_button("karin-refresh-symbolic", "Повторить загрузку");
     retry.set_widget_name(&format!("{name}-retry"));
     retry.set_halign(gtk::Align::Start);
     retry.set_visible(false);

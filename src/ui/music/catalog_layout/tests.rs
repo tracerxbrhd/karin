@@ -138,7 +138,7 @@ fn native_catalog_native_music_layout() {
     let this = &ui.music.controller;
     let window = &ui.window;
     window.set_title(Some("Karin synthetic HTTP fixture"));
-    let tracks: Vec<_> = (0..12)
+    let mut tracks: Vec<_> = (0..12)
         .map(|index| {
             track(
                 &format!("{}", index + 40),
@@ -146,6 +146,10 @@ fn native_catalog_native_music_layout() {
             )
         })
         .collect();
+    tracks[0].duration_ms = Some(65_000);
+    tracks[1].duration_ms = Some(605_000);
+    tracks[4].title = "Очень длинное русское название / a deliberately long English title with mixed symbols — 2026".into();
+    tracks[5].duration_ms = None;
     let playlist = Playlist {
         id: crate::music::PlaylistId {
             owner: "1234".into(),
@@ -342,6 +346,46 @@ fn native_catalog_native_music_layout() {
                     .find_map(|child| child.downcast::<gtk::Overlay>().ok())
                     .unwrap();
                 assert_eq!((art.width(), art.height()), (48, 48));
+            }
+            let mut cache_column_x: Option<f32> = None;
+            for row in rows.iter().take(6) {
+                let descendants = children(row);
+                let cache = descendants
+                    .iter()
+                    .find(|widget| widget.widget_name() == "music-track-cache-column")
+                    .unwrap();
+                let duration = descendants
+                    .iter()
+                    .find(|widget| widget.has_css_class("music-track-duration"))
+                    .unwrap();
+                let play = descendants
+                    .iter()
+                    .find(|widget| widget.widget_name() == "music-track-play")
+                    .unwrap();
+                let cache_bounds = cache.compute_bounds(window).unwrap();
+                let duration_bounds = duration.compute_bounds(window).unwrap();
+                let play_bounds = play.compute_bounds(window).unwrap();
+                assert_eq!(cache.width(), 16);
+                assert!(cache_bounds.x() + cache_bounds.width() <= duration_bounds.x());
+                assert!(duration_bounds.x() + duration_bounds.width() <= play_bounds.x());
+                if let Some(expected) = cache_column_x {
+                    assert!(
+                        (cache_bounds.x() - expected).abs() <= 1.0,
+                        "duration length or unavailable duration must not move the shared cache column"
+                    );
+                } else {
+                    cache_column_x = Some(cache_bounds.x());
+                }
+            }
+            let long_title = children(&rows[4])
+                .into_iter()
+                .find(|widget| widget.has_css_class("music-track-title"))
+                .unwrap()
+                .downcast::<gtk::Label>()
+                .unwrap();
+            assert_eq!(long_title.ellipsize(), gtk::pango::EllipsizeMode::End);
+            if shape == "compact" {
+                assert!(long_title.layout().is_ellipsized());
             }
             if shape == "medium" {
                 let footer = ui.music.player_bar.compute_bounds(window).unwrap();

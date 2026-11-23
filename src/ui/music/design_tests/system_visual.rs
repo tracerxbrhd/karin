@@ -418,6 +418,7 @@ fn assert_panel_corners(ui: &crate::ui::MainWindow, high_contrast: bool) -> Opti
     assert!(panel.is_child_revealed());
     let surface = panel.surface().unwrap();
     let bounds = surface.compute_bounds(&ui.window).unwrap();
+    let external_spacing = assert_information_spacing(ui);
     let original = surface.opacity();
     assert!(original >= 0.99);
     let painted = texture(&ui.window);
@@ -435,6 +436,13 @@ fn assert_panel_corners(ui: &crate::ui::MainWindow, high_contrast: bool) -> Opti
     let blank = downloaded(&background);
     surface.set_opacity(original);
     frame(&ui.window);
+    let gap = external_spacing["right_gap_logical"].as_f64().unwrap() as f32;
+    let gap_x = bounds.x() + bounds.width() + gap / 2.0;
+    let gap_y = bounds.y() + 24.0;
+    let gap_painted = pixel_at(&ui.window, &painted, &ink, gap_x, gap_y);
+    let gap_backing = pixel_at(&ui.window, &background, &blank, gap_x, gap_y);
+    assert!(gap_painted[3] >= 254 && gap_backing[3] >= 254);
+    assert!(color_distance(gap_painted, gap_backing) <= 1);
     let samples = [
         ("top-left-outside", 2.0, 1.0),
         ("top-right-outside", bounds.width() - 3.0, 1.0),
@@ -470,7 +478,8 @@ fn assert_panel_corners(ui: &crate::ui::MainWindow, high_contrast: bool) -> Opti
     Some(json!({
         "panel_mode":format!("{:?}",this.panel_mode.get()),
         "surface_bounds":[bounds.x(),bounds.y(),bounds.width(),bounds.height()],
-        "paired_native_pixels":samples,"high_contrast":high_contrast
+        "paired_native_pixels":samples,"high_contrast":high_contrast,
+        "external_spacing":external_spacing,"right_gap_native_pixel":gap_painted
     }))
 }
 
