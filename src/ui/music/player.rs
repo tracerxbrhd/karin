@@ -1573,9 +1573,12 @@ impl Controller {
         ProgressPresentation::new(
             snapshot.as_ref(),
             selected.and_then(|track| track.duration_ms),
-            player
-                .restored_position
-                .or_else(|| selected.map(|_| Duration::ZERO)),
+            player.restored_position.or_else(|| {
+                // A rejected delivery never established a playback time.
+                selected
+                    .filter(|_| player.failure.is_none())
+                    .map(|_| Duration::ZERO)
+            }),
         )
         .apply(&self.widgets.progress, &self.widgets.position, seekable);
         drop(player);

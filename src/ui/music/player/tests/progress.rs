@@ -30,6 +30,9 @@ fn progress_projection_uses_positive_duration_and_preserves_position() {
     );
     let restored = ProgressPresentation::new(None, Some(141_000), Some(Duration::from_secs(40)));
     assert_eq!(restored.position, Some(Duration::from_secs(40)));
+    let rejected = ProgressPresentation::new(None, Some(141_000), None);
+    assert_eq!(rejected.position, None);
+    assert_eq!(rejected.duration, Some(Duration::from_secs(141)));
     snapshot.duration = None;
     assert_eq!(
         ProgressPresentation::new(Some(&snapshot), Some(0), None).duration,
@@ -259,6 +262,16 @@ fn native_music_player_progress_duration_transitions() {
                 200.0,
                 0.0,
                 "0:00 / 3:20",
+            );
+            check(
+                "rejected-before-playback",
+                None,
+                Some(141_000),
+                None,
+                false,
+                141.0,
+                0.0,
+                "— / 2:21",
             );
             snapshot.duration = None;
             check(
