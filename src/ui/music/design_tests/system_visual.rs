@@ -333,6 +333,156 @@ fn write_json(name: &str, value: &Value) {
     }
 }
 
+fn pixel_at(
+    window: &adw::ApplicationWindow,
+    image: &gdk::Texture,
+    pixels: &[u8],
+    x: f32,
+    y: f32,
+) -> [u8; 4] {
+    let (dx, dy) = window.surface_transform();
+    let scale = window.scale_factor() as f32;
+    let x = ((x + dx as f32) * scale).floor() as i32;
+    let y = ((y + dy as f32) * scale).floor() as i32;
+    assert!(x >= 0 && x < image.width() && y >= 0 && y < image.height());
+    let offset = (y as usize * image.width() as usize + x as usize) * 4;
+    // GdkTexture::download uses native-endian premultiplied ARGB32.
+    [
+        pixels[offset + 2],
+        pixels[offset + 1],
+        pixels[offset],
+        pixels[offset + 3],
+    ]
+}
+
+fn downloaded(image: &gdk::Texture) -> Vec<u8> {
+    let stride = image.width() as usize * 4;
+    let mut pixels = vec![0; stride * image.height() as usize];
+    image.download(&mut pixels, stride);
+    pixels
+}
+
+fn color_distance(left: [u8; 4], right: [u8; 4]) -> u8 {
+    left.into_iter()
+        .zip(right)
+        .map(|(left, right)| left.abs_diff(right))
+        .max()
+        .unwrap()
+}
+
+#[allow(deprecated)] // GTK 4.14's native named palette has no replacement query API.
+fn assert_header_surface(ui: &crate::ui::MainWindow) -> Value {
+    let native = ui
+        .window
+        .style_context()
+        .lookup_color("view_bg_color")
+        .unwrap();
+    assert!(native.alpha() >= 0.99);
+    let expected = [native.red(), native.green(), native.blue(), native.alpha()]
+        .map(|component| (component * 255.0).round() as u8);
+    let bounds = ui.header.compute_bounds(&ui.window).unwrap();
+    let image = texture(&ui.window);
+    let pixels = downloaded(&image);
+    // Start title buttons are disabled. These are three blank parts of the
+    // actual mapped header, clear of its centered title and trailing controls.
+    let samples = [24.0, 32.0, 40.0].map(|x| {
+        pixel_at(
+            &ui.window,
+            &image,
+            &pixels,
+            bounds.x() + x,
+            bounds.y() + bounds.height() / 2.0,
+        )
+    });
+    for painted in samples {
+        assert!(
+            color_distance(painted, expected) <= 2,
+            "the native header must share the content's surface, not paint a contrast strip: {painted:?} != {expected:?}"
+        );
+    }
+    json!({"native_view_rgba":expected,"painted_header_rgba":samples})
+}
+
+fn assert_panel_corners(ui: &crate::ui::MainWindow, high_contrast: bool) -> Option<Value> {
+    let this = &ui.music.controller;
+    if this.panel_mode.get() == workspace::PanelMode::Closed {
+        return None;
+    }
+    let panel = this
+        .info_host
+        .borrow()
+        .as_ref()
+        .unwrap()
+        .revealer()
+        .unwrap();
+    assert!(panel.is_child_revealed());
+    let surface = panel.surface().unwrap();
+    let bounds = surface.compute_bounds(&ui.window).unwrap();
+    let external_spacing = assert_information_spacing(ui);
+    let original = surface.opacity();
+    assert!(original >= 0.99);
+    let painted = texture(&ui.window);
+    let ink = downloaded(&painted);
+    // Paired native scenes keep panel mode, allocation and content unchanged.
+    // Hiding only its paint gives the true backing pixels at the same corner,
+    // including the compact host; it does not synthesize a background color.
+    surface.set_opacity(0.0);
+    frame(&ui.window);
+    let background = texture(&ui.window);
+    assert_eq!(
+        (painted.width(), painted.height()),
+        (background.width(), background.height())
+    );
+    let blank = downloaded(&background);
+    surface.set_opacity(original);
+    frame(&ui.window);
+    let gap = external_spacing["right_gap_logical"].as_f64().unwrap() as f32;
+    let gap_x = bounds.x() + bounds.width() + gap / 2.0;
+    let gap_y = bounds.y() + 24.0;
+    let gap_painted = pixel_at(&ui.window, &painted, &ink, gap_x, gap_y);
+    let gap_backing = pixel_at(&ui.window, &background, &blank, gap_x, gap_y);
+    assert!(gap_painted[3] >= 254 && gap_backing[3] >= 254);
+    assert!(color_distance(gap_painted, gap_backing) <= 1);
+    let samples = [
+        ("top-left-outside", 2.0, 1.0),
+        ("top-right-outside", bounds.width() - 3.0, 1.0),
+        ("top-left-inside", 12.0, 1.0),
+        ("top-right-inside", bounds.width() - 13.0, 1.0),
+        ("left-body-inside", 2.0, 24.0),
+    ]
+    .map(|(name, x, y)| {
+        let x = bounds.x() + x;
+        let y = bounds.y() + y;
+        let painted = pixel_at(&ui.window, &painted, &ink, x, y);
+        let backing = pixel_at(&ui.window, &background, &blank, x, y);
+        assert!(
+            painted[3] >= 254 && backing[3] >= 254,
+            "no transparent pane gap"
+        );
+        (name, painted, backing, color_distance(painted, backing))
+    });
+    for (name, _, _, delta) in &samples[..2] {
+        assert!(
+            *delta <= 1,
+            "rounded {name} must expose its real backing paint"
+        );
+    }
+    if !high_contrast {
+        // Normal System surfaces deliberately differ. The inward samples
+        // must remain opaque panel paint, proving a curve rather than a hole
+        // or a missing panel. High Contrast may use identical native fills.
+        for (name, _, _, delta) in &samples[2..] {
+            assert!(*delta >= 3, "opaque {name} is missing its pane surface");
+        }
+    }
+    Some(json!({
+        "panel_mode":format!("{:?}",this.panel_mode.get()),
+        "surface_bounds":[bounds.x(),bounds.y(),bounds.width(),bounds.height()],
+        "paired_native_pixels":samples,"high_contrast":high_contrast,
+        "external_spacing":external_spacing,"right_gap_native_pixel":gap_painted
+    }))
+}
+
 #[test]
 #[ignore = "isolated Xvfb/Openbox System contrast and footer geometry; run at 1x and 2x"]
 fn native_system_visual_surfaces() {
@@ -427,6 +577,8 @@ fn native_system_visual_surfaces() {
             );
             save(&ui, &name);
             let readability = readable_samples(&ui, &name);
+            let header_surface = assert_header_surface(&ui);
+            let panel_corners = assert_panel_corners(&ui, high_contrast);
             assert!(ui.window.has_css_class("karin-style-system"));
             assert_eq!(
                 ui.window.has_css_class("karin-high-contrast"),
@@ -438,10 +590,44 @@ fn native_system_visual_surfaces() {
                 "logical_size":[ui.window.width(),ui.window.height()],
                 "scale":ui.window.scale_factor(),"readable_text_samples":readability,
                 "high_contrast":high_contrast,"reduced_motion":true,
-                "footer_safe_geometry":safe_footer_geometry(&ui)
+                "footer_safe_geometry":safe_footer_geometry(&ui),
+                "header_surface":header_surface,"panel_corners":panel_corners
             }));
         }
     }
+    // Check the real Default preference as well as the forced light/dark
+    // palettes above. Run this bounded case last: it must not alter the
+    // first-Play sequence or stand in for the separate cold observer.
+    set_panel(&ui, workspace::PanelMode::Closed);
+    if ui.window.is_maximized() {
+        ui.window.unmaximize();
+        pump(|| !ui.window.is_maximized());
+    }
+    resize(&ui, 420, 720);
+    let mut values = this.persistence.borrow().values.clone();
+    values.ui_style = UiStyle::System;
+    values.appearance = ColorScheme::System;
+    this.persistence.borrow_mut().values = values.clone();
+    super::super::super::style::apply(&values, &ui.window);
+    // The current track remains available from Home. Open through the same
+    // footer action without adding an unrelated collection-route transition.
+    set_panel(&ui, workspace::PanelMode::TrackInfo);
+    assert_footer_geometry(&ui);
+    let name = format!(
+        "system-default-compact-info-scale{}",
+        ui.window.scale_factor()
+    );
+    save(&ui, &name);
+    records.push(json!({
+        "capture":name,"preference":"system","dark":adw::StyleManager::default().is_dark(),
+        "shape":"compact","state":"info",
+        "logical_size":[ui.window.width(),ui.window.height()],
+        "scale":ui.window.scale_factor(),"readable_text_samples":readable_samples(&ui,&name),
+        "high_contrast":high_contrast,"reduced_motion":!settings.is_gtk_enable_animations(),
+        "footer_safe_geometry":safe_footer_geometry(&ui),
+        "header_surface":assert_header_surface(&ui),
+        "panel_corners":assert_panel_corners(&ui,high_contrast)
+    }));
     assert_eq!(
         this.music_snapshot().unwrap().state,
         crate::playback::PlaybackState::Paused

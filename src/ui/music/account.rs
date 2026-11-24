@@ -32,6 +32,7 @@ impl AccountMenu {
         menu.set_tooltip_text(Some("Меню аккаунта"));
         menu.update_property(&[gtk::accessible::Property::Label("Меню аккаунта")]);
         let content = gtk::Box::new(gtk::Orientation::Vertical, 10);
+        content.add_css_class("karin-font-primary");
         super::super::margins(&content, 12);
         let name = text("Ваш аккаунт Яндекса", "heading");
         name.set_widget_name("music-account");
@@ -57,6 +58,7 @@ impl AccountMenu {
         content.append(&open_account);
         let launch_error = text("Не удалось открыть браузер. Попробуйте ещё раз.", "error");
         launch_error.set_widget_name("music-account-browser-error");
+        launch_error.add_css_class("karin-font-secondary");
         launch_error.set_max_width_chars(28);
         launch_error.set_wrap(true);
         launch_error.set_visible(false);

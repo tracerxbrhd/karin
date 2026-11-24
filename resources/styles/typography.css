@@ -1,0 +1,48 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Bundled, unmodified OFL fonts. Only Karin's own music content opts in;
+ * platform window controls, native dialog chrome and WebKit pages stay native.
+ * Relative sizes continue to follow the desktop's text size and scaling. */
+.karin-presentation-root .music-workspace,
+.karin-presentation-root .music-information-view,
+.karin-presentation-root .music-player,
+.karin-presentation-root .karin-font-primary {
+    font-family: "Montserrat", sans-serif;
+    font-weight: 400;
+}
+.karin-presentation-root .music-workspace button,
+.karin-presentation-root .music-information-view button,
+.karin-presentation-root .music-player button,
+.karin-presentation-root .karin-font-primary button {
+    font-weight: 600;
+}
+.karin-presentation-root .music-wave-title { font-weight: 700; }
+.karin-presentation-root .music-track-title,
+.karin-presentation-root .music-catalog-title,
+.karin-presentation-root .music-player-title { font-weight: 600; }
+.karin-presentation-root .music-collection-title { font-weight: 700; }
+.karin-presentation-root .dim-label,
+.karin-presentation-root .caption,
+.karin-presentation-root .music-track-artist,
+.karin-presentation-root .music-track-duration,
+.karin-presentation-root .music-player-artist,
+.karin-presentation-root .music-player-timeline label,
+.karin-presentation-root .karin-lyrics-line,
+.karin-presentation-root .karin-lyrics-stanza,
+.karin-presentation-root .music-collection-facts,
+.karin-presentation-root .music-catalog-subtitle,
+.karin-presentation-root #music-wave-status,
+.karin-presentation-root .music-workspace .description,
+.karin-presentation-root .music-information-view .description,
+.karin-presentation-root .karin-font-primary .subtitle,
+.karin-presentation-root .karin-font-primary .description,
+.karin-presentation-root #music-track-pane-artist-links button,
+.karin-presentation-root #music-track-pane-artist-links label,
+.karin-presentation-root #music-status .title,
+.karin-presentation-root #music-status .subtitle,
+.karin-presentation-root .karin-font-secondary {
+    font-family: "Inter Variable", sans-serif;
+    font-weight: 400;
+}
+.karin-presentation-root .music-track-duration,
+.karin-presentation-root .music-player-timeline label,
+.karin-presentation-root .music-repeat-one-badge { font-feature-settings: "tnum"; }

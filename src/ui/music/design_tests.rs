@@ -496,6 +496,44 @@ impl Drop for Fixture {
 fn pane_open(this: &Controller) -> bool {
     this.panel_mode.get() != workspace::PanelMode::Closed
 }
+/// The actual host/surface allocations must agree with the central reservation.
+/// Use logical GTK bounds so the same contract is checked at both pixel scales.
+pub(super) fn assert_information_spacing(ui: &crate::ui::MainWindow) -> Value {
+    use workspace::InfoPresentation;
+    let this = &ui.music.controller;
+    let host = this.info_host.borrow();
+    let host = host.as_ref().unwrap();
+    let panel = host.revealer().unwrap();
+    assert!(panel.is_child_revealed());
+    let overlay = panel.parent().unwrap().downcast::<gtk::Overlay>().unwrap();
+    let bounds = panel.compute_bounds(&overlay).unwrap();
+    let (leading, trailing, width, reserved, separation) = match host.presentation() {
+        InfoPresentation::Compact => (6, 6, overlay.width() - 12, 0, 0),
+        InfoPresentation::Medium => (0, 12, 300, 328, 16),
+        InfoPresentation::Wide => (0, 12, 320, 352, 20),
+    };
+    let right_gap = overlay.width() as f32 - bounds.x() - bounds.width();
+    assert!((right_gap - trailing as f32).abs() <= 0.5);
+    assert_eq!(panel.margin_start(), leading);
+    assert_eq!(panel.margin_end(), trailing);
+    assert!((bounds.width() - width as f32).abs() <= 0.5);
+    let content = host.content().unwrap();
+    assert_eq!(content.margin_end(), reserved);
+    if host.presentation() == InfoPresentation::Compact {
+        assert!((bounds.x() - leading as f32).abs() <= 0.5);
+    } else {
+        let central = content.compute_bounds(&overlay).unwrap();
+        assert!(bounds.x() - central.x() - central.width() >= separation as f32 - 0.5);
+    }
+    let surface = panel.surface().unwrap().compute_bounds(&panel).unwrap();
+    assert!(surface.x().abs() <= 0.5);
+    assert!((surface.width() - bounds.width()).abs() <= 0.5);
+    json!({"presentation":format!("{:?}",host.presentation()),
+        "host_bounds":[bounds.x(),bounds.y(),bounds.width(),bounds.height()],
+        "viewport_width":overlay.width(),"right_gap_logical":right_gap,
+        "leading_gap_logical":leading,"content_reserved_logical":reserved})
+}
+
 fn set_panel(ui: &crate::ui::MainWindow, mode: workspace::PanelMode) {
     use workspace::PanelMode;
     let this = &ui.music.controller;
@@ -534,6 +572,9 @@ fn set_panel(ui: &crate::ui::MainWindow, mode: workspace::PanelMode) {
     settle();
     if std::env::var_os("KARIN_V04_ASSERT_DENSITY").is_some() {
         settle_geometry(ui, "panel-mode");
+    }
+    if mode != PanelMode::Closed {
+        assert_information_spacing(ui);
     }
 }
 fn set_pane(ui: &crate::ui::MainWindow, open: bool) {
@@ -2296,6 +2337,9 @@ struct MotionFrame {
     time: i64,
     node: gtk::gsk::RenderNode,
     host: gtk::graphene::Rect,
+    viewport: Option<gtk::graphene::Rect>,
+    trailing_gap: i32,
+    central: Option<gtk::graphene::Rect>,
     surface: Option<gtk::graphene::Rect>,
     children: Vec<Option<gtk::graphene::Rect>>,
     mapped: Vec<bool>,
@@ -2388,6 +2432,22 @@ fn snapshot_motion_frame(
         host: panel
             .compute_bounds(window)
             .unwrap_or_else(|| gtk::graphene::Rect::new(0.0, 0.0, 0.0, 0.0)),
+        viewport: panel
+            .parent()
+            .and_then(|widget| widget.compute_bounds(window)),
+        trailing_gap: panel.margin_end(),
+        // Compact is a dedicated subview; desktop content must remain outside
+        // the moving pane even during its first/last partial frame.
+        central: if panel.property::<bool>("compact-presentation") {
+            None
+        } else {
+            panel
+                .parent()
+                .and_downcast::<gtk::Overlay>()
+                .and_then(|overlay| overlay.child())
+                .filter(|content| content.is_visible())
+                .and_then(|content| content.compute_bounds(window))
+        },
         surface: panel
             .surface()
             .and_then(|surface| surface.compute_bounds(window)),
@@ -2494,11 +2554,29 @@ fn assert_whole_surface(frames: &[MotionFrame], opening: bool) -> [usize; 5] {
             "surface must translate at full width, never reflow during reveal"
         );
         assert!((current.height() - surface.height()).abs() <= 1.0);
-        let expected_x = frame.host.x() + frame.host.width() * (1.0 - frame.progress as f32);
+        let viewport = frame.viewport.expect("the real workspace stays allocated");
+        assert_eq!(frame.trailing_gap, complete.trailing_gap);
+        assert!(
+            (viewport.x() + viewport.width()
+                - frame.host.x()
+                - frame.host.width()
+                - frame.trailing_gap as f32)
+                .abs()
+                <= 0.5,
+            "the outer gap stays inside the actual workspace during motion"
+        );
+        let expected_x = viewport.x() + viewport.width()
+            - (frame.host.width() + frame.trailing_gap as f32) * frame.progress as f32;
         assert!(
             (current.x() - expected_x).abs() <= 1.5,
             "whole surface translation differs from native animation progress"
         );
+        if let Some(central) = frame.central {
+            assert!(
+                central.x() + central.width() <= current.x() + 1.5,
+                "desktop reservation must clear the moving pane in every native frame"
+            );
+        }
         for (rect, expected) in frame.children.iter().zip(&child_offsets) {
             let rect = rect.expect("heading/artwork/text/actions remain allocated during motion");
             let expected = expected.unwrap();
@@ -2579,6 +2657,9 @@ fn save_motion_frames(
             "measurement_scope":"graphics-initialized-normal-animation","cold_first_use_latency_accepted":false,
             "graphics_initialization":"one-normal-open-close-and-six-native-offscreen-priming-renders",
             "host":[frame.host.x(),frame.host.y(),frame.host.width(),frame.host.height()],
+            "viewport":frame.viewport.map(|rect| [rect.x(),rect.y(),rect.width(),rect.height()]),
+            "trailing_gap_logical":frame.trailing_gap,
+            "central":frame.central.map(|rect| [rect.x(),rect.y(),rect.width(),rect.height()]),
             "surface":frame.surface.map(|rect| [rect.x(),rect.y(),rect.width(),rect.height()]),"children":rectangles,"children_mapped":frame.mapped,
             "source":"native-after-paint-gtk-render-node-synthetic-fixture"})).unwrap();
     }
@@ -2636,6 +2717,7 @@ fn dump_motion_observations(
             |rect: gtk::graphene::Rect| [rect.x(), rect.y(), rect.width(), rect.height()];
         writeln!(file,"{}",json!({"event":"renderable-frame","trajectory":name,"renderer":renderer,"scale":scale,
             "native_frame_index":index,"frame_time":frame.time,"progress":frame.progress,"host":rectangle(frame.host),
+            "viewport":frame.viewport.map(rectangle),"trailing_gap_logical":frame.trailing_gap,"central":frame.central.map(rectangle),
             "surface":frame.surface.map(rectangle),"children":frame.children.iter().map(|rect|rect.map(rectangle)).collect::<Vec<_>>(),"children_mapped":frame.mapped})).unwrap();
     }
 }
@@ -2799,7 +2881,7 @@ fn prime_native_panel_graphics(
             height as f32,
         ));
         snapshot.translate(&gtk::graphene::Point::new(
-            width as f32 * (1.0 - fraction),
+            (width + panel.margin_end()) as f32 * (1.0 - fraction),
             0.0,
         ));
         snapshot.append_node(&node);
@@ -2844,6 +2926,9 @@ fn record_motion(
 ) {
     let frames = observe_motion(ui, panel, children, opening, name, activate);
     let phases = assert_whole_surface(&frames, opening);
+    if opening {
+        assert_information_spacing(ui);
+    }
     save_motion_frames(ui, &frames, phases, name);
 }
 

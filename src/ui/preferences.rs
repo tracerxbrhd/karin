@@ -122,6 +122,7 @@ impl PreferencesView {
             .build();
         dialog.set_widget_name("karin-preferences");
         let page = adw::PreferencesPage::new();
+        page.add_css_class("karin-font-primary");
         let styles = adw::PreferencesGroup::builder()
             .title("Стиль интерфейса")
             .description("Оформление не изменяет музыкальную библиотеку и воспроизведение.")
@@ -366,7 +367,7 @@ impl PreferencesView {
         let cache_spinner = gtk::Spinner::new();
         cache_spinner.set_valign(gtk::Align::Center);
         cache_usage.add_suffix(&cache_spinner);
-        let cache_refresh = gtk::Button::from_icon_name("view-refresh-symbolic");
+        let cache_refresh = gtk::Button::from_icon_name("karin-refresh-symbolic");
         cache_refresh.set_widget_name("preferences-cache-refresh");
         cache_refresh.set_valign(gtk::Align::Center);
         cache_refresh.set_tooltip_text(Some("Обновить размер кеша"));

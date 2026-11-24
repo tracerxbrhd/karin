@@ -336,10 +336,10 @@ jobs:
         if: matrix.lane == 'msrv'
         run: |
           artifact=build/karin-fedora-prototype-1.98.1
-          mkdir -p "$artifact/licenses/cassette-auth"
+          mkdir -p "$artifact/licenses"
           install -m755 target/release/karin "$artifact/karin"
           cp LICENSE docs/LICENSING.md "$artifact/licenses/"
-          cp packaging/third-party-licenses/cassette-auth/{COPYING,PROVENANCE.md} "$artifact/licenses/cassette-auth/"
+          cp -a packaging/third-party-licenses/. "$artifact/licenses/"
           python3 packaging/license_inventory.py --output "$artifact/licenses/DEPENDENCY_LICENSES.md" --notices-dir "$artifact/licenses/rust"
           python3 packaging/release/rust_runtime.py --binary target/release/karin --output "$artifact/licenses/rust-runtime"
           {

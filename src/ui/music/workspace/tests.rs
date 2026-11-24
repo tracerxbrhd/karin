@@ -499,6 +499,24 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
     // queues a resize even for the same dimensions, so observe the existing
     // request here instead of issuing it a second time at a 0×0 allocation.
     wait_for_size(&ui, 1440, 900);
+    // These real controls are reparented into ToolbarView, outside the music
+    // page. Verify the shaped font, not just a CSS declaration on a sample.
+    for button in [
+        &this.widgets.nav_wave,
+        &this.widgets.nav_liked,
+        &this.widgets.nav_playlists,
+    ] {
+        let label = button.child().and_downcast::<gtk::Label>().unwrap();
+        let layout = label.layout();
+        let run = layout
+            .iter()
+            .run_readonly()
+            .expect("visible navigation glyphs");
+        assert_eq!(
+            run.item().analysis().font().describe().family().as_deref(),
+            Some("Montserrat")
+        );
+    }
     assert_idle_footer_has_no_horizontal_minimum(&ui);
     let found = Command::new("xdotool")
         .args([
@@ -702,7 +720,8 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
     resize(&ui, 900, 650);
     assert_eq!(presentation(), InfoPresentation::Medium);
     assert!(this.info_is_open());
-    assert_eq!(content.margin_end(), 316);
+    assert_eq!(content.margin_end(), 328);
+    super::super::design_tests::assert_information_spacing(&ui);
     click(&ui.window, id, &this.widgets.nav_liked);
     pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("library"));
     assert!(this.info_is_open());
@@ -774,7 +793,8 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
         resize_logical(&ui, width, 650);
         assert_eq!(presentation(), InfoPresentation::Medium);
         assert!(this.info_is_open());
-        assert_eq!(content.margin_end(), 316);
+        assert_eq!(content.margin_end(), 328);
+        super::super::design_tests::assert_information_spacing(&ui);
         let menu = assert_central_row_actions(&ui, &this, &content);
         click(&ui.window, id, &menu);
         let popover = menu.popover().unwrap();
@@ -878,11 +898,12 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
         assert_eq!(
             content.margin_end(),
             match expected {
-                InfoPresentation::Wide => 340,
-                InfoPresentation::Medium => 316,
+                InfoPresentation::Wide => 352,
+                InfoPresentation::Medium => 328,
                 InfoPresentation::Compact => 0,
             }
         );
+        super::super::design_tests::assert_information_spacing(&ui);
         assert_selection(&this, "42", ContextKind::LikedTracks, 1);
         capture_native(&format!("workspace-shell-{shape}-pinned-info"));
         this.model.borrow_mut().queue.select(0);

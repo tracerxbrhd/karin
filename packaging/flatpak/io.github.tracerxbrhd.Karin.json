@@ -37,8 +37,7 @@
         "install -Dm644 docs/LICENSING.md /app/share/licenses/io.github.tracerxbrhd.Karin/LICENSING.md",
         "install -d /app/share/licenses/io.github.tracerxbrhd.Karin/third-party",
         "cp -a third-party-notices/. /app/share/licenses/io.github.tracerxbrhd.Karin/third-party/",
-        "install -d /app/share/licenses/io.github.tracerxbrhd.Karin/cassette-auth",
-        "cp -a packaging/third-party-licenses/cassette-auth/. /app/share/licenses/io.github.tracerxbrhd.Karin/cassette-auth/"
+        "cp -a packaging/third-party-licenses/. /app/share/licenses/io.github.tracerxbrhd.Karin/"
       ],
       "sources": [
         {

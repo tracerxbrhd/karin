@@ -180,8 +180,18 @@ impl LyricRow {
             .layout()
             .iter()
             .run_readonly()
-            .and_then(|run| run.item().analysis().font().face())
-            .is_some_and(|face| face.family().is_variable());
+            .and_then(|run| {
+                let font = run.item().analysis().font();
+                let name = font.describe().family()?;
+                // An interpolated variable face need not have FC_STYLE.
+                // Pango 1.56's face lookup asserts on that valid pattern;
+                // variable capability belongs to the actual family instead.
+                font.font_map()?
+                    .list_families()
+                    .into_iter()
+                    .find(|family| family.name() == name)
+            })
+            .is_some_and(|family| family.is_variable());
         cache.set(Some((serial, variable)));
         variable
     }

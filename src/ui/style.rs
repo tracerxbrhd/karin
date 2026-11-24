@@ -9,6 +9,7 @@ use crate::settings::{ColorScheme, Preferences, UiStyle};
 const COMPONENT_CSS: &str = include_str!("../../resources/styles/components.css");
 const SYSTEM_CSS: &str = include_str!("../../resources/styles/system.css");
 const LYRICS_CSS: &str = include_str!("../../resources/styles/lyrics.css");
+const TYPOGRAPHY_CSS: &str = include_str!("../../resources/styles/typography.css");
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct AppliedAppearance {
@@ -73,6 +74,10 @@ fn adwaita_scheme(scheme: ColorScheme) -> adw::ColorScheme {
 }
 
 pub(super) fn install() {
+    if let Err(error) = super::fonts::install() {
+        eprintln!("Karin typography: {error}");
+    }
+    super::icons::install();
     thread_local! { static INSTALLED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
     let Some(display) = gtk::gdk::Display::default() else {
         return;
@@ -84,7 +89,9 @@ pub(super) fn install() {
         let provider = gtk::CssProvider::new();
         // A single provider preserves native components and Lyrics geometry
         // across independent color-scheme changes.
-        provider.load_from_string(&format!("{COMPONENT_CSS}\n{SYSTEM_CSS}\n{LYRICS_CSS}"));
+        provider.load_from_string(&format!(
+            "{COMPONENT_CSS}\n{SYSTEM_CSS}\n{LYRICS_CSS}\n{TYPOGRAPHY_CSS}"
+        ));
         gtk::style_context_add_provider_for_display(
             &display,
             &provider,

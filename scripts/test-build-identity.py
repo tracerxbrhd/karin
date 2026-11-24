@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import tempfile
 import tomllib
+import xml.etree.ElementTree as ET
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--toolchain")
@@ -82,6 +83,18 @@ with tempfile.TemporaryDirectory(prefix="karin-build-identity-") as temporary:
         (project / name).mkdir()
         (project / name / ".keep").write_text("Original build identity fixture\n")
     shutil.copyfile(args.build_script, project / "build.rs")
+    # Exercise the real resource compilation too. The dependency-free probe
+    # still needs the manifest and precisely the public inputs it references.
+    resources = args.build_script.resolve().parent / "resources"
+    manifest = resources / "karin.gresource.xml"
+    if manifest.is_file():
+        shutil.copyfile(manifest, project / "resources" / manifest.name)
+        for entry in ET.parse(manifest).iter("file"):
+            relative = Path(entry.text or "")
+            assert entry.text and not relative.is_absolute() and ".." not in relative.parts
+            destination = project / "resources" / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(resources / relative, destination)
     (project / ".gitignore").write_text("/target/\n")
     (project / "Cargo.toml").write_text(
         '[package]\nname = "karin-build-identity-probe"\n'

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Original synthetic HTTP media; this is not a real Music/Fedora sound test.
 
+mod progress;
 mod resume;
 
 use super::super::tests::{capture_native, contains_text, pump_until};
@@ -778,7 +779,7 @@ fn remove_queue_row(this: &Controller, index: i32) {
     let mut descendants = vec![row.upcast::<gtk::Widget>()];
     while let Some(widget) = descendants.pop() {
         if let Some(button) = widget.downcast_ref::<gtk::Button>()
-            && button.icon_name().as_deref() == Some("list-remove-symbolic")
+            && button.icon_name().as_deref() == Some("karin-minus-symbolic")
         {
             button.emit_clicked();
             return;
@@ -1650,6 +1651,173 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
         pump_until(|| this.info_is_open());
         assert_pinned_track(this, "42");
     }
+    // The native info button must own the complete metadata wing, not only
+    // the cover/text's natural request. Exercise the actual extra allocation
+    // and mapped children at both footer arrangements, with XTest input.
+    for width in [420, 1440] {
+        this.set_info_open(false);
+        resize_player_window(&ui, width, 720);
+        super::super::test_input::wait_for_layout(&ui.window, &this.widgets.current_art_button);
+        let button = &this.widgets.current_art_button;
+        let metadata = button.parent().unwrap().downcast::<gtk::Box>().unwrap();
+        assert_eq!(metadata.widget_name(), "music-player-metadata");
+        assert_eq!(button.halign(), gtk::Align::Fill);
+        assert!(button.hexpands());
+        assert!(
+            (button.width() + this.widgets.current_like_slot.width() + metadata.spacing()
+                - metadata.width())
+            .abs()
+                <= 1,
+            "the whole available metadata allocation belongs to Info, excluding sibling reactions"
+        );
+        let info = button.compute_bounds(&ui.window).unwrap();
+        for control in [
+            this.widgets.current_like_slot.upcast_ref::<gtk::Widget>(),
+            this.widgets.play.upcast_ref(),
+            this.widgets.previous.upcast_ref(),
+            this.widgets.next.upcast_ref(),
+            this.widgets.queue.upcast_ref(),
+            this.widgets.lyrics.upcast_ref(),
+            this.widgets.progress.upcast_ref(),
+            this.widgets.volume_menu.upcast_ref(),
+        ] {
+            assert!(control.is_mapped());
+            assert!(
+                !control.is_ancestor(button),
+                "independent controls must not become children of the Info button"
+            );
+            let bounds = control.compute_bounds(&ui.window).unwrap();
+            let overlap_x = (info.x() + info.width()).min(bounds.x() + bounds.width())
+                - info.x().max(bounds.x());
+            let overlap_y = (info.y() + info.height()).min(bounds.y() + bounds.height())
+                - info.y().max(bounds.y());
+            assert!(
+                overlap_x <= 1.0 || overlap_y <= 1.0,
+                "expanded Info must not cover an independent target: {} {bounds:?}/{info:?}",
+                control.widget_name()
+            );
+        }
+        for target in [
+            this.widgets.current_art.upcast_ref::<gtk::Widget>(),
+            this.widgets.current.upcast_ref(),
+            this.widgets.current_artist.upcast_ref(),
+        ] {
+            this.set_info_open(false);
+            native_click(&ui.window, target);
+            pump_until(|| this.info_is_open());
+            assert_pinned_track(this, "42");
+        }
+        this.set_info_open(false);
+        super::super::test_input::wait_for_layout(&ui.window, button);
+        let info = button.compute_bounds(&ui.window).unwrap();
+        let artist = this
+            .widgets
+            .current_artist
+            .compute_bounds(&ui.window)
+            .unwrap();
+        let (blank_x, blank_y) = if width >= 720 {
+            let (_, natural, ..) = button.measure(gtk::Orientation::Horizontal, -1);
+            let blank_start = info.x() + natural as f32;
+            let blank_end = info.x() + info.width() - 4.0;
+            assert!(
+                blank_end - blank_start >= 8.0,
+                "the wide case must click genuinely added whitespace beyond the old natural target"
+            );
+            (
+                (blank_start + blank_end) / 2.0,
+                artist.y() + artist.height() / 2.0,
+            )
+        } else {
+            let title = this.widgets.current.compute_bounds(&ui.window).unwrap();
+            let (title_ink, _) = this.widgets.current.layout().pixel_extents();
+            let (artist_ink, _) = this.widgets.current_artist.layout().pixel_extents();
+            let (_, title_offset) = this.widgets.current.layout_offsets();
+            let (_, artist_offset) = this.widgets.current_artist.layout_offsets();
+            let title_bottom =
+                title.y() + (title_offset + title_ink.y() + title_ink.height()) as f32;
+            let artist_top = artist.y() + (artist_offset + artist_ink.y()) as f32;
+            assert!(
+                artist_top - title_bottom >= 2.0,
+                "compact blank input must lie between actual painted glyphs"
+            );
+            (
+                title.x() + title.width().min(80.0) / 2.0,
+                (title_bottom + artist_top) / 2.0,
+            )
+        };
+        assert!(
+            blank_x > info.x()
+                && blank_x < info.x() + info.width()
+                && blank_y > info.y()
+                && blank_y < info.y() + info.height(),
+            "blank input is inside the Info allocation"
+        );
+        let (dx, dy) = ui.window.surface_transform();
+        let scale = f64::from(ui.window.scale_factor());
+        let x = ((f64::from(blank_x) + dx) * scale).round().to_string();
+        let y = ((f64::from(blank_y) + dy) * scale).round().to_string();
+        let found = std::process::Command::new("xdotool")
+            .args([
+                "search",
+                "--onlyvisible",
+                "--name",
+                "^Karin synthetic HTTP fixture$",
+            ])
+            .output()
+            .unwrap();
+        assert!(found.status.success());
+        let ids = String::from_utf8(found.stdout).unwrap();
+        let id = ids.lines().next().unwrap();
+        for args in [
+            vec!["windowfocus", "--sync", id],
+            vec!["mousemove", "--sync", "--window", id, &x, &y],
+            vec!["click", "1"],
+        ] {
+            assert!(
+                std::process::Command::new("xdotool")
+                    .args(args)
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+        }
+        pump_until(|| this.info_is_open());
+        assert_pinned_track(this, "42");
+    }
+    this.set_info_open(false);
+    resize_player_window(&ui, 900, 650);
+    native_click(&ui.window, &this.widgets.play);
+    pump_until(|| {
+        this.music_snapshot()
+            .is_some_and(|snapshot| snapshot.state == PlaybackState::Playing)
+            && this.widgets.play.tooltip_text().as_deref() == Some("Пауза")
+    });
+    assert!(
+        !this.info_is_open(),
+        "Play must not activate the expanded Info target"
+    );
+    assert_eq!(this.model.borrow().queue.current_index(), Some(3));
+    assert_eq!(this.music_snapshot().unwrap().generation, input_generation);
+    // Pause through the focused native button after its confirmed Playing
+    // presentation, rather than send two indistinguishably rapid mouse clicks.
+    assert!(this.widgets.play.grab_focus());
+    assert!(this.widgets.play.has_focus());
+    assert!(
+        std::process::Command::new("xdotool")
+            .args(["key", "--clearmodifiers", "space"])
+            .status()
+            .unwrap()
+            .success()
+    );
+    pump_until(|| {
+        this.music_snapshot()
+            .is_some_and(|snapshot| snapshot.state == PlaybackState::Paused)
+    });
+    assert!(
+        !this.info_is_open(),
+        "Pause must not activate the expanded Info target"
+    );
+    this.set_info_open(true);
     assert_eq!(this.player.borrow().serial, input_serial);
     assert_eq!(
         this.player
@@ -1830,6 +1998,23 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
 #[test]
 #[ignore = "requires an isolated GTK display and GStreamer HTTP/MP3 plugins; run under Xvfb"]
 fn native_music_playback_queue_races_remove_and_close() {
+    let directory = std::env::temp_dir().join(format!(
+        "karin-early-player-error-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&directory)
+        .unwrap();
+    let directory = GeneratedDirectory(directory);
+    let path = directory.0.join("removed-before-prepare.mp3");
+    std::fs::write(&path, b"original synthetic missing-file fixture").unwrap();
+    let source = crate::playback::PlaybackSource::local_file(&path).unwrap();
+    std::fs::remove_file(&path).unwrap();
     gtk::init().unwrap();
     adw::init().unwrap();
     let fixture = Fixture::new();
@@ -1838,6 +2023,31 @@ fn native_music_playback_queue_races_remove_and_close() {
     for id in ["42", "43", "44", "45"] {
         this.enqueue(track(id));
     }
+
+    // Stage the real worker's first Error between polling and rendering. The
+    // UI has not yet recorded failure; no position query has ever succeeded.
+    let early_error = PlaybackController::new(PlaybackOutput::Fakesink).unwrap();
+    early_error.prepare(source).unwrap();
+    pump_until(|| early_error.snapshot().state == PlaybackState::Error);
+    assert!(early_error.snapshot().position.is_none());
+    assert!(this.player.borrow().failure.is_none());
+    this.player.borrow_mut().controller = Some(early_error.clone());
+    this.render_music_player();
+    assert!(this.player.borrow().failure.is_none());
+    assert_eq!(this.widgets.position.text(), "— / 0:04");
+    assert_eq!(this.widgets.progress.adjustment().value(), 0.0);
+    assert!(!this.widgets.progress.is_sensitive());
+    this.player.borrow_mut().restored_position = Some(Duration::from_secs(1));
+    this.render_music_player();
+    assert_eq!(this.widgets.position.text(), "0:01 / 0:04");
+    assert_eq!(this.widgets.progress.adjustment().value(), 1.0);
+    {
+        let mut player = this.player.borrow_mut();
+        player.controller = None;
+        player.restored_position = None;
+    }
+    early_error.shutdown();
+    pump_until(|| !early_error.snapshot().worker_running);
     this.toggle_queue_panel();
 
     // The already-running request is held after its offer, before any media.
@@ -1868,6 +2078,9 @@ fn native_music_playback_queue_races_remove_and_close() {
     assert_eq!(this.player.borrow().track.as_deref(), Some("43"));
     assert!(this.player.borrow().requested);
     assert!(this.player.borrow().controller.is_none());
+    assert_eq!(this.widgets.progress.adjustment().value(), 0.0);
+    assert_eq!(this.widgets.progress.adjustment().upper(), 4.0);
+    assert_eq!(this.widgets.position.text(), "0:00 / 0:04");
     fixture.release_descriptor();
     wait_playing(this, 1);
     assert!(
@@ -1946,6 +2159,12 @@ fn native_music_playback_queue_races_remove_and_close() {
     assert!(pending.model.borrow().token.is_none());
     assert!(pending.model.borrow().queue.items().is_empty());
     assert_eq!(pending_fixture.counts.lock().unwrap().media[3], 0);
+    assert_eq!(
+        pending.widgets.progress.adjustment().value(),
+        0.0,
+        "a retired response cannot restore the old track's progress"
+    );
+    assert_eq!(pending.widgets.position.text(), "— / —");
 }
 
 fn wait_media_forbidden(this: &Controller) {

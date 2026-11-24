@@ -19,6 +19,7 @@ pub(super) fn thumbnail(
     cover: Option<&CoverArt>,
     logical_size: i32,
 ) -> gtk::Overlay {
+    super::icons::install();
     let size = logical_size.clamp(24, 256);
     let overlay = gtk::Overlay::new();
     overlay.set_size_request(size, size);
@@ -28,7 +29,7 @@ pub(super) fn thumbnail(
     overlay.set_valign(gtk::Align::Center);
     overlay.set_overflow(gtk::Overflow::Hidden);
     overlay.add_css_class("card");
-    let fallback = gtk::Image::from_icon_name("audio-x-generic-symbolic");
+    let fallback = gtk::Image::from_icon_name("karin-music-symbolic");
     fallback.set_pixel_size((size / 2).max(16));
     fallback.set_hexpand(true);
     fallback.set_vexpand(true);

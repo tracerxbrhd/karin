@@ -150,6 +150,10 @@ fn main() -> glib::ExitCode {
     let application_fixture = args
         .first()
         .is_some_and(|flag| flag == "--application-fixture");
+    if let Err(error) = ui::prepare_typography() {
+        eprintln!("Cannot initialize bundled typography: {error}");
+        return glib::ExitCode::FAILURE;
+    }
     let fixture = if application_fixture {
         match karin::application_fixture::ApplicationFixture::new() {
             Ok(fixture) => Some(Rc::new(fixture)),

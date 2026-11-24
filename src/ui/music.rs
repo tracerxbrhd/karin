@@ -396,6 +396,8 @@ impl MusicPane {
 
         let navigation = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         navigation.set_widget_name("music-primary-tabs");
+        // The fixed ToolbarView reparents this bar outside music-workspace.
+        navigation.add_css_class("karin-font-primary");
         let segments = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         segments.add_css_class("linked");
         segments.set_hexpand(true);
@@ -429,7 +431,7 @@ impl MusicPane {
         nav_playlists.set_action_name(Some("win.music-playlists"));
         nav_wave.set_active(true);
 
-        let nav_search = icon_button("system-search-symbolic", "Поиск музыки");
+        let nav_search = icon_button("karin-search-symbolic", "Поиск музыки");
         nav_search.set_widget_name("music-navigation-search");
         let search = search_toolbar::entry("Поиск музыки…", "music-search", "Поиск музыки");
         let search_header = search_header::SearchHeader::new(&segments, &search, &nav_search);
@@ -467,7 +469,7 @@ impl MusicPane {
             "Мои плейлисты",
             "Понравившиеся плейлисты",
         ])));
-        let library_refresh = icon_button("view-refresh-symbolic", "Обновить библиотеку");
+        let library_refresh = icon_button("karin-refresh-symbolic", "Обновить библиотеку");
         let library_hero = gtk::Box::new(gtk::Orientation::Horizontal, 16);
         library_hero.set_widget_name("music-library-hero");
         library_hero.add_css_class("music-collection-hero");
@@ -515,7 +517,7 @@ impl MusicPane {
         scope_header.set_visible(false);
         let search_all = gtk::Button::with_label("Все результаты");
         search_all.set_widget_name("music-search-all");
-        search_all.set_icon_name("go-previous-symbolic");
+        search_all.set_icon_name("karin-chevron-left-symbolic");
         search_all.set_tooltip_text(Some("Вернуться ко всем результатам поиска"));
         search_all.set_visible(false);
         let search_scope_title = text("", "heading");
@@ -562,7 +564,7 @@ impl MusicPane {
         queue_count.set_hexpand(true);
         queue_tools.append(&queue_count);
         let clear_queue = icon_button(
-            "user-trash-symbolic",
+            "karin-trash-symbolic",
             "Очистить очередь и остановить воспроизведение",
         );
         clear_queue.set_widget_name("music-clear-queue");
@@ -2159,7 +2161,7 @@ fn cover_widget(
     match loader {
         Some(loader) => super::artwork::thumbnail(loader, cover, size).upcast(),
         None => {
-            let fallback = gtk::Image::from_icon_name("audio-x-generic-symbolic");
+            let fallback = gtk::Image::from_icon_name("karin-music-symbolic");
             fallback.set_pixel_size(size / 2);
             fallback.set_size_request(size, size);
             fallback.add_css_class("dim-label");

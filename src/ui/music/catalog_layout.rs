@@ -684,15 +684,9 @@ impl Controller {
         song_list(list);
         let subtitle = track.artists.join(", ");
         let (row, body) = catalog_item(&track.title, &subtitle);
-        if let Some(line) = body
-            .first_child()
-            .and_then(|labels| labels.first_child())
-            .and_downcast::<gtk::Box>()
-        {
-            let cache = cache_presence::indicator("music-track-cache");
-            line.append(&cache);
-            self.register_cache_indicator(&track.id, &cache);
-        }
+        // Keep the additional passive status column useful in compact rows.
+        // The cover retains its original 12px separation from the metadata.
+        body.set_spacing(6);
         row.set_tooltip_text(Some(if track.available {
             "Воспроизвести трек"
         } else {
@@ -703,11 +697,9 @@ impl Controller {
             track.title
         ))]);
         row.set_activatable(track.available);
-        body.prepend(&cover_widget(
-            self.artwork.as_ref(),
-            track.cover.as_ref(),
-            48,
-        ));
+        let cover = cover_widget(self.artwork.as_ref(), track.cover.as_ref(), 48);
+        cover.set_margin_end(6);
+        body.prepend(&cover);
         if track.explicit {
             let explicit = gtk::Label::new(Some("E"));
             explicit.add_css_class("caption");
@@ -719,15 +711,36 @@ impl Controller {
         if !track.available {
             row.add_css_class("music-unavailable");
         }
-        if let Some(duration) = track.duration_ms {
-            let label = text(&format_duration(duration), "caption");
-            label.add_css_class("dim-label");
-            label.add_css_class("music-track-duration");
-            label.set_hexpand(false);
-            label.set_wrap(false);
-            body.append(&label);
-        }
-        let play = icon_button("media-playback-start-symbolic", "Воспроизвести трек");
+        // Presence remains hidden for Missing, but its column is always
+        // reserved so completion/Clear cannot shift the independent actions.
+        let cache_column = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        cache_column.set_widget_name("music-track-cache-column");
+        cache_column.set_width_request(16);
+        cache_column.set_height_request(16);
+        cache_column.set_valign(gtk::Align::Center);
+        let cache = cache_presence::indicator("music-track-cache");
+        cache_column.append(&cache);
+        body.append(&cache_column);
+        self.register_cache_indicator(&track.id, &cache);
+        let duration = track
+            .duration_ms
+            .map_or_else(|| "—".into(), format_duration);
+        let label = text(&duration, "caption");
+        label.add_css_class("dim-label");
+        label.add_css_class("music-track-duration");
+        label.set_hexpand(false);
+        label.set_wrap(false);
+        label.set_width_chars(5);
+        label.set_max_width_chars(5);
+        label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        label.set_xalign(1.0);
+        label.set_tooltip_text(Some(if track.duration_ms.is_some() {
+            &duration
+        } else {
+            "Длительность неизвестна"
+        }));
+        body.append(&label);
+        let play = icon_button("karin-player-play-symbolic", "Воспроизвести трек");
         play.set_widget_name("music-track-play");
         play.set_sensitive(track.available);
         let weak = Rc::downgrade(self);
@@ -840,7 +853,7 @@ impl Controller {
             "playlists" => "Назад к плейлистам",
             _ => "Назад в библиотеку",
         };
-        let back = icon_button("go-previous-symbolic", label);
+        let back = icon_button("karin-chevron-left-symbolic", label);
         back.set_widget_name("music-detail-back");
         back.add_css_class("flat");
         back.set_halign(gtk::Align::Start);
@@ -930,7 +943,7 @@ impl Controller {
     ) -> gtk::MenuButton {
         let generation = self.model.borrow().generation;
         let button = gtk::MenuButton::builder()
-            .icon_name("view-more-symbolic")
+            .icon_name("karin-dots-vertical-symbolic")
             .build();
         button.add_css_class("flat");
         button.set_valign(gtk::Align::Center);
@@ -1094,7 +1107,7 @@ impl Controller {
         let failure = adw::StatusPage::builder()
             .title(title)
             .description(message)
-            .icon_name("dialog-warning-symbolic")
+            .icon_name("karin-alert-triangle-symbolic")
             .build();
         let button = gtk::Button::with_label("Повторить");
         button.set_halign(gtk::Align::Center);
