@@ -492,7 +492,9 @@ fn build_shell(
                 return;
             };
             let home_visible = stack.visible_child_name().as_deref() == Some("home");
-            let music_visible = home_visible && workspace.is_visible();
+            // The workspace's own visible property expresses account admission.
+            // A hidden window or diagnostics page can mask ancestor visibility.
+            let music_visible = home_visible && workspace.get_visible();
             navigation.set_visible(music_visible);
             if let Some(back) = back.as_ref().and_then(glib::WeakRef::upgrade) {
                 back.set_visible(!home_visible);
@@ -517,7 +519,7 @@ fn build_shell(
     let weak_stack = stack.downgrade();
     workspace_surface.connect_visible_notify(move |surface| {
         sync();
-        if !surface.is_visible()
+        if !surface.get_visible()
             && weak_stack
                 .upgrade()
                 .is_some_and(|stack| stack.visible_child_name().as_deref() == Some("diagnostics"))
@@ -530,7 +532,7 @@ fn build_shell(
             glib::idle_add_local_once(move || {
                 if surface
                     .upgrade()
-                    .is_some_and(|surface| !surface.is_visible())
+                    .is_some_and(|surface| !surface.get_visible())
                     && stack.upgrade().is_some_and(|stack| {
                         stack.visible_child_name().as_deref() == Some("diagnostics")
                     })
@@ -698,7 +700,7 @@ fn build_shell(
                             }
                             let moved = if let Some(target) = primary.upgrade() {
                                 if target.is_sensitive()
-                                    && workspace.upgrade().is_some_and(|surface| surface.is_visible())
+                                    && workspace.upgrade().is_some_and(|surface| surface.get_visible())
                                 {
                                     // A later Escape may have retired the header field
                                     // while this action waited for the outer Music page.
@@ -748,7 +750,7 @@ fn build_shell(
                     "Диагностика"
                 } else if workspace
                     .upgrade()
-                    .is_some_and(|workspace| workspace.is_visible())
+                    .is_some_and(|workspace| workspace.get_visible())
                 {
                     panel_title().unwrap_or(match sections.visible_child_name().as_deref() {
                         Some("search") => "Поиск",
