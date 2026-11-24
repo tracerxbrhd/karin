@@ -23,9 +23,10 @@ Karin объединяет музыку и привычное управлени
 
 ## Установка
 
-Первый публичный выпуск ещё готовится. После публикации готовые сборки появятся
-в **[GitHub Releases](https://github.com/tracerxbrhd/karin/releases)**.
-Пока Karin можно [собрать и запустить самостоятельно — Native или Flatpak](docs/BUILDING.md).
+Готовые сборки **Karin 0.8.0** доступны в
+**[GitHub Releases](https://github.com/tracerxbrhd/karin/releases/tag/v0.8.0)**: Native tar.gz и Flatpak bundle.
+Инструкции установки и проверки SHA256 — на странице выпуска.
+[Сборка из исходников — Native или Flatpak](docs/BUILDING.md).
 
 Для музыки нужен доступ к Яндекс Музыке. Доступность композиций и текстов зависит
 от сервиса; автономный режим не поддерживается.
