@@ -153,14 +153,20 @@ impl UpdateController {
         let Some(window) = self.app.upgrade().and_then(|app| app.active_window()) else {
             return;
         };
-        if self.dialog.borrow().is_some() {
+        if self.dialog.borrow().is_some() || matches!(*self.phase.borrow(), Phase::Restarting) {
             return;
         }
+        self.set_phase(Phase::Checking);
+        self.present_dialog(&window);
+        self.begin_check();
+    }
+
+    fn present_dialog(self: &Rc<Self>, window: &impl IsA<gtk::Widget>) {
         let dialog = UpdateDialog::new();
         let weak = Rc::downgrade(self);
-        dialog.dialog.connect_closed(move |_| {
+        dialog.dialog.connect_closed(move |dialog| {
             if let Some(this) = weak.upgrade() {
-                this.dialog_closed();
+                this.dialog_closed(dialog);
             }
         });
         let weak = Rc::downgrade(self);
@@ -190,8 +196,8 @@ impl UpdateController {
             }
         });
         self.dialog.replace(Some(dialog.clone()));
-        self.begin_check();
-        dialog.dialog.present(Some(&window));
+        self.render();
+        dialog.dialog.present(Some(window));
     }
 
     fn begin_check(self: &Rc<Self>) {
@@ -281,7 +287,15 @@ impl UpdateController {
         generation
     }
 
-    fn dialog_closed(&self) {
+    fn dialog_closed(&self, dialog: &adw::Dialog) {
+        let is_current = self
+            .dialog
+            .borrow()
+            .as_ref()
+            .is_some_and(|current| current.dialog == *dialog);
+        if !is_current {
+            return;
+        }
         self.dialog.borrow_mut().take();
         if let Some(cancelled) = self.check.borrow().as_ref() {
             cancelled.store(true, Ordering::Relaxed);
@@ -451,6 +465,18 @@ impl UpdateController {
             self.set_phase(Phase::InstallFailed(PortalError::Unavailable));
             return;
         };
+        let Some(dialog) = self
+            .dialog
+            .borrow()
+            .as_ref()
+            .map(|view| view.dialog.clone())
+        else {
+            return;
+        };
+        let Some(owner) = dialog.root().and_downcast::<adw::ApplicationWindow>() else {
+            self.set_phase(Phase::InstallFailed(PortalError::RestartFailed));
+            return;
+        };
         self.set_phase(Phase::Restarting);
         let generation = self.monitor_generation.get();
         let weak = Rc::downgrade(self);
@@ -458,21 +484,55 @@ impl UpdateController {
             let result = monitor.restart(&deployment).await;
             let Some(this) = weak
                 .upgrade()
-                .filter(|this| this.monitor_generation.get() == generation)
+                .filter(|this| this.restart_is_current(generation))
             else {
                 return;
             };
-            match result {
-                Ok(handoff) => {
-                    if let Some(app) = this.app.upgrade()
-                        && let Err(error) = handoff.close_application(&app)
-                    {
-                        this.set_phase(Phase::InstallFailed(error));
-                    }
+            let handoff = match result {
+                Ok(handoff) => handoff,
+                Err(error) => {
+                    this.set_phase(Phase::InstallFailed(error));
+                    return;
                 }
-                Err(error) => this.set_phase(Phase::InstallFailed(error)),
+            };
+
+            // An AdwApplicationWindow with any open dialog consumes the first
+            // close request. Dismissing our dialog must finish before app.quit
+            // can run the normal window, player and persistence shutdown.
+            if owner.dialogs().n_items() == 1 && owner.visible_dialog().as_ref() == Some(&dialog) {
+                dialog.force_close();
+                for _ in 0..120 {
+                    if !this.restart_is_current(generation) || !owner.is_visible() {
+                        return;
+                    }
+                    if dialog.parent().is_none()
+                        && owner.dialogs().n_items() == 0
+                        && owner.visible_dialog().is_none()
+                    {
+                        if let Some(app) = this.app.upgrade()
+                            && let Err(error) = handoff.close_application(&app)
+                        {
+                            this.restart_failed(&owner, error);
+                        }
+                        return;
+                    }
+                    glib::timeout_future(Duration::from_millis(25)).await;
+                }
             }
+            this.restart_failed(&owner, PortalError::RestartFailed);
         });
+    }
+
+    fn restart_is_current(&self, generation: u64) -> bool {
+        self.monitor_generation.get() == generation
+            && matches!(*self.phase.borrow(), Phase::Restarting)
+    }
+
+    fn restart_failed(self: &Rc<Self>, owner: &adw::ApplicationWindow, error: PortalError) {
+        self.set_phase(Phase::InstallFailed(error));
+        if self.dialog.borrow().is_none() && owner.is_visible() && owner.dialogs().n_items() == 0 {
+            self.present_dialog(owner);
+        }
     }
 
     fn set_phase(&self, phase: Phase) {
