@@ -84,7 +84,7 @@ Four separate questions remain:
 | Music API | Owner-accepted private sessions work. Karin's separate PKCE token/Yandex ID success followed by generic 403 on both account methods does not establish its Music grant or the cause of refusal. |
 | Integrated public distribution/content | No applicable provider/registration-holder approval or other sufficient basis is recorded. A subscription, local playback and HTTP cacheability do not establish it. |
 
-The focused official review on **2026-11-22** used:
+The focused official review, rechecked on **2026-11-24**, used:
 
 - [Yandex ID API terms](https://yandex.com/legal/authid_api/en/), published
   21.08.2026: §§2.5.1–2.5.2 separate other API requirements; §4.4 restricts

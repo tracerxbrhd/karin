@@ -4,7 +4,8 @@
 
 Karin's v0.8 functionality has owner-reported Fedora Native/Flatpak acceptance.
 Cloud fixtures do not certify live Music access, every desktop backend or physical
-GPU behavior. The current `0.8.0-rc.1` is an engineering candidate, not a published release.
+GPU behavior. Version `0.8.0` is prepared for the first stable release; public
+publication remains a separate owner decision.
 
 ## Service and distribution
 

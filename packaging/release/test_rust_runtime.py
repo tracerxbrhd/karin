@@ -100,7 +100,7 @@ class RuntimeNoticeTests(unittest.TestCase):
             self.collect()
 
     def test_binary_identity_requires_unique_actual_metadata(self):
-        raw = f"Karin 0.8.0-rc.1\nCompiler: {COMPILER}\nTarget: {TARGET}\n"
+        raw = f"Karin 0.8.0\nCompiler: {COMPILER}\nTarget: {TARGET}\n"
         self.assertEqual(rust_runtime.binary_identity(raw), (COMPILER, TARGET))
         with self.assertRaisesRegex(ValueError, "one compiler"):
             rust_runtime.binary_identity(raw + f"Compiler: {COMPILER}\n")

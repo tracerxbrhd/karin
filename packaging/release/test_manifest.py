@@ -116,10 +116,10 @@ class ReleaseTests(unittest.TestCase):
                     verify_archive(repo, revision, payload)
 
     def test_release_rejects_wrong_version_dirty_or_experimental_binary(self):
-        metadata = {"version": "0.8.0-rc.1", "revision": "a" * 40}
-        version = "Karin 0.8.0-rc.1\nSource commit: " + "a" * 40 + "\nSource state: clean\nPackage: Native\nProfile: release\nCompiler: rustc 1.98.1\nTarget: x86_64-unknown-linux-gnu\nFeatures: auth-webkit,cassette-auth\n"
+        metadata = {"version": "0.8.0", "revision": "a" * 40}
+        version = "Karin 0.8.0\nSource commit: " + "a" * 40 + "\nSource state: clean\nPackage: Native\nProfile: release\nCompiler: rustc 1.98.1\nTarget: x86_64-unknown-linux-gnu\nFeatures: auth-webkit,cassette-auth\n"
         validate_version_output(version, metadata, "Native")
-        for old, new in (("0.8.0-rc.1", "0.0.0"), ("state: clean", "state: modified"),
+        for old, new in (("0.8.0", "0.0.0"), ("state: clean", "state: modified"),
                          ("Package: Native", "Package: Flatpak"), ("Profile: release", "Profile: debug"),
                          ("auth-webkit,cassette-auth", "auth-webkit,cassette-auth,experimental-device-auth")):
             with self.assertRaises(ValueError):
@@ -129,12 +129,12 @@ class ReleaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             repo = Path(temporary)
             run(repo, "init", "-q")
-            (repo / "Cargo.toml").write_text('[package]\nname="karin"\nversion="0.8.0-rc.1"\n')
-            (repo / "Cargo.lock").write_text('version=4\n[[package]]\nname="karin"\nversion="0.8.0-rc.1"\n')
+            (repo / "Cargo.toml").write_text('[package]\nname="karin"\nversion="0.8.0"\n')
+            (repo / "Cargo.lock").write_text('version=4\n[[package]]\nname="karin"\nversion="0.8.0"\n')
             run(repo, "add", ".")
             run(repo, "-c", "user.name=Release fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "source")
             revision = run(repo, "rev-parse", "HEAD").decode().strip()
-            self.assertEqual(identity(repo, revision)["version"], "0.8.0-rc.1")
+            self.assertEqual(identity(repo, revision)["version"], "0.8.0")
             run(repo, "update-index", "--assume-unchanged", "Cargo.toml")
             (repo / "Cargo.toml").write_text('[package]\nname="karin"\nversion="unreviewed"\n')
             self.assertFalse(run(repo, "status", "--porcelain").strip())
@@ -145,8 +145,8 @@ class ReleaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             repo = Path(temporary)
             run(repo, "init", "-q")
-            (repo / "Cargo.toml").write_text('[package]\nname="karin"\nversion="0.8.0-rc.1"\n')
-            (repo / "Cargo.lock").write_text('version=4\n[[package]]\nname="karin"\nversion="0.8.0-rc.1"\n')
+            (repo / "Cargo.toml").write_text('[package]\nname="karin"\nversion="0.8.0"\n')
+            (repo / "Cargo.lock").write_text('version=4\n[[package]]\nname="karin"\nversion="0.8.0"\n')
             (repo / ".gitignore").write_bytes((REPOSITORY / ".gitignore").read_bytes())
             (repo / "common.py").write_bytes((REPOSITORY / "packaging/release/common.py").read_bytes())
             run(repo, "add", ".")
@@ -178,8 +178,8 @@ class ReleaseTests(unittest.TestCase):
                 entry.size = len(b"target/\n")
                 tar.addfile(entry, io.BytesIO(b"target/\n"))
             checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
-            (repo / "Cargo.toml").write_text('[package]\nname="karin"\nversion="0.8.0-rc.1"\n')
-            (repo / "Cargo.lock").write_text('version=4\n[[package]]\nname="karin"\nversion="0.8.0-rc.1"\n[[package]]\nname="fixture"\nversion="1.0.0"\nsource="registry+https://github.com/rust-lang/crates.io-index"\nchecksum="' + checksum + '"\n')
+            (repo / "Cargo.toml").write_text('[package]\nname="karin"\nversion="0.8.0"\n')
+            (repo / "Cargo.lock").write_text('version=4\n[[package]]\nname="karin"\nversion="0.8.0"\n[[package]]\nname="fixture"\nversion="1.0.0"\nsource="registry+https://github.com/rust-lang/crates.io-index"\nchecksum="' + checksum + '"\n')
             (repo / "docs").mkdir()
             (repo / "docs/DEPENDENCY_LICENSES.md").write_text("Original inventory fixture\n")
             (repo / "packaging").mkdir()

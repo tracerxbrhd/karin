@@ -51,10 +51,10 @@
     <control>pointing</control>
   </supports>
   <releases>
-    <release version="0.8.0-rc.1" date="2026-11-22" type="development">
+    <release version="0.8.0" date="2026-11-24" type="stable">
       <description>
-        <p>Technical release candidate for the v0.8 feature set.</p>
-        <p xml:lang="ru">Технический релиз-кандидат с функциональностью v0.8.</p>
+        <p>First stable version with the v0.8 feature set.</p>
+        <p xml:lang="ru">Первая стабильная версия с функциональностью v0.8.</p>
         <ul>
           <li>Native playback, playlists, My Wave, queue restoration and synchronized lyrics.</li>
           <li xml:lang="ru">Нативное воспроизведение, плейлисты, Моя волна, восстановление очереди и синхронизированный текст.</li>
