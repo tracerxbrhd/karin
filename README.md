@@ -8,12 +8,12 @@
 
 **Ваша Яндекс Музыка — в нативном приложении для Linux.**
 
-[![Release](https://img.shields.io/github/v/release/tracerxbrhd/karin?label=release)](https://github.com/tracerxbrhd/karin/releases/latest)
-[![CI](https://img.shields.io/github/actions/workflow/status/tracerxbrhd/karin/ci.yml?branch=master&label=CI)](https://github.com/tracerxbrhd/karin/actions/workflows/ci.yml?query=branch%3Amaster)
-[![Stars](https://img.shields.io/github/stars/tracerxbrhd/karin?label=stars)](https://github.com/tracerxbrhd/karin/stargazers)
-[![License](https://img.shields.io/badge/dynamic/xml?url=https%3A%2F%2Fraw.githubusercontent.com%2Ftracerxbrhd%2Fkarin%2Fmaster%2Fpackaging%2Fio.github.tracerxbrhd.Karin.metainfo.xml&query=%2Fcomponent%2Fproject_license&label=license&color=blue)](LICENSE)
-[![Linux](https://img.shields.io/badge/platform-Linux-222222?logo=linux&logoColor=white)](docs/BUILDING.md)
-[![Flatpak bundle](https://img.shields.io/badge/package-Flatpak%20bundle-4A90D9?logo=flatpak&logoColor=white)](https://github.com/tracerxbrhd/karin/releases/latest)
+[![Release](https://img.shields.io/github/v/release/tracerxbrhd/karin?label=release&style=flat)](https://github.com/tracerxbrhd/karin/releases/latest)
+[![CI](https://img.shields.io/github/actions/workflow/status/tracerxbrhd/karin/ci.yml?branch=master&label=CI&style=flat)](https://github.com/tracerxbrhd/karin/actions/workflows/ci.yml?query=branch%3Amaster)
+[![Stars](https://img.shields.io/github/stars/tracerxbrhd/karin?label=stars&style=flat)](https://github.com/tracerxbrhd/karin/stargazers)
+[![License](https://img.shields.io/badge/dynamic/xml?url=https%3A%2F%2Fraw.githubusercontent.com%2Ftracerxbrhd%2Fkarin%2Fmaster%2Fpackaging%2Fio.github.tracerxbrhd.Karin.metainfo.xml&query=%2Fcomponent%2Fproject_license&label=license&color=blue&style=flat)](LICENSE)
+[![Linux](https://img.shields.io/badge/platform-Linux-222222?logo=linux&logoColor=white&style=flat)](docs/BUILDING.md)
+[![Flatpak bundle](https://img.shields.io/badge/package-Flatpak%20bundle-4A90D9?logo=flatpak&logoColor=white&style=flat)](https://github.com/tracerxbrhd/karin/releases/latest)
 
 Любимые треки, библиотека и «Моя волна» в одном приложении на GTK4 и Libadwaita.
 Интерфейс на русском, привычное управление средствами Linux.
