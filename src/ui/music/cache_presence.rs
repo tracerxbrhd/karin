@@ -36,7 +36,7 @@ pub(super) struct State {
 }
 
 /// Passive native status, deliberately outside the keyboard action chain.
-/// Hidden status occupies no space in the existing title line.
+/// Hidden status occupies no space; a list may reserve its own passive column.
 pub(super) fn indicator(name: &str) -> gtk::Box {
     let slot = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     slot.set_widget_name(name);
@@ -50,7 +50,7 @@ pub(super) fn indicator(name: &str) -> gtk::Box {
     saving.set_size_request(16, 16);
     saving.set_visible(false);
     saving.update_property(&[gtk::accessible::Property::Label(SAVING)]);
-    let saved = gtk::Image::from_icon_name("folder-download-symbolic");
+    let saved = gtk::Image::from_icon_name("karin-download-symbolic");
     saved.set_widget_name("music-audio-cache-stored");
     saved.set_pixel_size(16);
     saved.add_css_class("dim-label");

@@ -1,19 +1,23 @@
-# ADR-0001: Native Linux Application Stack
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 
-Status: Accepted
-Date: 2026-10-24
+# ADR-0001: Native Linux application stack
 
-## Context
-Karin requires a responsive, maintainable native Linux UI
-with audio playback and desktop integration.
+Status: Accepted; current implementation contract.
 
 ## Decision
-Use Rust, GTK4, Libadwaita, and GStreamer.
-Keep Yandex Music integration behind a dedicated API boundary.
-Target Flatpak as the primary distribution format.
+
+Use Rust, GTK4/Libadwaita and GStreamer in one Cargo package. Keep Yandex Music behind a
+typed service boundary; WebKitGTK6 is an authentication component only. Do not replace the
+native application with a browser wrapper or a second player.
+
+Keep the Rust 1.98 baseline, test exact 1.98.1 and current stable, and preserve locked
+dependencies and the current GNOME 50 / Freedesktop Rust 25.08 Flatpak SDK. Dependencies
+and native feature floors require demonstrated compatibility before change. Never bypass
+Cargo's rust-version check.
 
 ## Consequences
-The application remains native and Linux-focused.
-GTK/GStreamer development dependencies are required.
-API availability, authentication, and playback feasibility
-remain separate validation requirements.
+
+Native development needs GTK/GStreamer libraries. Flatpak is a separate sandboxed source
+build, not proof that a Native binary works on every distribution.
+[BUILDING](../BUILDING.md) defines executable checks and packaging instructions;
+[LICENSING](../LICENSING.md) defines source/notices and public-service boundaries.

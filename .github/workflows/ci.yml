@@ -84,7 +84,8 @@ jobs:
               gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
               libssl-dev libdbus-1-dev libsecret-1-dev libwebkitgtk-6.0-dev dbus-x11 xvfb xauth \
               librsvg2-common openbox imagemagick xdotool wmctrl x11-utils apparmor \
-              playerctl libglib2.0-bin python3-gi at-spi2-core libgl1-mesa-dri libegl-mesa0 libglx-mesa0
+              playerctl libglib2.0-bin python3-gi at-spi2-core libgl1-mesa-dri libegl-mesa0 libglx-mesa0 \
+              appstream desktop-file-utils
           }
           if ! install_native; then
             # A resolved kernel-mirror IPv4 timed out during package fetching on
@@ -116,6 +117,9 @@ jobs:
         id: rust
         run: |
           rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+          if [ '${{ matrix.lane }}' = msrv ]; then
+            rustup component add rust-src --toolchain "$RUSTUP_TOOLCHAIN"
+          fi
           rustc --version --verbose
           cargo --version
           echo "version=$(rustc --version | tr ' ' '-')" >> "$GITHUB_OUTPUT"
@@ -189,6 +193,19 @@ jobs:
           assert "--socket=session-bus" not in finish_args
           assert not any(arg.startswith("--talk-name=") or arg.startswith("--system-talk-name=") for arg in finish_args)
           PY
+      - name: Validate release metadata and pinned-source packaging contracts
+        if: matrix.lane == 'stable'
+        run: |
+          python3 - <<'PY'
+          import unittest
+          suite = unittest.defaultTestLoader.discover('packaging/release', pattern='test_*.py')
+          assert suite.countTestCases() > 0, 'Release packaging tests were not discovered'
+          raise SystemExit(not unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful())
+          PY
+          appstreamcli validate --no-net --pedantic packaging/io.github.tracerxbrhd.Karin.metainfo.xml
+          desktop-file-validate packaging/io.github.tracerxbrhd.Karin.desktop
+          bash -n scripts/observe-cold-playerbar.sh
+          cc -O2 -Wall -Wextra -Werror -shared -fPIC scripts/cold-playerbar-timing.c -ldl -o /tmp/karin-cold-timing.so
       - name: Strict Clippy and default/all/minimal tests on both toolchains
         run: |
           cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -319,11 +336,12 @@ jobs:
         if: matrix.lane == 'msrv'
         run: |
           artifact=build/karin-fedora-prototype-1.98.1
-          mkdir -p "$artifact/licenses/cassette-auth"
+          mkdir -p "$artifact/licenses"
           install -m755 target/release/karin "$artifact/karin"
           cp LICENSE docs/LICENSING.md "$artifact/licenses/"
-          cp packaging/third-party-licenses/cassette-auth/{COPYING,PROVENANCE.md} "$artifact/licenses/cassette-auth/"
+          cp -a packaging/third-party-licenses/. "$artifact/licenses/"
           python3 packaging/license_inventory.py --output "$artifact/licenses/DEPENDENCY_LICENSES.md" --notices-dir "$artifact/licenses/rust"
+          python3 packaging/release/rust_runtime.py --binary target/release/karin --output "$artifact/licenses/rust-runtime"
           {
             printf 'Source commit: '; git rev-parse HEAD
             printf 'Build: --release --offline --locked --no-default-features --features cassette-auth\n'

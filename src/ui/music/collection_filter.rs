@@ -197,7 +197,7 @@ impl FilterBar {
             "Поиск по названию, исполнителю и альбому в коллекции",
         );
         let sort = gtk::MenuButton::builder()
-            .icon_name("view-sort-ascending-symbolic")
+            .icon_name("karin-sort-ascending-symbolic")
             .has_frame(false)
             .tooltip_text("Сортировка")
             .build();

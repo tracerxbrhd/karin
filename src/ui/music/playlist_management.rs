@@ -847,7 +847,7 @@ impl Controller {
             for (name, icon, label, change, enabled) in [
                 (
                     "music-playlist-manage-move-up",
-                    "go-up-symbolic",
+                    "karin-chevron-up-symbolic",
                     "Переместить выше",
                     PlaylistChange::Move {
                         from: entry.position,
@@ -857,7 +857,7 @@ impl Controller {
                 ),
                 (
                     "music-playlist-manage-move-down",
-                    "go-down-symbolic",
+                    "karin-chevron-down-symbolic",
                     "Переместить ниже",
                     PlaylistChange::Move {
                         from: entry.position,
@@ -867,7 +867,7 @@ impl Controller {
                 ),
                 (
                     "music-playlist-manage-remove",
-                    "list-remove-symbolic",
+                    "karin-minus-symbolic",
                     "Удалить эту позицию из плейлиста",
                     PlaylistChange::Remove {
                         position: entry.position,

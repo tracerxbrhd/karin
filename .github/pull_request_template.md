@@ -16,7 +16,7 @@ Describe the problem and the resulting behavior. Link the relevant issue or ADR.
 
 ## UI and music changes
 
-Apply the [UI quality gate](https://github.com/tracerxbrhd/karin/blob/master/docs/UI_QUALITY_GATE.md) when the UI changes.
+Apply the [UI verification checks](../docs/BUILDING.md#ui-verification) when the UI changes.
 Mark items not affected by this change explicitly rather than claiming an unrun check.
 
 - [ ] Real GTK screenshots and structure checked at compact, medium, wide and maximized sizes.

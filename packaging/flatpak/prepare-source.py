@@ -9,6 +9,10 @@ dependency declaration or lockfile is modified.
 from pathlib import Path
 import shutil
 import subprocess
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "release"))
+from common import committed_files, copy_tracked, matches_files
 
 
 def main() -> None:
@@ -24,13 +28,10 @@ def main() -> None:
         raise SystemExit("Refusing to replace a symlinked source directory.")
     if stage.exists():
         shutil.rmtree(stage)
-    shutil.copytree(
-        repository,
-        stage,
-        ignore=shutil.ignore_patterns(
-            ".git", "target", "build", "builddir", ".flatpak-builder", ".env", ".env.*", "*.log"
-        ),
-    )
+    # Ignored files can include private profiles/credentials under arbitrary
+    # names. A release/source snapshot admits only Git-tracked working bytes.
+    stage.mkdir()
+    copy_tracked(repository, stage)
     # Git is intentionally omitted from the build sandbox. Retain the exact
     # public revision so the installed executable can identify its own source.
     revision = subprocess.check_output(
@@ -43,8 +44,9 @@ def main() -> None:
         ["git", "status", "--porcelain", "--untracked-files=normal"],
         cwd=repository,
     )
+    clean_bytes = matches_files(repository, committed_files(repository, revision))
     (stage / "BUILD-SOURCE-STATUS").write_text(
-        "modified\n" if modified else "clean\n", encoding="ascii"
+        "modified\n" if modified or not clean_bytes else "clean\n", encoding="ascii"
     )
     cargo_config = stage / ".cargo" / "config.toml"
     cargo_config.parent.mkdir(exist_ok=True)

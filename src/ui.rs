@@ -11,10 +11,20 @@ use gtk::{gio, glib};
 
 mod artwork;
 mod auth;
+mod fonts;
+mod icons;
 mod music;
 mod playback;
 mod preferences;
 mod style;
+
+pub use fonts::FontError;
+
+/// Register the bundled typefaces before creating GTK/Pango objects.
+/// This is startup-only resource loading, independent of account and playback.
+pub fn prepare_typography() -> Result<(), FontError> {
+    fonts::install()
+}
 
 use crate::{
     application::ConnectionService,
@@ -44,9 +54,17 @@ impl MainWindow {
 
     /// Validate actual allocations as well as native responsive navigation.
     pub async fn smoke_check(&self) -> bool {
+        if fonts::verify(&self.window.pango_context()).is_err() || !icons::verify() {
+            eprintln!("GTK bundled presentation resources are unavailable");
+            return false;
+        }
         self.stack.set_visible_child_name("diagnostics");
         if let Err(error) = self.wait_for_layout().await {
             eprintln!("GTK navigation allocation failure: {error}");
+            return false;
+        }
+        if !icons::verify_rendering(&self.window) {
+            eprintln!("GTK bundled symbolic icon contours are invalid");
             return false;
         }
         self.window.is_visible() && self.window.is_realized()
@@ -344,7 +362,7 @@ fn build_with_music_pane(
     menu.append(Some("О Karin"), Some("app.about"));
     menu.append(Some("Закрыть Karin"), Some("app.quit"));
     let menu_button = gtk::MenuButton::builder()
-        .icon_name("open-menu-symbolic")
+        .icon_name("karin-menu-2-symbolic")
         .tooltip_text("Меню приложения")
         .menu_model(&menu)
         .build();
@@ -542,7 +560,7 @@ fn build_with_music_pane(
     let diagnostics_scroll = scroll_page(&diagnostics);
     stack
         .add_titled(&home_scroll, Some("home"), "Музыка")
-        .set_icon_name(Some("go-home-symbolic"));
+        .set_icon_name(Some("karin-home-symbolic"));
     stack
         .add_titled(&diagnostics_scroll, Some("diagnostics"), "Диагностика")
         .set_icon_name(Some("applications-engineering-symbolic"));

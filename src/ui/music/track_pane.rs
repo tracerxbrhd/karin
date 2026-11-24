@@ -104,7 +104,7 @@ impl TrackPane {
         header.set_margin_start(12);
         header.set_margin_end(12);
         header.add_css_class("karin-track-pane-header");
-        let back_info = button("go-previous-symbolic", "Назад к сведениям о треке");
+        let back_info = button("karin-chevron-left-symbolic", "Назад к сведениям о треке");
         back_info.set_widget_name("music-lyrics-back-info");
         back_info.add_css_class("flat");
         back_info.add_css_class("circular");
@@ -124,7 +124,7 @@ impl TrackPane {
         compact_lyrics_spacer.set_hexpand(true);
         compact_lyrics_spacer.set_visible(false);
         header.append(&compact_lyrics_spacer);
-        let close = button("window-close-symbolic", "Закрыть сведения о треке");
+        let close = button("karin-x-symbolic", "Закрыть сведения о треке");
         close.set_widget_name("music-panel-close");
         close.add_css_class("flat");
         close.add_css_class("circular");
@@ -139,7 +139,7 @@ impl TrackPane {
         super::super::margins(&body, 20);
         body.set_margin_top(12);
         let empty = gtk::Box::new(gtk::Orientation::Vertical, 12);
-        let icon = gtk::Image::from_icon_name("audio-x-generic-symbolic");
+        let icon = gtk::Image::from_icon_name("karin-music-symbolic");
         icon.set_pixel_size(48);
         icon.add_css_class("dim-label");
         icon.set_halign(gtk::Align::Center);
@@ -185,12 +185,13 @@ impl TrackPane {
         status.set_xalign(0.5);
         status.set_justify(gtk::Justification::Center);
         status.set_widget_name("music-track-pane-state");
+        status.add_css_class("karin-font-secondary");
         status.set_visible(false);
         let transport = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         transport.set_halign(gtk::Align::Center);
         transport.set_widget_name("music-track-pane-actions");
         transport.add_css_class("karin-track-pane-actions");
-        let play = button("media-playback-start-symbolic", "Воспроизвести трек");
+        let play = button("karin-player-play-symbolic", "Воспроизвести трек");
         play.set_widget_name("music-track-pane-play");
         play.add_css_class("suggested-action");
         play.add_css_class("circular");
@@ -206,7 +207,7 @@ impl TrackPane {
             }
         });
         transport.append(&play);
-        let enqueue = button("list-add-symbolic", "Добавить трек в очередь");
+        let enqueue = button("karin-plus-symbolic", "Добавить трек в очередь");
         enqueue.set_widget_name("music-track-pane-enqueue");
         enqueue.set_sensitive(false);
         enqueue.add_css_class("flat");
@@ -222,7 +223,7 @@ impl TrackPane {
         });
         transport.append(&enqueue);
         let menu = gtk::MenuButton::builder()
-            .icon_name("view-more-symbolic")
+            .icon_name("karin-dots-vertical-symbolic")
             .build();
         menu.set_widget_name("music-track-pane-menu");
         menu.set_tooltip_text(Some("Действия с треком"));
@@ -428,9 +429,9 @@ impl TrackPane {
         // moving Back control here, without repeating its title below it.
         self.heading.set_visible(!compact);
         self.close.set_icon_name(if compact && !lyrics {
-            "go-previous-symbolic"
+            "karin-chevron-left-symbolic"
         } else {
-            "window-close-symbolic"
+            "karin-x-symbolic"
         });
         let label = if compact && !lyrics {
             "Назад к музыке"
@@ -511,7 +512,7 @@ impl TrackPane {
         self.album.set_visible(track.album_id.is_some());
         if track.album_id.is_some() {
             let title = track.album_title.as_deref().unwrap_or("Открыть альбом");
-            let row = link_row("media-optical-symbolic", title);
+            let row = link_row("karin-disc-symbolic", title);
             self.album.set_child(Some(&row));
             self.album.set_tooltip_text(Some("Открыть альбом"));
             self.album

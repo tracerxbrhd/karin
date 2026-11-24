@@ -1,69 +1,54 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 
-# ADR-0026: Refusal fences and stable queue occurrences
+# ADR-0026: Refusal fences and exact queue occurrences
 
-Status: Accepted for stability implementation; execution and desktop acceptance are separate
-Date: 2026-11-04
-Extends: ADR-0019 and ADR-0025
+Status: Accepted; current account/queue/MPRIS contract.
 
-## Context
+## Account refusals
 
-After the v0.4 merge, two local consistency defects remain. A confirmed Music
-API refusal calls cache removal, but Busy/I/O failure can leave a fresh record
-and its lease valid. A manual queue item uses its physical index for Info/MPRIS
-identity, so deleting an earlier row reports a false track change. Neither fix
-requires new service endpoints, an audio engine or a redesigned workspace.
+Catalog leases bind account/key epochs before I/O. A known refusal fences its key in
+memory before attempted deletion; old readers/writers fail final lease checks even if
+storage is Busy or deletion fails. A bounded worker writes a non-secret tombstone and
+removes the record. Keep failed fences, bound their table and fail closed on exhaustion;
+do not clear another account or loop.
 
-## Cache decision
+Cold-process metadata is Stale even within its former TTL: only this process's successful
+current-epoch write establishes a fresh hit. Tombstones are never served. Without a
+durable marker, saved metadata may only be an honestly labelled fallback on eligible
+Network/Timeout failure. It cannot confirm authentication, rights, membership or a write.
+Artwork has its separate HTTP rules. No GTK cache mutex spans filesystem work; cache
+failure must preserve admitted live playback.
 
-Narrow catalog leases to an account/key epoch before reading or fetching. A
-known refusal fences that key in memory before storage admission; older cached
-replies and writers can no longer pass their lease checks. A later successful
-request must use the new epoch to persist a replacement. Account/policy/Clear
-generations remain an independent outer fence.
+## Occurrence and order ownership
 
-On a worker, write a fixed-size, non-secret tombstone at the existing hashed
-record path and attempt deletion. Retain a refusal fence when cleanup fails;
-bounded later operations may retry, without a background loop or GTK disk I/O.
-Bound the fence table and fail closed if its limit is exhausted. Never clear
-another account as a recovery shortcut. Cache failure does not stop live audio.
+MusicQueue owns one opaque reference-counted OccurrenceId for every admitted entry,
+including equal service IDs and manual additions. Removal/reindexing does not change
+surviving identity; new context/append allocates new tokens. The bounded PlaybackContext
+and original source positions are provenance, not a second order model. Keep at most 500
+entries; source positions below 20,000 remain aligned, unique and potentially nonmonotonic
+after sorting/manual edits.
 
-Complete storage failure cannot persist a new tombstone across process death.
-Therefore metadata inherited from another cache process is **Stale**, even if
-its TTL remains positive. Only this process's successful current-epoch write
-can establish a fresh metadata hit. A known tombstone is never served; without
-a durable marker, cold metadata can only be a labelled saved-data fallback on
-an eligible Network/Timeout error. Artwork retains its separate HTTP/TTL rules.
-This deliberately trades some restart cache reuse for a defensible freshness
-guarantee. Cached data never establishes authentication or playback entitlement.
+Shuffle plans exact future occurrences without repetition; Previous follows actual
+history. Repeat Off/Queue/One affects EOS; explicit Next/Previous still navigate. Modes
+change future policy without restarting current audio. Querying capabilities does not
+consume random state. Empty/unavailable contexts cannot loop. Append, Play Next, remove
+and reorder remap indices/history/provenance atomically. Upcoming edits leave current
+occurrence/source/position unchanged; fold forward replay into editable future rather than
+replaying past history. GTK drag/drop carries only a typed process-local value with weak
+owner and account/context fences, not an outside-ID serializer. Keyboard actions use the
+same operations. Manual edits are unavailable for Wave's admitted radio sequence.
 
-## Queue decision
+## Desktop integration
 
-MusicQueue owns one opaque `OccurrenceId` per admitted entry, in a parallel
-bounded vector. Each ID is a private reference-counted token, compared by
-identity; it contains no service/account/source identifier. Appending allocates
-a new token; removing an entry removes only its token. New contexts allocate a
-new identity scope, while clear/logout release queue ownership. Live clones
-prevent an old identity from being reused while a consumer still holds it.
+Use the in-process GIO MPRIS 2.2 adapter at `/org/mpris/MediaPlayer2`, owning only
+`org.mpris.MediaPlayer2.io.github.tracerxbrhd.Karin`. Transport, modes, Volume,
+Seek/SetPosition and capabilities consume the same queue/controller as GTK. Publish actual
+status/position/duration and worker-confirmed Seeked; reject stale track paths.
+Shuffle/LoopStatus map to local modes. Rate is fixed at 1.0 (0 pauses). No second engine,
+TrackList, arbitrary OpenUri or broad session bus is added. Metadata contains known
+display fields, opaque track paths and bounded decoded local covers, never account IDs,
+tokens, signed media addresses or `xesam:url`. Private temporary covers and bus
+name/registration are removed on retirement.
 
-Keep PlaybackContext, its shared Track list and original `source_positions` as
-provenance. They are not a second playback order. Shuffle/history still operate
-on their existing reconciled indices. Track Info and MPRIS compare the queue's
-actual occurrence token instead of a mutable manual index. MPRIS continues to
-publish its existing opaque serial path, never the internal token or provider
-IDs. Reindexing keeps identity; selecting another duplicate changes it. No
-separate identity registry, persisted queue, service call or audio worker exists.
-
-## Verification and limits
-
-Use synthetic storage failure, Busy, read/write/refusal races, restart, Clear,
-policy/account/logout and old-lease tests. Check manual and loaded duplicates,
-context replacement, history, modes, EOS and cleanup. A native private-bus
-fixture must retain the same GStreamer worker and MPRIS path through reindexing,
-accept the retained SetPosition, and reject it after an actual occurrence switch.
-Record executed results in [VALIDATION](../VALIDATION.md).
-
-The owner accepted the earlier v0.4 runtime; these fixes need a fresh scoped
-[Fedora check](../BUILDING.md#desktop-regression-checks). The separate unresolved
-Cloud cold-rendering observation and public service/distribution conditions
-remain in [LIMITATIONS](../LIMITATIONS.md).
+[BUILDING](../BUILDING.md) retains account-fence, exact-occurrence, worker and private-bus
+regressions.

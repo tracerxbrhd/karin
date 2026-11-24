@@ -13,6 +13,8 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import tomllib
+import xml.etree.ElementTree as ET
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--toolchain")
@@ -22,6 +24,7 @@ parser.add_argument(
     default=Path(__file__).resolve().parents[1] / "build.rs",
 )
 args = parser.parse_args()
+package_version = tomllib.loads((Path(__file__).resolve().parents[1] / "Cargo.toml").read_text())["package"]["version"]
 cargo = ["cargo"] + ([f"+{args.toolchain}"] if args.toolchain else [])
 rustc = ["rustc"] + ([f"+{args.toolchain}"] if args.toolchain else [])
 
@@ -80,10 +83,22 @@ with tempfile.TemporaryDirectory(prefix="karin-build-identity-") as temporary:
         (project / name).mkdir()
         (project / name / ".keep").write_text("Original build identity fixture\n")
     shutil.copyfile(args.build_script, project / "build.rs")
+    # Exercise the real resource compilation too. The dependency-free probe
+    # still needs the manifest and precisely the public inputs it references.
+    resources = args.build_script.resolve().parent / "resources"
+    manifest = resources / "karin.gresource.xml"
+    if manifest.is_file():
+        shutil.copyfile(manifest, project / "resources" / manifest.name)
+        for entry in ET.parse(manifest).iter("file"):
+            relative = Path(entry.text or "")
+            assert entry.text and not relative.is_absolute() and ".." not in relative.parts
+            destination = project / "resources" / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(resources / relative, destination)
     (project / ".gitignore").write_text("/target/\n")
     (project / "Cargo.toml").write_text(
         '[package]\nname = "karin-build-identity-probe"\n'
-        'version = "0.0.0"\nedition = "2024"\n'
+        f'version = "{package_version}"\nedition = "2024"\n'
     )
     (project / "src" / "main.rs").write_text(
         'fn main() { println!("revision={}\\nstate={}\\nprofile={}", '

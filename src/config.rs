@@ -7,6 +7,9 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const SOURCE_REVISION: &str = env!("KARIN_SOURCE_REVISION");
 pub const SOURCE_STATUS: &str = env!("KARIN_SOURCE_STATUS");
 pub const BUILD_PROFILE: &str = env!("KARIN_BUILD_PROFILE");
+pub const BUILD_COMPILER: &str = env!("KARIN_BUILD_COMPILER");
+pub const BUILD_TARGET: &str = env!("KARIN_BUILD_TARGET");
+pub const BUILD_FEATURES: &str = env!("KARIN_BUILD_FEATURES");
 
 /// Runtime packaging is independent of the public source revision.
 pub fn package_kind() -> &'static str {
@@ -19,7 +22,7 @@ pub fn package_kind() -> &'static str {
 
 pub fn build_identity() -> String {
     format!(
-        "Karin {VERSION}\nSource commit: {SOURCE_REVISION}\nSource state: {SOURCE_STATUS}\nPackage: {}\nProfile: {BUILD_PROFILE}",
+        "Karin {VERSION}\nSource commit: {SOURCE_REVISION}\nSource state: {SOURCE_STATUS}\nPackage: {}\nProfile: {BUILD_PROFILE}\nCompiler: {BUILD_COMPILER}\nTarget: {BUILD_TARGET}\nFeatures: {BUILD_FEATURES}",
         package_kind()
     )
 }

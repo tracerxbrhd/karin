@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 
-# Cassette authentication adaptation and legacy playback reference
+# Cassette provenance
 
 Karin's Cassette-compatible authentication provider is a Rust adaptation of the
 publicly published session-based flow in Cassette v0.2.4:
@@ -50,3 +50,18 @@ Protocol/source references and GPL notices do not establish a grant to the
 shared registration, permission to redistribute service music or public release
 approval. The consenting local prototype's technical results are recorded
 separately from those unresolved service/distribution conditions.
+
+## Independently implemented cache pattern
+
+Karin's original Rust cache scheduling was compared with Cassette v0.2.4
+(`9d34251d01bcd414ffbec2bef7931090d33c9124`) and v0.2.5
+(`b1c55e5fb71e60c9ff5421db42695f4dd5526a26`), Copyright Vladimir Vaskov,
+GPL-3.0-or-later. Pinned references:
+
+- [Local-first lookup/background complete-response saving](https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/cachier/cachier.vala#L140).
+- [Local storage and whole-file writes](https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/cachier/storager.vala#L614).
+- [Local/network URI handoff to playbin](https://github.com/Rirusha/Cassette/blob/9d34251d01bcd414ffbec2bef7931090d33c9124/src/client/player/player.vala#L492).
+
+No cache implementation, reversible encoding, graphics or new signing material
+was copied. Karin keeps its own account/variant/integrity and HTTP reuse checks;
+reference behavior is not a storage entitlement or public-distribution grant.

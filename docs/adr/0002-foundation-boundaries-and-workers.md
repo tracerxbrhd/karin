@@ -1,36 +1,41 @@
-# ADR-0002: One package, service boundaries and GIO workers
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 
-Status: Accepted
-Date: 2026-10-24
+# ADR-0002: Service ownership and bounded workers
 
-## Context
-
-The first milestone needs a real native window, a safe network boundary and an
-independently testable audio engine. The unofficial service's authenticated
-capabilities remain unverified. GTK's main loop must stay responsive.
+Status: Accepted; current implementation contract.
 
 ## Decision
 
-Use one Cargo package with internal domain, application, API, audio, platform,
-configuration and UI modules. Inject a `MusicApi` implementation into the
-application service; UI consumes domain values only.
+Separate GTK presentation, application intents, typed MusicService/API access,
+session/storage, queue and the one playback worker. Widgets consume domain values; they do
+not construct HTTP requests or own a second playback state machine.
 
-Use a bounded reqwest blocking adapter and GIO workers. Return results through
-main-context futures and keep GTK objects on the main thread. Retain an application
-hold until each bounded job has completed so audio cleanup precedes normal exit.
+Run bounded blocking HTTP, parsing and filesystem work on GIO/application-held workers,
+returning results to the main context. GTK widgets/textures stay on GTK. Keep one running
+and one latest pending request per ordinary lane (currently 16), independent
+navigation/membership/editor lanes and a separate serialized Wave feedback FIFO. Writes
+and feedback cannot be coalesced or replayed as reads. Reqwest owns its HTTP runtime; add
+no top-level daemon or competing async runtime.
 
-Use programmatic gtk-rs/Libadwaita widgets for the small initial shell. Blueprint
-would add resource-generation steps without reducing this shell's complexity;
-reconsider it when reusable UI templates exist. This does not replace the approved
-native stack.
+Account, request, source and playback-intent generations fence old results. Cancellation
+retires presentation immediately even if an admitted bounded HTTP request takes until its
+deadline to settle. Use weak UI ownership; delayed work cannot resurrect a closed window,
+retired view or replaced session. Deferred membership reads must run outside synchronous
+map/render/controller borrows.
 
-Keep synthetic audio separate from music service access, and do not export MPRIS
-or read Secret Service items before those integrations are implemented.
+The audio worker owns GStreamer. Shutdown bypasses command capacity and reaches Null
+without GTK joining the worker. Application holds/work fences let admitted durable
+transactions finish before a replacement window starts conflicting I/O. A queued request
+is not evidence that cleanup or persistence succeeded.
 
-## Consequences
+## Performance and verification
 
-Transport and service errors can be tested offline. The GUI remains interactive
-during diagnostics without an additional top-level Tokio runtime. Normal closing
-can wait for an outstanding bounded operation; immediate cancellation of future
-long-lived playback requires a dedicated lifecycle design. Multiple crates can
-be introduced if component reuse or compile boundaries later justify them.
+Initialize a new catalog row's current marker directly; reconcile the full set only when
+its real context/occurrence/presentation changes. Unchanged player ticks must not rescan
+all rows. Preserve exact duplicate identity and bounded weak-row cleanup; do not add a
+second marker truth model or perform disk work per row.
+
+Source/ELF identity and environment accompany timings. Do not hide cold renderer costs
+with production prewarm, forced renderers, longer animations or weaker assertions.
+Preserve synthetic-only privacy, bounded work and lifecycle checks in
+[BUILDING](../BUILDING.md); platform scope remains in [LIMITATIONS](../LIMITATIONS.md).

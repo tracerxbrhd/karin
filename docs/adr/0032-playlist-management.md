@@ -1,69 +1,60 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 
-# ADR-0032: Confirmed, occurrence-aware playlist management
+# ADR-0032: Confirmed library reactions and playlist management
 
-Status: accepted and normally merged through PR #28 at `2ab6d28`; exact
-`949d1f9` passed real playlist operations in the owner's 68/68 v0.7 matrix.
+Status: Accepted; current mutation contract.
 
-## Context
+## Service admission and confirmation
 
-Playlist creation already uses MusicService and independent confirmation.
-Editing a loaded prefix or using a track ID as its occurrence would remove or
-move the wrong duplicate. Unofficial metadata endpoints also do not share one
-documented revision compare-and-swap contract.
+Keep transport in existing MusicService interaction/playlist modules and native dialogs in
+GTK. A validated account determines every UID/owner/kind path. Serialize writes across
+service clones and admit one explicit intent at a time, independent of navigation reads.
+One intent sends at most one POST; require recognized ACK and independent fresh readback.
+Lost/malformed/ambiguous ACK remains Unknown; recovery is GET-only, never write replay or
+a compensating mutation. Account, request, occurrence and weak-view fences prevent late
+effects in replaced state. Invalidate relevant cache after every outcome, not only
+success.
 
-## Decision
+Like and Dislike are distinct memberships; removing either does not create the other. Read
+strict compact UID/revision/selector state. Dual-read mutations must confirm
+requested/opposite-mark state and non-regressing target revision. If Dislike is
+unavailable, an independent current Like read preserves the existing Like-only contract,
+leaving Dislike unknown/hidden. Do not infer the complement or let cached metadata confirm
+a reaction. Only dual-read-confirmed Dislike addition on the unchanged current occurrence
+invokes Next once; Like, removal, uncertainty and later GET recovery cannot replay that
+transport effect. Wave uses its existing heard-track Skip lifecycle, without new
+negative-feedback events.
 
-Keep transport in `music::playlist_management` and native dialogs in
-`ui::music::playlist_management`. Reuse the current account, HTTP client,
-session cancellation and shared library-write admission; introduce no second
-service or player. The service serializes playlist writes across its clones,
-including Create. GTK submits one explicit intent at a time, through a dedicated
-request lane independent of navigation reads.
+## Exact playlist edits
 
-An editable snapshot requires current validated ownership, the exact owner/kind,
-an explicitly supplied unsigned revision, and the complete server sequence of
-at most 2,000 positions. Missing revision is not zero. Each occurrence retains
-its server position and checked track/album selector, including unavailable
-metadata and repeated IDs. Unsupported optional rich display fields cannot
-compact that sequence. The editor pages this snapshot in groups of 50; a
-partially loaded catalog view is never a mutation snapshot.
+A `richTracks=true` detail snapshot requires fresh validated ownership, explicit unsigned revision and
+complete exact sequence of at most 2,000 positions matching trackCount. Keep unavailable
+entries and duplicate positions; absent revision is not zero. The editor displays
+50-position pages; a loaded catalog prefix is not an edit snapshot. Before POST compare
+fresh revision, sequence, title and known visibility.
 
-Immediately before writing, read again and compare revision, sequence, title
-and known visibility. Insert/Remove/Move use one revision-bound `/change` POST;
-Move is one delete+insert diff batch, not two writes. Rename, Visibility and
-Delete use their published separate endpoints. They have no confirmed server
-revision CAS: fresh preflight plus readback detects observed conflicts but
-cannot promise atomicity against an external writer after preflight.
+| Intent | POST suffix / confirmation |
+| --- | --- |
+| Insert/remove/move | `/change` with kind/revision/one diff batch; advancing revision and exact sequence readback |
+| Rename | `/name`, `value`; matching ACK and exact intended state readback |
+| Visibility | `/visibility`, public/private `value`; independently confirmed known state |
+| Delete | `/delete`; explicit `"ok"`/true, detail HTTP404/410 and successful own-list absence |
 
-Every intent sends at most one POST. Require a recognized acknowledgment and
-independent fresh GET confirmation of the intended state. A lost/malformed
-acknowledgment remains Unknown even if a later GET resembles the intent; only
-GET reconciliation is offered, never automatic write replay. Revision/sequence
-changes produce Conflict. Deletion needs explicit `"ok"`/`true`, detail absence
-through HTTP 404/410, and absence from a successful own-list read. Missing
-visibility is Unknown, not Private. Public/private changes are disabled until
-the state is established. Destructive deletion names the playlist and uses an
-Adwaita confirmation with Cancel as default/close response.
+Move is one delete+insert batch at the final post-removal position. Never guess an
+insertion/move album selector; removal targets the exact known server position. Rename is
+trimmed nonempty Unicode, at most 200 characters/1,024 UTF-8 bytes and no controls.
+Unknown visibility disables change. Metadata/delete endpoints have no proven revision CAS:
+preflight/readback detects observed conflict but cannot exclude another client writing in
+between. Do not invent atomicity or rollback. Delete names the target and uses native
+confirmation with Cancel default/close. Edits refresh surviving views without changing
+active queue, playback or saved provenance. Closing a dialog cannot unsend an accepted
+remote request.
 
-Playlist changes refresh matching surviving catalog views and invalidate their
-cache without rewriting the active queue, stable occurrences or audio. Closing
-a dialog retires presentation, not an already accepted remote request. Account,
-view and weak-widget fences reject late presentation updates.
+## Evidence and verification
 
-## Evidence and limitations
-
-Contracts were compared with MarshalX/yandex-music-api
-`9ca132e5c18a72aab779c1fc68c169380a9357d0`, Cassette v0.2.4
-`9d34251d01bcd414ffbec2bef7931090d33c9124`, and their referenced public OpenAPI.
-Cassette's unfinished `change-relative` method is not used. See
-[the contract table](../PLAYLIST_MANAGEMENT.md). The implementation is original;
-existing upstream attribution and GPL notices remain intact.
-
-Local HTTP and ordinary-window tests cover contracts and races without a live
-account. Executed results belong in [VALIDATION](../VALIDATION.md); these tests
-do not establish provider acceptance or public service/content distribution
-rights. The owner separately accepted the real playlist workflows on Native
-and installed Flatpak at `949d1f9`; issue #19 is technically complete. The
-metadata-endpoint CAS limitation remains. See
-[VALIDATION](../VALIDATION.md#acceptance-history).
+[Pinned
+MarshalX](https://github.com/MarshalX/yandex-music-api/tree/9ca132e5c18a72aab779c1fc68c169380a9357d0)
+and
+[Cassette](https://github.com/Rirusha/Cassette/tree/9d34251d01bcd414ffbec2bef7931090d33c9124)
+are protocol references, not API guarantees; unfinished `change-relative` is not used.
+[LICENSING](../LICENSING.md) separates source attribution from service permission.

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<gresources>
+  <gresource prefix="/io/github/tracerxbrhd/Karin">
+    <file>icons/scalable/actions/karin-alert-triangle-symbolic.svg</file>
+    <file>icons/scalable/actions/karin-arrows-shuffle-symbolic.svg</file>
+    <file>icons/scalable/actions/karin-ban-symbolic.svg</file>
+    <file>icons/scalable/actions/karin-chevron-down-symbolic.svg</file>
+    <file>icons/scalable/actions/karin-chevron-left-symbolic.svg</file>
+    <file>icons/scalable/actions/karin-chevron-up-symbolic.svg</file>
+    <file>icons/scalable/actions/karin-disc-symbolic.svg</file>
+    <file>icons/scalable/actions/karin-dots-vertical-symbolic.svg</file>
+    <file>icons/scalable/actions/karin-download-symbolic.svg</file>
+    <file>icons/scalable/actions/karin-file-text-symbolic.svg</file>
+    <file>icons/scalable/actions/karin-grip-vertical-symbolic.svg</file>
+    <file>icons/scalable/actions/karin-heart-filled-symbolic.svg</file>
+    <file>icons/scalable/actions/karin-heart-symbolic.svg</file>
+    <file>icons/scalable/actions/karin-home-symbolic.svg</file>
+    <file>icons/scalable/actions/karin-info-circle-symbolic.svg</file>
+    <file>icons/scalable/actions/karin-menu-2-symbolic.svg</file>
+    <file>icons/scalable/actions/karin-minus-symbolic.svg</file>
+    <file>icons/scalable/actions/karin-music-symbolic.svg</file>
+    <file>icons/scalable/actions/karin-player-pause-symbolic.svg</file>
+    <file>icons/scalable/actions/karin-player-play-symbolic.svg</file>
+    <file>icons/scalable/actions/karin-player-skip-back-symbolic.svg</file>
+    <file>icons/scalable/actions/karin-player-skip-forward-symbolic.svg</file>
+    <file>icons/scalable/actions/karin-player-stop-symbolic.svg</file>
+    <file>icons/scalable/actions/karin-playlist-symbolic.svg</file>
+    <file>icons/scalable/actions/karin-plus-symbolic.svg</file>
+    <file>icons/scalable/actions/karin-refresh-symbolic.svg</file>
+    <file>icons/scalable/actions/karin-repeat-symbolic.svg</file>
+    <file>icons/scalable/actions/karin-search-symbolic.svg</file>
+    <file>icons/scalable/actions/karin-sort-ascending-symbolic.svg</file>
+    <file>icons/scalable/actions/karin-thumb-down-symbolic.svg</file>
+    <file>icons/scalable/actions/karin-trash-symbolic.svg</file>
+    <file>icons/scalable/actions/karin-volume-symbolic.svg</file>
+    <file>icons/scalable/actions/karin-x-symbolic.svg</file>
+  </gresource>
+</gresources>

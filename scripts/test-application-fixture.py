@@ -435,6 +435,35 @@ try:
     )[0]
     input_("windowfocus", "--sync", window)
     capture("00-startup")
+    # Release metadata must reach the actual native About dialog, not just CLI.
+    click(widget("Меню приложения"))
+    about_menu = widget("Меню приложения", "menu")
+    menu_items = [item for item in tree(about_menu["ref"])
+                  if visible(item) and item["role"] == "menu item"]
+    assert len(menu_items) == 7, "Unexpected application menu structure"
+    target = menu_items[-2]["ref"]  # About precedes Quit in this menu.
+    assert all(item["states"][0] & (1 << 24) for item in menu_items[-2:]), "About/Quit unavailable"
+
+    # GTK 4.14 exports empty model-button names. Follow actual native focus;
+    # disabled actions are skipped by GTK rather than counted as key presses.
+    def menu_focus():
+        return next((item["ref"] for item in menu_items
+                     if call(item["ref"], ACCESS, "GetState")[0][0] & (1 << 12)), None)
+
+    for _ in range(len(menu_items)):
+        focused = wait(menu_focus, "application menu focus")
+        if focused == target:
+            break
+        key("Down")
+        wait(lambda: not call(focused, ACCESS, "GetState")[0][0] & (1 << 12), "next application menu item")
+    assert call(target, ACCESS, "GetState")[0][0] & (1 << 12), "About did not receive native focus"
+    key("Return")
+    application_version = version.splitlines()[0].removeprefix("Karin ")
+    widget(application_version)
+    widget("Karin contributors")
+    capture("00b-about")
+    key("Escape")
+    wait(lambda: not find(application_version), "native About closed")
     click(widget("Нравится", "toggle button"))
     # The actual library has arrived from the authenticated loopback request.
     row = wait(
@@ -708,6 +737,7 @@ try:
         ).hexdigest(),
         version=version,
         ordinary_executable=True,
+        native_about_version_checked=True,
         remembered_consent_after_restart=True,
         theme=args.theme,
         style="system",

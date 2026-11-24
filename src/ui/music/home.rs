@@ -28,7 +28,7 @@ impl HomeParts {
         home.set_widget_name("music-home");
         let home_signedout = gtk::Box::new(gtk::Orientation::Vertical, 16);
         home_signedout.set_margin_top(24);
-        let icon = gtk::Image::from_icon_name("audio-x-generic-symbolic");
+        let icon = gtk::Image::from_icon_name("karin-music-symbolic");
         icon.set_pixel_size(64);
         icon.set_halign(gtk::Align::Start);
         icon.add_css_class("accent");
@@ -64,13 +64,13 @@ impl HomeParts {
         );
         let home_playlists = shortcut(
             "music-home-playlists",
-            "view-list-symbolic",
+            "karin-playlist-symbolic",
             "Плейлисты",
             "Ваши музыкальные подборки",
         );
         let home_search = shortcut(
             "music-home-search",
-            "system-search-symbolic",
+            "karin-search-symbolic",
             "Поиск",
             "Треки, альбомы и исполнители",
         );
@@ -159,7 +159,7 @@ impl WaveParts {
         primary.add_css_class("suggested-action");
         primary.add_css_class("music-wave-primary");
         let primary_content = adw::ButtonContent::builder()
-            .icon_name("media-playback-start-symbolic")
+            .icon_name("karin-player-play-symbolic")
             .label("Слушать")
             .build();
         primary.set_child(Some(&primary_content));
@@ -228,9 +228,9 @@ impl WaveParts {
         };
         self.primary_content.set_label(label);
         self.primary_content.set_icon_name(if transport && playing {
-            "media-playback-pause-symbolic"
+            "karin-player-pause-symbolic"
         } else {
-            "media-playback-start-symbolic"
+            "karin-player-play-symbolic"
         });
         self.primary
             .update_property(&[gtk::accessible::Property::Label(label)]);

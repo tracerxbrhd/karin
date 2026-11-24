@@ -261,7 +261,7 @@ impl PlaylistGrid {
         button.set_tooltip_text(Some("Создать плейлист"));
         button.update_property(&[gtk::accessible::Property::Label("Создать плейлист")]);
         let content = tile_content();
-        let icon = gtk::Image::from_icon_name("list-add-symbolic");
+        let icon = gtk::Image::from_icon_name("karin-plus-symbolic");
         icon.set_pixel_size(40);
         icon.set_size_request(size, size);
         icon.add_css_class("karin-playlist-cover");

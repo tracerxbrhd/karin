@@ -127,6 +127,7 @@ pub(super) fn run_child(original: &Input, phase: &str) {
     assert!(!this.widgets.player_revealer.reveals_child());
     if phase == "presence-live" {
         wait_presence(this, "42", Presence::Missing);
+        let missing_columns = cache_row_columns(&ui.window, &row);
         pointer(&ui.window, &row);
         wait_source(this, PlaybackSourceKind::RemoteHttps);
         pump_until(|| server.hold.entered.load(Ordering::Acquire));
@@ -136,6 +137,7 @@ pub(super) fn run_child(original: &Input, phase: &str) {
                 .is_some_and(|s| s.state == PlaybackState::Paused)
         });
         wait_presence(this, "42", Presence::Downloading);
+        assert_stable_columns(&missing_columns, &cache_row_columns(&ui.window, &row));
         assert_eq!(server.counts().background_gets, 1);
         assert!(
             media_files(&audio_root(&input)).is_empty(),
@@ -145,6 +147,7 @@ pub(super) fn run_child(original: &Input, phase: &str) {
         server.hold_background.store(false, Ordering::Release);
         wait_publication(this, &input);
         wait_presence(this, "42", Presence::Stored);
+        assert_stable_columns(&missing_columns, &cache_row_columns(&ui.window, &row));
         assert_saved(&input, None);
         this.sync_track_pane();
         this.set_info_open(true);
@@ -560,6 +563,84 @@ fn assert_labels(this: &Controller, local: bool) {
         );
     }
 }
+
+fn cache_row_columns(window: &adw::ApplicationWindow, row: &gtk::ListBoxRow) -> [f32; 5] {
+    let column = find_named(row.upcast_ref(), "music-track-cache-column").unwrap();
+    super::super::super::super::super::test_input::wait_for_layout(window, &column);
+    assert_eq!(column.width(), 16);
+    let indicator = column.first_child().unwrap();
+    assert_eq!(indicator.widget_name(), "music-track-cache");
+    assert!(!indicator.is_focusable());
+    let duration = column.next_sibling().unwrap();
+    assert!(duration.has_css_class("music-track-duration"));
+    let play = duration.next_sibling().unwrap();
+    assert_eq!(play.widget_name(), "music-track-play");
+    let like = play.next_sibling().unwrap();
+    assert_eq!(like.widget_name(), "music-loaded-liked-marker");
+    let menu = like.next_sibling().unwrap();
+    assert!(menu.is::<gtk::MenuButton>() && menu.next_sibling().is_none());
+    let body = column.parent().unwrap();
+    let body_bounds = body.compute_bounds(window).unwrap();
+    let mut previous_right = column.compute_bounds(window).unwrap().x();
+    [column, duration, play, like, menu].map(|widget| {
+        let bounds = widget.compute_bounds(window).unwrap();
+        assert!(bounds.x() >= previous_right);
+        previous_right = bounds.x() + bounds.width();
+        body_bounds.x() + body_bounds.width() - bounds.x()
+    })
+}
+
+fn assert_stable_columns(before: &[f32; 5], after: &[f32; 5]) {
+    for (before, after) in before.iter().zip(after) {
+        assert!(
+            (before - after).abs() <= 1.0,
+            "Missing/Downloading/Stored must not move the cache/duration/action columns"
+        );
+    }
+}
+
+fn footer_cache_geometry(ui: &crate::ui::MainWindow, this: &Rc<Controller>) -> serde_json::Value {
+    let slot = &this.widgets.current_cache;
+    super::super::super::super::super::test_input::wait_for_layout(&ui.window, slot);
+    assert!(slot.is_mapped() && slot.is_visible());
+    let labels = find_named(
+        this.widgets.current_art_button.upcast_ref(),
+        "music-current-labels",
+    )
+    .unwrap();
+    let label_bounds = labels.compute_bounds(&ui.window).unwrap();
+    let cache_bounds = slot.compute_bounds(&ui.window).unwrap();
+    let title = this.widgets.current.compute_bounds(&ui.window).unwrap();
+    let artist = this
+        .widgets
+        .current_artist
+        .compute_bounds(&ui.window)
+        .unwrap();
+    assert!(
+        (cache_bounds.x() - label_bounds.x() - label_bounds.width() - 6.0).abs() <= 1.0,
+        "the cache indicator follows the actual text block by one fixed small gap"
+    );
+    let center = cache_bounds.y() + cache_bounds.height() / 2.0;
+    assert!(
+        center > title.y() + title.height() / 2.0 && center < artist.y() + artist.height() / 2.0,
+        "the passive cache mark is vertically between title and artist"
+    );
+    assert_eq!(
+        this.widgets.current.ellipsize(),
+        gtk::pango::EllipsizeMode::End
+    );
+    assert_eq!(
+        this.widgets.current_artist.ellipsize(),
+        gtk::pango::EllipsizeMode::End
+    );
+    let info = this
+        .widgets
+        .current_art_button
+        .compute_bounds(&ui.window)
+        .unwrap();
+    assert!(cache_bounds.x() + cache_bounds.width() <= info.x() + info.width());
+    json!({"text_right":label_bounds.x()+label_bounds.width(),"cache_x":cache_bounds.x(),"cache_center_y":center,"title_center_y":title.y()+title.height()/2.0,"artist_center_y":artist.y()+artist.height()/2.0,"gap":cache_bounds.x()-label_bounds.x()-label_bounds.width()})
+}
 fn large_view(ui: &crate::ui::MainWindow, this: &Rc<Controller>, server: &Server) {
     let original = this
         .model
@@ -672,13 +753,15 @@ fn geometry(ui: &crate::ui::MainWindow, this: &Rc<Controller>) -> Vec<serde_json
                 }
             }
         }
+        let footer_cache = footer_cache_geometry(ui, this);
         capture_native(&ui.window, &format!("audio-cache-presence-{name}"));
-        records.push(json!({"shape":name,"width":ui.window.width(),"height":ui.window.height(),"scale":ui.window.scale_factor(),"surface_width":ui.window.surface().unwrap().width(),"surface_height":ui.window.surface().unwrap().height(),"maximized":ui.window.is_maximized(),"themes":["light","dark"],"captures":[format!("audio-cache-presence-{name}-light.png"),format!("audio-cache-presence-{name}-dark.png")]}));
+        records.push(json!({"shape":name,"width":ui.window.width(),"height":ui.window.height(),"scale":ui.window.scale_factor(),"surface_width":ui.window.surface().unwrap().width(),"surface_height":ui.window.surface().unwrap().height(),"maximized":ui.window.is_maximized(),"themes":["light","dark"],"footer_cache":footer_cache,"captures":[format!("audio-cache-presence-{name}-light.png"),format!("audio-cache-presence-{name}-dark.png")]}));
     }
     ui.window.maximize();
     pump_until(|| ui.window.is_maximized());
+    let footer_cache = footer_cache_geometry(ui, this);
     capture_native(&ui.window, "audio-cache-presence-maximized");
-    records.push(json!({"shape":"maximized","width":ui.window.width(),"height":ui.window.height(),"scale":ui.window.scale_factor(),"surface_width":ui.window.surface().unwrap().width(),"surface_height":ui.window.surface().unwrap().height(),"maximized":ui.window.is_maximized(),"themes":["light","dark"],"captures":["audio-cache-presence-maximized-light.png","audio-cache-presence-maximized-dark.png"]}));
+    records.push(json!({"shape":"maximized","width":ui.window.width(),"height":ui.window.height(),"scale":ui.window.scale_factor(),"surface_width":ui.window.surface().unwrap().width(),"surface_height":ui.window.surface().unwrap().height(),"maximized":ui.window.is_maximized(),"themes":["light","dark"],"footer_cache":footer_cache,"captures":["audio-cache-presence-maximized-light.png","audio-cache-presence-maximized-dark.png"]}));
     ui.window.unmaximize();
     ui.window.set_default_size(900, 650);
     records

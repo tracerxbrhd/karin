@@ -324,7 +324,7 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
     assert_eq!(pane.header.first_child(), Some(pane.close.clone().upcast()));
     assert_eq!(
         pane.close.icon_name().as_deref(),
-        Some("go-previous-symbolic")
+        Some("karin-chevron-left-symbolic")
     );
     assert_eq!(pane.close.tooltip_text().as_deref(), Some("Назад к музыке"));
     pane.close.grab_focus();
@@ -377,10 +377,7 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
     assert!(cover_bounds.x() >= 0.0);
     assert!(cover_bounds.x() + cover_bounds.width() <= pane.widget.width() as f32);
     assert_centered_music_cluster(&pane);
-    assert_eq!(
-        pane.close.icon_name().as_deref(),
-        Some("window-close-symbolic")
-    );
+    assert_eq!(pane.close.icon_name().as_deref(), Some("karin-x-symbolic"));
     pane.menu.grab_focus();
     settle();
     assert!(

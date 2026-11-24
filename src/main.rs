@@ -150,6 +150,10 @@ fn main() -> glib::ExitCode {
     let application_fixture = args
         .first()
         .is_some_and(|flag| flag == "--application-fixture");
+    if let Err(error) = ui::prepare_typography() {
+        eprintln!("Cannot initialize bundled typography: {error}");
+        return glib::ExitCode::FAILURE;
+    }
     let fixture = if application_fixture {
         match karin::application_fixture::ApplicationFixture::new() {
             Ok(fixture) => Some(Rc::new(fixture)),
@@ -191,7 +195,7 @@ fn main() -> glib::ExitCode {
         if let Some(app) = weak_app.upgrade() {
             let dialog = adw::AboutDialog::builder()
                 .application_name("Karin")
-                .application_icon("audio-x-generic")
+                .application_icon(config::APP_ID)
                 .developer_name("Karin contributors")
                 .version(config::VERSION)
                 .license_type(gtk::License::Gpl30)

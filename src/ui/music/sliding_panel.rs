@@ -24,6 +24,14 @@ mod imp {
         pub animation: RefCell<Option<adw::TimedAnimation>>,
     }
 
+    impl SlidingPanel {
+        fn offset(&self, width: i32) -> f64 {
+            // Enter from the workspace edge, including the native outer gap.
+            // The surface/clip stay full-size; only their travel distance grows.
+            (1.0 - self.progress.get()) * f64::from(width + self.obj().margin_end())
+        }
+    }
+
     #[glib::object_subclass]
     impl ObjectSubclass for SlidingPanel {
         const NAME: &'static str = "KarinSlidingMusicPanel";
@@ -74,7 +82,7 @@ mod imp {
 
         fn contains(&self, x: f64, y: f64) -> bool {
             let obj = self.obj();
-            x >= (1.0 - self.progress.get()) * f64::from(obj.width())
+            x >= self.offset(obj.width())
                 && x < f64::from(obj.width())
                 && y >= 0.0
                 && y < f64::from(obj.height())
@@ -88,7 +96,7 @@ mod imp {
 
         fn size_allocate(&self, width: i32, height: i32, _: i32) {
             if let Some(child) = self.child.borrow().as_ref() {
-                let offset = ((1.0 - self.progress.get()) * f64::from(width)) as f32;
+                let offset = self.offset(width) as f32;
                 let transform = gsk::Transform::new().translate(&graphene::Point::new(offset, 0.0));
                 child.allocate(width, height, -1, Some(transform));
             }
