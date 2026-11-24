@@ -176,6 +176,10 @@ mod tests {
             .unwrap();
         xml.descendants()
             .filter(|node| node.has_tag_name("file"))
+            .filter(|node| {
+                node.text()
+                    .is_some_and(|path| path.starts_with("icons/scalable/actions/"))
+            })
             .map(|node| {
                 let relative = node.text().unwrap();
                 let name = relative
@@ -195,6 +199,15 @@ mod tests {
     #[test]
     fn embedded_icon_sources_are_namespaced_symbolic_vectors() {
         register();
+        let brand = gio::resources_lookup_data(
+            "/io/github/tracerxbrhd/Karin/icons/scalable/apps/io.github.tracerxbrhd.Karin.svg",
+            gio::ResourceLookupFlags::NONE,
+        )
+        .unwrap();
+        assert_eq!(
+            brand.as_ref(),
+            include_bytes!("../../packaging/icons/io.github.tracerxbrhd.Karin.svg")
+        );
         let mut names = std::collections::BTreeSet::new();
         for (name, path) in icons() {
             assert!(name.starts_with("karin-") && name.ends_with("-symbolic"));

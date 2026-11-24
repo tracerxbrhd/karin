@@ -32,6 +32,9 @@ parser.add_argument(
 )
 parser.add_argument("--separate-accessibility-bus", action="store_true")
 parser.add_argument("--registry", default="/usr/libexec/at-spi2-registryd")
+parser.add_argument(
+    "--welcome-only", action="store_true", help="Drive signed-out startup and cancel login"
+)
 args = parser.parse_args()
 driver_sha256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 out = args.out.resolve()
@@ -135,12 +138,20 @@ def prop(ref, interface, name):
     )[0]
 
 
-def tree(root=None):
+def tree(root=None, *, depth_first=False):
     queue = deque(
         [root or ("org.a11y.atspi.Registry", "/org/a11y/atspi/accessible/root")]
     )
     result = []
     visited = set()
+
+    def add_children(ref):
+        children = call(ref, ACCESS, "GetChildren")[0]
+        if depth_first:
+            queue.extendleft(reversed(children))
+        else:
+            queue.extend(children)
+
     while queue and len(visited) < 700:
         ref = tuple(queue.popleft())
         if not ref[0] or ref in visited:
@@ -154,10 +165,10 @@ def tree(root=None):
             result.append(
                 dict(ref=ref, name=name, role=role, bounds=bounds, states=states)
             )
-            queue.extend(call(ref, ACCESS, "GetChildren")[0])
+            add_children(ref)
         except GLib.Error:
             try:
-                queue.extend(call(ref, ACCESS, "GetChildren")[0])
+                add_children(ref)
             except GLib.Error:
                 pass
     return result
@@ -403,6 +414,49 @@ def exercise_system_preferences():
     assert (after["previous"], after["next"]) == (before["previous"], before["next"])
 
 
+def exercise_welcome(window_id):
+    heading = "Ваша музыка — в Karin"
+    sign_in = "Войти через Яндекс"
+    scale = int(env.get("GDK_SCALE", "1"))
+    for width, height, name in [(420, 720, "compact"), (1440, 900, "wide")]:
+        input_("windowsize", "--sync", window_id, width * scale, height * scale)
+        widget(heading, "label")
+        widget("Войдите в аккаунт Яндекса, чтобы открыть свою музыкальную библиотеку")
+        widget(sign_in, "button")
+        assert not any(find(name, "toggle button") for name in ("Главная", "Нравится", "Плейлисты"))
+        assert not find("Поиск музыки", "search box")
+        capture(f"welcome-{name}")
+
+    key("ctrl+f")
+    key("alt+2")
+    widget(heading, "label")
+    assert not find("Поиск музыки", "search box")
+    assert not find("Диагностика", "label")
+    click(widget("Меню приложения"))
+    menu = widget("Меню приложения", "menu")
+    items = [item for item in tree(menu["ref"]) if visible(item) and item["role"] == "menu item"]
+    assert len(items) == 4, "Signed-out menu must expose updates, preferences, About and Quit"
+    key("Escape")
+
+    login = widget(sign_in, "button")
+    def focused():
+        return bool(call(login["ref"], ACCESS, "GetState")[0][0] & (1 << 12))
+
+    for _ in range(12):
+        if focused():
+            break
+        key("Tab")
+    assert focused(), "Welcome sign-in must be reachable by keyboard"
+    key("Return")
+    widget("Локальная проверка интерфейса: сетевой вход отключён.")
+    capture("welcome-offline-login")
+    click(widget("Закрыть", "button"))
+    wait(lambda: not find("Локальная проверка интерфейса: сетевой вход отключён.") and focused(),
+         "login sheet closed and welcome focus restored")
+    key("ctrl+q")
+    assert app.wait(timeout=12) == 0, "ordinary close failed"
+
+
 
 record = []
 try:
@@ -412,8 +466,8 @@ try:
             check=True,
         )
     app = subprocess.Popen(
-        [str(binary), "--application-fixture"],
-        env=env,
+        [str(binary), "--ui-fixture" if args.welcome_only else "--application-fixture"],
+        env={**env, "ADW_DEBUG_COLOR_SCHEME": f"prefer-{args.theme}"} if args.welcome_only else env,
         stdout=application_log.open("w"),
         stderr=subprocess.STDOUT,
     )
@@ -424,7 +478,7 @@ try:
                 "search",
                 "--onlyvisible",
                 "--name",
-                "^Karin — original local acceptance fixture$",
+                "^Karin$" if args.welcome_only else "^Karin — original local acceptance fixture$",
             ],
             text=True,
             stdout=subprocess.PIPE,
@@ -434,13 +488,23 @@ try:
         "window",
     )[0]
     input_("windowfocus", "--sync", window)
+    if args.welcome_only:
+        exercise_welcome(window)
+        record = dict(result="PASS", fixture="signed-out welcome and offline login", version=version,
+                      driver_sha256=driver_sha256, theme=args.theme, scale=env.get("GDK_SCALE", "1"))
+        (out / "receipt.json").write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n")
+        print(json.dumps(record, ensure_ascii=False))
+        raise SystemExit(0)
+    widget("Нравится", "toggle button")
     capture("00-startup")
     # Release metadata must reach the actual native About dialog, not just CLI.
     click(widget("Меню приложения"))
     about_menu = widget("Меню приложения", "menu")
-    menu_items = [item for item in tree(about_menu["ref"])
+    # Traverse nested menu sections in native visual order before selecting About.
+    menu_items = [item for item in tree(about_menu["ref"], depth_first=True)
                   if visible(item) and item["role"] == "menu item"]
     assert len(menu_items) == 7, "Unexpected application menu structure"
+    assert all(item["name"] != "Диагностика" for item in menu_items)
     target = menu_items[-2]["ref"]  # About precedes Quit in this menu.
     assert all(item["states"][0] & (1 << 24) for item in menu_items[-2:]), "About/Quit unavailable"
 

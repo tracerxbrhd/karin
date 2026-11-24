@@ -155,6 +155,12 @@ impl State {
         state
     }
 
+    pub(super) fn checking_saved_session(&self) -> bool {
+        self.enabled
+            && !self.closed
+            && (!self.started || matches!(self.phase, Phase::Setup | Phase::Probe | Phase::Restore))
+    }
+
     fn new(enabled: bool) -> Self {
         let banner = gtk::Box::new(gtk::Orientation::Vertical, 0);
         banner.set_widget_name("session-persistence-banner");
@@ -629,12 +635,13 @@ impl Controller {
                         false
                     }
                 };
-                this.render_persistence();
                 if ready {
                     let active = this.model.borrow().account_valid;
                     if active {
                         if this.persistence.borrow().values.remember_login {
                             this.persist_current_session();
+                        } else {
+                            this.render_persistence();
                         }
                     } else if this.persistence.borrow().values.remember_login && this.persistence.borrow().restore_allowed {
                         this.restore_persistent_session();
@@ -644,6 +651,8 @@ impl Controller {
                         drop(p);
                         this.render_persistence();
                     }
+                } else {
+                    this.render_persistence();
                 }
             },
         );
@@ -1278,6 +1287,7 @@ impl Controller {
     pub(super) fn render_persistence(&self) {
         let p = self.persistence.borrow();
         let visible = p.enabled
+            && (self.model.borrow().account_valid || !p.checking_saved_session())
             && (p.phase != Phase::Idle
                 || p.retry != Retry::None
                 || p.values.forget_pending

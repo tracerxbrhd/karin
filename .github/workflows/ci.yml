@@ -85,7 +85,7 @@ jobs:
               libssl-dev libdbus-1-dev libsecret-1-dev libwebkitgtk-6.0-dev dbus-x11 xvfb xauth \
               librsvg2-common openbox imagemagick xdotool wmctrl x11-utils apparmor \
               playerctl libglib2.0-bin python3-gi at-spi2-core libgl1-mesa-dri libegl-mesa0 libglx-mesa0 \
-              appstream desktop-file-utils
+              appstream desktop-file-utils ostree gnupg
           }
           if ! install_native; then
             # A resolved kernel-mirror IPv4 timed out during package fetching on
@@ -306,6 +306,13 @@ jobs:
           GSK_RENDERER: cairo
         run: |
           GDK_SCALE=1 dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' /usr/bin/python3 scripts/test-application-fixture.py ./target/debug/karin --expected-revision "$(git rev-parse HEAD)" --theme dark --out build/executable/debug-1
+      - name: Signed-out welcome, accessible sign-in and cancel at both scales
+        if: matrix.lane == 'stable'
+        env:
+          GSK_RENDERER: cairo
+        run: |
+          GDK_SCALE=1 dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' /usr/bin/python3 scripts/test-application-fixture.py ./target/debug/karin --welcome-only --expected-revision "$(git rev-parse HEAD)" --theme light --out build/executable/welcome-1
+          GDK_SCALE=2 GDK_DPI_SCALE=1 dbus-run-session -- xvfb-run -a -s '-screen 0 3840x2160x24 -dpi 96' /usr/bin/python3 scripts/test-application-fixture.py ./target/debug/karin --welcome-only --expected-revision "$(git rev-parse HEAD)" --theme dark --out build/executable/welcome-2
       - name: Verify reviewed dependency licenses
         run: |
           python3 packaging/license_inventory.py --output /tmp/karin-dependency-licenses.md

@@ -29,3 +29,7 @@ pub mod session_lifecycle;
 pub mod settings;
 pub mod stream;
 pub mod ui;
+pub(crate) mod updates;
+
+#[doc(hidden)]
+pub use updates::flatpak::{accept_restart, finish_restart};

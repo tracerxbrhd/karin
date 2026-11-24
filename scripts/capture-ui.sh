@@ -3,7 +3,7 @@
 # Capture Karin only, in an isolated Xvfb/Openbox session; never a user's desktop.
 set -eu
 repository=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-binary="$repository/target/debug/karin"
+binary="${CARGO_TARGET_DIR:-$repository/target}/debug/karin"
 capture_scale=${KARIN_CAPTURE_SCALE:-1}
 capture_renderer=${KARIN_CAPTURE_RENDERER:-cairo}
 case "$capture_renderer" in
@@ -26,8 +26,8 @@ if [ "${1-}" != --session ]; then
         printf '\nRendered binary and UI sources:\n'
         sha256sum "$binary"
         (cd "$repository" && git ls-files -z -- src resources Cargo.toml Cargo.lock | xargs -0 sha256sum)
-        printf '\nAuthentication: explicit --ui-fixture; no live OAuth requests.\n'
-        printf 'Music pages are signed out here; populated music, active player and Queue are captured by the native loopback fixtures.\n'
+        printf '\nAuthentication: explicit --ui-fixture --diagnostics; no live OAuth requests.\n'
+        printf 'This gallery covers Welcome and developer diagnostics. Native loopback fixtures capture the signed-in workspace.\n'
         printf '\nExperimental UI requested: %s\n' "${KARIN_CAPTURE_EXPERIMENTAL:-0}"
         if command -v dpkg-query >/dev/null 2>&1; then
             dpkg-query -W xvfb openbox imagemagick xdotool librsvg2-common
@@ -77,9 +77,9 @@ while [ "$attempt" -lt 80 ]; do
 done
 [ "$wm_ready" = true ] || wm_failure 'Openbox did not publish EWMH activation support within 8 seconds'
 if [ "${KARIN_CAPTURE_EXPERIMENTAL:-0}" = 1 ]; then
-    "$binary" --experimental-music --ui-fixture > "$output_dir/application.log" 2>&1 &
+    "$binary" --experimental-music --ui-fixture --diagnostics > "$output_dir/application.log" 2>&1 &
 else
-    "$binary" --ui-fixture > "$output_dir/application.log" 2>&1 &
+    "$binary" --ui-fixture --diagnostics > "$output_dir/application.log" 2>&1 &
 fi
 app_pid=$!
 window=
@@ -119,50 +119,23 @@ for shape in compact medium wide; do
         wide) resize 1440 900 ;;
     esac
     xdotool key --clearmodifiers alt+1
-    xdotool key --clearmodifiers ctrl+h
-    capture "$shape-wave-signed-out"
-    if [ "$shape" = medium ]; then
-        # Ctrl+B now focuses the pinned native segments; no retired rail exists.
-        xdotool key --clearmodifiers ctrl+b
-        capture medium-primary-navigation-focus
-        xdotool key --clearmodifiers Return
-    fi
-    if [ "$shape" = compact ]; then
-        xdotool key --clearmodifiers ctrl+b
-        capture compact-primary-navigation-focus
-        xdotool key --clearmodifiers Return
-    fi
-    xdotool key --clearmodifiers ctrl+l
-    capture "$shape-liked-signed-out"
-    # Alt+1 focuses Login; --ui-fixture injects an explicitly offline provider.
-    xdotool key --clearmodifiers alt+1 Return
+    capture "$shape-welcome"
+    # Alt+1 focuses the welcome action, then the offline provider opens a sheet.
+    xdotool key --clearmodifiers Return
     capture "$shape-login"
     xdotool key --clearmodifiers Escape
     sleep 0.4
-    xdotool key --clearmodifiers ctrl+f
-    capture "$shape-search"
-    xdotool key --clearmodifiers ctrl+p
-    capture "$shape-playlists-signed-out"
-    xdotool key --clearmodifiers ctrl+l
     xdotool key --clearmodifiers alt+2
     scroll_to_top
     capture "$shape-diagnostics"
 done
 wmctrl -ir "$window" -b add,maximized_vert,maximized_horz
 xdotool key --clearmodifiers alt+1
-xdotool key --clearmodifiers ctrl+h
-capture maximized-wave-signed-out
-xdotool key --clearmodifiers ctrl+l
-capture maximized-liked-signed-out
-xdotool key --clearmodifiers alt+1 Return
+capture maximized-welcome
+xdotool key --clearmodifiers Return
 capture maximized-login
 xdotool key --clearmodifiers Escape
 sleep 0.4
-xdotool key --clearmodifiers ctrl+f
-capture maximized-search
-xdotool key --clearmodifiers ctrl+p
-capture maximized-playlists-signed-out
-xdotool key --clearmodifiers ctrl+l
 xdotool key --clearmodifiers alt+2
 scroll_to_top
 capture maximized-diagnostics

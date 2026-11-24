@@ -4,8 +4,8 @@
 
 Karin's v0.8 functionality has owner-reported Fedora Native/Flatpak acceptance.
 Cloud fixtures do not certify live Music access, every desktop backend or physical
-GPU behavior. Version `0.8.0` is prepared for the first stable release; public
-publication remains a separate owner decision.
+GPU behavior. The published stable version is `0.8.0`. Version `0.8.1` and its
+stable update channel require owner acceptance before publication.
 
 ## Service and distribution
 
@@ -15,9 +15,8 @@ admitted; unknown origins/formats/protection fail explicitly. No DRM bypass,
 imported official-client sessions or extracted keys are provided.
 
 Source licensing, reuse of the published OAuth registration and service/content
-rights are separate. Public integration conditions remain unresolved in
-[#5](https://github.com/tracerxbrhd/karin/issues/5) and
-[#22](https://github.com/tracerxbrhd/karin/issues/22); see [LICENSING](LICENSING.md).
+rights are separate. OAuth and Music integration conditions remain tracked in
+[#5](https://github.com/tracerxbrhd/karin/issues/5). See [LICENSING](LICENSING.md).
 The [prepared owner request](../packaging/release/YANDEX_REQUEST_RU.md) has not
 been sent. Flathub's separate [AI-manifest/submission policy](https://docs.flathub.org/docs/for-app-authors/requirements#generative-ai-policy)
 means these AI-assisted manifests are not claimed submission-eligible.
@@ -46,6 +45,18 @@ Software licensing does not grant redistribution rights to service material.
   remains visible with Retry; ordinary continuation never autoplays.
 - Native plugin calls cannot always be preempted; forced termination cannot
   guarantee cooperative pipeline/storage cleanup.
+
+## Application updates
+
+- Normal release checks work before Music sign-in. Native packages offer release
+  information and the verified download page. Replacement of extracted binaries
+  or distribution-managed system packages remains a manual operation.
+- Flatpak requires a signed update origin and the host Flatpak UpdateMonitor.
+  A newly announced GitHub release can precede the matching Portal deployment.
+  Bundle-only installations need [one-time migration](BUILDING.md#move-an-existing-bundle-installation-to-the-channel).
+- The public update channel and signing key are pending owner setup. Permission
+  changes or unsupported Portal behavior can require the system application
+  manager. Only an installed, matching deployment qualifies for in-app restart.
 
 ## Desktop and rendering
 
