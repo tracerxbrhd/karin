@@ -14,9 +14,9 @@ from unittest.mock import patch
 import artifacts
 
 REVISION = "a" * 40
-METADATA = {"version": "0.8.0-rc.1", "revision": REVISION,
+METADATA = {"version": "0.8.0", "revision": REVISION,
             "source_status": "clean", "source_date_epoch": 1234567890}
-VERSION = "Karin 0.8.0-rc.1\nCompiler: rustc 1.98.1\nTarget: x86_64-unknown-linux-gnu\n"
+VERSION = "Karin 0.8.0\nCompiler: rustc 1.98.1\nTarget: x86_64-unknown-linux-gnu\n"
 PERMISSIONS = """[Context]
 shared=network;ipc;
 sockets=wayland;x11;fallback-x11;pulseaudio;
@@ -34,8 +34,8 @@ class ArtifactTests(unittest.TestCase):
         self.repository, self.stage, self.output = (self.root / name for name in ("repo", "source", "output"))
         self.stage.mkdir()
         self.project = {
-            "Cargo.toml": b'[package]\nname="karin"\nversion="0.8.0-rc.1"\n',
-            "Cargo.lock": (b'version=4\n[[package]]\nname="karin"\nversion="0.8.0-rc.1"\n'
+            "Cargo.toml": b'[package]\nname="karin"\nversion="0.8.0"\n',
+            "Cargo.lock": (b'version=4\n[[package]]\nname="karin"\nversion="0.8.0"\n'
                            b'[[package]]\nname="example"\nversion="1.0"\n'
                            b'source="registry+https://github.com/rust-lang/crates.io-index"\n'
                            b'checksum="' + b'f' * 64 + b'"\n'),
@@ -91,7 +91,7 @@ class ArtifactTests(unittest.TestCase):
         path = self.source()
         with tarfile.open(path, "r:gz") as tar:
             names = set(tar.getnames())
-            prefix = "karin-0.8.0-rc.1/"
+            prefix = "karin-0.8.0/"
             for name in self.project:
                 self.assertIn(prefix + name, names)
             self.assertIn(prefix + "vendor/example-1.0/src/lib.rs", names)

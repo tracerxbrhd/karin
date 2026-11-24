@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Build local, source-repeatable candidate artifacts; never publish a release."""
+"""Build local, source-repeatable release artifacts; never publish a release."""
 
 import argparse
 import configparser
@@ -43,7 +43,7 @@ def build_info(metadata: dict, kind: str) -> dict:
     return {**metadata, "artifact_kind": kind, "app_id": APP_ID,
             "rebuild_command": f"cargo build --release --offline --locked --no-default-features --features {BUILD_FEATURES}",
             "repeatability": "Source-repeatable and checksum-verifiable; independent binary reproducibility not claimed",
-            "publication": "Technical candidate; no tag, release or Flathub submission performed"}
+            "publication": "Prepared artifacts; no public tag, published release or Flathub submission performed"}
 
 
 def tree_files(directory: Path) -> list[Path]:

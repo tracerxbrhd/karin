@@ -37,10 +37,11 @@ cargo +stable build --release --locked
 ./target/release/karin
 ```
 
-`0.8.0-rc.1` is an engineering candidate. Check `--version` and About for the
+`0.8.0` is the stable application version prepared for the first public release.
+Publication is a separate owner decision. Check `--version` and About for the
 source commit, clean/modified state, package and profile. Any source-tree change
-requires newly built candidates and checksums; old files with the same version
-label do not prove the new commit. Preparing a candidate
+requires newly built artifacts and checksums; old files with the same version
+label do not prove the new commit. Preparing artifacts
 does not publish a tag or release, establish Yandex integration rights, or
 authorize Flathub submission.
 
@@ -153,7 +154,7 @@ and PulseAudio-compatible PipeWire audio. No broad session-bus/host-filesystem
 grant is required. Preserve [licensing](LICENSING.md). Source preparation/offline
 Cargo and a full installed Flatpak runtime check are distinct results.
 
-### Pinned release-candidate sources
+### Pinned release sources
 
 The development manifest above is not a standalone publication manifest. For an
 existing pushed, reviewed commit, generate a separate source-based manifest:
@@ -161,11 +162,11 @@ existing pushed, reviewed commit, generate a separate source-based manifest:
 ```sh
 python3 packaging/release/manifest.py --revision "$(git rev-parse HEAD)" \
   --output build/release/io.github.tracerxbrhd.Karin.json
-flatpak-builder --user --install --force-clean build/flatpak-rc \
+flatpak-builder --user --install --force-clean build/flatpak-release \
   build/release/io.github.tracerxbrhd.Karin.json
 ```
 
-For the complete candidate set, prepare matching sources, build Native once,
+For the complete release set, prepare matching sources, build Native once,
 then use the artifact commands (the `flatpak` command replaces the direct
 `flatpak-builder` invocation above and also exports a bundle):
 
