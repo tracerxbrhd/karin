@@ -416,7 +416,7 @@ fn build_shell(
     home.set_margin_top(16);
     home.set_margin_bottom(16);
     let music = make_music(app, &window);
-    let brand = gtk::Image::from_icon_name(config::APP_ID);
+    let brand = gtk::Image::from_icon_name(icons::BRAND_MARK);
     brand.set_widget_name("karin-header-icon");
     brand.set_pixel_size(20);
     brand.set_margin_start(2);

@@ -396,6 +396,7 @@ impl MusicPane {
         navigation.set_widget_name("music-primary-tabs");
         // The native HeaderBar owns this title slot outside music-workspace.
         navigation.add_css_class("karin-font-primary");
+        navigation.set_hexpand(false);
         let segments = gtk::Box::new(gtk::Orientation::Horizontal, 3);
         let (nav_wave, label_wave) = search_header::section_button(
             "music-tab-wave",

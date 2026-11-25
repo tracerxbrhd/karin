@@ -4,6 +4,7 @@
 use gtk::{gio, gio::prelude::FileExt};
 
 const RESOURCE_PATH: &str = "/io/github/tracerxbrhd/Karin/icons";
+pub(super) const BRAND_MARK: &str = "karin-brand-mark";
 
 fn register() {
     static REGISTERED: std::sync::Once = std::sync::Once::new();
@@ -36,20 +37,23 @@ pub(super) fn verify() -> bool {
         return false;
     };
     let theme = gtk::IconTheme::for_display(&display);
-    let brand = theme.lookup_icon(
-        crate::config::APP_ID,
-        &[],
-        24,
-        1,
-        gtk::TextDirection::Ltr,
-        gtk::IconLookupFlags::empty(),
-    );
-    if brand.is_symbolic()
-        || !brand
-            .file()
-            .is_some_and(|source| source.uri().ends_with("/io.github.tracerxbrhd.Karin.png"))
-    {
-        return false;
+    for name in [crate::config::APP_ID, BRAND_MARK] {
+        let brand = theme.lookup_icon(
+            name,
+            &[],
+            24,
+            1,
+            gtk::TextDirection::Ltr,
+            gtk::IconLookupFlags::empty(),
+        );
+        let suffix = format!("/{name}.png");
+        if brand.is_symbolic()
+            || !brand
+                .file()
+                .is_some_and(|source| source.uri().ends_with(&suffix))
+        {
+            return false;
+        }
     }
     let path = format!("{RESOURCE_PATH}/scalable/actions");
     let Ok(files) = gio::resources_enumerate_children(&path, gio::ResourceLookupFlags::NONE) else {
@@ -209,6 +213,28 @@ mod tests {
                 )
             })
             .collect()
+    }
+
+    #[test]
+    fn embedded_brand_mark_has_transparent_background() {
+        register();
+        for (name, expected_background) in [(BRAND_MARK, 0), (crate::config::APP_ID, 255)] {
+            let bytes = gio::resources_lookup_data(
+                &format!("{RESOURCE_PATH}/128x128/apps/{name}.png"),
+                gio::ResourceLookupFlags::NONE,
+            )
+            .unwrap();
+            let stream = gio::MemoryInputStream::from_bytes(&bytes);
+            let image =
+                gtk::gdk_pixbuf::Pixbuf::from_stream(&stream, gio::Cancellable::NONE).unwrap();
+            assert_eq!((image.width(), image.height()), (128, 128));
+            assert!(image.has_alpha());
+            let pixels = image.read_pixel_bytes();
+            let stride = image.rowstride() as usize;
+            let alpha = |x, y| pixels.as_ref()[y * stride + 4 * x + 3];
+            assert_eq!(alpha(12, 31), expected_background);
+            assert_eq!(alpha(46, 27), 255);
+        }
     }
 
     #[test]

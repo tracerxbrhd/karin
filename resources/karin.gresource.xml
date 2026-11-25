@@ -9,6 +9,10 @@
     <file alias="icons/64x64/apps/io.github.tracerxbrhd.Karin.png">icons/hicolor/64x64/apps/io.github.tracerxbrhd.Karin.png</file>
     <file alias="icons/128x128/apps/io.github.tracerxbrhd.Karin.png">icons/hicolor/128x128/apps/io.github.tracerxbrhd.Karin.png</file>
     <file alias="icons/256x256/apps/io.github.tracerxbrhd.Karin.png">icons/hicolor/256x256/apps/io.github.tracerxbrhd.Karin.png</file>
+    <file>icons/24x24/apps/karin-brand-mark.png</file>
+    <file>icons/48x48/apps/karin-brand-mark.png</file>
+    <file>icons/128x128/apps/karin-brand-mark.png</file>
+    <file>icons/256x256/apps/karin-brand-mark.png</file>
     <file>icons/scalable/actions/karin-alert-triangle-symbolic.svg</file>
     <file>icons/scalable/actions/karin-arrows-shuffle-symbolic.svg</file>
     <file>icons/scalable/actions/karin-ban-symbolic.svg</file>

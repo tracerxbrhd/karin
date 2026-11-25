@@ -37,7 +37,7 @@ impl Welcome {
         content.append(&waiting);
         content.append(&independent);
         let page = adw::StatusPage::builder()
-            .icon_name(crate::config::APP_ID)
+            .icon_name(super::super::icons::BRAND_MARK)
             .title(TITLE)
             .description(DESCRIPTION)
             .child(&content)
