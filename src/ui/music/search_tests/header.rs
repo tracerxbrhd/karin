@@ -130,14 +130,19 @@ fn gap_and_replaced_tab(window: &adw::ApplicationWindow, id: &str, this: &Contro
     pump_until(|| entry_focused(window, this) && !widgets.nav_liked.is_mapped());
     let entry = widgets.search.compute_bounds(window).unwrap();
     let toggle = widgets.nav_search.compute_bounds(window).unwrap();
-    let entry_end = entry.x() + entry.width();
-    let x = (entry_end + toggle.x()) / 2.0;
+    let toggle_end = toggle.x() + toggle.width();
+    let x = (toggle_end + entry.x()) / 2.0;
     let y = entry.y() + entry.height() / 2.0;
-    assert!(entry_end < x && x < toggle.x());
-    assert_eq!(
-        window.pick(x.into(), y.into(), gtk::PickFlags::DEFAULT),
-        Some(widgets.search_header.clone().upcast())
-    );
+    assert!(toggle_end < x && x < entry.x());
+    let gap = window
+        .pick(x.into(), y.into(), gtk::PickFlags::DEFAULT)
+        .unwrap();
+    let header = widgets
+        .search_header
+        .ancestor(adw::HeaderBar::static_type())
+        .unwrap();
+    assert!(gap == header || gap.is_ancestor(&header));
+    assert!(!gap.is::<gtk::Button>() && !gap.is::<gtk::Editable>());
     let (x, y) = surface_point(window, x, y);
     click_at(id, x, y);
     pump_until(|| !widgets.search.is_mapped());

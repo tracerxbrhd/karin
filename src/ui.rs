@@ -364,6 +364,7 @@ fn build_shell(
     let window = adw::ApplicationWindow::builder()
         .application(app)
         .title(config::APP_NAME)
+        .icon_name(config::APP_ID)
         .default_width(900)
         .default_height(650)
         .width_request(360)
@@ -373,15 +374,14 @@ fn build_shell(
     style::attach(&window);
     let toolbar = adw::ToolbarView::new();
     toolbar.add_css_class("music-toolbar-surface");
+    // The native CenterBox centers in the full window when space allows,
+    // then yields to the side controls without increasing the window minimum.
     let header = adw::HeaderBar::builder().height_request(48).build();
+    header.set_widget_name("music-header");
     header.add_css_class("music-header");
-    header.set_show_start_title_buttons(false);
     let stack = adw::ViewStack::new();
     stack.set_hhomogeneous(false);
     stack.set_vhomogeneous(false);
-    let title = adw::WindowTitle::new("Karin", "");
-    title.set_valign(gtk::Align::Center);
-    header.set_title_widget(Some(&title));
     let focus_epoch = Rc::new(Cell::new(0_u64));
     let menu = gio::Menu::new();
     let music_menu = gio::Menu::new();
@@ -396,9 +396,13 @@ fn build_shell(
     let menu_button = gtk::MenuButton::builder()
         .icon_name("karin-menu-2-symbolic")
         .tooltip_text("Меню приложения")
+        .has_frame(false)
         .menu_model(&menu)
         .build();
-    header.pack_end(&menu_button);
+    menu_button.update_property(&[gtk::accessible::Property::Label("Меню приложения")]);
+    let end_group = gtk::Box::new(gtk::Orientation::Horizontal, 2);
+    end_group.append(&menu_button);
+    header.pack_end(&end_group);
     toolbar.add_top_bar(&header);
 
     let diagnostics =
@@ -412,10 +416,21 @@ fn build_shell(
     home.set_margin_top(16);
     home.set_margin_bottom(16);
     let music = make_music(app, &window);
-    // Keep the real section controls fixed while long collections scroll.
-    let music_navigation = music.take_navigation_bar();
-    music_navigation.add_css_class("toolbar");
-    toolbar.add_top_bar(&music_navigation);
+    let brand = gtk::Image::from_icon_name(config::APP_ID);
+    brand.set_widget_name("karin-header-icon");
+    brand.set_pixel_size(20);
+    brand.set_margin_start(2);
+    let (music_navigation, search_toggle) = music.header_navigation();
+    let start_group = gtk::Box::new(gtk::Orientation::Horizontal, 2);
+    start_group.append(&brand);
+    start_group.append(search_toggle);
+    header.pack_start(&start_group);
+    let header_center = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    header_center.append(music_navigation);
+    let diagnostics_title = adw::WindowTitle::new("Диагностика", "");
+    diagnostics_title.set_visible(false);
+    header_center.append(&diagnostics_title);
+    header.set_title_widget(Some(&header_center));
     // Keep one information widget mounted. Unlike a collapsed split sidebar,
     // this native revealer has no modal backdrop or outside-dismiss policy.
     let track_info = gtk::Overlay::new();
@@ -480,22 +495,29 @@ fn build_shell(
         let stack = stack.downgrade();
         let workspace_surface = workspace_surface.downgrade();
         let navigation = music_navigation.downgrade();
+        let search_toggle = search_toggle.downgrade();
+        let diagnostics_title = diagnostics_title.downgrade();
         let back = diagnostics
             .as_ref()
             .map(|diagnostics| diagnostics.back.downgrade());
         move || {
-            let (Some(stack), Some(workspace), Some(navigation)) = (
-                stack.upgrade(),
-                workspace_surface.upgrade(),
-                navigation.upgrade(),
-            ) else {
+            let (Some(stack), Some(workspace)) = (stack.upgrade(), workspace_surface.upgrade())
+            else {
                 return;
             };
             let home_visible = stack.visible_child_name().as_deref() == Some("home");
             // The workspace's own visible property expresses account admission.
             // A hidden window or diagnostics page can mask ancestor visibility.
             let music_visible = home_visible && workspace.get_visible();
-            navigation.set_visible(music_visible);
+            if let Some(navigation) = navigation.upgrade() {
+                navigation.set_visible(music_visible);
+            }
+            if let Some(search_toggle) = search_toggle.upgrade() {
+                search_toggle.set_visible(music_visible);
+            }
+            if let Some(title) = diagnostics_title.upgrade() {
+                title.set_visible(!home_visible);
+            }
             if let Some(back) = back.as_ref().and_then(glib::WeakRef::upgrade) {
                 back.set_visible(!home_visible);
             }
@@ -544,7 +566,7 @@ fn build_shell(
         }
     });
     let account_menu = music.account_menu();
-    header.pack_end(&account_menu);
+    end_group.prepend(&account_menu);
     home.append(&music.widget);
 
     let home_scroll = scroll_music_page(&home);
@@ -575,6 +597,7 @@ fn build_shell(
     let compact_navigation = adw::Breakpoint::new(
         adw::BreakpointCondition::parse("max-width: 719sp").expect("constant breakpoint"),
     );
+    music.add_compact_navigation_setters(&compact_navigation);
     compact_navigation.add_setter(
         &information_view,
         "width-request",
@@ -736,50 +759,6 @@ fn build_shell(
             });
         }
     }
-    let sync_navigation = {
-        let stack = stack.downgrade();
-        let sections = sections.downgrade();
-        let workspace = workspace_surface.downgrade();
-        let title = title.downgrade();
-        let panel_title = music.panel_title_callback();
-        move || {
-            if let (Some(stack), Some(sections), Some(title)) =
-                (stack.upgrade(), sections.upgrade(), title.upgrade())
-            {
-                let text = if stack.visible_child_name().as_deref() == Some("diagnostics") {
-                    "Диагностика"
-                } else if workspace
-                    .upgrade()
-                    .is_some_and(|workspace| workspace.get_visible())
-                {
-                    panel_title().unwrap_or(match sections.visible_child_name().as_deref() {
-                        Some("search") => "Поиск",
-                        Some("detail") => "Сведения",
-                        _ => "Karin",
-                    })
-                } else {
-                    "Karin"
-                };
-                title.set_title(text);
-            }
-        }
-    };
-    let sync_navigation = Rc::new(sync_navigation);
-    let sync = sync_navigation.clone();
-    stack.connect_visible_child_name_notify(move |_| sync());
-    let sync = sync_navigation.clone();
-    sections.connect_visible_child_name_notify(move |_| sync());
-    let sync = sync_navigation.clone();
-    workspace_surface.connect_visible_notify(move |_| sync());
-    let sync = sync_navigation.clone();
-    music.panel_heading().connect_label_notify(move |_| sync());
-    let sync = sync_navigation.clone();
-    information_view.connect_notify_local(Some("progress"), move |_, _| sync());
-    let sync = sync_navigation.clone();
-    information_view.connect_width_request_notify(move |_| sync());
-    let sync = sync_navigation.clone();
-    information_view.connect_notify_local(Some("compact-presentation"), move |_, _| sync());
-    sync_navigation();
     let mut lifetime_refs: Vec<_> = [
         window.upcast_ref::<gtk::Widget>(),
         stack.upcast_ref::<gtk::Widget>(),
@@ -788,7 +767,14 @@ fn build_shell(
     .into_iter()
     .map(|widget| widget.downgrade())
     .collect();
-    let mut header_items = vec![title.upcast(), menu_button.upcast(), account_menu.upcast()];
+    let mut header_items = vec![
+        brand.upcast(),
+        diagnostics_title.upcast(),
+        search_toggle.clone().upcast(),
+        music_navigation.clone().upcast(),
+        menu_button.upcast(),
+        account_menu.upcast(),
+    ];
     let mut scrolls = vec![home_scroll];
     if let Some(diagnostics) = &diagnostics {
         lifetime_refs.extend(diagnostics.lifetime_refs.iter().cloned());

@@ -44,7 +44,11 @@ pub(super) fn verify() -> bool {
         gtk::TextDirection::Ltr,
         gtk::IconLookupFlags::empty(),
     );
-    if brand.is_symbolic() || brand.icon_name().as_deref() != Some(crate::config::APP_ID) {
+    if brand.is_symbolic()
+        || !brand
+            .file()
+            .is_some_and(|source| source.uri().ends_with("/io.github.tracerxbrhd.Karin.png"))
+    {
         return false;
     }
     let path = format!("{RESOURCE_PATH}/scalable/actions");

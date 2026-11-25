@@ -6,29 +6,13 @@ use super::*;
 use gtk::graphene::Rect;
 use std::process::Command;
 
-fn painted_header(
+fn painted_region(
     window: &adw::ApplicationWindow,
-    header: &gtk::Box,
+    widget: &impl IsA<gtk::Widget>,
 ) -> Option<gtk::gsk::RenderNode> {
     let paintable = gtk::WidgetPaintable::new(Some(window));
     let snapshot = gtk::Snapshot::new();
-    // Observe exactly the shared presentation slot. Toggle icon/focus changes
-    // outside it cannot masquerade as a transitioning search field.
-    let group = header.first_child()?;
-    let group_bounds = group.compute_bounds(window)?;
-    let toggle = group.last_child()?;
-    let toggle = toggle.compute_bounds(window)?;
-    let x = if group.direction() == gtk::TextDirection::Rtl {
-        toggle.x() + toggle.width() + 6.0
-    } else {
-        group_bounds.x()
-    };
-    let bounds = Rect::new(
-        x,
-        group_bounds.y(),
-        group_bounds.width() - toggle.width() - 6.0,
-        group_bounds.height(),
-    );
+    let bounds = widget.compute_bounds(window)?;
     let (dx, dy) = window.surface_transform();
     snapshot.push_clip(&Rect::new(
         bounds.x() + dx as f32,
@@ -89,7 +73,9 @@ fn transition(ui: &crate::ui::MainWindow, id: &str, open: bool) -> Vec<Frame> {
             let mut frames = frames.borrow_mut();
             if let Some(toggle) = toggle.compute_bounds(&window)
                 && let Some(group) = group.compute_bounds(&window)
-                && let Some(node) = painted_header(&window, &header)
+                // Toggle icon/focus changes outside the shared slot must not
+                // masquerade as a transitioning search field.
+                && let Some(node) = painted_region(&window, &header)
             {
                 frames.push(Frame {
                     width,
@@ -170,15 +156,28 @@ fn measure_state(ui: &crate::ui::MainWindow, id: &str, tag: &str, motion: bool) 
     let button = widgets.nav_search.compute_bounds(window).unwrap();
     let header_height = ui.header.height();
     let row_height = header.height();
+    let bar = ui.header.compute_bounds(window).unwrap();
+    assert!(header.is_ancestor(&ui.header));
+    assert!(widgets.nav_search.is_ancestor(&ui.header));
     assert!(!widgets.search.is_mapped());
     assert_eq!(tabs_bounds.width(), natural as f32);
-    assert!(
-        (2.0 * group.x() + group.width() - window.width() as f32).abs() <= 2.0,
-        "centered navigation in {tag}: {group:?}"
-    );
+    if window.width() >= 720 {
+        assert!(
+            (2.0 * group.x() + group.width() - window.width() as f32).abs() <= 2.0,
+            "centered navigation in {tag}: {group:?}"
+        );
+    }
+    assert!(group.y() >= bar.y() && group.y() + group.height() <= bar.y() + bar.height());
+    assert!(button.y() >= bar.y() && button.y() + button.height() <= bar.y() + bar.height());
+    assert!(button.x() + button.width() <= group.x());
     assert_eq!(group.x(), tabs_bounds.x());
-    assert_eq!(group.x() + group.width(), button.x() + button.width());
-    let before = painted_header(window, header).unwrap();
+    assert_eq!(group.width(), tabs_bounds.width());
+    let account = widgets.account_menu.compute_bounds(window).unwrap();
+    assert!(group.x() + group.width() <= account.x());
+    for label in &widgets.nav_labels {
+        assert_eq!(label.is_mapped(), window.width() >= 720, "{tag}");
+    }
+    let before = painted_region(window, header).unwrap();
     let opening = transition(ui, id, true);
     let field = widgets.search.compute_bounds(window).unwrap();
     let open_button = widgets.nav_search.compute_bounds(window).unwrap();
@@ -199,7 +198,7 @@ fn measure_state(ui: &crate::ui::MainWindow, id: &str, tag: &str, motion: bool) 
     ] {
         assert!(!tab.is_mapped());
     }
-    let after = painted_header(window, header).unwrap();
+    let after = painted_region(window, header).unwrap();
     let closing = transition(ui, id, false);
     assert_eq!(
         rect(tabs.compute_bounds(window).unwrap()),
@@ -295,6 +294,12 @@ fn measure_state(ui: &crate::ui::MainWindow, id: &str, tag: &str, motion: bool) 
         for (phase, png) in pngs {
             std::fs::write(directory.join(format!("{tag}-{phase}.png")), png).unwrap();
         }
+        let native_header = painted_region(window, &ui.header).unwrap();
+        std::fs::write(
+            directory.join(format!("{tag}-header.png")),
+            rendered_png(window, &native_header),
+        )
+        .unwrap();
     }
 }
 
@@ -339,6 +344,7 @@ fn native_global_search_measured_slot_and_motion() {
     let settings = gtk::Settings::default().unwrap();
     let style = adw::StyleManager::default();
     for (width, height) in [
+        (360, 720),
         (420, 720),
         (900, 650),
         (1440, 900),
@@ -380,11 +386,12 @@ fn native_global_search_measured_slot_and_motion() {
     // A wider translation applied while open must resize the field and stay
     // available to GTK measurement while the buttons are hidden.
     let liked = &this.widgets.nav_liked;
-    let original = liked.label().unwrap();
+    let liked_label = &this.widgets.nav_labels[1];
+    let original = liked_label.label();
     let before = liked.parent().unwrap().width();
     input(&["key", "--clearmodifiers", "ctrl+f"]);
     pump_until(|| entry_focused(window, this) && !liked.is_mapped());
-    liked.set_label("Любимые композиции в коллекции");
+    liked_label.set_label("Любимые композиции в коллекции");
     pump_until(|| this.widgets.search.width() > before);
     let enlarged = this.widgets.search.compute_bounds(window).unwrap().width();
     input(&["key", "--clearmodifiers", "Escape"]);
@@ -409,14 +416,14 @@ fn native_global_search_measured_slot_and_motion() {
             .surface()
             .is_some_and(|s| s.width() == 420 && s.height() == 720)
     });
-    this.widgets
-        .search_header
-        .set_direction(gtk::TextDirection::Rtl);
+    let direction = gtk::Widget::default_direction();
+    gtk::Widget::set_default_direction(gtk::TextDirection::Rtl);
     super::super::test_input::wait_for_layout(window, &this.widgets.nav_search);
     let toggle = this.widgets.nav_search.compute_bounds(window).unwrap();
     let compact = liked.parent().unwrap().compute_bounds(window).unwrap();
-    assert!(compact.width() < enlarged && compact.x() >= toggle.x() + toggle.width());
-    assert!(toggle.x() >= 0.0 && compact.x() + compact.width() <= window.width() as f32);
+    assert!(compact.width() < enlarged && compact.x() + compact.width() <= toggle.x());
+    assert!(!liked_label.is_mapped());
+    assert!(compact.x() >= 0.0 && toggle.x() + toggle.width() <= window.width() as f32);
     assert_eq!(
         toggle.width(),
         this.widgets
@@ -432,7 +439,8 @@ fn native_global_search_measured_slot_and_motion() {
         rect(this.widgets.nav_search.compute_bounds(window).unwrap()),
         rect(toggle)
     );
-    liked.set_label(&original);
+    liked_label.set_label(&original);
+    gtk::Widget::set_default_direction(direction);
     ui.music.close();
     window.close();
 }

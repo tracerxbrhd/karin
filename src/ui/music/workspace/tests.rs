@@ -499,14 +499,9 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
     // queues a resize even for the same dimensions, so observe the existing
     // request here instead of issuing it a second time at a 0×0 allocation.
     wait_for_size(&ui, 1440, 900);
-    // These real controls are reparented into ToolbarView, outside the music
-    // page. Verify the shaped font, not just a CSS declaration on a sample.
-    for button in [
-        &this.widgets.nav_wave,
-        &this.widgets.nav_liked,
-        &this.widgets.nav_playlists,
-    ] {
-        let label = button.child().and_downcast::<gtk::Label>().unwrap();
+    // Verify the shaped text on the native HeaderBar navigation controls.
+    for label in &this.widgets.nav_labels {
+        assert!(label.is_mapped() && label.is_ancestor(&ui.header));
         let layout = label.layout();
         let run = layout
             .iter()
