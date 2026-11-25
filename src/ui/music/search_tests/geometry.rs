@@ -149,7 +149,11 @@ fn measure_state(ui: &crate::ui::MainWindow, id: &str, tag: &str, motion: bool) 
     let widgets = &this.widgets;
     let header = &widgets.primary_navigation;
     let tabs = widgets.nav_wave.parent().unwrap();
-    let natural = tabs.measure(gtk::Orientation::Horizontal, -1).1;
+    let orientation = gtk::Orientation::Horizontal;
+    let natural = tabs
+        .measure(orientation, -1)
+        .1
+        .max(widgets.search.measure(orientation, -1).1);
     super::super::test_input::wait_for_layout(window, &tabs);
     let tabs_bounds = tabs.compute_bounds(window).unwrap();
     let group = widgets.search_header.compute_bounds(window).unwrap();
@@ -344,8 +348,9 @@ fn native_global_search_measured_slot_and_motion() {
     let settings = gtk::Settings::default().unwrap();
     let style = adw::StyleManager::default();
     for (width, height) in [
-        (360, 720),
         (420, 720),
+        (390, 720),
+        (360, 720),
         (900, 650),
         (1440, 900),
         (1920, 1080),

@@ -45,6 +45,7 @@ impl SearchHeader {
         header.set_orientation(gtk::Orientation::Horizontal);
         // GtkStack measures both pages, so the entry occupies the same title
         // slot as the tabs. The separate leading toggle never moves on open.
+        entry.set_width_request(120);
         entry.set_width_chars(1);
         entry.set_max_width_chars(1);
         let slot = gtk::Stack::builder()
@@ -133,6 +134,7 @@ pub(super) fn section_button(
         .child(&content)
         .action_name(action)
         .tooltip_text(text)
+        .hexpand(true)
         .valign(gtk::Align::Center)
         .build();
     button.set_widget_name(name);

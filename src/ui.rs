@@ -597,19 +597,29 @@ fn build_shell(
     let compact_navigation = adw::Breakpoint::new(
         adw::BreakpointCondition::parse("max-width: 719sp").expect("constant breakpoint"),
     );
-    music.add_compact_navigation_setters(&compact_navigation);
-    compact_navigation.add_setter(
-        &information_view,
-        "width-request",
-        Some(&(-1_i32).to_value()),
+    let narrow_navigation = adw::Breakpoint::new(
+        adw::BreakpointCondition::parse("max-width: 399sp").expect("constant breakpoint"),
     );
-    if let Some(diagnostics) = &diagnostics {
-        compact_navigation.add_setter(
-            &diagnostics.columns,
-            "orientation",
-            Some(&gtk::Orientation::Vertical.to_value()),
+    // Only the decorative icon yields on the narrowest windows. The title
+    // still has room for the full search field and all three routes.
+    narrow_navigation.add_setter(&brand, "visible", Some(&false.to_value()));
+    for breakpoint in [&compact_navigation, &narrow_navigation] {
+        music.add_compact_navigation_setters(breakpoint);
+        breakpoint.add_setter(
+            &information_view,
+            "width-request",
+            Some(&(-1_i32).to_value()),
         );
-        compact_navigation.add_setter(&diagnostics.columns, "homogeneous", Some(&false.to_value()));
+        if let Some(diagnostics) = &diagnostics {
+            breakpoint.add_setter(
+                &diagnostics.columns,
+                "orientation",
+                Some(&gtk::Orientation::Vertical.to_value()),
+            );
+            breakpoint.add_setter(&diagnostics.columns, "homogeneous", Some(&false.to_value()));
+        }
+    }
+    if let Some(diagnostics) = &diagnostics {
         let action = gio::SimpleAction::new("diagnostics", None);
         let stack = stack.downgrade();
         let prepare = diagnostics.player.prepare.downgrade();
@@ -625,6 +635,7 @@ fn build_shell(
         app.set_accels_for_action("win.diagnostics", &["<Alt>2"]);
     }
     workspace_bin.add_breakpoint(compact_navigation);
+    workspace_bin.add_breakpoint(narrow_navigation);
     window.add_action(&gio::SimpleAction::new("overview", None));
     let preferences = gio::SimpleAction::new("preferences", None);
     let show_preferences = music.preferences_callback();

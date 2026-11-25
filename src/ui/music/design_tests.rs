@@ -1069,8 +1069,9 @@ fn global_search_layout(ui: &crate::ui::MainWindow) -> Option<Value> {
     {
         return None;
     }
-    let header = &widgets.primary_navigation;
-    assert!(widgets.search.is_mapped() && widgets.search.is_ancestor(header));
+    let slot = &widgets.primary_navigation;
+    assert!(widgets.search.is_mapped() && widgets.search.is_ancestor(slot));
+    assert!(slot.is_ancestor(&ui.header) && widgets.nav_search.is_ancestor(&ui.header));
     assert!(
         descendants(&widgets.stack.visible_child().unwrap())
             .iter()
@@ -1079,18 +1080,26 @@ fn global_search_layout(ui: &crate::ui::MainWindow) -> Option<Value> {
     );
     let entry = widgets.search.compute_bounds(&ui.window).unwrap();
     let toggle = widgets.nav_search.compute_bounds(&ui.window).unwrap();
-    let header_rect = header.compute_bounds(&ui.window).unwrap();
+    let slot_rect = slot.compute_bounds(&ui.window).unwrap();
+    let header_rect = ui.header.compute_bounds(&ui.window).unwrap();
     assert!(entry.width() >= 120.0 && entry.height() > 0.0);
     assert!(
-        entry.x() >= header_rect.x() - 1.0
-            && entry.x() + entry.width() <= toggle.x() + 1.0
-            && toggle.x() + toggle.width() <= header_rect.x() + header_rect.width() + 1.0,
-        "header entry and toggle fit the navigation: {entry:?}/{toggle:?}/{header_rect:?}"
+        (entry.x() - slot_rect.x()).abs() <= 1.0
+            && (entry.width() - slot_rect.width()).abs() <= 1.0
+            && toggle.x() >= header_rect.x() - 1.0
+            && toggle.x() + toggle.width() <= entry.x() + 1.0
+            && entry.x() + entry.width() <= header_rect.x() + header_rect.width() + 1.0
+            && [entry, toggle].iter().all(|rect| {
+                rect.y() >= header_rect.y() - 1.0
+                    && rect.y() + rect.height() <= header_rect.y() + header_rect.height() + 1.0
+            }),
+        "entry shares the title slot beside the leading toggle: {entry:?}/{toggle:?}/{header_rect:?}"
     );
     Some(json!({
         "entry": [entry.x(),entry.y(),entry.width(),entry.height()],
         "toggle": [toggle.x(),toggle.y(),toggle.width(),toggle.height()],
         "header": [header_rect.x(),header_rect.y(),header_rect.width(),header_rect.height()],
+        "title_slot": [slot_rect.x(),slot_rect.y(),slot_rect.width(),slot_rect.height()],
     }))
 }
 
