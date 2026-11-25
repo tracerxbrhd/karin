@@ -105,9 +105,9 @@ def verify_signed_bundle(bundle: Path, work: Path, public_key: Path, commit: str
         raise ValueError("Signed bundle does not contain the verified deployment")
 
 
-def write_remote_files(packages: Path, repo: Path, name: str, public_key: bytes) -> None:
+def write_remote_files(packages: Path, repo: Path, public_key: bytes) -> None:
     pin = base64.b64encode(public_key).decode("ascii")
-    reference = packages / f"{name}.flatpakref"
+    reference = packages / "karin.flatpakref"
     reference.write_text(
         f"[Flatpak Ref]\nName={APP_ID}\nBranch=master\nTitle=Karin\n"
         f"Url={CHANNEL_URL}\nGPGKey={pin}\nSuggestRemoteName=karin\n"
@@ -120,7 +120,7 @@ def write_remote_files(packages: Path, repo: Path, name: str, public_key: bytes)
         "DefaultBranch=master\n",
         encoding="utf-8",
     )
-    shutil.copyfile(reference, repo / "karin.flatpakref")
+    shutil.copyfile(reference, repo / reference.name)
     shutil.copyfile(remote, repo / remote.name)
 
 
@@ -165,7 +165,7 @@ def prepare(repository: Path, revision: str, artifacts: Path, output: Path, keyr
             str(bundle), APP_ID, "master",
         ], check=True)
         verify_signed_bundle(bundle, work, public_key, commit)
-        write_remote_files(packages, repo, name, key)
+        write_remote_files(packages, repo, key)
         record = {
             "schema": 1,
             "app_id": APP_ID,

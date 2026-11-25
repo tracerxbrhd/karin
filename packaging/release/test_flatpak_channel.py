@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 import unittest
 
-from flatpak_channel import APP_REF, ostree, trusted_key, verify_signed_pull
+from flatpak_channel import APP_REF, ostree, trusted_key, verify_signed_pull, write_remote_files
 
 
 @unittest.skipUnless(all(shutil.which(tool) for tool in ("gpg", "gpgconf", "ostree")),
@@ -74,6 +74,18 @@ class SignedChannelTests(unittest.TestCase):
 
 
 class ChannelPolicyTests(unittest.TestCase):
+    def test_release_and_pages_share_canonical_installer_names(self):
+        with tempfile.TemporaryDirectory() as directory:
+            packages = Path(directory) / "packages"
+            repo = Path(directory) / "flatpak"
+            packages.mkdir()
+            repo.mkdir()
+            write_remote_files(packages, repo, b"fixture public certificate")
+            names = {"karin.flatpakref", "karin.flatpakrepo"}
+            self.assertEqual({path.name for path in packages.iterdir()}, names)
+            for name in names:
+                self.assertEqual((packages / name).read_bytes(), (repo / name).read_bytes())
+
     def test_empty_or_malformed_pin_stops_before_keyring_access(self):
         for value in ("", "not a key", "a" * 40, "F" * 64):
             with self.subTest(value=value), self.assertRaisesRegex(ValueError, "pinned"):
