@@ -217,6 +217,87 @@ def isolated_browser_environment(directory):
     return environment, marker
 
 
+def exercise_independent_cancel(binary, environment, browser_marker, network_trap, *, remember):
+    # Reserve a free literal loopback port, then let Karin bind its callback.
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as available:
+        available.bind(("127.0.0.1", 0))
+        port = str(available.getsockname()[1]).encode("ascii")
+    assert int(port) >= 1024
+    master, slave = os.openpty()
+    child = None
+    try:
+        original = termios.tcgetattr(slave)
+        command = [binary, "--independent-auth", "login"]
+        if remember:
+            command.append("--remember")
+        child = subprocess.Popen(
+            command,
+            stdin=slave,
+            stdout=slave,
+            stderr=slave,
+            preexec_fn=controlling_terminal,
+            close_fds=True,
+            env=environment,
+        )
+        output = read_until(master, child, PROMPT)
+        assert_hidden(slave)
+        os.write(master, CLIENT_ID + b"\r")
+        output.extend(read_until(master, child, b"Registered loopback port: "))
+        assert_hidden(slave)
+        os.write(master, port + b"\r")
+        output.extend(read_until(master, child, b"Escape here to cancel."))
+        assert_hidden(slave)
+        deadline = time.monotonic() + 2
+        while not browser_marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert browser_marker.exists(), "Independent login did not launch the offline browser stub"
+        os.write(master, b"\x03" if remember else b"\r")
+        wait_without_network(child, network_trap)
+        while select.select([master], [], [], 0)[0]:
+            output.extend(os.read(master, 16384))
+        assert child.returncode == 1 and "Вход отменён.".encode("utf-8") in output
+        assert termios.tcgetattr(slave) == original, "Independent login left the terminal hidden"
+        assert CLIENT_ID not in output and b"state=" not in output and b"code_challenge=" not in output
+        # The listener must leave the registered port available after cancellation.
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as released:
+            released.bind(("127.0.0.1", int(port)))
+        action = "remembered / Ctrl-C" if remember else "memory-only / Enter"
+        print(f"Independent login: {action} released loopback and restored terminal (no HTTP)")
+    finally:
+        if child is not None and child.poll() is None:
+            child.kill()
+            child.wait(timeout=5)
+        browser_marker.unlink(missing_ok=True)
+        os.close(master)
+        os.close(slave)
+
+
+def exercise_independent_arguments(binary, environment, browser_marker, network_trap):
+    for args, code, expected in [
+        (["login"], 1, b"requires a local controlling terminal"),
+        (["login", "--remember"], 1, b"requires a local controlling terminal"),
+        (["restore"], 1, b"requires a local controlling terminal"),
+        (["logout"], 1, b"requires a local controlling terminal"),
+        (["login", MARKER.decode("ascii")], 2, b"Enter registration details only"),
+        (["login", MARKER + b"\xff"], 2, b"Invalid arguments"),
+        (["restore", "--remember"], 2, b"Enter registration details only"),
+        (["logout", "--experimental-wave"], 2, b"Enter registration details only"),
+    ]:
+        invocation = subprocess.run(
+            [binary, "--independent-auth", *args],
+            input=MARKER,
+            capture_output=True,
+            start_new_session=True,
+            timeout=10,
+            check=False,
+            env=environment,
+        )
+        assert invocation.returncode == code and expected in invocation.stderr
+        assert MARKER not in invocation.stdout + invocation.stderr
+        assert not browser_marker.exists() and not select.select([network_trap], [], [], 0)[0]
+    print("Independent sign-in: non-terminal and extra argument inputs refused (no browser or HTTP)")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("binary", nargs="?", default="target/debug/karin")
@@ -288,6 +369,11 @@ def main():
         assert not browser_marker.exists(), "A local test attempted the isolated browser handler"
         assert not select.select([network_trap], [], [], 0)[0], "A local test attempted HTTP"
         print("OAuth terminal: no controlling terminal refused before credential input")
+        exercise_independent_arguments(binary, environment, browser_marker, network_trap)
+        for remember in [False, True]:
+            exercise_independent_cancel(
+                binary, environment, browser_marker, network_trap, remember=remember
+            )
 
 
 if __name__ == "__main__":

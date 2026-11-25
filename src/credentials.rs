@@ -4,7 +4,11 @@
 
 use crate::session::AccessToken;
 use gtk::{gio, glib};
-use std::{fmt, path::PathBuf, sync::Arc};
+use std::{
+    fmt,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use zeroize::Zeroizing;
 
 mod portal;
@@ -114,6 +118,51 @@ pub struct CredentialStore {
     backend: Arc<dyn CredentialBackend>,
 }
 
+#[derive(Clone, Copy)]
+enum CredentialScope {
+    Ordinary,
+    IndependentAuth,
+}
+
+impl CredentialScope {
+    fn data_directory(self) -> PathBuf {
+        let name = match self {
+            Self::Ordinary => "credentials",
+            Self::IndependentAuth => "independent-auth-credentials",
+        };
+        glib::user_data_dir().join(crate::config::APP_ID).join(name)
+    }
+}
+
+/// Serializes local independent credential operations across processes. The
+/// durable marker suppresses restore until an interrupted write or logout is
+/// explicitly resolved. Dropping the directory descriptor releases the lock.
+pub(crate) struct IndependentCredentialGuard {
+    marker: portal::Directory,
+}
+
+impl IndependentCredentialGuard {
+    pub(crate) fn acquire_at(path: &Path, cancel: &Cancellation) -> Result<Self, StorageError> {
+        cancel.check()?;
+        let marker = portal::Directory::independent_guard(path)?;
+        cancel.check()?;
+        Ok(Self { marker })
+    }
+
+    pub(crate) fn pending(&self) -> Result<bool, StorageError> {
+        self.marker.read().map(|marker| marker.is_some())
+    }
+
+    pub(crate) fn mark_pending(&self, cancel: &Cancellation) -> Result<(), StorageError> {
+        self.marker
+            .write(b"Karin independent credential pending v1\n", cancel)
+    }
+
+    pub(crate) fn clear_pending(&self) -> Result<(), StorageError> {
+        self.marker.delete()
+    }
+}
+
 impl fmt::Debug for CredentialStore {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("CredentialStore([system backend])")
@@ -122,22 +171,38 @@ impl fmt::Debug for CredentialStore {
 
 impl CredentialStore {
     pub fn system() -> Self {
+        Self::system_for_scope(CredentialScope::Ordinary)
+    }
+
+    /// The local independent sign-in must never load or replace an ordinary
+    /// Karin credential. The backends bind storage to the sign-in scope.
+    pub(crate) fn independent_auth() -> Self {
+        Self::system_for_scope(CredentialScope::IndependentAuth)
+    }
+
+    pub(crate) fn independent_auth_directory() -> PathBuf {
+        CredentialScope::IndependentAuth.data_directory()
+    }
+
+    fn system_for_scope(scope: CredentialScope) -> Self {
         let flatpak = std::path::Path::new("/.flatpak-info").is_file();
-        Self::for_environment(
-            flatpak,
-            glib::user_data_dir()
-                .join(crate::config::APP_ID)
-                .join("credentials"),
-        )
+        Self::for_scope(flatpak, scope.data_directory(), scope)
     }
 
     /// Explicit paths/backends support isolated fixtures and packaging tests.
     /// `flatpak` chooses the portal, never a silent direct-session-bus grant.
     pub fn for_environment(flatpak: bool, private_directory: PathBuf) -> Self {
+        Self::for_scope(flatpak, private_directory, CredentialScope::Ordinary)
+    }
+
+    fn for_scope(flatpak: bool, private_directory: PathBuf, scope: CredentialScope) -> Self {
         if flatpak {
-            Self::with_backend(portal::PortalBackend::new(private_directory))
+            Self::with_backend(portal::PortalBackend::new(private_directory, scope))
         } else {
-            Self::with_backend(secret_service::SecretServiceBackend::new(private_directory))
+            Self::with_backend(secret_service::SecretServiceBackend::new(
+                private_directory,
+                scope,
+            ))
         }
     }
 

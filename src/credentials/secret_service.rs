@@ -41,23 +41,39 @@ impl Drop for PromptGuard<'_> {
 
 pub(super) struct SecretServiceBackend {
     directory: PathBuf,
+    scope: CredentialScope,
 }
 impl SecretServiceBackend {
-    pub(super) fn new(directory: PathBuf) -> Self {
-        Self { directory }
+    pub(super) fn new(directory: PathBuf, scope: CredentialScope) -> Self {
+        Self { directory, scope }
     }
 }
 
-fn attributes() -> BTreeMap<String, String> {
+fn attributes(scope: CredentialScope) -> BTreeMap<String, String> {
+    let (purpose, schema) = match scope {
+        CredentialScope::Ordinary => (
+            "music-access-token-v1",
+            "io.github.tracerxbrhd.Karin.MusicSession",
+        ),
+        CredentialScope::IndependentAuth => (
+            "independent-auth-music-access-token-v1",
+            "io.github.tracerxbrhd.Karin.IndependentAuthSession",
+        ),
+    };
     BTreeMap::from([
         ("application".into(), crate::config::APP_ID.into()),
-        ("karin-purpose".into(), "music-access-token-v1".into()),
-        (
-            "xdg:schema".into(),
-            "io.github.tracerxbrhd.Karin.MusicSession".into(),
-        ),
+        ("karin-purpose".into(), purpose.into()),
+        ("xdg:schema".into(), schema.into()),
     ])
 }
+
+fn item_label(scope: CredentialScope) -> &'static str {
+    match scope {
+        CredentialScope::Ordinary => "Karin — Яндекс Музыка",
+        CredentialScope::IndependentAuth => "Karin — независимая авторизация",
+    }
+}
+
 fn safe_path(path: &ObjectPath) -> Result<(), StorageError> {
     if path.as_str().len() <= 1024 && path.as_str().starts_with("/org/freedesktop/secrets/") {
         Ok(())
@@ -70,13 +86,19 @@ struct Client<'a> {
     connection: BusConnection,
     context: &'a glib::MainContext,
     cancel: &'a Cancellation,
+    scope: CredentialScope,
 }
 impl<'a> Client<'a> {
-    fn new(context: &'a glib::MainContext, cancel: &'a Cancellation) -> Result<Self, StorageError> {
+    fn new(
+        context: &'a glib::MainContext,
+        cancel: &'a Cancellation,
+        scope: CredentialScope,
+    ) -> Result<Self, StorageError> {
         Ok(Self {
             connection: connection(cancel)?,
             context,
             cancel,
+            scope,
         })
     }
     fn call(
@@ -125,7 +147,7 @@ impl<'a> Client<'a> {
             ROOT,
             API,
             "SearchItems",
-            Some(&(attributes(),).to_variant()),
+            Some(&(attributes(self.scope),).to_variant()),
         )?;
         let (unlocked, locked) = result
             .get::<(Vec<ObjectPath>, Vec<ObjectPath>)>()
@@ -334,7 +356,7 @@ impl Drop for Session<'_> {
 impl CredentialBackend for SecretServiceBackend {
     fn probe(&self, cancel: &Cancellation) -> Result<BackendKind, StorageError> {
         with_context(|context| {
-            let client = Client::new(context, cancel)?;
+            let client = Client::new(context, cancel, self.scope)?;
             client.collection(false)?;
             Ok(BackendKind::SecretService)
         })
@@ -346,7 +368,7 @@ impl CredentialBackend for SecretServiceBackend {
             return Err(StorageError::Unconfirmed);
         }
         with_context(|context| {
-            let client = Client::new(context, cancel)?;
+            let client = Client::new(context, cancel, self.scope)?;
             let items = client.unlocked_items()?;
             if items.is_empty() {
                 return Ok(None);
@@ -369,7 +391,7 @@ impl CredentialBackend for SecretServiceBackend {
             return Err(StorageError::Unconfirmed);
         }
         with_context(|context| {
-            let client = Client::new(context, cancel)?;
+            let client = Client::new(context, cancel, self.scope)?;
             let collection = client.collection(true)?.ok_or(StorageError::Unavailable)?;
             client.unlock(vec![collection.clone()])?;
             // No older scoped item may make a delayed write appear resolved.
@@ -378,11 +400,11 @@ impl CredentialBackend for SecretServiceBackend {
             let properties = BTreeMap::from([
                 (
                     "org.freedesktop.Secret.Item.Label".to_owned(),
-                    "Karin — Яндекс Музыка".to_variant(),
+                    item_label(client.scope).to_variant(),
                 ),
                 (
                     "org.freedesktop.Secret.Item.Attributes".to_owned(),
-                    attributes().to_variant(),
+                    attributes(client.scope).to_variant(),
                 ),
             ]);
             cancel.check()?;
@@ -459,7 +481,7 @@ impl CredentialBackend for SecretServiceBackend {
     }
     fn delete(&self, cancel: &Cancellation) -> Result<(), StorageError> {
         with_context(|context| {
-            let client = Client::new(context, cancel)?;
+            let client = Client::new(context, cancel, self.scope)?;
             let marker = super::portal::Directory::native_marker(&self.directory, false)?;
             let pending = marker
                 .as_ref()
@@ -477,5 +499,28 @@ impl CredentialBackend for SecretServiceBackend {
             }
             Ok(())
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn independent_scope_has_distinct_keyring_search_and_replace_attributes() {
+        let music = attributes(CredentialScope::Ordinary);
+        let independent = attributes(CredentialScope::IndependentAuth);
+        assert_eq!(music["karin-purpose"], "music-access-token-v1");
+        assert_eq!(
+            music["xdg:schema"],
+            "io.github.tracerxbrhd.Karin.MusicSession"
+        );
+        assert_eq!(independent["application"], music["application"]);
+        assert_ne!(independent["karin-purpose"], music["karin-purpose"]);
+        assert_ne!(independent["xdg:schema"], music["xdg:schema"]);
+        assert_ne!(
+            item_label(CredentialScope::IndependentAuth),
+            item_label(CredentialScope::Ordinary)
+        );
     }
 }

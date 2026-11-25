@@ -528,12 +528,7 @@ impl AuthAttempt {
         mode: BrowserMode,
         endpoint: &str,
     ) -> Result<Arc<Self>, AuthError> {
-        if client_id.is_empty()
-            || client_id.len() > 128
-            || !client_id
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
-        {
+        if !crate::oauth::valid_client_id(client_id) {
             return Err(AuthError::Configuration);
         }
         let listener = TcpListener::bind(SocketAddrV4::new(std::net::Ipv4Addr::LOCALHOST, port))
@@ -560,7 +555,7 @@ impl AuthAttempt {
             ("response_type", "code"),
             ("client_id", client_id),
             ("redirect_uri", &callback),
-            ("scope", &crate::oauth::REQUIRED_SCOPES.join(" ")),
+            ("scope", &crate::oauth::NATIVE_SCOPES.join(" ")),
             ("code_challenge", &challenge),
             ("code_challenge_method", "S256"),
             ("state", &state),
@@ -878,7 +873,17 @@ impl AuthAttempt {
     /// Automatic browser return. The listener is numeric IPv4 loopback only,
     /// bounded, cancellable and sends no credential-bearing redirect or body.
     pub fn receive_callback(&self) -> Result<AuthorizationCode, AuthError> {
+        self.receive_callback_until(|| false)
+    }
+
+    pub(crate) fn receive_callback_until(
+        &self,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<AuthorizationCode, AuthError> {
         loop {
+            if cancelled() {
+                self.cancel();
+            }
             self.check_live()?;
             let accepted = {
                 // Only nonblocking accept runs under the lock. Never retain a
@@ -898,7 +903,7 @@ impl AuthAttempt {
                     if !peer.ip().is_loopback() {
                         continue;
                     }
-                    let result = self.read_return(&mut stream);
+                    let result = self.read_return(&mut stream, &cancelled);
                     let status = if result.is_ok() {
                         "200 OK"
                     } else {
@@ -929,13 +934,20 @@ impl AuthAttempt {
         }
     }
 
-    fn read_return(&self, stream: &mut TcpStream) -> Result<AuthorizationCode, AuthError> {
+    fn read_return(
+        &self,
+        stream: &mut TcpStream,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<AuthorizationCode, AuthError> {
         stream
             .set_nonblocking(true)
             .map_err(|_| AuthError::Network)?;
         let deadline = Instant::now() + Duration::from_secs(2);
         let mut bytes = Zeroizing::new(Vec::new());
         while !bytes.ends_with(b"\r\n\r\n") {
+            if cancelled() {
+                self.cancel();
+            }
             self.check_live()?;
             if Instant::now() >= deadline {
                 return Err(AuthError::InvalidResponse);

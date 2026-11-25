@@ -28,6 +28,7 @@ const API: &str = "org.freedesktop.portal.Secret";
 const REQUEST: &str = "org.freedesktop.portal.Request";
 const FILE: &str = "session.enc";
 const MAGIC: &[u8] = b"KARIN-SECRET\x00\x01";
+const INDEPENDENT_MAGIC: &[u8] = b"KARIN-INDEPENDENT-AUTH\x00\x01";
 const MAX_LOCATOR: usize = 4096;
 const MAX_MASTER: usize = 4096;
 const MAX_ENVELOPE: usize = 16 * 1024;
@@ -35,10 +36,27 @@ const NONCE_LEN: usize = 12;
 
 pub(super) struct PortalBackend {
     directory: PathBuf,
+    scope: CredentialScope,
 }
 impl PortalBackend {
-    pub(super) fn new(directory: PathBuf) -> Self {
-        Self { directory }
+    pub(super) fn new(directory: PathBuf, scope: CredentialScope) -> Self {
+        Self { directory, scope }
+    }
+}
+
+impl CredentialScope {
+    fn envelope_magic(self) -> &'static [u8] {
+        match self {
+            Self::Ordinary => MAGIC,
+            Self::IndependentAuth => INDEPENDENT_MAGIC,
+        }
+    }
+
+    fn key_info(self) -> &'static [u8] {
+        match self {
+            Self::Ordinary => b"music-access-token/AES-256-GCM",
+            Self::IndependentAuth => b"independent-auth-music-access-token/AES-256-GCM",
+        }
     }
 }
 
@@ -69,6 +87,7 @@ impl Drop for RequestGuard<'_> {
     }
 }
 struct Envelope {
+    scope: CredentialScope,
     nonce: [u8; NONCE_LEN],
     locator: Option<Zeroizing<String>>,
     header: Vec<u8>,
@@ -76,15 +95,16 @@ struct Envelope {
 }
 
 impl Envelope {
-    fn parse(bytes: &[u8]) -> Result<Self, StorageError> {
-        let fixed = MAGIC.len() + NONCE_LEN + 2;
+    fn parse(bytes: &[u8], scope: CredentialScope) -> Result<Self, StorageError> {
+        let magic = scope.envelope_magic();
+        let fixed = magic.len() + NONCE_LEN + 2;
         if bytes.len() < fixed + aead::AES_256_GCM.tag_len() + 1
             || bytes.len() > MAX_ENVELOPE
-            || !bytes.starts_with(MAGIC)
+            || !bytes.starts_with(magic)
         {
             return Err(StorageError::Corrupt);
         }
-        let nonce = bytes[MAGIC.len()..MAGIC.len() + NONCE_LEN]
+        let nonce = bytes[magic.len()..magic.len() + NONCE_LEN]
             .try_into()
             .map_err(|_| StorageError::Corrupt)?;
         let length = u16::from_be_bytes(
@@ -106,6 +126,7 @@ impl Envelope {
             Some(Zeroizing::new(value.to_owned()))
         };
         Ok(Self {
+            scope,
             nonce,
             locator,
             header: bytes[..fixed + length].to_vec(),
@@ -113,7 +134,7 @@ impl Envelope {
         })
     }
     fn open(mut self, secret: &[u8]) -> Result<Zeroizing<Vec<u8>>, StorageError> {
-        let key = key(secret)?;
+        let key = key(secret, self.scope)?;
         let plaintext = key
             .open_in_place(
                 aead::Nonce::assume_unique_for_key(self.nonce),
@@ -134,7 +155,7 @@ impl hkdf::KeyType for KeyLength {
         aead::AES_256_GCM.key_len()
     }
 }
-fn key(secret: &[u8]) -> Result<aead::LessSafeKey, StorageError> {
+fn key(secret: &[u8], scope: CredentialScope) -> Result<aead::LessSafeKey, StorageError> {
     if secret.is_empty() || secret.len() > MAX_MASTER {
         return Err(StorageError::Corrupt);
     }
@@ -143,7 +164,7 @@ fn key(secret: &[u8]) -> Result<aead::LessSafeKey, StorageError> {
         b"io.github.tracerxbrhd.Karin/SecretPortal/v1",
     );
     let prk = salt.extract(secret);
-    let info = [b"music-access-token/AES-256-GCM".as_slice()];
+    let info = [scope.key_info()];
     let material = prk
         .expand(&info, KeyLength)
         .map_err(|_| StorageError::Corrupt)?;
@@ -155,7 +176,11 @@ fn key(secret: &[u8]) -> Result<aead::LessSafeKey, StorageError> {
         .map(aead::LessSafeKey::new)
         .map_err(|_| StorageError::Corrupt)
 }
-fn seal(value: &[u8], master: &PortalKey) -> Result<Zeroizing<Vec<u8>>, StorageError> {
+fn seal(
+    value: &[u8],
+    master: &PortalKey,
+    scope: CredentialScope,
+) -> Result<Zeroizing<Vec<u8>>, StorageError> {
     validate_token(value)?;
     let mut nonce = [0u8; NONCE_LEN];
     SystemRandom::new()
@@ -165,12 +190,12 @@ fn seal(value: &[u8], master: &PortalKey) -> Result<Zeroizing<Vec<u8>>, StorageE
     if locator.len() > MAX_LOCATOR {
         return Err(StorageError::Corrupt);
     }
-    let mut header = MAGIC.to_vec();
+    let mut header = scope.envelope_magic().to_vec();
     header.extend_from_slice(&nonce);
     header.extend_from_slice(&(locator.len() as u16).to_be_bytes());
     header.extend_from_slice(locator.as_bytes());
     let mut ciphertext = Zeroizing::new(value.to_vec());
-    key(&master.secret)?
+    key(&master.secret, scope)?
         .seal_in_place_append_tag(
             aead::Nonce::assume_unique_for_key(nonce),
             aead::Aad::from(header.as_slice()),
@@ -219,6 +244,42 @@ impl Directory {
             directory.name = "native-write.pending";
             directory
         }))
+    }
+    pub(super) fn independent_guard(path: &Path) -> Result<Self, StorageError> {
+        // The keyring may durably publish a credential even on first launch.
+        // Persist the path of its recovery marker, including newly created
+        // parent directories, before allowing any independent credential work.
+        let mut parent = path.parent().ok_or(StorageError::Permission)?;
+        let mut parents_to_sync = vec![parent];
+        while !parent.try_exists().map_err(|_| StorageError::Io)? {
+            parent = parent.parent().ok_or(StorageError::Permission)?;
+            parents_to_sync.push(parent);
+        }
+        let mut directory = Self::open(path, true)?.ok_or(StorageError::Io)?;
+        rustix::fs::flock(
+            &directory.file,
+            rustix::fs::FlockOperation::NonBlockingLockExclusive,
+        )
+        .map_err(|error| {
+            if error == rustix::io::Errno::WOULDBLOCK {
+                StorageError::Unconfirmed
+            } else {
+                StorageError::Io
+            }
+        })?;
+        for parent in parents_to_sync {
+            let fd = rustix::fs::open(
+                parent,
+                OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+                Mode::empty(),
+            )
+            .map_err(|_| StorageError::Io)?;
+            File::from(fd)
+                .sync_all()
+                .map_err(|_| StorageError::Unconfirmed)?;
+        }
+        directory.name = "auth-write.pending";
+        Ok(directory)
     }
     pub(super) fn read(&self) -> Result<Option<Zeroizing<Vec<u8>>>, StorageError> {
         let fd = match rustix::fs::openat(
@@ -500,7 +561,7 @@ impl CredentialBackend for PortalBackend {
         let Some(bytes) = directory.read()? else {
             return Ok(None);
         };
-        let envelope = Envelope::parse(&bytes)?;
+        let envelope = Envelope::parse(&bytes, self.scope)?;
         with_context(|context| {
             let connection = connection(cancel)?;
             let locator = envelope.locator.as_deref().map(|s| s.as_str());
@@ -508,7 +569,7 @@ impl CredentialBackend for PortalBackend {
             let changed = master.locator.as_deref().map(|s| s.as_str()) != locator;
             let plaintext = envelope.open(&master.secret)?;
             if changed {
-                directory.write(&seal(&plaintext, &master)?, cancel)?;
+                directory.write(&seal(&plaintext, &master, self.scope)?, cancel)?;
             }
             cancel.check()?;
             restored_token(plaintext).map(Some)
@@ -523,7 +584,7 @@ impl CredentialBackend for PortalBackend {
         // A newly validated login can replace a damaged old envelope. No old
         // ciphertext is treated as proof of authorization.
         let previous = match directory.read() {
-            Ok(bytes) => bytes.and_then(|bytes| Envelope::parse(&bytes).ok()),
+            Ok(bytes) => bytes.and_then(|bytes| Envelope::parse(&bytes, self.scope).ok()),
             Err(StorageError::Corrupt) => None,
             Err(error) => return Err(error),
         };
@@ -536,7 +597,10 @@ impl CredentialBackend for PortalBackend {
             if token.is_expired() {
                 return Err(StorageError::Cancelled);
             }
-            directory.write(&seal(token.expose().as_bytes(), &master)?, cancel)
+            directory.write(
+                &seal(token.expose().as_bytes(), &master, self.scope)?,
+                cancel,
+            )
         })
     }
     fn delete(&self, cancel: &Cancellation) -> Result<(), StorageError> {
@@ -561,27 +625,60 @@ mod tests {
             locator: Some(Zeroizing::new("synthetic-portal-identifier".into())),
         };
         let token = b"synthetic-private-access-token";
-        let encoded = seal(token, &master).unwrap();
+        let scope = CredentialScope::Ordinary;
+        let encoded = seal(token, &master, scope).unwrap();
         assert!(!encoded.windows(token.len()).any(|s| s == token));
-        let recovered = Envelope::parse(&encoded)
+        let recovered = Envelope::parse(&encoded, scope)
             .unwrap()
             .open(&master.secret)
             .unwrap();
         assert_eq!(recovered.as_slice(), token);
-        assert!(Envelope::parse(&encoded).unwrap().open(&[43; 32]).is_err());
+        assert!(
+            Envelope::parse(&encoded, scope)
+                .unwrap()
+                .open(&[43; 32])
+                .is_err()
+        );
         for index in [MAGIC.len(), MAGIC.len() + NONCE_LEN + 2, encoded.len() - 1] {
             let mut damaged = encoded.to_vec();
             damaged[index] ^= 1;
             assert!(
-                Envelope::parse(&damaged)
+                Envelope::parse(&damaged, scope)
                     .and_then(|e| e.open(&master.secret))
                     .is_err()
             );
         }
         assert!(
-            Envelope::parse(&encoded[..encoded.len() - 1])
+            Envelope::parse(&encoded[..encoded.len() - 1], scope)
                 .and_then(|e| e.open(&master.secret))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn independent_portal_scope_rejects_ordinary_envelopes_and_uses_a_distinct_key() {
+        let master = PortalKey {
+            secret: Zeroizing::new(vec![42; 32]),
+            locator: None,
+        };
+        let token = b"synthetic-private-access-token";
+        let music = CredentialScope::Ordinary;
+        let independent = CredentialScope::IndependentAuth;
+        let ordinary = seal(token, &master, music).unwrap();
+        let isolated = seal(token, &master, independent).unwrap();
+        assert!(Envelope::parse(&ordinary, independent).is_err());
+        assert!(Envelope::parse(&isolated, music).is_err());
+        let plaintext = Envelope::parse(&isolated, independent)
+            .unwrap()
+            .open(&master.secret)
+            .unwrap();
+        assert_eq!(plaintext.as_slice(), token);
+
+        let mut wrong_key = Envelope::parse(&isolated, independent).unwrap();
+        wrong_key.scope = music;
+        assert!(matches!(
+            wrong_key.open(&master.secret),
+            Err(StorageError::Corrupt)
+        ));
     }
 }

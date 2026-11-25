@@ -52,6 +52,37 @@ fn backend_errors_never_retain_service_payloads_or_secrets() {
     }
 }
 
+#[test]
+fn independent_persistence_barrier_survives_restart_and_excludes_concurrent_work() {
+    let directory = private_test_directory("independent-credentials");
+    let path = directory.join("first-run").join("isolated");
+    let cancellation = Cancellation::new();
+    let guard = IndependentCredentialGuard::acquire_at(&path, &cancellation).unwrap();
+    assert!(!guard.pending().unwrap());
+    assert!(matches!(
+        IndependentCredentialGuard::acquire_at(&path, &cancellation),
+        Err(StorageError::Unconfirmed)
+    ));
+    guard.mark_pending(&cancellation).unwrap();
+    assert!(guard.pending().unwrap());
+    drop(guard);
+
+    let guard = IndependentCredentialGuard::acquire_at(&path, &cancellation).unwrap();
+    assert!(guard.pending().unwrap());
+    guard.clear_pending().unwrap();
+    drop(guard);
+    let guard = IndependentCredentialGuard::acquire_at(&path, &cancellation).unwrap();
+    assert!(!guard.pending().unwrap());
+    cancellation.cancel();
+    assert_eq!(
+        guard.mark_pending(&cancellation),
+        Err(StorageError::Cancelled)
+    );
+    assert!(!guard.pending().unwrap());
+    drop(guard);
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
 fn private_test_directory(label: &str) -> PathBuf {
     use ring::rand::{SecureRandom, SystemRandom};
     use std::os::unix::fs::DirBuilderExt;

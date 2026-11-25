@@ -20,8 +20,8 @@ type Fixture = (u16, &'static str);
 // Every endpoint stays on loopback, including paths that an unexpected success
 // or future regression might reach. A negative fixture must never fall through
 // to Yandex with its synthetic token.
-fn isolated_client() -> DiagnosticClient {
-    DiagnosticClient {
+fn isolated_client() -> OAuthClient {
+    OAuthClient {
         client: client_builder().no_proxy().build().unwrap(),
         token_url: "http://127.0.0.1:1/token".to_owned(),
         identity_url: "http://127.0.0.1:1/info?format=json".to_owned(),
@@ -62,7 +62,7 @@ fn request(stream: &mut TcpStream) -> String {
     bytes.extend_from_slice(&body);
     String::from_utf8(bytes).unwrap()
 }
-fn fixture(responses: Vec<Fixture>) -> (DiagnosticClient, JoinHandle<Vec<String>>, TcpListener) {
+fn fixture(responses: Vec<Fixture>) -> (OAuthClient, JoinHandle<Vec<String>>, TcpListener) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let retained = listener.try_clone().unwrap();
     let address = listener.local_addr().unwrap();
@@ -90,7 +90,7 @@ fn fixture(responses: Vec<Fixture>) -> (DiagnosticClient, JoinHandle<Vec<String>
     });
     let timeout = Duration::from_secs(2);
     (
-        DiagnosticClient {
+        OAuthClient {
             client: client_builder()
                 .no_proxy()
                 .timeout(timeout)
@@ -806,17 +806,13 @@ fn music_403_wire(response: String, pause_before_body: Duration) -> ProbeResult 
     });
     let mut client = isolated_client();
     client.timeout = Duration::from_millis(500);
-    let token = Token {
-        access: Zeroizing::new(TOKEN.to_owned()),
-        expires_at: Instant::now() + Duration::from_secs(30),
-        scopes: ScopeEvidence::ReturnedRequiredScopes,
-        http_status: 200,
-    };
+    let token = AccessToken::for_test(TOKEN, Duration::from_secs(30));
     let result = client
         .authorized_get(
             &format!("http://{address}/account/status"),
             &token,
             RemoteService::Music,
+            client.timeout,
         )
         .err()
         .unwrap();
@@ -1353,18 +1349,17 @@ fn actual_location_is_not_followed_and_token_is_never_forwarded() {
 #[test]
 fn expired_memory_token_cannot_start_an_http_request() {
     let client = isolated_client();
-    let token = Token {
-        access: Zeroizing::new(TOKEN.to_owned()),
-        expires_at: Instant::now() - Duration::from_secs(1),
-        scopes: ScopeEvidence::ReturnedRequiredScopes,
-        http_status: 200,
-    };
+    let token = AccessToken::new(
+        Zeroizing::new(TOKEN.to_owned()),
+        Some(Instant::now() - Duration::from_secs(1)),
+    );
     assert_eq!(
         client
             .authorized_get(
                 "http://127.0.0.1:1/not-contacted",
                 &token,
-                RemoteService::Identity
+                RemoteService::Identity,
+                client.timeout,
             )
             .err(),
         Some(ProbeResult::failure(None, ErrorCategory::TokenExpired))

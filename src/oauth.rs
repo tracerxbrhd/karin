@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Owner-only OAuth experiment. Nothing here establishes production Music login.
+//! Karin-owned Authorization Code + S256 PKCE transport and local diagnostic.
 //!
 //! The owner pastes the complete verification-page URL into a hidden local
 //! prompt. Its state is checked before code exchange; this is not an automatic
@@ -21,11 +21,15 @@ use serde::Deserialize;
 use subtle::ConstantTimeEq;
 use zeroize::Zeroizing;
 
+use crate::session::AccessToken;
+
 pub const VERIFICATION_REDIRECT: &str = "https://oauth.yandex.ru/verification_code";
+pub(crate) const NATIVE_SCOPES: [&str; 3] =
+    ["music:api-public", "music:major-public-api", "login:info"];
 pub const REQUIRED_SCOPES: [&str; 4] = [
-    "music:api-public",
-    "music:major-public-api",
-    "login:info",
+    NATIVE_SCOPES[0],
+    NATIVE_SCOPES[1],
+    NATIVE_SCOPES[2],
     "login:avatar",
 ];
 const AUTHORIZE_URL: &str = "https://oauth.yandex.ru/authorize";
@@ -109,6 +113,20 @@ impl ProbeResult {
             http_status: status,
             error: Some(error),
         }
+    }
+}
+
+impl fmt::Display for ProbeResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(error) = self.error {
+            write!(f, "{error}")?;
+        } else {
+            f.write_str("accepted")?;
+        }
+        if let Some(status) = self.http_status {
+            write!(f, " (HTTP {status})")?;
+        }
+        Ok(())
     }
 }
 
@@ -258,12 +276,7 @@ impl fmt::Debug for AuthorizationAttempt {
 }
 impl AuthorizationAttempt {
     pub fn new(client_id: &str) -> Result<Self, ErrorCategory> {
-        if client_id.is_empty()
-            || client_id.len() > 128
-            || !client_id
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
-        {
+        if !valid_client_id(client_id) {
             return Err(ErrorCategory::InvalidInput);
         }
         let rng = SystemRandom::new();
@@ -296,7 +309,7 @@ impl AuthorizationAttempt {
     }
 
     pub fn complete(self, response: AuthorizationResponse) -> DiagnosticReport {
-        let client = match DiagnosticClient::new() {
+        let client = match OAuthClient::new() {
             Ok(client) => client,
             Err(error) => {
                 return DiagnosticReport::new(
@@ -311,7 +324,7 @@ impl AuthorizationAttempt {
     fn complete_with(
         self,
         response: AuthorizationResponse,
-        client: &DiagnosticClient,
+        client: &OAuthClient,
     ) -> DiagnosticReport {
         let rejected_state = match &response {
             AuthorizationResponse::ReturnedRedirect(_) => ReturnedState::RejectedRedirect,
@@ -330,7 +343,13 @@ impl AuthorizationAttempt {
             }
         };
         let observed = ReturnedState::ValidatedRedirect;
-        let token = match client.exchange(&self, &code) {
+        let token = match client.exchange(
+            &self.client_id,
+            &self.verifier,
+            &code,
+            Some(VERIFICATION_REDIRECT),
+            client.timeout,
+        ) {
             Ok(token) => token,
             Err(result) => return DiagnosticReport::new(observed, result),
         };
@@ -418,6 +437,14 @@ impl AuthorizationAttempt {
     }
 }
 
+pub(crate) fn valid_client_id(client_id: &str) -> bool {
+    !client_id.is_empty()
+        && client_id.len() <= 128
+        && client_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"-_.".contains(&byte))
+}
+
 fn decode_query_component(value: &str) -> Result<Zeroizing<String>, ErrorCategory> {
     let mut decoded = Zeroizing::new(Vec::with_capacity(value.len()));
     let mut bytes = value.bytes();
@@ -498,7 +525,7 @@ enum RemoteService {
     Music,
 }
 
-struct DiagnosticClient {
+pub(crate) struct OAuthClient {
     client: Client,
     token_url: String,
     identity_url: String,
@@ -519,8 +546,8 @@ fn client_builder() -> ClientBuilder {
         .redirect(Policy::none())
         .retry(reqwest::retry::never())
 }
-impl DiagnosticClient {
-    fn new() -> Result<Self, ErrorCategory> {
+impl OAuthClient {
+    pub(crate) fn new() -> Result<Self, ErrorCategory> {
         Ok(Self {
             client: client_builder()
                 .build()
@@ -533,7 +560,28 @@ impl DiagnosticClient {
             timeout: REQUEST_TIMEOUT,
         })
     }
-    fn exchange(&self, attempt: &AuthorizationAttempt, code: &str) -> Result<Token, ProbeResult> {
+    pub(crate) fn exchange_loopback(
+        &self,
+        client_id: &str,
+        verifier: &str,
+        code: &str,
+        remaining: Duration,
+    ) -> Result<AccessToken, ProbeResult> {
+        // Yandex documents code_verifier instead of a secret, and does not
+        // list redirect_uri in the token form. The authorize request already
+        // used the owner's exact registered redirect. See ADR-0037.
+        self.exchange(client_id, verifier, code, None, self.timeout.min(remaining))
+            .map(|token| token.access)
+    }
+
+    fn exchange(
+        &self,
+        client_id: &str,
+        verifier: &str,
+        code: &str,
+        diagnostic_redirect: Option<&str>,
+        timeout: Duration,
+    ) -> Result<Token, ProbeResult> {
         // Reserve worst-case escaping for every opaque code byte plus the
         // bounded Client ID, verifier and fixed fields without secret copies.
         let mut form = Zeroizing::new(String::with_capacity(MAX_CODE_BYTES * 3 + 1024));
@@ -542,17 +590,20 @@ impl DiagnosticClient {
             &[
                 ("grant_type", "authorization_code"),
                 ("code", code),
-                ("client_id", &attempt.client_id),
-                ("redirect_uri", VERIFICATION_REDIRECT),
-                ("code_verifier", &attempt.verifier),
+                ("client_id", client_id),
+                ("code_verifier", verifier),
             ],
         );
+        if let Some(redirect) = diagnostic_redirect {
+            form.push('&');
+            append_form(&mut form, &[("redirect_uri", redirect)]);
+        }
         let bytes = Zeroizing::new(std::mem::take(&mut *form).into_bytes());
         let len = bytes.len() as u64;
         let response = self
             .client
             .post(&self.token_url)
-            .timeout(self.timeout)
+            .timeout(timeout)
             .header(ACCEPT, "application/json")
             .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
             .body(Body::sized(Cursor::new(bytes), len))
@@ -583,10 +634,15 @@ impl DiagnosticClient {
                 ErrorCategory::InvalidResponse,
             ));
         }
+        let requested_scopes: &[&str] = if diagnostic_redirect.is_some() {
+            &REQUIRED_SCOPES
+        } else {
+            &NATIVE_SCOPES
+        };
         let scopes = match value.scope {
             None => ScopeEvidence::OmittedMeansRequestedGrant,
             Some(scope)
-                if REQUIRED_SCOPES
+                if requested_scopes
                     .iter()
                     .all(|required| scope.split_ascii_whitespace().any(|got| got == *required)) =>
             {
@@ -600,13 +656,17 @@ impl DiagnosticClient {
             }
         };
         Ok(Token {
-            access: Zeroizing::new(value.access_token.to_owned()),
-            expires_at: Instant::now()
-                .checked_add(Duration::from_secs(value.expires_in))
-                .ok_or(ProbeResult::failure(
-                    Some(status),
-                    ErrorCategory::InvalidResponse,
-                ))?,
+            access: AccessToken::new(
+                Zeroizing::new(value.access_token.to_owned()),
+                Some(
+                    Instant::now()
+                        .checked_add(Duration::from_secs(value.expires_in))
+                        .ok_or(ProbeResult::failure(
+                            Some(status),
+                            ErrorCategory::InvalidResponse,
+                        ))?,
+                ),
+            ),
             scopes,
             http_status: status,
         })
@@ -615,20 +675,21 @@ impl DiagnosticClient {
     fn authorized_get(
         &self,
         url: &str,
-        token: &Token,
+        token: &AccessToken,
         service: RemoteService,
+        timeout: Duration,
     ) -> Result<(u16, Zeroizing<Vec<u8>>), ProbeResult> {
-        if Instant::now() >= token.expires_at {
+        if token.is_expired() {
             return Err(ProbeResult::failure(None, ErrorCategory::TokenExpired));
         }
-        let header = Zeroizing::new(format!("OAuth {}", *token.access));
+        let header = Zeroizing::new(format!("OAuth {}", token.expose()));
         let mut header = HeaderValue::from_str(&header)
             .map_err(|_| ProbeResult::failure(None, ErrorCategory::InvalidResponse))?;
         header.set_sensitive(true);
         let response = self
             .client
             .get(url)
-            .timeout(self.timeout)
+            .timeout(timeout)
             .header(ACCEPT, "application/json")
             .header(AUTHORIZATION, header)
             .send()
@@ -657,15 +718,54 @@ impl DiagnosticClient {
             .map(|body| (status, body))
             .map_err(|error| ProbeResult::failure(Some(status), error))
     }
+
+    pub(crate) fn identify(
+        &self,
+        client_id: &str,
+        token: &AccessToken,
+        remaining: Duration,
+    ) -> Result<u64, ProbeResult> {
+        let (status, body) = self.authorized_get(
+            &self.identity_url,
+            token,
+            RemoteService::Identity,
+            self.timeout.min(remaining),
+        )?;
+        let identity = serde_json::from_slice::<IndependentIdentity<'_>>(&body)
+            .map_err(|_| ProbeResult::failure(Some(status), ErrorCategory::InvalidResponse))?;
+        if identity.client_id != client_id {
+            return Err(ProbeResult::failure(
+                Some(status),
+                ErrorCategory::ClientMismatch,
+            ));
+        }
+        let raw = identity.id.get();
+        let id = raw
+            .strip_prefix('"')
+            .and_then(|s| s.strip_suffix('"'))
+            .unwrap_or(raw);
+        id.bytes()
+            .all(|byte| byte.is_ascii_digit())
+            .then(|| id.parse::<u64>().ok().filter(|uid| *uid > 0))
+            .flatten()
+            .ok_or(ProbeResult::failure(
+                Some(status),
+                ErrorCategory::AccountAbsent,
+            ))
+    }
     fn probe(&self, client_id: &str, token: Token, report: &mut DiagnosticReport) {
-        let (status, body) =
-            match self.authorized_get(&self.identity_url, &token, RemoteService::Identity) {
-                Ok(value) => value,
-                Err(result) => {
-                    report.identity = Some(result);
-                    return;
-                }
-            };
+        let (status, body) = match self.authorized_get(
+            &self.identity_url,
+            &token.access,
+            RemoteService::Identity,
+            self.timeout,
+        ) {
+            Ok(value) => value,
+            Err(result) => {
+                report.identity = Some(result);
+                return;
+            }
+        };
         let identity: IdentityResponse<'_> = match serde_json::from_slice(&body) {
             Ok(value) => value,
             Err(_) => {
@@ -695,7 +795,12 @@ impl DiagnosticClient {
         // This is an independent read-only observation, never a fallback for a
         // denied status request. Keep the same token, identity and transport.
         report.music_about = Some(
-            match self.authorized_get(&self.about_url, &token, RemoteService::Music) {
+            match self.authorized_get(
+                &self.about_url,
+                &token.access,
+                RemoteService::Music,
+                self.timeout,
+            ) {
                 Ok((status, body)) => match serde_json::from_slice::<AboutEnvelope>(&body) {
                     Ok(_) => ProbeResult::success(status),
                     Err(_) => ProbeResult::failure(Some(status), ErrorCategory::InvalidResponse),
@@ -712,14 +817,18 @@ impl DiagnosticClient {
         {
             return;
         }
-        let (status, body) =
-            match self.authorized_get(&self.catalog_url, &token, RemoteService::Music) {
-                Ok(value) => value,
-                Err(result) => {
-                    report.catalog = Some(result);
-                    return;
-                }
-            };
+        let (status, body) = match self.authorized_get(
+            &self.catalog_url,
+            &token.access,
+            RemoteService::Music,
+            self.timeout,
+        ) {
+            Ok(value) => value,
+            Err(result) => {
+                report.catalog = Some(result);
+                return;
+            }
+        };
         // Require a track-search result collection while discarding its contents.
         // HTTP200 and arbitrary JSON objects never establish catalog success.
         report.catalog = Some(match serde_json::from_slice::<CatalogEnvelope>(&body) {
@@ -727,15 +836,35 @@ impl DiagnosticClient {
             _ => ProbeResult::failure(Some(status), ErrorCategory::InvalidResponse),
         });
     }
+
+    #[cfg(test)]
+    pub(crate) fn for_independent_test(origin: &str) -> Self {
+        let url = reqwest::Url::parse(origin).expect("synthetic OAuth fixture origin");
+        assert_eq!(url.scheme(), "http");
+        assert_eq!(url.host_str(), Some("127.0.0.1"));
+        Self {
+            client: client_builder().no_proxy().build().unwrap(),
+            token_url: url.join("/token").unwrap().into(),
+            identity_url: url.join("/info?format=json").unwrap().into(),
+            status_url: String::new(),
+            about_url: String::new(),
+            catalog_url: String::new(),
+            timeout: Duration::from_secs(2),
+        }
+    }
     fn probe_music_status(&self, token: &Token, report: &mut DiagnosticReport) {
-        let (status, body) =
-            match self.authorized_get(&self.status_url, token, RemoteService::Music) {
-                Ok(value) => value,
-                Err(result) => {
-                    report.music_account = Some(result);
-                    return;
-                }
-            };
+        let (status, body) = match self.authorized_get(
+            &self.status_url,
+            &token.access,
+            RemoteService::Music,
+            self.timeout,
+        ) {
+            Ok(value) => value,
+            Err(result) => {
+                report.music_account = Some(result);
+                return;
+            }
+        };
         let envelope: AccountEnvelope = match serde_json::from_slice(&body) {
             Ok(value) => value,
             Err(_) => {
@@ -758,8 +887,7 @@ impl DiagnosticClient {
 }
 
 struct Token {
-    access: Zeroizing<String>,
-    expires_at: Instant,
+    access: AccessToken,
     scopes: ScopeEvidence,
     http_status: u16,
 }
@@ -791,6 +919,12 @@ struct IdentityResponse<'a> {
     client_id: &'a str,
     #[serde(default)]
     id: PresentIdentifier,
+}
+
+#[derive(Deserialize)]
+struct IndependentIdentity<'a> {
+    client_id: &'a str,
+    id: &'a serde_json::value::RawValue,
 }
 #[derive(Deserialize)]
 struct AccountEnvelope {

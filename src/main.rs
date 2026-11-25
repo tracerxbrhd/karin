@@ -12,7 +12,30 @@ use karin::{api::YandexApi, application::ConnectionService, audio, config, playb
 mod oauth_cli;
 
 fn main() -> glib::ExitCode {
-    let mut args: Vec<_> = std::env::args().skip(1).collect();
+    let Ok(mut args) = std::env::args_os()
+        .skip(1)
+        .map(std::ffi::OsString::into_string)
+        .collect::<Result<Vec<_>, _>>()
+    else {
+        eprintln!("Invalid arguments. Run karin --help.");
+        return glib::ExitCode::from(2);
+    };
+    if args.iter().any(|arg| arg == "--independent-auth") {
+        let Some(command) = oauth_cli::IndependentCommand::parse(&args) else {
+            eprintln!(
+                "Usage: karin --independent-auth login [--remember] | restore | logout\n\
+                 Enter registration details only at the local terminal prompt."
+            );
+            return glib::ExitCode::from(2);
+        };
+        return match oauth_cli::run_independent(command) {
+            Ok(()) => glib::ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("Independent sign-in: {error}");
+                glib::ExitCode::FAILURE
+            }
+        };
+    }
     // Temporary no-op compatibility alias for previous Fedora launch commands.
     // Wave is a normal Music-validated feature; activation never starts it.
     args.retain(|arg| arg != "--experimental-wave");
@@ -67,7 +90,7 @@ fn main() -> glib::ExitCode {
     match args.as_slice() {
         [flag] if flag == "--help" || flag == "-h" => {
             println!(
-                "Karin\n\nUsage: karin [--smoke-test | --ui-fixture | --application-fixture | --audio-self-test | --playback-self-test | --probe-service | --oauth-diagnostic | --delivery-diagnostic | --artwork-diagnostic | --experimental-wave | --version]\n\n--smoke-test          Verify GTK and local playback cleanup without network or sound\n--ui-fixture          Offline sign-in fixture for automated UI captures; never contacts OAuth\n--application-fixture Original local account/audio fixture; requires private XDG profile\n--audio-self-test     Process a synthetic signal through GStreamer fakesink\n--playback-self-test  Decode a generated local WAV through playbin; test controls and cleanup\n--probe-service       Make an anonymous availability request (network required)\n--oauth-diagnostic    Opt-in local PKCE experiment; private terminal and system browser required\n--delivery-diagnostic Opt-in local delivery-info probe using this window's ordinary sign-in; no media request\n--artwork-diagnostic  Opt-in bounded image-stage categories in the ordinary app; no URLs or personal fields\n--experimental-wave   Deprecated no-op alias; My Wave is available in normal startup"
+                "Karin\n\nUsage: karin [--smoke-test | --ui-fixture | --application-fixture | --audio-self-test | --playback-self-test | --probe-service | --oauth-diagnostic | --delivery-diagnostic | --artwork-diagnostic | --experimental-wave | --version]\n       karin --independent-auth login [--remember] | restore | logout\n\n--smoke-test          Verify GTK and local playback cleanup without network or sound\n--ui-fixture          Offline sign-in fixture for automated UI captures; never contacts OAuth\n--application-fixture Original local account/audio fixture; requires private XDG profile\n--audio-self-test     Process a synthetic signal through GStreamer fakesink\n--playback-self-test  Decode a generated local WAV through playbin; test controls and cleanup\n--probe-service       Make an anonymous availability request (network required)\n--oauth-diagnostic    Opt-in local PKCE experiment; private terminal and system browser required\n--independent-auth    Owner-local sign-in with a separate account store; terminal required\n--delivery-diagnostic Opt-in local delivery-info probe using this window's ordinary sign-in; no media request\n--artwork-diagnostic  Opt-in bounded image-stage categories in the ordinary app; no URLs or personal fields\n--experimental-wave   Deprecated no-op alias; My Wave is available in normal startup"
             );
             if cfg!(feature = "experimental-device-auth") {
                 println!(

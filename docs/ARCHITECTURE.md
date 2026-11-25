@@ -23,7 +23,7 @@ flowchart LR
 | --- | --- | --- |
 | Catalog | `music`, `api`, `application` | Account-bound transport, typed models, search and confirmed writes |
 | Collections/text | `music::library_index`, `music::track_extras`, `lyrics` | Bounded indexing, related reads and literal TEXT/LRC |
-| Sign-in | `auth`, `auth::cassette`, `ui::auth`, `oauth` | Ordinary browser-session provider and separate opt-in PKCE diagnostic |
+| Sign-in | `auth`, `auth::cassette`, `ui::auth`, `oauth`, `oauth_cli` | Ordinary browser-session sign-in, PKCE diagnostic and isolated independent sign-in |
 | Persistence | `session`, `credentials`, `session_lifecycle`, `settings` | Live token, protected storage, preferences and forgetting barriers |
 | Cache | `cache_budget`, `catalog_cache`, `artwork`, `audio_cache` | Shared budget and distinct metadata/artwork/HTTP-audio policies |
 | Playback | `queue`, `playback_session`, `stream`, `playback` | Occurrence identity, continuation, source admission and one worker |
@@ -44,6 +44,13 @@ inspection, injected JavaScript, imported profiles or persistent browser cookies
 are used. Music validation admits the session before library access or saving.
 UI and MusicService do not depend on the provider's registration/grant details.
 [Authentication](adr/0011-browser-session-authentication.md).
+
+The independent opt-in command uses a system browser, a registered IPv4
+loopback callback and Karin's existing OAuth Code/S256 PKCE primitives. It
+validates the Yandex ID registration and Music account through the existing
+service boundary before admitting a token. Remembered independent credentials
+have their own storage scope and lifecycle. The command runs before GTK and
+reports account validation in the terminal. [Independent authentication](adr/0037-independent-authentication.md).
 
 Native uses Secret Service; Flatpak uses a Secret Portal secret and an encrypted
 token envelope. Unavailable storage permits memory-only login, never plaintext

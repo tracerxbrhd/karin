@@ -187,7 +187,7 @@ fn authorization_uses_independent_random_state_and_s256_pkce() {
         assert_eq!(pairs.get("code_challenge").unwrap(), challenge.as_str());
         assert_eq!(
             pairs.get("scope").unwrap(),
-            &crate::oauth::REQUIRED_SCOPES.join(" ")
+            &crate::oauth::NATIVE_SCOPES.join(" ")
         );
         assert!(!pairs.contains_key("response_mode"));
         assert!(!pairs.contains_key("access_token"));

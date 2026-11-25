@@ -490,6 +490,15 @@ impl MusicService {
     pub(crate) fn validate_session(&self, token: &AccessToken) -> Result<(), MusicError> {
         self.account_id(token).map(|_| ())
     }
+
+    pub(crate) fn account_matches(
+        &self,
+        token: &AccessToken,
+        uid: u64,
+    ) -> Result<bool, MusicError> {
+        self.account_id(token)
+            .map(|accepted| accepted.parse::<u64>() == Ok(uid))
+    }
     pub(crate) fn bind_session(
         &self,
         token: &AccessToken,
