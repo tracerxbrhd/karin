@@ -20,6 +20,10 @@ fn main() -> glib::ExitCode {
         eprintln!("Invalid arguments. Run karin --help.");
         return glib::ExitCode::from(2);
     };
+    if let Err(error) = karin::accept_restart(&mut args) {
+        eprintln!("{error}");
+        return glib::ExitCode::FAILURE;
+    }
     if args.iter().any(|arg| arg == "--independent-auth") {
         let Some(command) = oauth_cli::IndependentCommand::parse(&args) else {
             eprintln!(
@@ -90,7 +94,7 @@ fn main() -> glib::ExitCode {
     match args.as_slice() {
         [flag] if flag == "--help" || flag == "-h" => {
             println!(
-                "Karin\n\nUsage: karin [--smoke-test | --ui-fixture | --application-fixture | --audio-self-test | --playback-self-test | --probe-service | --oauth-diagnostic | --delivery-diagnostic | --artwork-diagnostic | --experimental-wave | --version]\n       karin --independent-auth login [--remember] | restore | logout\n\n--smoke-test          Verify GTK and local playback cleanup without network or sound\n--ui-fixture          Offline sign-in fixture for automated UI captures; never contacts OAuth\n--application-fixture Original local account/audio fixture; requires private XDG profile\n--audio-self-test     Process a synthetic signal through GStreamer fakesink\n--playback-self-test  Decode a generated local WAV through playbin; test controls and cleanup\n--probe-service       Make an anonymous availability request (network required)\n--oauth-diagnostic    Opt-in local PKCE experiment; private terminal and system browser required\n--independent-auth    Owner-local sign-in with a separate account store; terminal required\n--delivery-diagnostic Opt-in local delivery-info probe using this window's ordinary sign-in; no media request\n--artwork-diagnostic  Opt-in bounded image-stage categories in the ordinary app; no URLs or personal fields\n--experimental-wave   Deprecated no-op alias; My Wave is available in normal startup"
+                "Karin\n\nUsage: karin [--smoke-test | --ui-fixture | --application-fixture | --audio-self-test | --playback-self-test | --probe-service | --diagnostics | --oauth-diagnostic | --delivery-diagnostic | --artwork-diagnostic | --experimental-wave | --version]\n       karin --independent-auth login [--remember] | restore | logout\n\n--smoke-test          Verify GTK and local playback cleanup without network or sound\n--ui-fixture          Offline sign-in fixture for automated UI captures; never contacts OAuth\n--application-fixture Original local account/audio fixture; requires private XDG profile\n--audio-self-test     Process a synthetic signal through GStreamer fakesink\n--playback-self-test  Decode a generated local WAV through playbin; test controls and cleanup\n--probe-service       Make an anonymous availability request (network required)\n--diagnostics         Open developer diagnostics in a new Karin session (combine with --ui-fixture for offline developer captures)\n--oauth-diagnostic    Opt-in local PKCE experiment; private terminal and system browser required\n--independent-auth    Owner-local sign-in with a separate account store; terminal required\n--delivery-diagnostic Opt-in local delivery-info probe using this window's ordinary sign-in; no media request\n--artwork-diagnostic  Opt-in bounded image-stage categories in the ordinary app; no URLs or personal fields\n--experimental-wave   Deprecated no-op alias; My Wave is available in normal startup"
             );
             if cfg!(feature = "experimental-device-auth") {
                 println!(
@@ -141,8 +145,13 @@ fn main() -> glib::ExitCode {
         [flag]
             if matches!(
                 flag.as_str(),
-                "--smoke-test" | "--ui-fixture" | "--application-fixture" | "--probe-service"
+                "--smoke-test"
+                    | "--ui-fixture"
+                    | "--application-fixture"
+                    | "--probe-service"
+                    | "--diagnostics"
             ) => {}
+        [fixture, diagnostics] if fixture == "--ui-fixture" && diagnostics == "--diagnostics" => {}
         _ => {
             eprintln!("Unknown arguments. Run karin --help.");
             return glib::ExitCode::from(2);
@@ -188,6 +197,7 @@ fn main() -> glib::ExitCode {
     } else {
         None
     };
+    let diagnostics = args.iter().any(|flag| flag == "--diagnostics");
     let smoke = args.first().is_some_and(|flag| flag == "--smoke-test");
     let offline_auth = smoke || args.first().is_some_and(|flag| flag == "--ui-fixture");
     let smoke_passed = Rc::new(Cell::new(false));
@@ -211,7 +221,6 @@ fn main() -> glib::ExitCode {
     app.add_action(&quit);
     app.set_accels_for_action("app.quit", &["<Primary>q"]);
     app.set_accels_for_action("win.overview", &["<Alt>1"]);
-    app.set_accels_for_action("win.diagnostics", &["<Alt>2"]);
     let about = gio::SimpleAction::new("about", None);
     let weak_app = app.downgrade();
     about.connect_activate(move |_, _| {
@@ -232,6 +241,9 @@ fn main() -> glib::ExitCode {
         }
     });
     app.add_action(&about);
+    if !offline_auth && !application_fixture {
+        ui::install_update_action(&app);
+    }
     let checked = smoke_passed.clone();
     // Music signal handlers keep weak controller references. Retain the normal
     // window/controller until close, just as the smoke future retains its UI.
@@ -242,7 +254,11 @@ fn main() -> glib::ExitCode {
             return;
         }
         let ui = if let Some(fixture) = &fixture {
-            ui::build_application_fixture(app, service.clone(), fixture)
+            ui::build_application_fixture(app, fixture)
+        } else if smoke || (offline_auth && diagnostics) {
+            ui::build_offline_diagnostics_fixture(app, service.clone(), experimental)
+        } else if diagnostics {
+            ui::build_diagnostics(app, service.clone(), experimental)
         } else if offline_auth {
             ui::build_offline_ui_fixture(app, service.clone(), experimental)
         } else {
@@ -256,6 +272,9 @@ fn main() -> glib::ExitCode {
             ui.enable_delivery_diagnostic();
         }
         ui.window.present();
+        if diagnostics {
+            ui.open_diagnostics();
+        }
         if smoke {
             let app = app.clone();
             let checked = checked.clone();
@@ -272,7 +291,7 @@ fn main() -> glib::ExitCode {
                             eprintln!("GTK layout failure: resizing changed the selected page");
                             layout_passed = false;
                         }
-                        for page in ["music-home", "music-library", "music-search", "music-queue", "diagnostics"] {
+                        for page in ["music-home", "diagnostics"] {
                             ui.show_page(page);
                             glib::timeout_future(Duration::from_millis(60)).await;
                             if let Err(error) = ui.wait_for_layout().await {
@@ -280,8 +299,8 @@ fn main() -> glib::ExitCode {
                                 layout_passed = false;
                             }
                         }
-                        if let Err(error) = ui.exercise_sidebar_for_smoke().await {
-                            eprintln!("GTK sidebar failure at {width}×{height}: {error}");
+                        if let Err(error) = ui.exercise_welcome_navigation_for_smoke().await {
+                            eprintln!("GTK welcome navigation failure at {width}×{height}: {error}");
                             layout_passed = false;
                         }
                         if let Err(error) = ui.exercise_login_for_smoke().await {
@@ -335,7 +354,22 @@ fn main() -> glib::ExitCode {
             *normal_window.borrow_mut() = Some(ui);
         }
     });
+    if diagnostics && !offline_auth {
+        if let Err(error) = app.register(gio::Cancellable::NONE) {
+            eprintln!("Cannot open developer diagnostics: {error}");
+            return glib::ExitCode::FAILURE;
+        }
+        if app.is_remote() {
+            eprintln!("Close the running Karin window before launching --diagnostics.");
+            // Let GApplication unregister the remote invocation along its
+            // normal single-instance path. The existing window is presented.
+            let _ = app.run_with_args(&["karin"]);
+            return glib::ExitCode::from(2);
+        }
+    }
     let code = app.run_with_args(&["karin"]);
+    drop(app);
+    karin::finish_restart(code == glib::ExitCode::SUCCESS);
     if smoke && !smoke_passed.get() {
         glib::ExitCode::FAILURE
     } else {

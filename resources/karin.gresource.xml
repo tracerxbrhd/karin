@@ -2,6 +2,7 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <gresources>
   <gresource prefix="/io/github/tracerxbrhd/Karin">
+    <file alias="icons/scalable/apps/io.github.tracerxbrhd.Karin.svg">icons/io.github.tracerxbrhd.Karin.svg</file>
     <file>icons/scalable/actions/karin-alert-triangle-symbolic.svg</file>
     <file>icons/scalable/actions/karin-arrows-shuffle-symbolic.svg</file>
     <file>icons/scalable/actions/karin-ban-symbolic.svg</file>

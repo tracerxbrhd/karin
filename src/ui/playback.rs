@@ -252,6 +252,15 @@ impl DeveloperPlayback {
         }
     }
 
+    pub fn stop_callback(&self) -> impl Fn() + use<> {
+        let state = Rc::downgrade(&self.state);
+        move || {
+            if let Some(state) = state.upgrade() {
+                command(&state, PlaybackController::stop);
+            }
+        }
+    }
+
     /// Used by the structural smoke test to exercise the real GTK entry point.
     pub fn prepare_for_smoke(&self) {
         self.prepare.emit_clicked();

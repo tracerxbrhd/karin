@@ -8,6 +8,7 @@ fn main() {
     let status = Command::new("glib-compile-resources")
         .arg("resources/karin.gresource.xml")
         .arg("--sourcedir=resources")
+        .arg("--sourcedir=packaging")
         .arg("--target")
         .arg(&resource)
         .status()

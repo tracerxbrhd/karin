@@ -1,0 +1,227 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+name: Prepare stable Flatpak update
+
+on:
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: Full reviewed master commit with a matching stable tag
+        type: string
+        required: true
+      deploy_pages:
+        description: Request the separate Pages approval after publishing this release's files
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: karin-stable-update
+  cancel-in-progress: false
+
+jobs:
+  packages:
+    # PRs, forks, tags and arbitrary branches cannot run the signing pipeline.
+    if: github.repository == 'tracerxbrhd/karin' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      version: ${{ steps.identity.outputs.version }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify the reviewed source, stable tag and exact master CI
+        id: identity
+        env:
+          REQUESTED_REVISION: ${{ inputs.revision }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$REQUESTED_REVISION" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          version=$(python3 - <<'PY'
+          import re
+          import tomllib
+          from pathlib import Path
+          with open("Cargo.toml", "rb") as source:
+              version = tomllib.load(source)["package"]["version"]
+          assert re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", version)
+          assert re.fullmatch(r"[A-F0-9]{40}", Path("packaging/release/flatpak-key-fingerprint").read_text().strip())
+          print(version)
+          PY
+          )
+          test "$(git rev-parse "refs/tags/v${version}^{commit}")" = "$GITHUB_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/master" --jq .object.sha)" = "$GITHUB_SHA"
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=master&event=push&head_sha=$GITHUB_SHA&status=success" > "$RUNNER_TEMP/karin-ci.json"
+          run_id=$(jq -er --arg sha "$GITHUB_SHA" '.workflow_runs | map(select(.head_sha == $sha and .event == "push" and .head_branch == "master" and .path == ".github/workflows/ci.yml" and .conclusion == "success")) | first | .id' "$RUNNER_TEMP/karin-ci.json")
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs" | jq -e '
+            .total_count == 4 and (.jobs | all(.conclusion == "success")) and
+            (.jobs | map(.name) | sort) == ([
+              "Rust stable (stable)", "Rust 1.98.1 (msrv)",
+              "Native UI stable (Debian 13)", "Native UI 1.98.1 (Debian 13)"
+            ] | sort)'
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Install Native and Flatpak build requirements
+        run: |
+          sudo apt-get -o APT::Update::Error-Mode=any -o Acquire::Retries=2 update
+          sudo apt-get -o Acquire::Retries=2 install -y --no-install-recommends \
+            build-essential pkg-config libgtk-4-dev libadwaita-1-dev libssl-dev \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libwebkitgtk-6.0-dev \
+            libdbus-1-dev libsecret-1-dev libglib2.0-bin appstream appstream-compose librsvg2-common \
+            desktop-file-utils elfutils flatpak flatpak-builder ostree dbus-x11
+          rustup toolchain install 1.98.1 --profile minimal --component rust-src
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user --noninteractive flathub org.gnome.Platform//50 org.gnome.Sdk//50 \
+            org.freedesktop.Sdk.Extension.rust-stable//25.08
+      - name: Build and inspect packages from this commit
+        env:
+          RUSTUP_TOOLCHAIN: '1.98.1'
+          CARGO_INCREMENTAL: '0'
+          CARGO_BUILD_JOBS: '2'
+          VERSION: ${{ steps.identity.outputs.version }}
+        run: |
+          set -euo pipefail
+          cargo fetch --locked
+          python3 packaging/flatpak/prepare-source.py
+          python3 packaging/release/manifest.py --revision "$GITHUB_SHA" \
+            --output build/pinned/io.github.tracerxbrhd.Karin.json
+          (
+            cd build/flatpak-source
+            CARGO_TARGET_DIR=../../target cargo build --release --offline --locked \
+              --no-default-features --features cassette-auth
+          )
+          python3 packaging/release/artifacts.py native --revision "$GITHUB_SHA" \
+            --binary target/release/karin --source-dir build/flatpak-source --output build/release
+          dbus-run-session -- python3 packaging/release/artifacts.py flatpak --revision "$GITHUB_SHA" \
+            --manifest build/pinned/io.github.tracerxbrhd.Karin.json \
+            --source-dir build/flatpak-source --output build/release
+          # Preserve the exact export/receipts and package bytes from this run.
+          tar -C build/release -cf build/karin-signing-input.tar \
+            flatpak-repository "karin-$VERSION-flatpak.BUILD-INFO.json" \
+            "karin-$VERSION-linux-x86_64.tar.gz" "karin-$VERSION-linux-x86_64.BUILD-INFO.json" \
+            "karin-$VERSION-source.tar.gz" "karin-$VERSION-source.BUILD-INFO.json"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: karin-signing-input-${{ github.sha }}
+          path: |
+            build/karin-signing-input.tar
+            build/pinned/io.github.tracerxbrhd.Karin.json
+          if-no-files-found: error
+          retention-days: 7
+
+  sign:
+    needs: packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: karin-stable-signing
+    outputs:
+      update_record_sha256: ${{ steps.prepare.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: karin-signing-input-${{ github.sha }}
+          path: build/signing-input
+      - name: Install release signing tools
+        run: |
+          sudo apt-get -o APT::Update::Error-Mode=any -o Acquire::Retries=2 update
+          sudo apt-get -o Acquire::Retries=2 install -y --no-install-recommends flatpak ostree gnupg
+          python3 -m unittest discover -s packaging/release -p test_flatpak_channel.py
+      - name: Sign the verified deployment and repository summary
+        id: prepare
+        env:
+          KARIN_FLATPAK_SIGNING_SUBKEY: ${{ secrets.KARIN_FLATPAK_SIGNING_SUBKEY }}
+          VERSION: ${{ needs.packages.outputs.version }}
+        run: |
+          set -euo pipefail
+          test -n "$KARIN_FLATPAK_SIGNING_SUBKEY"
+          karin_gpg_home=$(mktemp -d "$RUNNER_TEMP/karin-gpg.XXXXXX")
+          trap 'gpgconf --homedir "$karin_gpg_home" --kill gpg-agent || true; rm -rf -- "$karin_gpg_home"' EXIT
+          printf '%s' "$KARIN_FLATPAK_SIGNING_SUBKEY" | base64 --decode |
+            gpg --batch --no-options --homedir "$karin_gpg_home" --import
+          unset KARIN_FLATPAK_SIGNING_SUBKEY
+
+          mkdir -p build/unsigned
+          tar -C build/unsigned -xf build/signing-input/karin-signing-input.tar
+          python3 packaging/release/flatpak_channel.py --revision "$GITHUB_SHA" \
+            --artifacts build/unsigned --output build/stable-channel --keyring "$karin_gpg_home"
+          cp build/unsigned/karin-"$VERSION"-{source*,linux-x86_64*} build/stable-channel/packages/
+          cp build/signing-input/pinned/io.github.tracerxbrhd.Karin.json build/stable-channel/packages/
+          python3 - <<'PYCODE'
+          import json
+          from pathlib import Path
+          packages = Path("build/stable-channel/packages")
+          update = json.loads((packages / "KARIN-FLATPAK-UPDATE.json").read_text())
+          version = update["version"]
+          native = json.loads((packages / f"karin-{version}-linux-x86_64.BUILD-INFO.json").read_text())
+          flatpak = json.loads((packages / f"karin-{version}-flatpak.BUILD-INFO.json").read_text())
+          (packages / "BUILD-INFO.txt").write_text(
+              f"Karin {version} — signed stable channel preparation\n"
+              f"Source commit: {update['source_commit']}\n"
+              f"Flatpak ref: {update['ref']}\n"
+              f"OSTree deployment: {update['ostree_commit']}\n"
+              f"Signing fingerprint: {update['key_fingerprint']}\n"
+              f"Channel: {flatpak['remote_url']}\n\n"
+              f"Native binary\n{native['binary_version']}\n\n"
+              f"Flatpak binary\n{flatpak['binary_version']}\n\n"
+              "The corresponding source archive contains locked Cargo inputs and license notices.\n"
+              "Build receipts record runtime commits, sandbox permissions, and binary hashes.\n"
+              "Independent byte-for-byte reproducibility is not claimed.\n",
+              encoding="utf-8",
+          )
+          PYCODE
+          python3 packaging/release/artifacts.py checksums \
+            --output build/stable-channel/packages/SHA256SUMS build/stable-channel/packages/*
+          hash=$(sha256sum build/stable-channel/packages/KARIN-FLATPAK-UPDATE.json | cut -d' ' -f1)
+          echo "sha256=$hash" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: karin-stable-release-${{ github.sha }}
+          path: build/stable-channel/packages/
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
+        with:
+          name: karin-signed-flatpak-site
+          path: build/stable-channel/site
+          retention-days: 7
+
+  publish:
+    if: inputs.deploy_pages
+    needs: [packages, sign]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: github-pages
+      url: ${{ steps.pages.outputs.page_url }}
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    steps:
+      - name: Confirm the owner published this exact stable deployment record
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.packages.outputs.version }}
+          RECORD_SHA256: ${{ needs.sign.outputs.update_record_sha256 }}
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/master" --jq .object.sha)" = "$GITHUB_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/commits/v$VERSION" --jq .sha)" = "$GITHUB_SHA"
+          gh api "repos/$GITHUB_REPOSITORY/releases/latest" | jq -e \
+            --arg tag "v$VERSION" --arg digest "sha256:$RECORD_SHA256" '
+            .tag_name == $tag and (.draft | not) and (.prerelease | not) and
+            ([.assets[] | select(.name == "KARIN-FLATPAK-UPDATE.json" and .state == "uploaded" and .digest == $digest)] | length) == 1'
+      - name: Publish the verified signed channel
+        id: pages
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
+        with:
+          artifact_name: karin-signed-flatpak-site

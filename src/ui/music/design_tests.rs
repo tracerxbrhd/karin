@@ -1402,6 +1402,11 @@ fn populated_window_with_initial_selection(
     }
     this.widgets.account.set_text("Synthetic design account");
     this.render_controls();
+    assert!(!ui.window.is_mapped());
+    assert!(
+        this.widgets.primary_navigation.get_visible(),
+        "account admission before the window maps must enable the navigation surface"
+    );
     this.render_queue();
     this.render_home_preview();
     this.render_liked(Ok(liked.clone()), 0);
