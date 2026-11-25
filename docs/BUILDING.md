@@ -37,8 +37,8 @@ cargo +stable build --release --locked
 ./target/release/karin
 ```
 
-`0.8.1` is prepared for owner acceptance. The current published release is
-[0.8.0](https://github.com/tracerxbrhd/karin/releases/tag/v0.8.0).
+`0.8.2` is prepared for owner acceptance. Install the current stable version
+from [GitHub Releases](https://github.com/tracerxbrhd/karin/releases/latest).
 Check `--version` and About for the
 source commit, clean/modified state, package and profile. Any source-tree change
 requires newly built artifacts and checksums; old files with the same version
