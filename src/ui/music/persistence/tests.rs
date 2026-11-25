@@ -149,6 +149,7 @@ impl CredentialBackend for Arc<Backend> {
 struct Api {
     origin: String,
     audio_root: PathBuf,
+    fail_account: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
     thread: Option<thread::JoinHandle<()>>,
 }
@@ -159,8 +160,10 @@ impl Api {
         listener.set_nonblocking(true).unwrap();
         let origin = format!("http://{}/", listener.local_addr().unwrap());
         let stop = Arc::new(AtomicBool::new(false));
+        let fail_account = Arc::new(AtomicBool::new(false));
         let thread = {
             let stop = stop.clone();
+            let fail_account = fail_account.clone();
             let origin = origin.clone();
             thread::spawn(move || {
                 let mut children = Vec::new();
@@ -170,7 +173,10 @@ impl Api {
                             assert!(children.len() < 96);
                             let origin = origin.clone();
                             let media = media.clone();
-                            children.push(thread::spawn(move || serve(stream, &origin, &media)));
+                            let fail_account = fail_account.clone();
+                            children.push(thread::spawn(move || {
+                                serve(stream, &origin, &media, &fail_account);
+                            }));
                         }
                         Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                             thread::sleep(Duration::from_millis(2))
@@ -186,6 +192,7 @@ impl Api {
         Self {
             origin,
             audio_root: directory.join("audio"),
+            fail_account,
             stop,
             thread: Some(thread),
         }
@@ -198,7 +205,7 @@ impl Drop for Api {
     }
 }
 
-fn serve(mut stream: TcpStream, origin: &str, media: &[u8]) {
+fn serve(mut stream: TcpStream, origin: &str, media: &[u8], fail_account: &AtomicBool) {
     stream
         .set_read_timeout(Some(Duration::from_secs(2)))
         .unwrap();
@@ -250,6 +257,11 @@ fn serve(mut stream: TcpStream, origin: &str, media: &[u8]) {
             header("authorization"),
             Some("OAuth synthetic-storage-ui-token")
         );
+    }
+    // Close the connection without a response to model a transient transport
+    // loss after request delivery. A service denial would test another path.
+    if url.path() == "/account/status" && fail_account.load(Ordering::Acquire) {
+        return;
     }
     let response = match url.path() {
         "/account/status" => json!({"result":{"account":{"uid":1234,"displayName":"Synthetic remembered account"}}}),
@@ -528,7 +540,22 @@ fn native_persistent_session_restore_settings_forget_and_close() {
         Cache::new_with_budget(directory.0.join("cache"), CachePolicy::default(), budget).unwrap();
     let (_app, ui) = window(&api, &settings, &backend, &cache);
     let this = &ui.music.controller;
+    assert!(!this.widgets.login.is_visible());
+    assert_eq!(this.widgets.welcome.page.title(), "Восстанавливаем вход");
+    assert!(!this.widgets.workspace.is_visible());
+    let flashed_login = Rc::new(Cell::new(false));
+    let observed = flashed_login.clone();
+    this.widgets.login.connect_visible_notify(move |login| {
+        if login.is_visible() {
+            observed.set(true);
+        }
+    });
     pump_until(|| this.model.borrow().account_valid && settled(this));
+    assert!(
+        !flashed_login.get(),
+        "restoration briefly displayed the login CTA"
+    );
+    assert!(!this.widgets.welcome.page.is_visible());
     pump_until(|| !this.persistence.borrow().playback.loading());
     assert!(
         !this.playback_restore_retry_for_test(),
@@ -979,6 +1006,30 @@ fn native_persistent_session_restore_settings_forget_and_close() {
     );
     fifth.close();
     ui5.window.close();
+
+    // A transport failure cannot delete the confirmed credential or open an
+    // unauthenticated library. The visible Retry resumes the same session.
+    backend.unavailable.store(false, Ordering::Release);
+    *backend.value.lock().unwrap() = Some(TOKEN.into());
+    api.fail_account.store(true, Ordering::Release);
+    let (_app6, ui6) = window(&api, &settings, &backend, &cache);
+    let sixth = &ui6.music.controller;
+    pump_until(|| settled(sixth) && sixth.persistence.borrow().retry == Retry::Restore);
+    assert!(!sixth.model.borrow().account_valid);
+    assert!(!sixth.widgets.workspace.is_visible());
+    assert!(sixth.widgets.welcome.page.is_visible());
+    assert!(sixth.widgets.login.is_sensitive());
+    assert!(sixth.persistence.borrow().retry_button.is_visible());
+    assert!(!settings.load().unwrap().preferences.forget_pending);
+    assert_eq!(backend.value.lock().unwrap().as_deref(), Some(TOKEN));
+    api.fail_account.store(false, Ordering::Release);
+    let retry = sixth.persistence.borrow().retry_button.clone();
+    retry.emit_clicked();
+    assert!(!sixth.widgets.login.is_visible());
+    pump_until(|| sixth.model.borrow().account_valid && settled(sixth));
+    assert!(sixth.widgets.workspace.is_visible());
+    assert!(!sixth.widgets.welcome.page.is_visible());
+    ui6.window.close();
     ambient.assert_unchanged();
     adw::StyleManager::default().set_color_scheme(adw::ColorScheme::Default);
 }

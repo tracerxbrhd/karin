@@ -10,7 +10,6 @@ mod tests;
 
 pub(super) struct HomeParts {
     pub home: gtk::Box,
-    pub home_signedout: gtk::Box,
     pub home_signedin: gtk::Box,
     pub home_hero: gtk::Box,
     pub home_liked: gtk::Button,
@@ -26,20 +25,6 @@ impl HomeParts {
     pub(super) fn new() -> Self {
         let home = gtk::Box::new(gtk::Orientation::Vertical, 20);
         home.set_widget_name("music-home");
-        let home_signedout = gtk::Box::new(gtk::Orientation::Vertical, 16);
-        home_signedout.set_margin_top(24);
-        let icon = gtk::Image::from_icon_name("karin-music-symbolic");
-        icon.set_pixel_size(64);
-        icon.set_halign(gtk::Align::Start);
-        icon.add_css_class("accent");
-        home_signedout.append(&icon);
-        home_signedout.append(&text("Ваша музыка — в Karin", "title-1"));
-        home_signedout.append(&text(
-            "Войдите в Яндекс, чтобы слушать любимые треки и свои плейлисты.",
-            "dim-label",
-        ));
-        home.append(&home_signedout);
-
         let home_signedin = gtk::Box::new(gtk::Orientation::Vertical, 24);
         home_signedin.set_widget_name("music-home-library");
         let home_wave = WaveParts::new();
@@ -100,7 +85,6 @@ impl HomeParts {
         home_collections.set_widget_name("music-home-collections");
         Self {
             home,
-            home_signedout,
             home_signedin,
             home_hero,
             home_liked,

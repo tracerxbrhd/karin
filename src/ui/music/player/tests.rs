@@ -3660,7 +3660,7 @@ fn native_wave_shared_player_feedback_batches_and_cleanup() {
     let signed_out = &anonymous_ui.music.controller;
     super::super::test_input::wait_for_layout(
         &anonymous_ui.window,
-        &signed_out.widgets.home_signedout,
+        &signed_out.widgets.welcome.page,
     );
     assert_eq!(signed_out.radio_status().phase, RadioPhase::Ready);
     assert!(!signed_out.radio_status().authenticated);

@@ -52,6 +52,7 @@ mod test_input;
 mod track_extras;
 mod track_pane;
 mod volume_scroll;
+mod welcome;
 mod workspace;
 use requests::{Operation, Requests};
 type PendingJob = Box<dyn FnOnce(&Rc<Controller>, u64)>;
@@ -110,7 +111,8 @@ struct Model {
 
 #[derive(Clone)]
 struct Widgets {
-    account_bar: gtk::Box,
+    workspace: gtk::Box,
+    welcome: welcome::Welcome,
     account_menu: gtk::MenuButton,
     account_open: gtk::Button,
     account_launch_error: gtk::Label,
@@ -121,7 +123,6 @@ struct Widgets {
     spinner: gtk::Spinner,
     status: adw::ActionRow,
     status_revealer: gtk::Revealer,
-    home_signedout: gtk::Box,
     home_signedin: gtk::Box,
     home_hero: gtk::Box,
     home_liked: gtk::Button,
@@ -158,6 +159,7 @@ struct Widgets {
     detail: gtk::Box,
     queue_rows: gtk::ListBox,
     queue_count: gtk::Label,
+    player_surface: gtk::Box,
     current: gtk::Label,
     current_artist: gtk::Label,
     current_cache: gtk::Box,
@@ -335,7 +337,14 @@ impl MusicPane {
     ) -> Self {
         let widget = gtk::Box::new(gtk::Orientation::Vertical, 12);
         widget.set_widget_name("music-pane");
+        widget.set_vexpand(true);
         widget.append(&persistence_state.banner);
+        let welcome = welcome::Welcome::new();
+        let login = welcome.login.clone();
+        widget.append(&welcome.page);
+        let workspace = gtk::Box::new(gtk::Orientation::Vertical, 12);
+        workspace.set_visible(false);
+        widget.append(&workspace);
         let controller_link: Rc<RefCell<std::rc::Weak<Controller>>> = Rc::default();
         let artwork = ArtworkLoader::new().ok();
         let track_pane = track_pane::TrackPane::new({
@@ -354,13 +363,6 @@ impl MusicPane {
                 }
             })
         });
-        let account_bar = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-        account_bar.set_widget_name("music-account-bar");
-        let account_icon = gtk::Image::from_icon_name("avatar-default-symbolic");
-        account_icon.set_pixel_size(20);
-        account_icon.add_css_class("dim-label");
-        account_bar.append(&account_icon);
-        account_bar.append(&text("Ваш аккаунт Яндекса", "heading"));
         let account_controls = account::AccountMenu::new();
         let account = account_controls.name.clone();
         account.set_widget_name("music-account");
@@ -368,11 +370,6 @@ impl MusicPane {
         let account_open = account_controls.open_account;
         let account_launch_error = account_controls.launch_error;
         let logout = account_controls.logout;
-        let login = gtk::Button::with_label("Войти");
-        login.set_widget_name("music-login");
-        login.add_css_class("suggested-action");
-        account_bar.append(&login);
-        widget.append(&account_bar);
         let notice = text(public_notice(), "dim-label");
         notice.set_visible(false);
         // Error feedback is a native inline component; ordinary successful
@@ -392,7 +389,7 @@ impl MusicPane {
         status_revealer.set_child(Some(&progress));
         status_revealer.set_reveal_child(false);
         status_revealer.set_visible(false);
-        widget.append(&status_revealer);
+        workspace.append(&status_revealer);
 
         let navigation = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         navigation.set_widget_name("music-primary-tabs");
@@ -436,7 +433,7 @@ impl MusicPane {
         let search = search_toolbar::entry("Поиск музыки…", "music-search", "Поиск музыки");
         let search_header = search_header::SearchHeader::new(&segments, &search, &nav_search);
         navigation.append(&search_header);
-        widget.append(&navigation);
+        workspace.append(&navigation);
         let stack = gtk::Stack::new();
         // Measure the visible page. GTK 4.14 otherwise measures hidden wrapped
         // pages at their minimum height, forcing their natural width on the
@@ -446,10 +443,9 @@ impl MusicPane {
         stack.set_widget_name("music-sections");
         // The window owns one adaptive navigation surface. Internal pages
         // expose this stack to that surface and to keyboard actions.
-        widget.append(&stack);
+        workspace.append(&stack);
         let home::HomeParts {
             home,
-            home_signedout,
             home_signedin,
             home_hero,
             home_liked,
@@ -627,13 +623,14 @@ impl MusicPane {
         cache_notice.connect_revealed_notify(|notice| {
             notice.set_visible(notice.is_revealed());
         });
-        widget.insert_child_after(&cache_notice, Some(&status_revealer));
+        workspace.insert_child_after(&cache_notice, Some(&status_revealer));
         let cache_hint = text("Сохранённые сведения", "caption");
         cache_hint.add_css_class("dim-label");
         cache_hint.set_visible(false);
-        widget.insert_child_after(&cache_hint, Some(&cache_notice));
+        workspace.insert_child_after(&cache_hint, Some(&cache_notice));
         let widgets = Widgets {
-            account_bar,
+            workspace,
+            welcome,
             account_menu,
             account_open,
             account_launch_error,
@@ -644,7 +641,6 @@ impl MusicPane {
             spinner,
             status,
             status_revealer,
-            home_signedout,
             home_signedin,
             home_hero,
             home_liked,
@@ -681,6 +677,7 @@ impl MusicPane {
             detail,
             queue_rows,
             queue_count,
+            player_surface: player_bar.clone(),
             current,
             current_artist,
             current_cache,
@@ -821,10 +818,15 @@ impl MusicPane {
 
     pub(in crate::ui) fn take_navigation_bar(&self) -> gtk::Box {
         let navigation = self.controller.widgets.primary_navigation.clone();
-        if navigation.parent().as_ref() == Some(self.widget.upcast_ref()) {
-            self.widget.remove(&navigation);
+        let workspace = &self.controller.widgets.workspace;
+        if navigation.parent().as_ref() == Some(workspace.upcast_ref()) {
+            workspace.remove(&navigation);
         }
         navigation
+    }
+
+    pub(in crate::ui) fn workspace_surface(&self) -> gtk::Box {
+        self.controller.widgets.workspace.clone()
     }
 
     pub fn primary_action(&self) -> gtk::Button {
@@ -1693,16 +1695,21 @@ impl Controller {
     fn render_controls(&self) {
         let model = self.model.borrow();
         let ready = model.account_valid && !model.closed;
-        self.widgets.home_signedin.set_visible(model.account_valid);
-        self.widgets
-            .home_signedout
-            .set_visible(!model.account_valid);
+        let restoring = !ready && self.persistence.borrow().checking_saved_session();
+        let signing_in = model.auth_busy || (model.busy && self.login_dialog.borrow().is_some());
+        self.widgets.welcome.render(
+            ready,
+            restoring,
+            signing_in,
+            !ready && !signing_in && !model.closed && !self.persistence_blocks_login(),
+        );
+        self.widgets.home_signedin.set_visible(ready);
+        self.widgets.player_surface.set_visible(ready);
         self.widgets.home_liked.set_sensitive(ready);
         self.widgets.home_playlists.set_sensitive(ready);
         self.widgets.home_search.set_sensitive(ready);
         self.widgets.queue.set_sensitive(ready);
-        self.widgets.account_bar.set_visible(!model.account_valid);
-        self.widgets.account_menu.set_visible(model.account_valid);
+        self.widgets.account_menu.set_visible(ready);
         self.widgets.account_menu.set_sensitive(ready);
         self.widgets.nav_liked.set_sensitive(ready);
         self.widgets.nav_playlists.set_sensitive(ready);
@@ -1717,16 +1724,23 @@ impl Controller {
         self.widgets.library_previous.set_sensitive(ready);
         self.widgets.search_next.set_sensitive(ready);
         self.widgets.search_previous.set_sensitive(ready);
-        self.widgets.login.set_sensitive(
-            !model.account_valid
-                && !model.auth_busy
-                && !model.closed
-                && !self.persistence_blocks_login(),
-        );
-        self.widgets
-            .login
-            .set_tooltip_text(Some("Войти в Яндекс Музыку"));
-        self.widgets.login.set_visible(!model.account_valid);
+        if let Some(window) = self.window.upgrade() {
+            for name in [
+                "music-library",
+                "music-playlists",
+                "music-search",
+                "music-queue",
+                "music-back",
+                "music-refresh",
+            ] {
+                if let Some(action) = window
+                    .lookup_action(name)
+                    .and_downcast::<gio::SimpleAction>()
+                {
+                    action.set_enabled(ready);
+                }
+            }
+        }
         self.widgets
             .logout
             .set_sensitive(model.token.is_some() && !model.closed);
@@ -1745,6 +1759,9 @@ impl Controller {
         self.widgets.status_revealer.set_visible(show_status);
         self.widgets.status_revealer.set_reveal_child(show_status);
         drop(model);
+        // The shell's visibility handler may synchronously reconcile Music
+        // routes and panel focus. Release the controller borrow first.
+        self.widgets.workspace.set_visible(ready);
         self.render_wave();
     }
 
@@ -1878,8 +1895,8 @@ impl Controller {
         self.widgets.library_previous.set_visible(false);
         self.widgets.search_next.set_visible(false);
         self.widgets.search_previous.set_visible(false);
-        self.widgets.stack.set_visible_child_name("library");
         self.widgets.library_mode.set_selected(0);
+        self.widgets.stack.set_visible_child_name("home");
         self.render_controls();
         self.render_queue();
     }
@@ -2282,6 +2299,7 @@ impl Controller {
             model.queue.reset_modes();
         }
         if self.service.is_none() {
+            self.session_validation_failed(MusicError::Configuration);
             self.auth_failed(AuthError::Configuration);
             return;
         }
@@ -2303,6 +2321,7 @@ impl Controller {
                 this.widgets.account.set_text(&account.display_name);
                 this.widgets.notice.set_text("Аккаунт Яндекс Музыки проверен. Сохранением входа можно управлять в настройках.");
                 this.can_create_playlist.set(true);
+                this.widgets.stack.set_visible_child_name("home");
                 this.session_validated(scope);
                 this.dismiss_login();
                 this.render_controls();
@@ -2789,6 +2808,21 @@ mod tests {
         window.set_default_size(900, 650);
         window.present();
         let this = &pane.controller;
+        pump_until(|| this.widgets.welcome.login.is_mapped());
+        assert!(this.widgets.welcome.page.is_mapped());
+        assert!(!this.widgets.workspace.is_mapped());
+        assert!(!this.widgets.primary_navigation.is_mapped());
+        assert!(!this.widgets.player_surface.is_mapped());
+        assert!(!this.widgets.account_menu.is_mapped());
+        for name in [
+            "music-library",
+            "music-playlists",
+            "music-search",
+            "music-queue",
+        ] {
+            assert!(!window.lookup_action(name).unwrap().is_enabled());
+        }
+        assert!(this.widgets.login.grab_focus());
         this.widgets.login.emit_clicked();
         pump_until(|| requested.load(Ordering::Acquire) == 1);
         assert!(!this.model.borrow().account_valid);
@@ -3095,7 +3129,10 @@ mod tests {
         pump_until(|| window.dialogs().n_items() == 0 && pending.dialog.parent().is_none());
         drop(pending);
         drop(retiring);
-        assert_eq!(this.widgets.login.label().as_deref(), Some("Войти"));
+        assert_eq!(
+            this.widgets.login.label().as_deref(),
+            Some(welcome::LOGIN_LABEL)
+        );
         this.widgets.login.emit_clicked();
         pump_until(|| !this.model.borrow().busy);
         let dialog = this.login_dialog.borrow().as_ref().unwrap().clone();
@@ -3135,7 +3172,8 @@ mod tests {
             Some("home")
         );
         assert!(this.widgets.home_signedin.is_visible());
-        assert!(!this.widgets.home_signedout.is_visible());
+        assert!(!this.widgets.welcome.page.is_visible());
+        assert!(this.widgets.workspace.is_visible());
         assert_eq!(rows(&this.widgets.home_preview), 0);
         for retired_notice in ["Функция проходит проверку", "Предварительная версия"]
         {
@@ -3472,7 +3510,10 @@ mod tests {
             pane.widget.upcast_ref(),
             "Synthetic UI account"
         ));
-        assert!(this.widgets.home_signedout.is_visible());
+        assert!(this.widgets.welcome.page.is_visible());
+        assert!(!this.widgets.workspace.is_visible());
+        assert!(!this.widgets.primary_navigation.is_mapped());
+        assert!(!this.widgets.player_surface.is_mapped());
         assert!(!this.widgets.home_signedin.is_visible());
         assert!(!this.widgets.status_revealer.reveals_child());
         let weak = Rc::downgrade(&pane.controller);

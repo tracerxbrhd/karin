@@ -37,15 +37,16 @@ cargo +stable build --release --locked
 ./target/release/karin
 ```
 
-`0.8.0` is the stable application version prepared for the first public release.
-Publication is a separate owner decision. Check `--version` and About for the
+`0.8.1` is prepared for owner acceptance. The current published release is
+[0.8.0](https://github.com/tracerxbrhd/karin/releases/tag/v0.8.0).
+Check `--version` and About for the
 source commit, clean/modified state, package and profile. Any source-tree change
 requires newly built artifacts and checksums; old files with the same version
 label do not prove the new commit. Preparing artifacts
 does not publish a tag or release, establish Yandex integration rights, or
 authorize Flathub submission.
 
-Builds/tests need no Yandex account. Ordinary **Войти** uses the supported
+Builds/tests need no Yandex account. Ordinary **Войти через Яндекс** uses the supported
 Cassette-compatible sign-in flow, without technical credentials, registration,
 pasted tokens or diagnostic flags. Music validation precedes library access.
 Unlock the desktop keyring for protected persistence; memory-only login remains
@@ -216,6 +217,78 @@ known generated material and prohibit automated submission interactions. These
 AI-assisted standalone manifests are not represented as submission-eligible;
 disclosure or review does not override that manifest restriction. No Flathub
 submission, public release or tag is performed by these commands.
+
+### Stable Flatpak channel
+
+The [update ADR](adr/0036-signed-flatpak-updates.md) describes the trust boundary.
+The build commands above prepare a local bundle. The
+[stable update workflow](../.github/workflows/stable-update.yml) additionally
+prepares distribution packages with a signed HTTPS origin. The source's
+`packaging/release/flatpak-key-fingerprint` is empty until a production key is
+approved and pinned in a reviewed source commit.
+
+For an authorized publication:
+
+1. Keep the primary GnuPG signing key offline. Pin its uppercase 40-hex
+   fingerprint in source, and store the base64 export of a dedicated unattended
+   signing subkey with that primary certificate in the
+   `karin-stable-signing` environment's `KARIN_FLATPAK_SIGNING_SUBKEY` secret.
+   Restrict that environment to `master` with required reviewers. Enable GitHub
+   Actions as the Pages source and protect the separate `github-pages`
+   environment with reviewers and the same branch restriction.
+2. Dispatch **Prepare stable Flatpak update** on the exact reviewed `master`
+   commit after its push CI and authorized stable tag. Set `deploy_pages=true`
+   to request the separate Pages approval in this run. The signing job verifies
+   the packaged binary and signs the tested deployment and repository metadata.
+3. Review the `karin-stable-release-<commit>` artifact, verify `SHA256SUMS`, and
+   attach the packages, corresponding source, build receipts and exact
+   `KARIN-FLATPAK-UPDATE.json` from this run to the stable GitHub release. Publish
+   the release only with owner authorization. Approve the Pages job after
+   publication. It rechecks the remote tag, current `master` and published asset
+   digest and deploys the signed site artifact from that same workflow run.
+   Keep the upload and approval in the same run so signatures and the advertised
+   deployment describe the same prepared bytes.
+
+The snapshot has a 250 MiB budget under GitHub Pages' 1 GB site limit. GitHub
+documents a soft 100 GB/month bandwidth limit and a ten-minute deployment
+timeout. Earlier package versions remain in their GitHub Releases. A fresh
+snapshot drops older refs and static deltas, so the site stays bounded. Revisit
+retention and hosting before adding architectures or exceeding the limits.
+[GitHub Pages limits](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits).
+
+#### Move an existing bundle installation to the channel
+
+Once the owner has published the channel, new users can open the verified
+`.flatpakref` in Discover. The signed standalone bundle also carries the remote
+URL. For an existing **user** installation of 0.8.0 with a bundle-only origin,
+quit Karin, verify the downloaded `karin.flatpakrepo` against the stable release
+checksums, then switch the existing ref to the signed remote:
+
+```sh
+flatpak info --user --show-origin io.github.tracerxbrhd.Karin
+flatpak remote-add --user --from karin ./karin.flatpakrepo
+flatpak install --user --reinstall --no-deps --no-related karin io.github.tracerxbrhd.Karin//master
+flatpak info --user --show-origin io.github.tracerxbrhd.Karin
+flatpak remotes --user --columns=name,url
+```
+
+The origin should be `karin` with
+`https://tracerxbrhd.github.io/karin/flatpak/`. If the `karin` remote already exists,
+first verify its URL and key from the published installer before using it. For
+an existing system installation, apply the same change in the system scope via
+the package manager. The 0.8.0 and 0.8.1 packages use the same installed runtime.
+Keep the same install scope and app ID to retain the application data. Subsequent approved upgrades can use **Проверить обновления**
+in Karin when the host Portal reports the signed deployment.
+
+Run the signing regression with real OSTree and GnuPG installed:
+
+```sh
+python3 -m unittest discover -s packaging/release -p test_flatpak_channel.py
+```
+
+This uses temporary signing keys and an isolated repository. It verifies
+repository signature enforcement. A separate installed-package test is required
+to confirm Portal update and restart.
 
 ### Bounded cold-render diagnostic
 

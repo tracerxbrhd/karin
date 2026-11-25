@@ -11,14 +11,17 @@ use gtk::{gio, glib};
 
 mod artwork;
 mod auth;
+mod diagnostics;
 mod fonts;
 mod icons;
 mod music;
 mod playback;
 mod preferences;
 mod style;
+mod updates;
 
 pub use fonts::FontError;
+pub use updates::install_update_action;
 
 /// Register the bundled typefaces before creating GTK/Pango objects.
 /// This is startup-only resource loading, independent of account and playback.
@@ -26,14 +29,7 @@ pub fn prepare_typography() -> Result<(), FontError> {
     fonts::install()
 }
 
-use crate::{
-    application::ConnectionService,
-    audio::{self, AudioOutput},
-    capabilities::{AuthenticationCapability, AuthenticationUnavailable},
-    config,
-    domain::{AccountAccess, ConnectionState, ServiceError},
-    platform,
-};
+use crate::{application::ConnectionService, config};
 
 pub struct MainWindow {
     pub window: adw::ApplicationWindow,
@@ -42,7 +38,7 @@ pub struct MainWindow {
     header_items: Vec<gtk::Widget>,
     scrolls: Vec<gtk::ScrolledWindow>,
     lifetime_refs: Vec<glib::WeakRef<gtk::Widget>>,
-    player: playback::DeveloperPlayback,
+    diagnostics: Option<diagnostics::DiagnosticsPage>,
     music: music::MusicPane,
 }
 
@@ -50,6 +46,10 @@ impl MainWindow {
     /// Enable the explicitly requested metadata-only delivery experiment.
     pub fn enable_delivery_diagnostic(&self) {
         self.music.enable_delivery_diagnostic();
+    }
+
+    pub fn open_diagnostics(&self) {
+        let _ = gtk::prelude::WidgetExt::activate_action(&self.window, "win.diagnostics", None);
     }
 
     /// Validate actual allocations as well as native responsive navigation.
@@ -102,51 +102,46 @@ impl MainWindow {
     }
 
     pub async fn exercise_login_for_smoke(&self) -> Result<(), String> {
-        self.show_page("music-library");
+        self.show_page("home");
         self.music.exercise_login_for_smoke().await
     }
 
-    pub async fn exercise_sidebar_for_smoke(&self) -> Result<(), String> {
-        // Exercise the actual window action from an unmapped Music page. The
-        // convenience show_page() pre-maps it and would hide an ordering bug.
-        self.stack.set_visible_child_name("diagnostics");
-        self.player.prepare.grab_focus();
-        gtk::prelude::WidgetExt::activate_action(&self.window, "win.music-search", None)
-            .map_err(|_| "Search window action is missing")?;
-        let mut search_focused = false;
+    pub async fn exercise_welcome_navigation_for_smoke(&self) -> Result<(), String> {
+        let diagnostics = self.diagnostics.as_ref().ok_or("Smoke needs diagnostics")?;
+        self.open_diagnostics();
+        self.wait_for_layout().await?;
+        if !diagnostics.back.is_mapped() || !diagnostics.player.prepare.has_focus() {
+            return Err("Diagnostics did not expose Back and focus its local controls".into());
+        }
+        for name in [
+            "music-library",
+            "music-playlists",
+            "music-search",
+            "music-queue",
+        ] {
+            if !self
+                .window
+                .lookup_action(name)
+                .is_some_and(|action| !action.is_enabled())
+            {
+                return Err(format!("Signed-out welcome exposes {name}"));
+            }
+        }
+        diagnostics.back.emit_clicked();
+        self.wait_for_layout().await?;
         for _ in 0..20 {
-            let target = self.music.navigation_target("music-search");
-            search_focused = if target.is_sensitive() {
-                gtk::prelude::GtkWindowExt::focus(&self.window)
-                    .is_some_and(|focus| focus == target || focus.is_ancestor(&target))
-            } else {
-                self.music.primary_action().has_focus()
-            };
-            if search_focused {
+            if self.music.primary_action().has_focus() {
                 break;
             }
             glib::timeout_future(std::time::Duration::from_millis(25)).await;
         }
-        if !search_focused {
-            return Err("Search action did not move keyboard focus from diagnostics".into());
+        if self.stack.visible_child_name().as_deref() != Some("home")
+            || !self.music.primary_action().is_mapped()
+            || !self.music.primary_action().has_focus()
+            || diagnostics.back.is_mapped()
+        {
+            return Err("Back did not restore the signed-out page and keyboard focus".into());
         }
-        // The lightweight segment row replaces both the old rail and overlay.
-        // Signed-out pages still route through actions and focus ordinary login.
-        for (action, expected) in [
-            ("music-home", "home"),
-            ("music-library", "library"),
-            ("music-playlists", "playlists"),
-        ] {
-            gtk::prelude::WidgetExt::activate_action(&self.window, &format!("win.{action}"), None)
-                .map_err(|_| "Music navigation action is missing")?;
-            glib::timeout_future(std::time::Duration::from_millis(250)).await;
-            if self.music.section_stack().visible_child_name().as_deref() != Some(expected)
-                || self.stack.visible_child_name().as_deref() != Some("home")
-            {
-                return Err("Music segment action did not navigate to its page".into());
-            }
-        }
-        self.show_page("music-home");
         Ok(())
     }
 
@@ -214,7 +209,10 @@ impl MainWindow {
             refs.push(widget.downgrade());
             ancestor = widget.parent();
         }
-        let player = self.player.cleanup_observer();
+        let player = self
+            .diagnostics
+            .as_ref()
+            .and_then(|diagnostics| diagnostics.player.cleanup_observer());
         self.music.close();
         self.window.close();
         drop(self);
@@ -245,21 +243,26 @@ impl MainWindow {
     /// Exercise generated local media through the actual GTK diagnostics entry.
     pub async fn exercise_playback_for_smoke(&self) -> bool {
         use crate::playback::PlaybackState;
-        self.player.prepare_for_smoke();
+        let Some(player) = self
+            .diagnostics
+            .as_ref()
+            .map(|diagnostics| &diagnostics.player)
+        else {
+            return false;
+        };
+        player.prepare_for_smoke();
         for _ in 0..100 {
             glib::timeout_future(std::time::Duration::from_millis(50)).await;
-            if self
-                .player
+            if player
                 .snapshot()
                 .is_some_and(|s| s.state == PlaybackState::Ready)
             {
-                if self.player.play_for_smoke().is_err() {
+                if player.play_for_smoke().is_err() {
                     return false;
                 }
                 for _ in 0..100 {
                     glib::timeout_future(std::time::Duration::from_millis(50)).await;
-                    if self
-                        .player
+                    if player
                         .snapshot()
                         .is_some_and(|s| s.state == PlaybackState::Playing)
                     {
@@ -282,7 +285,7 @@ pub fn build_with_options(
     service: ConnectionService,
     experimental: bool,
 ) -> MainWindow {
-    build_with_auth_mode(app, service, experimental, false)
+    build_with_auth_mode(app, service, experimental, false, false)
 }
 
 /// Explicitly offline presentation for automated captures and GTK lifecycle
@@ -292,17 +295,34 @@ pub fn build_offline_ui_fixture(
     service: ConnectionService,
     experimental: bool,
 ) -> MainWindow {
-    build_with_auth_mode(app, service, experimental, true)
+    build_with_auth_mode(app, service, experimental, true, false)
+}
+
+/// The developer route uses the normal account and playback controllers.
+pub fn build_diagnostics(
+    app: &adw::Application,
+    service: ConnectionService,
+    experimental: bool,
+) -> MainWindow {
+    build_with_auth_mode(app, service, experimental, false, true)
+}
+
+/// Exercise the original local diagnostic controls and offline sign-in.
+pub fn build_offline_diagnostics_fixture(
+    app: &adw::Application,
+    service: ConnectionService,
+    experimental: bool,
+) -> MainWindow {
+    build_with_auth_mode(app, service, experimental, true, true)
 }
 
 /// The same executable's explicit isolated loopback acceptance composition.
 /// No actual login or desktop credential store participates in this mode.
 pub fn build_application_fixture(
     app: &adw::Application,
-    service: ConnectionService,
     fixture: &crate::application_fixture::ApplicationFixture,
 ) -> MainWindow {
-    build_with_music_pane(app, service, |app, window| {
+    build_shell(app, None, |app, window| {
         music::MusicPane::new_application_fixture(app, window, fixture)
     })
 }
@@ -312,8 +332,9 @@ fn build_with_auth_mode(
     service: ConnectionService,
     experimental: bool,
     offline_auth: bool,
+    diagnostics: bool,
 ) -> MainWindow {
-    build_with_music_pane(app, service, |app, window| {
+    build_shell(app, diagnostics.then_some(service), |app, window| {
         if offline_auth {
             music::MusicPane::new_offline(app, window, experimental)
         } else {
@@ -325,9 +346,18 @@ fn build_with_auth_mode(
 // Production and loopback fixtures construct the same native shell. Only the
 // caller supplies the existing service/provider composition; no fixture catalog
 // or credential entry is shipped in the ordinary application.
+#[cfg(test)]
 fn build_with_music_pane(
     app: &adw::Application,
     service: ConnectionService,
+    make_music: impl FnOnce(&adw::Application, &adw::ApplicationWindow) -> music::MusicPane,
+) -> MainWindow {
+    build_shell(app, Some(service), make_music)
+}
+
+fn build_shell(
+    app: &adw::Application,
+    diagnostics_service: Option<ConnectionService>,
     make_music: impl FnOnce(&adw::Application, &adw::ApplicationWindow) -> music::MusicPane,
 ) -> MainWindow {
     style::install();
@@ -354,11 +384,13 @@ fn build_with_music_pane(
     header.set_title_widget(Some(&title));
     let focus_epoch = Rc::new(Cell::new(0_u64));
     let menu = gio::Menu::new();
+    let music_menu = gio::Menu::new();
+    menu.append(Some("Проверить обновления"), Some("app.check-updates"));
     menu.append(Some("Настройки"), Some("win.preferences"));
-    menu.append(Some("Сведения о треке"), Some("win.music-info"));
-    menu.append(Some("Очередь"), Some("win.music-queue"));
-    menu.append(Some("Обновить данные"), Some("win.music-refresh"));
-    menu.append(Some("Диагностика"), Some("win.diagnostics"));
+    menu.append_section(None, &music_menu);
+    if diagnostics_service.is_some() {
+        menu.append(Some("Диагностика"), Some("win.diagnostics"));
+    }
     menu.append(Some("О Karin"), Some("app.about"));
     menu.append(Some("Закрыть Karin"), Some("app.quit"));
     let menu_button = gtk::MenuButton::builder()
@@ -369,99 +401,11 @@ fn build_with_music_pane(
     header.pack_end(&menu_button);
     toolbar.add_top_bar(&header);
 
-    let (diagnostics, diagnostics_heading) = page(
-        "Диагностика",
-        "Проверки работают независимо от авторизации.",
-    );
-    let connection_group = adw::PreferencesGroup::builder()
-        .title("Подключение к сервису")
-        .build();
-    let connection_row = row("Яндекс Музыка", "Доступность ещё не проверена");
-    let check_diagnostics = gtk::Button::builder()
-        .label("Проверить")
-        .valign(gtk::Align::Center)
-        .build();
-    connection_row.add_suffix(&check_diagnostics);
-    connection_group.add(&connection_row);
-    let AuthenticationCapability::AuthenticationUnavailable(
-        AuthenticationUnavailable::MusicGrantNotEstablished,
-    ) = service.capabilities().authentication;
-    let (login_title, login_description) = if cfg!(feature = "cassette-auth") {
-        (
-            "Прототип входа через Cassette",
-            "На странице «Главная» нажмите «Войти». Доступ к аккаунту, библиотеке и поиску проверяется после входа. Воспроизведение проверяется отдельно для выбранного трека.",
-        )
-    } else {
-        (
-            "Минимальная сборка без входа",
-            "В этой сборке нет WebKit и провайдера авторизации. Для проверки входа нужна обычная сборка Karin. Музыкальное аудио пока недоступно.",
-        )
-    };
-    connection_group.add(&row(login_title, login_description));
-    diagnostics.append(&connection_group);
-    let player = playback::DeveloperPlayback::new(app, &window);
-    diagnostics.append(&player.group);
-
-    let diagnostic_columns = gtk::Box::new(gtk::Orientation::Horizontal, 24);
-    diagnostic_columns.set_homogeneous(true);
-    diagnostic_columns.set_valign(gtk::Align::Start);
-    let audio_group = adw::PreferencesGroup::builder()
-        .title("Аудиодиагностика")
-        .description("Синтетический сигнал, не музыка из сервиса.")
-        .hexpand(true)
-        .build();
-    let audio_row = row("Результат", "Проверка ещё не выполнялась");
-    audio_group.add(&audio_row);
-    let silent = gtk::Button::builder()
-        .label("Проверить")
-        .valign(gtk::Align::Center)
-        .build();
-    let silent_row = row("Обработка аудио", "Без устройства вывода");
-    silent_row.add_suffix(&silent);
-    audio_group.add(&silent_row);
-    let audible = gtk::Button::builder()
-        .label("Прослушать")
-        .valign(gtk::Align::Center)
-        .build();
-    let audible_row = row("Тестовый сигнал", "Негромкий синтетический звук");
-    audible_row.add_suffix(&audible);
-    audio_group.add(&audible_row);
-    diagnostic_columns.append(&audio_group);
-
-    let desktop_group = adw::PreferencesGroup::builder()
-        .title("Рабочий стол")
-        .description("Проверка без чтения сохранённых секретов.")
-        .hexpand(true)
-        .build();
-    let desktop_row = row("D-Bus и Secret Service", "Проверка ещё не выполнялась");
-    let inspect = gtk::Button::builder()
-        .label("Проверить")
-        .valign(gtk::Align::Center)
-        .build();
-    desktop_row.add_suffix(&inspect);
-    desktop_group.add(&desktop_row);
-    desktop_group.add(&row(
-        "Интеграция",
-        "Состояние защищённого хранения и запоминание входа доступны в настройках",
-    ));
-    diagnostic_columns.append(&desktop_group);
-    diagnostics.append(&diagnostic_columns);
-    let runtime_group = adw::PreferencesGroup::builder().title("Окружение").build();
-    runtime_group.add(&row(
-        "Нативные библиотеки",
-        &format!(
-            "GTK {}.{}.{} · Libadwaita {}.{}.{} · {}",
-            gtk::major_version(),
-            gtk::minor_version(),
-            gtk::micro_version(),
-            adw::major_version(),
-            adw::minor_version(),
-            adw::micro_version(),
-            gstreamer::version_string()
-        ),
-    ));
-    diagnostics.append(&runtime_group);
-
+    let diagnostics =
+        diagnostics_service.map(|service| diagnostics::DiagnosticsPage::new(app, &window, service));
+    if let Some(diagnostics) = &diagnostics {
+        header.pack_start(&diagnostics.back);
+    }
     let home = gtk::Box::new(gtk::Orientation::Vertical, 0);
     home.add_css_class("music-workspace");
     margins(&home, 24);
@@ -531,39 +475,93 @@ fn build_with_music_pane(
     }
     music.attach_track_info(&track_info, &information_view, stack.upcast_ref());
     let music_visibility = music.visibility_callback();
-    let navigation_visibility = music_navigation.downgrade();
+    let workspace_surface = music.workspace_surface();
+    let sync_shell = {
+        let stack = stack.downgrade();
+        let workspace_surface = workspace_surface.downgrade();
+        let navigation = music_navigation.downgrade();
+        let back = diagnostics
+            .as_ref()
+            .map(|diagnostics| diagnostics.back.downgrade());
+        move || {
+            let (Some(stack), Some(workspace), Some(navigation)) = (
+                stack.upgrade(),
+                workspace_surface.upgrade(),
+                navigation.upgrade(),
+            ) else {
+                return;
+            };
+            let home_visible = stack.visible_child_name().as_deref() == Some("home");
+            // The workspace's own visible property expresses account admission.
+            // A hidden window or diagnostics page can mask ancestor visibility.
+            let music_visible = home_visible && workspace.get_visible();
+            navigation.set_visible(music_visible);
+            if let Some(back) = back.as_ref().and_then(glib::WeakRef::upgrade) {
+                back.set_visible(!home_visible);
+            }
+            if music_visible && music_menu.n_items() == 0 {
+                music_menu.append(Some("Сведения о треке"), Some("win.music-info"));
+                music_menu.append(Some("Очередь"), Some("win.music-queue"));
+                music_menu.append(Some("Обновить данные"), Some("win.music-refresh"));
+            } else if !music_visible && music_menu.n_items() != 0 {
+                music_menu.remove_all();
+            }
+        }
+    };
+    let sync_shell = Rc::new(sync_shell);
+    let sync = sync_shell.clone();
     stack.connect_visible_child_name_notify(move |stack| {
-        let visible = stack.visible_child_name().as_deref() == Some("home");
-        music_visibility(visible);
-        if let Some(navigation) = navigation_visibility.upgrade() {
-            navigation.set_visible(visible);
+        music_visibility(stack.visible_child_name().as_deref() == Some("home"));
+        sync();
+    });
+    let sync = sync_shell.clone();
+    let weak_window = window.downgrade();
+    let weak_stack = stack.downgrade();
+    workspace_surface.connect_visible_notify(move |surface| {
+        sync();
+        if !surface.get_visible()
+            && weak_stack
+                .upgrade()
+                .is_some_and(|stack| stack.visible_child_name().as_deref() == Some("diagnostics"))
+        {
+            let surface = surface.downgrade();
+            let window = weak_window.clone();
+            let stack = weak_stack.clone();
+            // Logout can change visibility while rendering the account model.
+            // Leave the developer page after that rendering has completed.
+            glib::idle_add_local_once(move || {
+                if surface
+                    .upgrade()
+                    .is_some_and(|surface| !surface.get_visible())
+                    && stack.upgrade().is_some_and(|stack| {
+                        stack.visible_child_name().as_deref() == Some("diagnostics")
+                    })
+                    && let Some(window) = window.upgrade()
+                {
+                    let _ = gtk::prelude::WidgetExt::activate_action(&window, "win.overview", None);
+                }
+            });
         }
     });
     let account_menu = music.account_menu();
     header.pack_end(&account_menu);
     home.append(&music.widget);
 
-    // Keep the anonymous availability request in the technical diagnostics.
-    let status = gtk::Box::new(gtk::Orientation::Vertical, 12);
-    let status_title = label("", "heading");
-    let status_description = label("", "");
-    let check = gtk::Button::with_label("Проверить доступность");
-    check.set_halign(gtk::Align::Start);
-    let spinner = gtk::Spinner::builder().visible(false).build();
-    status.append(&status_title);
-    status.append(&status_description);
-    status.append(&check);
-    status.append(&spinner);
-    diagnostics.append(&status);
     let home_scroll = scroll_music_page(&home);
     music.attach_content_scroll(&home_scroll);
-    let diagnostics_scroll = scroll_page(&diagnostics);
     stack
         .add_titled(&home_scroll, Some("home"), "Музыка")
         .set_icon_name(Some("karin-home-symbolic"));
-    stack
-        .add_titled(&diagnostics_scroll, Some("diagnostics"), "Диагностика")
-        .set_icon_name(Some("applications-engineering-symbolic"));
+    if let Some(diagnostics) = &diagnostics {
+        stack.add_titled(&diagnostics.scroll, Some("diagnostics"), "Диагностика");
+        let stop_preview = diagnostics.player.stop_callback();
+        stack.connect_visible_child_name_notify(move |stack| {
+            if stack.visible_child_name().as_deref() != Some("diagnostics") {
+                stop_preview();
+            }
+        });
+    }
+    sync_shell();
 
     let compact_information = adw::Breakpoint::new(
         adw::BreakpointCondition::parse("max-width: 1279sp").expect("constant breakpoint"),
@@ -582,30 +580,29 @@ fn build_with_music_pane(
         "width-request",
         Some(&(-1_i32).to_value()),
     );
-    compact_navigation.add_setter(
-        &diagnostic_columns,
-        "orientation",
-        Some(&gtk::Orientation::Vertical.to_value()),
-    );
-    compact_navigation.add_setter(&diagnostic_columns, "homogeneous", Some(&false.to_value()));
-    workspace_bin.add_breakpoint(compact_navigation);
-    for (name, page) in [("overview", "home"), ("diagnostics", "diagnostics")] {
-        let action = gio::SimpleAction::new(name, None);
+    if let Some(diagnostics) = &diagnostics {
+        compact_navigation.add_setter(
+            &diagnostics.columns,
+            "orientation",
+            Some(&gtk::Orientation::Vertical.to_value()),
+        );
+        compact_navigation.add_setter(&diagnostics.columns, "homogeneous", Some(&false.to_value()));
+        let action = gio::SimpleAction::new("diagnostics", None);
         let stack = stack.downgrade();
-        let target = if page == "home" {
-            music.primary_action()
-        } else {
-            player.prepare.clone()
-        }
-        .downgrade();
+        let prepare = diagnostics.player.prepare.downgrade();
+        let epoch = Rc::clone(&focus_epoch);
         action.connect_activate(move |_, _| {
-            if let (Some(stack), Some(target)) = (stack.upgrade(), target.upgrade()) {
-                stack.set_visible_child_name(page);
-                target.grab_focus();
+            epoch.set(epoch.get().wrapping_add(1));
+            if let (Some(stack), Some(prepare)) = (stack.upgrade(), prepare.upgrade()) {
+                stack.set_visible_child_name("diagnostics");
+                prepare.grab_focus();
             }
         });
         window.add_action(&action);
+        app.set_accels_for_action("win.diagnostics", &["<Alt>2"]);
     }
+    workspace_bin.add_breakpoint(compact_navigation);
+    window.add_action(&gio::SimpleAction::new("overview", None));
     let preferences = gio::SimpleAction::new("preferences", None);
     let show_preferences = music.preferences_callback();
     preferences.connect_activate(move |_, _| {
@@ -615,14 +612,10 @@ fn build_with_music_pane(
     app.set_accels_for_action("win.preferences", &["<Primary>comma"]);
     // Retain the existing shortcut as navigation focus, not a hidden rail.
     let navigation_action = gio::SimpleAction::new("sidebar", None);
-    let navigation_target = music.navigation_target("music-home").downgrade();
-    let music_stack = stack.downgrade();
+    let window_for_sidebar = window.downgrade();
     navigation_action.connect_activate(move |_, _| {
-        if let Some(stack) = music_stack.upgrade() {
-            stack.set_visible_child_name("home");
-        }
-        if let Some(target) = navigation_target.upgrade() {
-            target.grab_focus();
+        if let Some(window) = window_for_sidebar.upgrade() {
+            let _ = gtk::prelude::WidgetExt::activate_action(&window, "win.overview", None);
         }
     });
     window.add_action(&navigation_action);
@@ -634,7 +627,6 @@ fn build_with_music_pane(
         "music-playlists",
         "music-search",
         "music-queue",
-        "diagnostics",
         "overview",
     ] {
         if let Some(action) = window
@@ -642,8 +634,14 @@ fn build_with_music_pane(
             .and_downcast::<gio::SimpleAction>()
         {
             let weak_stack = stack.downgrade();
-            let weak_focus = music.navigation_target(name).downgrade();
+            let focus_action = if name == "overview" {
+                "music-home"
+            } else {
+                name
+            };
+            let weak_focus = music.navigation_target(focus_action).downgrade();
             let weak_login = music.primary_action().downgrade();
+            let weak_workspace = workspace_surface.downgrade();
             let weak_sections = sections.downgrade();
             let weak_window = window.downgrade();
             let epoch = Rc::clone(&focus_epoch);
@@ -653,11 +651,7 @@ fn build_with_music_pane(
                 #[cfg(test)]
                 eprintln!("Karin synthetic navigation focus: action={name} scheduled={serial}");
                 if let Some(stack) = weak_stack.upgrade() {
-                    stack.set_visible_child_name(if name == "diagnostics" {
-                        "diagnostics"
-                    } else {
-                        "home"
-                    });
+                    stack.set_visible_child_name("home");
                 }
                 // A normal Ctrl+F has already focused the mapped header.
                 // A second delayed grab can select text typed since the action.
@@ -669,9 +663,10 @@ fn build_with_music_pane(
                 {
                     return;
                 }
-                if name != "diagnostics" {
+                {
                     let primary = weak_focus.clone();
                     let login = weak_login.clone();
+                    let workspace = weak_workspace.clone();
                     let stack = weak_stack.clone();
                     let sections = weak_sections.clone();
                     let window = weak_window.clone();
@@ -704,7 +699,9 @@ fn build_with_music_pane(
                                 return;
                             }
                             let moved = if let Some(target) = primary.upgrade() {
-                                if target.is_sensitive() {
+                                if target.is_sensitive()
+                                    && workspace.upgrade().is_some_and(|surface| surface.get_visible())
+                                {
                                     // A later Escape may have retired the header field
                                     // while this action waited for the outer Music page.
                                     if name == "music-search" && !target.can_focus() {
@@ -742,23 +739,28 @@ fn build_with_music_pane(
     let sync_navigation = {
         let stack = stack.downgrade();
         let sections = sections.downgrade();
+        let workspace = workspace_surface.downgrade();
         let title = title.downgrade();
         let panel_title = music.panel_title_callback();
         move || {
             if let (Some(stack), Some(sections), Some(title)) =
                 (stack.upgrade(), sections.upgrade(), title.upgrade())
             {
-                let page_title = if stack.visible_child_name().as_deref() == Some("diagnostics") {
+                let text = if stack.visible_child_name().as_deref() == Some("diagnostics") {
                     "Диагностика"
-                } else {
-                    match sections.visible_child_name().as_deref() {
-                        Some("home" | "library" | "playlists") => "Karin",
+                } else if workspace
+                    .upgrade()
+                    .is_some_and(|workspace| workspace.get_visible())
+                {
+                    panel_title().unwrap_or(match sections.visible_child_name().as_deref() {
                         Some("search") => "Поиск",
                         Some("detail") => "Сведения",
                         _ => "Karin",
-                    }
+                    })
+                } else {
+                    "Karin"
                 };
-                title.set_title(panel_title().unwrap_or(page_title));
+                title.set_title(text);
             }
         }
     };
@@ -768,6 +770,8 @@ fn build_with_music_pane(
     let sync = sync_navigation.clone();
     sections.connect_visible_child_name_notify(move |_| sync());
     let sync = sync_navigation.clone();
+    workspace_surface.connect_visible_notify(move |_| sync());
+    let sync = sync_navigation.clone();
     music.panel_heading().connect_label_notify(move |_| sync());
     let sync = sync_navigation.clone();
     information_view.connect_notify_local(Some("progress"), move |_, _| sync());
@@ -776,149 +780,29 @@ fn build_with_music_pane(
     let sync = sync_navigation.clone();
     information_view.connect_notify_local(Some("compact-presentation"), move |_, _| sync());
     sync_navigation();
-    // Both real controls trigger the same state machine and bounded request.
-    check
-        .bind_property("sensitive", &check_diagnostics, "sensitive")
-        .sync_create()
-        .build();
-    let weak_check = check.downgrade();
-    check_diagnostics.connect_clicked(move |_| {
-        if let Some(check) = weak_check.upgrade() {
-            check.emit_clicked();
-        }
-    });
-    let state = Rc::new(RefCell::new(ConnectionState::NotChecked));
-    render_connection(
-        &state.borrow(),
-        &status_title,
-        &status_description,
-        &connection_row,
-        &spinner,
-        &check,
-    );
-    {
-        // Permanent signal handlers must not retain their own widget tree.
-        // Workers may temporarily keep widgets alive until bounded cleanup.
-        let app = app.downgrade();
-        let status_title = status_title.downgrade();
-        let status_description = status_description.downgrade();
-        let connection_row = connection_row.downgrade();
-        let spinner = spinner.downgrade();
-        check.connect_clicked(move |button| {
-            let (
-                Some(app),
-                Some(status_title),
-                Some(status_description),
-                Some(connection_row),
-                Some(spinner),
-            ) = (
-                app.upgrade(),
-                status_title.upgrade(),
-                status_description.upgrade(),
-                connection_row.upgrade(),
-                spinner.upgrade(),
-            )
-            else {
-                return;
-            };
-            if !state.borrow_mut().begin_check() {
-                return;
-            }
-            render_connection(
-                &state.borrow(),
-                &status_title,
-                &status_description,
-                &connection_row,
-                &spinner,
-                button,
-            );
-            let service = service.clone();
-            let state = state.clone();
-            let status_title = status_title.clone();
-            let status_description = status_description.clone();
-            let connection_row = connection_row.clone();
-            let spinner = spinner.clone();
-            let button = button.clone();
-            let hold = app.hold();
-            glib::spawn_future_local(async move {
-                let _hold_until_cleanup = hold;
-                let result = gio::spawn_blocking(move || service.check_connection())
-                    .await
-                    .unwrap_or(Err(ServiceError::Network));
-                state.borrow_mut().complete(result);
-                render_connection(
-                    &state.borrow(),
-                    &status_title,
-                    &status_description,
-                    &connection_row,
-                    &spinner,
-                    &button,
-                );
-            });
-        });
-    }
-    connect_audio(app, &silent, &audible, &audio_row, AudioOutput::Fakesink);
-    connect_audio(app, &audible, &silent, &audio_row, AudioOutput::System);
-    {
-        let app = app.downgrade();
-        let desktop_row = desktop_row.downgrade();
-        inspect.connect_clicked(move |button| {
-            let (Some(app), Some(desktop_row)) = (app.upgrade(), desktop_row.upgrade()) else {
-                return;
-            };
-            button.set_sensitive(false);
-            desktop_row.set_subtitle("Проверяем окружение…");
-            let button = button.clone();
-            let desktop_row = desktop_row.clone();
-            let hold = app.hold();
-            glib::spawn_future_local(async move {
-                let _hold_until_cleanup = hold;
-                match gio::spawn_blocking(platform::inspect_session).await {
-                    Ok(report) => desktop_row.set_subtitle(&format!(
-                        "Сеансовая шина: {} · Secret Service: {}. Секреты не читались.",
-                        if report.session_bus {
-                            "доступна"
-                        } else {
-                            "недоступна"
-                        },
-                        if report.secret_service_running {
-                            "запущен"
-                        } else {
-                            "не обнаружен"
-                        }
-                    )),
-                    Err(_) => desktop_row.set_subtitle("Не удалось проверить окружение"),
-                }
-                button.set_sensitive(true);
-            });
-        });
-    }
-
-    let lifetime_refs = [
+    let mut lifetime_refs: Vec<_> = [
         window.upcast_ref::<gtk::Widget>(),
         stack.upcast_ref::<gtk::Widget>(),
-        status.upcast_ref::<gtk::Widget>(),
-        check.upcast_ref::<gtk::Widget>(),
-        silent.upcast_ref::<gtk::Widget>(),
-        audible.upcast_ref::<gtk::Widget>(),
-        inspect.upcast_ref::<gtk::Widget>(),
         header.upcast_ref::<gtk::Widget>(),
-        player.group.upcast_ref::<gtk::Widget>(),
-        player.prepare.upcast_ref::<gtk::Widget>(),
     ]
     .into_iter()
     .map(|widget| widget.downgrade())
     .collect();
-    // Structural smoke validation also walks these critical heading labels.
-    diagnostics_heading.set_widget_name("diagnostics-heading");
+    let mut header_items = vec![title.upcast(), menu_button.upcast(), account_menu.upcast()];
+    let mut scrolls = vec![home_scroll];
+    if let Some(diagnostics) = &diagnostics {
+        lifetime_refs.extend(diagnostics.lifetime_refs.iter().cloned());
+        header_items.push(diagnostics.back.clone().upcast());
+        scrolls.push(diagnostics.scroll.clone());
+    }
     MainWindow {
         window,
         stack,
         header,
-        header_items: vec![title.upcast(), menu_button.upcast(), account_menu.upcast()],
-        scrolls: vec![home_scroll, diagnostics_scroll],
+        header_items,
+        scrolls,
         lifetime_refs,
-        player,
+        diagnostics,
         music,
     }
 }
@@ -943,18 +827,6 @@ fn margins(widget: &impl IsA<gtk::Widget>, margin: i32) {
     widget.set_margin_end(margin);
 }
 
-fn page(title: &str, subtitle: &str) -> (gtk::Box, gtk::Label) {
-    let content = gtk::Box::new(gtk::Orientation::Vertical, 24);
-    content.set_valign(gtk::Align::Start);
-    margins(&content, 24);
-    let heading = gtk::Box::new(gtk::Orientation::Vertical, 6);
-    let title = label(title, "title-1");
-    heading.append(&title);
-    heading.append(&label(subtitle, "dim-label"));
-    content.append(&heading);
-    (content, title)
-}
-
 fn scroll_music_page(content: &gtk::Box) -> gtk::ScrolledWindow {
     let viewport = gtk::Viewport::builder()
         .scroll_to_focus(true)
@@ -963,31 +835,6 @@ fn scroll_music_page(content: &gtk::Box) -> gtk::ScrolledWindow {
     gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::Never)
         .child(&viewport)
-        .build()
-}
-
-fn scroll_page(content: &gtk::Box) -> gtk::ScrolledWindow {
-    let clamp = adw::Clamp::builder()
-        .maximum_size(1120)
-        .tightening_threshold(760)
-        .child(content)
-        .build();
-    let viewport = gtk::Viewport::builder()
-        .scroll_to_focus(true)
-        .child(&clamp)
-        .build();
-    gtk::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk::PolicyType::Never)
-        .child(&viewport)
-        .build()
-}
-
-fn row(title: &str, subtitle: &str) -> adw::ActionRow {
-    adw::ActionRow::builder()
-        .title(title)
-        .title_lines(0)
-        .subtitle(subtitle)
-        .subtitle_lines(0)
         .build()
 }
 
@@ -1073,153 +920,4 @@ fn check_widget_geometry(widget: &gtk::Widget, window: &gtk::Widget) -> Result<(
         child = current.next_sibling();
     }
     Ok(())
-}
-
-fn connect_audio(
-    app: &adw::Application,
-    button: &gtk::Button,
-    other: &gtk::Button,
-    row: &adw::ActionRow,
-    output: AudioOutput,
-) {
-    let app = app.downgrade();
-    let other = other.downgrade();
-    let row = row.downgrade();
-    button.connect_clicked(move |button| {
-        let (Some(app), Some(other), Some(row)) = (app.upgrade(), other.upgrade(), row.upgrade())
-        else {
-            return;
-        };
-        button.set_sensitive(false);
-        other.set_sensitive(false);
-        row.set_subtitle("Проверяем синтетический сигнал…");
-        let button = button.clone();
-        let other = other.clone();
-        let row = row.clone();
-        let hold = app.hold();
-        glib::spawn_future_local(async move {
-            let _hold_until_cleanup = hold;
-            let message = match gio::spawn_blocking(move || audio::run_test_tone(output)).await {
-                Ok(Ok(_)) => match output {
-                    AudioOutput::Fakesink => {
-                        "Проверка без звука завершена. Поток обработан до конца.".to_owned()
-                    }
-                    AudioOutput::System => {
-                        "Сигнал завершён. Подтвердите слышимость самостоятельно.".to_owned()
-                    }
-                },
-                Ok(Err(error)) => format!("Ошибка аудио: {error}"),
-                Err(_) => "Не удалось завершить проверку аудио".to_owned(),
-            };
-            row.set_subtitle(&message);
-            button.set_sensitive(true);
-            other.set_sensitive(true);
-        });
-    });
-}
-
-fn presentation(state: &ConnectionState) -> (&'static str, String) {
-    match state {
-        ConnectionState::NotChecked => (
-            "Подключение не проверено",
-            "Karin ещё не авторизован. Можно проверить доступность сервиса без входа в аккаунт."
-                .into(),
-        ),
-        ConnectionState::Checking => (
-            "Проверяем доступность…",
-            "Окно остаётся доступным во время запроса.".into(),
-        ),
-        ConnectionState::Available(report) => {
-            let title = match report.access {
-                AccountAccess::AuthorizationRequired => "Требуется авторизация",
-                AccountAccess::Forbidden => "Доступ запрещён",
-                AccountAccess::Anonymous if report.service_available == Some(false) => {
-                    "Сервис недоступен в этой среде"
-                }
-                AccountAccess::Anonymous => "API отвечает · вход не выполнен",
-            };
-            (
-                title,
-                format!(
-                    "Получен ответ HTTP {}. Этот запрос выполнен без входа и не проверяет аккаунт или доступ к музыке.{}",
-                    report.http_status,
-                    if report.service_available == Some(false) {
-                        " Сервис сообщил о недоступности для текущего подключения."
-                    } else {
-                        ""
-                    }
-                ),
-            )
-        }
-        ConnectionState::Failed(error) => {
-            let message = match error {
-                ServiceError::Network => "Сервис недоступен. Проверьте сетевое подключение.".into(),
-                ServiceError::Timeout => "Сервис не ответил вовремя.".into(),
-                ServiceError::Http(status) => format!("Сервис вернул HTTP {status}."),
-                ServiceError::InvalidResponse => "Сервис вернул неподдерживаемый ответ.".into(),
-                ServiceError::ResponseTooLarge => {
-                    "Ответ сервиса превышает допустимый размер.".into()
-                }
-                ServiceError::Configuration => {
-                    "Не удалось подготовить подключение к сервису.".into()
-                }
-            };
-            (
-                "Не удалось проверить подключение",
-                format!("{message} Можно повторить попытку."),
-            )
-        }
-    }
-}
-
-fn render_connection(
-    state: &ConnectionState,
-    title: &gtk::Label,
-    description: &gtk::Label,
-    row: &adw::ActionRow,
-    spinner: &gtk::Spinner,
-    button: &gtk::Button,
-) {
-    let (heading, text) = presentation(state);
-    title.set_label(heading);
-    description.set_label(&text);
-    row.set_subtitle(&format!("{heading}. {text}"));
-    let loading = matches!(state, ConnectionState::Checking);
-    spinner.set_visible(loading);
-    spinner.set_spinning(loading);
-    button.set_sensitive(!loading);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::domain::ConnectionReport;
-
-    #[test]
-    fn anonymous_response_is_never_presented_as_authenticated() {
-        let state = ConnectionState::Available(ConnectionReport {
-            access: AccountAccess::Anonymous,
-            http_status: 200,
-            service_available: Some(false),
-        });
-        let (title, text) = presentation(&state);
-        assert_eq!(title, "Сервис недоступен в этой среде");
-        assert!(text.contains("запрос выполнен без входа"));
-    }
-
-    #[test]
-    fn failure_offers_retry_and_loading_is_distinct() {
-        let error_text = presentation(&ConnectionState::Failed(ServiceError::Timeout)).1;
-        assert!(error_text.contains("Сервис не ответил вовремя."));
-        assert!(!error_text.contains(".."));
-        assert!(
-            presentation(&ConnectionState::Failed(ServiceError::Timeout))
-                .1
-                .contains("повторить")
-        );
-        assert_ne!(
-            presentation(&ConnectionState::NotChecked).0,
-            presentation(&ConnectionState::Checking).0
-        );
-    }
 }

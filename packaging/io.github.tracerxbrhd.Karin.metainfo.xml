@@ -51,6 +51,12 @@
     <control>pointing</control>
   </supports>
   <releases>
+    <release version="0.8.1" date="2026-11-24" type="stable">
+      <description>
+        <p>A dedicated sign-in screen, application update checks and a simpler main menu.</p>
+        <p xml:lang="ru">Отдельный экран входа, проверка обновлений и упрощённое меню приложения.</p>
+      </description>
+    </release>
     <release version="0.8.0" date="2026-11-24" type="stable">
       <description>
         <p>First stable version with the v0.8 feature set.</p>
