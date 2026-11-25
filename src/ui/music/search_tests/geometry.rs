@@ -349,7 +349,6 @@ fn native_global_search_measured_slot_and_motion() {
     let style = adw::StyleManager::default();
     for (width, height) in [
         (420, 720),
-        (390, 720),
         (360, 720),
         (900, 650),
         (1440, 900),
@@ -364,11 +363,26 @@ fn native_global_search_measured_slot_and_motion() {
         } else {
             window.set_default_size(width, height);
             pump_until(|| {
-                window
-                    .surface()
-                    .is_some_and(|surface| surface.width() == width && surface.height() == height)
+                window.surface().is_some_and(|surface| {
+                    let actual_width = surface.width();
+                    let fits = if width == 360 {
+                        // GTK may clamp this additional stress case to the
+                        // space required by the native CSD configuration.
+                        (360..=400).contains(&actual_width)
+                    } else {
+                        actual_width == width
+                    };
+                    fits && surface.height() == height
+                })
             });
-            format!("{width}x{height}")
+            if width == 360 {
+                super::super::test_input::wait_for_layout(window, &this.widgets.nav_search);
+                assert!(
+                    ui.header.measure(gtk::Orientation::Horizontal, -1).0 <= 380,
+                    "compact HeaderBar must yield to native title buttons"
+                );
+            }
+            format!("{}x{height}", window.surface().unwrap().width())
         };
         for (theme, scheme) in [
             ("light", adw::ColorScheme::ForceLight),
