@@ -224,14 +224,12 @@ mod tests {
                 gio::ResourceLookupFlags::NONE,
             )
             .unwrap();
-            let stream = gio::MemoryInputStream::from_bytes(&bytes);
-            let image =
-                gtk::gdk_pixbuf::Pixbuf::from_stream(&stream, gio::Cancellable::NONE).unwrap();
+            let image = gdk::Texture::from_bytes(&bytes).unwrap();
             assert_eq!((image.width(), image.height()), (128, 128));
-            assert!(image.has_alpha());
-            let pixels = image.read_pixel_bytes();
-            let stride = image.rowstride() as usize;
-            let alpha = |x, y| pixels.as_ref()[y * stride + 4 * x + 3];
+            let mut pixels = vec![0; 128 * 128 * 4];
+            image.download(&mut pixels, 128 * 4);
+            let (pixels, _) = pixels.as_chunks::<4>();
+            let alpha = |x: usize, y: usize| u32::from_ne_bytes(pixels[y * 128 + x]) >> 24;
             assert_eq!(alpha(12, 31), expected_background);
             assert_eq!(alpha(46, 27), 255);
         }
