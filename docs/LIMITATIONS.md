@@ -45,6 +45,10 @@ Software licensing does not grant redistribution rights to service material.
   remains visible with Retry; ordinary continuation never autoplays.
 - Native plugin calls cannot always be preempted; forced termination cannot
   guarantee cooperative pipeline/storage cleanup.
+- If track covers are missing on Fedora ([#37](https://github.com/tracerxbrhd/karin/issues/37)),
+  exit Karin and reopen it with `./run-karin --artwork-diagnostic` or
+  `flatpak run io.github.tracerxbrhd.Karin --artwork-diagnostic`. Open a view
+  with missing covers and share only the `Karin artwork: event=` lines.
 
 ## Application updates
 

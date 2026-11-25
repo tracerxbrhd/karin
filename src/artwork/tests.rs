@@ -161,10 +161,15 @@ fn cover_accepts_only_bounded_exact_public_templates() {
     );
     for raw in [
         "http://avatars.yandex.net/get-music/synthetic/%%",
+        "http://avatars.mds.yandex.net/get-music/synthetic/%%",
         "https://avatars.yandex.net.evil.invalid/get-music/synthetic/%%",
+        "https://avatars.mds.yandex.net.evil.invalid/get-music/synthetic/%%",
         "https://evil.invalid/get-music/synthetic/%%",
         "https://avatars.yandex.net:443/get-music/synthetic/%%",
+        "https://avatars.mds.yandex.net:443/get-music/synthetic/%%",
         "https://token@avatars.yandex.net/get-music/synthetic/%%",
+        "https://token@avatars.mds.yandex.net/get-music/synthetic/%%",
+        "https://avatars.mds.yandex.net/get-music/synthetic/%%?token=private",
         "https://avatars.yandex.net/get-music/synthetic/%%?token=private",
         "https://avatars.yandex.net/get-music/synthetic/%%#private",
         "https://avatars.yandex.net/get-music/../%%",
@@ -194,6 +199,21 @@ fn cover_accepts_only_bounded_exact_public_templates() {
     assert_eq!(pixel_bucket(384), 512);
     assert_eq!(pixel_bucket(i32::MAX), 512);
     assert!(!format!("{parsed:?}").contains("synthetic"));
+}
+
+#[test]
+fn public_image_alias_keeps_the_canonical_fetch_and_cache_identity() {
+    let canonical = cover();
+    for template in [
+        "avatars.mds.yandex.net/get-music-content/synthetic/image/%%",
+        "//avatars.mds.yandex.net/get-music-content/synthetic/image/%%",
+        "https://avatars.mds.yandex.net/get-music-content/synthetic/image/%%",
+    ] {
+        let alias = CoverArt::parse(template).unwrap();
+        assert_eq!(alias, canonical);
+        assert_eq!(alias.cache_template(), canonical.cache_template());
+        assert_eq!(alias.url(256).unwrap(), canonical.url(256).unwrap());
+    }
 }
 
 #[test]
@@ -311,9 +331,11 @@ fn public_requests_use_published_renditions_but_keep_decoded_and_cache_buckets_b
         );
     }
     // The public request builder maps those same local buckets to published
-    // CDN renditions; the fixture accepts only their exact public paths.
+    // CDN renditions, including on metadata that uses the CDN alias.
+    let alias =
+        CoverArt::parse("avatars.mds.yandex.net/get-music-content/synthetic/image/%%").unwrap();
     for bucket in [128, 256, 512] {
-        let request = loader.request(&cover(), bucket, loader.epoch()).unwrap();
+        let request = loader.request(&alias, bucket, loader.epoch()).unwrap();
         let image = request_result(&request).unwrap();
         assert_eq!((image.width, image.height), (bucket, bucket));
         assert!(!image.alpha);
@@ -1084,6 +1106,33 @@ fn stale_cover_is_only_a_transport_failure_fallback_and_not_a_rejection_fallback
     ));
     server.join().unwrap();
     assert_eq!(cache.usage().unwrap().entries, 0);
+}
+
+#[test]
+fn transient_http_failure_does_not_reuse_or_delete_a_stale_cover() {
+    let disk = DiskFixture::new();
+    let cache = disk.cache();
+    let loader = loader();
+    loader.set_persistent_cache(Some(cache.clone()));
+    seed_stale_cover(&loader, &cache);
+    for status in [408, 429, 503] {
+        let (url, server) = fixture(1, status, "image/png", png());
+        assert!(matches!(
+            loader.load_from(&cover(), 128, loader.epoch(), url),
+            Err(ArtworkError::TemporaryHttpFailure)
+        ));
+        server.join().unwrap();
+        assert_eq!(cache.usage().unwrap().entries, 1);
+        assert!(loader.0.state.lock().unwrap().cache.is_empty());
+    }
+    let access = loader.persistent_access(&cover(), 128).unwrap();
+    let entry = cache
+        .get(access.lease.as_ref().unwrap(), &access.key)
+        .unwrap()
+        .unwrap();
+    assert_eq!(entry.freshness, Freshness::Stale);
+    let saved = decode_raster(&entry.bytes, 128).unwrap();
+    assert_eq!((saved.width, saved.height), (8, 8));
 }
 
 #[test]
