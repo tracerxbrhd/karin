@@ -73,7 +73,7 @@ jobs:
             build-essential pkg-config libgtk-4-dev libadwaita-1-dev libssl-dev \
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libwebkitgtk-6.0-dev \
             libdbus-1-dev libsecret-1-dev libglib2.0-bin appstream appstream-compose \
-            desktop-file-utils flatpak flatpak-builder ostree dbus-x11
+            desktop-file-utils elfutils flatpak flatpak-builder ostree dbus-x11
           rustup toolchain install 1.98.1 --profile minimal --component rust-src
           flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
           flatpak install --user --noninteractive flathub org.gnome.Platform//50 org.gnome.Sdk//50 \
