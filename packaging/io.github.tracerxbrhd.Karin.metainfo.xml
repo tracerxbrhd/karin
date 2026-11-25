@@ -42,8 +42,8 @@
   <url type="vcs-browser">https://github.com/tracerxbrhd/karin</url>
   <url type="bugtracker">https://github.com/tracerxbrhd/karin/issues</url>
   <branding>
-    <color type="primary" scheme_preference="light">#613583</color>
-    <color type="primary" scheme_preference="dark">#613583</color>
+    <color type="primary" scheme_preference="light">#682EE6</color>
+    <color type="primary" scheme_preference="dark">#A437B9</color>
   </branding>
   <content_rating type="oars-1.1" />
   <supports>

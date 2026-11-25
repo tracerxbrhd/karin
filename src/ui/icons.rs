@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! The application's selected MIT Tabler vectors, embedded and recolored by GTK.
+//! Karin's application icon and selected MIT Tabler vectors, embedded for GTK.
 
 use gtk::{gio, gio::prelude::FileExt};
 
@@ -36,6 +36,17 @@ pub(super) fn verify() -> bool {
         return false;
     };
     let theme = gtk::IconTheme::for_display(&display);
+    let brand = theme.lookup_icon(
+        crate::config::APP_ID,
+        &[],
+        24,
+        1,
+        gtk::TextDirection::Ltr,
+        gtk::IconLookupFlags::empty(),
+    );
+    if brand.is_symbolic() || brand.icon_name().as_deref() != Some(crate::config::APP_ID) {
+        return false;
+    }
     let path = format!("{RESOURCE_PATH}/scalable/actions");
     let Ok(files) = gio::resources_enumerate_children(&path, gio::ResourceLookupFlags::NONE) else {
         return false;
@@ -200,13 +211,15 @@ mod tests {
     fn embedded_icon_sources_are_namespaced_symbolic_vectors() {
         register();
         let brand = gio::resources_lookup_data(
-            "/io/github/tracerxbrhd/Karin/icons/scalable/apps/io.github.tracerxbrhd.Karin.svg",
+            "/io/github/tracerxbrhd/Karin/icons/128x128/apps/io.github.tracerxbrhd.Karin.png",
             gio::ResourceLookupFlags::NONE,
         )
         .unwrap();
         assert_eq!(
             brand.as_ref(),
-            include_bytes!("../../packaging/icons/io.github.tracerxbrhd.Karin.svg")
+            include_bytes!(
+                "../../packaging/icons/hicolor/128x128/apps/io.github.tracerxbrhd.Karin.png"
+            )
         );
         let mut names = std::collections::BTreeSet::new();
         for (name, path) in icons() {

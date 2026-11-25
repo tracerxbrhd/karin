@@ -4,8 +4,9 @@
 
 Karin's code and original materials use **GPL-3.0-or-later**, unless a file states
 otherwise. [LICENSE](../LICENSE) is the complete standard GPLv3 text; source
-notices and Cargo metadata express the later-version grant. The original Karin
-SVG icon is GPL-3.0-or-later. [AppStream metadata](../packaging/io.github.tracerxbrhd.Karin.metainfo.xml)
+notices and Cargo metadata express the later-version grant. The Karin logo and
+README banner are project originals provided by the owner. The packaged PNG
+icons are resized versions of the same logo. [AppStream metadata](../packaging/io.github.tracerxbrhd.Karin.metainfo.xml)
 has a per-file `CC0-1.0` exception. Third-party code and service/user materials
 retain their respective rights.
 

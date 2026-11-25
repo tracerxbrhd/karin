@@ -21,6 +21,8 @@ from common import (APP_ID, BUILD_FEATURES, REPOSITORY, identity, locked_crates,
 from manifest import provenance
 from rust_runtime import binary_identity, runtime_entries, validate_runtime
 
+APP_ICON_SIZES = (16, 24, 32, 48, 64, 128, 256)
+
 
 def capture(command: list[str]) -> str:
     return subprocess.check_output(command, text=True, stderr=subprocess.STDOUT).strip()
@@ -201,12 +203,14 @@ def native_artifact(repository: Path, revision: str, binary: Path,
     for source_name, target in {
         f"packaging/{APP_ID}.desktop": f"share/applications/{APP_ID}.desktop",
         f"packaging/{APP_ID}.metainfo.xml": f"share/metainfo/{APP_ID}.metainfo.xml",
-        f"packaging/icons/{APP_ID}.svg": f"share/icons/hicolor/scalable/apps/{APP_ID}.svg",
         "LICENSE": f"share/licenses/{APP_ID}/LICENSE",
         "docs/LICENSING.md": f"share/licenses/{APP_ID}/LICENSING.md",
         "docs/BUILDING.md": "BUILDING.md",
     }.items():
         entries[target] = stage / source_name
+    for size in APP_ICON_SIZES:
+        icon = f"hicolor/{size}x{size}/apps/{APP_ID}.png"
+        entries[f"share/icons/{icon}"] = stage / f"packaging/icons/{icon}"
     folder = stage / "third-party-notices"
     for path in tree_files(folder):
         entries[f"share/licenses/{APP_ID}/third-party/{path.relative_to(folder)}"] = path

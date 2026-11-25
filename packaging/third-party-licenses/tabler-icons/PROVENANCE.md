@@ -19,7 +19,8 @@ embedded in Karin. Copyright (c) 2020–2026 Paweł Kuna.
   original colors, 2 px stroke width, round caps and joins remain unchanged.
 - GResource embeds these files at build time. GTK performs native symbolic
   foreground recoloring; no network or system Tabler installation is required.
-- Karin's original application icon and platform window controls are unchanged.
+- Karin's application icon and platform window controls are separate from the
+  Tabler artwork.
 
 For each bundled `karin-{name}-symbolic.svg`, the original is
 `icons/outline/{name}.svg` at the pinned revision. The one exception is
