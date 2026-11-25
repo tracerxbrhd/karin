@@ -383,14 +383,29 @@ fn assert_header_surface(ui: &crate::ui::MainWindow) -> Value {
     let bounds = ui.header.compute_bounds(&ui.window).unwrap();
     let image = texture(&ui.window);
     let pixels = downloaded(&image);
-    // Start title buttons are disabled. These are three blank parts of the
-    // actual mapped header, clear of its centered title and trailing controls.
-    let samples = [24.0, 32.0, 40.0].map(|x| {
+    let widgets = &ui.music.controller.widgets;
+    let leading = widgets.nav_search.compute_bounds(&ui.window).unwrap();
+    let title = widgets
+        .primary_navigation
+        .compute_bounds(&ui.window)
+        .unwrap();
+    let trailing = widgets.account_menu.compute_bounds(&ui.window).unwrap();
+    // Sample the painted midline between controls. The leading logo and
+    // native title buttons can occupy former fixed sample coordinates.
+    let (start, end) = [
+        (leading.x() + leading.width(), title.x()),
+        (title.x() + title.width(), trailing.x()),
+    ]
+    .into_iter()
+    .max_by(|(a, b), (c, d)| (b - a).total_cmp(&(d - c)))
+    .unwrap();
+    assert!(end - start >= 6.0, "no blank span in the native header");
+    let samples = [0.25, 0.5, 0.75].map(|fraction| {
         pixel_at(
             &ui.window,
             &image,
             &pixels,
-            bounds.x() + x,
+            start + fraction * (end - start),
             bounds.y() + bounds.height() / 2.0,
         )
     });
