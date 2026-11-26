@@ -174,7 +174,12 @@ jobs:
       - name: Check both Discord IPC locations inside the installed sandbox
         run: |
           set -euo pipefail
-          ipc_runtime=$(mktemp -d "$RUNNER_TEMP/karin-ipc.XXXXXX")
+          # Flatpak sets its sandbox runtime directory to /run/user/UID.
+          ipc_runtime="/run/user/$(id -u)"
+          if [ ! -d "$ipc_runtime" ]; then
+            sudo install -d -m700 -o "$(id -u)" -g "$(id -g)" "$ipc_runtime"
+          fi
+          test "$(stat -c %u "$ipc_runtime")" = "$(id -u)"
           python3 - "$ipc_runtime" <<'PY'
           from pathlib import Path
           import socket
@@ -187,10 +192,15 @@ jobs:
               with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as endpoint:
                   endpoint.bind(str(path))
           PY
+          trap 'rm -f -- "$ipc_runtime/discord-ipc-0" "$ipc_runtime/app/com.discordapp.Discord/discord-ipc-0"' EXIT
           XDG_RUNTIME_DIR="$ipc_runtime" dbus-run-session -- \
             flatpak run --user --command=sh io.github.tracerxbrhd.Karin -ec '
-              test -S "$XDG_RUNTIME_DIR/discord-ipc-0"
-              test -S "$XDG_RUNTIME_DIR/app/com.discordapp.Discord/discord-ipc-0"
+              for endpoint in discord-ipc-0 app/com.discordapp.Discord/discord-ipc-0; do
+                if ! test -S "$XDG_RUNTIME_DIR/$endpoint"; then
+                  printf "IPC socket missing in the sandbox: %s\n" "$endpoint" >&2
+                  exit 1
+                fi
+              done
             '
       - name: Retain the isolated test bundle and corresponding source
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
