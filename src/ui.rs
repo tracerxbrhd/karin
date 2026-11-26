@@ -21,6 +21,7 @@ mod style;
 mod updates;
 
 pub use fonts::FontError;
+pub use icons::APP_ICON;
 pub use updates::install_update_action;
 
 /// Register the bundled typefaces before creating GTK/Pango objects.
@@ -364,7 +365,7 @@ fn build_shell(
     let window = adw::ApplicationWindow::builder()
         .application(app)
         .title(config::APP_NAME)
-        .icon_name(config::APP_ID)
+        .icon_name(APP_ICON)
         .default_width(900)
         .default_height(650)
         .width_request(360)
@@ -379,6 +380,28 @@ fn build_shell(
     let header = adw::HeaderBar::builder().height_request(48).build();
     header.set_widget_name("music-header");
     header.add_css_class("music-header");
+    // GTK can add its own app icon through the desktop's CSD layout. The
+    // Home button supplies the brand here, so keep the other native controls
+    // in their configured order and omit only the duplicate app icon.
+    window
+        .settings()
+        .bind_property("gtk-decoration-layout", &header, "decoration-layout")
+        .transform_to(|_, layout: Option<String>| {
+            Some(layout.map(|layout| {
+                layout
+                    .split(':')
+                    .map(|side| {
+                        side.split(',')
+                            .filter(|token| *token != "icon")
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    })
+                    .collect::<Vec<_>>()
+                    .join(":")
+            }))
+        })
+        .sync_create()
+        .build();
     let stack = adw::ViewStack::new();
     stack.set_hhomogeneous(false);
     stack.set_vhomogeneous(false);
@@ -419,11 +442,21 @@ fn build_shell(
     let brand = gtk::Image::from_icon_name(icons::BRAND_MARK);
     brand.set_widget_name("karin-header-icon");
     brand.set_pixel_size(20);
-    brand.set_margin_start(2);
-    let (music_navigation, search_toggle) = music.header_navigation();
+    let brand_home = gtk::Button::builder()
+        .child(&brand)
+        .action_name("win.music-home")
+        .tooltip_text("На главную")
+        .has_frame(false)
+        .valign(gtk::Align::Center)
+        .build();
+    brand_home.set_widget_name("karin-header-home");
+    brand_home.add_css_class("music-header-control");
+    brand_home.update_property(&[gtk::accessible::Property::Label("На главную")]);
+    let refresh = header_refresh_button(&window);
+    let music_navigation = music.header_navigation();
     let start_group = gtk::Box::new(gtk::Orientation::Horizontal, 2);
-    start_group.append(&brand);
-    start_group.append(search_toggle);
+    start_group.append(&brand_home);
+    start_group.append(&refresh);
     header.pack_start(&start_group);
     let header_center = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     header_center.append(music_navigation);
@@ -495,7 +528,7 @@ fn build_shell(
         let stack = stack.downgrade();
         let workspace_surface = workspace_surface.downgrade();
         let navigation = music_navigation.downgrade();
-        let search_toggle = search_toggle.downgrade();
+        let refresh = refresh.downgrade();
         let diagnostics_title = diagnostics_title.downgrade();
         let back = diagnostics
             .as_ref()
@@ -512,8 +545,8 @@ fn build_shell(
             if let Some(navigation) = navigation.upgrade() {
                 navigation.set_visible(music_visible);
             }
-            if let Some(search_toggle) = search_toggle.upgrade() {
-                search_toggle.set_visible(music_visible);
+            if let Some(refresh) = refresh.upgrade() {
+                refresh.set_visible(music_visible);
             }
             if let Some(title) = diagnostics_title.upgrade() {
                 title.set_visible(!home_visible);
@@ -597,27 +630,19 @@ fn build_shell(
     let compact_navigation = adw::Breakpoint::new(
         adw::BreakpointCondition::parse("max-width: 719sp").expect("constant breakpoint"),
     );
-    let narrow_navigation = adw::Breakpoint::new(
-        adw::BreakpointCondition::parse("max-width: 399sp").expect("constant breakpoint"),
+    music.add_compact_navigation_setters(&compact_navigation);
+    compact_navigation.add_setter(
+        &information_view,
+        "width-request",
+        Some(&(-1_i32).to_value()),
     );
-    // Only the decorative icon yields on the narrowest windows. The title
-    // still has room for the full search field and all three routes.
-    narrow_navigation.add_setter(&brand, "visible", Some(&false.to_value()));
-    for breakpoint in [&compact_navigation, &narrow_navigation] {
-        music.add_compact_navigation_setters(breakpoint);
-        breakpoint.add_setter(
-            &information_view,
-            "width-request",
-            Some(&(-1_i32).to_value()),
+    if let Some(diagnostics) = &diagnostics {
+        compact_navigation.add_setter(
+            &diagnostics.columns,
+            "orientation",
+            Some(&gtk::Orientation::Vertical.to_value()),
         );
-        if let Some(diagnostics) = &diagnostics {
-            breakpoint.add_setter(
-                &diagnostics.columns,
-                "orientation",
-                Some(&gtk::Orientation::Vertical.to_value()),
-            );
-            breakpoint.add_setter(&diagnostics.columns, "homogeneous", Some(&false.to_value()));
-        }
+        compact_navigation.add_setter(&diagnostics.columns, "homogeneous", Some(&false.to_value()));
     }
     if let Some(diagnostics) = &diagnostics {
         let action = gio::SimpleAction::new("diagnostics", None);
@@ -635,7 +660,6 @@ fn build_shell(
         app.set_accels_for_action("win.diagnostics", &["<Alt>2"]);
     }
     workspace_bin.add_breakpoint(compact_navigation);
-    workspace_bin.add_breakpoint(narrow_navigation);
     window.add_action(&gio::SimpleAction::new("overview", None));
     let preferences = gio::SimpleAction::new("preferences", None);
     let show_preferences = music.preferences_callback();
@@ -779,9 +803,9 @@ fn build_shell(
     .map(|widget| widget.downgrade())
     .collect();
     let mut header_items = vec![
-        brand.upcast(),
+        brand_home.upcast(),
+        refresh.upcast(),
         diagnostics_title.upcast(),
-        search_toggle.clone().upcast(),
         music_navigation.clone().upcast(),
         menu_button.upcast(),
         account_menu.upcast(),
@@ -802,6 +826,46 @@ fn build_shell(
         diagnostics,
         music,
     }
+}
+
+fn header_refresh_button(window: &adw::ApplicationWindow) -> gtk::Button {
+    let icon = gtk::Image::from_icon_name("karin-refresh-symbolic");
+    let spinner = gtk::Spinner::new();
+    for widget in [icon.upcast_ref::<gtk::Widget>(), spinner.upcast_ref()] {
+        widget.set_size_request(16, 16);
+        widget.set_halign(gtk::Align::Center);
+        widget.set_valign(gtk::Align::Center);
+    }
+    let indicator = gtk::Stack::new();
+    indicator.add_child(&icon);
+    indicator.add_child(&spinner);
+    let refresh = gtk::Button::builder()
+        .child(&indicator)
+        .action_name("win.music-refresh")
+        .tooltip_text("Обновить")
+        .focus_on_click(false)
+        .has_frame(false)
+        .valign(gtk::Align::Center)
+        .build();
+    refresh.set_widget_name("music-header-refresh");
+    refresh.add_css_class("music-header-control");
+    refresh.update_property(&[gtk::accessible::Property::Label("Обновить")]);
+    if let Some(action) = window.lookup_action("music-refresh") {
+        let indicator = indicator.downgrade();
+        action.connect_state_notify(move |action| {
+            if let Some(indicator) = indicator.upgrade() {
+                let busy = action.state().and_then(|value| value.get::<bool>()) == Some(true);
+                spinner.set_spinning(busy);
+                let child: &gtk::Widget = if busy {
+                    spinner.upcast_ref()
+                } else {
+                    icon.upcast_ref()
+                };
+                indicator.set_visible_child(child);
+            }
+        });
+    }
+    refresh
 }
 
 fn label(text: &str, css_class: &str) -> gtk::Label {

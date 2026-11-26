@@ -33,6 +33,7 @@ FUNCTIONAL = [
     "native_workspace_track_pane_actions_state_and_cleanup",
     "native_catalog_native_music_layout",
     "native_catalog_navigation_latest_actions",
+    "native_content_refresh_routes_and_coalescing",
     "native_library_interactions_confirmed_fixture",
     "native_catalog_rows_mouse_keyboard_details_and_delivery",
     "native_search_retry_normalized_results_and_density",

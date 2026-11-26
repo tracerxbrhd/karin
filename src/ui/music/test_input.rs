@@ -226,3 +226,27 @@ pub(super) fn pointer(
     );
     ((x * scale).round() as i32, (y * scale).round() as i32)
 }
+
+/// Space the native title can actually allocate between its two accessory
+/// groups, including the desktop's own window controls and their margins.
+pub(super) fn available_title_width(
+    window: &adw::ApplicationWindow,
+    title: &impl IsA<gtk::Widget>,
+) -> f32 {
+    let center = title
+        .ancestor(gtk::CenterBox::static_type())
+        .unwrap()
+        .downcast::<gtk::CenterBox>()
+        .unwrap();
+    let start = center
+        .start_widget()
+        .unwrap()
+        .compute_bounds(window)
+        .unwrap();
+    let end = center.end_widget().unwrap().compute_bounds(window).unwrap();
+    if start.x() < end.x() {
+        end.x() - (start.x() + start.width())
+    } else {
+        start.x() - (end.x() + end.width())
+    }
+}

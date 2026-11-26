@@ -223,6 +223,7 @@ struct Controller {
     playlist_management: RefCell<playlist_management::State>,
     can_create_playlist: Cell<bool>,
     detail_refresh: RefCell<Option<DetailRefresh>>,
+    refreshing_detail: Cell<bool>,
     music_surface_visible: Cell<bool>,
     detail_cache: Cell<Option<(crate::catalog_cache::Provenance, bool)>>,
     track_feeds: RefCell<Vec<continuous_loading::Feed>>,
@@ -397,7 +398,7 @@ impl MusicPane {
         // The native HeaderBar owns this title slot outside music-workspace.
         navigation.add_css_class("karin-font-primary");
         navigation.set_hexpand(false);
-        let segments = gtk::Box::new(gtk::Orientation::Horizontal, 3);
+        let segments = gtk::Box::new(gtk::Orientation::Horizontal, 2);
         let (nav_wave, label_wave) = search_header::section_button(
             "music-tab-wave",
             "karin-home-symbolic",
@@ -425,6 +426,7 @@ impl MusicPane {
 
         let nav_search = icon_button("karin-search-symbolic", "Поиск музыки");
         nav_search.add_css_class("flat");
+        nav_search.add_css_class("music-header-control");
         nav_search.set_widget_name("music-navigation-search");
         let search = search_toolbar::entry("Поиск музыки…", "music-search", "Поиск музыки");
         let search_header = search_header::SearchHeader::new(&segments, &search, &nav_search);
@@ -755,6 +757,7 @@ impl MusicPane {
             playlist_management: RefCell::new(playlist_management::State::default()),
             can_create_playlist: Cell::new(true),
             detail_refresh: RefCell::new(None),
+            refreshing_detail: Cell::new(false),
             music_surface_visible: Cell::new(true),
             detail_cache: Cell::new(None),
             track_feeds: RefCell::new(Vec::new()),
@@ -812,9 +815,8 @@ impl MusicPane {
         }
     }
 
-    pub(in crate::ui) fn header_navigation(&self) -> (&gtk::Box, &gtk::Button) {
-        let widgets = &self.controller.widgets;
-        (&widgets.primary_navigation, &widgets.nav_search)
+    pub(in crate::ui) fn header_navigation(&self) -> &gtk::Box {
+        &self.controller.widgets.primary_navigation
     }
 
     pub(in crate::ui) fn add_compact_navigation_setters(&self, breakpoint: &adw::Breakpoint) {
@@ -1729,7 +1731,6 @@ impl Controller {
                 "music-search",
                 "music-queue",
                 "music-back",
-                "music-refresh",
             ] {
                 if let Some(action) = window
                     .lookup_action(name)
@@ -1757,6 +1758,7 @@ impl Controller {
         self.widgets.status_revealer.set_visible(show_status);
         self.widgets.status_revealer.set_reveal_child(show_status);
         drop(model);
+        self.render_catalog_refresh();
         // The shell's visibility handler may synchronously reconcile Music
         // routes and panel focus. Release the controller borrow first.
         self.widgets.workspace.set_visible(ready);

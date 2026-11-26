@@ -189,7 +189,31 @@ python3 packaging/release/artifacts.py flatpak --revision "$karin_release_revisi
 
 The Native tar contains `run-karin`, desktop/icon/metainfo assets and licenses.
 Run the launcher from the extracted directory so the private `share` directory
-is visible. The package uses system shared libraries. If the loader reports a
+is visible to Karin. Pull request CI uploads the same Native package layout and
+its corresponding source as `karin-native-acceptance-<commit>`. Extract the
+Native tar into its own directory and run `./run-karin --version` to confirm
+the tested commit.
+
+For a Fedora menu or Plasma taskbar check, extract the tar to a permanent
+location in a test account. With `desktop-file-utils` installed, run from the
+extracted directory to register the launcher and icons for that account:
+
+```sh
+karin_desktop_data=${XDG_DATA_HOME:-"$HOME/.local/share"}
+mkdir -p "$karin_desktop_data/applications" "$karin_desktop_data/icons"
+cp -R share/icons/hicolor "$karin_desktop_data/icons/"
+desktop-file-install --dir="$karin_desktop_data/applications" \
+  --set-key=Exec --set-value="\"$(pwd -P)/run-karin\"" \
+  share/applications/io.github.tracerxbrhd.Karin.desktop
+```
+
+Launch Karin from the application menu. Plasma resolves the Wayland App ID
+against this desktop entry and the session's icon theme. An unpacked binary or
+launcher started from a terminal does not register files with Plasma, which may
+still see the icon from an installed version using the same App ID. Flatpak
+exports its desktop entry and icons during installation.
+
+The Native package uses system shared libraries. If the loader reports a
 missing `.so` or library version, run `./run-karin` in a terminal to see the
 missing dependency. Use the [Fedora prerequisites](#fedora-prerequisites) to
 identify the supported GTK, WebKitGTK and GStreamer packages. Use the Flatpak

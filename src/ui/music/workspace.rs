@@ -149,6 +149,7 @@ impl Controller {
             .connect_visible_child_name_notify(move |_| {
                 if let Some(this) = weak.upgrade() {
                     this.refresh_catalog_notice();
+                    this.render_catalog_refresh();
                 }
             });
         let weak = Rc::downgrade(self);
@@ -164,7 +165,8 @@ impl Controller {
             }
         });
         if let Some(window) = self.window.upgrade() {
-            let refresh = gio::SimpleAction::new("music-refresh", None);
+            let refresh =
+                gio::SimpleAction::new_stateful("music-refresh", None, &false.to_variant());
             let weak = Rc::downgrade(self);
             refresh.connect_activate(move |_, _| {
                 if let Some(this) = weak

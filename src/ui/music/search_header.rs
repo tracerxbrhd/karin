@@ -43,11 +43,14 @@ impl SearchHeader {
     pub(super) fn new(tabs: &gtk::Box, entry: &gtk::SearchEntry, toggle: &gtk::Button) -> Self {
         let header: Self = glib::Object::new();
         header.set_orientation(gtk::Orientation::Horizontal);
+        header.set_spacing(4);
         // GtkStack measures both pages, so the entry occupies the same title
-        // slot as the tabs. The separate leading toggle never moves on open.
-        entry.set_width_request(120);
+        // slot as the tabs. The trailing toggle stays next to either page.
+        // Leave room for a compact field at the window minimum, while the
+        // natural width makes the field comfortable at larger sizes.
+        entry.set_width_request(84);
         entry.set_width_chars(1);
-        entry.set_max_width_chars(1);
+        entry.set_max_width_chars(12);
         let slot = gtk::Stack::builder()
             .hhomogeneous(true)
             .vhomogeneous(true)
@@ -65,6 +68,7 @@ impl SearchHeader {
         toggle.update_relation(&[gtk::accessible::Relation::Controls(&[entry.upcast_ref()])]);
         toggle.update_state(&[gtk::accessible::State::Expanded(Some(false))]);
         header.append(&slot);
+        header.append(toggle);
         header
             .imp()
             .children
@@ -127,7 +131,8 @@ pub(super) fn section_button(
     icon.set_pixel_size(16);
     let label = gtk::Label::new(Some(text));
     label.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    let content = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    let content = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+    content.set_halign(gtk::Align::Center);
     content.append(&icon);
     content.append(&label);
     let button = gtk::ToggleButton::builder()

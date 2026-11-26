@@ -1080,20 +1080,36 @@ fn global_search_layout(ui: &crate::ui::MainWindow) -> Option<Value> {
     );
     let entry = widgets.search.compute_bounds(&ui.window).unwrap();
     let toggle = widgets.nav_search.compute_bounds(&ui.window).unwrap();
-    let slot_rect = slot.compute_bounds(&ui.window).unwrap();
+    let slot_rect = widgets
+        .search
+        .parent()
+        .unwrap()
+        .compute_bounds(&ui.window)
+        .unwrap();
+    let navigation = slot.compute_bounds(&ui.window).unwrap();
     let header_rect = ui.header.compute_bounds(&ui.window).unwrap();
-    assert!(entry.width() >= 120.0 && entry.height() > 0.0);
+    let gap = toggle.x() - (entry.x() + entry.width());
+    let field_space =
+        super::test_input::available_title_width(&ui.window, slot) - toggle.width() - gap;
+    let minimum = widgets.search.measure(gtk::Orientation::Horizontal, -1).0;
+    assert!(
+        entry.width() >= f32::max(minimum as f32, 120.0_f32.min(field_space))
+            && entry.height() > 0.0
+    );
     assert!(
         (entry.x() - slot_rect.x()).abs() <= 1.0
             && (entry.width() - slot_rect.width()).abs() <= 1.0
-            && toggle.x() >= header_rect.x() - 1.0
-            && toggle.x() + toggle.width() <= entry.x() + 1.0
-            && entry.x() + entry.width() <= header_rect.x() + header_rect.width() + 1.0
+            && widgets.nav_search.is_ancestor(slot)
+            && (1.0..=12.0).contains(&gap)
+            && (entry.x() - navigation.x()).abs() <= 1.0
+            && (toggle.x() + toggle.width() - navigation.x() - navigation.width()).abs() <= 1.0
+            && navigation.x() >= header_rect.x() - 1.0
+            && toggle.x() + toggle.width() <= header_rect.x() + header_rect.width() + 1.0
             && [entry, toggle].iter().all(|rect| {
                 rect.y() >= header_rect.y() - 1.0
                     && rect.y() + rect.height() <= header_rect.y() + header_rect.height() + 1.0
             }),
-        "entry shares the title slot beside the leading toggle: {entry:?}/{toggle:?}/{header_rect:?}"
+        "entry and trailing toggle must share the primary navigation: {entry:?}/{toggle:?}/{header_rect:?}"
     );
     Some(json!({
         "entry": [entry.x(),entry.y(),entry.width(),entry.height()],

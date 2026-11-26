@@ -876,6 +876,16 @@ fn native_music_playback_resolver_queue_controls_and_logout() {
         .set_text("Second catalog query during playback");
     this.widgets.search.emit_by_name::<()>("activate", &[]);
     pump_until(|| fixture.counts.lock().unwrap().searches == 2 && !this.model.borrow().busy);
+    // Explicit HeaderBar/menu refresh repeats the same active query through
+    // the existing lane while this exact native source continues playing.
+    let refresh = ui.window.lookup_action("music-refresh").unwrap();
+    assert!(refresh.is_enabled());
+    refresh.activate(None);
+    pump_until(|| fixture.counts.lock().unwrap().searches == 3 && !this.model.borrow().busy);
+    assert_eq!(
+        this.widgets.search.text(),
+        "Second catalog query during playback"
+    );
     let after_search = this.music_snapshot().unwrap();
     assert_eq!(after_search.state, PlaybackState::Playing);
     assert_eq!(after_search.generation, before_search.generation);

@@ -8,10 +8,15 @@
 .karin-presentation-root .music-wave-motif > box { background: @accent_bg_color; border-radius: 999px; }
 .karin-presentation-root .music-workspace { background: @window_bg_color; }
 .karin-presentation-root .music-header { min-height: 48px; }
-.karin-presentation-root .music-header-tab {
-    min-width: 16px;
+.karin-presentation-root .music-header-control {
+    min-width: 20px;
     min-height: 32px;
-    padding: 0 5px;
+    padding: 0 3px;
+}
+.karin-presentation-root .music-header-tab {
+    min-width: 18px;
+    min-height: 32px;
+    padding: 0 3px;
     border-radius: 8px;
 }
 .karin-presentation-root .music-header-tab:checked {

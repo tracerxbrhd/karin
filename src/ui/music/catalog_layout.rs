@@ -422,6 +422,18 @@ impl Controller {
 
     pub(super) fn load_initial_library_policy(self: &Rc<Self>, force: bool) {
         self.render_home_preview();
+        // A forced Home read replaces its snapshots, but cannot overwrite a
+        // newer collection read or server mutation started while it was away.
+        let revisions = {
+            let requests = self.requests.borrow();
+            (
+                requests.revision(Operation::Library),
+                requests.revision(Operation::PlaylistSections),
+                requests.revision(Operation::Mutation),
+                requests.revision(Operation::PlaylistMutation),
+                requests.revision(Operation::OwnedPlaylistsMore),
+            )
+        };
         let catalog = self.cached_catalog();
         self.run(
             Operation::InitialLibrary,
@@ -508,9 +520,24 @@ impl Controller {
                         this.show_error(MusicError::AccessDenied);
                         return;
                     }
+                    let error = liked
+                        .as_ref()
+                        .err()
+                        .or_else(|| playlists.as_ref().err())
+                        .copied();
+                    let (fresh_liked, fresh_playlists) = {
+                        let requests = this.requests.borrow();
+                        (
+                            requests.revision(Operation::Library) == revisions.0
+                                && requests.revision(Operation::Mutation) == revisions.2,
+                            requests.revision(Operation::PlaylistSections) == revisions.1
+                                && requests.revision(Operation::PlaylistMutation) == revisions.3
+                                && requests.revision(Operation::OwnedPlaylistsMore) == revisions.4,
+                        )
+                    };
                     let mut model = this.model.borrow_mut();
-                    let save_liked = model.liked.is_none();
-                    let save_playlists = model.playlists.is_none();
+                    let save_liked = model.liked.is_none() || (force && fresh_liked);
+                    let save_playlists = model.playlists.is_none() || (force && fresh_playlists);
                     if save_liked {
                         model.liked = Some(liked);
                     }
@@ -529,6 +556,9 @@ impl Controller {
                         this.show_library();
                     }
                     this.render_home_preview();
+                    if force && let Some(error) = error {
+                        this.show_error(error);
+                    }
                 }
                 Err(error) => this.show_error(error),
             },
@@ -820,7 +850,9 @@ impl Controller {
     pub(super) fn detail_loading(self: &Rc<Self>, title: &str, _subtitle: &str) {
         // Opening a collection on the original page is a new navigation intent.
         // A pending search debounce must not subsequently navigate away from it.
-        self.entering_collection_detail();
+        if !self.refreshing_detail.get() {
+            self.entering_collection_detail();
+        }
         self.detail_cache.set(None);
         self.widgets.cache_notice.set_revealed(false);
         self.widgets.cache_hint.set_visible(false);
@@ -830,8 +862,10 @@ impl Controller {
         {
             self.model.borrow_mut().detail_origin = origin.to_string();
         }
-        self.cancel_delivery();
-        self.requests.borrow_mut().invalidate(Operation::Delivery);
+        if !self.refreshing_detail.get() {
+            self.cancel_delivery();
+            self.requests.borrow_mut().invalidate(Operation::Delivery);
+        }
         self.detail_header(title, "");
         self.widgets.status.set_title("Загрузка выбранных данных…");
         self.widgets.status.set_subtitle("");

@@ -130,10 +130,10 @@ fn gap_and_replaced_tab(window: &adw::ApplicationWindow, id: &str, this: &Contro
     pump_until(|| entry_focused(window, this) && !widgets.nav_liked.is_mapped());
     let entry = widgets.search.compute_bounds(window).unwrap();
     let toggle = widgets.nav_search.compute_bounds(window).unwrap();
-    let toggle_end = toggle.x() + toggle.width();
-    let x = (toggle_end + entry.x()) / 2.0;
+    let entry_end = entry.x() + entry.width();
+    let x = (entry_end + toggle.x()) / 2.0;
     let y = entry.y() + entry.height() / 2.0;
-    assert!(toggle_end < x && x < entry.x());
+    assert!(entry_end < x && x < toggle.x());
     let gap = window
         .pick(x.into(), y.into(), gtk::PickFlags::DEFAULT)
         .unwrap();
@@ -173,8 +173,18 @@ fn gap_and_replaced_tab(window: &adw::ApplicationWindow, id: &str, this: &Contro
         widgets.stack.visible_child_name().as_deref() == Some("library")
             && !this.model.borrow().busy
     });
-    click(window, id, &widgets.nav_wave);
-    pump_until(|| widgets.stack.visible_child_name().as_deref() == Some("home"));
+    input(&["key", "--clearmodifiers", "ctrl+f"]);
+    pump_until(|| entry_focused(window, this));
+    let home = descendants(window.upcast_ref())
+        .into_iter()
+        .find(|w| w.widget_name() == "karin-header-home")
+        .unwrap();
+    click(window, id, &home);
+    pump_until(|| {
+        widgets.stack.visible_child_name().as_deref() == Some("home")
+            && widgets.nav_wave.is_active()
+            && !widgets.search.is_mapped()
+    });
 }
 
 fn surface_point(window: &adw::ApplicationWindow, x: f32, y: f32) -> (i32, i32) {

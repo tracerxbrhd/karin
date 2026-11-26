@@ -50,7 +50,7 @@ fn transition(ui: &crate::ui::MainWindow, id: &str, open: bool) -> Vec<Frame> {
     let tabs = widgets.nav_wave.parent().unwrap();
     let slot = widgets.search.parent().and_downcast::<gtk::Stack>();
     let header = widgets.primary_navigation.clone();
-    let group = widgets.search_header.clone();
+    let group = widgets.primary_navigation.clone();
     let title_bar = ui.header.clone();
     let toggle = widgets.nav_search.clone();
     let (x, y) = super::super::test_input::pointer(
@@ -143,6 +143,44 @@ fn rendered_png(window: &adw::ApplicationWindow, node: &gtk::gsk::RenderNode) ->
         .save_to_png_bytes()
 }
 
+fn header_actions(ui: &crate::ui::MainWindow) -> (Rect, Rect) {
+    let children = descendants(ui.header.upcast_ref());
+    let marks: Vec<_> = children
+        .iter()
+        .filter_map(|w| w.downcast_ref::<gtk::Image>())
+        .filter(|w| w.is_mapped() && w.icon_name().as_deref() == Some("karin-brand-mark"))
+        .collect();
+    assert_eq!(
+        marks.len(),
+        1,
+        "the HeaderBar must paint one transparent Karin mark"
+    );
+    let home = marks[0]
+        .ancestor(gtk::Button::static_type())
+        .unwrap()
+        .downcast::<gtk::Button>()
+        .unwrap();
+    assert!(home.is_focusable() && (home.has_css_class("flat") || !home.has_frame()));
+    assert_eq!(home.tooltip_text().as_deref(), Some("На главную"));
+    assert_eq!(home.action_name().as_deref(), Some("win.music-home"));
+    let refresh = children
+        .iter()
+        .find(|w| w.widget_name() == "music-header-refresh")
+        .unwrap();
+    assert!(refresh.is_mapped() && refresh.is_focusable());
+    assert_eq!(refresh.tooltip_text().as_deref(), Some("Обновить"));
+    let bounds = |w: &gtk::Widget| w.compute_bounds(&ui.window).unwrap();
+    let home = bounds(home.upcast_ref());
+    let refresh = bounds(refresh);
+    assert!(home.x() + home.width() <= refresh.x());
+    assert!((home.center().y() - refresh.center().y()).abs() <= 1.0);
+    assert_eq!(
+        ui.header.decoration_layout().as_deref(),
+        Some(":minimize,maximize,close")
+    );
+    (home, refresh)
+}
+
 fn measure_state(ui: &crate::ui::MainWindow, id: &str, tag: &str, motion: bool) {
     let window = &ui.window;
     let this = &ui.music.controller;
@@ -156,15 +194,14 @@ fn measure_state(ui: &crate::ui::MainWindow, id: &str, tag: &str, motion: bool) 
         .max(widgets.search.measure(orientation, -1).1);
     super::super::test_input::wait_for_layout(window, &tabs);
     let tabs_bounds = tabs.compute_bounds(window).unwrap();
-    let group = widgets.search_header.compute_bounds(window).unwrap();
+    let group = header.compute_bounds(window).unwrap();
     let button = widgets.nav_search.compute_bounds(window).unwrap();
     let header_height = ui.header.height();
     let row_height = header.height();
     let bar = ui.header.compute_bounds(window).unwrap();
     assert!(header.is_ancestor(&ui.header));
-    assert!(widgets.nav_search.is_ancestor(&ui.header));
+    assert!(widgets.nav_search.is_ancestor(header));
     assert!(!widgets.search.is_mapped());
-    assert_eq!(tabs_bounds.width(), natural as f32);
     if window.width() >= 720 {
         assert!(
             (2.0 * group.x() + group.width() - window.width() as f32).abs() <= 2.0,
@@ -173,9 +210,27 @@ fn measure_state(ui: &crate::ui::MainWindow, id: &str, tag: &str, motion: bool) 
     }
     assert!(group.y() >= bar.y() && group.y() + group.height() <= bar.y() + bar.height());
     assert!(button.y() >= bar.y() && button.y() + button.height() <= bar.y() + bar.height());
-    assert!(button.x() + button.width() <= group.x());
+    let gap = button.x() - (tabs_bounds.x() + tabs_bounds.width());
+    let available = super::super::test_input::available_title_width(window, header);
+    let field_space = available - button.width() - gap;
+    assert_eq!(
+        tabs_bounds.width(),
+        (natural as f32).min(field_space),
+        "{tag}: the title must fill the available width up to its natural size"
+    );
+    assert!(
+        (1.0..=12.0).contains(&gap),
+        "{tag}: the search action must follow the tabs ({gap})"
+    );
     assert_eq!(group.x(), tabs_bounds.x());
-    assert_eq!(group.width(), tabs_bounds.width());
+    assert_eq!(group.x() + group.width(), button.x() + button.width());
+    let (home, refresh) = header_actions(ui);
+    for control in [home, refresh] {
+        assert!(
+            control.x() + control.width() <= group.x(),
+            "{tag}: navigation overlaps a leading action"
+        );
+    }
     let account = widgets.account_menu.compute_bounds(window).unwrap();
     assert!(group.x() + group.width() <= account.x());
     for label in &widgets.nav_labels {
@@ -185,7 +240,7 @@ fn measure_state(ui: &crate::ui::MainWindow, id: &str, tag: &str, motion: bool) 
     let opening = transition(ui, id, true);
     let field = widgets.search.compute_bounds(window).unwrap();
     let open_button = widgets.nav_search.compute_bounds(window).unwrap();
-    let open_group = widgets.search_header.compute_bounds(window).unwrap();
+    let open_group = header.compute_bounds(window).unwrap();
     assert_eq!(
         (field.x(), field.width()),
         (tabs_bounds.x(), tabs_bounds.width()),
@@ -203,6 +258,16 @@ fn measure_state(ui: &crate::ui::MainWindow, id: &str, tag: &str, motion: bool) 
         assert!(!tab.is_mapped());
     }
     let after = painted_region(window, header).unwrap();
+    if motion && let Some(directory) = std::env::var_os("KARIN_TEST_CAPTURE_DIR") {
+        let directory = std::path::PathBuf::from(directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let whole_header = painted_region(window, &ui.header).unwrap();
+        std::fs::write(
+            directory.join(format!("{tag}-header-open.png")),
+            rendered_png(window, &whole_header),
+        )
+        .unwrap();
+    }
     let closing = transition(ui, id, false);
     assert_eq!(
         rect(tabs.compute_bounds(window).unwrap()),
@@ -284,6 +349,8 @@ fn measure_state(ui: &crate::ui::MainWindow, id: &str, tag: &str, motion: bool) 
             "group_closed": rect(group),
             "group_open": rect(open_group),
             "header_bar_height": header_height,
+            "home": rect(home),
+            "refresh": rect(refresh),
             "navigation_row_height": row_height,
             "distinct_intermediate_painted_frames": distinct_frames,
             "transition": "native-stack-crossfade-same-slot",
@@ -318,6 +385,10 @@ fn native_global_search_measured_slot_and_motion() {
         .flags(gio::ApplicationFlags::NON_UNIQUE)
         .build();
     app.register(gio::Cancellable::NONE).unwrap();
+    // Exercise the desktop layout that previously produced both a native and
+    // a custom Karin mark. A plain Openbox session omits the native icon.
+    let settings = gtk::Settings::default().unwrap();
+    settings.set_gtk_decoration_layout(Some("icon:minimize,maximize,close"));
     let ui = crate::ui::build_offline_ui_fixture(
         &app,
         crate::application::ConnectionService::new(crate::api::YandexApi::new().unwrap()),
@@ -345,7 +416,6 @@ fn native_global_search_measured_slot_and_motion() {
     super::super::test_input::wait_for_layout(window, &this.widgets.nav_search);
     let id = window_id();
     input(&["windowfocus", "--sync", &id]);
-    let settings = gtk::Settings::default().unwrap();
     let style = adw::StyleManager::default();
     for (width, height) in [
         (420, 720),
@@ -426,7 +496,7 @@ fn native_global_search_measured_slot_and_motion() {
         enlarged
     );
     // Constrain that same translation, then mirror the header's reading
-    // direction. The toggle keeps its complete hit area on the leading edge.
+    // direction. The toggle keeps its complete hit area after the tabs in RTL.
     window.unmaximize();
     pump_until(|| !window.is_maximized());
     window.set_default_size(420, 720);
@@ -440,9 +510,9 @@ fn native_global_search_measured_slot_and_motion() {
     super::super::test_input::wait_for_layout(window, &this.widgets.nav_search);
     let toggle = this.widgets.nav_search.compute_bounds(window).unwrap();
     let compact = liked.parent().unwrap().compute_bounds(window).unwrap();
-    assert!(compact.width() < enlarged && compact.x() + compact.width() <= toggle.x());
+    assert!(compact.width() < enlarged && toggle.x() + toggle.width() <= compact.x());
     assert!(!liked_label.is_mapped());
-    assert!(compact.x() >= 0.0 && toggle.x() + toggle.width() <= window.width() as f32);
+    assert!(toggle.x() >= 0.0 && compact.x() + compact.width() <= window.width() as f32);
     assert_eq!(
         toggle.width(),
         this.widgets

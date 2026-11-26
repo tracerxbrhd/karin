@@ -227,7 +227,7 @@ fn main() -> glib::ExitCode {
         if let Some(app) = weak_app.upgrade() {
             let dialog = adw::AboutDialog::builder()
                 .application_name("Karin")
-                .application_icon(config::APP_ID)
+                .application_icon(ui::APP_ICON)
                 .developer_name("Karin contributors")
                 .version(config::VERSION)
                 .license_type(gtk::License::Gpl30)

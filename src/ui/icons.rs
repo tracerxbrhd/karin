@@ -4,6 +4,8 @@
 use gtk::{gio, gio::prelude::FileExt};
 
 const RESOURCE_PATH: &str = "/io/github/tracerxbrhd/Karin/icons";
+// Keep the GTK icon independent of an older desktop installation with the same AppID.
+pub const APP_ICON: &str = "karin-application-icon";
 pub(super) const BRAND_MARK: &str = "karin-brand-mark";
 
 fn register() {
@@ -37,7 +39,8 @@ pub(super) fn verify() -> bool {
         return false;
     };
     let theme = gtk::IconTheme::for_display(&display);
-    for name in [crate::config::APP_ID, BRAND_MARK] {
+    let resource_uri = format!("resource://{RESOURCE_PATH}/");
+    for name in [APP_ICON, BRAND_MARK] {
         let brand = theme.lookup_icon(
             name,
             &[],
@@ -48,9 +51,10 @@ pub(super) fn verify() -> bool {
         );
         let suffix = format!("/{name}.png");
         if brand.is_symbolic()
-            || !brand
-                .file()
-                .is_some_and(|source| source.uri().ends_with(&suffix))
+            || !brand.file().is_some_and(|source| {
+                let uri = source.uri();
+                uri.starts_with(&resource_uri) && uri.ends_with(&suffix)
+            })
         {
             return false;
         }
@@ -218,7 +222,7 @@ mod tests {
     #[test]
     fn embedded_brand_mark_has_transparent_background() {
         register();
-        for (name, expected_background) in [(BRAND_MARK, 0), (crate::config::APP_ID, 255)] {
+        for (name, expected_background) in [(BRAND_MARK, 0), (APP_ICON, 255)] {
             let bytes = gio::resources_lookup_data(
                 &format!("{RESOURCE_PATH}/128x128/apps/{name}.png"),
                 gio::ResourceLookupFlags::NONE,
@@ -239,7 +243,7 @@ mod tests {
     fn embedded_icon_sources_are_namespaced_symbolic_vectors() {
         register();
         let brand = gio::resources_lookup_data(
-            "/io/github/tracerxbrhd/Karin/icons/128x128/apps/io.github.tracerxbrhd.Karin.png",
+            &format!("{RESOURCE_PATH}/128x128/apps/{APP_ICON}.png"),
             gio::ResourceLookupFlags::NONE,
         )
         .unwrap();
