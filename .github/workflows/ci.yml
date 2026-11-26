@@ -185,8 +185,12 @@ jobs:
           assert "cargo build --release --offline --locked --no-default-features --features cassette-auth" in commands
           assert all("--all-features" not in command and "experimental-device-auth" not in command for command in commands)
           assert all("--experimental-music" not in command for command in commands)
-          assert not any(arg.startswith("--filesystem=") or "org.freedesktop.secrets" in arg for arg in manifest["finish-args"])
           finish_args = manifest["finish-args"]
+          assert [arg for arg in finish_args if arg.startswith("--filesystem=")] == [
+              "--filesystem=xdg-run/discord-ipc-0:ro",
+              "--filesystem=xdg-run/app/com.discordapp.Discord:ro",
+          ], "Expose only the reviewed read-only Discord IPC locations"
+          assert not any("org.freedesktop.secrets" in arg for arg in finish_args)
           assert [arg for arg in finish_args if arg.startswith("--own-name=")] == [
               "--own-name=org.mpris.MediaPlayer2.io.github.tracerxbrhd.Karin"
           ], "Expose only Karin's exact MPRIS name"

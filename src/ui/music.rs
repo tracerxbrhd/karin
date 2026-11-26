@@ -45,6 +45,7 @@ mod search_header;
 mod search_tests;
 mod search_toolbar;
 mod search_view;
+mod sharing;
 pub(in crate::ui) mod sliding_panel;
 mod system_media;
 #[cfg(test)]
@@ -1637,11 +1638,29 @@ impl Controller {
                 this.skip_music(true, false);
             }
         });
-        for (name, page, accelerator) in [
-            ("music-home", "home", "<Primary>h"),
-            ("music-library", "library", "<Primary>l"),
-            ("music-playlists", "playlists", "<Primary>p"),
-            ("music-search", "search", "<Primary>f"),
+        super::shortcuts::install_transport(
+            window,
+            &self.widgets.play,
+            &self.widgets.previous,
+            &self.widgets.next,
+        );
+        for (name, page, accelerators) in [
+            (
+                "music-home",
+                "home",
+                &["<Primary>1", "<Alt>Home", "<Primary>h"][..],
+            ),
+            (
+                "music-library",
+                "library",
+                &["<Primary>2", "<Primary>l"][..],
+            ),
+            (
+                "music-playlists",
+                "playlists",
+                &["<Primary>3", "<Primary>p"][..],
+            ),
+            ("music-search", "search", &["<Primary>f"][..]),
         ] {
             let action = gio::SimpleAction::new(name, None);
             let weak = Rc::downgrade(self);
@@ -1665,7 +1684,7 @@ impl Controller {
             });
             window.add_action(&action);
             if let Some(app) = self.app.upgrade() {
-                app.set_accels_for_action(&format!("win.{name}"), &[accelerator]);
+                app.set_accels_for_action(&format!("win.{name}"), accelerators);
             }
         }
         let queue_action = gio::SimpleAction::new("music-queue", None);

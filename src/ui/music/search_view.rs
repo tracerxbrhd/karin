@@ -629,8 +629,12 @@ impl Controller {
                 "Открыть альбом: {}",
                 album.title
             ))]);
+            let link = crate::music::public_links::album(&album.id);
             self.search_tile_action(&tile, RowAction::Album(album.id));
-            catalog_layout::append_tile(&grid, &tile);
+            catalog_layout::append_tile(
+                &grid,
+                &sharing::tile_with_link_menu(&tile, "Действия с альбомом", link),
+            );
         }
     }
 
@@ -652,8 +656,12 @@ impl Controller {
                 "Открыть исполнителя: {}",
                 artist.name
             ))]);
+            let link = crate::music::public_links::artist(&artist.id);
             self.search_tile_action(&tile, RowAction::Artist(artist));
-            catalog_layout::append_tile(&grid, &tile);
+            catalog_layout::append_tile(
+                &grid,
+                &sharing::tile_with_link_menu(&tile, "Действия с исполнителем", link),
+            );
         }
     }
 

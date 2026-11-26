@@ -92,6 +92,7 @@ fn native_v08_incremental_marker_updates_and_stable_ticks() {
                     Some(context.clone())
                 }),
                 None,
+                None,
             );
         }
         let append_elapsed_us = started.elapsed().as_micros();

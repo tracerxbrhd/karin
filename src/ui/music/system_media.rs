@@ -3,6 +3,7 @@
 use super::*;
 use crate::{
     artwork::{ArtworkError, ArtworkRequest, CoverPixels},
+    discord_presence::{Activity, Presence, Progress, Status as DiscordStatus},
     mpris::{Command, LocalArtwork, Metadata, Mpris, Snapshot, Status},
     playback::PlaybackState,
 };
@@ -11,12 +12,14 @@ use ring::rand::{SecureRandom, SystemRandom};
 use std::{
     path::PathBuf,
     sync::mpsc::{self, Receiver},
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
 #[derive(Default)]
 pub(super) struct SystemMedia {
     bus: Option<Mpris>,
+    discord: Presence,
+    discord_event: Option<DiscordEvent>,
     binding: Option<(u64, crate::queue::OccurrenceId)>,
     serial: u64,
     repeat_restart: Option<u64>,
@@ -26,6 +29,61 @@ pub(super) struct SystemMedia {
     cover_encoding: Option<Receiver<Option<PrivateCover>>>,
     cover: Option<PrivateCover>,
     seek: Option<(u64, u64, i64)>,
+}
+
+/// Position ticks keep the existing event while a state, source or seek
+/// transition replaces it. Discord itself advances the displayed clock.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct DiscordEvent {
+    occurrence: u64,
+    source: u64,
+    source_revision: u64,
+    seek: u64,
+    paused: bool,
+    position_known: bool,
+    duration: Option<Duration>,
+}
+
+impl SystemMedia {
+    fn publish_discord(
+        &mut self,
+        track: &Track,
+        playback: &crate::playback::PlaybackSnapshot,
+        source: u64,
+        duration: Option<Duration>,
+    ) {
+        let paused = playback.state == PlaybackState::Paused;
+        let event = DiscordEvent {
+            occurrence: self.serial,
+            source,
+            source_revision: playback.source_revision,
+            seek: playback.seek_serial,
+            paused,
+            position_known: playback.position.is_some(),
+            duration,
+        };
+        if self.discord_event != Some(event) {
+            self.discord_event = Some(event);
+            self.discord.update(Activity::new(
+                track,
+                if paused {
+                    Progress::Paused
+                } else {
+                    Progress::Playing {
+                        position: playback.position,
+                        duration,
+                    }
+                },
+                SystemTime::now(),
+            ));
+        }
+    }
+
+    fn clear_discord(&mut self) {
+        if self.discord_event.take().is_some() {
+            self.discord.update(None);
+        }
+    }
 }
 
 /// Only a decoded, public cover is written, never media or a provider address.
@@ -80,6 +138,19 @@ impl Drop for PrivateCover {
 }
 
 impl Controller {
+    pub(super) fn enable_discord_presence(&self, enabled: bool) -> bool {
+        let mut media = self.system_media.borrow_mut();
+        let changed = media.discord.enable(enabled);
+        if changed {
+            media.discord_event = None;
+        }
+        changed
+    }
+
+    pub(super) fn discord_status(&self) -> DiscordStatus {
+        self.system_media.borrow().discord.status()
+    }
+
     pub(super) fn connect_system_media(self: &Rc<Self>) {
         let weak = Rc::downgrade(self);
         let bus = Mpris::new(Rc::new(move |command| {
@@ -194,6 +265,8 @@ impl Controller {
 
     pub(super) fn clear_system_media(&self) {
         let mut media = self.system_media.borrow_mut();
+        media.discord_event = None;
+        media.discord.retire_activity();
         media.binding = None;
         media.repeat_restart = None;
         media.cover_request = None;
@@ -208,8 +281,16 @@ impl Controller {
     }
     pub(super) fn shutdown_system_media(&self) {
         self.clear_system_media();
-        if let Some(bus) = self.system_media.borrow_mut().bus.take() {
+        let mut media = self.system_media.borrow_mut();
+        if let Some(bus) = media.bus.take() {
             bus.shutdown();
+        }
+        if let Some(worker) = media.discord.shutdown() {
+            let hold = self.app.upgrade().map(|app| app.hold());
+            glib::spawn_future_local(async move {
+                let _hold = hold;
+                let _ = gio::spawn_blocking(move || worker.join()).await;
+            });
         }
     }
 
@@ -298,6 +379,20 @@ impl Controller {
                     .map(|ms| i64::try_from(ms.saturating_mul(1000)).unwrap_or(i64::MAX))
             });
         let has_source = snapshot.as_ref().is_some_and(|s| s.worker_running);
+        if media.discord.is_enabled()
+            && has_source
+            && !requested
+            && !renewing
+            && self.music_matches_occurrence(model.queue.current_occurrence_id())
+            && matches!(state, PlaybackState::Playing | PlaybackState::Paused)
+            && let (Some(track), Some(playback)) = (selected, snapshot.as_ref())
+        {
+            let duration =
+                duration.and_then(|micros| u64::try_from(micros).ok().map(Duration::from_micros));
+            media.publish_discord(track, playback, self.music_serial(), duration);
+        } else {
+            media.clear_discord();
+        }
         let status = match state {
             PlaybackState::Playing => Status::Playing,
             PlaybackState::Paused | PlaybackState::Ready => Status::Paused,

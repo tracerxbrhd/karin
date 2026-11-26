@@ -18,7 +18,7 @@ import tomllib
 from common import (APP_ID, BUILD_FEATURES, REPOSITORY, identity, locked_crates, sha256,
                     committed_files, validate_prepared, validate_version_output,
                     verify_binary, write_json)
-from manifest import provenance
+from manifest import DISCORD_FILESYSTEMS, provenance
 from rust_runtime import binary_identity, runtime_entries, validate_runtime
 
 APP_ICON_SIZES = (16, 24, 32, 48, 64, 128, 256)
@@ -238,11 +238,15 @@ def validate_permissions(raw: str) -> None:
         raise ValueError("Invalid installed Flatpak permission metadata") from error
     if not config.has_section("Context"):
         raise ValueError("Installed Flatpak has no permission context")
-    allowed = {"shared": {"network", "ipc"}, "sockets": {"wayland", "x11", "fallback-x11", "pulseaudio"}, "devices": {"dri"}}
+    allowed = {"shared": {"network", "ipc"}, "sockets": {"wayland", "x11", "fallback-x11", "pulseaudio"},
+               "devices": {"dri"}, "filesystems": set(DISCORD_FILESYSTEMS)}
     for key, value in config.items("Context"):
         values = set(value.split(";")) - {""}
         if values and (key not in allowed or not values <= allowed[key]):
             raise ValueError(f"Unexpected installed Flatpak permission: {key}")
+    filesystems = set(config.get("Context", "filesystems", fallback="").split(";")) - {""}
+    if filesystems != allowed["filesystems"]:
+        raise ValueError("Installed Flatpak Discord permissions differ from the scoped runtime paths")
     bus = dict(config.items("Session Bus Policy")) if config.has_section("Session Bus Policy") else {}
     if bus != {f"org.mpris.MediaPlayer2.{APP_ID}".lower(): "own"}:
         raise ValueError("Installed Flatpak bus permissions differ from scoped MPRIS ownership")

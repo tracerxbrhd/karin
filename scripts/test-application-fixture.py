@@ -435,7 +435,7 @@ def exercise_welcome(window_id):
     click(widget("Меню приложения"))
     menu = widget("Меню приложения", "menu")
     items = [item for item in tree(menu["ref"]) if visible(item) and item["role"] == "menu item"]
-    assert len(items) == 4, "Signed-out menu must expose updates, preferences, About and Quit"
+    assert len(items) == 5, "Signed-out menu must expose updates, preferences, shortcuts, About and Quit"
     key("Escape")
 
     login = widget(sign_in, "button")
@@ -503,7 +503,7 @@ try:
     # Traverse nested menu sections in native visual order before selecting About.
     menu_items = [item for item in tree(about_menu["ref"], depth_first=True)
                   if visible(item) and item["role"] == "menu item"]
-    assert len(menu_items) == 7, "Unexpected application menu structure"
+    assert len(menu_items) == 8, "Unexpected application menu structure"
     assert all(item["name"] != "Диагностика" for item in menu_items)
     target = menu_items[-2]["ref"]  # About precedes Quit in this menu.
     assert all(item["states"][0] & (1 << 24) for item in menu_items[-2:]), "About/Quit unavailable"
@@ -658,17 +658,17 @@ try:
     click(info)
     click(current_info_menu())
     # GTK model-button menu items expose no Name on these runtime versions.
-    # The ordinary Info menu has three queue actions followed by Lyrics.
-    # Prove its four mapped entries, save its actual painted labels, and drive
+    # The ordinary Info menu has three queue actions, Copy Link, then Lyrics.
+    # Prove its five mapped entries, save its actual painted labels, and drive
     # that native menu with the keyboard as a user does.
     wait(
         lambda: len([x for x in tree() if visible(x) and x["role"] == "menu item"])
-        == 4,
+        == 5,
         "current Info menu",
     )
     capture("04b-info-menu")
     key("Home")
-    for _ in range(3):
+    for _ in range(4):
         key("Down")
     key("Return")
     widget("LRCLIB", "label")

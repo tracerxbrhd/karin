@@ -22,6 +22,7 @@ pub(super) enum PaneAction {
     Enqueue(Track),
     EnqueueNext(Track),
     AddToPlaylist(Track),
+    CopyLink(Track),
     Lyrics(Track),
     OpenMenu(Track),
     DeliveryProbe(Track),
@@ -76,6 +77,7 @@ pub(super) struct TrackPane {
     next_action: gio::SimpleAction,
     enqueue_action: gio::SimpleAction,
     playlist_action: gio::SimpleAction,
+    copy_link_action: gio::SimpleAction,
     lyrics_action: gio::SimpleAction,
     delivery_action: gio::SimpleAction,
     delivery_enabled: Cell<bool>,
@@ -235,6 +237,7 @@ impl TrackPane {
         let next_action = track_action(&group, &state, "next", PaneAction::EnqueueNext);
         let enqueue_action = track_action(&group, &state, "enqueue", PaneAction::Enqueue);
         let playlist_action = track_action(&group, &state, "playlist", PaneAction::AddToPlaylist);
+        let copy_link_action = track_action(&group, &state, "copy-link", PaneAction::CopyLink);
         let lyrics_action = track_action(&group, &state, "lyrics", PaneAction::Lyrics);
         let delivery_action = track_action(&group, &state, "delivery", PaneAction::DeliveryProbe);
         menu.insert_action_group("track-pane", Some(&group));
@@ -350,6 +353,7 @@ impl TrackPane {
             next_action,
             enqueue_action,
             playlist_action,
+            copy_link_action,
             lyrics_action,
             delivery_action,
             delivery_enabled: Cell::new(false),
@@ -474,6 +478,10 @@ impl TrackPane {
         self.enqueue_action.set_enabled(false);
         self.playlist_action
             .set_enabled(track.is_some() && self.state.navigation_enabled.get());
+        self.copy_link_action.set_enabled(
+            self.state.navigation_enabled.get()
+                && track.and_then(super::sharing::track_link).is_some(),
+        );
         self.lyrics_action
             .set_enabled(track.is_some() && self.state.navigation_enabled.get());
         self.delivery_action.set_enabled(
@@ -633,6 +641,16 @@ impl TrackPane {
             .set_sensitive(enabled && self.selected().is_some());
         self.playlist_action
             .set_enabled(enabled && self.selected().is_some());
+        self.copy_link_action.set_enabled(
+            enabled
+                && self
+                    .state
+                    .selected
+                    .borrow()
+                    .as_ref()
+                    .and_then(super::sharing::track_link)
+                    .is_some(),
+        );
         self.lyrics_action
             .set_enabled(enabled && self.selected().is_some());
         self.delivery_action
@@ -730,6 +748,7 @@ fn menu_model(delivery: bool) -> gio::Menu {
     queue.append(Some("Добавить в плейлист"), Some("track-pane.playlist"));
     menu.append_section(None, &queue);
     let information = gio::Menu::new();
+    information.append(Some("Копировать ссылку"), Some("track-pane.copy-link"));
     information.append(Some("Показать текст песни"), Some("track-pane.lyrics"));
     if delivery {
         information.append(

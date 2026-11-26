@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::music::library_index::{CollectionSnapshot, CollectionSource, IndexedBatch};
+use crate::music::playlist_management::{PlaylistTrackRemoval, PlaylistViewReceipt};
 use std::time::Duration;
 mod index;
 
@@ -63,6 +64,7 @@ pub(super) struct LoadedTracks {
     origin: crate::queue::PlaybackOrigin,
     pub filter: collection_filter::CollectionFilter,
     positions: Vec<usize>,
+    removals: Vec<Option<PlaylistTrackRemoval>>,
     indexed: bool,
     applied: std::collections::BTreeSet<u32>,
     contexts: RefCell<std::collections::BTreeMap<usize, PlaybackContext>>,
@@ -93,6 +95,7 @@ impl LoadedTracks {
             origin: crate::queue::PlaybackOrigin::from_source(kind, source.as_deref()),
             filter: collection_filter::CollectionFilter::default(),
             positions: Vec::new(),
+            removals: Vec::new(),
             indexed: false,
             applied: Default::default(),
             contexts: RefCell::new(Default::default()),
@@ -101,7 +104,17 @@ impl LoadedTracks {
 
     /// Page identity, never track ID, prevents repeated delivery. Two equal
     /// IDs at different provider positions remain two playback occurrences.
+    #[cfg(test)]
     pub(super) fn append(&mut self, page: u32, result: Page<Track>) -> std::ops::Range<usize> {
+        self.append_with_receipt(page, result, None)
+    }
+
+    fn append_with_receipt(
+        &mut self,
+        page: u32,
+        result: Page<Track>,
+        receipt: Option<&PlaylistViewReceipt>,
+    ) -> std::ops::Range<usize> {
         let start = self.items.len();
         if page != self.next_page || !self.applied.insert(page) {
             return start..start;
@@ -113,6 +126,10 @@ impl LoadedTracks {
         let truncated = result.items.len() > room;
         self.items.extend(result.items.into_iter().take(room));
         self.positions.extend(start..self.items.len());
+        for index in 0..self.items.len() - start {
+            self.removals
+                .push(receipt.and_then(|proof| proof.page_removal(page, index)));
+        }
         self.filter.append(&self.items[start..]);
         self.next_page = page.saturating_add(1);
         self.has_more = result.has_more || truncated;
@@ -148,9 +165,24 @@ impl LoadedTracks {
         self.filter.append_dated(&new_tracks, &dates);
         self.positions
             .extend(batch.tracks.iter().map(|(position, _)| *position));
+        self.removals
+            .extend(batch.tracks.iter().map(|(position, _)| {
+                snapshot.and_then(|snapshot| snapshot.playlist_removal(*position))
+            }));
         self.items.extend(new_tracks);
         self.incomplete |= batch.omitted > 0;
         self.contexts.borrow_mut().clear();
+    }
+    fn rebind_prefix_removals(&mut self, snapshot: &CollectionSnapshot) -> bool {
+        let removals = self
+            .positions
+            .iter()
+            .map(|&position| snapshot.playlist_removal(position))
+            .collect::<Vec<_>>();
+        let remount =
+            self.removals.iter().any(Option::is_some) || removals.iter().any(Option::is_some);
+        self.removals = removals;
+        remount
     }
     fn set_sort(&mut self, sort: collection_filter::CollectionSort) -> bool {
         if !self.filter.set_sort(sort) {
@@ -701,7 +733,7 @@ impl Controller {
         self.widgets.library_hero.append(hero.widget());
         feed.hero.replace(Some(hero));
     }
-    fn feed_is_current(&self, feed: &Feed) -> bool {
+    pub(super) fn feed_is_current(&self, feed: &Feed) -> bool {
         let model = self.model.borrow();
         model.account_valid
             && !model.closed
@@ -724,8 +756,14 @@ impl Controller {
     }
 
     fn append_feed_row(self: &Rc<Self>, feed: &Feed, index: usize) {
-        let track = feed.data.borrow().items[index].clone();
-        let source_key = feed.data.borrow().source_key.clone();
+        let (track, source_key, removal) = {
+            let data = feed.data.borrow();
+            (
+                data.items[index].clone(),
+                data.source_key.clone(),
+                data.removals[index].clone(),
+            )
+        };
         let marker_source_key = source_key.clone();
         let data = feed.data.clone();
         let weak = Rc::downgrade(self);
@@ -761,7 +799,13 @@ impl Controller {
                 data.source_key == marker_source_key && data.matches_current(index, current)
             }
         });
-        self.track_row_bound(&feed.rows, track, resolve, Some(marker));
+        self.track_row_bound(
+            &feed.rows,
+            track,
+            resolve,
+            Some(marker),
+            removal.map(|removal| (Rc::downgrade(feed), removal)),
+        );
         if matches!(feed.source, FeedSource::Liked)
             && let Some(body) = feed
                 .rows
@@ -787,6 +831,16 @@ impl Controller {
     }
 
     pub(super) fn append_track_feed(self: &Rc<Self>, feed: &Feed, page: u32, result: Page<Track>) {
+        self.append_track_feed_with_receipt(feed, page, result, None);
+    }
+
+    fn append_track_feed_with_receipt(
+        self: &Rc<Self>,
+        feed: &Feed,
+        page: u32,
+        result: Page<Track>,
+        receipt: Option<&PlaylistViewReceipt>,
+    ) {
         if !self.feed_is_current(feed) {
             return;
         }
@@ -799,7 +853,10 @@ impl Controller {
             model.library_displaying = Some((0, 0));
             model.library_page = 0;
         }
-        let range = feed.data.borrow_mut().append(page, result);
+        let range = feed
+            .data
+            .borrow_mut()
+            .append_with_receipt(page, result, receipt);
         if feed.windowed.get() {
             self.render_collection_window(feed);
         } else {
@@ -1438,37 +1495,35 @@ impl Controller {
             matches!(source, FeedSource::Liked).then_some((0, page)),
             force,
             move |service, token, catalog, force| {
+                let display =
+                    |result: Result<crate::catalog_cache::Cached<Page<Track>>, MusicError>| {
+                        result.and_then(|reply| reply.map(|page| Ok((page, None))))
+                    };
+                let playlist = |id: &crate::music::PlaylistId| match &catalog {
+                    Some(catalog) => {
+                        catalog.playlist_tracks_for_view(&service, &token, id, page, force)
+                    }
+                    None => service
+                        .playlist_tracks_for_view(&token, id, page, true)
+                        .map(catalog_view::network),
+                };
                 let reply = match &source {
-                    FeedSource::Liked => match catalog {
+                    FeedSource::Liked => display(match &catalog {
                         Some(catalog) => catalog.liked_tracks(&service, &token, page, force),
                         None => service
                             .liked_tracks(&token, page)
                             .map(catalog_view::network),
-                    },
-                    FeedSource::Playlist(playlist) => match catalog {
-                        Some(catalog) => {
-                            catalog.playlist_tracks(&service, &token, &playlist.id, page, force)
-                        }
-                        None => service
-                            .playlist_tracks(&token, &playlist.id, page)
-                            .map(catalog_view::network),
-                    },
-                    FeedSource::SearchPlaylist(playlist) => match catalog {
-                        Some(catalog) => {
-                            catalog.playlist_tracks(&service, &token, &playlist.id, page, force)
-                        }
-                        None => service
-                            .playlist_tracks(&token, &playlist.id, page)
-                            .map(catalog_view::network),
-                    },
-                    FeedSource::Artist(artist) => match catalog {
+                    }),
+                    FeedSource::Playlist(source) => playlist(&source.id),
+                    FeedSource::SearchPlaylist(source) => playlist(&source.id),
+                    FeedSource::Artist(artist) => display(match &catalog {
                         Some(catalog) => {
                             catalog.artist_tracks(&service, &token, &artist.id, page, force)
                         }
                         None => service
                             .artist_tracks(&token, &artist.id, page)
                             .map(catalog_view::network),
-                    },
+                    }),
                     FeedSource::Search(query) => service
                         .search_cancellable(
                             &token,
@@ -1482,10 +1537,13 @@ impl Controller {
                                 reply.omitted_tracks > 0,
                                 std::sync::atomic::Ordering::Relaxed,
                             );
-                            catalog_view::network(Page {
-                                items: reply.tracks,
-                                has_more: reply.has_more,
-                            })
+                            catalog_view::network((
+                                Page {
+                                    items: reply.tracks,
+                                    has_more: reply.has_more,
+                                },
+                                None,
+                            ))
                         }),
                     FeedSource::Album(_) => {
                         unreachable!("local album slices do not enter a network worker")
@@ -1502,7 +1560,7 @@ impl Controller {
                     return;
                 }
                 match result {
-                    Ok(page_result) => {
+                    Ok((page_result, receipt)) => {
                         if completed.data.borrow().next_page != page
                             || completed.restart_required.get()
                         {
@@ -1516,7 +1574,12 @@ impl Controller {
                         }
                         completed.data.borrow_mut().incomplete |=
                             omitted_result.load(std::sync::atomic::Ordering::Relaxed);
-                        this.append_track_feed(&completed, page, page_result);
+                        this.append_track_feed_with_receipt(
+                            &completed,
+                            page,
+                            page_result,
+                            receipt.as_ref(),
+                        );
                     }
                     Err(error) => {
                         completed.data.borrow_mut().loading = false;

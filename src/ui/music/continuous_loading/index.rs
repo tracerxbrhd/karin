@@ -237,6 +237,13 @@ impl Controller {
                         let prefix = data.positions.iter().copied().eq(0..data.items.len())
                             && snapshot.matches_prefix(&data.items);
                         let cursor = if prefix { data.items.len() } else { 0 };
+                        let mut remount_rows = !prefix;
+                        if prefix {
+                            // Bind retained rows to the fresh manifest. Their
+                            // original menus may have an obsolete revision
+                            // or may have been built from cached display data.
+                            remount_rows = data.rebind_prefix_removals(&snapshot);
+                        }
                         if !prefix {
                             let old = ring::digest::digest(
                                 &ring::digest::SHA256,
@@ -251,6 +258,7 @@ impl Controller {
                             data.source_key = format!("continuous:index:{key}:{epoch}");
                             data.items.clear();
                             data.positions.clear();
+                            data.removals.clear();
                             let sort = data.filter.sort();
                             data.filter = collection_filter::CollectionFilter::default();
                             if let Some(bar) = &completed.filter_ui {
@@ -277,7 +285,7 @@ impl Controller {
                         index.snapshot = Some(snapshot);
                         drop(index);
                         drop(data);
-                        if !prefix {
+                        if remount_rows {
                             completed.rendered_positions.borrow_mut().clear();
                             clear_list(&completed.rows);
                         }

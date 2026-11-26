@@ -33,6 +33,7 @@ pub mod interactions;
 pub mod library_index;
 pub mod playlist_creation;
 pub mod playlist_management;
+pub mod public_links;
 pub mod track_extras;
 pub mod wave;
 
@@ -616,19 +617,45 @@ impl MusicService {
         id: &PlaylistId,
         page: u32,
     ) -> Result<Page<Track>, MusicError> {
+        self.playlist_tracks_for_view(token, id, page, false)
+            .map(|(page, _)| page)
+    }
+    pub(crate) fn playlist_tracks_for_view(
+        &self,
+        token: &AccessToken,
+        id: &PlaylistId,
+        page: u32,
+        edit: bool,
+    ) -> Result<playlist_management::PlaylistViewPage, MusicError> {
         validate_id(&id.owner)?;
         validate_id(&id.kind)?;
-        let wire: PlaylistWire = self.get(
+        let binding = edit
+            .then(|| self.search_binding(token).ok())
+            .flatten()
+            .filter(|binding| binding.uid == id.owner);
+        let response = self.request_response(
             token,
             &["users", &id.owner, "playlists", &id.kind],
             &[("richTracks", "true")],
+            None,
         )?;
+        let body = read_body(response)?;
+        let wire = serde_json::from_slice::<Envelope<PlaylistWire>>(&body)
+            .map_err(|_| MusicError::InvalidResponse)?
+            .result;
         let references = match wire.tracks {
             Some(tracks) => tracks,
             None if wire.track_count == Some(0) => Vec::new(),
             None => return Err(MusicError::InvalidResponse),
         };
-        self.expand_page(token, references, page)
+        let visible = self.expand_page(token, references, page)?;
+        let receipt = if let Some(binding) = binding {
+            self.check_search_binding(token, &binding)?;
+            playlist_management::view_receipt(&body, id, binding)
+        } else {
+            None
+        };
+        Ok((visible, receipt))
     }
     fn expand_page(
         &self,

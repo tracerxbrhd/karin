@@ -1315,11 +1315,17 @@ impl Controller {
             .set_visible(p.retry != Retry::None || p.playback.retry);
         p.retry_button
             .set_sensitive(p.phase == Phase::Idle && !p.critical && !p.playback.loading());
+        let discord_changed =
+            self.enable_discord_presence(p.ready && !p.closed && p.values.discord_presence);
         if let Some(view) = &p.view {
             view.update(&p.snapshot());
+            view.set_discord_status(self.discord_status());
         }
         let lyrics_external_auto = p.values.lyrics_external_auto;
         drop(p);
+        if discord_changed {
+            self.publish_mpris();
+        }
         self.track_pane
             .extras
             .set_external_preference(lyrics_external_auto);
@@ -1365,6 +1371,11 @@ impl Controller {
             let snapshot = self.persistence.borrow().snapshot();
             let view = PreferencesView::new(&snapshot, &callbacks);
             let weak = Rc::downgrade(self);
+            view.watch_discord_status(move || {
+                weak.upgrade()
+                    .map_or(Default::default(), |this| this.discord_status())
+            });
+            let weak = Rc::downgrade(self);
             view.dialog.connect_closed(move |dialog| {
                 if let Some(this) = weak.upgrade() {
                     let mut p = this.persistence.borrow_mut();
@@ -1392,6 +1403,7 @@ impl Controller {
             p.values.ui_style = values.ui_style;
             p.values.track_info_open = values.track_info_open;
             p.values.lyrics_external_auto = values.lyrics_external_auto;
+            p.values.discord_presence = values.discord_presence;
             p.values.cache_enabled = values.cache_enabled;
             p.values.cache_limit = values.cache_limit;
             if !values.remember_login || (p.supported && !p.values.forget_pending) {
@@ -1406,7 +1418,8 @@ impl Controller {
                 && previous.ui_style == p.values.ui_style
                 && previous.remember_login == p.values.remember_login
                 && previous.track_info_open == p.values.track_info_open
-                && previous.lyrics_external_auto == p.values.lyrics_external_auto;
+                && previous.lyrics_external_auto == p.values.lyrics_external_auto
+                && previous.discord_presence == p.values.discord_presence;
             if cache_changed {
                 if let Some(budget) = &p.cache_budget {
                     let _ =

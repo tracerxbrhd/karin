@@ -1,12 +1,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 [package]
 name = "karin"
-version = "0.8.2"
+version = "0.8.3"
 edition = "2024"
 rust-version = "1.98"
 description = "An independent native Linux client for Yandex Music"
 repository = "https://github.com/tracerxbrhd/karin"
-homepage = "https://github.com/tracerxbrhd/karin"
 license = "GPL-3.0-or-later"
 publish = false
 
@@ -27,7 +26,7 @@ gstreamer = "0.24"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls-native-roots"] }
 ring = "0.17"
 roxmltree = "=0.21.1"
-rustix = { version = "1", features = ["termios", "event", "fs", "process"] }
+rustix = { version = "1", features = ["termios", "event", "fs", "process", "net"] }
 semver = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }

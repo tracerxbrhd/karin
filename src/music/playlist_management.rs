@@ -64,6 +64,7 @@ pub struct EditablePlaylist {
     pub visibility: Option<PlaylistVisibility>,
     pub entries: Vec<PlaylistOccurrence>,
     binding: SearchBinding,
+    user_editable: bool,
 }
 impl fmt::Debug for EditablePlaylist {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -98,6 +99,88 @@ impl fmt::Debug for PlaylistChange {
 pub enum PlaylistMutationOutcome {
     Confirmed(Box<EditablePlaylist>),
     Deleted,
+}
+
+/// A process-only receipt from the same response that supplied a view's
+/// positions. Cache records and matching a single track ID cannot create it.
+#[derive(Clone)]
+pub(crate) struct PlaylistViewReceipt(Arc<ViewState>);
+
+pub(crate) type PlaylistViewPage = (super::Page<Track>, Option<PlaylistViewReceipt>);
+
+struct ViewState {
+    id: PlaylistId,
+    binding: SearchBinding,
+    revision: PlaylistRevision,
+    title: String,
+    visibility: Option<PlaylistVisibility>,
+    count: usize,
+    sequence: ring::digest::Digest,
+}
+
+#[derive(Clone)]
+pub(crate) struct PlaylistTrackRemoval {
+    receipt: PlaylistViewReceipt,
+    position: usize,
+}
+
+impl PlaylistViewReceipt {
+    pub(crate) fn page_removal(&self, page: u32, offset: usize) -> Option<PlaylistTrackRemoval> {
+        self.removal(
+            usize::try_from(page)
+                .ok()?
+                .checked_mul(super::PAGE_SIZE)?
+                .checked_add(offset)?,
+        )
+    }
+
+    pub(crate) fn removal(&self, position: usize) -> Option<PlaylistTrackRemoval> {
+        (position < self.0.count).then(|| PlaylistTrackRemoval {
+            receipt: self.clone(),
+            position,
+        })
+    }
+}
+
+impl PlaylistTrackRemoval {
+    pub(crate) fn playlist_id(&self) -> &PlaylistId {
+        &self.receipt.0.id
+    }
+}
+
+fn sequence_digest(entries: &[PlaylistOccurrence]) -> ring::digest::Digest {
+    let mut digest = ring::digest::Context::new(&ring::digest::SHA256);
+    // Both identities have already passed validate_id. Whole-sequence order
+    // and album selectors are part of the fence, including unavailable rows.
+    for entry in entries {
+        digest.update(entry.id.as_bytes());
+        digest.update(b"\0");
+        if let Some(album) = &entry.album_id {
+            digest.update(album.as_bytes());
+        }
+        digest.update(b"\0");
+    }
+    digest.finish()
+}
+
+pub(super) fn view_receipt(
+    body: &[u8],
+    id: &PlaylistId,
+    binding: SearchBinding,
+) -> Option<PlaylistViewReceipt> {
+    validate_owned(id, &binding).ok()?;
+    let state = decode_state(body, id, binding).ok()?;
+    state.user_editable.then(|| {
+        PlaylistViewReceipt(Arc::new(ViewState {
+            id: state.playlist.id,
+            binding: state.binding,
+            revision: state.revision,
+            title: state.playlist.title,
+            visibility: state.visibility,
+            count: state.entries.len(),
+            sequence: sequence_digest(&state.entries),
+        }))
+    })
 }
 
 const MAX_EDIT_POSITIONS: usize = 2_000;
@@ -207,25 +290,62 @@ impl MusicService {
         if !same_state(&current, snapshot) {
             return Err(InteractionError::Conflict);
         }
-        let intended = Intended::new(&current, change)?;
-        self.check_search_binding(token, &snapshot.binding)?;
+        self.send_playlist_change(token, &current, change)
+    }
+
+    pub(crate) fn remove_playlist_track(
+        &self,
+        token: &AccessToken,
+        removal: PlaylistTrackRemoval,
+    ) -> Result<PlaylistMutationOutcome, InteractionError> {
+        let proof = &removal.receipt.0;
+        let _write = self.claim_playlist_write(token, &proof.binding)?;
+        let current = self.edit_state_bound(token, &proof.id, &proof.binding)?;
+        if !current.user_editable
+            || current.revision != proof.revision
+            || current.playlist.title != proof.title
+            || current.visibility != proof.visibility
+            || current.entries.len() != proof.count
+            || sequence_digest(&current.entries).as_ref() != proof.sequence.as_ref()
+        {
+            return Err(InteractionError::Conflict);
+        }
+        self.send_playlist_change(
+            token,
+            &current,
+            PlaylistChange::Remove {
+                position: removal.position,
+            },
+        )
+    }
+
+    /// The shared write contract. Callers must hold the write guard and supply
+    /// a fresh preflight matching the original intent.
+    fn send_playlist_change(
+        &self,
+        token: &AccessToken,
+        current: &EditablePlaylist,
+        change: PlaylistChange,
+    ) -> Result<PlaylistMutationOutcome, InteractionError> {
+        let intended = Intended::new(current, change)?;
+        self.check_search_binding(token, &current.binding)?;
         let path = [
             "users",
-            snapshot.playlist.id.owner.as_str(),
+            current.playlist.id.owner.as_str(),
             "playlists",
-            snapshot.playlist.id.kind.as_str(),
+            current.playlist.id.kind.as_str(),
             intended.route,
         ];
         let form = encode_form(&self.origin, &intended.form);
         let acknowledgement = self
             .request_response(token, &path, &[], Some(form))
             .and_then(read_body)
-            .and_then(|body| intended.acknowledge(&body, &current));
-        self.check_search_binding(token, &snapshot.binding)?;
+            .and_then(|body| intended.acknowledge(&body, current));
+        self.check_search_binding(token, &current.binding)?;
         // Even a lost response may follow an accepted write. Reconcile with
         // reads only, while preserving the uncertainty of the write receipt.
-        let observed = self.reconcile_bound(token, &snapshot.playlist.id, &snapshot.binding);
-        self.check_search_binding(token, &snapshot.binding)?;
+        let observed = self.reconcile_bound(token, &current.playlist.id, &current.binding);
+        self.check_search_binding(token, &current.binding)?;
         let acknowledged_revision = match acknowledgement {
             Ok(revision) => revision,
             Err(
@@ -360,6 +480,7 @@ struct ListEnvelope {
     error: Option<Box<RawValue>>,
 }
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct EditWire {
     #[serde(flatten)]
     playlist: PlaylistWire,
@@ -368,6 +489,10 @@ struct EditWire {
     tracks: Option<Vec<EditReferenceWire>>,
     revision: Option<u64>,
     visibility: Option<String>,
+    available: Option<bool>,
+    generated_playlist_type: Option<Box<RawValue>>,
+    artist_playlist_type: Option<Box<RawValue>>,
+    made_for_user: Option<Box<RawValue>>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -408,6 +533,10 @@ fn decode_state(
         return Err(MusicError::InvalidResponse);
     }
     let revision = PlaylistRevision(wire.revision.ok_or(MusicError::InvalidResponse)?);
+    let user_editable = wire.available != Some(false)
+        && wire.generated_playlist_type.is_none()
+        && wire.artist_playlist_type.is_none()
+        && wire.made_for_user.is_none();
     let visibility = match wire.visibility.as_deref() {
         Some("private") => Some(PlaylistVisibility::Private),
         Some("public") => Some(PlaylistVisibility::Public),
@@ -453,6 +582,7 @@ fn decode_state(
         visibility,
         entries,
         binding,
+        user_editable,
     })
 }
 fn optional_rich_track(

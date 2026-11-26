@@ -90,6 +90,7 @@ pub(super) struct MusicPlayback {
     retired: Vec<PlaybackController>,
     serial: u64,
     track: Option<String>,
+    source_occurrence: Option<OccurrenceId>,
     resolving: bool,
     requested: bool,
     cancellation: Option<DeliveryCancellation>,
@@ -126,6 +127,7 @@ impl Default for MusicPlayback {
             retired: Vec::new(),
             serial: 0,
             track: None,
+            source_occurrence: None,
             resolving: false,
             requested: false,
             cancellation: None,
@@ -512,7 +514,7 @@ impl Controller {
             return;
         }
         self.observe_wave_snapshot(self.music_snapshot().as_ref());
-        let (session, track) = {
+        let (session, track, occurrence) = {
             let model = self.model.borrow();
             if model.closed || !model.account_valid {
                 return;
@@ -532,7 +534,11 @@ impl Controller {
                     .set_title("Сервис пометил трек как недоступный.");
                 return;
             }
-            (model.generation, track.id.clone())
+            (
+                model.generation,
+                track.id.clone(),
+                model.queue.current_occurrence_id().cloned(),
+            )
         };
         self.allow_playback_continuation();
         self.stop_music_engine();
@@ -542,6 +548,7 @@ impl Controller {
             let mut player = self.player.borrow_mut();
             player.serial = player.serial.wrapping_add(1);
             player.track = Some(track.clone());
+            player.source_occurrence = occurrence;
             player.play_intent = autoplay;
             player.requested_position = position;
             player.pending = Some(Intent {
@@ -786,6 +793,7 @@ impl Controller {
             }
             player.pending = None;
             player.track = None;
+            player.source_occurrence = None;
             player.requested = false;
             player.preparing = None;
             player.restored_position = None;
@@ -936,6 +944,10 @@ impl Controller {
 
     pub(super) fn music_requested(&self) -> bool {
         self.player.borrow().requested
+    }
+
+    pub(super) fn music_matches_occurrence(&self, occurrence: Option<&OccurrenceId>) -> bool {
+        occurrence.is_some() && self.player.borrow().source_occurrence.as_ref() == occurrence
     }
 
     pub(super) fn music_volume(&self) -> f64 {

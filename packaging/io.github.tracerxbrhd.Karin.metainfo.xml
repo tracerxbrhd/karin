@@ -51,6 +51,12 @@
     <control>pointing</control>
   </supports>
   <releases>
+    <release version="0.8.3" date="2026-11-26" type="stable">
+      <description>
+        <p>Clearer Flatpak update status, more playlist actions and optional Discord Rich Presence.</p>
+        <p xml:lang="ru">Более понятные обновления Flatpak, новые действия в плейлистах и опциональная интеграция с Discord.</p>
+      </description>
+    </release>
     <release version="0.8.2" date="2026-11-25" type="stable">
       <description>
         <p>A new application icon and compact, adaptive navigation in the window header.</p>

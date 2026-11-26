@@ -37,7 +37,7 @@ impl<T> fmt::Debug for Cached<T> {
     }
 }
 impl<T> Cached<T> {
-    fn map<U>(
+    pub(crate) fn map<U>(
         self,
         convert: impl FnOnce(T) -> Result<U, MusicError>,
     ) -> Result<Cached<U>, MusicError> {
@@ -167,7 +167,19 @@ impl CachedCatalog {
         page: u32,
         force_refresh: bool,
     ) -> Result<Cached<Page<Track>>, MusicError> {
+        self.playlist_tracks_for_view(service, token, id, page, force_refresh)
+            .and_then(|reply| reply.map(|(page, _)| Ok(page)))
+    }
+    pub(crate) fn playlist_tracks_for_view(
+        &self,
+        service: &MusicService,
+        token: &AccessToken,
+        id: &PlaylistId,
+        page: u32,
+        force_refresh: bool,
+    ) -> Result<Cached<crate::music::playlist_management::PlaylistViewPage>, MusicError> {
         let selector = format!("{}:{}", id.owner, id.kind);
+        let mut edit = None;
         self.read(
             service,
             token,
@@ -175,12 +187,12 @@ impl CachedCatalog {
             true,
             force_refresh,
             || {
-                service
-                    .playlist_tracks(token, id, page)
-                    .map(MetadataRecord::Tracks)
+                let (tracks, receipt) = service.playlist_tracks_for_view(token, id, page, true)?;
+                edit = receipt;
+                Ok(MetadataRecord::Tracks(tracks))
             },
         )?
-        .map(tracks)
+        .map(|value| Ok((tracks(value)?, edit)))
     }
     pub fn artist_tracks(
         &self,

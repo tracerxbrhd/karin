@@ -2876,6 +2876,11 @@ fn native_music_context_mpris_shared_player_and_cleanup() {
         .unwrap(),
     );
     wait_playing(this, 0);
+    {
+        let model = this.model.borrow();
+        assert!(this.music_matches_occurrence(model.queue.occurrence_id(0)));
+        assert!(!this.music_matches_occurrence(model.queue.occurrence_id(1)));
+    }
     let original = this.player.borrow().controller.clone().unwrap();
     this.set_info_open(true);
     assert_pinned_track(this, "42");
@@ -3160,6 +3165,11 @@ fn native_music_context_mpris_shared_player_and_cleanup() {
             && this.widgets.player_status.text() == "Готово к воспроизведению"
     });
     pump_until(|| !original.snapshot().worker_running);
+    {
+        let model = this.model.borrow();
+        assert!(!this.music_matches_occurrence(model.queue.occurrence_id(0)));
+        assert!(this.music_matches_occurrence(model.queue.occurrence_id(1)));
+    }
     assert_eq!(
         desktop_cli("playerctl", &["--player", PLAYER, "status"]).trim(),
         "Paused"

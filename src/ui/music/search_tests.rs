@@ -232,6 +232,32 @@ fn labelled_button(widget: &gtk::Widget, label: &str) -> gtk::Button {
         .expect("explicit section action")
 }
 
+fn copy_from_menu(
+    window: &adw::ApplicationWindow,
+    id: &str,
+    menu: &gtk::MenuButton,
+    expected: &str,
+    capture: Option<&str>,
+) {
+    click(window, id, menu);
+    let popover = menu.popover().unwrap();
+    pump_until(|| popover.is_mapped());
+    let copy = named_button(popover.upcast_ref(), "music-copy-link");
+    assert!(copy.is_sensitive());
+    if let Some(capture) = capture {
+        capture_native(capture);
+    }
+    click(window, id, &copy);
+    pump_until(|| !popover.is_mapped());
+    let clipboard = window.clipboard();
+    let actual = glib::MainContext::default()
+        .block_on(clipboard.read_text_future())
+        .unwrap()
+        .unwrap();
+    assert_eq!(actual, expected);
+    pump_until(|| contains_text(window.upcast_ref(), "Ссылка скопирована"));
+}
+
 fn open_details(window: &adw::ApplicationWindow, id: &str, row: &gtk::ListBoxRow) {
     assert!(row.grab_focus());
     settle();
@@ -669,6 +695,19 @@ fn native_search_retry_normalized_results_and_density() {
             track_id != 47
         );
     }
+    assert!(result_rows[0].grab_focus());
+    reveal_by_wheel(window, id, &result_rows[0]);
+    let track_menu = descendants(result_rows[0].upcast_ref())
+        .into_iter()
+        .find_map(|widget| widget.downcast::<gtk::MenuButton>().ok())
+        .unwrap();
+    copy_from_menu(
+        window,
+        id,
+        &track_menu,
+        "https://music.yandex.ru/track/50",
+        Some("copy-track-link-menu"),
+    );
     assert!(
         this.track_feeds
             .borrow()
@@ -894,10 +933,18 @@ fn native_search_retry_normalized_results_and_density() {
         4,
         "returning to unified search adds one batch, without the removed track-page lookup"
     );
-    for (name, kind, _source) in [
-        ("music-results-albums", ContextKind::Album, "7"),
-        ("music-results-artists", ContextKind::Artist, "11"),
-        ("music-results-playlists", ContextKind::Playlist, "1234:3"),
+    for (name, kind, public_link) in [
+        (
+            "music-results-albums",
+            ContextKind::Album,
+            Some("https://music.yandex.ru/album/7"),
+        ),
+        (
+            "music-results-artists",
+            ContextKind::Artist,
+            Some("https://music.yandex.ru/artist/11"),
+        ),
+        ("music-results-playlists", ContextKind::Playlist, None),
     ] {
         let group = section(this, name);
         let tile_name = match kind {
@@ -909,6 +956,22 @@ fn native_search_retry_normalized_results_and_density() {
         let tile = named_button(group.upcast_ref(), tile_name);
         assert!(tile.grab_focus());
         settle();
+        if let Some(link) = public_link {
+            let menu = descendants(&tile.parent().unwrap())
+                .into_iter()
+                .find(|widget| widget.widget_name() == "music-entity-menu")
+                .and_then(|widget| widget.downcast::<gtk::MenuButton>().ok())
+                .unwrap();
+            copy_from_menu(
+                window,
+                id,
+                &menu,
+                link,
+                (kind == ContextKind::Album).then_some("copy-album-link-menu"),
+            );
+            assert!(tile.grab_focus());
+            settle();
+        }
         eprintln!(
             "Karin synthetic section: phase={name} bounds={:?} focused={} focusable={}",
             tile.compute_bounds(window),
