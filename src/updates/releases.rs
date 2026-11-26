@@ -644,17 +644,21 @@ mod tests {
     }
 
     fn latest_response(notes: &str) -> Vec<u8> {
+        latest_response_for("0.8.3", notes)
+    }
+
+    fn latest_response_for(version: &str, notes: &str) -> Vec<u8> {
         response(
             "200 OK",
             &json!({
-                "tag_name": "v0.8.3",
+                "tag_name": format!("v{version}"),
                 "published_at": "2026-11-26T10:00:00Z",
                 "draft": false,
                 "prerelease": false,
                 "body": notes,
                 "assets": [
-                    {"name": "karin-0.8.3-x86_64.flatpak"},
-                    {"name": "karin-0.8.3-linux-x86_64.tar.gz"},
+                    {"name": format!("karin-{version}-x86_64.flatpak")},
+                    {"name": format!("karin-{version}-linux-x86_64.tar.gz")},
                 ],
             })
             .to_string(),
@@ -683,6 +687,14 @@ mod tests {
         flatpak: bool,
         exchanges: [(&'static str, Vec<u8>, Duration); N],
     ) -> Release {
+        check_fixture_after(Version::new(0, 8, 2), flatpak, exchanges)
+    }
+
+    fn check_fixture_after<const N: usize>(
+        current: Version,
+        flatpak: bool,
+        exchanges: [(&'static str, Vec<u8>, Duration); N],
+    ) -> Release {
         let (base, server) = http_exchanges(exchanges);
         let client = Client::builder()
             .no_proxy()
@@ -696,13 +708,13 @@ mod tests {
                 github: &format!("{base}/github"),
                 flatpak_record: &format!("{base}{FLATPAK_PATH}"),
             },
-            &Version::new(0, 8, 2),
+            &current,
             flatpak,
             &AtomicBool::new(false),
         )
         .unwrap();
         let CheckResult::Available(release) = result else {
-            panic!("0.8.3 should appear as the newer stable release");
+            panic!("fixture should report a newer stable release");
         };
         server.join().unwrap();
         *release
@@ -710,37 +722,47 @@ mod tests {
 
     #[test]
     fn flatpak_uses_pages_for_a_release_with_only_installers() {
-        let source = "a".repeat(40);
-        let pages = pages_json("0.8.3", &source);
-        let tag_response = response(
-            "200 OK",
-            &json!({"object": {"type": "commit", "sha": source}}).to_string(),
-        );
-        let release = check_fixture(
-            true,
-            [
-                (
-                    LATEST_PATH,
-                    latest_response(&notes_for_record(&pages)),
-                    Duration::ZERO,
-                ),
-                (FLATPAK_PATH, response("200 OK", &pages), Duration::ZERO),
-                (TAG_PATH, tag_response, Duration::ZERO),
-            ],
-        );
-        assert_eq!(release.version, Version::new(0, 8, 3));
-        assert_eq!(release.notes, "Новый выпуск");
-        assert_eq!(release.page, format!("{RELEASE_PAGE}v0.8.3"));
-        assert_eq!(
-            release.deployment,
-            DeploymentStatus::Verified(Deployment {
-                version: Version::new(0, 8, 3),
-                source_commit: source,
-                ostree_commit: "b".repeat(64),
-                app_ref: format!("app/{}/{}/master", config::APP_ID, std::env::consts::ARCH),
-                key_fingerprint: KEY_PIN.trim().to_owned(),
-            })
-        );
+        for (current, next, tag_path) in [
+            (Version::new(0, 8, 2), Version::new(0, 8, 3), TAG_PATH),
+            (
+                Version::new(0, 8, 3),
+                Version::new(0, 8, 4),
+                "/github/git/ref/tags/v0.8.4",
+            ),
+        ] {
+            let source = "a".repeat(40);
+            let pages = pages_json(&next.to_string(), &source);
+            let tag_response = response(
+                "200 OK",
+                &json!({"object": {"type": "commit", "sha": source}}).to_string(),
+            );
+            let release = check_fixture_after(
+                current,
+                true,
+                [
+                    (
+                        LATEST_PATH,
+                        latest_response_for(&next.to_string(), &notes_for_record(&pages)),
+                        Duration::ZERO,
+                    ),
+                    (FLATPAK_PATH, response("200 OK", &pages), Duration::ZERO),
+                    (tag_path, tag_response, Duration::ZERO),
+                ],
+            );
+            assert_eq!(release.version, next);
+            assert_eq!(release.notes, "Новый выпуск");
+            assert_eq!(release.page, format!("{RELEASE_PAGE}v{next}"));
+            assert_eq!(
+                release.deployment,
+                DeploymentStatus::Verified(Deployment {
+                    version: next,
+                    source_commit: source,
+                    ostree_commit: "b".repeat(64),
+                    app_ref: format!("app/{}/{}/master", config::APP_ID, std::env::consts::ARCH),
+                    key_fingerprint: KEY_PIN.trim().to_owned(),
+                })
+            );
+        }
     }
 
     #[test]

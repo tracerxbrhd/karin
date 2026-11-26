@@ -24,7 +24,8 @@ const PROPERTIES: &str = "org.freedesktop.DBus.Properties";
 const DBUS: &str = "org.freedesktop.DBus";
 const BUS_OBJECT: &str = "/org/freedesktop/DBus";
 const CALL_TIMEOUT_MS: i32 = 10_000;
-const LATEST_VERSION: u32 = 2;
+const UPDATE_MONITOR_VERSION: u32 = 2;
+const SPAWN_LATEST_VERSION: u32 = 1 << 1;
 const RESTART_FLAG: &str = "--internal-flatpak-restart";
 const RESTART_FD: u32 = 9;
 const READY: u8 = 1;
@@ -37,6 +38,7 @@ type Dict = HashMap<String, glib::Variant>;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PortalError {
     Unavailable,
+    TimedOut,
     InvalidIdentity,
     Denied,
     ManagerRequired,
@@ -50,6 +52,7 @@ impl std::fmt::Display for PortalError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
             Self::Unavailable => "Портал обновлений Flatpak недоступен.",
+            Self::TimedOut => "Портал Flatpak не ответил вовремя. Повторите проверку.",
             Self::InvalidIdentity => "Не удалось подтвердить соответствие сборки опубликованному обновлению.",
             Self::Denied => "Система отклонила установку обновления.",
             Self::ManagerRequired => "Установите обновление через системный менеджер приложений.",
@@ -63,9 +66,18 @@ impl std::fmt::Display for PortalError {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Availability {
-    Waiting,
+    Waiting(WaitReason),
     Install,
     Restart,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum WaitReason {
+    AwaitingOffer,
+    DifferentDeployment,
+    InvalidIdentity,
+    Unavailable,
+    SystemManagerRequired,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -141,6 +153,9 @@ fn valid_checksum(value: &str, len: usize) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
+#[cfg(test)]
+mod portal_tests;
+
 fn confirmed_pin(pin: &str) -> bool {
     pin.len() == 40
         && pin
@@ -171,54 +186,97 @@ impl Offer {
 }
 
 #[derive(Default)]
+enum OfferReport {
+    #[default]
+    Awaiting,
+    Invalid,
+    Observed(Offer),
+}
+
+#[derive(Default)]
 struct MonitorState {
-    offer: Option<Offer>,
+    report: OfferReport,
     installing: Option<String>,
-    installed: Option<String>,
+    // The transaction reply names no commit. Only Spawn's identity
+    // handshake can turn this candidate into a verified restart.
+    restart_candidate: Option<String>,
+    manager_required: Option<String>,
     closed: bool,
 }
 
 impl MonitorState {
     fn availability(&self, running: &str, target: &str) -> Availability {
-        if self.closed || self.installing.is_some() || target == running {
-            return Availability::Waiting;
+        if self.closed || self.installing.is_some() {
+            return Availability::Waiting(WaitReason::Unavailable);
         }
-        if self.installed.as_deref() == Some(target) {
+        if target == running {
+            return Availability::Waiting(WaitReason::InvalidIdentity);
+        }
+        if self.restart_candidate.as_deref() == Some(target) {
             return Availability::Restart;
         }
-        match &self.offer {
-            Some(offer) if offer.running == running && offer.local == target => {
-                Availability::Restart
+        if let OfferReport::Observed(offer) = &self.report
+            && offer.running == running
+            && offer.local == target
+        {
+            return Availability::Restart;
+        }
+        if self.manager_required.as_deref() == Some(target) {
+            return Availability::Waiting(WaitReason::SystemManagerRequired);
+        }
+        match &self.report {
+            OfferReport::Awaiting => Availability::Waiting(WaitReason::AwaitingOffer),
+            OfferReport::Invalid => Availability::Waiting(WaitReason::InvalidIdentity),
+            OfferReport::Observed(offer) if offer.running != running => {
+                Availability::Waiting(WaitReason::InvalidIdentity)
             }
-            Some(offer)
-                if offer.running == running && offer.local == running && offer.remote == target =>
-            {
+            OfferReport::Observed(offer) if offer.local == running && offer.remote == target => {
                 Availability::Install
             }
-            _ => Availability::Waiting,
+            OfferReport::Observed(_) => Availability::Waiting(WaitReason::DifferentDeployment),
         }
     }
 
-    fn transition(&mut self, signal: &str, data: &Dict) -> Option<PortalEvent> {
+    fn transition(&mut self, running: &str, signal: &str, data: &Dict) -> Option<PortalEvent> {
         if self.closed {
             return None;
         }
         match signal {
             "UpdateAvailable" => {
-                self.offer = Offer::parse(data);
+                let report = Offer::parse(data).filter(|offer| offer.running == running);
+                if self.restart_candidate.as_ref().is_some_and(|target| {
+                    report.as_ref().is_none_or(|offer| offer.local != *target)
+                }) {
+                    self.restart_candidate = None;
+                }
+                self.report = report.map_or(OfferReport::Invalid, OfferReport::Observed);
                 Some(PortalEvent::OfferChanged)
             }
             "Progress" if self.installing.is_some() => {
                 let progress = parse_progress(data);
-                if progress == Progress::Done {
-                    self.installed = self.installing.take();
-                } else if !matches!(progress, Progress::Running(_)) {
-                    self.installing = None;
+                match progress {
+                    // Another system updater can deploy the target between
+                    // UpdateAvailable and Update, leaving an empty operation.
+                    Progress::Done | Progress::Empty => {
+                        self.restart_candidate = self.installing.take();
+                        self.report = OfferReport::Awaiting;
+                    }
+                    Progress::Failed(error) => self.fail_install(error),
+                    Progress::Running(_) => {}
                 }
                 Some(PortalEvent::Progress(progress))
             }
             _ => None,
         }
+    }
+
+    fn fail_install(&mut self, error: PortalError) {
+        let target = self.installing.take();
+        if error == PortalError::ManagerRequired {
+            self.manager_required = target;
+        }
+        // A failed transaction does not renew an old offer.
+        self.report = OfferReport::Awaiting;
     }
 }
 
@@ -230,10 +288,9 @@ fn parse_progress(data: &Dict) -> Progress {
                 let count = number("n_ops")?;
                 let operation = number("op")?;
                 let percent = number("progress")?;
-                if count == 0 || operation >= count || percent > 100 {
-                    return None;
-                }
-                Some((f64::from(operation) + f64::from(percent) / 100.0) / f64::from(count))
+                // Portal reports the percentage of one operation, not
+                // weights or bytes for the whole transaction.
+                (count == 1 && operation == 0 && percent <= 100).then(|| f64::from(percent) / 100.0)
             })();
             Progress::Running(percent)
         }
@@ -255,6 +312,9 @@ fn error_category(name: &str) -> PortalError {
             PortalError::Denied
         }
         "org.freedesktop.DBus.Error.NotSupported" => PortalError::ManagerRequired,
+        "org.freedesktop.DBus.Error.Timeout"
+        | "org.freedesktop.DBus.Error.TimedOut"
+        | "org.freedesktop.DBus.Error.NoReply" => PortalError::TimedOut,
         "org.freedesktop.DBus.Error.ServiceUnknown"
         | "org.freedesktop.DBus.Error.NameHasNoOwner"
         | "org.freedesktop.DBus.Error.UnknownInterface"
@@ -271,6 +331,9 @@ fn error_category(name: &str) -> PortalError {
 fn classify(error: glib::Error) -> PortalError {
     if error.matches(gio::IOErrorEnum::Cancelled) {
         return PortalError::Cancelled;
+    }
+    if error.matches(gio::IOErrorEnum::TimedOut) {
+        return PortalError::TimedOut;
     }
     gio::DBusError::remote_error(&error)
         .as_deref()
@@ -298,6 +361,14 @@ impl FlatpakMonitor {
         let bus = gio::bus_get_future(gio::BusType::Session)
             .await
             .map_err(|_| PortalError::Unavailable)?;
+        Self::connect(bus, instance, callback).await
+    }
+
+    async fn connect(
+        bus: gio::DBusConnection,
+        instance: Instance,
+        callback: impl Fn(PortalEvent) + 'static,
+    ) -> Result<Self, PortalError> {
         let version = bus
             .call_future(
                 Some(PORTAL),
@@ -314,7 +385,7 @@ impl FlatpakMonitor {
         if version
             .get::<(glib::Variant,)>()
             .and_then(|(version,)| version.get::<u32>())
-            .is_none_or(|version| version < 2)
+            .is_none_or(|version| version < UPDATE_MONITOR_VERSION)
         {
             return Err(PortalError::Unavailable);
         }
@@ -329,6 +400,7 @@ impl FlatpakMonitor {
         let monitor_signals = {
             let state = state.clone();
             let callback = callback.clone();
+            let running = instance.commit.clone();
             bus.subscribe_to_signal(
                 Some(PORTAL),
                 Some(MONITOR),
@@ -340,7 +412,9 @@ impl FlatpakMonitor {
                     let Some((data,)) = signal.parameters.get::<(Dict,)>() else {
                         return;
                     };
-                    let event = state.borrow_mut().transition(signal.signal_name, &data);
+                    let event = state
+                        .borrow_mut()
+                        .transition(&running, signal.signal_name, &data);
                     if let Some(event) = event {
                         callback(event);
                     }
@@ -410,14 +484,17 @@ impl FlatpakMonitor {
     }
 
     pub(crate) fn is_open(&self) -> bool {
-        !self.state.borrow().closed
+        !self.state.borrow().closed && !self.bus.is_closed()
     }
 
     pub(crate) fn availability(&self, deployment: &Deployment) -> Availability {
         if self.instance.app_ref != deployment.app_ref
             || !confirmed_pin(&deployment.key_fingerprint)
         {
-            return Availability::Waiting;
+            return Availability::Waiting(WaitReason::InvalidIdentity);
+        }
+        if !self.is_open() {
+            return Availability::Waiting(WaitReason::Unavailable);
         }
         self.state
             .borrow()
@@ -432,7 +509,11 @@ impl FlatpakMonitor {
         if self.availability(deployment) != Availability::Install {
             return Err(PortalError::Stale);
         }
-        self.state.borrow_mut().installing = Some(deployment.ostree_commit.clone());
+        {
+            let mut state = self.state.borrow_mut();
+            state.restart_candidate = None;
+            state.installing = Some(deployment.ostree_commit.clone());
+        }
         let args = (parent_window, Dict::new()).to_variant();
         let result = self
             .bus
@@ -447,14 +528,24 @@ impl FlatpakMonitor {
                 CALL_TIMEOUT_MS,
             )
             .await;
+        if !self.is_open() {
+            return Err(PortalError::Cancelled);
+        }
         match result {
-            Ok(_) if !self.state.borrow().closed => Ok(()),
-            Ok(_) => Err(PortalError::Cancelled),
+            Ok(_) => Ok(()),
+            // The independently delivered terminal signal already owns
+            // the outcome when the method reply is delayed or lost.
+            Err(_) if self.state.borrow().installing.is_none() => Ok(()),
             Err(error) => {
+                let error = classify(error);
+                if error == PortalError::ManagerRequired {
+                    self.state.borrow_mut().fail_install(error);
+                    return Err(error);
+                }
                 // The reply may be lost after the portal accepted the request.
                 // Close this monitor before allowing another transaction.
                 self.close();
-                Err(classify(error))
+                Err(error)
             }
         }
     }
@@ -466,7 +557,14 @@ impl FlatpakMonitor {
         if self.availability(deployment) != Availability::Restart {
             return Err(PortalError::Stale);
         }
-        spawn_latest(&self.bus, deployment).await
+        match spawn_latest(&self.bus, deployment).await {
+            Ok(handoff) if self.availability(deployment) == Availability::Restart => Ok(handoff),
+            Ok(_) => Err(PortalError::Stale),
+            Err(error) => {
+                self.state.borrow_mut().restart_candidate = None;
+                Err(error)
+            }
+        }
     }
 
     pub(crate) fn close(&self) {
@@ -558,7 +656,7 @@ async fn spawn_latest(
         argv,
         fds,
         HashMap::<String, String>::new(),
-        LATEST_VERSION,
+        SPAWN_LATEST_VERSION,
         Dict::new(),
     )
         .to_variant();
@@ -655,6 +753,14 @@ pub fn finish_restart(clean_exit: bool) {
 mod tests {
     use super::*;
 
+    fn report(running: &str, local: &str, remote: &str) -> Dict {
+        Dict::from([
+            ("running-commit".into(), running.to_variant()),
+            ("local-commit".into(), local.to_variant()),
+            ("remote-commit".into(), remote.to_variant()),
+        ])
+    }
+
     #[test]
     fn flatpak_identity_is_bound_to_the_running_ref() {
         let info = format!(
@@ -677,26 +783,48 @@ mod tests {
         let running = "a".repeat(64);
         let target = "b".repeat(64);
         let unrelated = "c".repeat(64);
-        let mut state = MonitorState {
-            offer: Some(Offer {
-                running: running.clone(),
-                local: running.clone(),
-                remote: target.clone(),
-            }),
-            ..Default::default()
-        };
+        let mut state = MonitorState::default();
+        assert_eq!(
+            state.availability(&running, &target),
+            Availability::Waiting(WaitReason::AwaitingOffer)
+        );
+        state.transition(
+            &running,
+            "UpdateAvailable",
+            &report(&running, &running, &target),
+        );
         assert_eq!(
             state.availability(&running, &running),
-            Availability::Waiting
+            Availability::Waiting(WaitReason::InvalidIdentity)
         );
         assert_eq!(
             state.availability(&running, &unrelated),
-            Availability::Waiting
+            Availability::Waiting(WaitReason::DifferentDeployment)
         );
         assert_eq!(state.availability(&running, &target), Availability::Install);
-        state.offer.as_mut().unwrap().local = unrelated;
-        assert_eq!(state.availability(&running, &target), Availability::Waiting);
-        state.offer.as_mut().unwrap().local = target.clone();
+        state.transition(
+            &running,
+            "UpdateAvailable",
+            &report(&unrelated, &running, &target),
+        );
+        assert_eq!(
+            state.availability(&running, &target),
+            Availability::Waiting(WaitReason::InvalidIdentity)
+        );
+        state.transition(
+            &running,
+            "UpdateAvailable",
+            &report(&running, &unrelated, &target),
+        );
+        assert_eq!(
+            state.availability(&running, &target),
+            Availability::Waiting(WaitReason::DifferentDeployment)
+        );
+        state.transition(
+            &running,
+            "UpdateAvailable",
+            &report(&running, &target, &target),
+        );
         assert_eq!(state.availability(&running, &target), Availability::Restart);
     }
 
@@ -704,9 +832,9 @@ mod tests {
     fn progress_only_for_pending_install_and_never_treats_failure_as_success() {
         let mut state = MonitorState::default();
         let done = Dict::from([("status".into(), 2u32.to_variant())]);
-        assert!(state.transition("Progress", &done).is_none());
         let running = "a".repeat(64);
         let target = "b".repeat(64);
+        assert!(state.transition(&running, "Progress", &done).is_none());
         state.installing = Some(target.clone());
         let denied = Dict::from([
             ("status".into(), 3u32.to_variant()),
@@ -716,16 +844,116 @@ mod tests {
             ),
         ]);
         assert!(matches!(
-            state.transition("Progress", &denied),
+            state.transition(&running, "Progress", &denied),
             Some(PortalEvent::Progress(Progress::Failed(PortalError::Denied)))
         ));
-        assert_eq!(state.availability(&running, &target), Availability::Waiting);
+        assert_eq!(
+            state.availability(&running, &target),
+            Availability::Waiting(WaitReason::AwaitingOffer)
+        );
         state.installing = Some(target.clone());
         assert!(matches!(
-            state.transition("Progress", &done),
+            state.transition(&running, "Progress", &done),
             Some(PortalEvent::Progress(Progress::Done))
         ));
         assert_eq!(state.availability(&running, &target), Availability::Restart);
+        // A newer report can retire an unverified restart.
+        state.transition(
+            &running,
+            "UpdateAvailable",
+            &report(&running, &running, &running),
+        );
+        assert_eq!(
+            state.availability(&running, &target),
+            Availability::Waiting(WaitReason::DifferentDeployment)
+        );
+    }
+
+    #[test]
+    fn empty_transaction_may_verify_a_concurrent_system_install() {
+        let running = "a".repeat(64);
+        let target = "b".repeat(64);
+        let different_target = "c".repeat(64);
+        let mut state = MonitorState {
+            installing: Some(target.clone()),
+            ..Default::default()
+        };
+        let empty = Dict::from([("status".into(), 1u32.to_variant())]);
+        assert!(matches!(
+            state.transition(&running, "Progress", &empty),
+            Some(PortalEvent::Progress(Progress::Empty))
+        ));
+        assert_eq!(state.availability(&running, &target), Availability::Restart);
+        assert_eq!(
+            state.availability(&running, &different_target),
+            Availability::Waiting(WaitReason::AwaitingOffer)
+        );
+    }
+
+    #[test]
+    fn permission_failure_blocks_only_the_attempted_deployment() {
+        let running = "a".repeat(64);
+        let target = "b".repeat(64);
+        let next_target = "c".repeat(64);
+        let refused = Dict::from([
+            ("status".into(), 3u32.to_variant()),
+            (
+                "error".into(),
+                "org.freedesktop.DBus.Error.NotSupported".to_variant(),
+            ),
+        ]);
+        let mut state = MonitorState {
+            installing: Some(target.clone()),
+            ..Default::default()
+        };
+        assert!(matches!(
+            state.transition(&running, "Progress", &refused),
+            Some(PortalEvent::Progress(Progress::Failed(
+                PortalError::ManagerRequired
+            )))
+        ));
+        state.transition(
+            &running,
+            "UpdateAvailable",
+            &report(&running, &running, &target),
+        );
+        assert_eq!(
+            state.availability(&running, &target),
+            Availability::Waiting(WaitReason::SystemManagerRequired)
+        );
+        state.transition(
+            &running,
+            "UpdateAvailable",
+            &report(&running, &running, &next_target),
+        );
+        assert_eq!(
+            state.availability(&running, &next_target),
+            Availability::Install
+        );
+        state.transition(
+            &running,
+            "UpdateAvailable",
+            &report(&running, &target, &target),
+        );
+        assert_eq!(state.availability(&running, &target), Availability::Restart);
+    }
+
+    #[test]
+    fn operation_counts_do_not_estimate_runtime_download_progress() {
+        let status = |count: u32, active: u32, percent: u32| {
+            Dict::from([
+                ("status".into(), 0u32.to_variant()),
+                ("n_ops".into(), count.to_variant()),
+                ("op".into(), active.to_variant()),
+                ("progress".into(), percent.to_variant()),
+            ])
+        };
+        assert_eq!(
+            parse_progress(&status(1, 0, 56)),
+            Progress::Running(Some(0.56))
+        );
+        assert_eq!(parse_progress(&status(1, 0, 101)), Progress::Running(None));
+        assert_eq!(parse_progress(&status(2, 1, 60)), Progress::Running(None));
     }
 
     #[test]

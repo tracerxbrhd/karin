@@ -17,6 +17,7 @@ import time
 BUS = [
     "native_mpris_session_bus_methods_properties_signals_and_shutdown",
     "native_secure_storage_secret_service_and_portal_protocol",
+    "native_flatpak_update_portal_monitor_and_transaction_protocol",
 ]
 WEBKIT = [
     "webkit_auth_construction_and_shutdown_without_navigation",
@@ -26,6 +27,7 @@ WEBKIT = [
 FUNCTIONAL = [
     "native_bundled_typography",
     "native_bundled_symbolic_icons_recolor",
+    "native_update_dialog_adaptive_status_and_notes",
     "artwork_thumbnail_maps_caches_hidpi_and_cancels_without_network",
     "native_account_menu_logout_cancel_default_confirm_and_stale_session",
     "native_cover_metadata_http_cache_and_render_lifecycle",
@@ -77,6 +79,7 @@ VISUAL = [
 HIDPI = [
     "native_bundled_typography",
     "native_bundled_symbolic_icons_recolor",
+    "native_update_dialog_adaptive_status_and_notes",
     "native_music_player_progress_duration_transitions",
     "native_music_playback_context_occurrences_and_shared_transport",
     "native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup",
@@ -128,6 +131,7 @@ def run_group(args):
         if visual or selector in {
             "native_bundled_typography",
             "native_bundled_symbolic_icons_recolor",
+            "native_update_dialog_adaptive_status_and_notes",
             "native_collection_filter_continuation_and_exact_occurrences",
             "native_music_shuffle_repeat_mpris_shared_policy_and_eos",
             "native_audio_cache_application_process_restart",
