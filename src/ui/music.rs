@@ -428,7 +428,7 @@ impl MusicPane {
         nav_search.add_css_class("flat");
         nav_search.add_css_class("music-header-control");
         nav_search.set_widget_name("music-navigation-search");
-        let search = search_toolbar::entry("Поиск музыки…", "music-search", "Поиск музыки");
+        let search = search_toolbar::entry("Поиск…", "music-search", "Поиск музыки");
         let search_header = search_header::SearchHeader::new(&segments, &search, &nav_search);
         navigation.append(&search_header);
         let stack = gtk::Stack::new();

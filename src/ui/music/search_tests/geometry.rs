@@ -48,8 +48,12 @@ fn transition(ui: &crate::ui::MainWindow, id: &str, open: bool) -> Vec<Frame> {
     let widgets = &this.widgets;
     let field = widgets.search.clone();
     let tabs = widgets.nav_wave.parent().unwrap();
-    let slot = widgets.search.parent().and_downcast::<gtk::Stack>();
-    let header = widgets.primary_navigation.clone();
+    let slot = widgets
+        .search
+        .parent()
+        .unwrap()
+        .downcast::<gtk::Stack>()
+        .unwrap();
     let group = widgets.primary_navigation.clone();
     let title_bar = ui.header.clone();
     let toggle = widgets.nav_search.clone();
@@ -63,6 +67,7 @@ fn transition(ui: &crate::ui::MainWindow, id: &str, open: bool) -> Vec<Frame> {
     let handle = clock.connect_after_paint({
         let window = window.clone();
         let frames = frames.clone();
+        let slot = slot.clone();
         move |_| {
             let bounds = field.compute_bounds(&window);
             let width = if field.is_mapped() {
@@ -75,7 +80,7 @@ fn transition(ui: &crate::ui::MainWindow, id: &str, open: bool) -> Vec<Frame> {
                 && let Some(group) = group.compute_bounds(&window)
                 // Toggle icon/focus changes outside the shared slot must not
                 // masquerade as a transitioning search field.
-                && let Some(node) = painted_region(&window, &header)
+                && let Some(node) = painted_region(&window, &slot)
             {
                 frames.push(Frame {
                     width,
@@ -115,15 +120,11 @@ fn transition(ui: &crate::ui::MainWindow, id: &str, open: bool) -> Vec<Frame> {
             && if open {
                 entry_focused(window, this)
                     && !widgets.nav_wave.is_mapped()
-                    && slot
-                        .as_ref()
-                        .is_none_or(|slot| !slot.is_transition_running())
+                    && !slot.is_transition_running()
             } else {
                 !widgets.search.is_mapped()
                     && widgets.nav_wave.is_mapped()
-                    && slot
-                        .as_ref()
-                        .is_none_or(|slot| !slot.is_transition_running())
+                    && !slot.is_transition_running()
             }
     });
     super::super::test_input::wait_for_layout(window, &widgets.nav_search);
@@ -236,7 +237,8 @@ fn measure_state(ui: &crate::ui::MainWindow, id: &str, tag: &str, motion: bool) 
     for label in &widgets.nav_labels {
         assert_eq!(label.is_mapped(), window.width() >= 720, "{tag}");
     }
-    let before = painted_region(window, header).unwrap();
+    let slot = widgets.search.parent().unwrap();
+    let before = painted_region(window, &slot).unwrap();
     let opening = transition(ui, id, true);
     let field = widgets.search.compute_bounds(window).unwrap();
     let open_button = widgets.nav_search.compute_bounds(window).unwrap();
@@ -257,7 +259,7 @@ fn measure_state(ui: &crate::ui::MainWindow, id: &str, tag: &str, motion: bool) 
     ] {
         assert!(!tab.is_mapped());
     }
-    let after = painted_region(window, header).unwrap();
+    let after = painted_region(window, &slot).unwrap();
     if motion && let Some(directory) = std::env::var_os("KARIN_TEST_CAPTURE_DIR") {
         let directory = std::path::PathBuf::from(directory);
         std::fs::create_dir_all(&directory).unwrap();
@@ -522,6 +524,7 @@ fn native_global_search_measured_slot_and_motion() {
     );
     click(window, &id, &this.widgets.nav_search);
     pump_until(|| entry_focused(window, this) && !liked.is_mapped());
+    super::super::test_input::wait_for_layout(window, &this.widgets.search);
     let entry = this.widgets.search.compute_bounds(window).unwrap();
     assert_eq!((entry.x(), entry.width()), (compact.x(), compact.width()));
     assert_eq!(
