@@ -582,13 +582,13 @@ impl UpdateController {
                 view
             }
             Phase::Installed(target) => {
-                let mut view = Presentation::message("Обновление установлено", format!("Karin {} готов к перезапуску.", target.version));
+                let mut view = Presentation::message("Проверка обновления", format!("Проверяем установленную сборку Karin {}.", target.version));
                 view.can_close = false;
                 view.secondary = None;
                 view
             }
             Phase::Restarting => {
-                let mut view = Presentation::message("Обновление установлено", "Перезапускаем Karin…");
+                let mut view = Presentation::message("Перезапуск Karin", "Проверяем новую сборку и перезапускаем приложение…");
                 view.busy = true;
                 view.can_close = false;
                 view.secondary = None;
@@ -605,8 +605,8 @@ impl UpdateController {
                 "Для Native доступна ручная установка пакета со страницы выпуска.".into()),
             DeploymentStatus::ChannelNotConfigured => (Some(Primary::OpenRelease),
                 "Для этой сборки не настроен подписанный канал обновлений Flatpak.".into()),
-            DeploymentStatus::NotPublished => (Some(Primary::OpenRelease),
-                "Эта версия ещё не доступна в канале обновлений Flatpak.".into()),
+            DeploymentStatus::NotPublished => (Some(Primary::Check),
+                "Канал Flatpak пока не подтвердил этот выпуск. Повторите проверку позже.".into()),
             DeploymentStatus::Unverified(error) => (Some(Primary::Check),
                 format!("Не удалось подтвердить обновление Flatpak. {}", error_text(*error))),
             DeploymentStatus::Verified(target) => match &*self.monitor.borrow() {
@@ -745,14 +745,18 @@ fn wrapped_label() -> gtk::Label {
 fn error_text(error: CheckError) -> String {
     match error {
         CheckError::Cancelled => "Проверка отменена.".into(),
-        CheckError::Network => "Нет связи с GitHub. Проверьте подключение к сети.".into(),
-        CheckError::Timeout => "GitHub не ответил вовремя. Повторите попытку позже.".into(),
-        CheckError::RateLimited => {
-            "GitHub ограничил частоту запросов. Повторите попытку позже.".into()
+        CheckError::Network => {
+            "Нет связи с сервером обновлений. Проверьте подключение к сети.".into()
         }
-        CheckError::Http(status) => format!("GitHub вернул ошибку HTTP {status}."),
+        CheckError::Timeout => {
+            "Сервер обновлений не ответил вовремя. Повторите попытку позже.".into()
+        }
+        CheckError::RateLimited => {
+            "Сервер обновлений ограничил частоту запросов. Повторите попытку позже.".into()
+        }
+        CheckError::Http(status) => format!("Сервер обновлений вернул ошибку HTTP {status}."),
         CheckError::InvalidData => {
-            "GitHub вернул неполные или некорректные сведения о выпуске.".into()
+            "Получены неполные или некорректные сведения об обновлении.".into()
         }
         CheckError::Internal => "Не удалось подготовить проверку обновлений.".into(),
     }
