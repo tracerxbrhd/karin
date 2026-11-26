@@ -2,10 +2,11 @@
 
 # Known limitations
 
-Karin's v0.8 functionality has owner-reported Fedora Native/Flatpak acceptance.
-The published stable baseline for 0.8.3 development is `0.8.2`. Cloud fixtures
-cover synthetic service responses and virtual desktop behavior. Live Music and
-Discord access and Fedora Wayland rendering need separate desktop checks.
+The owner verified Karin 0.8.3 on Fedora with KDE Plasma and Wayland, including
+sign-in, playback and Discord Rich Presence. The Discord check also passed in
+Flatpak. Cloud fixtures cover synthetic service responses and virtual desktop
+behavior. The next release provides the first production transition to verify
+through the installed 0.8.3 updater.
 
 ## Service and distribution
 
@@ -59,14 +60,11 @@ Software licensing does not grant redistribution rights to service material.
   Release announcement, Pages publication and Portal discovery may arrive at
   different times. The host schedules its own checks. Karin waits for the exact
   deployment and can repeat its release/metadata check on request.
-- Karin 0.8.1 needs the compatibility attachment supplied with 0.8.2. For newer
-  releases, update an existing 0.8.1 installation through the signed remote
-  using the system manager or `flatpak update`. [Update and migration instructions](BUILDING.md#move-an-existing-bundle-installation-to-the-channel)
 - Permission changes or unsupported Portal behavior can require the system
-  application manager. In-app restart requires the installed commit to match
-  the confirmed deployment.
-- The 0.8.3 Discord IPC permissions can require approval through the system
-  manager during upgrade. Karin keeps its existing App ID and application data.
+  application manager. The upgrade from 0.8.2 to 0.8.3 uses a system update to
+  confirm Discord IPC permissions and keeps the existing App ID and application
+  data. In-app restart requires the installed commit to match the confirmed
+  deployment. [Update and migration instructions](BUILDING.md#move-an-existing-bundle-installation-to-the-channel)
 
 ## Discord
 

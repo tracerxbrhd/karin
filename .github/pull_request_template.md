@@ -16,15 +16,8 @@ Describe the problem and the resulting behavior. Link the relevant issue or ADR.
 
 ## UI and music changes
 
-Apply the [UI verification checks](../docs/BUILDING.md#ui-verification) when the UI changes.
-Mark items not affected by this change explicitly rather than claiming an unrun check.
-
-- [ ] Real GTK screenshots and structure checked at compact, medium, wide and maximized sizes.
-- [ ] Light/dark themes, HiDPI, resize, keyboard focus and mouse activation checked.
-- [ ] Playback, queue occurrences, Shuffle/Repeat, seek, volume and MPRIS remain consistent.
-- [ ] Pinned Info/Queue behavior, loading/error/Retry and cleanup checked where affected.
-- [ ] Authentication uses synthetic local fixtures in automation, with WebKit sandbox enabled.
-- [ ] Only clean synthetic captures are shared; owner desktop images are excluded.
+- [ ] Relevant [UI verification checks](../docs/BUILDING.md#ui-verification) cover the changed interface, playback and session behavior.
+- [ ] Authentication automation uses synthetic local fixtures with the WebKit sandbox enabled. Shared captures use synthetic data.
 
 ## Results and remaining checks
 

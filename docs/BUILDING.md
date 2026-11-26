@@ -37,14 +37,10 @@ cargo +stable build --release --locked
 ./target/release/karin
 ```
 
-`0.8.3` is prepared for owner acceptance. Install the current stable version
-from [GitHub Releases](https://github.com/tracerxbrhd/karin/releases/latest).
-Check `--version` and About for the
-source commit, clean/modified state, package and profile. Any source-tree change
-requires newly built artifacts and checksums; old files with the same version
-label do not prove the new commit. Preparing artifacts
-does not publish a tag or release, establish Yandex integration rights, or
-authorize Flathub submission.
+Install the current stable version from [GitHub Releases](https://github.com/tracerxbrhd/karin/releases/latest).
+Use `--version` or About to check the source commit, source state, package and
+profile. Rebuild after a source-tree change to obtain artifacts and checksums
+for that revision.
 
 Builds/tests need no Yandex account. Ordinary **Войти через Яндекс** uses the supported
 Cassette-compatible sign-in flow, without technical credentials, registration,
@@ -284,7 +280,9 @@ publication receipt are available to maintainers through workflow artifacts.
 2. After acceptance and separate release authorization, merge the reviewed
    changes, verify the four jobs for the final `master` push and create its
    matching stable version tag. Dispatch **Prepare stable Flatpak update** on
-   `master` with the full commit and `deploy_pages=true`. Approve the signing job.
+   `master` with the full commit and `deploy_pages=true`. Approve the signing job
+   if GitHub requests approval. Keep `master` at the release commit until Pages
+   deployment completes.
 3. Download `karin-corresponding-source-<commit>` and
    `karin-release-verification-<commit>` from that run. Publish
    `karin-<version>-source.tar.gz` in the public source repository's release for
@@ -299,15 +297,14 @@ publication receipt are available to maintainers through workflow artifacts.
    source link and hidden digest line for the notes. Pause publication if the
    check fails. Keep each source archive indefinitely.
 4. Use exactly the files in `karin-release-assets-<commit>` for the main stable
-   Latest release. Include the verified source archive link and the hidden
-   Pages-record digest line from the publication receipt in its notes. Use the
-   prepared [0.8.3 release notes](../packaging/release/0.8.3/RELEASE-NOTES.ru.md)
-   for this release.
-5. After the main release is public, approve the separate Pages job in the
-   same run. It verifies the source download, release notes, exact asset set and
-   digests, and the current master and tag against the reviewed run. It deploys
-   that run's signed snapshot after verification succeeds. Check the public
-   record, signed Flatpak ref and installer on the live channel.
+   Latest release. Include the verified source archive link and append the exact
+   hidden Pages-record digest from the receipt as the last line of the notes.
+5. After the main release is public, approve the Pages job in the same run if
+   GitHub requests approval. The job verifies the source download, release notes,
+   asset set and digests, and matches `master` and the tag to the reviewed run.
+   If the Pages job already stopped because the release or archive was missing,
+   rerun only `publish` in the same workflow after both are public. Check the
+   public record, signed Flatpak ref and installer after deployment.
 
 The Pages snapshot has a 250 MiB budget. It retains the current release with
 loose objects and drops earlier refs and static deltas. Earlier binaries remain
@@ -316,16 +313,18 @@ retained separately. [GitHub Pages limits](https://docs.github.com/en/pages/gett
 
 #### Move an existing bundle installation to the channel
 
-Install the downloaded `.flatpak` with Discover, GNOME Software, or
-`flatpak install --user ./karin-0.8.3-x86_64.flatpak`. Flatpak may choose the
-local name `karin-origin` for the embedded remote. An installation made using
-an earlier `.flatpakref` may use the name `karin`. Both use
-`https://tracerxbrhd.github.io/karin/flatpak/`.
+Open the downloaded `.flatpak` with Discover or GNOME Software, or pass the file
+path to `flatpak install --user`. The embedded remote usually appears as
+`karin-origin`. Installations from an earlier `.flatpakref` may use `karin`.
+Both use `https://tracerxbrhd.github.io/karin/flatpak/`.
 
-Karin 0.8.1 reads the update record attached to Release 0.8.2. With newer
-releases, use the signed remote in the system application manager or the
+Karin 0.8.1 reads the update record attached to Release 0.8.2. For later
+releases, use the signed remote through the system application manager or the
 terminal when the installed updater cannot confirm or start the transaction.
-The system updater also handles consent for added sandbox permissions.
+
+For the 0.8.2 to 0.8.3 upgrade, use the system application manager or Flatpak
+CLI to confirm the new read-only Discord IPC permissions
+`xdg-run/discord-ipc-0:ro` and `xdg-run/app/com.discordapp.Discord:ro`.
 
 ```sh
 flatpak info --user --show-origin io.github.tracerxbrhd.Karin
