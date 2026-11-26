@@ -391,6 +391,9 @@ fn native_global_search_measured_slot_and_motion() {
     // a custom Karin mark. A plain Openbox session omits the native icon.
     let settings = gtk::Settings::default().unwrap();
     settings.set_gtk_decoration_layout(Some("icon:minimize,maximize,close"));
+    // The text cursor has its own blink clock even under reduced motion.
+    // Keep it visible so pixel differences measure the native page transition.
+    settings.set_gtk_cursor_blink(false);
     let ui = crate::ui::build_offline_ui_fixture(
         &app,
         crate::application::ConnectionService::new(crate::api::YandexApi::new().unwrap()),
