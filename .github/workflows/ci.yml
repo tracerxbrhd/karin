@@ -85,7 +85,7 @@ jobs:
               libssl-dev libdbus-1-dev libsecret-1-dev libwebkitgtk-6.0-dev dbus-x11 xvfb xauth \
               librsvg2-common openbox imagemagick xdotool wmctrl x11-utils apparmor \
               playerctl libglib2.0-bin python3-gi at-spi2-core libgl1-mesa-dri libegl-mesa0 libglx-mesa0 \
-              appstream desktop-file-utils ostree gnupg
+              appstream desktop-file-utils flatpak ostree gnupg
           }
           if ! install_native; then
             # A resolved kernel-mirror IPv4 timed out during package fetching on

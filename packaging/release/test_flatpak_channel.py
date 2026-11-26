@@ -7,7 +7,10 @@ import subprocess
 import tempfile
 import unittest
 
-from flatpak_channel import APP_REF, ostree, trusted_key, verify_signed_pull, write_remote_files
+from flatpak_channel import (
+    APP_ID, APP_REF, RUNTIME_REF, ostree, trusted_key, verify_signed_bundle,
+    verify_signed_pull, write_remote_files,
+)
 
 
 @unittest.skipUnless(all(shutil.which(tool) for tool in ("gpg", "gpgconf", "ostree")),
@@ -72,6 +75,43 @@ class SignedChannelTests(unittest.TestCase):
         with self.assertRaises(subprocess.CalledProcessError):
             self.verify("untrusted", other_key)
 
+    @unittest.skipUnless(all(shutil.which(tool) for tool in ("flatpak", "dbus-run-session")),
+                         "Stock Flatpak installation tools are required")
+    def test_bundle_requires_a_signature_and_configures_the_same_update_origin(self):
+        tree = self.work / "tree"
+        metadata = f"[Application]\nname={APP_ID}\nruntime={RUNTIME_REF}\ncommand=karin\n"
+        (tree / "metadata").write_text(metadata, encoding="utf-8")
+        (tree / "files").mkdir()
+        self.commit = self.run_tool(
+            ostree(self.repo, "commit", f"--branch={APP_REF}", f"--tree=dir={tree}",
+                   f"--add-metadata-string=xa.metadata={metadata}", "--subject=Bundle fixture"),
+        ).strip()
+        channel = self.repo.as_uri()
+
+        def bundle(label, key):
+            path = self.work / f"{label}.flatpak"
+            self.run_tool(["flatpak", "build-bundle", "--arch=x86_64", f"--repo-url={channel}",
+                           f"--gpg-keys={key}", str(self.repo), str(path), APP_ID, "master"])
+            destination = self.work / label
+            destination.mkdir()
+            return path, destination
+
+        unsigned, destination = bundle("unsigned-bundle", self.key)
+        with self.assertRaises(subprocess.CalledProcessError):
+            verify_signed_bundle(unsigned, destination, self.key, self.commit, channel)
+
+        self.run_tool(ostree(self.repo, "gpg-sign", f"--gpg-homedir={self.home}",
+                             self.commit, self.fingerprint))
+        _, _, other_key = self.make_key("bundle-unrelated")
+        untrusted, destination = bundle("wrong-bundle-key", other_key)
+        with self.assertRaises(subprocess.CalledProcessError):
+            verify_signed_bundle(untrusted, destination, self.key, self.commit, channel)
+
+        authentic, destination = bundle("authenticated-bundle", self.key)
+        result = verify_signed_bundle(authentic, destination, self.key, self.commit, channel)
+        self.assertEqual(result["url"], channel)
+        self.assertEqual(result["key_fingerprint"], self.fingerprint)
+        self.assertEqual(result["runtime"], RUNTIME_REF)
 
 class ChannelPolicyTests(unittest.TestCase):
     def test_release_and_pages_share_canonical_installer_names(self):
