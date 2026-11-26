@@ -22,8 +22,10 @@ import urllib.request
 from common import APP_ID, REPOSITORY, git, identity, locked_crates, write_json
 
 DEVELOPMENT = "packaging/flatpak/io.github.tracerxbrhd.Karin.json"
+DISCORD_FILESYSTEMS = ("xdg-run/discord-ipc-0:ro", "xdg-run/app/com.discordapp.Discord:ro")
 PERMISSIONS = ["--share=network", "--share=ipc", "--socket=wayland", "--socket=fallback-x11",
-               "--socket=pulseaudio", "--device=dri", f"--own-name=org.mpris.MediaPlayer2.{APP_ID}"]
+               "--socket=pulseaudio", "--device=dri", f"--own-name=org.mpris.MediaPlayer2.{APP_ID}",
+               *(f"--filesystem={path}" for path in DISCORD_FILESYSTEMS)]
 
 
 def source_url(revision: str) -> str:

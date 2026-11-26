@@ -21,6 +21,7 @@ PERMISSIONS = """[Context]
 shared=network;ipc;
 sockets=wayland;x11;fallback-x11;pulseaudio;
 devices=dri;
+filesystems=xdg-run/discord-ipc-0:ro;xdg-run/app/com.discordapp.Discord:ro;
 [Session Bus Policy]
 org.mpris.MediaPlayer2.io.github.tracerxbrhd.Karin=own
 """
@@ -216,7 +217,9 @@ class ArtifactTests(unittest.TestCase):
     def test_permissions_keep_only_current_scoped_sandbox(self):
         artifacts.validate_permissions(PERMISSIONS)
         for changed in (PERMISSIONS.replace("devices=dri;", "devices=all;"),
-                        PERMISSIONS.replace("devices=dri;", "devices=dri;\nfilesystems=home;"),
+                        PERMISSIONS.replace("filesystems=", "filesystems=home;"),
+                        PERMISSIONS.replace("xdg-run/discord-ipc-0:ro;", ""),
+                        PERMISSIONS.replace("xdg-run/app/com.discordapp.Discord:ro;", "xdg-run/app/com.discordapp.Discord:create;"),
                         PERMISSIONS + "org.freedesktop.secrets=talk\n",
                         PERMISSIONS + "[System Bus Policy]\n*=talk\n",
                         PERMISSIONS + "[Environment]\nWEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1\n"):

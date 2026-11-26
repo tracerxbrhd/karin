@@ -4,12 +4,14 @@
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
+    time::Duration,
 };
 
 use adw::prelude::*;
 
 use crate::{
     cache::CacheStats,
+    discord_presence::Status as DiscordStatus,
     settings::{Appearance, CacheLimit, Preferences, UiStyle},
 };
 
@@ -85,6 +87,8 @@ pub(super) struct PreferencesView {
     scheme: adw::ComboRow,
     remember: adw::SwitchRow,
     external_lyrics: adw::SwitchRow,
+    discord: adw::SwitchRow,
+    discord_status: adw::ActionRow,
     session: adw::ActionRow,
     session_retry: gtk::Button,
     session_spinner: gtk::Spinner,
@@ -215,6 +219,34 @@ impl PreferencesView {
         });
         lyrics.add(&external_lyrics);
         page.add(&lyrics);
+
+        let integrations = adw::PreferencesGroup::builder()
+            .title("Интеграции")
+            .description("Discord получает название, исполнителей, альбом, публичную обложку и время воспроизведения текущего трека. К активности добавляются ссылки на трек и загрузку Karin.")
+            .build();
+        let discord = adw::SwitchRow::builder()
+            .title("Discord Rich Presence")
+            .subtitle("Показывать текущий трек в профиле Discord")
+            .title_lines(0)
+            .subtitle_lines(0)
+            .use_markup(false)
+            .build();
+        discord.set_widget_name("preferences-discord-presence");
+        discord.connect_active_notify({
+            let state = Rc::clone(&state);
+            move |row| state.change(|values| values.discord_presence = row.is_active())
+        });
+        integrations.add(&discord);
+        let discord_status = adw::ActionRow::builder()
+            .title("Подключение Discord")
+            .subtitle(DiscordStatus::Disabled.label())
+            .title_lines(0)
+            .subtitle_lines(0)
+            .use_markup(false)
+            .build();
+        discord_status.set_widget_name("preferences-discord-status");
+        integrations.add(&discord_status);
+        page.add(&integrations);
 
         let authorization = adw::PreferencesGroup::builder()
             .title("Авторизация")
@@ -447,6 +479,8 @@ impl PreferencesView {
             scheme,
             remember,
             external_lyrics,
+            discord,
+            discord_status,
             session,
             session_retry,
             session_spinner,
@@ -495,6 +529,8 @@ impl PreferencesView {
         self.external_lyrics
             .set_active(snapshot.values.lyrics_external_auto);
         self.external_lyrics.set_sensitive(ready);
+        self.discord.set_active(snapshot.values.discord_presence);
+        self.discord.set_sensitive(ready);
         self.remember.set_active(snapshot.values.remember_login);
         self.remember.set_sensitive(
             ready
@@ -580,6 +616,39 @@ impl PreferencesView {
                 Rc::clone(&self.message_reveal),
             );
         }
+    }
+
+    pub fn set_discord_status(&self, status: DiscordStatus) {
+        self.discord_status.set_subtitle(status.label());
+    }
+
+    pub fn watch_discord_status(&self, status: impl Fn() -> DiscordStatus + 'static) {
+        self.set_discord_status(status());
+        let status = Rc::new(status);
+        let timer: Rc<RefCell<Option<gtk::glib::SourceId>>> = Rc::default();
+        self.dialog.connect_map({
+            let timer = Rc::clone(&timer);
+            let row = self.discord_status.downgrade();
+            move |_| {
+                if timer.borrow().is_some() {
+                    return;
+                }
+                let row = row.clone();
+                let status = Rc::clone(&status);
+                let source = gtk::glib::timeout_add_local(Duration::from_millis(350), move || {
+                    if let Some(row) = row.upgrade() {
+                        row.set_subtitle(status().label());
+                    }
+                    gtk::glib::ControlFlow::Continue
+                });
+                timer.replace(Some(source));
+            }
+        });
+        self.dialog.connect_unmap(move |_| {
+            if let Some(source) = timer.take() {
+                source.remove();
+            }
+        });
     }
 
     pub fn present(&self, window: &adw::ApplicationWindow) {

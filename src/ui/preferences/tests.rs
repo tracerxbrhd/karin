@@ -82,6 +82,7 @@ fn preference_edits_preserve_nonvisible_lifecycle_and_pane_fields() {
         cache_limit: CacheLimit::Unlimited,
         track_info_open: false,
         lyrics_external_auto: true,
+        discord_presence: true,
     };
     let state = State {
         values: RefCell::new(values.clone()),
@@ -459,6 +460,23 @@ fn capture(window_id: &str, name: &str) {
     }
 }
 
+fn reveal_discord_group(view: &PreferencesView) {
+    let group = view
+        .discord
+        .ancestor(adw::PreferencesGroup::static_type())
+        .unwrap();
+    let scroller = group
+        .ancestor(gtk::ScrolledWindow::static_type())
+        .unwrap()
+        .downcast::<gtk::ScrolledWindow>()
+        .unwrap();
+    let bounds = group.compute_bounds(&scroller).unwrap();
+    let adjustment = scroller.vadjustment();
+    let start = adjustment.value() + f64::from(bounds.y());
+    adjustment.clamp_page(start, start + f64::from(bounds.height()));
+    settle();
+}
+
 #[test]
 #[ignore = "requires isolated Xvfb, xdotool and GTK; synthetic snapshots only"]
 fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
@@ -541,6 +559,11 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
         }),
     };
     let view = Rc::new(PreferencesView::new(&snapshot.borrow(), &callbacks));
+    let discord_status = Rc::new(Cell::new(DiscordStatus::Disabled));
+    view.watch_discord_status({
+        let status = Rc::clone(&discord_status);
+        move || status.get()
+    });
     *view_pointer.borrow_mut() = Rc::downgrade(&view);
     assert!(
         changes.borrow().is_empty(),
@@ -603,6 +626,35 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
         changes.borrow().last().unwrap().appearance,
         Appearance::Dark
     );
+    assert!(!view.discord.is_active());
+    assert_eq!(
+        view.discord_status.subtitle().as_deref(),
+        Some(DiscordStatus::Disabled.label())
+    );
+    let discord = view.discord.activatable_widget().unwrap();
+    click(&window, id, &discord);
+    pump_until(|| changes.borrow().last().unwrap().discord_presence);
+    for status in [
+        DiscordStatus::Waiting,
+        DiscordStatus::Connected,
+        DiscordStatus::Unavailable,
+        DiscordStatus::Failed,
+    ] {
+        discord_status.set(status);
+        pump_until(|| view.discord_status.subtitle().as_deref() == Some(status.label()));
+    }
+    discord_status.set(DiscordStatus::Connected);
+    pump_until(|| {
+        view.discord_status.subtitle().as_deref() == Some(DiscordStatus::Connected.label())
+    });
+    reveal_discord_group(&view);
+    capture(id, "preferences-discord-connected");
+    click(&window, id, &discord);
+    pump_until(|| !changes.borrow().last().unwrap().discord_presence);
+    discord_status.set(DiscordStatus::Disabled);
+    pump_until(|| {
+        view.discord_status.subtitle().as_deref() == Some(DiscordStatus::Disabled.label())
+    });
     // Exercise the real native Scale with keyboard input, not only set_value.
     assert!(view.cache_limit.grab_focus());
     input(&["key", "End"]);
@@ -689,6 +741,9 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
     assert!(bounds.x() >= 0.0 && bounds.x() + bounds.width() <= window.width() as f32);
     assert_eq!(view.cache_limit.value(), 0.0);
     capture(id, "preferences-seamless-compact");
+    reveal_discord_group(&view);
+    pump_until(|| coordinates(&window, &discord).is_some());
+    capture(id, "preferences-discord-compact");
     window.set_default_size(1440, 900);
     pump_until(|| window.width() >= 1400);
     assert!(view.cache_limit.grab_focus());

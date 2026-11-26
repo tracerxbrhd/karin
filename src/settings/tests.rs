@@ -43,6 +43,7 @@ fn persistent_preferences_roundtrip_preserves_private_modes_and_all_choices() {
     let store = fixture.store();
     let missing = store.load().unwrap();
     assert_eq!(missing, defaults(LoadStatus::Missing));
+    assert!(!missing.preferences.discord_presence);
     assert!(!fixture.file().exists());
     assert!(!fixture.file().parent().unwrap().exists());
     let preferences = Preferences {
@@ -54,6 +55,7 @@ fn persistent_preferences_roundtrip_preserves_private_modes_and_all_choices() {
         cache_limit: CacheLimit::Unlimited,
         track_info_open: false,
         lyrics_external_auto: true,
+        discord_presence: true,
     };
     store.save(&preferences).unwrap();
     let reopened = fixture.store().load().unwrap();
@@ -163,6 +165,7 @@ fn adding_ui_style_migrates_both_old_schemas_without_losing_color_or_private_cho
                     cache_limit: CacheLimit::GiB3,
                     track_info_open: false,
                     lyrics_external_auto: false,
+                    discord_presence: false,
                 }
             );
             // Ordinary save upgrades the envelope, not another store or cache.
@@ -193,6 +196,7 @@ fn retired_style_migrates_to_system_and_roundtrips_every_independent_preference(
                         cache_limit,
                         track_info_open: private_choices,
                         lyrics_external_auto: !private_choices,
+                        discord_presence: false,
                     };
                     let mut values = serde_json::to_value(&expected).unwrap();
                     values["ui_style"] = serde_json::json!("liquid-glass");
@@ -237,6 +241,7 @@ fn unknown_or_malformed_style_never_resets_session_deletion_barrier_or_cache_pol
         cache_limit: CacheLimit::GiB4,
         track_info_open: false,
         lyrics_external_auto: true,
+        discord_presence: true,
     };
     store.save(&expected).unwrap();
     for style in [
@@ -284,6 +289,7 @@ fn all_styles_and_color_schemes_roundtrip_independently_without_schema_change() 
                 cache_limit: CacheLimit::Unlimited,
                 track_info_open: false,
                 lyrics_external_auto: true,
+                discord_presence: true,
             };
             store.save(&values).unwrap();
             assert_eq!(fixture.store().load().unwrap().preferences, values);

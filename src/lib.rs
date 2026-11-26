@@ -15,6 +15,7 @@ pub mod capabilities;
 pub mod catalog_cache;
 pub mod config;
 pub mod credentials;
+mod discord_presence;
 pub mod domain;
 pub mod independent_auth;
 pub mod lyrics;

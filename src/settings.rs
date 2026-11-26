@@ -159,6 +159,9 @@ pub struct Preferences {
     /// Explicit permission to share public track metadata with LRCLIB when
     /// Lyrics is opened and Yandex supplies no synchronized text.
     pub lyrics_external_auto: bool,
+    /// Opt in to sending public playing-track metadata to the local Discord client.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub discord_presence: bool,
 }
 
 impl Default for Preferences {
@@ -172,6 +175,7 @@ impl Default for Preferences {
             cache_limit: CacheLimit::default(),
             track_info_open: true,
             lyrics_external_auto: false,
+            discord_presence: false,
         }
     }
 }
@@ -275,6 +279,7 @@ fn decode_preferences(bytes: &[u8]) -> Option<Preferences> {
                 cache_limit,
                 track_info_open: legacy.track_info_open,
                 lyrics_external_auto: false,
+                discord_presence: false,
             })
         }
         2 | FORMAT_VERSION => {
@@ -300,14 +305,13 @@ fn decode_preferences(bytes: &[u8]) -> Option<Preferences> {
             object.insert("cache_enabled".into(), serde_json::Value::Bool(enabled));
             // An unrecognized consent value grants nothing while preserving
             // independent session deletion and cache preferences.
-            let external = object
-                .remove("lyrics_external_auto")
-                .and_then(|value| value.as_bool())
-                .unwrap_or(false);
-            object.insert(
-                "lyrics_external_auto".into(),
-                serde_json::Value::Bool(external),
-            );
+            for key in ["lyrics_external_auto", "discord_presence"] {
+                let opted_in = object
+                    .get(key)
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false);
+                object.insert(key.into(), serde_json::Value::Bool(opted_in));
+            }
             serde_json::from_value(serde_json::Value::Object(object)).ok()
         }
         _ => None,

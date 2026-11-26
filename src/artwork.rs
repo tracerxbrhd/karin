@@ -114,6 +114,16 @@ impl CoverArt {
             })
     }
 
+    /// Only public catalog cover images can leave Karin for Discord. Keep
+    /// custom playlist templates and all query parameters within the app.
+    pub(crate) fn public_track_image(&self) -> Option<String> {
+        let (resource, revision) = self.parts();
+        if revision.is_some() || !resource.starts_with("get-music-content/") {
+            return None;
+        }
+        self.url(512).ok().map(Into::into)
+    }
+
     /// Canonical already-validated public artwork template for typed metadata
     /// records. It cannot contain credentials, arbitrary parameters or media
     /// addresses; only the validated numeric playlist revision is retained.

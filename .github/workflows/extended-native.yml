@@ -171,6 +171,27 @@ jobs:
             flatpak run --user io.github.tracerxbrhd.Karin --smoke-test
           sha256sum "$acceptance" karin-*-source.tar.gz > SHA256SUMS
           sha256sum -c SHA256SUMS
+      - name: Check both Discord IPC locations inside the installed sandbox
+        run: |
+          set -euo pipefail
+          ipc_runtime=$(mktemp -d "$RUNNER_TEMP/karin-ipc.XXXXXX")
+          python3 - "$ipc_runtime" <<'PY'
+          from pathlib import Path
+          import socket
+          import sys
+
+          runtime = Path(sys.argv[1])
+          for name in ("discord-ipc-0", "app/com.discordapp.Discord/discord-ipc-0"):
+              path = runtime / name
+              path.parent.mkdir(parents=True, exist_ok=True)
+              with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as endpoint:
+                  endpoint.bind(str(path))
+          PY
+          XDG_RUNTIME_DIR="$ipc_runtime" dbus-run-session -- \
+            flatpak run --user --command=sh io.github.tracerxbrhd.Karin -ec '
+              test -S "$XDG_RUNTIME_DIR/discord-ipc-0"
+              test -S "$XDG_RUNTIME_DIR/app/com.discordapp.Discord/discord-ipc-0"
+            '
       - name: Retain the isolated test bundle and corresponding source
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:

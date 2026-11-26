@@ -14,7 +14,9 @@
     "--socket=fallback-x11",
     "--socket=pulseaudio",
     "--device=dri",
-    "--own-name=org.mpris.MediaPlayer2.io.github.tracerxbrhd.Karin"
+    "--own-name=org.mpris.MediaPlayer2.io.github.tracerxbrhd.Karin",
+    "--filesystem=xdg-run/discord-ipc-0:ro",
+    "--filesystem=xdg-run/app/com.discordapp.Discord:ro"
   ],
   "build-options": {
     "append-path": "/usr/lib/sdk/rust-stable/bin",
