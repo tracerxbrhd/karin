@@ -42,8 +42,8 @@
   <url type="vcs-browser">https://github.com/tracerxbrhd/karin</url>
   <url type="bugtracker">https://github.com/tracerxbrhd/karin/issues</url>
   <branding>
-    <color type="primary" scheme_preference="light">#613583</color>
-    <color type="primary" scheme_preference="dark">#613583</color>
+    <color type="primary" scheme_preference="light">#682EE6</color>
+    <color type="primary" scheme_preference="dark">#A437B9</color>
   </branding>
   <content_rating type="oars-1.1" />
   <supports>
@@ -51,6 +51,12 @@
     <control>pointing</control>
   </supports>
   <releases>
+    <release version="0.8.2" date="2026-11-25" type="stable">
+      <description>
+        <p>A new application icon and compact, adaptive navigation in the window header.</p>
+        <p xml:lang="ru">Новая иконка приложения и компактная адаптивная навигация в заголовке окна.</p>
+      </description>
+    </release>
     <release version="0.8.1" date="2026-11-24" type="stable">
       <description>
         <p>A dedicated sign-in screen, application update checks and a simpler main menu.</p>

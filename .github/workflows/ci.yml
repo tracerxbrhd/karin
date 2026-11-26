@@ -85,7 +85,7 @@ jobs:
               libssl-dev libdbus-1-dev libsecret-1-dev libwebkitgtk-6.0-dev dbus-x11 xvfb xauth \
               librsvg2-common openbox imagemagick xdotool wmctrl x11-utils apparmor \
               playerctl libglib2.0-bin python3-gi at-spi2-core libgl1-mesa-dri libegl-mesa0 libglx-mesa0 \
-              appstream desktop-file-utils ostree gnupg
+              appstream desktop-file-utils flatpak ostree gnupg
           }
           if ! install_native; then
             # A resolved kernel-mirror IPv4 timed out during package fetching on
@@ -339,34 +339,32 @@ jobs:
           ./target/release/karin --audio-self-test
           ./target/release/karin --playback-self-test
           GTK_A11Y=none dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' ./target/release/karin --smoke-test
-      - name: Package the native prototype with source identity and complete notices
-        if: matrix.lane == 'msrv'
+      - name: Package and verify the Native acceptance archive
+        if: matrix.lane == 'msrv' && github.event_name == 'pull_request'
         run: |
-          artifact=build/karin-fedora-prototype-1.98.1
-          mkdir -p "$artifact/licenses"
-          install -m755 target/release/karin "$artifact/karin"
-          cp LICENSE docs/LICENSING.md "$artifact/licenses/"
-          cp -a packaging/third-party-licenses/. "$artifact/licenses/"
-          python3 packaging/license_inventory.py --output "$artifact/licenses/DEPENDENCY_LICENSES.md" --notices-dir "$artifact/licenses/rust"
-          python3 packaging/release/rust_runtime.py --binary target/release/karin --output "$artifact/licenses/rust-runtime"
-          {
-            printf 'Source commit: '; git rev-parse HEAD
-            printf 'Build: --release --offline --locked --no-default-features --features cassette-auth\n'
-            rustc --version --verbose
-            cargo --version
-            printf 'Ubuntu 24.04 x86_64 native prototype; not a Flatpak or public release.\n'
-            printf 'Binary SHA256: '; sha256sum target/release/karin
-          } > "$artifact/BUILD-INFO.txt"
-          tar -C build -czf build/karin-fedora-prototype-1.98.1.tar.gz karin-fedora-prototype-1.98.1
-          (cd build && sha256sum karin-fedora-prototype-1.98.1.tar.gz > SHA256SUMS)
-      - name: Retain the native Fedora prototype
-        if: matrix.lane == 'msrv'
+          revision=$(git rev-parse HEAD)
+          python3 packaging/release/artifacts.py native --revision "$revision" \
+            --binary target/release/karin --source-dir build/flatpak-source \
+            --output build/native-acceptance
+          (
+            cd build/native-acceptance
+            sha256sum ./*.tar.gz > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+          native_package=$(mktemp -d "$RUNNER_TEMP/karin-native.XXXXXX")
+          tar -C "$native_package" -xzf build/native-acceptance/*-linux-x86_64.tar.gz
+          desktop-file-validate "$native_package/share/applications/io.github.tracerxbrhd.Karin.desktop"
+          diff -r packaging/icons/hicolor "$native_package/share/icons/hicolor"
+          "$native_package/run-karin" --version | grep -Fx "Source commit: $revision"
+      - name: Retain the Native acceptance archive and corresponding source
+        if: matrix.lane == 'msrv' && github.event_name == 'pull_request'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6, Node.js 24
         with:
-          name: karin-fedora-prototype-1.98.1
+          name: karin-native-acceptance-${{ github.sha }}
           path: |
-            build/karin-fedora-prototype-1.98.1.tar.gz
-            build/SHA256SUMS
+            build/native-acceptance/*.tar.gz
+            build/native-acceptance/SHA256SUMS
+          compression-level: 0
           retention-days: 14
           if-no-files-found: error
       - name: Retain native receipts and executable evidence

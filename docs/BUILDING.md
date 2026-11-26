@@ -37,8 +37,8 @@ cargo +stable build --release --locked
 ./target/release/karin
 ```
 
-`0.8.1` is prepared for owner acceptance. The current published release is
-[0.8.0](https://github.com/tracerxbrhd/karin/releases/tag/v0.8.0).
+`0.8.2` is prepared for owner acceptance. Install the current stable version
+from [GitHub Releases](https://github.com/tracerxbrhd/karin/releases/latest).
 Check `--version` and About for the
 source commit, clean/modified state, package and profile. Any source-tree change
 requires newly built artifacts and checksums; old files with the same version
@@ -187,9 +187,38 @@ python3 packaging/release/artifacts.py flatpak --revision "$karin_release_revisi
   --source-dir build/flatpak-source --output build/release
 ```
 
-The Native tar contains `run-karin`, desktop/icon/metainfo assets and licenses;
-use that launcher so the private `share` directory is visible. It bundles no
-shared system libraries; `NATIVE-LIBRARIES.json` records the packaging host's dependencies.
+The Native tar contains `run-karin`, desktop/icon/metainfo assets and licenses.
+Run the launcher from the extracted directory so the private `share` directory
+is visible to Karin. Pull request CI uploads the same Native package layout and
+its corresponding source as `karin-native-acceptance-<commit>`. Extract the
+Native tar into its own directory and run `./run-karin --version` to confirm
+the tested commit.
+
+For a Fedora menu or Plasma taskbar check, extract the tar to a permanent
+location in a test account. With `desktop-file-utils` installed, run from the
+extracted directory to register the launcher and icons for that account:
+
+```sh
+karin_desktop_data=${XDG_DATA_HOME:-"$HOME/.local/share"}
+mkdir -p "$karin_desktop_data/applications" "$karin_desktop_data/icons"
+cp -R share/icons/hicolor "$karin_desktop_data/icons/"
+desktop-file-install --dir="$karin_desktop_data/applications" \
+  --set-key=Exec --set-value="\"$(pwd -P)/run-karin\"" \
+  share/applications/io.github.tracerxbrhd.Karin.desktop
+```
+
+Launch Karin from the application menu. Plasma resolves the Wayland App ID
+against this desktop entry and the session's icon theme. An unpacked binary or
+launcher started from a terminal does not register files with Plasma, which may
+still see the icon from an installed version using the same App ID. Flatpak
+exports its desktop entry and icons during installation.
+
+The Native package uses system shared libraries. If the loader reports a
+missing `.so` or library version, run `./run-karin` in a terminal to see the
+missing dependency. Use the [Fedora prerequisites](#fedora-prerequisites) to
+identify the supported GTK, WebKitGTK and GStreamer packages. Use the Flatpak
+installer on systems with incompatible library versions. `NATIVE-LIBRARIES.json`
+records the packaging host's dependencies.
 Static Rust std/compiler-builtins notices are collected from the matching
 compiler's supplied library notices and `rust-src`; a compiler mismatch is rejected.
 For a stable-compiler package, install its `rust-src` component and set
@@ -197,10 +226,10 @@ For a stable-compiler package, install its `rust-src` component and set
 and source component. These static-runtime notices are separate from Cargo crate
 notices and from non-bundled desktop/runtime libraries.
 The matching source tar includes locked vendor, notices and build markers.
-`artifacts.py checksums --output build/release/SHA256SUMS FILE...` takes an explicit
-list of delivered archives, bundle, manifest and BUILD-INFO files; verify with
-`sha256sum --check SHA256SUMS` from their directory. The source validator requires
-the original `.crate` cache from locked Cargo fetch to authenticate vendor bytes.
+The source validator requires the original `.crate` cache from locked Cargo
+fetch to authenticate vendor bytes. Maintainers can generate internal checksums
+with `artifacts.py checksums --output build/release/SHA256SUMS FILE...`. The
+publication pipeline verifies its own build receipt and GitHub asset digests.
 
 The generator pins the project's Git archive and its SHA-256, registry crate
 archives from `Cargo.lock`, and offline Cargo configuration. It does not package
@@ -220,75 +249,88 @@ submission, public release or tag is performed by these commands.
 
 ### Stable Flatpak channel
 
-The [update ADR](adr/0036-signed-flatpak-updates.md) describes the trust boundary.
-The build commands above prepare a local bundle. The
-[stable update workflow](../.github/workflows/stable-update.yml) additionally
-prepares distribution packages with a signed HTTPS origin. The source's
-`packaging/release/flatpak-key-fingerprint` is empty until a production key is
-approved and pinned in a reviewed source commit.
+The [stable update workflow](../.github/workflows/stable-update.yml) builds both
+formats from one reviewed source commit. See the [update ADR](adr/0036-signed-flatpak-updates.md)
+for how GitHub release notes, the Pages record and the signed repository match.
 
-For an authorized publication:
+| Release | Assets uploaded to the main GitHub Release |
+| --- | --- |
+| 0.8.2 | `karin-0.8.2-x86_64.flatpak`, `karin-0.8.2-linux-x86_64.tar.gz`, `KARIN-FLATPAK-UPDATE.json` |
+| 0.8.3 and later | `karin-<version>-x86_64.flatpak`, `karin-<version>-linux-x86_64.tar.gz` |
 
-1. Keep the primary GnuPG signing key offline. Pin its uppercase 40-hex
-   fingerprint in source, and store the base64 export of a dedicated unattended
-   signing subkey with that primary certificate in the
-   `karin-stable-signing` environment's `KARIN_FLATPAK_SIGNING_SUBKEY` secret.
-   Restrict that environment to `master` with required reviewers. Enable GitHub
-   Actions as the Pages source and protect the separate `github-pages`
-   environment with reviewers and the same branch restriction.
-2. Dispatch **Prepare stable Flatpak update** on the exact reviewed `master`
-   commit after its push CI and authorized stable tag. Set `deploy_pages=true`
-   to request the separate Pages approval in this run. The signing job verifies
-   the packaged binary and signs the tested deployment and repository metadata.
-3. Review the `karin-stable-release-<commit>` artifact, verify `SHA256SUMS`, and
-   attach the packages, corresponding source, build receipts and exact
-   `KARIN-FLATPAK-UPDATE.json` from this run to the stable GitHub release. Publish
-   the release only with owner authorization. Approve the Pages job after
-   publication. It rechecks the remote tag, current `master` and published asset
-   digest and deploys the signed site artifact from that same workflow run.
-   Keep the upload and approval in the same run so signatures and the advertised
-   deployment describe the same prepared bytes.
+GitHub adds its two tagged source downloads. The signed bundle embeds the
+existing HTTPS Karin origin, its public key and the Flathub runtime repository.
+The Pages snapshot retains the signed OSTree repository, installer descriptors
+and the schema 1 record. BUILD-INFO, the pinned manifest, internal checksums and
+publication receipt are available to maintainers through workflow artifacts.
 
-The snapshot has a 250 MiB budget under GitHub Pages' 1 GB site limit. GitHub
-documents a soft 100 GB/month bandwidth limit and a ten-minute deployment
-timeout. Earlier package versions remain in their GitHub Releases. A fresh
-snapshot drops older refs and static deltas, so the site stays bounded. Revisit
-retention and hosting before adding architectures or exceeding the limits.
-[GitHub Pages limits](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits).
+#### Owner publication procedure
+
+1. Create and initialize the public `tracerxbrhd/karin-source` repository once.
+   Enable immutable releases there to retain each version's archive at a stable
+   URL. Retain the current production fingerprint, signing secret and reviewer
+   protection on `karin-stable-signing` and `github-pages`.
+2. After acceptance and separate release authorization, merge the reviewed
+   changes, verify the four jobs for the final `master` push and create its
+   matching stable version tag. Dispatch **Prepare stable Flatpak update** on
+   `master` with the full commit and `deploy_pages=true`. Approve the signing job.
+3. Download `karin-corresponding-source-<commit>` and
+   `karin-release-verification-<commit>` from that run. Publish
+   `karin-<version>-source.tar.gz` in the public source repository's release for
+   `v<version>`. Before publishing binaries, verify the anonymous download from
+   the reviewed checkout.
+
+   ```sh
+   python3 packaging/release/publication.py verify-source /path/to/publication.json
+   ```
+
+   The archive must match the build receipt. The verifier prints the versioned
+   source link and hidden digest line for the notes. Pause publication if the
+   check fails. Keep each source archive indefinitely.
+4. Use exactly the files in `karin-release-assets-<commit>` for the main stable
+   Latest release. Include the verified source archive link and the hidden
+   Pages-record digest line from the publication receipt in its notes. Use the
+   prepared [0.8.2 release notes](../packaging/release/0.8.2/RELEASE-NOTES.ru.md)
+   for the transition release.
+5. After the main release is public, approve the separate Pages job in the
+   same run. It verifies the source download, release notes, exact asset set and
+   digests, and the current master and tag against the reviewed run. It deploys
+   that run's signed snapshot after verification succeeds. Check the public
+   record, signed Flatpak ref and installer on the live channel.
+
+The Pages snapshot has a 250 MiB budget. It retains the current release with
+loose objects and drops earlier refs and static deltas. Earlier binaries remain
+in their GitHub Releases, and the complete matching source archives are
+retained separately. [GitHub Pages limits](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits)
 
 #### Move an existing bundle installation to the channel
 
-Once the owner has published the channel, new users can open the verified
-`.flatpakref` in Discover. The signed standalone bundle also carries the remote
-URL. For an existing **user** installation of 0.8.0 with a bundle-only origin,
-quit Karin, verify the downloaded `karin.flatpakrepo` against the stable release
-checksums, then switch the existing ref to the signed remote:
+Install the downloaded `.flatpak` with Discover, GNOME Software, or
+`flatpak install --user ./karin-0.8.2-x86_64.flatpak`. Flatpak may choose the
+local name `karin-origin` for the embedded remote. An installation made using
+an earlier `.flatpakref` may use the name `karin`. Both use
+`https://tracerxbrhd.github.io/karin/flatpak/`.
+
+For 0.8.1, Karin's **Проверить обновления** can install 0.8.2 after its
+deployment reaches the Portal. To skip 0.8.2, update through the system
+application manager or the terminal using the same installation scope.
 
 ```sh
-flatpak info --user --show-origin io.github.tracerxbrhd.Karin
-flatpak remote-add --user --from karin ./karin.flatpakrepo
-flatpak install --user --reinstall --no-deps --no-related karin io.github.tracerxbrhd.Karin//master
 flatpak info --user --show-origin io.github.tracerxbrhd.Karin
 flatpak remotes --user --columns=name,url
+flatpak update --user io.github.tracerxbrhd.Karin
 ```
 
-The origin should be `karin` with
-`https://tracerxbrhd.github.io/karin/flatpak/`. If the `karin` remote already exists,
-first verify its URL and key from the published installer before using it. For
-an existing system installation, apply the same change in the system scope via
-the package manager. The 0.8.0 and 0.8.1 packages use the same installed runtime.
-Keep the same install scope and app ID to retain the application data. Subsequent approved upgrades can use **Проверить обновления**
-in Karin when the host Portal reports the signed deployment.
+Use the system scope for a system installation. An older bundle-only
+installation without a Karin URL needs a one-time move to the signed origin.
+Keep the same AppID and scope and retain the application data.
+[Existing 0.8.1 release instructions](https://github.com/tracerxbrhd/karin/releases/tag/v0.8.1)
 
-Run the signing regression with real OSTree and GnuPG installed:
+The packaging test suite uses temporary signing keys and isolated repositories.
 
 ```sh
-python3 -m unittest discover -s packaging/release -p test_flatpak_channel.py
+python3 -m unittest discover -s packaging/release -p 'test_*.py'
 ```
-
-This uses temporary signing keys and an isolated repository. It verifies
-repository signature enforcement. A separate installed-package test is required
-to confirm Portal update and restart.
 
 ### Bounded cold-render diagnostic
 

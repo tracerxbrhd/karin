@@ -8,6 +8,34 @@
 .karin-presentation-root .music-wave-motif > box { background: @accent_bg_color; border-radius: 999px; }
 .karin-presentation-root .music-workspace { background: @window_bg_color; }
 .karin-presentation-root .music-header { min-height: 48px; }
+.karin-presentation-root .music-header-control {
+    min-width: 20px;
+    min-height: 32px;
+    padding: 0 3px;
+}
+.karin-presentation-root .music-header-tab {
+    min-width: 18px;
+    min-height: 32px;
+    padding: 0 3px;
+    border-radius: 8px;
+}
+.karin-presentation-root .music-header-tab:checked {
+    background: alpha(@theme_fg_color, .10);
+    box-shadow: inset 0 0 0 1px alpha(@theme_fg_color, .14);
+}
+.karin-presentation-root .music-header-tab:checked:hover { background: alpha(@theme_fg_color, .15); }
+.karin-presentation-root .music-header-tab:checked:active { background: alpha(@theme_fg_color, .22); }
+.karin-presentation-root .music-header-tab:focus-visible {
+    outline: 2px solid @accent_color;
+    outline-offset: -2px;
+}
+.karin-presentation-root .music-header-tab:checked:disabled {
+    background: alpha(@theme_fg_color, .05);
+    box-shadow: none;
+}
+.karin-presentation-root.karin-high-contrast .music-header-tab:checked:not(:disabled) {
+    box-shadow: inset 0 0 0 1px @theme_fg_color;
+}
 .karin-presentation-root .music-rail { background: @window_bg_color; }
 .karin-presentation-root .music-rail list { background: transparent; }
 .karin-presentation-root .music-nav-item { margin: 3px 8px; border-radius: 12px; padding: 0; }

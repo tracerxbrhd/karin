@@ -135,6 +135,7 @@ struct Widgets {
     stack: gtk::Stack,
     library_mode: gtk::SingleSelection,
     primary_navigation: gtk::Box,
+    nav_labels: [gtk::Label; 3],
     nav_wave: gtk::ToggleButton,
     nav_liked: gtk::ToggleButton,
     nav_playlists: gtk::ToggleButton,
@@ -222,6 +223,7 @@ struct Controller {
     playlist_management: RefCell<playlist_management::State>,
     can_create_playlist: Cell<bool>,
     detail_refresh: RefCell<Option<DetailRefresh>>,
+    refreshing_detail: Cell<bool>,
     music_surface_visible: Cell<bool>,
     detail_cache: Cell<Option<(crate::catalog_cache::Provenance, bool)>>,
     track_feeds: RefCell<Vec<continuous_loading::Feed>>,
@@ -391,49 +393,44 @@ impl MusicPane {
         status_revealer.set_visible(false);
         workspace.append(&status_revealer);
 
-        let navigation = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        let navigation = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         navigation.set_widget_name("music-primary-tabs");
-        // The fixed ToolbarView reparents this bar outside music-workspace.
+        // The native HeaderBar owns this title slot outside music-workspace.
         navigation.add_css_class("karin-font-primary");
-        let segments = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-        segments.add_css_class("linked");
-        segments.set_hexpand(true);
-        navigation.set_hexpand(true);
-        navigation.set_size_request(-1, 42);
-        let nav_wave = gtk::ToggleButton::with_label("Главная");
-        let nav_liked = gtk::ToggleButton::with_label("Нравится");
-        let nav_playlists = gtk::ToggleButton::with_label("Плейлисты");
+        navigation.set_hexpand(false);
+        let segments = gtk::Box::new(gtk::Orientation::Horizontal, 2);
+        let (nav_wave, label_wave) = search_header::section_button(
+            "music-tab-wave",
+            "karin-home-symbolic",
+            "Главная",
+            "win.music-home",
+        );
+        let (nav_liked, label_liked) = search_header::section_button(
+            "music-tab-liked",
+            "karin-heart-symbolic",
+            "Нравится",
+            "win.music-library",
+        );
+        let (nav_playlists, label_playlists) = search_header::section_button(
+            "music-tab-playlists",
+            "karin-playlist-symbolic",
+            "Плейлисты",
+            "win.music-playlists",
+        );
         nav_liked.set_group(Some(&nav_wave));
         nav_playlists.set_group(Some(&nav_wave));
-        for (button, name) in [
-            (&nav_wave, "music-tab-wave"),
-            (&nav_liked, "music-tab-liked"),
-            (&nav_playlists, "music-tab-playlists"),
-        ] {
-            button.set_widget_name(name);
-            button.set_hexpand(true);
-            // Keep each full label for measurement and accessibility, and
-            // let GTK shorten its rendering when the window runs out of room.
-            let fit_label = |button: &gtk::ToggleButton| {
-                if let Some(label) = button.child().and_downcast::<gtk::Label>() {
-                    label.set_ellipsize(gtk::pango::EllipsizeMode::End);
-                }
-            };
-            fit_label(button);
-            button.connect_label_notify(fit_label);
+        for button in [&nav_wave, &nav_liked, &nav_playlists] {
             segments.append(button);
         }
-        nav_wave.set_action_name(Some("win.music-home"));
-        nav_liked.set_action_name(Some("win.music-library"));
-        nav_playlists.set_action_name(Some("win.music-playlists"));
         nav_wave.set_active(true);
 
         let nav_search = icon_button("karin-search-symbolic", "Поиск музыки");
+        nav_search.add_css_class("flat");
+        nav_search.add_css_class("music-header-control");
         nav_search.set_widget_name("music-navigation-search");
-        let search = search_toolbar::entry("Поиск музыки…", "music-search", "Поиск музыки");
+        let search = search_toolbar::entry("Поиск…", "music-search", "Поиск музыки");
         let search_header = search_header::SearchHeader::new(&segments, &search, &nav_search);
         navigation.append(&search_header);
-        workspace.append(&navigation);
         let stack = gtk::Stack::new();
         // Measure the visible page. GTK 4.14 otherwise measures hidden wrapped
         // pages at their minimum height, forcing their natural width on the
@@ -653,6 +650,7 @@ impl MusicPane {
             stack,
             library_mode,
             primary_navigation: navigation,
+            nav_labels: [label_wave, label_liked, label_playlists],
             nav_wave,
             nav_liked,
             nav_playlists,
@@ -759,6 +757,7 @@ impl MusicPane {
             playlist_management: RefCell::new(playlist_management::State::default()),
             can_create_playlist: Cell::new(true),
             detail_refresh: RefCell::new(None),
+            refreshing_detail: Cell::new(false),
             music_surface_visible: Cell::new(true),
             detail_cache: Cell::new(None),
             track_feeds: RefCell::new(Vec::new()),
@@ -816,13 +815,14 @@ impl MusicPane {
         }
     }
 
-    pub(in crate::ui) fn take_navigation_bar(&self) -> gtk::Box {
-        let navigation = self.controller.widgets.primary_navigation.clone();
-        let workspace = &self.controller.widgets.workspace;
-        if navigation.parent().as_ref() == Some(workspace.upcast_ref()) {
-            workspace.remove(&navigation);
+    pub(in crate::ui) fn header_navigation(&self) -> &gtk::Box {
+        &self.controller.widgets.primary_navigation
+    }
+
+    pub(in crate::ui) fn add_compact_navigation_setters(&self, breakpoint: &adw::Breakpoint) {
+        for label in &self.controller.widgets.nav_labels {
+            breakpoint.add_setter(label, "visible", Some(&false.to_value()));
         }
-        navigation
     }
 
     pub(in crate::ui) fn workspace_surface(&self) -> gtk::Box {
@@ -1731,7 +1731,6 @@ impl Controller {
                 "music-search",
                 "music-queue",
                 "music-back",
-                "music-refresh",
             ] {
                 if let Some(action) = window
                     .lookup_action(name)
@@ -1759,6 +1758,7 @@ impl Controller {
         self.widgets.status_revealer.set_visible(show_status);
         self.widgets.status_revealer.set_reveal_child(show_status);
         drop(model);
+        self.render_catalog_refresh();
         // The shell's visibility handler may synchronously reconcile Music
         // routes and panel focus. Release the controller borrow first.
         self.widgets.workspace.set_visible(ready);

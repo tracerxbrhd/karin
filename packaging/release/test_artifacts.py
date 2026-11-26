@@ -44,7 +44,8 @@ class ArtifactTests(unittest.TestCase):
             "docs/BUILDING.md": b"build instructions",
             f"packaging/{artifacts.APP_ID}.desktop": b"desktop metadata",
             f"packaging/{artifacts.APP_ID}.metainfo.xml": b"AppStream metadata",
-            f"packaging/icons/{artifacts.APP_ID}.svg": b"original icon",
+            **{f"packaging/icons/hicolor/{size}x{size}/apps/{artifacts.APP_ID}.png":
+               f"original {size} px icon".encode() for size in artifacts.APP_ICON_SIZES},
             "packaging/third-party-licenses/cassette-auth/COPYING": b"Cassette GPL",
             "packaging/third-party-licenses/cassette-auth/PROVENANCE.md": b"provider provenance",
             "packaging/third-party-licenses/tabler-icons/LICENSE": b"original icon MIT notice",
@@ -150,6 +151,10 @@ class ArtifactTests(unittest.TestCase):
             self.assertIn(b'XDG_DATA_DIRS="$root/share:', tar.extractfile("run-karin").read())
             names = set(tar.getnames())
             self.assertIn(f"share/metainfo/{artifacts.APP_ID}.metainfo.xml", names)
+            for size in artifacts.APP_ICON_SIZES:
+                icon = f"hicolor/{size}x{size}/apps/{artifacts.APP_ID}.png"
+                self.assertEqual(tar.extractfile(f"share/icons/{icon}").read(),
+                                 self.project[f"packaging/icons/{icon}"])
             self.assertIn(f"share/licenses/{artifacts.APP_ID}/third-party/example-1.0/LICENSE", names)
             self.assertIn(f"share/licenses/{artifacts.APP_ID}/cassette-auth/PROVENANCE.md", names)
             for component, name in (("tabler-icons", "LICENSE"), ("tabler-icons", "PROVENANCE.md"),

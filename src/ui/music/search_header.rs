@@ -43,14 +43,14 @@ impl SearchHeader {
     pub(super) fn new(tabs: &gtk::Box, entry: &gtk::SearchEntry, toggle: &gtk::Button) -> Self {
         let header: Self = glib::Object::new();
         header.set_orientation(gtk::Orientation::Horizontal);
-        header.set_spacing(6);
-        header.set_hexpand(true);
-        header.set_halign(gtk::Align::Center);
-        // The short entry must not enlarge the tabs' natural slot as text is
-        // entered. GtkStack measures both pages, including the hidden tabs, so
-        // font/translation changes automatically update the native allocation.
+        header.set_spacing(4);
+        // GtkStack measures both pages, so the entry occupies the same title
+        // slot as the tabs. The trailing toggle stays next to either page.
+        // Leave room for a compact field at the window minimum, while the
+        // natural width makes the field comfortable at larger sizes.
+        entry.set_width_request(84);
         entry.set_width_chars(1);
-        entry.set_max_width_chars(1);
+        entry.set_max_width_chars(12);
         let slot = gtk::Stack::builder()
             .hhomogeneous(true)
             .vhomogeneous(true)
@@ -119,4 +119,32 @@ impl SearchHeader {
         c.toggle
             .update_state(&[gtk::accessible::State::Expanded(Some(open))]);
     }
+}
+
+pub(super) fn section_button(
+    name: &str,
+    icon_name: &str,
+    text: &str,
+    action: &str,
+) -> (gtk::ToggleButton, gtk::Label) {
+    let icon = gtk::Image::from_icon_name(icon_name);
+    icon.set_pixel_size(16);
+    let label = gtk::Label::new(Some(text));
+    label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    let content = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+    content.set_halign(gtk::Align::Center);
+    content.append(&icon);
+    content.append(&label);
+    let button = gtk::ToggleButton::builder()
+        .child(&content)
+        .action_name(action)
+        .tooltip_text(text)
+        .hexpand(true)
+        .valign(gtk::Align::Center)
+        .build();
+    button.set_widget_name(name);
+    button.add_css_class("flat");
+    button.add_css_class("music-header-tab");
+    button.update_property(&[gtk::accessible::Property::Label(text)]);
+    (button, label)
 }

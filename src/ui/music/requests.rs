@@ -128,6 +128,15 @@ impl<J> Requests<J> {
             self.invalidate(operation);
         }
     }
+    /// A retired ticket still owns its worker until completion. Explicit
+    /// refreshes must not queue another read behind that occupied lane.
+    pub(super) fn occupied(&self, operation: Operation) -> bool {
+        let slot = &self.slots[operation.index()];
+        slot.running.is_some() || slot.pending.is_some()
+    }
+    pub(super) fn revision(&self, operation: Operation) -> u64 {
+        self.slots[operation.index()].latest
+    }
     pub(super) fn active(&self, operation: Operation) -> bool {
         let slot = &self.slots[operation.index()];
         slot.pending.is_some() || slot.running == Some(slot.latest)
@@ -142,6 +151,19 @@ impl<J> Requests<J> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn explicit_refresh_observes_retired_workers_until_the_ticket_finishes() {
+        let mut jobs = Requests::default();
+        let initial = jobs.revision(Operation::Library);
+        let (ticket, _) = jobs.submit(Operation::Library, "in-flight read").unwrap();
+        assert_ne!(jobs.revision(Operation::Library), initial);
+        assert!(jobs.occupied(Operation::Library));
+        jobs.invalidate(Operation::Library);
+        assert!(!jobs.active(Operation::Library));
+        assert!(jobs.occupied(Operation::Library));
+        assert!(jobs.finish(Operation::Library, ticket).is_none());
+        assert!(!jobs.occupied(Operation::Library));
+    }
     #[test]
     fn independent_actions_dispatch_during_another_request() {
         let mut jobs = Requests::default();

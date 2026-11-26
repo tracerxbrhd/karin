@@ -120,28 +120,6 @@ impl MusicPane {
         self.controller.sync_info_visibility();
     }
 
-    pub(in crate::ui) fn panel_heading(&self) -> gtk::Label {
-        self.controller.track_pane.heading.clone()
-    }
-
-    pub(in crate::ui) fn panel_title_callback(&self) -> Rc<dyn Fn() -> Option<&'static str>> {
-        let weak = Rc::downgrade(&self.controller);
-        Rc::new(move || {
-            let this = weak.upgrade()?;
-            let host = this.info_host.borrow();
-            let host = host.as_ref()?;
-            if host.presentation() != InfoPresentation::Compact || !host.is_open() {
-                return None;
-            }
-            match this.panel_mode.get() {
-                PanelMode::TrackInfo => Some("О треке"),
-                PanelMode::Lyrics => Some("Текст песни"),
-                PanelMode::Queue => Some("Очередь"),
-                PanelMode::Closed => None,
-            }
-        })
-    }
-
     pub(in crate::ui) fn preferences_callback(&self) -> Rc<dyn Fn()> {
         let weak = Rc::downgrade(&self.controller);
         Rc::new(move || {
@@ -171,6 +149,7 @@ impl Controller {
             .connect_visible_child_name_notify(move |_| {
                 if let Some(this) = weak.upgrade() {
                     this.refresh_catalog_notice();
+                    this.render_catalog_refresh();
                 }
             });
         let weak = Rc::downgrade(self);
@@ -186,7 +165,8 @@ impl Controller {
             }
         });
         if let Some(window) = self.window.upgrade() {
-            let refresh = gio::SimpleAction::new("music-refresh", None);
+            let refresh =
+                gio::SimpleAction::new_stateful("music-refresh", None, &false.to_variant());
             let weak = Rc::downgrade(self);
             refresh.connect_activate(move |_, _| {
                 if let Some(this) = weak

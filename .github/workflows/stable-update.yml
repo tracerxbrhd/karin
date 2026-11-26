@@ -120,7 +120,7 @@ jobs:
     timeout-minutes: 10
     environment: karin-stable-signing
     outputs:
-      update_record_sha256: ${{ steps.prepare.outputs.sha256 }}
+      publication_receipt: ${{ steps.publication.outputs.receipt }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -133,10 +133,10 @@ jobs:
       - name: Install release signing tools
         run: |
           sudo apt-get -o APT::Update::Error-Mode=any -o Acquire::Retries=2 update
-          sudo apt-get -o Acquire::Retries=2 install -y --no-install-recommends flatpak ostree gnupg
+          sudo apt-get -o Acquire::Retries=2 install -y --no-install-recommends flatpak ostree gnupg dbus-daemon
           python3 -m unittest discover -s packaging/release -p test_flatpak_channel.py
+          python3 -m unittest discover -s packaging/release -p test_publication.py
       - name: Sign the verified deployment and repository summary
-        id: prepare
         env:
           KARIN_FLATPAK_SIGNING_SUBKEY: ${{ secrets.KARIN_FLATPAK_SIGNING_SUBKEY }}
           VERSION: ${{ needs.packages.outputs.version }}
@@ -178,14 +178,36 @@ jobs:
               encoding="utf-8",
           )
           PYCODE
+      - name: Separate public assets, corresponding source and verification files
+        id: publication
+        env:
+          VERSION: ${{ needs.packages.outputs.version }}
+        run: |
+          set -euo pipefail
+          karin_channel=build/stable-channel
+          python3 packaging/release/publication.py prepare \
+            --channel "$karin_channel" --version "$VERSION" --revision "$GITHUB_SHA"
           python3 packaging/release/artifacts.py checksums \
-            --output build/stable-channel/packages/SHA256SUMS build/stable-channel/packages/*
-          hash=$(sha256sum build/stable-channel/packages/KARIN-FLATPAK-UPDATE.json | cut -d' ' -f1)
-          echo "sha256=$hash" >> "$GITHUB_OUTPUT"
+            --output "$karin_channel/SHA256SUMS" "$karin_channel"/{packages,release-assets,corresponding-source}/*
+          echo "receipt=$(jq -c . "$karin_channel/packages/publication.json")" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: karin-stable-release-${{ github.sha }}
-          path: build/stable-channel/packages/
+          name: karin-release-assets-${{ github.sha }}
+          path: build/stable-channel/release-assets/
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: karin-corresponding-source-${{ github.sha }}
+          path: build/stable-channel/corresponding-source/
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: karin-release-verification-${{ github.sha }}
+          path: |
+            build/stable-channel/packages/
+            build/stable-channel/SHA256SUMS
           if-no-files-found: error
           retention-days: 7
       - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
@@ -207,19 +229,24 @@ jobs:
       pages: write
       id-token: write
     steps:
-      - name: Confirm the owner published this exact stable deployment record
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Confirm the public sources and exact stable release
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.packages.outputs.version }}
-          RECORD_SHA256: ${{ needs.sign.outputs.update_record_sha256 }}
+          PUBLICATION_RECEIPT: ${{ needs.sign.outputs.publication_receipt }}
         run: |
           set -euo pipefail
+          printf '%s\n' "$PUBLICATION_RECEIPT" > "$RUNNER_TEMP/karin-publication.json"
+          python3 packaging/release/publication.py verify-source "$RUNNER_TEMP/karin-publication.json"
           test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/master" --jq .object.sha)" = "$GITHUB_SHA"
           test "$(gh api "repos/$GITHUB_REPOSITORY/commits/v$VERSION" --jq .sha)" = "$GITHUB_SHA"
-          gh api "repos/$GITHUB_REPOSITORY/releases/latest" | jq -e \
-            --arg tag "v$VERSION" --arg digest "sha256:$RECORD_SHA256" '
-            .tag_name == $tag and (.draft | not) and (.prerelease | not) and
-            ([.assets[] | select(.name == "KARIN-FLATPAK-UPDATE.json" and .state == "uploaded" and .digest == $digest)] | length) == 1'
+          gh api "repos/$GITHUB_REPOSITORY/releases/latest" > "$RUNNER_TEMP/karin-latest-release.json"
+          python3 packaging/release/publication.py verify-release \
+            "$RUNNER_TEMP/karin-publication.json" "$RUNNER_TEMP/karin-latest-release.json" --revision "$GITHUB_SHA"
       - name: Publish the verified signed channel
         id: pages
         uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4

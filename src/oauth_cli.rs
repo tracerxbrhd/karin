@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Explicitly local, interactive OAuth experiment. The GTK application never calls it.
+//! Owner-local authorization commands; neither starts the GTK application.
 
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
+use std::sync::mpsc;
+use std::thread;
 use std::time::{Duration, Instant};
 
 use gtk::gio;
+use karin::credentials::Cancellation;
+use karin::independent_auth::{Error as IndependentError, IndependentAuth, Outcome};
 use karin::oauth::{AuthorizationAttempt, AuthorizationResponse};
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use rustix::termios::{
@@ -18,15 +22,13 @@ const MAX_INPUT_BYTES: usize = 4096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum CliError {
-    #[error(
-        "OAuth diagnostic requires a local controlling terminal; no credential input was read."
-    )]
+    #[error("This command requires a local controlling terminal; no credential input was read.")]
     NoTerminal,
     #[error(
         "Cannot use or restore the local terminal. If needed, run `stty sane` in that terminal."
     )]
     Terminal,
-    #[error("OAuth diagnostic cancelled locally.")]
+    #[error("OAuth operation cancelled locally.")]
     Cancelled,
     #[error("Local input timed out; no authorization code was exchanged.")]
     InputTimeout,
@@ -36,19 +38,28 @@ pub enum CliError {
     Configuration,
     #[error("Cannot open the system browser; no authorization code was exchanged.")]
     Browser,
-    #[error("Cannot write the anonymized diagnostic report.")]
+    #[error("Cannot write the sanitized command result.")]
     Output,
+    #[error("Enter a registered loopback port between 1024 and 65535.")]
+    InvalidPort,
+    #[error(transparent)]
+    Independent(#[from] IndependentError),
 }
 
-/// Called only for the exact `--oauth-diagnostic` command, before GTK starts.
-/// Credentials are accepted exclusively from `/dev/tty`, never stdin/arguments.
-pub fn run() -> Result<bool, CliError> {
-    let mut tty = OpenOptions::new()
+fn open_terminal() -> Result<File, CliError> {
+    let tty = OpenOptions::new()
         .read(true)
         .write(true)
         .open("/dev/tty")
         .map_err(|_| CliError::NoTerminal)?;
     tcgetattr(&tty).map_err(|_| CliError::NoTerminal)?;
+    Ok(tty)
+}
+
+/// Called only for the exact `--oauth-diagnostic` command, before GTK starts.
+/// Credentials are accepted exclusively from `/dev/tty`, never stdin/arguments.
+pub fn run() -> Result<bool, CliError> {
+    let mut tty = open_terminal()?;
     writeln!(
         tty,
         "Karin: local opt-in OAuth diagnostic.\n\
@@ -87,6 +98,116 @@ pub fn run() -> Result<bool, CliError> {
     let passed = report.passed();
     writeln!(std::io::stdout().lock(), "{report}").map_err(|_| CliError::Output)?;
     Ok(passed)
+}
+
+pub enum IndependentCommand {
+    Login { remember: bool },
+    Restore,
+    Logout,
+}
+
+impl IndependentCommand {
+    pub fn parse(args: &[String]) -> Option<Self> {
+        let [flag, command, options @ ..] = args else {
+            return None;
+        };
+        if flag != "--independent-auth" {
+            return None;
+        }
+        match (command.as_str(), options) {
+            ("login", []) => Some(Self::Login { remember: false }),
+            ("login", [option]) if option == "--remember" => Some(Self::Login { remember: true }),
+            ("restore", []) => Some(Self::Restore),
+            ("logout", []) => Some(Self::Logout),
+            _ => None,
+        }
+    }
+}
+
+/// Uses only the independent credential namespace, including for remembered login.
+pub fn run_independent(command: IndependentCommand) -> Result<(), CliError> {
+    let mut tty = open_terminal()?;
+    writeln!(tty, "Karin: isolated local sign-in.").map_err(|_| CliError::Terminal)?;
+    let outcome = match command {
+        IndependentCommand::Login { remember } => {
+            writeln!(
+                tty,
+                "Use your own Karin registration. Never enter a client secret, password or token.\n\
+                 Register exactly http://127.0.0.1:<port>/oauth/callback and enter its port below.\n\
+                 Sign in and grant access in the system browser."
+            )
+            .map_err(|_| CliError::Terminal)?;
+            let client_id = prompt_hidden(&mut tty, "Karin Client ID: ")?;
+            let port = parse_port(&prompt_hidden(&mut tty, "Registered loopback port: ")?)?;
+            let mut auth = IndependentAuth::new()?;
+            with_cancellation(&mut tty, |cancel| {
+                auth.login(&client_id, port, remember, cancel, |uri| {
+                    gio::AppInfo::launch_default_for_uri(uri, None::<&gio::AppLaunchContext>)
+                        .map_err(|_| IndependentError::Browser)
+                })
+            })?
+        }
+        IndependentCommand::Restore => {
+            let client_id = prompt_hidden(&mut tty, "Same Karin Client ID used at login: ")?;
+            let mut auth = IndependentAuth::new()?;
+            with_cancellation(&mut tty, |cancel| auth.restore(&client_id, cancel))?
+        }
+        IndependentCommand::Logout => with_cancellation(&mut tty, IndependentAuth::logout)?,
+    };
+    writeln!(std::io::stdout().lock(), "{outcome}").map_err(|_| CliError::Output)
+}
+
+fn parse_port(input: &str) -> Result<u16, CliError> {
+    if input.len() > 5 || !input.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(CliError::InvalidPort);
+    }
+    input
+        .parse::<u16>()
+        .ok()
+        .filter(|port| *port >= 1024)
+        .ok_or(CliError::InvalidPort)
+}
+
+fn with_cancellation(
+    tty: &mut File,
+    operation: impl FnOnce(&Cancellation) -> Result<Outcome, IndependentError>,
+) -> Result<Outcome, CliError> {
+    let guard = TerminalGuard::hide(tty)?;
+    writeln!(tty, "Press Enter, Ctrl-C, Ctrl-D or Escape here to cancel.")
+        .map_err(|_| CliError::Terminal)?;
+    let cancel = Cancellation::new();
+    let result = thread::scope(|scope| {
+        let (done, pending) = mpsc::channel();
+        let watcher_cancel = cancel.clone();
+        let watcher = thread::Builder::new()
+            .spawn_scoped(scope, move || {
+                if wait_for_cancellation(tty, pending).is_err() {
+                    watcher_cancel.cancel();
+                }
+            })
+            .map_err(|_| CliError::Terminal)?;
+        let result = operation(&cancel);
+        // Disconnect the watcher even on unwind, so the scope can always join it.
+        drop(done);
+        watcher.join().map_err(|_| CliError::Terminal)?;
+        result.map_err(CliError::Independent)
+    });
+    guard.restore()?;
+    result
+}
+
+fn wait_for_cancellation(tty: &mut File, pending: mpsc::Receiver<()>) -> Result<(), CliError> {
+    let wait = Timespec {
+        tv_sec: 0,
+        tv_nsec: 50_000_000,
+    };
+    let mut byte = Zeroizing::new([0_u8; 1]);
+    while matches!(pending.try_recv(), Err(mpsc::TryRecvError::Empty)) {
+        if read_byte(tty, &wait, byte.as_mut())? && matches!(byte[0], b'\r' | b'\n' | 3 | 4 | 27) {
+            return Err(CliError::Cancelled);
+        }
+    }
+    Ok(())
 }
 
 struct TerminalGuard {
@@ -164,28 +285,29 @@ fn read_hidden(tty: &mut File, timeout: Duration) -> Result<Zeroizing<String>, C
             .filter(|remaining| !remaining.is_zero())
             .ok_or(CliError::InputTimeout)?;
         let wait = Timespec::try_from(remaining).map_err(|_| CliError::Terminal)?;
-        let mut descriptors = [PollFd::new(tty, PollFlags::IN)];
-        match poll(&mut descriptors, Some(&wait)) {
-            Ok(0) => return Err(CliError::InputTimeout),
-            Ok(_) => {}
-            Err(rustix::io::Errno::INTR) => continue,
-            Err(_) => return Err(CliError::Terminal),
-        }
-        let ready = descriptors[0].revents();
-        if ready.intersects(PollFlags::ERR | PollFlags::HUP | PollFlags::NVAL) {
-            return Err(CliError::Terminal);
-        }
-        if !ready.contains(PollFlags::IN) {
-            return Err(CliError::Terminal);
-        }
-        match tty.read(byte.as_mut()) {
-            Ok(1) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
-            _ => return Err(CliError::Terminal),
-        }
-        if input.push(byte[0])? {
+        if read_byte(tty, &wait, byte.as_mut())? && input.push(byte[0])? {
             return input.finish();
         }
+    }
+}
+
+fn read_byte(tty: &mut File, wait: &Timespec, byte: &mut [u8]) -> Result<bool, CliError> {
+    let mut descriptors = [PollFd::new(tty, PollFlags::IN)];
+    match poll(&mut descriptors, Some(wait)) {
+        Ok(0) | Err(rustix::io::Errno::INTR) => return Ok(false),
+        Ok(_) => {}
+        Err(_) => return Err(CliError::Terminal),
+    }
+    let ready = descriptors[0].revents();
+    if ready.intersects(PollFlags::ERR | PollFlags::HUP | PollFlags::NVAL)
+        || !ready.contains(PollFlags::IN)
+    {
+        return Err(CliError::Terminal);
+    }
+    match tty.read(byte) {
+        Ok(1) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::Interrupted => Ok(false),
+        _ => Err(CliError::Terminal),
     }
 }
 
@@ -231,6 +353,15 @@ impl HiddenInput {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn loopback_port_requires_a_non_privileged_decimal_port() {
+        assert_eq!(parse_port("1024"), Ok(1024));
+        assert_eq!(parse_port("65535"), Ok(65535));
+        for port in ["", "0", "1023", "65536", "+1024", "127.0.0.1:1024"] {
+            assert_eq!(parse_port(port), Err(CliError::InvalidPort));
+        }
+    }
 
     #[test]
     fn hidden_input_accepts_ascii_and_edits_without_echo_or_retained_deleted_byte() {

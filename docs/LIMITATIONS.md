@@ -45,18 +45,25 @@ Software licensing does not grant redistribution rights to service material.
   remains visible with Retry; ordinary continuation never autoplays.
 - Native plugin calls cannot always be preempted; forced termination cannot
   guarantee cooperative pipeline/storage cleanup.
+- If track covers are missing on Fedora ([#37](https://github.com/tracerxbrhd/karin/issues/37)),
+  exit Karin and reopen it with `./run-karin --artwork-diagnostic` or
+  `flatpak run io.github.tracerxbrhd.Karin --artwork-diagnostic`. Open a view
+  with missing covers and share only the `Karin artwork: event=` lines.
 
 ## Application updates
 
 - Normal release checks work before Music sign-in. Native packages offer release
   information and the verified download page. Replacement of extracted binaries
   or distribution-managed system packages remains a manual operation.
-- Flatpak requires a signed update origin and the host Flatpak UpdateMonitor.
-  A newly announced GitHub release can precede the matching Portal deployment.
-  Bundle-only installations need [one-time migration](BUILDING.md#move-an-existing-bundle-installation-to-the-channel).
-- The public update channel and signing key are pending owner setup. Permission
-  changes or unsupported Portal behavior can require the system application
-  manager. Only an installed, matching deployment qualifies for in-app restart.
+- Flatpak requires Karin's signed origin and the host Flatpak UpdateMonitor.
+  Release announcement, Pages publication and Portal discovery may arrive at
+  different times. In-app install waits for the matching release and deployment.
+- Karin 0.8.1 needs the compatibility attachment supplied with 0.8.2. For newer
+  releases, update an existing 0.8.1 installation through the signed remote
+  using the system manager or `flatpak update`. [Update and migration instructions](BUILDING.md#move-an-existing-bundle-installation-to-the-channel)
+- Permission changes or unsupported Portal behavior can require the system
+  application manager. In-app restart requires the installed commit to match
+  the confirmed deployment.
 
 ## Desktop and rendering
 

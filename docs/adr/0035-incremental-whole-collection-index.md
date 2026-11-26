@@ -55,8 +55,10 @@ mutable indices or equal IDs.
 
 ## Native search intent and verification
 
-One global entry shares the measured tab slot/group center at every width.
-Toggle/Ctrl+F/Home focus it without route change until nonempty results; 350 ms settled
+The window mounts the three section buttons in the native HeaderBar's title slot.
+At compact widths the buttons retain their accessible names and show icons alone.
+One global entry shares the same measured title slot. The leading search button,
+Ctrl+F and Home focus it without route change until nonempty results; 350 ms settled
 input or Enter submits. Clear restores source with field open; Escape/toggle/background
 dismiss and retire work while preserving interactive targets. The collection entry fills
 its content column beside the compact sort button. [BUILDING](../BUILDING.md) retains

@@ -5,6 +5,8 @@ use super::*;
 use crate::catalog_cache::{Cached, CachedCatalog, Provenance};
 
 #[cfg(test)]
+mod refresh_tests;
+#[cfg(test)]
 mod tests;
 
 pub(super) fn network<T>(value: T) -> Cached<T> {
@@ -216,21 +218,74 @@ impl Controller {
         }
     }
 
+    fn refresh_operation(&self) -> Option<Operation> {
+        match self.widgets.stack.visible_child_name().as_deref() {
+            Some("home") => Some(Operation::InitialLibrary),
+            Some("library") => Some(Operation::Library),
+            Some("playlists") => Some(Operation::PlaylistSections),
+            Some("detail") if self.detail_refresh.borrow().is_some() => Some(Operation::Detail),
+            Some("search") if !self.widgets.search.text().trim().is_empty() => {
+                Some(Operation::Search)
+            }
+            _ => None,
+        }
+    }
+
+    /// The HeaderBar, menu and keyboard shortcut share one action and the
+    /// existing bounded request lanes. Its boolean state is presentation only.
+    pub(super) fn render_catalog_refresh(&self) {
+        let operation = self.refresh_operation();
+        let busy = operation.is_some_and(|operation| self.requests.borrow().occupied(operation));
+        let ready = {
+            let model = self.model.borrow();
+            model.account_valid && !model.closed
+        };
+        if let Some(action) = self
+            .window
+            .upgrade()
+            .and_then(|window| window.lookup_action("music-refresh"))
+            .and_downcast::<gio::SimpleAction>()
+        {
+            action.set_enabled(ready && operation.is_some() && !busy);
+            action.set_state(&(ready && busy).to_variant());
+        }
+    }
+
     pub(super) fn refresh_catalog(self: &Rc<Self>) {
-        let page = self.widgets.stack.visible_child_name();
-        match page.as_deref() {
-            Some("library") => {
+        let ready = {
+            let model = self.model.borrow();
+            model.account_valid && !model.closed
+        };
+        let Some(operation) = self
+            .refresh_operation()
+            .filter(|operation| ready && !self.requests.borrow().occupied(*operation))
+        else {
+            return;
+        };
+        self.widgets.status.set_subtitle("");
+        match operation {
+            Operation::Library => {
                 let page = self.model.borrow().library_page;
                 self.load_library_refresh(page);
             }
-            Some("playlists") => self.load_playlist_sections(true),
-            Some("detail") => {
+            Operation::PlaylistSections => self.load_playlist_sections(true),
+            Operation::Detail => {
                 let action = self.detail_refresh.borrow().clone();
                 if let Some(action) = action {
+                    // Refreshing the current detail is not a navigation intent.
+                    // In particular it cannot cancel pending source admission.
+                    self.refreshing_detail.set(true);
                     action(self, true);
+                    self.refreshing_detail.set(false);
                 }
             }
-            _ => self.load_initial_library_policy(true),
+            Operation::Search => {
+                let page = self.model.borrow().search_page;
+                self.search(page);
+            }
+            Operation::InitialLibrary => self.load_initial_library_policy(true),
+            _ => unreachable!("only a current catalog route can be refreshed"),
         }
+        self.render_catalog_refresh();
     }
 }

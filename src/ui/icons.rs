@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! The application's selected MIT Tabler vectors, embedded and recolored by GTK.
+//! Karin's application icon and selected MIT Tabler vectors, embedded for GTK.
 
 use gtk::{gio, gio::prelude::FileExt};
 
 const RESOURCE_PATH: &str = "/io/github/tracerxbrhd/Karin/icons";
+// Keep the GTK icon independent of an older desktop installation with the same AppID.
+pub const APP_ICON: &str = "karin-application-icon";
+pub(super) const BRAND_MARK: &str = "karin-brand-mark";
 
 fn register() {
     static REGISTERED: std::sync::Once = std::sync::Once::new();
@@ -36,6 +39,26 @@ pub(super) fn verify() -> bool {
         return false;
     };
     let theme = gtk::IconTheme::for_display(&display);
+    let resource_uri = format!("resource://{RESOURCE_PATH}/");
+    for name in [APP_ICON, BRAND_MARK] {
+        let brand = theme.lookup_icon(
+            name,
+            &[],
+            24,
+            1,
+            gtk::TextDirection::Ltr,
+            gtk::IconLookupFlags::empty(),
+        );
+        let suffix = format!("/{name}.png");
+        if brand.is_symbolic()
+            || !brand.file().is_some_and(|source| {
+                let uri = source.uri();
+                uri.starts_with(&resource_uri) && uri.ends_with(&suffix)
+            })
+        {
+            return false;
+        }
+    }
     let path = format!("{RESOURCE_PATH}/scalable/actions");
     let Ok(files) = gio::resources_enumerate_children(&path, gio::ResourceLookupFlags::NONE) else {
         return false;
@@ -197,16 +220,38 @@ mod tests {
     }
 
     #[test]
+    fn embedded_brand_mark_has_transparent_background() {
+        register();
+        for (name, expected_background) in [(BRAND_MARK, 0), (APP_ICON, 255)] {
+            let bytes = gio::resources_lookup_data(
+                &format!("{RESOURCE_PATH}/128x128/apps/{name}.png"),
+                gio::ResourceLookupFlags::NONE,
+            )
+            .unwrap();
+            let image = gdk::Texture::from_bytes(&bytes).unwrap();
+            assert_eq!((image.width(), image.height()), (128, 128));
+            let mut pixels = vec![0; 128 * 128 * 4];
+            image.download(&mut pixels, 128 * 4);
+            let (pixels, _) = pixels.as_chunks::<4>();
+            let alpha = |x: usize, y: usize| u32::from_ne_bytes(pixels[y * 128 + x]) >> 24;
+            assert_eq!(alpha(12, 31), expected_background);
+            assert_eq!(alpha(46, 27), 255);
+        }
+    }
+
+    #[test]
     fn embedded_icon_sources_are_namespaced_symbolic_vectors() {
         register();
         let brand = gio::resources_lookup_data(
-            "/io/github/tracerxbrhd/Karin/icons/scalable/apps/io.github.tracerxbrhd.Karin.svg",
+            &format!("{RESOURCE_PATH}/128x128/apps/{APP_ICON}.png"),
             gio::ResourceLookupFlags::NONE,
         )
         .unwrap();
         assert_eq!(
             brand.as_ref(),
-            include_bytes!("../../packaging/icons/io.github.tracerxbrhd.Karin.svg")
+            include_bytes!(
+                "../../packaging/icons/hicolor/128x128/apps/io.github.tracerxbrhd.Karin.png"
+            )
         );
         let mut names = std::collections::BTreeSet::new();
         for (name, path) in icons() {

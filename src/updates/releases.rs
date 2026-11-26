@@ -8,15 +8,30 @@ use std::{
     time::Duration,
 };
 
-use reqwest::{StatusCode, blocking::Client, header, redirect};
+use reqwest::{
+    StatusCode,
+    blocking::{Client, RequestBuilder},
+    header, redirect,
+};
+use ring::digest::{SHA256, digest};
 use semver::Version;
 use serde::{Deserialize, de::DeserializeOwned};
 
 use crate::config;
 
-const API: &str = "https://api.github.com/repos/tracerxbrhd/karin";
+struct Endpoints<'a> {
+    github: &'a str,
+    flatpak_record: &'a str,
+}
+
+const ENDPOINTS: Endpoints<'static> = Endpoints {
+    github: "https://api.github.com/repos/tracerxbrhd/karin",
+    flatpak_record: "https://tracerxbrhd.github.io/karin/flatpak/KARIN-FLATPAK-UPDATE.json",
+};
 const RELEASE_PAGE: &str = "https://github.com/tracerxbrhd/karin/releases/tag/";
-const UPDATE_ASSET: &str = "KARIN-FLATPAK-UPDATE.json";
+const RECORD_DIGEST_LABEL: &str = "karin-flatpak-update-sha256";
+const RECORD_DIGEST_PREFIX: &str = "<!-- karin-flatpak-update-sha256: ";
+const RECORD_DIGEST_SUFFIX: &str = " -->";
 const MAX_RELEASE_BYTES: usize = 512 * 1024;
 const MAX_DEPLOYMENT_BYTES: usize = 4096;
 pub(crate) const KEY_PIN: &str = include_str!("../../packaging/release/flatpak-key-fingerprint");
@@ -75,15 +90,6 @@ struct Latest {
     draft: bool,
     prerelease: bool,
     body: Option<String>,
-    assets: Vec<Asset>,
-}
-
-#[derive(Deserialize)]
-struct Asset {
-    name: String,
-    id: u64,
-    size: u64,
-    state: String,
 }
 
 #[derive(Deserialize)]
@@ -124,19 +130,42 @@ pub(crate) fn check(cancelled: &AtomicBool, flatpak: bool) -> Result<CheckResult
         .timeout(Duration::from_secs(8))
         .build()
         .map_err(|_| CheckError::Internal)?;
-    let latest: Latest = fetch_json(&client, &format!("{API}/releases/latest"), cancelled)?;
-    let Some(version) = newer_stable(&latest, &current)? else {
+    check_release(&client, &ENDPOINTS, &current, flatpak, cancelled)
+}
+
+fn check_release(
+    client: &Client,
+    endpoints: &Endpoints<'_>,
+    current: &Version,
+    flatpak: bool,
+    cancelled: &AtomicBool,
+) -> Result<CheckResult, CheckError> {
+    let latest: Latest = github_json(
+        client,
+        &format!("{}/releases/latest", endpoints.github),
+        cancelled,
+    )?;
+    let Some(version) = newer_stable(&latest, current)? else {
+        check_cancelled(cancelled)?;
         return Ok(CheckResult::UpToDate);
     };
+    let notes = latest.body.as_deref().unwrap_or_default();
     let deployment = if flatpak {
-        get_deployment(&client, &latest, &version, KEY_PIN.trim(), cancelled)
+        get_deployment(
+            client,
+            endpoints,
+            &latest.tag_name,
+            &version,
+            notes,
+            cancelled,
+        )
     } else {
         DeploymentStatus::Native
     };
     check_cancelled(cancelled)?;
     Ok(CheckResult::Available(Box::new(Release {
         version,
-        notes: plain_notes(latest.body.as_deref().unwrap_or_default()),
+        notes: plain_notes(notes),
         page: format!("{RELEASE_PAGE}{}", latest.tag_name),
         deployment,
     })))
@@ -166,7 +195,11 @@ fn newer_stable(latest: &Latest, current: &Version) -> Result<Option<Version>, C
 }
 
 fn plain_notes(notes: &str) -> String {
-    let filtered = notes.chars().filter(|ch| {
+    let content = notes
+        .split_inclusive('\n')
+        .filter(|line| !has_record_digest_label(line))
+        .flat_map(str::chars);
+    let filtered = content.filter(|ch| {
         (matches!(*ch, '\n' | '\t') || !ch.is_control())
             && !matches!(*ch, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
     });
@@ -178,52 +211,101 @@ fn plain_notes(notes: &str) -> String {
     text.trim().to_owned()
 }
 
+fn has_record_digest_label(line: &str) -> bool {
+    line.to_ascii_lowercase().contains(RECORD_DIGEST_LABEL)
+}
+
+fn record_digest(notes: &str) -> Result<&str, CheckError> {
+    let mut lines = notes.lines().filter(|line| has_record_digest_label(line));
+    let line = lines.next().ok_or(CheckError::InvalidData)?;
+    if lines.next().is_some() {
+        return Err(CheckError::InvalidData);
+    }
+    line.strip_prefix(RECORD_DIGEST_PREFIX)
+        .and_then(|value| value.strip_suffix(RECORD_DIGEST_SUFFIX))
+        .filter(|value| valid_sha(value, 64))
+        .ok_or(CheckError::InvalidData)
+}
+
+fn record_sha256(bytes: &[u8]) -> String {
+    digest(&SHA256, bytes)
+        .as_ref()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
 fn get_deployment(
     client: &Client,
-    latest: &Latest,
+    endpoints: &Endpoints<'_>,
+    tag: &str,
     version: &Version,
-    key_pin: &str,
+    notes: &str,
     cancelled: &AtomicBool,
 ) -> DeploymentStatus {
+    let key_pin = KEY_PIN.trim();
     if key_pin.is_empty() {
         return DeploymentStatus::ChannelNotConfigured;
     }
     if !valid_key_pin(key_pin) {
         return DeploymentStatus::Unverified(CheckError::Internal);
     }
-    let mut matches = latest
-        .assets
-        .iter()
-        .filter(|asset| asset.name == UPDATE_ASSET);
-    match (matches.next(), matches.next()) {
-        (None, _) => DeploymentStatus::NotPublished,
-        (Some(asset), None)
-            if asset.state == "uploaded"
-                && asset.id > 0
-                && (1..=MAX_DEPLOYMENT_BYTES as u64).contains(&asset.size) =>
-        {
-            match fetch_deployment(client, &latest.tag_name, asset, version, key_pin, cancelled) {
-                Ok(deployment) => DeploymentStatus::Verified(deployment),
-                Err(error) => DeploymentStatus::Unverified(error),
-            }
-        }
-        _ => DeploymentStatus::Unverified(CheckError::InvalidData),
+    let expected_digest = match record_digest(notes) {
+        Ok(value) => value,
+        Err(error) => return DeploymentStatus::Unverified(error),
+    };
+    match fetch_deployment(
+        client,
+        endpoints,
+        tag,
+        version,
+        expected_digest,
+        key_pin,
+        cancelled,
+    ) {
+        Ok(None) => DeploymentStatus::NotPublished,
+        Ok(Some(deployment)) => DeploymentStatus::Verified(deployment),
+        Err(error) => DeploymentStatus::Unverified(error),
     }
 }
 
 fn fetch_deployment(
     client: &Client,
+    endpoints: &Endpoints<'_>,
     tag: &str,
-    asset: &Asset,
     version: &Version,
+    expected_digest: &str,
     key_pin: &str,
     cancelled: &AtomicBool,
-) -> Result<Deployment, CheckError> {
-    let bytes = fetch_asset(client, asset, cancelled)?;
+) -> Result<Option<Deployment>, CheckError> {
+    let response = request(
+        client
+            .get(endpoints.flatpak_record)
+            .header(header::ACCEPT, "application/json"),
+        cancelled,
+    )?;
+    if response.status() == StatusCode::NOT_FOUND {
+        return Ok(None);
+    }
+    let bytes = read_response(response, MAX_DEPLOYMENT_BYTES, cancelled)?;
+    // The two services publish separately. Gate on the exact record bound
+    // to the stable release before considering any data from Pages.
+    if record_sha256(&bytes) != expected_digest {
+        return Ok(None);
+    }
     let published: PublishedDeployment =
         serde_json::from_slice(&bytes).map_err(|_| CheckError::InvalidData)?;
-    let commit = fetch_tag_commit(client, tag, cancelled)?;
-    verify_deployment(published, version, &commit, key_pin)
+    let deployment = validate_deployment(published, key_pin)?;
+    if deployment.version != *version {
+        return Err(CheckError::InvalidData);
+    }
+    let commit = fetch_tag_commit(client, endpoints.github, tag, cancelled)?;
+    if deployment.source_commit != commit {
+        return Err(CheckError::InvalidData);
+    }
+    // This record identifies the expected deployment. Flatpak is still
+    // responsible for signature verification and reporting the exact commit.
+    Ok(Some(deployment))
 }
 
 fn valid_key_pin(pin: &str) -> bool {
@@ -240,18 +322,20 @@ fn valid_sha(sha: &str, size: usize) -> bool {
             .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
 }
 
-fn verify_deployment(
+fn validate_deployment(
     published: PublishedDeployment,
-    version: &Version,
-    source_commit: &str,
     key_pin: &str,
 ) -> Result<Deployment, CheckError> {
+    if published.version.len() > 72 {
+        return Err(CheckError::InvalidData);
+    }
+    let version = Version::parse(&published.version).map_err(|_| CheckError::InvalidData)?;
     if published.schema != 1
         || published.app_id != config::APP_ID
         || published.app_ref != format!("app/{}/{}/master", config::APP_ID, std::env::consts::ARCH)
-        || published.version != version.to_string()
+        || !version.pre.is_empty()
+        || version.to_string() != published.version
         || !valid_sha(&published.source_commit, 40)
-        || published.source_commit != source_commit
         || !valid_sha(&published.ostree_commit, 64)
         || !valid_key_pin(key_pin)
         || published.key_fingerprint != key_pin
@@ -259,7 +343,7 @@ fn verify_deployment(
         return Err(CheckError::InvalidData);
     }
     Ok(Deployment {
-        version: version.clone(),
+        version,
         source_commit: published.source_commit,
         ostree_commit: published.ostree_commit,
         app_ref: published.app_ref,
@@ -269,17 +353,21 @@ fn verify_deployment(
 
 fn fetch_tag_commit(
     client: &Client,
+    github: &str,
     tag: &str,
     cancelled: &AtomicBool,
 ) -> Result<String, CheckError> {
-    let raw: GitRef = fetch_json(client, &format!("{API}/git/ref/tags/{tag}"), cancelled)?;
+    let raw: GitRef = github_json(client, &format!("{github}/git/ref/tags/{tag}"), cancelled)?;
     let mut object = raw.object;
     // Normal releases use a lightweight or a single annotated tag. Do not
     // recursively follow references supplied by a remote response.
     if object.kind == "tag" && valid_sha(&object.sha, 40) {
-        object =
-            fetch_json::<GitRef>(client, &format!("{API}/git/tags/{}", object.sha), cancelled)?
-                .object;
+        object = github_json::<GitRef>(
+            client,
+            &format!("{github}/git/tags/{}", object.sha),
+            cancelled,
+        )?
+        .object;
     }
     if object.kind != "commit" || !valid_sha(&object.sha, 40) {
         return Err(CheckError::InvalidData);
@@ -287,82 +375,34 @@ fn fetch_tag_commit(
     Ok(object.sha)
 }
 
-fn fetch_json<T: DeserializeOwned>(
+fn github_json<T: DeserializeOwned>(
     client: &Client,
     url: &str,
     cancelled: &AtomicBool,
 ) -> Result<T, CheckError> {
-    let response = request(client, url, "application/vnd.github+json", cancelled)?;
+    let response = request(
+        client
+            .get(url)
+            .header(header::ACCEPT, "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28"),
+        cancelled,
+    )?;
     let bytes = read_response(response, MAX_RELEASE_BYTES, cancelled)?;
     serde_json::from_slice(&bytes).map_err(|_| CheckError::InvalidData)
 }
 
-fn fetch_asset(
-    client: &Client,
-    asset: &Asset,
-    cancelled: &AtomicBool,
-) -> Result<Vec<u8>, CheckError> {
-    let response = request(
-        client,
-        &format!("{API}/releases/assets/{}", asset.id),
-        "application/octet-stream",
-        cancelled,
-    )?;
-    let response = if response.status().is_redirection() {
-        let location = response
-            .headers()
-            .get(header::LOCATION)
-            .and_then(|location| location.to_str().ok())
-            .and_then(|location| reqwest::Url::parse(location).ok())
-            .filter(allowed_asset_redirect)
-            .ok_or(CheckError::InvalidData)?;
-        request(
-            client,
-            location.as_str(),
-            "application/octet-stream",
-            cancelled,
-        )?
-    } else {
-        response
-    };
-    let bytes = read_response(response, MAX_DEPLOYMENT_BYTES, cancelled)?;
-    if bytes.len() as u64 != asset.size {
-        return Err(CheckError::InvalidData);
-    }
-    Ok(bytes)
-}
-
-fn allowed_asset_redirect(url: &reqwest::Url) -> bool {
-    url.scheme() == "https"
-        && matches!(
-            url.host_str(),
-            Some("release-assets.githubusercontent.com" | "objects.githubusercontent.com")
-        )
-        && url.username().is_empty()
-        && url.password().is_none()
-        && url.port().is_none()
-        && url.fragment().is_none()
-}
-
 fn request(
-    client: &Client,
-    url: &str,
-    accept: &str,
+    request: RequestBuilder,
     cancelled: &AtomicBool,
 ) -> Result<reqwest::blocking::Response, CheckError> {
     check_cancelled(cancelled)?;
-    let response = client
-        .get(url)
-        .header(header::ACCEPT, accept)
-        .header("X-GitHub-Api-Version", "2022-11-28")
-        .send()
-        .map_err(|error| {
-            if error.is_timeout() {
-                CheckError::Timeout
-            } else {
-                CheckError::Network
-            }
-        });
+    let response = request.send().map_err(|error| {
+        if error.is_timeout() {
+            CheckError::Timeout
+        } else {
+            CheckError::Network
+        }
+    });
     check_cancelled(cancelled)?;
     response
 }
@@ -422,6 +462,8 @@ fn check_cancelled(cancelled: &AtomicBool) -> Result<(), CheckError> {
 mod tests {
     use std::{io::Write, net::TcpListener, thread};
 
+    use serde_json::json;
+
     use super::*;
 
     fn latest(tag: &str) -> Latest {
@@ -431,7 +473,6 @@ mod tests {
             draft: false,
             prerelease: false,
             body: None,
-            assets: Vec::new(),
         }
     }
 
@@ -484,37 +525,33 @@ mod tests {
     }
 
     #[test]
-    fn deployment_must_match_release_tag_verified_commit_ref_and_pinned_key() {
-        let version = Version::new(0, 8, 2);
-        let commit = "a".repeat(40);
+    fn deployment_record_requires_expected_ref_and_pinned_key() {
         let pin = "C".repeat(40);
-        assert!(verify_deployment(deployment(), &version, &commit, &pin).is_ok());
+        assert!(validate_deployment(deployment(), &pin).is_ok());
         assert_eq!(
-            verify_deployment(deployment(), &Version::new(0, 8, 3), &commit, &pin),
+            validate_deployment(deployment(), &"A".repeat(40)),
             Err(CheckError::InvalidData)
         );
         assert_eq!(
-            verify_deployment(deployment(), &version, &"d".repeat(40), &pin),
-            Err(CheckError::InvalidData)
-        );
-        assert_eq!(
-            verify_deployment(deployment(), &version, &commit, &"A".repeat(40)),
-            Err(CheckError::InvalidData)
-        );
-        assert_eq!(
-            verify_deployment(deployment(), &version, &commit, ""),
+            validate_deployment(deployment(), ""),
             Err(CheckError::InvalidData)
         );
         let mut wrong_ref = deployment();
         wrong_ref.app_ref = format!("app/{}/x86_64/beta", config::APP_ID);
         assert_eq!(
-            verify_deployment(wrong_ref, &version, &commit, &pin),
+            validate_deployment(wrong_ref, &pin),
             Err(CheckError::InvalidData)
         );
         let mut wrong_ostree = deployment();
         wrong_ostree.ostree_commit = "B".repeat(64);
         assert_eq!(
-            verify_deployment(wrong_ostree, &version, &commit, &pin),
+            validate_deployment(wrong_ostree, &pin),
+            Err(CheckError::InvalidData)
+        );
+        let mut prerelease = deployment();
+        prerelease.version = "0.8.3-rc.1".into();
+        assert_eq!(
+            validate_deployment(prerelease, &pin),
             Err(CheckError::InvalidData)
         );
     }
@@ -531,48 +568,300 @@ mod tests {
     }
 
     #[test]
-    fn asset_redirect_is_limited_to_github_https_hosts() {
-        for url in [
-            "http://release-assets.githubusercontent.com/file",
-            "https://release-assets.githubusercontent.com.evil.net/file",
-            "https://x@release-assets.githubusercontent.com/file",
-            "https://release-assets.githubusercontent.com:444/file",
-            "https://api.github.com/file",
+    fn release_record_binding_is_exact_and_hidden_from_visible_notes() {
+        let digest = "a".repeat(64);
+        let marker = format!("{RECORD_DIGEST_PREFIX}{digest}{RECORD_DIGEST_SUFFIX}");
+        let notes = format!("Заметки о выпуске\r\n{marker}\r\nПродолжение");
+        assert_eq!(record_digest(&notes), Ok(digest.as_str()));
+        assert_eq!(plain_notes(&notes), "Заметки о выпуске\nПродолжение");
+        for bad_notes in [
+            String::new(),
+            format!("{marker}\n{marker}"),
+            format!("{marker}\n{}", marker.to_ascii_uppercase()),
+            format!(" {marker}"),
+            format!("{marker} "),
+            format!(
+                "{RECORD_DIGEST_PREFIX}{}{RECORD_DIGEST_SUFFIX}",
+                "A".repeat(64)
+            ),
+            format!("{RECORD_DIGEST_PREFIX}abc{RECORD_DIGEST_SUFFIX}"),
         ] {
-            assert!(!allowed_asset_redirect(&reqwest::Url::parse(url).unwrap()));
+            assert_eq!(record_digest(&bad_notes), Err(CheckError::InvalidData));
         }
-        assert!(allowed_asset_redirect(
-            &reqwest::Url::parse("https://release-assets.githubusercontent.com/file?expiry=1")
-                .unwrap()
-        ));
     }
 
     fn http_fixture(
         response: impl Into<Vec<u8>>,
         delay: Duration,
     ) -> (String, thread::JoinHandle<()>) {
+        let (base, server) = http_exchanges([("/latest", response.into(), delay)]);
+        (format!("{base}/latest"), server)
+    }
+
+    fn http_exchanges<const N: usize>(
+        exchanges: [(&'static str, Vec<u8>, Duration); N],
+    ) -> (String, thread::JoinHandle<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let endpoint = format!("http://{}/latest", listener.local_addr().unwrap());
-        let response = response.into();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
         let join = thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            stream
-                .set_read_timeout(Some(Duration::from_secs(2)))
-                .unwrap();
-            let mut request = Vec::new();
-            while !request.ends_with(b"\r\n\r\n") && request.len() < 4096 {
-                let mut byte = [0];
-                stream.read_exact(&mut byte).unwrap();
-                request.push(byte[0]);
+            for (path, response, delay) in exchanges {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(2)))
+                    .unwrap();
+                let mut request = Vec::new();
+                while !request.ends_with(b"\r\n\r\n") && request.len() < 4096 {
+                    let mut byte = [0];
+                    stream.read_exact(&mut byte).unwrap();
+                    request.push(byte[0]);
+                }
+                let request = String::from_utf8(request).unwrap();
+                assert!(request.starts_with(&format!("GET {path} HTTP/1.1\r\n")));
+                let headers = request.to_ascii_lowercase();
+                assert!(!headers.contains("\r\nauthorization:"));
+                assert!(!headers.contains("\r\ncookie:"));
+                if path.starts_with("/flatpak/") {
+                    assert!(headers.contains("\r\naccept: application/json\r\n"));
+                    assert!(!headers.contains("\r\nx-github-api-version:"));
+                }
+                thread::sleep(delay);
+                let _ = stream.write_all(&response);
             }
-            let request = String::from_utf8(request).unwrap().to_ascii_lowercase();
-            assert!(request.starts_with("get /latest http/1.1\r\n"));
-            assert!(!request.contains("\r\nauthorization:"));
-            assert!(!request.contains("\r\ncookie:"));
-            thread::sleep(delay);
-            let _ = stream.write_all(&response);
         });
         (endpoint, join)
+    }
+
+    const LATEST_PATH: &str = "/github/releases/latest";
+    const FLATPAK_PATH: &str = "/flatpak/KARIN-FLATPAK-UPDATE.json";
+    const TAG_PATH: &str = "/github/git/ref/tags/v0.8.3";
+
+    fn response(status: &str, body: &str) -> Vec<u8> {
+        format!(
+            "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+        .into_bytes()
+    }
+
+    fn latest_response(notes: &str) -> Vec<u8> {
+        response(
+            "200 OK",
+            &json!({
+                "tag_name": "v0.8.3",
+                "published_at": "2026-11-26T10:00:00Z",
+                "draft": false,
+                "prerelease": false,
+                "body": notes,
+                "assets": [
+                    {"name": "karin-0.8.3-x86_64.flatpak"},
+                    {"name": "karin-0.8.3-linux-x86_64.tar.gz"},
+                ],
+            })
+            .to_string(),
+        )
+    }
+
+    fn pages_json(version: &str, source_commit: &str) -> String {
+        json!({
+            "schema": 1,
+            "app_id": config::APP_ID,
+            "ref": format!("app/{}/{}/master", config::APP_ID, std::env::consts::ARCH),
+            "version": version,
+            "source_commit": source_commit,
+            "ostree_commit": "b".repeat(64),
+            "key_fingerprint": KEY_PIN.trim(),
+        })
+        .to_string()
+    }
+
+    fn notes_for_record(body: &str) -> String {
+        let sha = record_sha256(body.as_bytes());
+        format!("Новый выпуск\n\n{RECORD_DIGEST_PREFIX}{sha}{RECORD_DIGEST_SUFFIX}")
+    }
+
+    fn check_fixture<const N: usize>(
+        flatpak: bool,
+        exchanges: [(&'static str, Vec<u8>, Duration); N],
+    ) -> Release {
+        let (base, server) = http_exchanges(exchanges);
+        let client = Client::builder()
+            .no_proxy()
+            .redirect(redirect::Policy::none())
+            .timeout(Duration::from_secs(2))
+            .build()
+            .unwrap();
+        let result = check_release(
+            &client,
+            &Endpoints {
+                github: &format!("{base}/github"),
+                flatpak_record: &format!("{base}{FLATPAK_PATH}"),
+            },
+            &Version::new(0, 8, 2),
+            flatpak,
+            &AtomicBool::new(false),
+        )
+        .unwrap();
+        let CheckResult::Available(release) = result else {
+            panic!("0.8.3 should appear as the newer stable release");
+        };
+        server.join().unwrap();
+        *release
+    }
+
+    #[test]
+    fn flatpak_uses_pages_for_a_release_with_only_installers() {
+        let source = "a".repeat(40);
+        let pages = pages_json("0.8.3", &source);
+        let tag_response = response(
+            "200 OK",
+            &json!({"object": {"type": "commit", "sha": source}}).to_string(),
+        );
+        let release = check_fixture(
+            true,
+            [
+                (
+                    LATEST_PATH,
+                    latest_response(&notes_for_record(&pages)),
+                    Duration::ZERO,
+                ),
+                (FLATPAK_PATH, response("200 OK", &pages), Duration::ZERO),
+                (TAG_PATH, tag_response, Duration::ZERO),
+            ],
+        );
+        assert_eq!(release.version, Version::new(0, 8, 3));
+        assert_eq!(release.notes, "Новый выпуск");
+        assert_eq!(release.page, format!("{RELEASE_PAGE}v0.8.3"));
+        assert_eq!(
+            release.deployment,
+            DeploymentStatus::Verified(Deployment {
+                version: Version::new(0, 8, 3),
+                source_commit: source,
+                ostree_commit: "b".repeat(64),
+                app_ref: format!("app/{}/{}/master", config::APP_ID, std::env::consts::ARCH),
+                key_fingerprint: KEY_PIN.trim().to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn native_does_not_fetch_the_flatpak_record() {
+        let release = check_fixture(
+            false,
+            [(LATEST_PATH, latest_response("Новый выпуск"), Duration::ZERO)],
+        );
+        assert_eq!(release.deployment, DeploymentStatus::Native);
+        assert_eq!(release.notes, "Новый выпуск");
+        assert_eq!(release.page, format!("{RELEASE_PAGE}v0.8.3"));
+    }
+
+    #[test]
+    fn missing_or_different_pages_snapshot_keeps_the_deployment_pending() {
+        let source = "a".repeat(40);
+        let notes = notes_for_record(&pages_json("0.8.3", &source));
+        let forged = pages_json("0.8.3", &source).replace(&"b".repeat(64), &"c".repeat(64));
+        for channel_response in [
+            response("404 Not Found", ""),
+            response("200 OK", &pages_json("0.8.2", &source)),
+            response("200 OK", &pages_json("0.8.4", &source)),
+            response("200 OK", &forged),
+        ] {
+            let release = check_fixture(
+                true,
+                [
+                    (LATEST_PATH, latest_response(&notes), Duration::ZERO),
+                    (FLATPAK_PATH, channel_response, Duration::ZERO),
+                ],
+            );
+            assert_eq!(release.deployment, DeploymentStatus::NotPublished);
+        }
+    }
+
+    #[test]
+    fn flatpak_record_must_match_stable_tag_source_commit() {
+        let pages = pages_json("0.8.3", &"a".repeat(40));
+        let release = check_fixture(
+            true,
+            [
+                (
+                    LATEST_PATH,
+                    latest_response(&notes_for_record(&pages)),
+                    Duration::ZERO,
+                ),
+                (FLATPAK_PATH, response("200 OK", &pages), Duration::ZERO),
+                (
+                    TAG_PATH,
+                    response(
+                        "200 OK",
+                        &json!({"object": {"type": "commit", "sha": "c".repeat(40)}}).to_string(),
+                    ),
+                    Duration::ZERO,
+                ),
+            ],
+        );
+        assert_eq!(
+            release.deployment,
+            DeploymentStatus::Unverified(CheckError::InvalidData)
+        );
+    }
+
+    #[test]
+    fn invalid_oversized_redirected_or_unavailable_pages_never_produce_a_deployment() {
+        let wrong_version = pages_json("0.8.4", &"a".repeat(40));
+        for (channel_response, expected) in [
+            (response("200 OK", "not json"), CheckError::InvalidData),
+            (
+                response("200 OK", &"x".repeat(MAX_DEPLOYMENT_BYTES + 1)),
+                CheckError::InvalidData,
+            ),
+            (
+                b"HTTP/1.1 302 Found\r\nLocation: https://example.invalid/untrusted\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec(),
+                CheckError::Http(302),
+            ),
+            (
+                response("503 Service Unavailable", ""),
+                CheckError::Http(503),
+            ),
+        ] {
+            let release = check_fixture(
+                true,
+                [
+                    (LATEST_PATH, latest_response(&notes_for_record("not json")), Duration::ZERO),
+                    (FLATPAK_PATH, channel_response, Duration::ZERO),
+                ],
+            );
+            assert_eq!(release.deployment, DeploymentStatus::Unverified(expected));
+        }
+        let release = check_fixture(
+            true,
+            [
+                (
+                    LATEST_PATH,
+                    latest_response(&notes_for_record(&wrong_version)),
+                    Duration::ZERO,
+                ),
+                (
+                    FLATPAK_PATH,
+                    response("200 OK", &wrong_version),
+                    Duration::ZERO,
+                ),
+            ],
+        );
+        assert_eq!(
+            release.deployment,
+            DeploymentStatus::Unverified(CheckError::InvalidData)
+        );
+    }
+
+    #[test]
+    fn flatpak_refuses_check_without_release_record_binding() {
+        let release = check_fixture(
+            true,
+            [(LATEST_PATH, latest_response("Новый выпуск"), Duration::ZERO)],
+        );
+        assert_eq!(
+            release.deployment,
+            DeploymentStatus::Unverified(CheckError::InvalidData)
+        );
     }
 
     #[test]
@@ -602,7 +891,7 @@ mod tests {
                 Duration::ZERO,
             );
             assert_eq!(
-                fetch_json::<serde_json::Value>(&client, &url, &cancelled),
+                github_json::<serde_json::Value>(&client, &url, &cancelled),
                 Err(expected)
             );
             server.join().unwrap();
@@ -611,7 +900,7 @@ mod tests {
             "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n5\r\n12345\r\n0\r\n\r\n",
             Duration::ZERO,
         );
-        let response = request(&client, &url, "application/json", &cancelled).unwrap();
+        let response = request(client.get(&url), &cancelled).unwrap();
         assert_eq!(
             read_response(response, 4, &cancelled),
             Err(CheckError::InvalidData)
@@ -631,12 +920,12 @@ mod tests {
             Duration::from_millis(250),
         );
         assert_eq!(
-            fetch_json::<serde_json::Value>(&client, &url, &AtomicBool::new(false)),
+            github_json::<serde_json::Value>(&client, &url, &AtomicBool::new(false)),
             Err(CheckError::Timeout)
         );
         server.join().unwrap();
         assert_eq!(
-            fetch_json::<serde_json::Value>(&client, &url, &AtomicBool::new(true)),
+            github_json::<serde_json::Value>(&client, &url, &AtomicBool::new(true)),
             Err(CheckError::Cancelled)
         );
     }

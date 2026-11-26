@@ -36,9 +36,9 @@ const MAX_WAITING: usize = 64;
 pub struct CoverArt(String);
 
 impl CoverArt {
-    /// Music returns hostless templates. Accept only the exact public image
-    /// origin and a final size placeholder. Only the documented numeric cache
-    /// revision on custom-playlist covers is accepted after the placeholder.
+    /// Music may omit the scheme. Normalize exact public CDN aliases before
+    /// making a request or constructing a cache key. Only a numeric revision
+    /// on custom-playlist covers is accepted after the size placeholder.
     pub fn parse(raw: &str) -> Option<Self> {
         let parsed = Self::parse_validated(raw);
         if parsed.is_none() {
@@ -51,10 +51,13 @@ impl CoverArt {
         if raw.len() > 1024 || !raw.is_ascii() {
             return None;
         }
-        let path = raw
-            .strip_prefix("https://avatars.yandex.net/")
-            .or_else(|| raw.strip_prefix("//avatars.yandex.net/"))
-            .or_else(|| raw.strip_prefix("avatars.yandex.net/"))?;
+        let address = raw
+            .strip_prefix("https://")
+            .or_else(|| raw.strip_prefix("//"))
+            .unwrap_or(raw);
+        let path = address
+            .strip_prefix("avatars.yandex.net/")
+            .or_else(|| address.strip_prefix("avatars.mds.yandex.net/"))?;
         let (template, revision) = path
             .split_once('?')
             .map_or((path, None), |(template, revision)| {
@@ -139,6 +142,8 @@ pub enum ArtworkError {
     Busy,
     #[error("Cover could not be reached")]
     Network,
+    #[error("Cover service is temporarily unavailable")]
+    TemporaryHttpFailure,
     #[error("Cover request was rejected")]
     Rejected,
     #[error("Cover exceeds supported limits")]
@@ -766,12 +771,23 @@ impl ArtworkLoader {
                 emit(network_event(&error));
                 ArtworkError::Network
             })?;
-        emit(Event::HttpStatus(response.status().as_u16()));
+        let status = response.status();
+        emit(Event::HttpStatus(status.as_u16()));
         if self.cancelled(epoch, cancellation) {
             emit(Event::Cancelled);
             return Err(ArtworkError::Cancelled);
         }
-        if response.status() != reqwest::StatusCode::OK {
+        if status.is_server_error()
+            || matches!(
+                status,
+                reqwest::StatusCode::REQUEST_TIMEOUT | reqwest::StatusCode::TOO_MANY_REQUESTS
+            )
+        {
+            // Keep any previous stored image. A transient HTTP response does
+            // not authorize stale reuse and is not a refusal of the resource.
+            return Err(ArtworkError::TemporaryHttpFailure);
+        }
+        if status != reqwest::StatusCode::OK {
             emit(Event::HttpRefused);
             return Err(ArtworkError::Rejected);
         }

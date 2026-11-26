@@ -317,6 +317,7 @@ impl Controller {
             model.account_valid && !model.closed
         };
         let has_query = !self.widgets.search.text().trim().is_empty();
+        self.render_catalog_refresh();
         if !already_cleared || !has_query {
             self.reset_search_sections();
             self.clear_search_feedback();
