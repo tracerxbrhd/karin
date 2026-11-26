@@ -3,9 +3,9 @@
 # Known limitations
 
 Karin's v0.8 functionality has owner-reported Fedora Native/Flatpak acceptance.
-Cloud fixtures do not certify live Music access, every desktop backend or physical
-GPU behavior. The published stable version is `0.8.0`. Version `0.8.1` and its
-stable update channel require owner acceptance before publication.
+The published stable baseline for 0.8.3 development is `0.8.2`. Cloud fixtures
+cover synthetic service responses and virtual desktop behavior. Live Music and
+Discord access and Fedora Wayland rendering need separate desktop checks.
 
 ## Service and distribution
 
@@ -57,13 +57,24 @@ Software licensing does not grant redistribution rights to service material.
   or distribution-managed system packages remains a manual operation.
 - Flatpak requires Karin's signed origin and the host Flatpak UpdateMonitor.
   Release announcement, Pages publication and Portal discovery may arrive at
-  different times. In-app install waits for the matching release and deployment.
+  different times. The host schedules its own checks. Karin waits for the exact
+  deployment and can repeat its release/metadata check on request.
 - Karin 0.8.1 needs the compatibility attachment supplied with 0.8.2. For newer
   releases, update an existing 0.8.1 installation through the signed remote
   using the system manager or `flatpak update`. [Update and migration instructions](BUILDING.md#move-an-existing-bundle-installation-to-the-channel)
 - Permission changes or unsupported Portal behavior can require the system
   application manager. In-app restart requires the installed commit to match
   the confirmed deployment.
+- The 0.8.3 Discord IPC permissions can require approval through the system
+  manager during upgrade. Karin keeps its existing App ID and application data.
+
+## Discord
+
+Rich Presence is opt-in and uses the local desktop client's IPC. Presentation
+depends on the running Discord client and its activity privacy settings.
+Flatpak requires the scoped socket export to be present in its sandbox. A
+Native Discord socket created or replaced after Flatpak Karin started can
+require relaunching Karin. [Integration contract](adr/0038-local-discord-rich-presence.md)
 
 ## Desktop and rendering
 

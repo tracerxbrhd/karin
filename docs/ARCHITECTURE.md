@@ -27,7 +27,7 @@ flowchart LR
 | Persistence | `session`, `credentials`, `session_lifecycle`, `settings` | Live token, protected storage, preferences and forgetting barriers |
 | Cache | `cache_budget`, `catalog_cache`, `artwork`, `audio_cache` | Shared budget and distinct metadata/artwork/HTTP-audio policies |
 | Playback | `queue`, `playback_session`, `stream`, `playback` | Occurrence identity, continuation, source admission and one worker |
-| Desktop/UI | `mpris`, `ui::music`, `ui::style`, `ui::preferences` | Actual media state, native views and presentation |
+| Desktop/UI | `mpris`, `discord_presence`, `ui::music`, `ui::style`, `ui::preferences` | Actual media state, local integrations and native views |
 
 Blocking I/O and parsing run on bounded workers. Coalesced reads keep one running
 and one latest pending job per lane; playlist edits serialize, and Wave feedback
@@ -108,6 +108,11 @@ High Contrast and Reduced Motion. Karin Style remains unavailable.
 
 The in-process GIO MPRIS adapter exports actual transport/position/modes,
 opaque track paths and decoded local covers, without account/media secrets.
-Flatpak keeps exact MPRIS permission and portal storage without broad session-bus
-or filesystem access. See [BUILDING](BUILDING.md), [LICENSING](LICENSING.md) and
-[LIMITATIONS](LIMITATIONS.md).
+Optional Discord Rich Presence uses the same player snapshots and sends a
+bounded stream of track, transport and seek changes through local IPC. Public
+music links used by Discord and the clipboard derive from catalog IDs.
+[Discord integration](adr/0038-local-discord-rich-presence.md).
+
+Flatpak keeps its exact MPRIS name and portal storage. Its two Discord IPC
+grants are read-only. See [BUILDING](BUILDING.md), [LICENSING](LICENSING.md)
+and [LIMITATIONS](LIMITATIONS.md).
