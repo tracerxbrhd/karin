@@ -8,7 +8,11 @@ Karin — независимый нативный клиент Яндекс Му
 
 ## Установка и обновление
 
-- **Flatpak.** Подписанный канал Karin использует GNOME Platform 50 на x86_64. При установленной версии 0.8.1 откройте меню Karin и выберите «Проверить обновления».
-- **Native.** Распакуйте архив Linux x86_64 и запустите `./run-karin`. Понадобятся GTK4, Libadwaita, WebKitGTK 6.0 и GStreamer. См. [требования и инструкции](https://github.com/tracerxbrhd/karin/blob/master/docs/BUILDING.md#fedora-prerequisites).
+- **Flatpak, рекомендуемый.** Скачайте `karin-0.8.2-x86_64.flatpak` и откройте его в менеджере приложений. В терминале выполните `flatpak install --user ./karin-0.8.2-x86_64.flatpak`. Установщик подключает подписанный канал Karin и указывает Flatpak, где получить GNOME Platform 50.
+- **Native.** Распакуйте `karin-0.8.2-linux-x86_64.tar.gz` и запустите `./run-karin`. Понадобятся GTK4, Libadwaita, WebKitGTK 6.0 и GStreamer. [Системные зависимости](https://github.com/tracerxbrhd/karin/blob/master/docs/BUILDING.md#fedora-prerequisites)
+
+Если у вас уже установлена 0.8.1 из канала Karin, выберите «Проверить обновления» после публикации сборки в канале. Если вы пропустите 0.8.2, установите более новую версию через Discover, GNOME Software или командой `flatpak update --user io.github.tracerxbrhd.Karin` для пользовательской установки. Данные хранятся отдельно от приложения.
+
+Полные соответствующие исходники с зависимостями и инструкциями сборки доступны в [архиве 0.8.2](https://github.com/tracerxbrhd/karin-source/releases/download/v0.8.2/karin-0.8.2-source.tar.gz).
 
 Karin — неофициальный клиент. Доступ к музыке зависит от аккаунта и сервиса. Аудиокеш проверяет актуальный доступ к треку. Лицензия Karin — GPL-3.0-or-later.

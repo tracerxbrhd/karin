@@ -28,14 +28,12 @@
 
 ## Установка
 
-Для Linux x86_64 установите Karin из подписанного Flatpak-репозитория проекта.
+Начиная с 0.8.2 доступны две сборки для Linux x86_64.
 
-```sh
-flatpak install --user https://tracerxbrhd.github.io/karin/flatpak/karin.flatpakref
-flatpak run io.github.tracerxbrhd.Karin
-```
+- **[Скачать Flatpak](https://github.com/tracerxbrhd/karin/releases/latest)** — рекомендуемый вариант. Откройте файл `.flatpak` в менеджере приложений или установите его командой `flatpak install --user ./имя-файла.flatpak`. Установщик подключает подписанный канал обновлений Karin.
+- **[Скачать Native](https://github.com/tracerxbrhd/karin/releases/latest)** — распакуйте архив `linux-x86_64.tar.gz` и запустите `./run-karin`. [Системные зависимости и сборка](docs/BUILDING.md#fedora-prerequisites)
 
-Обновления приходят из того же репозитория. На [странице последнего выпуска](https://github.com/tracerxbrhd/karin/releases/latest) доступны Native-архив, исходники и контрольные суммы. [Инструкции сборки](docs/BUILDING.md).
+Для 0.8.1 доступны инструкции в [заметках этого выпуска](https://github.com/tracerxbrhd/karin/releases/tag/v0.8.1). Ссылка на полные исходники каждой сборки находится в заметках к её выпуску.
 
 Для музыки нужен доступ к Яндекс Музыке. Доступность композиций и текстов зависит
 от сервиса, аккаунта и подписки. Полноценный автономный режим не поддерживается.

@@ -100,11 +100,13 @@ being conveyed, including source, relinking and notices. Native packages do not
 bundle shared system libraries; their observed dependencies are recorded separately.
 The Flatpak installs notices under `/app/share/licenses/io.github.tracerxbrhd.Karin`.
 
-Before conveying GPL-covered binaries, provide complete corresponding source and
-build/install information through an applicable GPL section 6 method. A repository
-link or LICENSE alone is not a universal substitute. [BUILDING](BUILDING.md)
-describes pinned source, Native/Flatpak, BUILD-INFO and checksum generation.
-Source-repeatability/checksum verification is not certified binary reproducibility.
+Publish the complete corresponding source archive with build and installation
+information before distributing the matching Native and Flatpak binaries. The
+binary release notes must link directly to the same version's public archive in
+`tracerxbrhd/karin-source`. Retain past versions there and verify anonymous
+downloads against the reviewed build receipt. The archive contains the locked
+vendor inputs and notices alongside the project source. GitHub's automatic
+source downloads contain the tagged repository tree. [Publication procedure](BUILDING.md#stable-flatpak-channel) · [GPLv3 §6(d)](https://www.gnu.org/licenses/gpl-3.0.html#section6)
 
 ## Integration and public-distribution gate
 
