@@ -37,7 +37,7 @@ cargo +stable build --release --locked
 ./target/release/karin
 ```
 
-`0.8.2` is prepared for owner acceptance. Install the current stable version
+`0.8.3` is prepared for owner acceptance. Install the current stable version
 from [GitHub Releases](https://github.com/tracerxbrhd/karin/releases/latest).
 Check `--version` and About for the
 source commit, clean/modified state, package and profile. Any source-tree change
@@ -155,6 +155,18 @@ and PulseAudio-compatible PipeWire audio. No broad session-bus/host-filesystem
 grant is required. Preserve [licensing](LICENSING.md). Source preparation/offline
 Cargo and a full installed Flatpak runtime check are distinct results.
 
+### Flatpak acceptance build
+
+Run **Extended diagnostics and Flatpak acceptance** in `flatpak-acceptance`
+mode on the candidate branch. The job builds the pinned source, reinstalls the
+exported bundle on its fresh runner, checks its commit and runs the GTK smoke
+test. Download `karin-flatpak-acceptance-<commit>` from that run.
+
+Use the acceptance bundle in a disposable desktop account with GNOME Platform
+50. Its App ID matches the stable installation, so the separate desktop account
+isolates both the installed app and its data. The acceptance bundle has a local
+origin. Release signing and channel publication use the stable workflow below.
+
 ### Pinned release sources
 
 The development manifest above is not a standalone publication manifest. For an
@@ -266,10 +278,9 @@ publication receipt are available to maintainers through workflow artifacts.
 
 #### Owner publication procedure
 
-1. Create and initialize the public `tracerxbrhd/karin-source` repository once.
-   Enable immutable releases there to retain each version's archive at a stable
-   URL. Retain the current production fingerprint, signing secret and reviewer
-   protection on `karin-stable-signing` and `github-pages`.
+1. Use the public `tracerxbrhd/karin-source` repository and retain its immutable,
+   versioned releases. Keep the current production fingerprint, signing secret
+   and reviewer protection on `karin-stable-signing` and `github-pages`.
 2. After acceptance and separate release authorization, merge the reviewed
    changes, verify the four jobs for the final `master` push and create its
    matching stable version tag. Dispatch **Prepare stable Flatpak update** on
@@ -290,8 +301,8 @@ publication receipt are available to maintainers through workflow artifacts.
 4. Use exactly the files in `karin-release-assets-<commit>` for the main stable
    Latest release. Include the verified source archive link and the hidden
    Pages-record digest line from the publication receipt in its notes. Use the
-   prepared [0.8.2 release notes](../packaging/release/0.8.2/RELEASE-NOTES.ru.md)
-   for the transition release.
+   prepared [0.8.3 release notes](../packaging/release/0.8.3/RELEASE-NOTES.ru.md)
+   for this release.
 5. After the main release is public, approve the separate Pages job in the
    same run. It verifies the source download, release notes, exact asset set and
    digests, and the current master and tag against the reviewed run. It deploys
@@ -306,14 +317,15 @@ retained separately. [GitHub Pages limits](https://docs.github.com/en/pages/gett
 #### Move an existing bundle installation to the channel
 
 Install the downloaded `.flatpak` with Discover, GNOME Software, or
-`flatpak install --user ./karin-0.8.2-x86_64.flatpak`. Flatpak may choose the
+`flatpak install --user ./karin-0.8.3-x86_64.flatpak`. Flatpak may choose the
 local name `karin-origin` for the embedded remote. An installation made using
 an earlier `.flatpakref` may use the name `karin`. Both use
 `https://tracerxbrhd.github.io/karin/flatpak/`.
 
-For 0.8.1, Karin's **Проверить обновления** can install 0.8.2 after its
-deployment reaches the Portal. To skip 0.8.2, update through the system
-application manager or the terminal using the same installation scope.
+Karin 0.8.1 reads the update record attached to Release 0.8.2. With newer
+releases, use the signed remote in the system application manager or the
+terminal when the installed updater cannot confirm or start the transaction.
+The system updater also handles consent for added sandbox permissions.
 
 ```sh
 flatpak info --user --show-origin io.github.tracerxbrhd.Karin

@@ -28,7 +28,7 @@
 
 ## Установка
 
-Начиная с 0.8.2 доступны две сборки для Linux x86_64.
+Доступны две сборки для Linux x86_64.
 
 - **[Скачать Flatpak](https://github.com/tracerxbrhd/karin/releases/latest)** — рекомендуемый вариант. Откройте файл `.flatpak` в менеджере приложений или установите его командой `flatpak install --user ./имя-файла.flatpak`. Установщик подключает подписанный канал обновлений Karin.
 - **[Скачать Native](https://github.com/tracerxbrhd/karin/releases/latest)** — распакуйте архив `linux-x86_64.tar.gz` и запустите `./run-karin`. [Системные зависимости и сборка](docs/BUILDING.md#fedora-prerequisites)
