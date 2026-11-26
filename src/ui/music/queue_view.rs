@@ -380,8 +380,12 @@ impl Controller {
             actions.append(&down);
             actions.append(&details);
             actions.append(&add_playlist);
-            actions.append(&remove);
             let popover = gtk::Popover::new();
+            actions.append(&sharing::copy_menu_item(
+                sharing::track_link(track),
+                &popover,
+            ));
+            actions.append(&remove);
             popover.set_child(Some(&actions));
             menu.set_popover(Some(&popover));
             for button in [&next, &up, &down, &details, &add_playlist, &remove] {

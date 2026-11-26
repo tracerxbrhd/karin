@@ -40,6 +40,7 @@ FUNCTIONAL = [
     "native_catalog_rows_mouse_keyboard_details_and_delivery",
     "native_search_retry_normalized_results_and_density",
     "native_global_search_measured_slot_and_motion",
+    "native_shortcuts_dispatch_and_preserve_widget_input",
     "native_music_session_catalog_queue_and_logout",
     "native_music_context_mpris_shared_player_and_cleanup",
     "native_wave_shared_player_feedback_batches_and_cleanup",

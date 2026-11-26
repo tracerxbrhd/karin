@@ -204,7 +204,7 @@ pub(super) fn tile_grid() -> gtk::FlowBox {
     grid
 }
 
-pub(super) fn append_tile(grid: &gtk::FlowBox, tile: &gtk::Button) {
+pub(super) fn append_tile(grid: &gtk::FlowBox, tile: &impl IsA<gtk::Widget>) {
     grid.insert(tile, -1);
     if let Some(wrapper) = tile.parent() {
         wrapper.set_focusable(false);
@@ -701,7 +701,7 @@ impl Controller {
         track: Track,
         context: Rc<dyn Fn() -> Option<PlaybackContext>>,
     ) {
-        self.track_row_bound(list, track, context, None);
+        self.track_row_bound(list, track, context, None, None);
     }
 
     pub(super) fn track_row_bound(
@@ -710,6 +710,7 @@ impl Controller {
         track: Track,
         context: Rc<dyn Fn() -> Option<PlaybackContext>>,
         marker: Option<CatalogMarker>,
+        removal: Option<playlist_management::RowRemoval>,
     ) {
         song_list(list);
         let subtitle = track.artists.join(", ");
@@ -787,7 +788,9 @@ impl Controller {
         });
         play.add_css_class("flat");
         body.append(&play);
-        body.append(&self.track_menu_source(&track, context.clone(), false));
+        let menu = self.track_menu_source(&track, context.clone(), false, removal);
+        body.append(&menu);
+        bind_context_menu(&row, &menu);
         let binding = CatalogRow {
             row: row.downgrade(),
             context: context.clone(),
@@ -974,6 +977,7 @@ impl Controller {
         track: &Track,
         context: Rc<dyn Fn() -> Option<PlaybackContext>>,
         allow_standalone: bool,
+        removal: Option<playlist_management::RowRemoval>,
     ) -> gtk::MenuButton {
         let generation = self.model.borrow().generation;
         let button = gtk::MenuButton::builder()
@@ -1007,6 +1011,10 @@ impl Controller {
             }
         });
         actions.append(&detail);
+        actions.append(&sharing::copy_menu_item(
+            sharing::track_link(track),
+            &popover,
+        ));
         let play = gtk::Button::with_label("Воспроизвести");
         play.add_css_class("flat");
         play.set_sensitive(track.available);
@@ -1089,6 +1097,9 @@ impl Controller {
             }
         });
         actions.append(&playlist);
+        if let Some(removal) = removal {
+            actions.append(&self.playlist_removal_button(&popover, removal));
+        }
         if let Some(id) = &track.album_id {
             let album = gtk::Button::with_label("Открыть альбом");
             album.add_css_class("flat");
@@ -1211,7 +1222,11 @@ impl Controller {
             &rows,
             &status,
         );
-        self.detail_primary(Some(self.feed_play_button(&feed)));
+        self.detail_actions_with_link(
+            self.feed_play_button(&feed),
+            "Действия с альбомом",
+            crate::music::public_links::album(&album.id),
+        );
         self.request_track_feed(&feed, false);
     }
 
@@ -1267,6 +1282,7 @@ impl Controller {
             })));
         self.detail_header(&artist.name, "Исполнитель");
         self.detail_cover(artist.cover.as_ref());
+        let link = crate::music::public_links::artist(&artist.id);
         let rows = list();
         let status = gtk::Box::new(gtk::Orientation::Vertical, 6);
         self.widgets.detail.append(&rows);
@@ -1279,7 +1295,38 @@ impl Controller {
             &rows,
             &status,
         );
-        self.detail_primary(Some(self.feed_play_button(&feed)));
+        self.detail_actions_with_link(
+            self.feed_play_button(&feed),
+            "Действия с исполнителем",
+            link,
+        );
         self.request_track_feed(&feed, force);
     }
+}
+
+pub(super) fn bind_context_menu(anchor: &impl IsA<gtk::Widget>, menu: &gtk::MenuButton) {
+    let secondary = gtk::GestureClick::builder().button(3).build();
+    let popup = menu.downgrade();
+    secondary.connect_released(move |gesture, _, _, _| {
+        if let Some(menu) = popup.upgrade() {
+            gesture.set_state(gtk::EventSequenceState::Claimed);
+            menu.popup();
+        }
+    });
+    anchor.add_controller(secondary);
+    let keys = gtk::EventControllerKey::new();
+    let popup = menu.downgrade();
+    let focused = anchor.as_ref().downgrade();
+    keys.connect_key_pressed(move |_, key, _, modifiers| {
+        if (key == gtk::gdk::Key::Menu
+            || key == gtk::gdk::Key::F10 && modifiers.contains(gtk::gdk::ModifierType::SHIFT_MASK))
+            && focused.upgrade().is_some_and(|widget| widget.has_focus())
+            && let Some(menu) = popup.upgrade()
+        {
+            menu.popup();
+            return glib::Propagation::Stop;
+        }
+        glib::Propagation::Proceed
+    });
+    anchor.add_controller(keys);
 }

@@ -839,6 +839,7 @@ impl Controller {
             | PaneAction::Enqueue(track)
             | PaneAction::EnqueueNext(track)
             | PaneAction::AddToPlaylist(track)
+            | PaneAction::CopyLink(track)
             | PaneAction::Lyrics(track)
             | PaneAction::OpenMenu(track)
             | PaneAction::DeliveryProbe(track) => Some(track),
@@ -881,6 +882,11 @@ impl Controller {
             PaneAction::Enqueue(track) => self.enqueue(track),
             PaneAction::EnqueueNext(track) => self.enqueue_next(track),
             PaneAction::AddToPlaylist(track) => self.present_add_to_playlist(track),
+            PaneAction::CopyLink(track) => {
+                if let Some(link) = sharing::track_link(&track) {
+                    sharing::copy_link(&self.track_pane.widget, &link);
+                }
+            }
             PaneAction::Lyrics(track) => self.show_track_lyrics(track, context),
             PaneAction::OpenMenu(track) => {
                 let controls = self.selected_like_controls(track.id);

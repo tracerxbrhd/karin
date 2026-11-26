@@ -169,6 +169,10 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
                     assert_eq!(track.id, "42");
                     "add_playlist"
                 }
+                PaneAction::CopyLink(track) => {
+                    assert_eq!(track.id, "42");
+                    "copy_link"
+                }
                 PaneAction::Lyrics(track) => {
                     assert_eq!(track.id, "42");
                     "lyrics"
@@ -296,6 +300,8 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
     artist.grab_focus();
     settle();
     click(&window, id, &artist);
+    click_menu_action(&window, id, &pane, "track-pane.copy-link");
+    pump_until(|| events.borrow().last() == Some(&"copy_link"));
     assert_eq!(
         events.borrow().as_slice(),
         &[
@@ -306,6 +312,7 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
             "lyrics",
             "album",
             "artist",
+            "copy_link",
         ]
     );
 
@@ -431,7 +438,7 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
     artist.emit_clicked();
     assert_eq!(
         events.borrow().len(),
-        7,
+        8,
         "late old link must not navigate a new selection"
     );
 

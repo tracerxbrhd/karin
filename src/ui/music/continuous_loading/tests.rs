@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Loaded-view windows and exact occurrences; no HTTP, account or GTK display.
+//! Loaded-view windows and exact occurrences; no GTK display.
 use super::*;
 
 fn track() -> Track {
@@ -21,6 +21,42 @@ fn page(count: usize, has_more: bool) -> Page<Track> {
         items: vec![track(); count],
         has_more,
     }
+}
+
+#[test]
+fn an_exact_display_prefix_gains_edit_actions_only_after_a_fresh_playlist_manifest() {
+    use crate::music::library_index::tests::{fixture, token};
+
+    let fixture = fixture(2, false);
+    let token = token();
+    fixture.service.account(&token).unwrap();
+    let source = CollectionSource::Playlist(crate::music::PlaylistId {
+        owner: "1234".into(),
+        kind: "7".into(),
+    });
+    let snapshot = fixture
+        .service
+        .collection_snapshot(&token, &source)
+        .unwrap();
+    let batch = fixture
+        .service
+        .collection_index_batch(&token, &snapshot, 0)
+        .unwrap();
+    let mut view = LoadedTracks::new(ContextKind::Playlist, Some("1234:7".into()), 1);
+    view.append(
+        0,
+        Page {
+            items: batch.tracks.into_iter().map(|(_, track)| track).collect(),
+            has_more: false,
+        },
+    );
+    assert_eq!(view.items.len(), 2);
+    assert!(snapshot.matches_prefix(&view.items));
+    assert!(view.removals.iter().all(Option::is_none));
+    let queue = view.context(1).unwrap();
+    assert!(view.rebind_prefix_removals(&snapshot));
+    assert!(view.removals.iter().all(Option::is_some));
+    assert_eq!(view.context(1).unwrap(), queue);
 }
 
 #[test]

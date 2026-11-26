@@ -50,6 +50,13 @@ confirmation with Cancel default/close. Edits refresh surviving views without ch
 active queue, playback or saved provenance. Closing a dialog cannot unsend an accepted
 remote request.
 
+The track menu carries a process-only receipt from the owned response that supplied
+the row's absolute server position. Cached pages and foreign, generated, unavailable
+or incomplete playlists provide no receipt. The worker checks the complete ordered
+identity sequence, metadata and revision on a fresh read before issuing one delete
+diff. A revision or sequence mismatch refreshes the view by GET and requires a new
+selection. Sorting, filtering and an already admitted queue do not supply edit indices.
+
 ## Evidence and verification
 
 [Pinned

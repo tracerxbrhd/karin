@@ -28,6 +28,21 @@ fn state(revision: u64, entries: &[(&str, &str)]) -> String {
         "trackCount":entries.len(),"revision":revision,"visibility":"private",
         "tracks":entries.iter().map(|(id,album)|json!({"id":id,"albumId":album})).collect::<Vec<_>>()}}).to_string()
 }
+fn visible_state(revision: u64, entries: &[(&str, &str)]) -> String {
+    let mut body: Value = serde_json::from_str(&state(revision, entries)).unwrap();
+    for (entry, (id, album)) in body["result"]["tracks"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .zip(entries)
+    {
+        entry["track"] = json!({
+            "id": id, "title": "Original fixture track", "available": true,
+            "albums": [{"id": album}]
+        });
+    }
+    body.to_string()
+}
 fn modified_state(revision: u64, entries: &[(&str, &str)], key: &str, value: Value) -> String {
     let mut body: Value = serde_json::from_str(&state(revision, entries)).unwrap();
     body["result"][key] = value;
@@ -125,6 +140,113 @@ fn form(request: &str) -> Vec<(String, String)> {
 fn authenticated_snapshot(service: &MusicService, token: &AccessToken) -> EditablePlaylist {
     service.account(token).unwrap();
     service.playlist_edit_state(token, &id()).unwrap()
+}
+
+#[test]
+fn displayed_playlist_occurrence_uses_its_original_revision_and_absolute_position() {
+    let before = visible_state(7, &[("42", "9"), ("99", "8"), ("42", "9"), ("56", "7")]);
+    let after = state(8, &[("42", "9"), ("99", "8"), ("56", "7")]);
+    let (service, server, listener) = fixture(
+        vec![
+            (200, ACCOUNT.into()),
+            (200, before.clone()),
+            (200, before),
+            (200, after.clone()),
+            (200, after),
+        ],
+        None,
+    );
+    let token = token();
+    service.account(&token).unwrap();
+    let (page, receipt) = service
+        .playlist_tracks_for_view(&token, &id(), 0, true)
+        .unwrap();
+    assert_eq!(page.items[0].id, page.items[2].id);
+    let receipt = receipt.unwrap();
+    assert!(receipt.page_removal(1, 0).is_none());
+    let target = receipt.page_removal(0, 2).unwrap();
+    let PlaylistMutationOutcome::Confirmed(result) =
+        service.remove_playlist_track(&token, target).unwrap()
+    else {
+        panic!("expected exact removal readback");
+    };
+    assert_eq!(result.playlist.track_count, 3);
+    assert_eq!(
+        result
+            .entries
+            .iter()
+            .map(PlaylistOccurrence::selector)
+            .collect::<Vec<_>>(),
+        ["42:9", "99:8", "56:7"]
+    );
+    let requests = complete(server, listener);
+    assert_eq!(
+        form(&requests[3]),
+        [
+            ("kind".into(), "17".into()),
+            ("revision".into(), "7".into()),
+            (
+                "diff".into(),
+                json!([{"op":"delete","from":2,"to":3}]).to_string()
+            ),
+        ],
+    );
+    assert!(requests[4].starts_with("GET "));
+}
+
+#[test]
+fn contextual_removal_rejects_a_new_revision_or_shifted_positions_before_post() {
+    for changed in [
+        state(8, &[("42", "9"), ("99", "8"), ("42", "9")]),
+        state(7, &[("42", "9"), ("42", "9"), ("99", "8")]),
+    ] {
+        let before = visible_state(7, &[("42", "9"), ("99", "8"), ("42", "9")]);
+        let (service, server, listener) = fixture(
+            vec![(200, ACCOUNT.into()), (200, before), (200, changed)],
+            None,
+        );
+        let token = token();
+        service.account(&token).unwrap();
+        let (_, receipt) = service
+            .playlist_tracks_for_view(&token, &id(), 0, true)
+            .unwrap();
+        let target = receipt.unwrap().page_removal(0, 2).unwrap();
+        assert!(matches!(
+            service.remove_playlist_track(&token, target),
+            Err(InteractionError::Conflict)
+        ));
+        assert!(
+            complete(server, listener)
+                .iter()
+                .all(|request| request.starts_with("GET "))
+        );
+    }
+}
+
+#[test]
+fn browseable_foreign_and_generated_playlists_produce_no_removal_receipt() {
+    let ordinary = visible_state(7, &[("42", "9")]);
+    let mut foreign = id();
+    foreign.owner = "9999".into();
+    for (playlist_id, field, value) in [
+        (foreign, "owner", json!({"uid":9999})),
+        (id(), "generatedPlaylistType", json!("playlistOfTheDay")),
+        (id(), "available", json!(false)),
+        (id(), "revision", Value::Null),
+    ] {
+        let mut body: Value = serde_json::from_str(&ordinary).unwrap();
+        body["result"][field] = value;
+        let (service, server, listener) =
+            fixture(vec![(200, ACCOUNT.into()), (200, body.to_string())], None);
+        let token = token();
+        service.account(&token).unwrap();
+        let (page, receipt) = service
+            .playlist_tracks_for_view(&token, &playlist_id, 0, true)
+            .unwrap();
+        assert_eq!(page.items.len(), 1);
+        assert!(receipt.is_none());
+        assert_eq!(complete(server, listener).len(), 2);
+    }
 }
 
 #[test]

@@ -17,6 +17,7 @@ mod icons;
 mod music;
 mod playback;
 mod preferences;
+mod shortcuts;
 mod style;
 mod updates;
 
@@ -410,6 +411,7 @@ fn build_shell(
     let music_menu = gio::Menu::new();
     menu.append(Some("Проверить обновления"), Some("app.check-updates"));
     menu.append(Some("Настройки"), Some("win.preferences"));
+    menu.append(Some("Сочетания клавиш"), Some("win.shortcuts"));
     menu.append_section(None, &music_menu);
     if diagnostics_service.is_some() {
         menu.append(Some("Диагностика"), Some("win.diagnostics"));
@@ -488,7 +490,9 @@ fn build_shell(
         .build();
     workspace_bin.set_child(Some(&track_info));
     toolbar.set_content(Some(&workspace_bin));
-    window.set_content(Some(&music.toolbar_with_player(&toolbar)));
+    let toasts = adw::ToastOverlay::new();
+    toasts.set_child(Some(&music.toolbar_with_player(&toolbar)));
+    window.set_content(Some(&toasts));
     {
         let saved_focus: Rc<RefCell<Option<glib::WeakRef<gtk::Widget>>>> = Rc::default();
         let window_unmap = window.downgrade();
@@ -668,6 +672,7 @@ fn build_shell(
     });
     window.add_action(&preferences);
     app.set_accels_for_action("win.preferences", &["<Primary>comma"]);
+    shortcuts::install_help(&window, app);
     // Retain the existing shortcut as navigation focus, not a hidden rail.
     let navigation_action = gio::SimpleAction::new("sidebar", None);
     let window_for_sidebar = window.downgrade();

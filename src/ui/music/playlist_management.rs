@@ -7,8 +7,26 @@ use crate::music::{
     PlaylistId,
     interactions::InteractionError,
     playlist_creation::PlaylistVisibility,
-    playlist_management::{EditablePlaylist, PlaylistChange, PlaylistMutationOutcome},
+    playlist_management::{
+        EditablePlaylist, PlaylistChange, PlaylistMutationOutcome, PlaylistTrackRemoval,
+    },
 };
+
+pub(super) type RowRemoval = (
+    std::rc::Weak<continuous_loading::TrackFeed>,
+    PlaylistTrackRemoval,
+);
+const REMOVAL_PENDING: &str = "Удаляем выбранную позицию и проверяем состав плейлиста…";
+
+fn reconcile_track_removal(error: InteractionError) -> bool {
+    matches!(
+        error,
+        InteractionError::Conflict
+            | InteractionError::ConfirmationUnavailable
+            | InteractionError::ConfirmationMismatch
+            | InteractionError::WriteOutcomeUnknown
+    )
+}
 
 #[derive(Default)]
 pub(super) struct State {
@@ -153,6 +171,149 @@ impl Form {
 }
 
 impl Controller {
+    pub(super) fn playlist_removal_button(
+        self: &Rc<Self>,
+        popover: &gtk::Popover,
+        (feed, removal): RowRemoval,
+    ) -> gtk::Button {
+        let button = gtk::Button::with_label("Удалить из плейлиста");
+        button.set_widget_name("music-track-remove-playlist");
+        button.add_css_class("flat");
+        let close = popover.downgrade();
+        let weak = Rc::downgrade(self);
+        button.connect_clicked(move |_| {
+            let Some(popover) = close.upgrade().filter(gtk::prelude::WidgetExt::is_mapped) else {
+                return;
+            };
+            popover.popdown();
+            if let (Some(this), Some(feed)) = (weak.upgrade(), feed.upgrade())
+                && this.feed_is_current(&feed)
+                && feed.rows.is_mapped()
+            {
+                this.remove_visible_playlist_track(feed, removal.clone());
+            }
+        });
+        button
+    }
+
+    fn remove_visible_playlist_track(
+        self: &Rc<Self>,
+        feed: continuous_loading::Feed,
+        removal: PlaylistTrackRemoval,
+    ) {
+        if self.mutation_busy.replace(true) {
+            self.widgets.status.set_subtitle(
+                "Другая правка библиотеки ещё выполняется. Повторите действие после её завершения.",
+            );
+            return;
+        }
+        self.widgets.status.set_subtitle(REMOVAL_PENDING);
+        let cache = self.persistent_cache();
+        self.invalidate_creation_reads();
+        let feed = Rc::downgrade(&feed);
+        self.run(
+            Operation::PlaylistMutation,
+            move |service, token| {
+                let id = removal.playlist_id().clone();
+                let result = service.remove_playlist_track(&token, removal);
+                invalidate_cache(&service, &token, cache);
+                // Reconciliation is read-only even when a write response was
+                // lost. Never locate another occurrence and replay the POST.
+                let latest = if result
+                    .as_ref()
+                    .err()
+                    .is_some_and(|error| reconcile_track_removal(*error))
+                {
+                    service
+                        .reconcile_playlist(&token, &id)
+                        .ok()
+                        .flatten()
+                        .map(|snapshot| snapshot.playlist)
+                } else {
+                    None
+                };
+                Ok((result, latest))
+            },
+            move |this, result| {
+                this.mutation_busy.set(false);
+                this.invalidate_creation_reads();
+                if this.widgets.status.subtitle().as_deref() == Some(REMOVAL_PENDING) {
+                    this.widgets.status.set_subtitle("");
+                }
+                let (result, latest) = result.unwrap_or_else(|error| (Err(error.into()), None));
+                if !feed
+                    .upgrade()
+                    .is_some_and(|feed| this.feed_is_current(&feed) && feed.rows.is_mapped())
+                {
+                    // Refreshing a different view would displace the user's
+                    // navigation. Its cached metadata was already invalidated.
+                    if result.is_ok()
+                        && this.widgets.stack.visible_child_name().as_deref() == Some("playlists")
+                    {
+                        this.load_library_refresh(0);
+                    }
+                    return;
+                }
+                let confirmed = result.is_ok();
+                let reconcile = result
+                    .as_ref()
+                    .err()
+                    .is_some_and(|error| reconcile_track_removal(*error));
+                let (playlist, message) = match result {
+                    Ok(PlaylistMutationOutcome::Confirmed(snapshot)) => (
+                        Some(snapshot.playlist),
+                        "Трек удалён. Состав плейлиста подтверждён.",
+                    ),
+                    Err(InteractionError::Conflict) => (
+                        latest,
+                        "Плейлист изменился. Проверьте актуальный состав и повторите действие.",
+                    ),
+                    Err(
+                        InteractionError::ConfirmationUnavailable
+                        | InteractionError::ConfirmationMismatch
+                        | InteractionError::WriteOutcomeUnknown,
+                    ) => (
+                        latest,
+                        "Удаление не подтверждено. Проверьте состав плейлиста перед новой правкой.",
+                    ),
+                    Err(InteractionError::Music(
+                        error @ (MusicError::AccessDenied | MusicError::Unauthenticated),
+                    )) => {
+                        this.show_error(error);
+                        return;
+                    }
+                    Err(error) => (None, edit_message(error)),
+                    Ok(PlaylistMutationOutcome::Deleted) => unreachable!("track-only mutation"),
+                };
+                if let Some(playlist) = playlist {
+                    let was_refreshing = this.refreshing_detail.replace(true);
+                    this.open_playlist_policy(playlist, 0, true);
+                    this.refreshing_detail.set(was_refreshing);
+                } else if reconcile {
+                    // Retire the preflight receipts even when the independent
+                    // read failed. The next visible edit needs fresh data.
+                    let action = this.detail_refresh.borrow().clone();
+                    if let Some(action) = action {
+                        let was_refreshing = this.refreshing_detail.replace(true);
+                        action(this, true);
+                        this.refreshing_detail.set(was_refreshing);
+                    }
+                }
+                if confirmed
+                    && let Some(overlay) = this
+                        .widgets
+                        .status
+                        .ancestor(adw::ToastOverlay::static_type())
+                        .and_downcast::<adw::ToastOverlay>()
+                {
+                    overlay.add_toast(adw::Toast::new(message));
+                } else {
+                    this.widgets.status.set_subtitle(message);
+                }
+            },
+        );
+    }
+
     /// One shared native editor/picker. Session teardown also retires a nested
     /// confirmation, so an old dialog can never apply to a replacement account.
     pub(super) fn retire_playlist_management(&self) {

@@ -149,7 +149,7 @@ fn native_v07_playback_restore_playlist_appearance_process_restart() {
             resumed.visibility,
             resumed.deletes
         ),
-        (3, 1, 1, 1)
+        (4, 1, 1, 1)
     );
     assert!(server.mode.lock().unwrap().deleted);
     reports.push(run(&main, "deleted-source"));
@@ -532,6 +532,7 @@ fn child(input: &Input, phase: &str) {
                     this.model.borrow().queue.occurrence_id(1)
                 );
                 exercise_mutations(&ui.window, this, input);
+                exercise_playlist_context_removal(&ui.window, this);
                 let expected = QueueState::capture(this);
                 let native = this.music_snapshot().unwrap();
                 let serial = this.music_serial();
@@ -1400,12 +1401,98 @@ fn response_button(dialog: &adw::AlertDialog, label: &str) -> gtk::Button {
         .find(|button| button.label().as_deref() == Some(label))
         .expect("native confirmation response")
 }
+
+fn exercise_playlist_context_removal(window: &adw::ApplicationWindow, this: &Rc<Controller>) {
+    let queue = QueueState::capture(this);
+    let serial = this.music_serial();
+    let generation = this.music_snapshot().unwrap().generation;
+    this.open_playlist_policy(playlist(false), 0, true);
+    let rows = || named_all(this.widgets.detail.upcast_ref(), "music-track-row");
+    pump_until(|| rows().len() == 4 && settled(this));
+    let row = &rows()[3];
+    let menu = named_all(row, "*")
+        .into_iter()
+        .find_map(|widget| widget.downcast::<gtk::MenuButton>().ok())
+        .unwrap();
+    assert!(row.grab_focus());
+    key("Menu");
+    let popover = menu.popover().unwrap();
+    pump_until(|| popover.is_mapped());
+    let remove = named(&popover, "music-track-remove-playlist");
+    if let Ok(directory) = std::env::var("KARIN_TEST_CAPTURE_DIR") {
+        let style = adw::StyleManager::default();
+        let original = style.color_scheme();
+        for (theme, scheme) in [
+            ("light", adw::ColorScheme::ForceLight),
+            ("dark", adw::ColorScheme::ForceDark),
+        ] {
+            style.set_color_scheme(scheme);
+            super::super::super::test_input::wait_for_layout(window, &remove);
+            assert!(
+                Command::new("import")
+                    .args(["-silent", "-screen", "-window", &window_id()])
+                    .arg(
+                        PathBuf::from(&directory)
+                            .join(format!("v083-playlist-removal-menu-{theme}.png"))
+                    )
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+        }
+        style.set_color_scheme(original);
+    }
+    click(window, &remove);
+    pump_until(|| rows().len() == 3 && settled(this) && !this.mutation_busy.get());
+    let titles = rows()
+        .iter()
+        .map(|row| {
+            named_all(row, "*")
+                .into_iter()
+                .filter_map(|widget| widget.downcast::<gtk::Label>().ok())
+                .find(|label| label.has_css_class("music-track-title"))
+                .unwrap()
+                .text()
+        })
+        .collect::<Vec<_>>();
+    // The two 43:7 occurrences bracket 44:7; removing the other duplicate
+    // would produce a different visible order despite an identical count.
+    assert_eq!(
+        titles,
+        [
+            "Original audio 42",
+            "Original audio 43",
+            "Original audio 44"
+        ]
+    );
+    let facts = named(&this.widgets.detail, "music-detail-facts")
+        .downcast::<gtk::Label>()
+        .unwrap();
+    assert_eq!(facts.text(), "Плейлист · 3 трека");
+    assert_eq!(
+        this.widgets.stack.visible_child_name().as_deref(),
+        Some("detail")
+    );
+    assert_player_unchanged(this, &queue, serial, generation);
+    if let Ok(directory) = std::env::var("KARIN_TEST_CAPTURE_DIR") {
+        super::super::super::test_input::wait_for_layout(window, &facts);
+        assert!(
+            Command::new("import")
+                .args(["-silent", "-screen", "-window", &window_id()])
+                .arg(PathBuf::from(directory).join("v083-playlist-removal-confirmed.png"))
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+}
+
 fn exercise_delete(window: &adw::ApplicationWindow, this: &Rc<Controller>) {
     let queue = QueueState::capture(this);
     let serial = this.music_serial();
     let generation = this.music_snapshot().unwrap().generation;
     this.present_playlist_editor(playlist(false));
-    let dialog = editor_ready(this, 4);
+    let dialog = editor_ready(this, 3);
     click(window, &named(&dialog, "music-playlist-manage-delete"));
     pump_until(|| {
         this.playlist_management_confirmation_for_test()

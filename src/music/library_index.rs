@@ -26,6 +26,7 @@ pub struct CollectionSnapshot {
     revision: Option<u64>,
     added: Arc<Vec<Option<i64>>>,
     binding: SearchBinding,
+    playlist_edit: Option<super::playlist_management::PlaylistViewReceipt>,
 }
 impl fmt::Debug for CollectionSnapshot {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -63,6 +64,12 @@ impl CollectionSnapshot {
     }
     pub fn added_at(&self, position: usize) -> Option<i64> {
         self.added.get(position).copied().flatten()
+    }
+    pub(crate) fn playlist_removal(
+        &self,
+        position: usize,
+    ) -> Option<super::playlist_management::PlaylistTrackRemoval> {
+        self.playlist_edit.as_ref()?.removal(position)
     }
 }
 
@@ -206,12 +213,19 @@ impl MusicService {
             })
             .collect::<Result<Vec<_>, MusicError>>()?;
         self.check_search_binding(token, &binding)?;
+        let playlist_edit = match source {
+            CollectionSource::Playlist(id) if id.owner == binding.uid => {
+                super::playlist_management::view_receipt(&body, id, binding.clone())
+            }
+            _ => None,
+        };
         Ok(CollectionSnapshot {
             source: source.clone(),
             selectors: Arc::new(selectors),
             revision,
             added: Arc::new(added),
             binding,
+            playlist_edit,
         })
     }
 
