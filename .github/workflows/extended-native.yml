@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-name: Extended native diagnostics (manual)
+name: Extended diagnostics and Flatpak acceptance (manual)
 
 # Optional signed-out diagnostic gallery. Populated System, motion, cold footer,
 # lyrics glyphs, High Contrast and targeted HiDPI remain required in ci.yml.
@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Signed-out gallery or bounded software-GL/Cairo cold profiling
+        description: Native gallery, cold profiling or isolated Flatpak acceptance
         type: choice
-        options: [gallery, cold-profile]
+        options: [gallery, cold-profile, flatpak-acceptance]
         default: gallery
 
 permissions:
@@ -21,6 +21,7 @@ concurrency:
 
 jobs:
   gallery:
+    if: inputs.mode != 'flatpak-acceptance'
     name: ${{ inputs.mode == 'cold-profile' && 'Cold render profiling (software GL/Cairo)' || 'Native capture gallery' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -91,6 +92,7 @@ jobs:
           path: build/ui-captures/
           retention-days: 7
           if-no-files-found: error
+
       - name: Profile first and repeated footer reveals in fresh processes
         if: inputs.mode == 'cold-profile'
         run: |
@@ -120,4 +122,63 @@ jobs:
           name: karin-cold-render-${{ github.sha }}
           path: build/cold-render/
           retention-days: 7
+          if-no-files-found: error
+
+  flatpak_acceptance:
+    name: Flatpak source build and installed smoke
+    if: inputs.mode == 'flatpak-acceptance'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      RUSTUP_TOOLCHAIN: '1.98.1'
+      CARGO_INCREMENTAL: '0'
+      CARGO_BUILD_JOBS: '2'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install build tools and the GNOME SDK in the test runner
+        run: |
+          sudo apt-get -o APT::Update::Error-Mode=any -o Acquire::Retries=2 update
+          sudo apt-get -o Acquire::Retries=2 install -y --no-install-recommends \
+            appstream appstream-compose desktop-file-utils elfutils flatpak flatpak-builder ostree \
+            dbus-x11 xvfb xauth
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component rust-src
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user --noninteractive flathub org.gnome.Platform//50 org.gnome.Sdk//50 \
+            org.freedesktop.Sdk.Extension.rust-stable//25.08
+      - name: Build the exact prepared source and verify the exported bundle
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          cargo fetch --locked
+          python3 packaging/flatpak/prepare-source.py
+          python3 packaging/release/manifest.py --revision "$GITHUB_SHA" \
+            --output build/pinned/io.github.tracerxbrhd.Karin.json
+          dbus-run-session -- python3 packaging/release/artifacts.py flatpak --revision "$GITHUB_SHA" \
+            --manifest build/pinned/io.github.tracerxbrhd.Karin.json \
+            --source-dir build/flatpak-source --output build/flatpak-acceptance
+          cd build/flatpak-acceptance
+          bundle=(karin-*.flatpak)
+          test "${#bundle[@]}" -eq 1
+          acceptance="${bundle[0]%.flatpak}-$(uname -m)-acceptance.flatpak"
+          mv -- "${bundle[0]}" "$acceptance"
+          flatpak uninstall --user --noninteractive io.github.tracerxbrhd.Karin
+          dbus-run-session -- flatpak install --user --noninteractive --bundle "./$acceptance"
+          flatpak run --user io.github.tracerxbrhd.Karin --version | grep -Fx "Source commit: $GITHUB_SHA"
+          GTK_A11Y=none GSK_RENDERER=cairo dbus-run-session -- xvfb-run -a \
+            flatpak run --user io.github.tracerxbrhd.Karin --smoke-test
+          sha256sum "$acceptance" karin-*-source.tar.gz > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - name: Retain the isolated test bundle and corresponding source
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: karin-flatpak-acceptance-${{ github.sha }}
+          path: |
+            build/flatpak-acceptance/*-acceptance.flatpak
+            build/flatpak-acceptance/*-source.tar.gz
+            build/flatpak-acceptance/*-flatpak.BUILD-INFO.json
+            build/flatpak-acceptance/SHA256SUMS
+          retention-days: 14
           if-no-files-found: error
