@@ -222,7 +222,7 @@ impl PreferencesView {
 
         let integrations = adw::PreferencesGroup::builder()
             .title("Интеграции")
-            .description("Discord получает название, исполнителей, альбом, публичную обложку и время воспроизведения текущего трека. К активности добавляются ссылки на трек и загрузку Karin.")
+            .description("Discord получает название, исполнителей, альбом, публичную обложку и время воспроизведения. Название трека открывает его страницу в Яндекс Музыке.")
             .build();
         let discord = adw::SwitchRow::builder()
             .title("Discord Rich Presence")

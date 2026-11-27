@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Opt-in, local Discord RPC. GTK supplies actual player events and owns no socket.
+//! Local Discord RPC. GTK supplies actual player events and owns no socket.
 
 use std::{
     env, io,
@@ -20,7 +20,6 @@ const APPLICATION_ID: &str = "1575553368280137790";
 const DISCORD_FLATPAK: &str = "com.discordapp.Discord";
 const RETRY_DELAY: Duration = Duration::from_secs(5);
 const ACTIVITY_INTERVAL: Duration = Duration::from_secs(4);
-const DOWNLOAD_URL: &str = "https://github.com/tracerxbrhd/karin/releases/latest";
 // Set to Some("karin_logo") when the owner registers that Rich Presence art asset.
 const FALLBACK_IMAGE: Option<&str> = None;
 
@@ -67,7 +66,6 @@ pub(crate) struct Activity {
     timestamps: Option<Timestamps>,
     #[serde(skip_serializing_if = "Option::is_none")]
     assets: Option<Assets>,
-    buttons: Vec<Button>,
     #[serde(skip)]
     paused: bool,
 }
@@ -82,12 +80,6 @@ struct Timestamps {
 #[derive(PartialEq, Eq, Serialize)]
 struct Assets {
     large_image: String,
-}
-
-#[derive(PartialEq, Eq, Serialize)]
-struct Button {
-    label: &'static str,
-    url: String,
 }
 
 impl Activity {
@@ -148,10 +140,6 @@ impl Activity {
             state: field(&state),
             timestamps,
             assets,
-            buttons: vec![Button {
-                label: "Скачать Karin",
-                url: DOWNLOAD_URL.into(),
-            }],
             paused,
         })
     }

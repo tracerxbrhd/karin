@@ -559,7 +559,7 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
         }),
     };
     let view = Rc::new(PreferencesView::new(&snapshot.borrow(), &callbacks));
-    let discord_status = Rc::new(Cell::new(DiscordStatus::Disabled));
+    let discord_status = Rc::new(Cell::new(DiscordStatus::Waiting));
     view.watch_discord_status({
         let status = Rc::clone(&discord_status);
         move || status.get()
@@ -626,12 +626,14 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
         changes.borrow().last().unwrap().appearance,
         Appearance::Dark
     );
-    assert!(!view.discord.is_active());
+    assert!(view.discord.is_active());
     assert_eq!(
         view.discord_status.subtitle().as_deref(),
-        Some(DiscordStatus::Disabled.label())
+        Some(DiscordStatus::Waiting.label())
     );
     let discord = view.discord.activatable_widget().unwrap();
+    click(&window, id, &discord);
+    pump_until(|| !changes.borrow().last().unwrap().discord_presence);
     click(&window, id, &discord);
     pump_until(|| changes.borrow().last().unwrap().discord_presence);
     for status in [

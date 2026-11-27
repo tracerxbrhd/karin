@@ -551,6 +551,11 @@ fn native_persistent_session_restore_settings_forget_and_close() {
         }
     });
     pump_until(|| this.model.borrow().account_valid && settled(this));
+    assert!(this.persistence.borrow().values.discord_presence);
+    assert_eq!(
+        this.discord_status(),
+        crate::discord_presence::Status::Disabled
+    );
     assert!(
         !flashed_login.get(),
         "restoration briefly displayed the login CTA"

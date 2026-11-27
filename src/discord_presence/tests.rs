@@ -54,9 +54,6 @@ fn listening_activity_contains_only_public_catalog_fields() {
             "assets": {
                 "large_image": "https://avatars.yandex.net/get-music-content/123/def/1000x1000",
             },
-            "buttons": [
-                {"label": "Скачать Karin", "url": DOWNLOAD_URL}
-            ],
         })
     );
     let mut incomplete = track();
@@ -236,6 +233,7 @@ fn local_rpc_resumes_after_late_start_and_restart_then_clears() {
     ready(&mut stream);
     let playing = take_activity(&mut stream);
     assert_eq!(playing["timestamps"]["start"], 958);
+    assert!(playing.get("buttons").is_none());
     assert_eq!(
         playing["details_url"],
         "https://music.yandex.ru/album/19/track/82"

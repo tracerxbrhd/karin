@@ -126,11 +126,14 @@ LRCLIB requires consent and sends public track metadata. Lyrics stay in memory.
 Similar tracks and external lyrics load only for the relevant visible view.
 System styling follows Libadwaita, with High Contrast and Reduced Motion.
 
-Discord Rich Presence starts off. An opt-in local IPC worker sends the latest
-track, transport and seek events without periodic position updates. The track
-title links to its canonical public page. The artist and distinct album share
-one line, and the cover uses an eligible public image URL. Flatpak grants read-only
-access to `xdg-run/discord-ipc-0` and `xdg-run/app/com.discordapp.Discord`.
+Discord Rich Presence is enabled for new profiles and can be disabled under
+Integrations. Earlier settings files represented an unchecked switch by omitting
+the field. The loader preserves that state and saves both choices explicitly.
+The local IPC worker sends track, transport and seek events without periodic
+position updates. The title links to the track's public page. The artist and
+distinct album share one line, and the cover uses an eligible public image URL.
+Flatpak grants read-only access to `xdg-run/discord-ipc-0` and
+`xdg-run/app/com.discordapp.Discord`.
 Restart Karin if the Discord socket was unavailable at startup or recreated.
 
 ## Application updates

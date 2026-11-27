@@ -92,6 +92,8 @@ pub(super) struct State {
     spinner: gtk::Spinner,
     retry_button: gtk::Button,
     pub(super) enabled: bool,
+    // Test and diagnostic sessions can use persistence without publishing to Discord.
+    discord_allowed: bool,
     started: bool,
     retry_connected: bool,
     pub(super) closed: bool,
@@ -141,7 +143,9 @@ pub(super) struct State {
 
 impl State {
     pub(super) fn system() -> Self {
-        Self::new(true)
+        let mut state = Self::new(true);
+        state.discord_allowed = true;
+        state
     }
     pub(super) fn disabled() -> Self {
         Self::new(false)
@@ -202,6 +206,7 @@ impl State {
             spinner,
             retry_button,
             enabled,
+            discord_allowed: false,
             started: false,
             retry_connected: false,
             closed: false,
@@ -1315,8 +1320,9 @@ impl Controller {
             .set_visible(p.retry != Retry::None || p.playback.retry);
         p.retry_button
             .set_sensitive(p.phase == Phase::Idle && !p.critical && !p.playback.loading());
-        let discord_changed =
-            self.enable_discord_presence(p.ready && !p.closed && p.values.discord_presence);
+        let discord_changed = self.enable_discord_presence(
+            p.discord_allowed && p.ready && !p.closed && p.values.discord_presence,
+        );
         if let Some(view) = &p.view {
             view.update(&p.snapshot());
             view.set_discord_status(self.discord_status());
