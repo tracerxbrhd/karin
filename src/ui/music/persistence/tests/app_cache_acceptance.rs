@@ -1308,47 +1308,24 @@ fn pointer(window: &adw::ApplicationWindow, target: &impl IsA<gtk::Widget>) {
         );
     }
     let id = window_id();
-    let command = |args: Vec<String>| {
-        assert!(
-            Command::new("xdotool")
-                .args(args)
-                .status()
-                .unwrap()
-                .success()
-        );
-    };
-    command(vec!["windowfocus".into(), "--sync".into(), id.clone()]);
-    let query = |args: &[&str]| {
-        let output = Command::new("xdotool").args(args).output().unwrap();
-        assert!(output.status.success());
-        String::from_utf8(output.stdout).unwrap()
-    };
-    let geometry = query(&["getwindowgeometry", "--shell", &id]);
-    let position = query(&["getmouselocation", "--shell"]);
-    let field = |text: &str, name: &str| {
-        text.lines()
-            .find_map(|line| line.strip_prefix(name))
+    assert!(
+        Command::new("xdotool")
+            .args([
+                "windowfocus",
+                "--sync",
+                &id,
+                "mousemove",
+                "--window",
+                &id,
+                &x.to_string(),
+                &y.to_string(),
+                "click",
+                "1",
+            ])
+            .status()
             .unwrap()
-            .parse::<i32>()
-            .unwrap()
-    };
-    // xdotool's --sync can wait forever for a no-op relative move.
-    // Repeated clicks at the same row could otherwise block this GTK
-    // thread forever. Skip only movement already confirmed at the real root
-    // coordinates; changed targets keep the original synchronized motion.
-    if field(&position, "X=") != field(&geometry, "X=") + x
-        || field(&position, "Y=") != field(&geometry, "Y=") + y
-    {
-        command(vec![
-            "mousemove".into(),
-            "--sync".into(),
-            "--window".into(),
-            id,
-            x.to_string(),
-            y.to_string(),
-        ]);
-    }
-    command(vec!["click".into(), "1".into()]);
+            .success()
+    );
 }
 fn key(_window: &adw::ApplicationWindow, value: &str) {
     assert!(

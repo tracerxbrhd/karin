@@ -57,6 +57,9 @@ python3 -m unittest discover -s packaging/release -p 'test_*.py'
 
 The self-tests use generated audio and `fakesink`. Packaging tests use temporary signing keys
 and isolated repositories. The [CI workflow](../.github/workflows/ci.yml) defines the full matrix.
+CI distributes the Ubuntu functional and HiDPI fixtures across three independent runners.
+Debian visual and Lyrics fixtures use separate runners at 1× and 2×. High Contrast runs with
+the 1× lane. All fixtures at their original scales are required for release.
 
 ### Native interaction fixtures
 
@@ -159,7 +162,7 @@ published separately in [karin-source](https://github.com/tracerxbrhd/karin-sour
 
 #### Owner publication procedure
 
-1. Confirm the stable release, CI's four successful jobs on the final `master` commit and its
+1. Confirm the stable release, all eight successful CI jobs on the final `master` commit and its
    matching version tag. Dispatch **Prepare stable Flatpak update** on `master` with the full
    `revision` and `deploy_pages=true`. Keep `master` at that commit through deployment. Signing
    and Pages use the protected `karin-stable-signing` and `github-pages` environments. Keep the

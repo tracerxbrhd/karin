@@ -716,7 +716,6 @@ try:
     geom = dict(line.split("=", 1) for line in geometry.splitlines() if "=" in line)
     input_(
         "mousemove",
-        "--sync",
         int(geom["X"]) + int(geom["WIDTH"]) // 2,
         int(geom["Y"]) + 120 * int(env.get("GDK_SCALE", "1")),
         "click",

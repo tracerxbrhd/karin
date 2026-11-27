@@ -462,7 +462,6 @@ fn native_v08_whole_collection_index_search_sort_and_cancellation() {
     let (x, y) = test_input::pointer(window, &row, test_input::Target::Leading);
     input(&[
         "mousemove",
-        "--sync",
         "--window",
         id,
         &x.to_string(),

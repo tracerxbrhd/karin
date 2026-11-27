@@ -60,13 +60,13 @@ fn click(window: &adw::ApplicationWindow, id: &str, widget: &impl IsA<gtk::Widge
         super::super::test_input::pointer(window, widget, super::super::test_input::Target::Center);
     input(&[
         "mousemove",
-        "--sync",
         "--window",
         id,
         &x.to_string(),
         &y.to_string(),
+        "click",
+        "1",
     ]);
-    input(&["click", "1"]);
 }
 
 fn confirmation(this: &Rc<Controller>, phase: &str) -> LogoutConfirmation {

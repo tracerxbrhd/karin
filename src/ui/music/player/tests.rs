@@ -819,21 +819,24 @@ fn native_click(window: &adw::ApplicationWindow, widget: &impl IsA<gtk::Widget>)
     assert!(found.status.success());
     let id = String::from_utf8(found.stdout).unwrap();
     let id = id.lines().next().unwrap();
-    let x = x.to_string();
-    let y = y.to_string();
-    for arguments in [
-        vec!["windowfocus", "--sync", id],
-        vec!["mousemove", "--sync", "--window", id, &x, &y],
-        vec!["click", "1"],
-    ] {
-        assert!(
-            std::process::Command::new("xdotool")
-                .args(arguments)
-                .status()
-                .unwrap()
-                .success()
-        );
-    }
+    assert!(
+        std::process::Command::new("xdotool")
+            .args([
+                "windowfocus",
+                "--sync",
+                id,
+                "mousemove",
+                "--window",
+                id,
+                &x.to_string(),
+                &y.to_string(),
+                "click",
+                "1",
+            ])
+            .status()
+            .unwrap()
+            .success()
+    );
 }
 
 #[test]
@@ -1393,6 +1396,9 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
     ));
     assert!(this.player.borrow().controller.is_none());
 
+    // The failed offer returns before its abandoned cache lookup releases the slot.
+    // Let it settle before testing the next successfully authorized cache hit.
+    pump_until(|| cache.lookup_settled_for_test());
     fixture.counts.lock().unwrap().reject_delivery_track = None;
     this.widgets.play.emit_clicked();
     wait_playing(this, 0);
@@ -1427,6 +1433,7 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
         Err(CacheError::NoGrant)
     ));
     assert_eq!(cache.stats().unwrap().entries, 1);
+    pump_until(|| cache.lookup_settled_for_test());
     fixture.counts.lock().unwrap().reject_delivery_track = None;
     this.widgets.play.emit_clicked();
     wait_playing(this, 0);
@@ -1786,19 +1793,24 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
         assert!(found.status.success());
         let ids = String::from_utf8(found.stdout).unwrap();
         let id = ids.lines().next().unwrap();
-        for args in [
-            vec!["windowfocus", "--sync", id],
-            vec!["mousemove", "--sync", "--window", id, &x, &y],
-            vec!["click", "1"],
-        ] {
-            assert!(
-                std::process::Command::new("xdotool")
-                    .args(args)
-                    .status()
-                    .unwrap()
-                    .success()
-            );
-        }
+        assert!(
+            std::process::Command::new("xdotool")
+                .args([
+                    "windowfocus",
+                    "--sync",
+                    id,
+                    "mousemove",
+                    "--window",
+                    id,
+                    &x,
+                    &y,
+                    "click",
+                    "1",
+                ])
+                .status()
+                .unwrap()
+                .success()
+        );
         pump_until(|| this.info_is_open());
         assert_pinned_track(this, "42");
     }
