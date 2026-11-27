@@ -20,6 +20,13 @@ fn main() -> glib::ExitCode {
         eprintln!("Invalid arguments. Run karin --help.");
         return glib::ExitCode::from(2);
     };
+    if let Some(result) = karin::run_discord_socket_helper(&args) {
+        return if result.is_ok() {
+            glib::ExitCode::SUCCESS
+        } else {
+            glib::ExitCode::FAILURE
+        };
+    }
     if let Err(error) = karin::accept_restart(&mut args) {
         eprintln!("{error}");
         return glib::ExitCode::FAILURE;

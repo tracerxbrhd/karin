@@ -223,7 +223,7 @@ fn local_rpc_resumes_after_late_start_and_restart_then_clears() {
     assert!(presence.worker.is_none());
     let shared = presence.shared.clone();
     let path = fixture.path();
-    presence.worker = Some(thread::spawn(move || run(&shared, &[path])));
+    presence.worker = Some(thread::spawn(move || run(&shared, &[path], false)));
 
     assert!(presence.enable(true));
     until(|| (presence.status() == Status::Unavailable).then_some(()));

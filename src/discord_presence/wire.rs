@@ -3,7 +3,7 @@
 
 use std::{
     io::{self, Read, Write},
-    os::unix::net::UnixStream,
+    os::{fd::OwnedFd, unix::net::UnixStream},
     path::Path,
     time::{Duration, Instant},
 };
@@ -12,7 +12,7 @@ use rustix::net::{self, AddressFamily, SocketAddrUnix, SocketFlags, SocketType};
 use serde::Deserialize;
 use serde_json::json;
 
-use super::{APPLICATION_ID, Activity, diagnostic};
+use super::{APPLICATION_ID, Activity, diagnostic, peer};
 
 const HANDSHAKE: u32 = 0;
 const FRAME: u32 = 1;
@@ -58,28 +58,16 @@ struct ErrorResponse {
 
 impl Connection {
     pub(super) fn open(path: &Path) -> io::Result<Self> {
+        Self::handshake(open_socket(path)?)
+    }
+
+    pub(super) fn handshake(descriptor: OwnedFd) -> io::Result<Self> {
         let started = Instant::now();
         let failure = |event: &'static str, error: &io::Error| {
             diagnostic(event, Some(error), None, Some(started));
         };
-        let address = SocketAddrUnix::new(path)
-            .map_err(io::Error::from)
-            .inspect_err(|error| failure("socket_address", error))?;
-        let descriptor = net::socket_with(
-            AddressFamily::UNIX,
-            SocketType::STREAM,
-            SocketFlags::CLOEXEC | SocketFlags::NONBLOCK,
-            None,
-        )
-        .map_err(io::Error::from)
-        .inspect_err(|error| failure("socket_create", error))?;
-        net::connect(&descriptor, &address)
-            .map_err(io::Error::from)
-            .inspect_err(|error| failure("socket_connect", error))?;
-        let peer = net::sockopt::socket_peercred(&descriptor)
-            .map_err(io::Error::from)
-            .inspect_err(|error| failure("socket_peer", error))?;
-        if peer.uid != rustix::process::getuid() {
+        let uid = peer::uid(&descriptor).inspect_err(|error| failure("socket_peer", error))?;
+        if uid != rustix::process::getuid().as_raw() {
             let error = io::Error::from(io::ErrorKind::PermissionDenied);
             failure("socket_peer_uid", &error);
             return Err(error);
@@ -299,6 +287,28 @@ impl Connection {
         }
         Ok(())
     }
+}
+
+pub(super) fn open_socket(path: &Path) -> io::Result<OwnedFd> {
+    let started = Instant::now();
+    let failure = |event: &'static str, error: &io::Error| {
+        diagnostic(event, Some(error), None, Some(started));
+    };
+    let address = SocketAddrUnix::new(path)
+        .map_err(io::Error::from)
+        .inspect_err(|error| failure("socket_address", error))?;
+    let descriptor = net::socket_with(
+        AddressFamily::UNIX,
+        SocketType::STREAM,
+        SocketFlags::CLOEXEC | SocketFlags::NONBLOCK,
+        None,
+    )
+    .map_err(io::Error::from)
+    .inspect_err(|error| failure("socket_create", error))?;
+    net::connect(&descriptor, &address)
+        .map_err(io::Error::from)
+        .inspect_err(|error| failure("socket_connect", error))?;
+    Ok(descriptor)
 }
 
 fn remaining(deadline: Instant) -> io::Result<Duration> {

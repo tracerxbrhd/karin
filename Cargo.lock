@@ -865,6 +865,7 @@ dependencies = [
  "gstreamer",
  "gtk4",
  "libadwaita",
+ "libc",
  "reqwest",
  "ring",
  "roxmltree",

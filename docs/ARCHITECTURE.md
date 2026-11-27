@@ -144,7 +144,11 @@ position updates. The title links to the track's public page. The artist and
 distinct album share one line, and the cover uses an eligible public image URL.
 Flatpak grants read-only access to `xdg-run/discord-ipc-0` and
 `xdg-run/app/com.discordapp.Discord`.
-Restart Karin if the Discord socket was unavailable at startup or recreated.
+When the native Discord socket is missing or stale, the worker uses a short-lived
+instance of the same Flatpak to open the current socket and pass back its file
+descriptor. This refreshes the file mount without new permissions or restarting
+playback. The worker verifies the peer UID before any Discord exchange. A peer
+outside the sandbox's PID namespace can have PID zero.
 
 ## Application updates
 

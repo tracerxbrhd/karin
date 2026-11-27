@@ -13,7 +13,10 @@ use serde::Serialize;
 
 use crate::music::{Track, public_links};
 
+mod flatpak;
+mod peer;
 mod wire;
+pub use flatpak::run_discord_socket_helper;
 use wire::Connection;
 
 const APPLICATION_ID: &str = "1575553368280137790";
@@ -246,7 +249,10 @@ impl Presence {
             let shared = self.shared.clone();
             self.worker = thread::Builder::new()
                 .name("karin-discord".into())
-                .spawn(move || run(&shared, &platform_sockets()))
+                .spawn(move || {
+                    let flatpak = is_flatpak();
+                    run(&shared, &platform_sockets(flatpak), flatpak);
+                })
                 .inspect_err(|error| diagnostic("worker_start", Some(error), None, None))
                 .ok();
             if self.worker.is_none() {
@@ -294,10 +300,18 @@ impl Drop for Presence {
     }
 }
 
-fn platform_sockets() -> Vec<PathBuf> {
-    let runtime = env::var_os("XDG_RUNTIME_DIR")
+fn is_flatpak() -> bool {
+    Path::new("/.flatpak-info").is_file()
+}
+
+fn runtime_directory() -> Option<PathBuf> {
+    env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
-        .filter(|p| p.is_absolute());
+        .filter(|path| path.is_absolute())
+}
+
+fn platform_sockets(sandboxed: bool) -> Vec<PathBuf> {
+    let runtime = runtime_directory();
     let temporary = ["TMPDIR", "TMP", "TEMP"]
         .into_iter()
         .find_map(|key| {
@@ -306,7 +320,6 @@ fn platform_sockets() -> Vec<PathBuf> {
                 .filter(|p| p.is_absolute())
         })
         .unwrap_or_else(|| PathBuf::from("/tmp"));
-    let sandboxed = Path::new("/.flatpak-info").is_file();
     socket_paths(runtime.as_deref(), &temporary, sandboxed)
 }
 
@@ -327,30 +340,51 @@ fn socket_paths(runtime: Option<&Path>, temporary: &Path, sandboxed: bool) -> Ve
     sockets
 }
 
-fn connect(sockets: &[PathBuf], shared: &Shared, session: u64) -> Result<Connection, Status> {
+fn socket_unavailable(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
+    )
+}
+
+fn connect(
+    sockets: &[PathBuf],
+    shared: &Shared,
+    session: u64,
+    refresh_native: bool,
+) -> Result<Connection, Status> {
+    let active = || {
+        let state = shared.state.lock().unwrap();
+        state.enabled && state.session == session && !state.closed
+    };
     let mut status = Status::Unavailable;
-    for path in sockets {
-        let active = {
-            let state = shared.state.lock().unwrap();
-            state.enabled && state.session == session && !state.closed
-        };
-        if !active {
-            break;
+    let mut refresh = false;
+    for (index, path) in sockets.iter().enumerate() {
+        if !active() {
+            return Err(status);
         }
         match Connection::open(path) {
             Ok(connection) => return Ok(connection),
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
-                ) => {}
+            // The first Flatpak candidate is the individually mounted native socket.
+            Err(error) if socket_unavailable(&error) => refresh |= refresh_native && index == 0,
+            Err(_) => status = Status::Failed,
+        }
+    }
+    if refresh && active() {
+        let started = Instant::now();
+        let result = flatpak::refresh_native_socket().inspect_err(|error| {
+            diagnostic("socket_refresh", Some(error), None, Some(started));
+        });
+        match result.and_then(Connection::handshake) {
+            Ok(connection) => return Ok(connection),
+            Err(error) if socket_unavailable(&error) => {}
             Err(_) => status = Status::Failed,
         }
     }
     Err(status)
 }
 
-fn run(shared: &Shared, sockets: &[PathBuf]) {
+fn run(shared: &Shared, sockets: &[PathBuf], refresh_native: bool) {
     if sockets.is_empty() {
         diagnostic("socket_no_candidates", None, None, None);
     }
@@ -395,7 +429,7 @@ fn run(shared: &Shared, sockets: &[PathBuf]) {
                 shared.wait(session, delay);
                 continue;
             }
-            match connect(sockets, shared, session) {
+            match connect(sockets, shared, session, refresh_native) {
                 Ok(socket) => {
                     connection = Some(socket);
                     shared.status(session, Status::Connected);

@@ -245,7 +245,7 @@ The software-renderer measurements and their scope are recorded in [#23](https:/
 - WebKit startup fails: check supported versions and user namespaces. Keep sandboxing and TLS enabled.
 - Missing covers: restart with `./run-karin --artwork-diagnostic` or `flatpak run io.github.tracerxbrhd.Karin --artwork-diagnostic`.
   Open the affected view and include only the `Karin artwork: event=` lines in a bug report.
-- Discord Rich Presence unavailable after Discord starts or restarts: relaunch Flatpak Karin to refresh its socket mount.
+- Discord Rich Presence unavailable: allow a few seconds for Karin to reconnect after Discord starts or restarts.
   For a recurring error, launch Native with `KARIN_DISCORD_DIAGNOSTICS=1` or pass
   `--env=KARIN_DISCORD_DIAGNOSTICS=1` to `flatpak run`. Share only the
   `Karin Discord: event=` lines. They contain event names, error categories,
