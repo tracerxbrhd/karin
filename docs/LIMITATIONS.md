@@ -18,9 +18,7 @@ imported official-client sessions or extracted keys are provided.
 Source licensing, reuse of the published OAuth registration and service/content
 rights are separate. OAuth and Music integration conditions remain tracked in
 [#5](https://github.com/tracerxbrhd/karin/issues/5). See [LICENSING](LICENSING.md).
-The [prepared owner request](../packaging/release/YANDEX_REQUEST_RU.md) has not
-been sent. Flathub's separate [AI-manifest/submission policy](https://docs.flathub.org/docs/for-app-authors/requirements#generative-ai-policy)
-means these AI-assisted manifests are not claimed submission-eligible.
+For Flathub submission requirements, see [release packaging](BUILDING.md#pinned-release-sources).
 
 Lyrics availability/matching depend on the provider. Yandex plain text has no
 timing; external LRCLIB lookup needs consent and text remains memory-only.

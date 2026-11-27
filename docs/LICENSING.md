@@ -132,13 +132,12 @@ The focused official review, rechecked on **2026-11-24**, used:
   program/materials, not a grant to Karin's independent Linux implementation.
 
 These sources establish neither a blanket third-party ban nor affirmative approval
-for this integration. The [finished Russian request](../packaging/release/YANDEX_REQUEST_RU.md)
-contains the verified official channel and questions about registration, Music API,
-embedded login, content/cache, branding and Native/Flatpak distribution. It has
-not been sent. An applicable basis, its conditions and working permitted access
-remain open in [#5](https://github.com/tracerxbrhd/karin/issues/5). The published
-0.8.0 release and its preparation are recorded separately in
-[#22](https://github.com/tracerxbrhd/karin/issues/22).
+for this integration. An applicable basis, its conditions and working permitted
+access remain open in [#5](https://github.com/tracerxbrhd/karin/issues/5).
+The [archived draft for Yandex](https://github.com/tracerxbrhd/karin/blob/36ac6820d619fb9aa6c7e235a445ef66f55c610e/packaging/release/YANDEX_REQUEST_RU.md)
+was prepared before the public release and remains unsent.
+[#22](https://github.com/tracerxbrhd/karin/issues/22) records the packaging and
+publication of 0.8.0.
 
 ## Service and test materials
 

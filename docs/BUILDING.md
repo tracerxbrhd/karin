@@ -50,6 +50,12 @@ available. **Главная → Моя волна → Слушать** starts ra
 
 ## Development checks
 
+Use a branch and pull request. The maintainer approves merges and releases.
+Start with the [architecture overview](ARCHITECTURE.md) and record significant
+changes to component contracts in an [ADR](adr/). Use synthetic fixtures for
+service tests. Keep credentials, private account data and signed media URLs
+out of commits, logs and screenshots. Preserve the [required notices](LICENSING.md).
+
 For a full compatibility check:
 
 ```sh
