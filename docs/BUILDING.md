@@ -246,6 +246,10 @@ The software-renderer measurements and their scope are recorded in [#23](https:/
 - Missing covers: restart with `./run-karin --artwork-diagnostic` or `flatpak run io.github.tracerxbrhd.Karin --artwork-diagnostic`.
   Open the affected view and include only the `Karin artwork: event=` lines in a bug report.
 - Discord Rich Presence unavailable after Discord starts or restarts: relaunch Flatpak Karin to refresh its socket mount.
+  For a recurring error, launch Native with `KARIN_DISCORD_DIAGNOSTICS=1` or pass
+  `--env=KARIN_DISCORD_DIAGNOSTICS=1` to `flatpak run`. Share only the
+  `Karin Discord: event=` lines. They contain event names, error categories,
+  numeric codes and elapsed time.
 
 To register Native in the application menu, install `desktop-file-utils` and run this from the extracted directory:
 

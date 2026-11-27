@@ -4,7 +4,7 @@
 use std::{
     env, io,
     path::{Path, PathBuf},
-    sync::{Arc, Condvar, Mutex},
+    sync::{Arc, Condvar, Mutex, OnceLock},
     thread::{self, JoinHandle},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -22,6 +22,26 @@ const RETRY_DELAY: Duration = Duration::from_secs(5);
 const ACTIVITY_INTERVAL: Duration = Duration::from_secs(4);
 // Set to Some("karin_logo") when the owner registers that Rich Presence art asset.
 const FALLBACK_IMAGE: Option<&str> = None;
+
+fn diagnostic(
+    event: &'static str,
+    error: Option<&io::Error>,
+    code: Option<i64>,
+    started: Option<Instant>,
+) {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    if !*ENABLED.get_or_init(|| {
+        env::var_os("KARIN_DISCORD_DIAGNOSTICS").as_deref() == Some(std::ffi::OsStr::new("1"))
+    }) {
+        return;
+    }
+    let kind = error.map(io::Error::kind);
+    let errno = error.and_then(io::Error::raw_os_error);
+    let elapsed_ms = started.map(|start| start.elapsed().as_millis());
+    eprintln!(
+        "Karin Discord: event={event} kind={kind:?} errno={errno:?} code={code:?} elapsed_ms={elapsed_ms:?}"
+    );
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum Status {
@@ -87,10 +107,16 @@ impl Activity {
         // A direct numeric track path alone says nothing about whether an
         // account-local upload belongs to the public catalog. Require its
         // canonical album relationship as the admission boundary.
-        let album_id = track.album_id.as_deref()?;
-        public_links::album(album_id)?;
-        let track_link = public_links::track(&track.id, Some(album_id))?;
+        let track_link = track.album_id.as_deref().and_then(|album_id| {
+            public_links::album(album_id)?;
+            public_links::track(&track.id, Some(album_id))
+        });
+        let Some(track_link) = track_link else {
+            diagnostic("activity_skipped_catalog_link", None, None, None);
+            return None;
+        };
         if !track.available {
+            diagnostic("activity_skipped_unavailable", None, None, None);
             return None;
         }
         let details = field(&track.title);
@@ -221,6 +247,7 @@ impl Presence {
             self.worker = thread::Builder::new()
                 .name("karin-discord".into())
                 .spawn(move || run(&shared, &platform_sockets()))
+                .inspect_err(|error| diagnostic("worker_start", Some(error), None, None))
                 .ok();
             if self.worker.is_none() {
                 self.shared.state.lock().unwrap().status = Status::Failed;
@@ -324,6 +351,9 @@ fn connect(sockets: &[PathBuf], shared: &Shared, session: u64) -> Result<Connect
 }
 
 fn run(shared: &Shared, sockets: &[PathBuf]) {
+    if sockets.is_empty() {
+        diagnostic("socket_no_candidates", None, None, None);
+    }
     let mut session = 0;
     let mut connection: Option<Connection> = None;
     let mut sent: Option<Arc<Activity>> = None;

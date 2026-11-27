@@ -210,7 +210,7 @@ fn take_activity(stream: &mut UnixStream) -> Value {
     send(
         stream,
         1,
-        &json!({"cmd":"SET_ACTIVITY","nonce":request["nonce"]}),
+        &json!({"cmd":"SET_ACTIVITY","nonce":request["nonce"],"data":[]}),
     );
     request["args"]["activity"].clone()
 }
@@ -300,6 +300,36 @@ fn local_rpc_resumes_after_late_start_and_restart_then_clears() {
 }
 
 #[test]
+fn fragmented_idle_ping_survives_poll_deadlines() {
+    let fixture = SocketFixture::new();
+    let listener = fixture.listen();
+    let peer = thread::spawn(move || {
+        let mut stream = accept(&listener);
+        ready(&mut stream);
+        stream
+    });
+    let mut connection = Connection::open(&fixture.path()).unwrap();
+    let mut peer = peer.join().unwrap();
+
+    let pulse = json!({"fragmented":true});
+    let payload = serde_json::to_vec(&pulse).unwrap();
+    let mut frame = Vec::new();
+    frame.extend_from_slice(&3_u32.to_le_bytes());
+    frame.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+    frame.extend_from_slice(&payload);
+
+    // Each incomplete fragment is deliberately held until the caller's idle
+    // deadline passes, independently of thread scheduling.
+    peer.write_all(&frame[..3]).unwrap();
+    connection.poll().unwrap();
+    peer.write_all(&frame[3..9]).unwrap();
+    connection.poll().unwrap();
+    peer.write_all(&frame[9..]).unwrap();
+    connection.poll().unwrap();
+    assert_eq!(receive(&mut peer), (4, pulse));
+}
+
+#[test]
 fn invalid_peer_frame_is_bounded_and_never_connects() {
     let fixture = SocketFixture::new();
     let listener = fixture.listen();
@@ -311,5 +341,24 @@ fn invalid_peer_frame_is_bounded_and_never_connects() {
     });
     let error = Connection::open(&fixture.path()).err().unwrap();
     assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    worker.join().unwrap();
+}
+
+#[test]
+fn rejected_handshake_exposes_only_a_fixed_error_category() {
+    let fixture = SocketFixture::new();
+    let listener = fixture.listen();
+    let worker = thread::spawn(move || {
+        let mut stream = accept(&listener);
+        let _ = receive(&mut stream);
+        send(
+            &mut stream,
+            1,
+            &json!({"evt":"ERROR","data":{"code":4000,"message":"synthetic account detail"}}),
+        );
+    });
+    let error = Connection::open(&fixture.path()).err().unwrap();
+    assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+    assert!(error.get_ref().is_none());
     worker.join().unwrap();
 }
