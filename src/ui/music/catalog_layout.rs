@@ -316,7 +316,7 @@ impl Controller {
         }
         let cached = self.model.borrow().liked.clone();
         if let Some(result) = cached {
-            self.render_liked(result, 0);
+            self.render_liked_page(result, 0, true);
         } else {
             self.load_library(0);
         }
@@ -366,10 +366,20 @@ impl Controller {
         self.render_home_collections();
     }
 
+    #[cfg(test)]
     pub(super) fn render_liked(
         self: &Rc<Self>,
         result: Result<Page<Track>, MusicError>,
         page: u32,
+    ) {
+        self.render_liked_page(result, page, false);
+    }
+
+    fn render_liked_page(
+        self: &Rc<Self>,
+        result: Result<Page<Track>, MusicError>,
+        page: u32,
+        automatic: bool,
     ) {
         self.widgets.library_rows.set_visible(true);
         match result {
@@ -381,7 +391,9 @@ impl Controller {
                     &self.widgets.library_rows,
                     &self.widgets.library_feedback,
                 );
-                self.enable_liked_auto_index(&feed);
+                if automatic {
+                    self.enable_liked_auto_index(&feed);
+                }
                 self.install_liked_hero(&feed);
                 if let Some((_, _, origin, error)) = self
                     .model
@@ -404,7 +416,9 @@ impl Controller {
                     &self.widgets.library_rows,
                     &self.widgets.library_feedback,
                 );
-                self.enable_liked_auto_index(&feed);
+                if automatic {
+                    self.enable_liked_auto_index(&feed);
+                }
                 self.install_liked_hero(&feed);
                 feed.data.borrow_mut().error = Some(error);
                 self.refresh_feed_status(&feed);
