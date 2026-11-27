@@ -1209,7 +1209,7 @@ fn native_local_first_cached_handoff_retries_online_once() {
 // exists only in cfg(test); its original MP3 cannot establish service rights.
 fn native_granted_audio_cache_fill_reuse_and_retirement() {
     use crate::audio_cache::{
-        AudioCache, CacheError, CachePolicy, OnlineStreamAuthority, ResourceKey,
+        AudioCache, CacheError, CachePolicy, OnlineStreamAuthority, Presence, ResourceKey,
         test_support::SyntheticAuthority,
     };
     let fixture = Fixture::new();
@@ -1371,6 +1371,13 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
         cache.get(&lease, key("42")),
         Err(CacheError::NoGrant)
     ));
+    // Verify the reopened record before dispatching playback. This warms the
+    // presence memo so the periodic indicator cannot race for the cold read
+    // gate while this fixture is checking the successful cache-hit path.
+    assert_eq!(
+        cache.presence(&lease, &[key("42")]).unwrap(),
+        [Presence::Stored]
+    );
 
     fixture.counts.lock().unwrap().reject_delivery_track = Some(42);
     let offers_before_denial = fixture.offers(0);

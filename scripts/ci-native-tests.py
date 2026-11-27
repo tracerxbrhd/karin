@@ -105,27 +105,27 @@ GROUPS = {"bus": BUS, "webkit": WEBKIT, "functional": FUNCTIONAL,
                             "native_bundled_symbolic_icons_recolor"]}
 
 INTERACTION_SHARDS = 3
-# Approximate seconds from a successful GitHub-hosted run. These weights only
+# Approximate seconds from the GitHub-hosted shard logs. These weights only
 # distribute fixtures. Keep a default so newly registered tests are included.
 INTERACTION_COST = {
-    "native_audio_cache_application_process_restart": 95,
-    "native_catalog_rows_mouse_keyboard_details_and_delivery": 91,
-    "native_v08_lyrics_similar_seek_and_stale_selection": 74,
-    "native_music_shuffle_repeat_mpris_shared_policy_and_eos": 51,
+    "native_audio_cache_application_process_restart": 90,
+    "native_v08_lyrics_similar_seek_and_stale_selection": 78,
     "native_search_retry_normalized_results_and_density": 38,
-    "native_music_context_mpris_shared_player_and_cleanup": 35,
-    "native_account_menu_logout_cancel_default_confirm_and_stale_session": 22,
+    "native_catalog_rows_mouse_keyboard_details_and_delivery": 20,
     "native_wave_home_experiment_layout_and_controls": 20,
     "native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup": 19,
     "native_global_search_measured_slot_and_motion": 18,
-    "native_preferences_persistent_controls_snapshot_updates_and_cleanup": 17,
+    "native_preferences_persistent_controls_snapshot_updates_and_cleanup": 18,
     "native_v07_playback_restore_playlist_appearance_process_restart": 16,
     "native_v08_whole_collection_index_search_sort_and_cancellation": 16,
+    "native_wave_shared_player_feedback_batches_and_cleanup": 13,
+    "native_music_session_catalog_queue_and_logout": 10,
+    "native_music_resume_expired_source_preserves_occurrence_position_and_cancellation": 10,
 }
 HIDPI_COST = {
-    "native_v08_lyrics_similar_seek_and_stale_selection": 86,
+    "native_v08_lyrics_similar_seek_and_stale_selection": 100,
     "native_search_retry_normalized_results_and_density": 42,
-    "native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup": 26,
+    "native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup": 28,
     "native_global_search_measured_slot_and_motion": 20,
 }
 
@@ -136,7 +136,7 @@ def interaction_shards():
 
     def cost(case):
         group, _, name = case
-        normal = INTERACTION_COST.get(name, 6)
+        normal = INTERACTION_COST.get(name, 5)
         return HIDPI_COST.get(name, normal) if group == "hidpi" else normal
 
     shards = [[] for _ in range(INTERACTION_SHARDS)]
@@ -186,6 +186,8 @@ def run_fixtures(binary, destination, cases):
             env["G_DEBUG"] = "fatal-warnings"
         if group == "high-contrast":
             env["ADW_DEBUG_HIGH_CONTRAST"] = "1"
+        if selector == "native_music_playback_resolver_queue_controls_and_logout":
+            env["KARIN_AUDIO_CACHE_DIAGNOSTICS"] = "1"
         if selector in {VISUAL[0], VISUAL[2]} or group == "lyrics":
             env.pop("GSK_DEBUG", None)  # Ordinary damage tracking for motion.
         if selector.startswith(("native_v07_", "native_v08_", "native_music_resume_")) or selector in {
