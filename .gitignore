@@ -8,5 +8,4 @@
 *.log
 __pycache__/
 *.py[cod]
-/AGENTS.md
 /.codex/
