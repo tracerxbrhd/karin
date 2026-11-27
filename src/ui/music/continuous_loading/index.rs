@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Debounced search intent over a bounded manifest and canonical batches.
+//! Full liked collection and debounced search over bounded membership and track batches.
 //! Batches are query-independent; each reply projects the current local query.
 
 use super::*;
@@ -57,18 +57,106 @@ impl Controller {
             .copied()
             .collect::<Vec<_>>();
         drop(data);
-        if *feed.rendered_positions.borrow() == positions
-            && (!positions.is_empty() || feed.rows.first_child().is_none())
-        {
+        let rendered = feed.rendered_positions.borrow();
+        if *rendered == positions && (!positions.is_empty() || feed.rows.first_child().is_none()) {
             return;
         }
-        // Only the 200-row projection is mounted. The complete normalized index
-        // and the immutable 500-item playback snapshot have independent owners.
-        clear_list(&feed.rows);
-        for index in &positions {
+        // Retain the mounted prefix as tracks arrive; do not replace a row
+        // the listener might be focusing just because a batch appended below.
+        let reuse = !rendered.is_empty() && positions.starts_with(&rendered);
+        let kept = if reuse { rendered.len() } else { 0 };
+        drop(rendered);
+        if !reuse {
+            clear_list(&feed.rows);
+        }
+        for index in &positions[kept..] {
             self.append_feed_row(feed, *index);
         }
         feed.rendered_positions.replace(positions);
+    }
+
+    pub(super) fn turn_liked_window(
+        self: &Rc<Self>,
+        adjustment: &gtk::Adjustment,
+        forward: bool,
+        keyboard: bool,
+    ) -> bool {
+        let edge = if forward {
+            adjustment.value() + adjustment.page_size() + 1.0 >= adjustment.upper()
+        } else {
+            adjustment.value() <= adjustment.lower() + 1.0
+        };
+        if !edge || adjustment.page_size() <= 0.0 {
+            return false;
+        }
+        let feed = self
+            .track_feeds
+            .borrow()
+            .iter()
+            .find(|feed| {
+                feed.auto_index.get()
+                    && feed.rows.is_mapped()
+                    && !feed.adjustment_guard.get()
+                    && !feed.window_turning.get()
+            })
+            .cloned();
+        let Some(feed) = feed.filter(|feed| self.feed_is_current(feed)) else {
+            return false;
+        };
+        let start = feed.window_start.get();
+        let next = if forward {
+            let count = feed.data.borrow().filter.visible().len();
+            if start + RESULT_WINDOW >= count {
+                return false;
+            }
+            start + RESULT_WINDOW
+        } else if start == 0 {
+            return false;
+        } else {
+            start.saturating_sub(RESULT_WINDOW)
+        };
+        feed.window_turning.set(true);
+        feed.window_start.set(next);
+        self.render_collection_window(&feed);
+        self.render_feed_status(&feed);
+        self.sync_catalog_rows();
+        if forward {
+            adjustment.set_value(adjustment.lower());
+        }
+        let weak_feed = Rc::downgrade(&feed);
+        let adjustment = adjustment.clone();
+        feed.rows.add_tick_callback(move |rows, _| {
+            let Some(feed) = weak_feed.upgrade() else {
+                return glib::ControlFlow::Break;
+            };
+            if !rows.is_mapped() || feed.window_start.get() != next || !feed.window_turning.get() {
+                feed.window_turning.set(false);
+                return glib::ControlFlow::Break;
+            }
+            let row = if forward {
+                rows.first_child()
+            } else {
+                rows.last_child()
+            };
+            let Some(row) = row else {
+                feed.window_turning.set(false);
+                return glib::ControlFlow::Break;
+            };
+            if row.height() <= 0 || adjustment.upper() + 1.0 < f64::from(rows.height()) {
+                return glib::ControlFlow::Continue;
+            }
+            if !forward {
+                adjustment.set_value(
+                    (adjustment.upper() - adjustment.page_size()).max(adjustment.lower()),
+                );
+            }
+            if keyboard {
+                row.grab_focus();
+            }
+            feed.window_turning.set(false);
+            glib::ControlFlow::Break
+        });
+        true
     }
 
     pub(super) fn retire_collection_index(&self, feed: &Feed) {
@@ -97,7 +185,12 @@ impl Controller {
         }
         let data = feed.data.borrow();
         let index = feed.index.borrow();
-        data.filter.active() != one_page
+        let requested = if feed.auto_index.get() {
+            !one_page && !data.loading
+        } else {
+            data.filter.active() != one_page
+        };
+        requested
             && !index.complete
             && !index.running
             && index.error != Some(MusicError::ResponseTooLarge)
@@ -106,6 +199,27 @@ impl Controller {
                 || data.incomplete
                 || data.error.is_some()
                 || feed.restart_required.get())
+    }
+
+    pub(super) fn start_liked_index(self: &Rc<Self>, feed: &Feed) {
+        if !feed.auto_index.get() {
+            return;
+        }
+        let data = feed.data.borrow();
+        let index = feed.index.borrow();
+        let ready = ((data.next_page > 0 || data.indexed) && (data.has_more || data.incomplete)
+            || matches!(
+                data.error,
+                Some(MusicError::InvalidResponse | MusicError::ResponseTooLarge)
+            ))
+            && !index.paused
+            && !index.changed
+            && index.error.is_none();
+        drop(index);
+        drop(data);
+        if ready {
+            self.start_collection_index(feed, false);
+        }
     }
 
     pub(super) fn schedule_collection_index(self: &Rc<Self>, feed: &Feed) {
@@ -278,7 +392,9 @@ impl Controller {
                                 .map(|position| snapshot.added_at(*position)),
                         );
                         data.contexts.borrow_mut().clear();
-                        data.has_more = cursor < snapshot.len();
+                        // Totals remain provisional until the final manifest
+                        // confirms that membership did not change underneath us.
+                        data.has_more = true;
                         data.incomplete = false;
                         let mut index = completed.index.borrow_mut();
                         index.cursor = cursor;
@@ -296,11 +412,11 @@ impl Controller {
                         data.append_indexed(&batch, snapshot.as_ref());
                         let mut index = completed.index.borrow_mut();
                         index.cursor = batch.next_position;
-                        data.has_more = index
+                        let remaining = index
                             .snapshot
                             .as_ref()
                             .is_some_and(|snapshot| index.cursor < snapshot.len());
-                        if index.one_page && data.has_more {
+                        if index.one_page && remaining {
                             index.running = false;
                             browsing_page_finished = true;
                         }
@@ -313,6 +429,14 @@ impl Controller {
                         index.error = (!same).then_some(MusicError::InvalidResponse);
                         let mut data = completed.data.borrow_mut();
                         data.has_more = !same;
+                        if same
+                            && index
+                                .snapshot
+                                .as_ref()
+                                .is_some_and(CollectionSnapshot::is_truncated)
+                        {
+                            data.incomplete = true;
+                        }
                         if !same && data.filter.sort().needs_dates() {
                             data.set_sort(collection_filter::CollectionSort::Provider);
                             completed.window_start.set(0);
@@ -356,8 +480,8 @@ impl Controller {
     }
 
     pub(super) fn render_index_browsing_footer(self: &Rc<Self>, feed: &Feed) {
-        // Clearing search does not leave an indexed prefix at a dead end or
-        // silently fetch its remaining tracks. Resume browsing one page at a time.
+        // Other collections browse a page at a time when their search clears.
+        let automatic = feed.auto_index.get();
         let index = feed.index.borrow();
         if index.running {
             let spinner = gtk::Spinner::new();
@@ -367,13 +491,35 @@ impl Controller {
             return;
         }
         let (message, action) = if index.complete {
+            if index
+                .snapshot
+                .as_ref()
+                .is_some_and(CollectionSnapshot::is_truncated)
+            {
+                feed.status.append(&text(
+                    "Достигнут лимит коллекции: 20 000 позиций.",
+                    "dim-label",
+                ));
+            } else if automatic && feed.data.borrow().incomplete {
+                feed.status
+                    .append(&text("Часть треков недоступна.", "dim-label"));
+            }
             return;
         } else if index.changed {
-            (Some("Коллекция изменилась"), "Обновить")
+            (
+                Some(if automatic {
+                    "Библиотека изменилась"
+                } else {
+                    "Коллекция изменилась"
+                }),
+                "Обновить",
+            )
         } else if index.error == Some(MusicError::ResponseTooLarge) {
             (Some("Показана ограниченная часть коллекции"), "")
         } else if index.error.is_some() {
             (Some("Не удалось загрузить следующие треки"), "Повторить")
+        } else if automatic {
+            (None, "Продолжить")
         } else {
             (None, "Загрузить ещё")
         };
@@ -388,7 +534,13 @@ impl Controller {
             let weak_feed = Rc::downgrade(feed);
             button.connect_clicked(move |_| {
                 if let (Some(this), Some(feed)) = (weak.upgrade(), weak_feed.upgrade()) {
-                    this.start_collection_index(&feed, true);
+                    if feed.auto_index.get() && feed.restart_required.get() {
+                        // A confirmed mutation retires the old provider page
+                        // and its row actions, including a normalized index.
+                        this.load_library_refresh(0);
+                    } else {
+                        this.start_collection_index(&feed, !feed.auto_index.get());
+                    }
                 }
             });
             feed.status.append(&button);
@@ -405,10 +557,23 @@ impl Controller {
         let count = data.filter.visible().len();
         update_window_buttons(feed, bar, count);
         if !data.filter.active() {
-            bar.set_status("", false, None);
+            let waiting = self.waiting_for_liked_shuffle(feed, data);
+            bar.set_status(
+                if waiting {
+                    "Для перемешивания нужна вся коллекция"
+                } else {
+                    ""
+                },
+                waiting && index.running,
+                None,
+            );
             return;
         }
         let total = index.snapshot.as_ref().map(CollectionSnapshot::len);
+        let truncated = index
+            .snapshot
+            .as_ref()
+            .is_some_and(CollectionSnapshot::is_truncated);
         let range = if count == 0 {
             String::new()
         } else {
@@ -436,6 +601,11 @@ impl Controller {
             (
                 format!("Поиск прерван · {progress} · Найдено: {count}{range}"),
                 Some("Повторить"),
+            )
+        } else if index.complete && truncated {
+            (
+                format!("Достигнут лимит коллекции: 20 000 позиций · Найдено: {count}{range}"),
+                None,
             )
         } else if index.complete {
             let result = if count == 0 && !data.incomplete {

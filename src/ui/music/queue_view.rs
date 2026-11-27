@@ -2,6 +2,9 @@
 //! One panel queue view of the application policy, retaining physical identities.
 
 use super::*;
+use crate::queue::MAX_QUEUE;
+
+const LARGE_QUEUE_PAGE_SIZE: usize = 200;
 
 /// An in-process GTK value, with no serializer or textual MIME representation.
 /// A second window/account or retired presentation cannot consume the gesture.
@@ -16,6 +19,11 @@ struct QueueDrag {
 
 impl Controller {
     pub(super) fn render_queue(self: &Rc<Self>) {
+        self.render_queue_page(0);
+        self.refresh_liked_header_play();
+    }
+
+    fn render_queue_page(self: &Rc<Self>, page: usize) {
         self.guard_music_binding();
         clear_list(&self.widgets.queue_rows);
         self.widgets.queue_rows.remove_css_class("boxed-list");
@@ -37,7 +45,7 @@ impl Controller {
                 ContextKind::Search => "Результаты поиска",
                 ContextKind::Artist => "Исполнитель",
                 ContextKind::SingleTrack => "Выбранный трек",
-                ContextKind::Wave => "Моя волна · эксперимент",
+                ContextKind::Wave => "Моя волна",
                 ContextKind::Queue => "Ваша очередь",
             })
             .unwrap_or("Очередь");
@@ -148,7 +156,15 @@ impl Controller {
             .set_sensitive(!model.queue.items().is_empty());
         let current_index = model.queue.current_index();
         let upcoming = model.queue.upcoming_indices();
-        let editable_upcoming = model.queue.editable_upcoming();
+        let mut upcoming_slots = vec![None; model.queue.items().len()];
+        let mut editable_count = 0;
+        for &index in upcoming
+            .iter()
+            .filter(|index| Some(**index) != current_index)
+        {
+            upcoming_slots[index] = Some(editable_count);
+            editable_count += 1;
+        }
         let history = model.queue.history_indices();
         let next_index = upcoming.first().copied();
         let repeat_one = model.queue.repeat_mode() == crate::queue::RepeatMode::One;
@@ -160,9 +176,13 @@ impl Controller {
                 "Локальная очередь Karin в порядке воспроизведения"
             }));
         let order = display_order(model.queue.items().len(), current_index, &upcoming);
+        let page_size = queue_page_size(order.len());
+        let pages = order.len().div_ceil(page_size).max(1);
+        let page = page.min(pages - 1);
+        self.render_queue_paging(page, pages);
         let generation = model.generation;
         let queue_snapshot = model.queue.context().cloned();
-        for index in order {
+        for index in order.into_iter().skip(page * page_size).take(page_size) {
             let track = &model.queue.items()[index];
             let occurrence = model
                 .queue
@@ -173,9 +193,7 @@ impl Controller {
                 .queue
                 .context()
                 .is_some_and(|context| context.source_kind() != ContextKind::Wave);
-            let upcoming_slot = editable_upcoming
-                .iter()
-                .position(|position| *position == index);
+            let upcoming_slot = upcoming_slots[index];
             let (row, body) = catalog_layout::catalog_item(&track.title, &track.artists.join(", "));
             body.set_spacing(4);
             if let Some(line) = body
@@ -361,7 +379,7 @@ impl Controller {
             down.set_widget_name("music-queue-move-down");
             down.add_css_class("flat");
             down.set_sensitive(
-                ordinary && upcoming_slot.is_some_and(|slot| slot + 1 < editable_upcoming.len()),
+                ordinary && upcoming_slot.is_some_and(|slot| slot + 1 < editable_count),
             );
             for (button, delta) in [(&up, -1), (&down, 1)] {
                 let weak = Rc::downgrade(self);
@@ -381,6 +399,7 @@ impl Controller {
             actions.append(&details);
             actions.append(&add_playlist);
             let popover = gtk::Popover::new();
+            actions.append(&self.track_wave_menu_item(track, &popover));
             actions.append(&sharing::copy_menu_item(
                 sharing::track_link(track),
                 &popover,
@@ -506,26 +525,80 @@ impl Controller {
         self.render_music_player();
     }
 
+    fn render_queue_paging(self: &Rc<Self>, page: usize, pages: usize) {
+        let paging = &self.widgets.queue_paging;
+        clear_box(paging);
+        paging.set_visible(pages > 1);
+        if pages <= 1 {
+            return;
+        }
+        let previous = gtk::Button::with_label("Назад");
+        previous.set_widget_name("music-queue-previous-page");
+        previous.set_sensitive(page > 0);
+        let next = gtk::Button::with_label("Далее");
+        next.set_widget_name("music-queue-next-page");
+        next.set_sensitive(page + 1 < pages);
+        let label = text(&format!("{} из {pages}", page + 1), "dim-label");
+        label.set_xalign(0.5);
+        for (button, target) in [(&previous, page.saturating_sub(1)), (&next, page + 1)] {
+            let weak = Rc::downgrade(self);
+            button.connect_clicked(move |button| {
+                if let Some(this) = weak.upgrade() {
+                    let retain_focus = button.has_focus();
+                    this.render_queue_page(target);
+                    if let Some(scroll) = this
+                        .widgets
+                        .queue_rows
+                        .ancestor(gtk::ScrolledWindow::static_type())
+                        .and_downcast::<gtk::ScrolledWindow>()
+                    {
+                        scroll.vadjustment().set_value(0.0);
+                    }
+                    if retain_focus {
+                        let group = &this.widgets.queue_paging;
+                        let (same, other) = if target > page {
+                            (group.last_child(), group.first_child())
+                        } else {
+                            (group.first_child(), group.last_child())
+                        };
+                        if let Some(button) = same.filter(|button| button.is_sensitive()).or(other)
+                        {
+                            button.grab_focus();
+                        }
+                    }
+                }
+            });
+        }
+        paging.append(&previous);
+        paging.append(&label);
+        paging.append(&next);
+    }
+
     fn finish_queue_edit(self: &Rc<Self>, occurrence: &crate::queue::OccurrenceId) {
         // Index changes alone must not stop/reprepare the currently bound engine.
         self.note_playback_intent();
         self.cancel_pending_wave_for_ordinary_action();
         self.observe_current_occurrence();
-        self.render_queue();
-        self.publish_mpris();
-        let display = {
+        let (display, page_size) = {
             let model = self.model.borrow();
-            model.queue.occurrence_index(occurrence).and_then(|index| {
+            let size = model.queue.items().len();
+            let display = model.queue.occurrence_index(occurrence).and_then(|index| {
                 let order = display_order(
-                    model.queue.items().len(),
+                    size,
                     model.queue.current_index(),
                     &model.queue.upcoming_indices(),
                 );
                 order.iter().position(|position| *position == index)
-            })
+            });
+            (display, queue_page_size(size))
         };
+        self.render_queue_page(display.unwrap_or_default() / page_size);
+        self.publish_mpris();
         if let Some(display) = display
-            && let Some(row) = self.widgets.queue_rows.row_at_index(display as i32)
+            && let Some(row) = self
+                .widgets
+                .queue_rows
+                .row_at_index((display % page_size) as i32)
         {
             row.grab_focus();
         }
@@ -631,7 +704,7 @@ impl Controller {
 
     #[cfg(test)]
     pub(super) fn queue_row_at_physical(&self, index: usize) -> Option<gtk::ListBoxRow> {
-        if index >= 500 {
+        if index >= crate::queue::MAX_SOURCE_POSITIONS {
             return None;
         }
         let locator = format!("music-queue-occurrence-{index}");
@@ -662,6 +735,14 @@ fn queue_action_is_current(
             (Some(current), Some(expected)) => current.same_presentation_snapshot(expected),
             _ => false,
         }
+}
+
+fn queue_page_size(size: usize) -> usize {
+    if size > MAX_QUEUE {
+        LARGE_QUEUE_PAGE_SIZE
+    } else {
+        MAX_QUEUE
+    }
 }
 
 /// Keep each physical position once. A repeat-cycle preview may include the

@@ -4,6 +4,8 @@
 use super::*;
 use std::collections::{BTreeMap, BTreeSet};
 
+const RESUME_HISTORY: usize = 50;
+
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct QueueSnapshot {
@@ -49,6 +51,25 @@ impl QueueSnapshot {
         if context.source_kind == ContextKind::Wave {
             return Ok(None);
         }
+        let retained = resume_indices(queue, context);
+        let mut mapping = vec![None; context.items.len()];
+        let mut ids = Vec::with_capacity(retained.len());
+        let mut positions = Vec::with_capacity(retained.len());
+        for (index, old) in retained.into_iter().enumerate() {
+            mapping[old] = Some(index);
+            ids.push(context.items[old].id.clone());
+            positions.push(context.source_positions[old]);
+        }
+        let mut history = Vec::new();
+        let mut cursor = 0;
+        for (slot, old) in queue.order.history.iter().copied().enumerate() {
+            if let Some(mapped) = mapping.get(old).copied().flatten() {
+                if slot <= queue.order.cursor {
+                    cursor = history.len();
+                }
+                history.push(mapped);
+            }
+        }
         let saved = Self {
             source_kind: context.source_kind,
             origin: context.origin().clone(),
@@ -58,18 +79,23 @@ impl QueueSnapshot {
                 let hash = ring::digest::digest(&ring::digest::SHA256, key.as_bytes());
                 hash.as_ref().try_into().expect("SHA256 length")
             }),
-            ids: context.items.iter().map(|track| track.id.clone()).collect(),
-            positions: context.source_positions.as_ref().clone(),
-            loaded_items: context.loaded_items,
-            partial: context.partial,
-            current: context.current_index,
+            partial: context.partial || ids.len() < context.items.len(),
+            loaded_items: positions.iter().flatten().count(),
+            ids,
+            positions,
+            current: mapping[context.current_index].ok_or(ContextError::InvalidSelection)?,
             order: SavedOrder {
                 shuffle: queue.order.shuffle,
                 repeat: queue.order.repeat,
                 random: queue.order.random,
-                remaining: queue.order.remaining.clone(),
-                history: queue.order.history.clone(),
-                cursor: queue.order.cursor,
+                remaining: queue
+                    .order
+                    .remaining
+                    .iter()
+                    .filter_map(|old| mapping.get(*old).copied().flatten())
+                    .collect(),
+                history,
+                cursor,
             },
         };
         saved.validate()?;
@@ -265,6 +291,35 @@ impl QueueSnapshot {
             current_changed,
         })
     }
+}
+
+/// Keep the exact selected occurrence, recent history and the next planned
+/// occurrences without changing the existing durable format or size limit.
+fn resume_indices(queue: &MusicQueue, context: &PlaybackContext) -> Vec<usize> {
+    let size = context.items.len();
+    if size <= MAX_QUEUE {
+        return (0..size).collect();
+    }
+    let current = context.current_index;
+    let mut retained = BTreeSet::from([current]);
+    if queue.shuffle() {
+        retained.extend(
+            queue
+                .history_indices()
+                .into_iter()
+                .rev()
+                .take(RESUME_HISTORY),
+        );
+    } else {
+        retained.extend(current.saturating_sub(RESUME_HISTORY)..current);
+    }
+    for index in queue.upcoming_indices().into_iter().chain(0..size) {
+        if retained.len() == MAX_QUEUE {
+            break;
+        }
+        retained.insert(index);
+    }
+    retained.into_iter().collect()
 }
 
 #[cfg(test)]

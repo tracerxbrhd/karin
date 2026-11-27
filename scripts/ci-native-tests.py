@@ -65,6 +65,7 @@ FUNCTIONAL = [
     "native_v08_footer_lyrics_and_volume_scroll",
     "native_music_resume_expired_source_preserves_occurrence_position_and_cancellation",
     "native_v08_whole_collection_index_search_sort_and_cancellation",
+    "native_liked_index_loads_without_scroll_and_keeps_list_navigation",
     "native_v08_queue_next_drag_keyboard_and_restoration",
     "native_v08_incremental_marker_updates_and_stable_ticks",
     "native_catalog_cache_provenance_interleaving_and_retired_replies",

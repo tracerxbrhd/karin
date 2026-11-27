@@ -71,16 +71,21 @@ restoring and waits for Play. Wave sessions are transient.
 
 Search hydrates validated selectors in canonical batches of up to 50.
 Navigation and membership reads have independent ownership. Ordinary views
-stop at 2,000 positions or 100 pages. A settled search in an eligible collection
-can start an index with a 20,000-position and 4 MiB limit. Coverage is explicit
-when the collection changes or exceeds the limit. Cached metadata may support
-labelled transport-error fallback. Current account or resource refusal takes
-precedence over saved data.
+stop at 2,000 positions or 100 pages. Opening Liked Tracks displays the first
+page and continues through the collection index in batches of up to 50 tracks.
+A search in an eligible playlist can use the same 20,000-position and 4 MiB
+index. The UI mounts a bounded row window and sorts and filters the available
+index. Count and duration reflect the verified coverage. Cached metadata may
+support labelled transport-error fallback. Current account or resource refusal
+takes precedence over saved data.
 
-Explicit Play snapshots up to 500 opaque queue occurrences. Duplicate tracks
-retain their own identity across filtering, sorting and queue edits. Catalog
-or server playlist changes cannot rewrite an admitted playback context.
-MPRIS publishes actual player state and addresses the current occurrence.
+Collection playback snapshots the bounded loaded source, including tracks
+beyond position 500. Shuffle draws from the whole admitted source. Manual
+queues and Wave use their existing bounds. Duplicate tracks retain their own
+identity across filtering, sorting and queue edits. Catalog or server playlist
+changes cannot rewrite an admitted playback context. The continuation record
+stores up to 500 occurrences around the current position. MPRIS publishes
+actual player state and addresses the current occurrence.
 
 Library writes serialize under the validated account. Each intent sends one
 write and requires independent readback. Uncertain results reconcile through
@@ -98,10 +103,15 @@ stay off CDN requests and signed media URLs stay in memory. PlaybackController
 owns one GStreamer pipeline. An explicit Resume can renew an expired source
 once for the same occurrence and then restore the confirmed position.
 
-My Wave starts on request and uses the same player. Its bounded feedback queue
-uses the actual listening ledger and serializes feedback. An ambiguous write
-stops continuation. Explicit Retry starts a new session. Manual future-order
-editing is unavailable during Wave.
+My Wave starts on request and uses the same player for the personal, track and
+Liked Tracks sources. Rotor receives a typed seed through `POST /rotor/session/new`.
+The liked source uses the authenticated account's kind-3 playlist as a single
+seed. Rotor derives recommendations from that collection without needing a
+local list of track IDs. Its bounded feedback queue uses actual listening
+events. An ambiguous write stops continuation. Retry starts a new session for
+the same source. Manual future-order editing is unavailable during Wave.
+
+[Track seed contract](https://ym.marshal.dev/radio/) · [Yandex's Liked Tracks Wave](https://yandexmusic.userecho.ru/communities/45/topics/10818-filtr-trekov-v-plejliste-mne-nravitsya?page=1)
 
 One default-on 2 GiB budget coordinates metadata, artwork and audio. Private
 staging, atomic publication, integrity checks and shared LRU protect stored

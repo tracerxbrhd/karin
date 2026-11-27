@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! A liked collection's native identity and truthful loaded-source summary.
 //!
-//! The controller supplies its existing Play/Refresh buttons and the admitted
+//! The controller supplies the Play, Wave and Refresh buttons and the admitted
 //! source snapshot. This component neither requests music nor owns playback.
 
 use std::cell::Cell;
@@ -15,12 +15,13 @@ use crate::music::Track;
 pub(super) struct LikedCollectionHero {
     widget: gtk::Box,
     facts: gtk::Label,
+    wave: gtk::Button,
 }
 
 impl LikedCollectionHero {
     /// The caller retains action sensitivity, request epochs and lifecycle.
     /// Supplied buttons must be unparented before insertion into this hero.
-    pub(super) fn new(play: &gtk::Button, refresh: &gtk::Button) -> Self {
+    pub(super) fn new(play: &gtk::Button, wave: &gtk::Button, refresh: &gtk::Button) -> Self {
         let widget = gtk::Box::new(gtk::Orientation::Horizontal, 16);
         widget.set_widget_name("music-liked-hero");
         widget.add_css_class("music-liked-hero");
@@ -64,16 +65,19 @@ impl LikedCollectionHero {
         facts.set_width_chars(1);
         metadata.append(&facts);
 
-        let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        let actions = gtk::Box::new(gtk::Orientation::Vertical, 8);
         actions.set_widget_name("music-liked-actions");
         actions.set_halign(gtk::Align::Start);
         play.add_css_class("suggested-action");
         play.add_css_class("pill");
         play.set_hexpand(false);
         play.set_valign(gtk::Align::Center);
+        wave.add_css_class("pill");
+        wave.set_valign(gtk::Align::Center);
         refresh.set_hexpand(false);
         refresh.set_valign(gtk::Align::Center);
         actions.append(play);
+        actions.append(wave);
         actions.append(refresh);
         metadata.append(&actions);
         widget.append(&metadata);
@@ -83,13 +87,23 @@ impl LikedCollectionHero {
         // resize, and unchanged tiers cause no property writes or relayout.
         // Weak children avoid retaining private views after logout/removal.
         let weak_cover = cover.downgrade();
+        let weak_actions = actions.downgrade();
         let profile = Cell::new(0);
         widget.add_tick_callback(move |host, _| {
             let width = host.width();
-            let Some(cover) = weak_cover.upgrade() else {
+            let (Some(cover), Some(actions)) = (weak_cover.upgrade(), weak_actions.upgrade())
+            else {
                 return glib::ControlFlow::Break;
             };
             if width > 0 {
+                let orientation = if width < 380 {
+                    gtk::Orientation::Vertical
+                } else {
+                    gtk::Orientation::Horizontal
+                };
+                if actions.orientation() != orientation {
+                    actions.set_orientation(orientation);
+                }
                 let next = width_profile(width);
                 if profile.replace(next) != next {
                     let (art_size, icon_size) = profile_sizes(next);
@@ -101,7 +115,11 @@ impl LikedCollectionHero {
             glib::ControlFlow::Continue
         });
 
-        Self { widget, facts }
+        Self {
+            widget,
+            facts,
+            wave: wave.clone(),
+        }
     }
 
     pub(super) fn widget(&self) -> &gtk::Box {
@@ -113,6 +131,7 @@ impl LikedCollectionHero {
     /// bound, retired data or an incomplete/error snapshot. No remote total is
     /// inferred from a page length or metadata's unverified count hint.
     pub(super) fn update(&self, items: &[Track], complete: bool) {
+        self.wave.set_sensitive(!complete || !items.is_empty());
         let value = collection_facts(items, complete);
         self.facts.set_text(&value);
         self.facts

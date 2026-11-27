@@ -260,6 +260,9 @@ impl Controller {
                 return;
             }
             drop(model);
+            let Some(context) = self.limit_unfinished_liked_shuffle(context) else {
+                return;
+            };
             self.leave_wave();
             let mut model = self.model.borrow_mut();
             // A context contains one already loaded, bounded list. Replace it

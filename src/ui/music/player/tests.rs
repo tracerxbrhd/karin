@@ -36,6 +36,7 @@ struct Counts {
     reject_delivery_track: Option<usize>,
     slow_started: bool,
     wave_sessions: usize,
+    wave_seeds: Vec<String>,
     wave_batches: usize,
     wave_events: Vec<serde_json::Value>,
     wave_hold_feedback: bool,
@@ -209,10 +210,17 @@ fn serve(
     };
     if url.path() == "/rotor/session/new" {
         let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(body["seeds"], json!(["user:onyourwave"]));
+        let seeds = body["seeds"].as_array().unwrap();
+        assert_eq!(seeds.len(), 1);
+        let seed = seeds[0].as_str().unwrap();
+        assert!(matches!(
+            seed,
+            "user:onyourwave" | "track:42" | "playlist:1234_3"
+        ));
         let ids = {
             let mut counts = counts.lock().unwrap();
             counts.wave_sessions += 1;
+            counts.wave_seeds.push(seed.to_owned());
             if counts.wave_hold_begin {
                 counts.slow_started = true;
             }
@@ -224,10 +232,10 @@ fn serve(
         if counts.lock().unwrap().wave_hold_begin {
             wait_wave_fixture(release);
         }
-        json_response(
-            &mut stream,
-            wave_response("synthetic-wave-batch-1", &ids, true),
-        );
+        let mut response = wave_response("synthetic-wave-batch-1", &ids, true);
+        let (kind, tag) = seed.split_once(':').unwrap();
+        response["result"]["acceptedSeeds"] = json!([{"type":kind,"tag":tag}]);
+        json_response(&mut stream, response);
     } else if url.path() == "/rotor/session/synthetic-wave-session/tracks" {
         let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert!(body["queue"].as_array().unwrap().len() <= 100);
@@ -4572,6 +4580,41 @@ fn native_wave_shared_player_feedback_batches_and_cleanup() {
         radio.close();
         refusal_ui.window.close();
     }
+
+    let seeded = Fixture::new();
+    let (_app, seeded_ui) = player_window(&seeded);
+    let radio = &seeded_ui.music.controller;
+    let popover = gtk::Popover::new();
+    let action = radio.track_wave_menu_item(&track("42"), &popover);
+    assert!(action.is_sensitive());
+    action.emit_clicked();
+    wait_playing(radio, 0);
+    pump_until(|| {
+        seeded
+            .counts
+            .lock()
+            .unwrap()
+            .wave_events
+            .iter()
+            .any(|event| event["event"]["type"] == "trackStarted")
+    });
+    let previous = radio.music_serial();
+    {
+        let mut counts = seeded.counts.lock().unwrap();
+        counts.wave_feedback_status = Some(400);
+        counts.wave_reject_event = Some("skip");
+    }
+    radio.start_wave_from(crate::music::wave::WaveSource::LikedCollection);
+    pump_until(|| {
+        radio.music_serial() != previous && radio.radio_status().phase == RadioPhase::Active
+    });
+    wait_playing(radio, 0);
+    assert_eq!(
+        seeded.counts.lock().unwrap().wave_seeds,
+        ["track:42", "playlist:1234_3"]
+    );
+    radio.close();
+    seeded_ui.window.close();
 }
 
 #[test]

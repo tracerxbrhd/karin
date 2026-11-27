@@ -282,7 +282,7 @@ impl Controller {
                 model.account_valid && !model.closed,
                 model.queue.current().cloned(),
                 model.queue.context().cloned(),
-                model.queue.items().len() >= 500,
+                model.queue.items().len() >= crate::queue::MAX_QUEUE,
                 CurrentOccurrence::from_queue(&model.queue),
             )
         };
@@ -348,7 +348,7 @@ impl Controller {
                     ContextKind::Artist => "Исполнитель",
                     ContextKind::Queue => "Очередь",
                     ContextKind::SingleTrack => "Выбранный трек",
-                    ContextKind::Wave => "Моя волна · эксперимент",
+                    ContextKind::Wave => "Моя волна",
                 };
                 format!(
                     "{source} · {} из {}{}",
@@ -836,6 +836,7 @@ impl Controller {
         }
         let action_track = match &action {
             PaneAction::Play(track)
+            | PaneAction::Wave(track)
             | PaneAction::Enqueue(track)
             | PaneAction::EnqueueNext(track)
             | PaneAction::AddToPlaylist(track)
@@ -879,6 +880,11 @@ impl Controller {
                 }
             }
             PaneAction::Play(_) => {}
+            PaneAction::Wave(track) => {
+                if let Some(source) = crate::music::wave::WaveSource::from_track(&track) {
+                    self.start_wave_from(source);
+                }
+            }
             PaneAction::Enqueue(track) => self.enqueue(track),
             PaneAction::EnqueueNext(track) => self.enqueue_next(track),
             PaneAction::AddToPlaylist(track) => self.present_add_to_playlist(track),
@@ -935,6 +941,7 @@ impl Controller {
             .set(self.info_target_epoch.get().wrapping_add(1));
         self.track_pane.set_track(None, self.artwork.as_ref());
         clear_list(&self.widgets.queue_rows);
+        self.widgets.queue_paging.set_visible(false);
         self.widgets.queue_count.set_text("Очередь пуста");
         self.playlist_grid.clear();
         self.liked_playlist_grid.clear();

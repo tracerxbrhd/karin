@@ -61,7 +61,7 @@ fn an_exact_display_prefix_gains_edit_actions_only_after_a_fresh_playlist_manife
 
 #[test]
 fn continuous_source_windows_keep_exact_499_500_1999_positions_and_bound_queue() {
-    let mut view = LoadedTracks::new(ContextKind::LikedTracks, None, 7);
+    let mut view = LoadedTracks::new(ContextKind::Search, None, 7);
     for page_index in 0..40 {
         view.append(page_index, page(50, true));
     }
@@ -82,7 +82,7 @@ fn continuous_source_windows_keep_exact_499_500_1999_positions_and_bound_queue()
         assert_eq!(queue.items().len(), 500);
         assert!(
             queue.append(track()).is_err(),
-            "the visible 2000-item cap never expands the live queue cap"
+            "search results retain the manual insertion cap"
         );
     }
     assert_eq!(
@@ -207,7 +207,7 @@ fn loaded_feed_epoch_retires_stale_markers_and_all_caps_remain_honest() {
 
 #[test]
 fn repeated_marker_queries_share_at_most_four_immutable_track_windows() {
-    let mut view = LoadedTracks::new(ContextKind::LikedTracks, None, 20);
+    let mut view = LoadedTracks::new(ContextKind::Search, None, 20);
     for page_index in 0..40 {
         view.append(page_index, page(50, true));
     }
@@ -278,10 +278,10 @@ fn filtered_contexts_keep_visible_order_absolute_duplicates_and_live_queue_immut
     );
     let first = view.context(0).unwrap();
     let boundary = view.context(1_000).unwrap();
-    assert_eq!(first.items().len(), 500);
+    assert_eq!(first.items().len(), 501);
     assert_eq!(first.source_position(499), Some(998));
-    assert_eq!(boundary.current_index(), 0);
-    assert_eq!(boundary.source_position(0), Some(1_000));
+    assert_eq!(boundary.current_index(), 500);
+    assert_eq!(boundary.source_position(500), Some(1_000));
     assert_eq!(first.source_id(), boundary.source_id());
     assert!(first.is_partial() && boundary.is_partial());
     assert_eq!(queue.context(), Some(&unfiltered));
@@ -297,14 +297,14 @@ fn filtered_contexts_keep_visible_order_absolute_duplicates_and_live_queue_immut
             has_more: false,
         },
     );
-    assert_eq!(selected.source_position(0), Some(1_000));
+    assert_eq!(selected.source_position(500), Some(1_000));
     assert_eq!(
         selected.items().len(),
-        1,
-        "a retained playing window remains an immutable snapshot"
+        501,
+        "a retained collection projection remains an immutable snapshot"
     );
     assert!(view.set_filter(""));
-    assert_eq!(view.context(500).unwrap().source_position(0), Some(500));
+    assert_eq!(view.context(500).unwrap().source_position(500), Some(500));
     assert_eq!(view.context(500).unwrap().source_id(), selected.source_id());
     let new_source = LoadedTracks::new(ContextKind::Playlist, Some("synthetic-owner:8".into()), 52);
     assert!(!new_source.filter.active());
@@ -323,16 +323,14 @@ fn filtering_is_bounded_cached_and_cannot_create_provider_requests() {
         assert!(view.at_limit());
         assert!(!view.can_request());
     }
-    let snapshots = [0, 500, 1000, 1500].map(|index| view.context(index).unwrap());
+    let snapshot = view.context(0).unwrap();
     for index in 0..VIEW_LIMIT {
         let context = view.context(index).unwrap();
-        assert_eq!(
-            context.items().as_ptr(),
-            snapshots[index / 500].items().as_ptr()
-        );
+        assert_eq!(context.items().as_ptr(), snapshot.items().as_ptr());
         assert!(view.matches_current(index, &context));
     }
-    assert_eq!(view.contexts.borrow().len(), 4);
+    assert_eq!(snapshot.items().len(), VIEW_LIMIT);
+    assert_eq!(view.contexts.borrow().len(), 1);
     view.set_filter("different");
     assert!(view.contexts.borrow().is_empty());
     assert!(view.first_playable().is_none());
@@ -383,7 +381,7 @@ fn indexed_sorted_projection_beyond_old_limit_preserves_source_holes_queue_and_d
     let selected = view.context(index).unwrap();
     assert_eq!(selected.source_position(0), Some(2_402));
     assert_eq!(selected.source_position(1), Some(2_401));
-    assert_eq!(selected.items().len(), 500);
+    assert_eq!(selected.items().len(), 2_402);
     assert_eq!(
         queue.context(),
         Some(&current),
@@ -398,7 +396,7 @@ fn indexed_sorted_projection_beyond_old_limit_preserves_source_holes_queue_and_d
 }
 
 #[test]
-fn indexed_context_cache_stays_at_four_windows_without_retiring_the_active_queue() {
+fn indexed_context_cache_shares_one_collection_without_retiring_the_active_queue() {
     let mut view = LoadedTracks::new(ContextKind::LikedTracks, None, 92);
     view.indexed = true;
     for start in (0..5_000).step_by(50) {
@@ -419,10 +417,13 @@ fn indexed_context_cache_stays_at_four_windows_without_retiring_the_active_queue
     let pointer = active.items().as_ptr();
     for index in (500..5_000).step_by(500) {
         let context = view.context(index).unwrap();
-        assert_eq!(context.source_position(0), Some(index));
-        assert!(view.contexts.borrow().len() <= 4);
+        assert_eq!(
+            context.source_position(context.current_index()),
+            Some(index)
+        );
+        assert_eq!(context.items().as_ptr(), pointer);
     }
-    assert_eq!(view.contexts.borrow().len(), 4);
+    assert_eq!(view.contexts.borrow().len(), 1);
     assert_eq!(queue.context(), Some(&active));
     assert_eq!(queue.context().unwrap().items().as_ptr(), pointer);
     assert_eq!(queue.context().unwrap().source_position(0), Some(0));

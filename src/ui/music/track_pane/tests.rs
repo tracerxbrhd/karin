@@ -157,6 +157,10 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
                     assert_eq!(track.id, "42");
                     "play"
                 }
+                PaneAction::Wave(track) => {
+                    assert_eq!(track.id, "42");
+                    "wave"
+                }
                 PaneAction::Enqueue(track) => {
                     assert_eq!(track.id, "42");
                     "enqueue"
@@ -302,6 +306,8 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
     click(&window, id, &artist);
     click_menu_action(&window, id, &pane, "track-pane.copy-link");
     pump_until(|| events.borrow().last() == Some(&"copy_link"));
+    click_menu_action(&window, id, &pane, "track-pane.wave");
+    pump_until(|| events.borrow().last() == Some(&"wave"));
     assert_eq!(
         events.borrow().as_slice(),
         &[
@@ -313,6 +319,7 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
             "album",
             "artist",
             "copy_link",
+            "wave",
         ]
     );
 

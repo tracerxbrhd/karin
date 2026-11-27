@@ -19,6 +19,7 @@ use serde_json::value::RawValue;
 use std::{
     fmt,
     io::Cursor,
+    num::NonZeroU64,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -30,6 +31,52 @@ use zeroize::Zeroizing;
 const MAX_QUEUE: usize = 500;
 const MAX_HEARD: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 const FROM: &str = "unofficial-client-own";
+
+/// A supported Rotor recommendation source. Seeds are encoded only at the
+/// session boundary, independently of the selected track's queue occurrence.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub enum WaveSource {
+    #[default]
+    Personal,
+    Track(NonZeroU64),
+    LikedCollection,
+}
+impl WaveSource {
+    pub fn from_track(track: &Track) -> Option<Self> {
+        let id = match track.id.split_once(':') {
+            Some((id, album)) if catalog_id(album).is_some() => id,
+            Some(_) => return None,
+            None => &track.id,
+        };
+        catalog_id(id).map(Self::Track)
+    }
+
+    fn seed(self, binding: &SearchBinding) -> (&'static str, String) {
+        match self {
+            Self::Personal => ("user", "onyourwave".into()),
+            Self::Track(id) => ("track", id.to_string()),
+            // The first-party favorites page resolves its own kind-3 playlist.
+            // Its seed is account-bound and needs no local track snapshot.
+            Self::LikedCollection => ("playlist", format!("{}_3", binding.uid)),
+        }
+    }
+}
+impl fmt::Debug for WaveSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Personal => "WaveSource::Personal",
+            Self::Track(_) => "WaveSource::Track([redacted])",
+            Self::LikedCollection => "WaveSource::LikedCollection",
+        })
+    }
+}
+
+fn catalog_id(value: &str) -> Option<NonZeroU64> {
+    if !value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    value.parse().ok()
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WaveStage {
@@ -55,6 +102,7 @@ impl WaveStage {
 pub enum WaveResponseCause {
     Music(MusicError),
     Unsupported,
+    SourceNotAccepted,
     UnknownSession,
     Terminated,
     NoTracks,
@@ -79,6 +127,8 @@ pub enum WaveError {
     Busy,
     #[error("The Wave response does not establish the supported session contract")]
     UnsupportedResponse,
+    #[error("The Wave response did not accept the requested recommendation source")]
+    SourceNotAccepted,
     #[error("The Wave session is no longer recognized")]
     UnknownSession,
     #[error("The Wave session has ended")]
@@ -97,6 +147,7 @@ impl WaveError {
             Self::Response { cause, .. } => match cause {
                 WaveResponseCause::Music(error) => error.category(),
                 WaveResponseCause::Unsupported => "unsupported-response",
+                WaveResponseCause::SourceNotAccepted => "source-not-accepted",
                 WaveResponseCause::UnknownSession => "unknown-session",
                 WaveResponseCause::Terminated => "session-terminated",
                 WaveResponseCause::NoTracks => "no-tracks",
@@ -105,6 +156,7 @@ impl WaveError {
             Self::Cancelled => "cancelled",
             Self::Busy => "busy",
             Self::UnsupportedResponse => "unsupported-response",
+            Self::SourceNotAccepted => "source-not-accepted",
             Self::UnknownSession => "unknown-session",
             Self::Terminated => "session-terminated",
             Self::NoTracks => "no-tracks",
@@ -147,6 +199,7 @@ impl WaveError {
         let cause = match self {
             Self::Music(error) | Self::Request { error, .. } => WaveResponseCause::Music(error),
             Self::UnsupportedResponse => WaveResponseCause::Unsupported,
+            Self::SourceNotAccepted => WaveResponseCause::SourceNotAccepted,
             Self::UnknownSession => WaveResponseCause::UnknownSession,
             Self::Terminated => WaveResponseCause::Terminated,
             Self::NoTracks => WaveResponseCause::NoTracks,
@@ -293,16 +346,31 @@ pub struct WaveFeedbackAck {
 }
 
 impl MusicService {
-    /// Explicit local-owner experiment only. Does not start GStreamer or report
-    /// invented listening; no normal UI or automatic account-start probe calls it.
+    /// Start the default personalized wave after an explicit user action.
     pub fn begin_wave(
         &self,
         token: &AccessToken,
         cancellation: &WaveCancellation,
     ) -> Result<(WaveSession, WaveBatch), WaveError> {
+        self.begin_wave_from(token, &WaveSource::Personal, cancellation)
+    }
+
+    /// Request a recommendation session and normalize its first batch. Playback
+    /// and observed listening are managed separately by the existing player.
+    pub fn begin_wave_from(
+        &self,
+        token: &AccessToken,
+        source: &WaveSource,
+        cancellation: &WaveCancellation,
+    ) -> Result<(WaveSession, WaveBatch), WaveError> {
         cancellation.check()?;
         let binding = self.search_binding(token)?;
-        let body = serde_json::json!({"seeds":["user:onyourwave"],"includeTracksInResponse":true,"includeWaveModel":true});
+        let (seed_kind, seed_tag) = source.seed(&binding);
+        let body = serde_json::json!({
+            "seeds": [format!("{seed_kind}:{seed_tag}")],
+            "includeTracksInResponse": true,
+            "includeWaveModel": true,
+        });
         let (bytes, http) = self
             .wave_post(
                 token,
@@ -319,6 +387,14 @@ impl MusicService {
         let wire = decode_session(&bytes)
             .map_err(|error| error.after_response(WaveStage::Session, http))
             .inspect_err(|_| cancellation.cancel())?;
+        // The track seed is an explicit Rotor contract with optional echo.
+        // Favorites must confirm the playlist source before admitting a batch.
+        if *source != WaveSource::Personal
+            && !wire.matches_seed(seed_kind, &seed_tag, matches!(source, WaveSource::Track(_)))
+        {
+            cancellation.cancel();
+            return Err(WaveError::SourceNotAccepted.after_response(WaveStage::Session, http));
+        }
         let radio_id = wire
             .radio_session_id
             .clone()
@@ -608,6 +684,11 @@ fn uncertain(error: MusicError) -> WaveError {
 #[serde(rename_all = "camelCase")]
 struct SessionWire {
     radio_session_id: Option<String>,
+    // Optional response metadata. Decode seed details only when a new session
+    // must establish the requested seed, without changing personal or next-batch handling.
+    accepted_seeds: Option<Box<RawValue>>,
+    description_seed: Option<Box<RawValue>>,
+    wave: Option<Box<RawValue>>,
     #[serde(default)]
     batch_id: String,
     #[serde(default)]
@@ -616,6 +697,73 @@ struct SessionWire {
     unknown_session: bool,
     #[serde(default)]
     terminated: bool,
+}
+impl SessionWire {
+    fn matches_seed(&self, kind: &str, tag: &str, allow_missing: bool) -> bool {
+        let matches = |wire_kind: &str, wire_tag: &str| {
+            wire_kind.eq_ignore_ascii_case(kind) && seed_tag_matches(kind, tag, wire_tag)
+        };
+        let matches_object = |seed: SeedWire| {
+            seed.kind
+                .as_deref()
+                .zip(seed.tag.as_deref())
+                .is_some_and(|(kind, tag)| matches(kind, tag))
+        };
+        if let Some(seeds) = &self.accepted_seeds {
+            return serde_json::from_str::<Vec<SeedWire>>(seeds.get())
+                .is_ok_and(|seeds| seeds.into_iter().any(matches_object));
+        }
+        if let Some(wave) = &self.wave {
+            let Ok(wave) = serde_json::from_str::<WaveModelWire>(wave.get()) else {
+                return false;
+            };
+            if let Some(seeds) = wave.seeds {
+                return seeds.iter().any(|seed| {
+                    seed.split_once(':')
+                        .is_some_and(|(kind, tag)| matches(kind, tag))
+                });
+            }
+        }
+        match &self.description_seed {
+            Some(seed) => serde_json::from_str::<SeedWire>(seed.get()).is_ok_and(matches_object),
+            None => allow_missing,
+        }
+    }
+}
+
+fn seed_tag_matches(kind: &str, tag: &str, wire_tag: &str) -> bool {
+    if wire_tag == tag {
+        return true;
+    }
+    if kind != "playlist" {
+        return false;
+    }
+    // Yandex's playlist source accepts both owner UID and owner login.
+    // The request uses only the validated own UID. A canonical login returned
+    // by Rotor is acceptable, but a different numeric owner or kind is not.
+    let Some((_, expected_kind)) = tag.rsplit_once('_') else {
+        return false;
+    };
+    wire_tag
+        .rsplit_once('_')
+        .is_some_and(|(owner, playlist_kind)| {
+            playlist_kind == expected_kind
+                && owner.len() <= 128
+                && owner.bytes().any(|byte| byte.is_ascii_alphabetic())
+                && owner
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
+        })
+}
+#[derive(Deserialize)]
+struct SeedWire {
+    #[serde(rename = "type")]
+    kind: Option<String>,
+    tag: Option<String>,
+}
+#[derive(Deserialize)]
+struct WaveModelWire {
+    seeds: Option<Vec<String>>,
 }
 #[derive(Deserialize)]
 struct Sequence {

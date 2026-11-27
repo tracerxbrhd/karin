@@ -304,10 +304,24 @@ fn playlist_snapshot_ignores_display_garbage_but_checks_ids_binding_and_size() {
     );
     let oversized = fixture(MAX_INDEX_POSITIONS + 1, false);
     oversized.service.account(&token).unwrap();
+    let maximum = oversized
+        .service
+        .collection_snapshot(&token, &CollectionSource::Liked)
+        .unwrap();
+    assert_eq!(maximum.len(), MAX_INDEX_POSITIONS);
+    assert!(maximum.is_truncated());
+    assert!(
+        maximum.same_membership(
+            &oversized
+                .service
+                .collection_snapshot(&token, &CollectionSource::Liked)
+                .unwrap()
+        )
+    );
     assert_eq!(
         oversized
             .service
-            .collection_snapshot(&token, &CollectionSource::Liked)
+            .collection_snapshot(&token, &source)
             .unwrap_err(),
         MusicError::ResponseTooLarge
     );

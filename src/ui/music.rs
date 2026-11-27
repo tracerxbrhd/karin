@@ -162,6 +162,7 @@ struct Widgets {
     detail: gtk::Box,
     queue_rows: gtk::ListBox,
     queue_count: gtk::Label,
+    queue_paging: gtk::Box,
     player_surface: gtk::Box,
     current: gtk::Label,
     current_artist: gtk::Label,
@@ -566,6 +567,10 @@ impl MusicPane {
         clear_queue.set_halign(gtk::Align::Start);
         queue_tools.append(&clear_queue);
         queue_page.append(&queue_tools);
+        let queue_paging = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        queue_paging.set_widget_name("music-queue-paging");
+        queue_paging.set_visible(false);
+        queue_page.append(&queue_paging);
         let queue_rows = list();
         super::margins(&queue_page, 12);
         queue_page.set_margin_top(8);
@@ -677,6 +682,7 @@ impl MusicPane {
             detail,
             queue_rows,
             queue_count,
+            queue_paging,
             player_surface: player_bar.clone(),
             current,
             current_artist,
@@ -1691,8 +1697,7 @@ impl Controller {
     }
 
     fn show_queue_addition(&self, accepted: bool, title: &str) {
-        const FULL: &str =
-            "В очереди не более 500 треков. Удалите ненужный трек и повторите действие.";
+        const FULL: &str = "Вручную можно добавлять треки, пока в очереди меньше 500 позиций. Удалите лишние позиции и повторите.";
         if !accepted {
             self.widgets.status.set_title("Очередь заполнена");
             // The native status row is revealed by its subtitle, not title.
@@ -2397,6 +2402,7 @@ mod tests {
         let account =
             json!({"result":{"account":{"uid":1234,"displayName":"Synthetic UI account"}}});
         let liked = json!({"result":{"library":{"uid":1234,"revision":1,"tracks":vec![json!({"id":42,"albumId":7});51]}}});
+        let liked_after_refresh = json!({"result":{"library":{"uid":1234,"revision":2,"tracks":vec![json!({"id":42,"albumId":7});50]}}});
         let tracks = json!({"result":[track.clone()]});
         let playlists = json!({"result":[{"kind":3,"title":"Synthetic playlist","trackCount":1,"owner":{"uid":1234}}]});
         let playlist = json!({"result":{"kind":3,"title":"Synthetic playlist","trackCount":1,"tracks":[{"id":42,"albumId":7}]}});
@@ -2413,6 +2419,7 @@ mod tests {
             ("GET /users/1234/likes/tracks", liked.clone(), false),
             ("POST /tracks", tracks.clone(), false),
             ("GET /users/1234/likes/tracks", liked.clone(), false),
+            ("GET /users/1234/likes/tracks", liked_after_refresh, false),
             ("POST /tracks", tracks.clone(), false),
             (
                 "GET /users/1234/likes/playlists",
@@ -2683,7 +2690,6 @@ mod tests {
         this.show_library();
         assert_eq!(rows(&this.widgets.library_rows), 50);
         assert!(!this.widgets.library_next.is_visible());
-        capture_native("library");
         let liked_feed = this
             .track_feeds
             .borrow()
@@ -2692,9 +2698,20 @@ mod tests {
             .unwrap()
             .clone();
         let first_row = this.widgets.library_rows.row_at_index(0).unwrap();
-        this.request_track_feed(&liked_feed, false);
-        pump_until(|| !this.model.borrow().busy);
+        capture_native("library");
+        pump_until(|| {
+            let data = liked_feed.data.borrow();
+            data.items.len() == 51 && !data.has_more
+        });
         assert_eq!(rows(&this.widgets.library_rows), 51);
+        assert!(contains_text(
+            this.widgets.library_hero.upcast_ref(),
+            "51 трек"
+        ));
+        assert!(contains_text(
+            this.widgets.library_hero.upcast_ref(),
+            "1 ч 44 мин"
+        ));
         assert_eq!(
             this.widgets.library_rows.row_at_index(0),
             Some(first_row.clone())
@@ -2763,7 +2780,7 @@ mod tests {
             50,
             "old51positions are replaced explicitly, never appended across shifted membership"
         );
-        assert!(fresh_feed.data.borrow().has_more);
+        assert!(!fresh_feed.data.borrow().has_more);
         assert_eq!(
             this.model
                 .borrow()

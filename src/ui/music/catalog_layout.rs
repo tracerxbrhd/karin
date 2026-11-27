@@ -381,6 +381,7 @@ impl Controller {
                     &self.widgets.library_rows,
                     &self.widgets.library_feedback,
                 );
+                self.enable_liked_auto_index(&feed);
                 self.install_liked_hero(&feed);
                 if let Some((_, _, origin, error)) = self
                     .model
@@ -403,6 +404,7 @@ impl Controller {
                     &self.widgets.library_rows,
                     &self.widgets.library_feedback,
                 );
+                self.enable_liked_auto_index(&feed);
                 self.install_liked_hero(&feed);
                 feed.data.borrow_mut().error = Some(error);
                 self.refresh_feed_status(&feed);
@@ -590,6 +592,7 @@ impl Controller {
             &self.widgets.library_rows,
             &self.widgets.library_feedback,
         );
+        self.enable_liked_auto_index(&feed);
         self.install_liked_hero(&feed);
         self.request_track_feed(&feed, force);
     }
@@ -1038,6 +1041,7 @@ impl Controller {
             }
         });
         actions.append(&play);
+        actions.append(&self.track_wave_menu_item(track, &popover));
         let next = gtk::Button::with_label("Воспроизвести следующим");
         next.add_css_class("flat");
         next.set_sensitive(track.available);

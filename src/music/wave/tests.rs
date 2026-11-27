@@ -261,6 +261,184 @@ fn modern_session_json_batches_original_provenance_and_feedback_are_bounded() {
 }
 
 #[test]
+fn track_source_uses_the_documented_catalog_seed_and_shared_session_protocol() {
+    let (_, _, mut seed_track) = pure_session();
+    seed_track.id = "42:12".into();
+    let source = WaveSource::from_track(&seed_track).unwrap();
+    assert_eq!(source, WaveSource::Track(NonZeroU64::new(42).unwrap()));
+    for invalid in ["0", "+42", "42:private", "42:12:17", "storage:42"] {
+        seed_track.id = invalid.into();
+        assert!(WaveSource::from_track(&seed_track).is_none());
+    }
+    let mut reply: serde_json::Value =
+        serde_json::from_str(&session_body("batch-1", &[43], Some("radio-1"))).unwrap();
+    reply["result"]["acceptedSeeds"] = serde_json::json!([
+        {"type":"settingDiversity","tag":"discover"},
+        {"type":"track","tag":"42"}
+    ]);
+    let (service, server, listener) = fixture(
+        vec![
+            (200, ACCOUNT.into()),
+            (200, reply.to_string()),
+            (200, track_body(&[43])),
+            (200, session_body("batch-2", &[44], None)),
+            (200, track_body(&[44])),
+        ],
+        None,
+    );
+    let token = token();
+    service.account(&token).unwrap();
+    let (session, batch) = service
+        .begin_wave_from(&token, &source, &WaveCancellation::default())
+        .unwrap();
+    assert_eq!(batch.tracks[0].id, "43");
+    let next = service
+        .wave_batch(&token, &session, &["43".into()])
+        .unwrap();
+    assert_eq!(next.tracks[0].id, "44");
+    let requests = complete(server, listener);
+    assert!(requests[1].starts_with("POST /rotor/session/new HTTP/1.1"));
+    assert_eq!(
+        json_body(&requests[1]),
+        serde_json::json!({"seeds":["track:42"],"includeTracksInResponse":true,"includeWaveModel":true})
+    );
+    assert!(requests[3].starts_with("POST /rotor/session/radio-1/tracks HTTP/1.1"));
+    assert_eq!(json_body(&requests[3]), serde_json::json!({"queue":["43"]}));
+}
+
+#[test]
+fn track_source_rejects_an_explicitly_different_seed_without_normalizing_or_retrying() {
+    for (field, evidence) in [
+        (
+            "acceptedSeeds",
+            serde_json::json!([{"type":"user","tag":"onyourwave"}]),
+        ),
+        (
+            "descriptionSeed",
+            serde_json::json!({"type":"track","tag":"41"}),
+        ),
+    ] {
+        let mut reply: serde_json::Value =
+            serde_json::from_str(&session_body("batch-1", &[43], Some("radio-1"))).unwrap();
+        reply["result"][field] = evidence;
+        let (service, server, listener) =
+            fixture(vec![(200, ACCOUNT.into()), (200, reply.to_string())], None);
+        let token = token();
+        service.account(&token).unwrap();
+        let cancel = WaveCancellation::default();
+        let source = WaveSource::Track(NonZeroU64::new(42).unwrap());
+        assert_eq!(
+            service
+                .begin_wave_from(&token, &source, &cancel)
+                .unwrap_err(),
+            WaveError::SourceNotAccepted.after_response(WaveStage::Session, 200)
+        );
+        assert!(cancel.is_cancelled());
+        assert_eq!(complete(server, listener).len(), 2);
+    }
+}
+
+#[test]
+fn liked_collection_source_uses_the_validated_accounts_whole_playlist() {
+    let mut reply: serde_json::Value =
+        serde_json::from_str(&session_body("batch-1", &[43], Some("radio-1"))).unwrap();
+    reply["result"]["acceptedSeeds"] =
+        serde_json::json!([{"type":"playlist","tag":"synthetic-owner_3"}]);
+    let (service, server, listener) = fixture(
+        vec![
+            (200, ACCOUNT.into()),
+            (200, reply.to_string()),
+            (200, track_body(&[43])),
+            (200, String::new()),
+            (200, String::new()),
+        ],
+        None,
+    );
+    let token = token();
+    service.account(&token).unwrap();
+    let (session, batch) = service
+        .begin_wave_from(
+            &token,
+            &WaveSource::LikedCollection,
+            &WaveCancellation::default(),
+        )
+        .unwrap();
+    let now = Instant::now();
+    let mut coordinator = WaveCoordinator::new(&session);
+    assert!(
+        coordinator
+            .select(1, &batch.tracks[0], &batch.marker(), now)
+            .unwrap()
+            .is_empty()
+    );
+    for event in coordinator.observe(PlaybackState::Playing, now).unwrap() {
+        service.wave_feedback(&token, &session, &event).unwrap();
+    }
+    let requests = complete(server, listener);
+    assert_eq!(
+        json_body(&requests[1]),
+        serde_json::json!({"seeds":["playlist:1234_3"],"includeTracksInResponse":true,"includeWaveModel":true})
+    );
+    assert_eq!(json_body(&requests[3])["event"]["type"], "radioStarted");
+    assert_eq!(json_body(&requests[4])["event"]["trackId"], "43");
+}
+
+#[test]
+fn liked_seed_echo_rejects_another_numeric_owner_and_generic_personal_wave() {
+    let raw = session_body("batch-1", &[43], Some("radio-1"));
+    let original: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    for (field, echo, expected) in [
+        (
+            "acceptedSeeds",
+            serde_json::json!([{"type":"playlist","tag":"4567_3"}]),
+            false,
+        ),
+        (
+            "acceptedSeeds",
+            serde_json::json!([{"type":"user","tag":"onyourwave"}]),
+            false,
+        ),
+        (
+            "acceptedSeeds",
+            serde_json::json!([{"type":"playlist","tag":"another-login_8"}]),
+            false,
+        ),
+        (
+            "wave",
+            serde_json::json!({"seeds":["playlist:1234_3"]}),
+            true,
+        ),
+        (
+            "wave",
+            serde_json::json!({"seeds":["playlist:4567_3"]}),
+            false,
+        ),
+        (
+            "wave",
+            serde_json::json!({"seeds":["user:onyourwave"]}),
+            false,
+        ),
+    ] {
+        let mut reply = original.clone();
+        reply["result"][field] = echo;
+        let wire = decode_session(reply.to_string().as_bytes()).unwrap();
+        assert_eq!(wire.matches_seed("playlist", "1234_3", false), expected);
+    }
+    let (service, server, listener) = fixture(vec![(200, ACCOUNT.into()), (200, raw)], None);
+    let token = token();
+    service.account(&token).unwrap();
+    let cancel = WaveCancellation::default();
+    assert_eq!(
+        service
+            .begin_wave_from(&token, &WaveSource::LikedCollection, &cancel)
+            .unwrap_err(),
+        WaveError::SourceNotAccepted.after_response(WaveStage::Session, 200)
+    );
+    assert!(cancel.is_cancelled());
+    assert_eq!(complete(server, listener).len(), 2);
+}
+
+#[test]
 fn batch_missing_records_are_partial_and_unavailable_records_stay_metadata() {
     let mut records: serde_json::Value = serde_json::from_str(&track_body(&[42])).unwrap();
     records["result"][0]["available"] = false.into();

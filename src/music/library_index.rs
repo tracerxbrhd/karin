@@ -23,6 +23,7 @@ impl fmt::Debug for CollectionSource {
 pub struct CollectionSnapshot {
     source: CollectionSource,
     selectors: Arc<Vec<String>>,
+    total_positions: usize,
     revision: Option<u64>,
     added: Arc<Vec<Option<i64>>>,
     binding: SearchBinding,
@@ -42,6 +43,9 @@ impl CollectionSnapshot {
     pub fn is_empty(&self) -> bool {
         self.selectors.is_empty()
     }
+    pub fn is_truncated(&self) -> bool {
+        self.selectors.len() < self.total_positions
+    }
     pub fn matches_prefix(&self, tracks: &[Track]) -> bool {
         tracks.len() <= self.len()
             && tracks
@@ -49,10 +53,11 @@ impl CollectionSnapshot {
                 .zip(self.selectors.iter())
                 .all(|(track, id)| track.id == *id)
     }
-    /// Both full sequences must agree; equal counts/revision alone are not proof.
+    /// The admitted sequence and provider size must agree, including at the limit.
     pub fn same_membership(&self, other: &Self) -> bool {
         self.source == other.source
             && self.selectors == other.selectors
+            && self.total_positions == other.total_positions
             && self.revision == other.revision
             && self.added == other.added
             && self.binding.epoch == other.binding.epoch
@@ -114,8 +119,7 @@ struct Manifest {
 }
 
 impl MusicService {
-    /// The compact membership is fetched once per explicit indexing intent,
-    /// rather than once for every fifty-position normalization request.
+    /// Fetch compact membership separately from fifty-position track batches.
     pub fn collection_snapshot(
         &self,
         token: &AccessToken,
@@ -184,25 +188,24 @@ impl MusicService {
             None if manifest.track_count == Some(0) => Vec::new(),
             None => return Err(MusicError::InvalidResponse),
         };
-        if references.len() > MAX_INDEX_POSITIONS
-            || manifest
-                .track_count
-                .is_some_and(|count| count > MAX_INDEX_POSITIONS)
-        {
-            return Err(MusicError::ResponseTooLarge);
-        }
+        let total_positions = references.len();
         if manifest
             .track_count
-            .is_some_and(|count| count != references.len())
+            .is_some_and(|count| count != total_positions)
         {
             return Err(MusicError::InvalidResponse);
         }
+        if total_positions > MAX_INDEX_POSITIONS && !matches!(source, CollectionSource::Liked) {
+            return Err(MusicError::ResponseTooLarge);
+        }
         let added = references
             .iter()
+            .take(MAX_INDEX_POSITIONS)
             .map(|reference| reference.timestamp.as_deref().and_then(added_timestamp))
             .collect::<Vec<_>>();
         let selectors = references
             .into_iter()
+            .take(MAX_INDEX_POSITIONS)
             .map(|reference| {
                 let id = match reference.album_id {
                     Some(album) => format!("{}:{}", reference.id.0, album.0),
@@ -222,6 +225,7 @@ impl MusicService {
         Ok(CollectionSnapshot {
             source: source.clone(),
             selectors: Arc::new(selectors),
+            total_positions,
             revision,
             added: Arc::new(added),
             binding,

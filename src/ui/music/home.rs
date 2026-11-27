@@ -300,7 +300,7 @@ fn stage_label(stage: RadioStage) -> &'static str {
     }
 }
 
-fn failure_label(failure: RadioFailure) -> &'static str {
+pub(super) fn failure_label(failure: RadioFailure) -> &'static str {
     match failure {
         RadioFailure::Authentication => "нужен повторный вход",
         RadioFailure::Forbidden => "доступ отклонён",
@@ -310,6 +310,7 @@ fn failure_label(failure: RadioFailure) -> &'static str {
         RadioFailure::Timeout => "время ожидания истекло",
         RadioFailure::Http => "запрос отклонён",
         RadioFailure::Unsupported => "неподдерживаемый ответ",
+        RadioFailure::SourceNotAccepted => "сервис не подтвердил источник рекомендаций",
         RadioFailure::Empty => "пустая партия",
         RadioFailure::Unavailable => "нет доступного аудио",
         RadioFailure::Busy => "операция уже выполняется",
@@ -332,6 +333,9 @@ fn failure_message(failure: RadioFailure) -> &'static str {
         }
         RadioFailure::Http => "Яндекс Музыка отклонила запрос волны.",
         RadioFailure::Unsupported => "Не удалось обработать ответ сервиса.",
+        RadioFailure::SourceNotAccepted => {
+            "Яндекс Музыка не подтвердила выбранный источник рекомендаций."
+        }
         RadioFailure::Empty => "В этой партии сервис не вернул доступных треков.",
         RadioFailure::Unavailable => "Не удалось подготовить аудио для трека волны.",
         RadioFailure::Busy => "Предыдущая операция ещё выполняется.",
