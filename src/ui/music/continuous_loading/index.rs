@@ -30,7 +30,7 @@ pub(super) fn update_window_buttons(feed: &Feed, bar: &collection_filter::Filter
     bar.previous
         .set_visible(windowed && feed.window_start.get() > 0);
     bar.next
-        .set_visible(windowed && feed.window_start.get() + RESULT_WINDOW < count);
+        .set_visible(windowed && feed.window_start.get() + feed.result_window() < count);
 }
 
 enum IndexReply {
@@ -43,17 +43,18 @@ impl Controller {
     pub(super) fn render_collection_window(self: &Rc<Self>, feed: &Feed) {
         let data = feed.data.borrow();
         let count = data.filter.visible().len();
+        let window = feed.result_window();
         let start = feed
             .window_start
             .get()
-            .min(count.saturating_sub(1) / RESULT_WINDOW * RESULT_WINDOW);
+            .min(count.saturating_sub(1) / window * window);
         feed.window_start.set(start);
         let positions = data
             .filter
             .visible()
             .iter()
             .skip(start)
-            .take(RESULT_WINDOW)
+            .take(window)
             .copied()
             .collect::<Vec<_>>();
         drop(data);
@@ -104,16 +105,17 @@ impl Controller {
             return false;
         };
         let start = feed.window_start.get();
+        let window = feed.result_window();
         let next = if forward {
             let count = feed.data.borrow().filter.visible().len();
-            if start + RESULT_WINDOW >= count {
+            if start + window >= count {
                 return false;
             }
-            start + RESULT_WINDOW
+            start + window
         } else if start == 0 {
             return false;
         } else {
-            start.saturating_sub(RESULT_WINDOW)
+            start.saturating_sub(window)
         };
         feed.window_turning.set(true);
         feed.window_start.set(next);
@@ -580,7 +582,7 @@ impl Controller {
             format!(
                 " · {}–{}",
                 feed.window_start.get() + 1,
-                (feed.window_start.get() + RESULT_WINDOW).min(count)
+                (feed.window_start.get() + feed.result_window()).min(count)
             )
         };
         let progress = match total {

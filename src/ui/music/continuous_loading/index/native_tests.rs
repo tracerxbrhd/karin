@@ -166,7 +166,7 @@ fn native_liked_index_loads_without_scroll_and_keeps_list_navigation() {
     pump_until(|| feed.index.borrow().complete);
     assert_eq!(feed.index.borrow().cursor, 2_403);
     assert_eq!(feed.data.borrow().items.len(), 2_402);
-    assert_eq!(row_count(&feed.rows), RESULT_WINDOW);
+    assert_eq!(row_count(&feed.rows), LIKED_RESULT_WINDOW);
     assert_eq!(feed.rows.row_at_index(0), Some(first));
     assert!(play.is_sensitive());
     assert_eq!(fixture.membership.load(Ordering::Acquire), 3);
@@ -190,7 +190,7 @@ fn native_liked_index_loads_without_scroll_and_keeps_list_navigation() {
     let ids = String::from_utf8(ids.stdout).unwrap();
     let id = ids.lines().next().unwrap();
     let (x, y) = test_input::pointer(window, &scroll, test_input::Target::Center);
-    for (wheel, expected) in [("5", RESULT_WINDOW), ("4", 0)] {
+    for (wheel, expected) in [("5", LIKED_RESULT_WINDOW), ("4", 0)] {
         input(&[
             "mousemove",
             "--window",
@@ -201,7 +201,7 @@ fn native_liked_index_loads_without_scroll_and_keeps_list_navigation() {
             wheel,
         ]);
         pump_until(|| feed.window_start.get() == expected && !feed.window_turning.get());
-        assert_eq!(row_count(&feed.rows), RESULT_WINDOW);
+        assert_eq!(row_count(&feed.rows), LIKED_RESULT_WINDOW);
     }
     adjustment.set_value(0.0);
     query(window, id, &feed, "Original 102402");

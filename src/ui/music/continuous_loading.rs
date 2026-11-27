@@ -10,7 +10,8 @@ mod index;
 pub(super) const VIEW_LIMIT: usize = 2_000;
 const CONTEXT_LIMIT: usize = crate::queue::MAX_QUEUE;
 const PAGE_LIMIT: u32 = 100;
-const RESULT_WINDOW: usize = 64;
+const RESULT_WINDOW: usize = 200;
+const LIKED_RESULT_WINDOW: usize = 64;
 const COLLECTION_SEARCH_DEBOUNCE: Duration = Duration::from_millis(300);
 
 #[derive(Default)]
@@ -305,6 +306,14 @@ struct CollectionIndex {
 }
 
 impl TrackFeed {
+    fn result_window(&self) -> usize {
+        if self.auto_index.get() {
+            LIKED_RESULT_WINDOW
+        } else {
+            RESULT_WINDOW
+        }
+    }
+
     #[cfg(test)]
     pub(super) fn suppress_prefill_for_test(&self) {
         self.prefill_remaining.set(0);
@@ -673,11 +682,12 @@ impl Controller {
                     && this.feed_is_current(&feed)
                 {
                     let count = feed.data.borrow().filter.visible().len();
+                    let window = feed.result_window();
                     let next = if forward {
-                        (feed.window_start.get() + RESULT_WINDOW)
-                            .min(count.saturating_sub(1) / RESULT_WINDOW * RESULT_WINDOW)
+                        (feed.window_start.get() + window)
+                            .min(count.saturating_sub(1) / window * window)
                     } else {
-                        feed.window_start.get().saturating_sub(RESULT_WINDOW)
+                        feed.window_start.get().saturating_sub(window)
                     };
                     feed.window_start.set(next);
                     this.render_collection_window(&feed);
