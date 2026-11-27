@@ -23,7 +23,7 @@ flowchart TD
 | Area | Modules | Responsibility |
 | --- | --- | --- |
 | Catalog | `music`, `api` | Account-bound transport, search and confirmed writes |
-| Sign-in | `auth`, `ui::auth`, `oauth`, `independent_auth` | Credential admission and provider-specific flows |
+| Sign-in | `ui::music::login`, `ui::auth`, `auth`, `oauth`, `independent_auth` | Dialog lifecycle, credential admission and provider-specific flows |
 | Private state | `session`, `credentials`, `session_lifecycle`, `settings` | Protected storage, preferences and forgetting |
 | Playback | `queue`, `playback_session`, `stream`, `playback` | Queue occurrences, source admission and one player |
 | Cache | `cache_budget`, `catalog_cache`, `artwork`, `audio_cache` | Shared budget and storage policy |
@@ -43,19 +43,20 @@ plugin calls can delay cooperative shutdown.
 
 ## Sign-in and private state
 
-The attributed Cassette-compatible provider uses ephemeral WebKitGTK with
-exact trusted navigation, callback and single-use state checks. The token
-exchange uses scoped in-memory cookies at the provider endpoint. The browser
-sandbox stays enabled. Music account validation precedes library access and
-credential storage.
+The desktop login module owns the dialog, cancellation and Music account
+validation. It invokes the provider through `AuthProvider`. The embedded
+browser uses an isolated WebKitGTK session with exact navigation and callback
+checks. Library access and credential storage follow account validation.
+[Provider attribution](LICENSING.md#upstream-components)
 
 Independent sign-in uses a system browser, an exact registered IPv4 loopback
 callback, Authorization Code and S256 PKCE. The opt-in terminal path validates
 Yandex ID and Music against the same account. It stores credentials only on
 explicit request, in a separate scope, and repeats validation on restore.
 The earlier own-registration test passed Yandex ID and received HTTP 403 from
-Music. [#35](https://github.com/tracerxbrhd/karin/issues/35) records the work on
-independent sign-in and the decision to defer desktop adoption.
+Music. The [earlier test](https://github.com/tracerxbrhd/karin/issues/5#issuecomment-6470853664)
+records the result. [#35](https://github.com/tracerxbrhd/karin/issues/35) covers
+the desktop login changes.
 
 Native uses Secret Service. Flatpak stores an encrypted token envelope backed
 by the Secret Portal. Unavailable storage permits memory-only login. Restore

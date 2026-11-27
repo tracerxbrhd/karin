@@ -48,7 +48,7 @@ impl DiagnosticsPage {
         ) = service.capabilities().authentication;
         let (login_title, login_description) = if cfg!(feature = "cassette-auth") {
             (
-                "Вход через Cassette",
+                "Вход через Яндекс",
                 "На стартовом экране нажмите «Войти через Яндекс». Доступ к аккаунту, библиотеке и поиску проверяется после входа. Воспроизведение проверяется отдельно для выбранного трека.",
             )
         } else {

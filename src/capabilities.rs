@@ -10,7 +10,7 @@ use std::fmt;
 use thiserror::Error;
 
 /// Globally established Music-access evidence, independent of the compiled
-/// prototype provider and each window's actual account validation. Enabling a
+/// provider and each window's actual account validation. Enabling a
 /// browser or receiving an anonymous response does not establish that evidence.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AuthenticationCapability {
@@ -30,7 +30,7 @@ impl AuthenticationUnavailable {
     pub const fn next_action(self) -> &'static str {
         match self {
             Self::MusicGrantNotEstablished => {
-                "Validate the Cassette-compatible session prototype on a consenting local Fedora account; confirm Music account/library/search acceptance, distribution conditions and permitted playback separately."
+                "Validate standard sign-in on Fedora with a consenting user. Verify Music account, library, search and playback. Confirm the app's Music integration conditions separately."
             }
         }
     }
@@ -153,10 +153,6 @@ mod tests {
             StreamResolutionError::AuthenticationUnavailable(blocker)
         );
         assert!(error.to_string().contains("Music-specific"));
-        assert!(
-            blocker
-                .next_action()
-                .contains("Cassette-compatible session prototype")
-        );
+        assert!(blocker.next_action().contains("standard sign-in"));
     }
 }

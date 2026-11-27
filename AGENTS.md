@@ -16,7 +16,7 @@ decision and its rationale in the relevant section.
   Separate widgets, API, sessions, cache and platform adapters. Blocking I/O and
   parsing belong off GTK; bounded work, cancellation, weak owners and account/
   request/source generations must prevent late or reentrant state updates.
-- Preserve ordinary sign-in with the attributed Cassette-compatible provider.
+- Preserve ordinary sign-in through the current provider.
   WebKitGTK6 is sign-in only: ephemeral session, exact trusted navigation,
   callback and state checks. Never read passwords/DOM, import another session,
   persist cookies, weaken TLS or disable the WebKit sandbox.

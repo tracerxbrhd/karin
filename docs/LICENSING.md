@@ -10,7 +10,8 @@ uses `CC0-1.0`. Third-party code and service materials keep their own terms.
 
 ## Upstream components
 
-The browser-session authentication contract is adapted from **Cassette v0.2.4**,
+The browser-session authorization request and token exchange retain an adaptation
+from **Cassette v0.2.4**,
 source commit `9d34251d01bcd414ffbec2bef7931090d33c9124`, Copyright 2023–2024
 Vladimir Vaskov, GPL-3.0-or-later. Preserve the complete
 [COPYING](../packaging/third-party-licenses/cassette-auth/COPYING),
@@ -35,7 +36,7 @@ service access require separate evidence.
 
 | Area | Classification and evidence |
 | --- | --- |
-| Ordinary sign-in | **Cassette adaptation.** `src/auth/cassette.rs` adapts the published session grant. `cassette_client.json` contains the published configuration. Karin adds navigation, sandbox, UI and provider boundaries. [Initial integration](https://github.com/tracerxbrhd/karin/commit/09f76355684873f32aaf83b8050e047df6077143) |
+| Ordinary sign-in | Karin's `ui::music::login` owns the dialog lifecycle and account validation. `src/auth/cassette.rs` retains the attributed browser-session provider and its published OAuth configuration. [Initial integration](https://github.com/tracerxbrhd/karin/commit/09f76355684873f32aaf83b8050e047df6077143) |
 | Independent sign-in and storage | Karin's opt-in `--independent-auth` uses public OAuth/Yandex ID contracts, its earlier Code/S256 PKCE and account validation, and a separate credential scope. Secret Service, Secret Portal, validated restore and logout fences are Karin implementations. [Sign-in architecture](ARCHITECTURE.md#sign-in-and-private-state) |
 | Catalog, playlists and My Wave | Karin's `api.rs` predates the adapted sign-in. Catalog and playlist code implements reviewed contracts without linking Cassette, yamu, yamuse or MarshalX client libraries. Wave implements the reviewed envelope and `event.from`, with a local listening ledger and queue history. [Catalog and queue](ARCHITECTURE.md#catalog-and-queue) |
 | Audio delivery and cache | Karin's `src/stream/` implements the offer/XML/MP3 contract corroborated by pinned Cassette, MarshalX and lifeart references. Its shared GStreamer worker predates the sign-in adaptation. Cassette informed local-first lookup and background saving. Karin implements its account-scoped budget, integrity checks, HTTP reuse and eviction. [Local engine](https://github.com/tracerxbrhd/karin/commit/226bf08) · [Playback and cache](ARCHITECTURE.md#playback-and-cache) |
@@ -107,7 +108,7 @@ The review dated **2026-11-24** used these terms.
   program/materials, not a grant to Karin's independent Linux implementation.
 
 [#5](https://github.com/tracerxbrhd/karin/issues/5) records the historical review.
-[#35](https://github.com/tracerxbrhd/karin/issues/35) records the independent sign-in work.
+[#35](https://github.com/tracerxbrhd/karin/issues/35) records the desktop login changes.
 The [archived draft for Yandex](https://github.com/tracerxbrhd/karin/blob/36ac6820d619fb9aa6c7e235a445ef66f55c610e/packaging/release/YANDEX_REQUEST_RU.md)
 remains unsent. [#22](https://github.com/tracerxbrhd/karin/issues/22) records the
 packaging and publication of 0.8.0.

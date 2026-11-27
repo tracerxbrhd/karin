@@ -7,6 +7,9 @@ use std::{cell::Cell, rc::Rc};
 #[cfg(feature = "auth-webkit")]
 pub(super) mod webkit;
 
+#[cfg(feature = "auth-webkit")]
+const MUSIC_ACCESS_HINT: &str = "Karin проверит доступ к Музыке после входа.";
+
 #[derive(Clone)]
 pub(super) struct LoginDialog {
     pub dialog: adw::Dialog,
@@ -191,7 +194,7 @@ impl LoginDialog {
         } else {
             "Выполните вход на странице Яндекса"
         });
-        self.message.set_subtitle("Прототип использует совместимый с Cassette способ авторизации. Разрешения показывает Яндекс; доступ к Музыке проверяется после входа.");
+        self.message.set_subtitle(MUSIC_ACCESS_HINT);
         self.spinner.set_visible(loading);
         self.spinner.set_spinning(loading);
     }
@@ -202,7 +205,7 @@ impl LoginDialog {
         self.shutdown();
         self.dialog.set_content_width(520);
         self.dialog.set_content_height(640);
-        self.message.set_subtitle("Вход выполняется на настоящей странице Яндекса. Прототип использует совместимый с Cassette способ авторизации; доступ к Музыке проверяется отдельно.");
+        self.message.set_subtitle(MUSIC_ACCESS_HINT);
         self.web_content.set_visible(true);
         self.web_content.append(webview.widget());
         *self.webview.borrow_mut() = Some(webview);
