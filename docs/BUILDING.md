@@ -241,7 +241,7 @@ The software-renderer measurements and their scope are recorded in [#23](https:/
 - Protected storage unavailable: unlock the desktop keyring or continue with a memory-only sign-in.
 - WebKit startup fails: check supported versions and user namespaces. Keep sandboxing and TLS enabled.
 - Missing covers: restart with `./run-karin --artwork-diagnostic` or `flatpak run io.github.tracerxbrhd.Karin --artwork-diagnostic`.
-  Open the affected view and share only the `Karin artwork: event=` lines in [#37](https://github.com/tracerxbrhd/karin/issues/37).
+  Open the affected view and include only the `Karin artwork: event=` lines in a bug report.
 - Discord Rich Presence unavailable after Discord starts or restarts: relaunch Flatpak Karin to refresh its socket mount.
 
 To register Native in the application menu, install `desktop-file-utils` and run this from the extracted directory:
@@ -258,7 +258,7 @@ desktop-file-install --dir="$karin_desktop_data/applications" \
 For owner-local auth tests, `--oauth-diagnostic` is the manual OAuth diagnostic.
 `--independent-auth login [--remember]`, `restore` and `logout` work before GTK through either
 launcher. Use an authorized Karin registration and exact registered loopback port, and share only
-redacted result categories. Track Music access and live acceptance in [#35](https://github.com/tracerxbrhd/karin/issues/35).
+redacted result categories.
 `--delivery-diagnostic` checks metadata, and `KARIN_AUDIO_CACHE_DIAGNOSTICS=1` reports fixed cache categories.
 
 ## Theme input check

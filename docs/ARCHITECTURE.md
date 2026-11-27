@@ -54,9 +54,8 @@ callback, Authorization Code and S256 PKCE. The opt-in terminal path validates
 Yandex ID and Music against the same account. It stores credentials only on
 explicit request, in a separate scope, and repeats validation on restore.
 The earlier own-registration test passed Yandex ID and received HTTP 403 from
-Music. Desktop adoption and migration are tracked in
-[#35](https://github.com/tracerxbrhd/karin/issues/35). The earlier discussion
-is recorded in [#5](https://github.com/tracerxbrhd/karin/issues/5).
+Music. [#35](https://github.com/tracerxbrhd/karin/issues/35) records the work on
+independent sign-in and the decision to defer desktop adoption.
 
 Native uses Secret Service. Flatpak stores an encrypted token envelope backed
 by the Secret Portal. Unavailable storage permits memory-only login. Restore

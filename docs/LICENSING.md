@@ -107,7 +107,7 @@ The review dated **2026-11-24** used these terms.
   program/materials, not a grant to Karin's independent Linux implementation.
 
 [#5](https://github.com/tracerxbrhd/karin/issues/5) records the historical review.
-[#35](https://github.com/tracerxbrhd/karin/issues/35) tracks independent sign-in.
+[#35](https://github.com/tracerxbrhd/karin/issues/35) records the independent sign-in work.
 The [archived draft for Yandex](https://github.com/tracerxbrhd/karin/blob/36ac6820d619fb9aa6c7e235a445ef66f55c610e/packaging/release/YANDEX_REQUEST_RU.md)
 remains unsent. [#22](https://github.com/tracerxbrhd/karin/issues/22) records the
 packaging and publication of 0.8.0.
