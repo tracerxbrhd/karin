@@ -127,8 +127,9 @@ Similar tracks and external lyrics load only for the relevant visible view.
 System styling follows Libadwaita, with High Contrast and Reduced Motion.
 
 Discord Rich Presence starts off. An opt-in local IPC worker sends the latest
-track, transport and seek events without periodic position updates. It shares
-canonical track links and eligible public cover URLs. Flatpak grants read-only
+track, transport and seek events without periodic position updates. The track
+title links to its canonical public page. The artist and distinct album share
+one line, and the cover uses an eligible public image URL. Flatpak grants read-only
 access to `xdg-run/discord-ipc-0` and `xdg-run/app/com.discordapp.Discord`.
 Restart Karin if the Discord socket was unavailable at startup or recreated.
 

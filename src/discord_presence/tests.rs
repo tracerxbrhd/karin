@@ -48,14 +48,13 @@ fn listening_activity_contains_only_public_catalog_fields() {
         json!({
             "type": 2,
             "details": "Название",
+            "details_url": "https://music.yandex.ru/album/19/track/82",
             "state": "Исполнитель · Альбом",
             "timestamps": {"start": 958, "end": 1140},
             "assets": {
                 "large_image": "https://avatars.yandex.net/get-music-content/123/def/1000x1000",
-                "large_text": "Альбом",
             },
             "buttons": [
-                {"label": "Слушать в Яндекс Музыке", "url":"https://music.yandex.ru/album/19/track/82"},
                 {"label": "Скачать Karin", "url": DOWNLOAD_URL}
             ],
         })
@@ -69,8 +68,28 @@ fn listening_activity_contains_only_public_catalog_fields() {
     assert!(paused.get("timestamps").is_none());
     assert!(paused.get("assets").is_none());
     assert_eq!(paused["state"], "Пауза · Исполнитель · Альбом");
-    assert_eq!(paused["buttons"].as_array().unwrap().len(), 2);
-    assert_eq!(paused["buttons"][1]["url"], DOWNLOAD_URL);
+    assert_eq!(paused["details_url"], value["details_url"]);
+    incomplete.album_title = Some(incomplete.title.clone());
+    let single = Activity::new(&incomplete, Progress::Paused, UNIX_EPOCH).unwrap();
+    assert_eq!(single.state, "Пауза · Исполнитель");
+    incomplete.artists.clear();
+    let single = Activity::new(&incomplete, Progress::Paused, UNIX_EPOCH).unwrap();
+    assert_eq!(single.state, "Пауза");
+    let playing = Activity::new(
+        &incomplete,
+        Progress::Playing {
+            position: None,
+            duration: None,
+        },
+        UNIX_EPOCH,
+    )
+    .unwrap();
+    assert!(
+        serde_json::to_value(playing)
+            .unwrap()
+            .get("state")
+            .is_none()
+    );
     incomplete.album_id = None;
     assert!(Activity::new(&incomplete, Progress::Paused, UNIX_EPOCH).is_none());
     incomplete.album_id = Some("19".into());
@@ -215,7 +234,12 @@ fn local_rpc_resumes_after_late_start_and_restart_then_clears() {
     presence.update(Some(activity(42)));
     let mut stream = accept(&listener);
     ready(&mut stream);
-    assert_eq!(take_activity(&mut stream)["timestamps"]["start"], 958);
+    let playing = take_activity(&mut stream);
+    assert_eq!(playing["timestamps"]["start"], 958);
+    assert_eq!(
+        playing["details_url"],
+        "https://music.yandex.ru/album/19/track/82"
+    );
     assert_eq!(presence.status(), Status::Connected);
 
     // Identical playback observations never become another RPC frame.

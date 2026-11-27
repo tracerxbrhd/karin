@@ -60,6 +60,8 @@ pub(crate) struct Activity {
     #[serde(rename = "type")]
     kind: u8,
     details: String,
+    details_url: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
     state: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     timestamps: Option<Timestamps>,
@@ -80,8 +82,6 @@ struct Timestamps {
 #[derive(PartialEq, Eq, Serialize)]
 struct Assets {
     large_image: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    large_text: Option<String>,
 }
 
 #[derive(PartialEq, Eq, Serialize)]
@@ -101,13 +101,17 @@ impl Activity {
         if !track.available {
             return None;
         }
-        let album = track.album_title.as_deref();
         let details = field(&track.title);
-        let artist = track.artists.join(", ");
-        let state = if let Some(album) = album.filter(|title| !title.is_empty()) {
-            format!("{artist} · {album}")
-        } else {
-            artist
+        let artist = field(&track.artists.join(", "));
+        let album = track
+            .album_title
+            .as_deref()
+            .map(field)
+            .filter(|album| !album.is_empty() && album != &details && album != &artist);
+        let state = match album {
+            Some(album) if artist.is_empty() => album,
+            Some(album) => format!("{artist} · {album}"),
+            None => artist,
         };
         let (paused, timestamps) = match progress {
             Progress::Playing { position, duration } => {
@@ -126,37 +130,28 @@ impl Activity {
             }
             Progress::Paused => (true, None),
         };
-        let state = if paused {
-            format!("Пауза · {state}")
-        } else {
-            state
+        let state = match (paused, state.is_empty()) {
+            (true, true) => "Пауза".into(),
+            (true, false) => format!("Пауза · {state}"),
+            (false, _) => state,
         };
         let assets = track
             .cover
             .as_ref()
             .and_then(crate::artwork::CoverArt::public_track_image)
             .or_else(|| FALLBACK_IMAGE.map(str::to_owned))
-            .map(|large_image| Assets {
-                large_image,
-                large_text: album.map(field),
-            });
-        let buttons = vec![
-            Button {
-                label: "Слушать в Яндекс Музыке",
-                url: track_link,
-            },
-            Button {
-                label: "Скачать Karin",
-                url: DOWNLOAD_URL.into(),
-            },
-        ];
+            .map(|large_image| Assets { large_image });
         Some(Self {
             kind: 2,
             details,
+            details_url: track_link,
             state: field(&state),
             timestamps,
             assets,
-            buttons,
+            buttons: vec![Button {
+                label: "Скачать Karin",
+                url: DOWNLOAD_URL.into(),
+            }],
             paused,
         })
     }
