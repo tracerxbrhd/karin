@@ -65,20 +65,27 @@ impl LikedCollectionHero {
         facts.set_width_chars(1);
         metadata.append(&facts);
 
-        let actions = gtk::Box::new(gtk::Orientation::Vertical, 8);
+        // Wrapping participates in GTK's width measurement, including the
+        // first frame of a resize from a wide layout to a compact one.
+        let actions = gtk::FlowBox::builder()
+            .selection_mode(gtk::SelectionMode::None)
+            .activate_on_single_click(false)
+            .min_children_per_line(1)
+            .max_children_per_line(3)
+            .column_spacing(8)
+            .row_spacing(4)
+            .build();
         actions.set_widget_name("music-liked-actions");
-        actions.set_halign(gtk::Align::Start);
         play.add_css_class("suggested-action");
         play.add_css_class("pill");
-        play.set_hexpand(false);
-        play.set_valign(gtk::Align::Center);
         wave.add_css_class("pill");
-        wave.set_valign(gtk::Align::Center);
-        refresh.set_hexpand(false);
-        refresh.set_valign(gtk::Align::Center);
-        actions.append(play);
-        actions.append(wave);
-        actions.append(refresh);
+        for button in [play, wave, refresh] {
+            let holder = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+            holder.set_halign(gtk::Align::Start);
+            button.set_valign(gtk::Align::Center);
+            holder.append(button);
+            actions.append(&holder);
+        }
         metadata.append(&actions);
         widget.append(&metadata);
 
@@ -87,23 +94,13 @@ impl LikedCollectionHero {
         // resize, and unchanged tiers cause no property writes or relayout.
         // Weak children avoid retaining private views after logout/removal.
         let weak_cover = cover.downgrade();
-        let weak_actions = actions.downgrade();
         let profile = Cell::new(0);
         widget.add_tick_callback(move |host, _| {
             let width = host.width();
-            let (Some(cover), Some(actions)) = (weak_cover.upgrade(), weak_actions.upgrade())
-            else {
+            let Some(cover) = weak_cover.upgrade() else {
                 return glib::ControlFlow::Break;
             };
             if width > 0 {
-                let orientation = if width < 380 {
-                    gtk::Orientation::Vertical
-                } else {
-                    gtk::Orientation::Horizontal
-                };
-                if actions.orientation() != orientation {
-                    actions.set_orientation(orientation);
-                }
                 let next = width_profile(width);
                 if profile.replace(next) != next {
                     let (art_size, icon_size) = profile_sizes(next);
