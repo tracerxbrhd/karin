@@ -142,7 +142,7 @@ fn assert_private_response(response: &str, attempt: &AuthAttempt) {
 }
 
 #[test]
-#[cfg(not(feature = "cassette-auth"))]
+#[cfg(not(feature = "browser-session-auth"))]
 fn public_provider_stays_blocked_for_begin_and_exchange() {
     let fixture = SyntheticFixture::new(BrowserMode::System);
     let provider = public_provider();
@@ -154,6 +154,20 @@ fn public_provider_stays_blocked_for_begin_and_exchange() {
     assert_eq!(
         provider.exchange(&fixture.attempt, code).unwrap_err(),
         AuthError::MusicPermissionUnavailable
+    );
+    fixture.assert_no_provider_requests();
+}
+
+#[test]
+#[cfg(feature = "browser-session-auth")]
+fn public_provider_rejects_code_exchange_in_browser_session_build() {
+    let fixture = SyntheticFixture::new(BrowserMode::System);
+    let code = AuthorizationCode(Zeroizing::new(SYNTHETIC_CODE.to_owned()));
+    assert_eq!(
+        public_provider()
+            .exchange(&fixture.attempt, code)
+            .unwrap_err(),
+        AuthError::Configuration
     );
     fixture.assert_no_provider_requests();
 }

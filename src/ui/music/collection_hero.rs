@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! A liked collection's native identity and truthful loaded-source summary.
 //!
-//! The controller supplies its existing Play/Refresh buttons and the admitted
+//! The controller supplies the Play, Wave and Refresh buttons and the admitted
 //! source snapshot. This component neither requests music nor owns playback.
 
 use std::cell::Cell;
@@ -15,12 +15,13 @@ use crate::music::Track;
 pub(super) struct LikedCollectionHero {
     widget: gtk::Box,
     facts: gtk::Label,
+    wave: gtk::Button,
 }
 
 impl LikedCollectionHero {
     /// The caller retains action sensitivity, request epochs and lifecycle.
     /// Supplied buttons must be unparented before insertion into this hero.
-    pub(super) fn new(play: &gtk::Button, refresh: &gtk::Button) -> Self {
+    pub(super) fn new(play: &gtk::Button, wave: &gtk::Button, refresh: &gtk::Button) -> Self {
         let widget = gtk::Box::new(gtk::Orientation::Horizontal, 16);
         widget.set_widget_name("music-liked-hero");
         widget.add_css_class("music-liked-hero");
@@ -64,17 +65,27 @@ impl LikedCollectionHero {
         facts.set_width_chars(1);
         metadata.append(&facts);
 
-        let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        // Wrapping participates in GTK's width measurement, including the
+        // first frame of a resize from a wide layout to a compact one.
+        let actions = gtk::FlowBox::builder()
+            .selection_mode(gtk::SelectionMode::None)
+            .activate_on_single_click(false)
+            .min_children_per_line(1)
+            .max_children_per_line(3)
+            .column_spacing(8)
+            .row_spacing(4)
+            .build();
         actions.set_widget_name("music-liked-actions");
-        actions.set_halign(gtk::Align::Start);
         play.add_css_class("suggested-action");
         play.add_css_class("pill");
-        play.set_hexpand(false);
-        play.set_valign(gtk::Align::Center);
-        refresh.set_hexpand(false);
-        refresh.set_valign(gtk::Align::Center);
-        actions.append(play);
-        actions.append(refresh);
+        wave.add_css_class("pill");
+        for button in [play, wave, refresh] {
+            let holder = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+            holder.set_halign(gtk::Align::Start);
+            button.set_valign(gtk::Align::Center);
+            holder.append(button);
+            actions.append(&holder);
+        }
         metadata.append(&actions);
         widget.append(&metadata);
 
@@ -101,7 +112,11 @@ impl LikedCollectionHero {
             glib::ControlFlow::Continue
         });
 
-        Self { widget, facts }
+        Self {
+            widget,
+            facts,
+            wave: wave.clone(),
+        }
     }
 
     pub(super) fn widget(&self) -> &gtk::Box {
@@ -113,6 +128,7 @@ impl LikedCollectionHero {
     /// bound, retired data or an incomplete/error snapshot. No remote total is
     /// inferred from a page length or metadata's unverified count hint.
     pub(super) fn update(&self, items: &[Track], complete: bool) {
+        self.wave.set_sensitive(!complete || !items.is_empty());
         let value = collection_facts(items, complete);
         self.facts.set_text(&value);
         self.facts

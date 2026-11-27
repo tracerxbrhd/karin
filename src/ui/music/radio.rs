@@ -6,7 +6,7 @@ use super::*;
 use crate::{
     music::wave::{
         WaveBatch, WaveBatchMarker, WaveCancellation, WaveCoordinator, WaveError, WaveEvent,
-        WaveSession, WaveStage,
+        WaveSession, WaveSource, WaveStage,
     },
     playback::{PlaybackSnapshot, PlaybackState},
     queue::{OccurrenceId, RepeatMode},
@@ -16,6 +16,7 @@ use std::{collections::VecDeque, fmt, time::Instant};
 const MAX_EVENTS: usize = 16;
 const KEEP_HISTORY: usize = 25;
 const MAX_BUFFERED: usize = 100;
+pub(super) const TRACK_WAVE_LABEL: &str = "Моя волна по треку";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum RadioStage {
@@ -37,6 +38,7 @@ pub(super) enum RadioFailure {
     Timeout,
     Http,
     Unsupported,
+    SourceNotAccepted,
     Empty,
     Unavailable,
     Busy,
@@ -176,12 +178,18 @@ struct Retiring {
     session: WaveSession,
     events: VecDeque<PendingFeedback>,
 }
+#[derive(Clone)]
+struct Start {
+    source: WaveSource,
+    cancellation: WaveCancellation,
+}
 #[derive(Default)]
 pub(super) struct RadioLifecycle {
     epoch: u64,
     serial: u64,
     running: Option<u64>,
-    begin: Option<WaveCancellation>,
+    source: WaveSource,
+    begin: Option<Start>,
     begin_pending: bool,
     active: Option<Active>,
     retiring: Option<Retiring>,
@@ -193,7 +201,7 @@ pub(super) struct RadioLifecycle {
 impl RadioLifecycle {
     fn cancel(&mut self) {
         if let Some(begin) = self.begin.take() {
-            begin.cancel();
+            begin.cancellation.cancel();
         }
         if let Some(mut active) = self.active.take() {
             active.coordinator.cancel();
@@ -202,6 +210,7 @@ impl RadioLifecycle {
             retiring.session.cancel();
         }
         self.begin_pending = false;
+        self.source = WaveSource::Personal;
         self.failure = None;
         #[cfg(test)]
         {
@@ -213,7 +222,7 @@ impl RadioLifecycle {
     }
 }
 enum Work {
-    Begin(WaveCancellation),
+    Begin(Start),
     Batch(WaveSession, Vec<String>),
     Feedback(WaveSession, PendingFeedback),
 }
@@ -275,22 +284,40 @@ impl Controller {
     }
     pub(super) fn start_wave(self: &Rc<Self>) {
         let status = self.radio_status();
-        if !status.authenticated {
+        if self.radio.borrow().active.is_some()
+            && !matches!(status.phase, RadioPhase::Failed { .. })
+        {
             return;
         }
-        if self.radio.borrow().active.is_some() {
-            if !matches!(status.phase, RadioPhase::Failed { .. }) {
+        self.start_wave_from(WaveSource::Personal);
+    }
+
+    pub(super) fn start_wave_from(self: &Rc<Self>, source: WaveSource) {
+        if !self.radio_status().authenticated {
+            return;
+        }
+        let replace = {
+            let radio = self.radio.borrow();
+            if radio
+                .begin
+                .as_ref()
+                .is_some_and(|begin| begin.source == source)
+            {
                 return;
             }
+            radio.begin.is_some() || radio.active.is_some()
+        };
+        if replace {
             self.leave_wave();
         }
         {
             let mut radio = self.radio.borrow_mut();
-            if radio.begin.is_some() || radio.active.is_some() {
-                return;
-            }
             radio.epoch = radio.epoch.wrapping_add(1);
-            radio.begin = Some(WaveCancellation::default());
+            radio.source = source;
+            radio.begin = Some(Start {
+                source,
+                cancellation: WaveCancellation::default(),
+            });
             radio.begin_pending = true;
             radio.failure = None;
         }
@@ -298,12 +325,43 @@ impl Controller {
         self.render_wave();
         self.drive_radio();
     }
+
+    pub(super) fn track_wave_menu_item(
+        self: &Rc<Self>,
+        track: &Track,
+        popover: &gtk::Popover,
+    ) -> gtk::Button {
+        let source = WaveSource::from_track(track);
+        let generation = self.model.borrow().generation;
+        let button = gtk::Button::with_label(TRACK_WAVE_LABEL);
+        button.set_widget_name("music-track-wave");
+        button.add_css_class("flat");
+        button.set_sensitive(source.is_some());
+        let weak = Rc::downgrade(self);
+        let close = popover.downgrade();
+        button.connect_clicked(move |_| {
+            if let Some(popover) = close.upgrade() {
+                popover.popdown();
+            }
+            let current = weak
+                .upgrade()
+                .filter(|this| this.model.borrow().generation == generation);
+            if let (Some(this), Some(source)) = (current, source) {
+                this.start_wave_from(source);
+            }
+        });
+        button
+    }
     /// One Hero action delegates to the existing player/session. Navigating
     /// Home never calls this method and cannot create another radio identity.
     pub(super) fn activate_wave_hero(self: &Rc<Self>) {
         let status = self.radio_status();
         match status.phase {
-            RadioPhase::Ready | RadioPhase::Failed { .. } => self.start_wave(),
+            RadioPhase::Ready => self.start_wave(),
+            RadioPhase::Failed { .. } => {
+                let source = self.radio.borrow().source;
+                self.start_wave_from(source);
+            }
             RadioPhase::Active | RadioPhase::LoadingNext => match status.playback {
                 Some(PlaybackState::Playing) => self.toggle_music(),
                 Some(PlaybackState::Paused | PlaybackState::Ready) => self.play_music(),
@@ -317,7 +375,7 @@ impl Controller {
     pub(super) fn cancel_wave_start(self: &Rc<Self>) {
         let mut radio = self.radio.borrow_mut();
         if let Some(begin) = radio.begin.take() {
-            begin.cancel();
+            begin.cancellation.cancel();
         }
         radio.begin_pending = false;
         drop(radio);
@@ -339,7 +397,7 @@ impl Controller {
         }
         let mut radio = self.radio.borrow_mut();
         if let Some(begin) = radio.begin.take() {
-            begin.cancel();
+            begin.cancellation.cancel();
         }
         radio.begin_pending = false;
     }
@@ -437,7 +495,7 @@ impl Controller {
         let (saved, failure) = {
             let mut radio = self.radio.borrow_mut();
             if let Some(begin) = radio.begin.take() {
-                begin.cancel();
+                begin.cancellation.cancel();
             }
             radio.begin_pending = false;
             let pending = radio.running.is_some();
@@ -478,6 +536,7 @@ impl Controller {
                 }
             }
             radio.failure = failure.map(|failure| (RadioStage::Local, failure));
+            radio.source = WaveSource::Personal;
             (radio.saved_modes.take(), failure)
         };
         self.restore_radio_modes(saved);
@@ -680,9 +739,10 @@ impl Controller {
     }
     fn apply_radio_failure(&self, stage: RadioStage, failure: RadioFailure) {
         let mut radio = self.radio.borrow_mut();
-        if let Some(begin) = radio.begin.take() {
-            begin.cancel();
-        }
+        let seeded = radio.begin.take().is_some_and(|begin| {
+            begin.cancellation.cancel();
+            begin.source != WaveSource::Personal
+        });
         radio.begin_pending = false;
         if let Some(mut active) = radio.active.take() {
             active.coordinator.cancel();
@@ -691,8 +751,41 @@ impl Controller {
             retiring.session.cancel();
         }
         radio.failure = Some((stage, failure));
+        drop(radio);
+        if seeded
+            && let Some(overlay) = self
+                .widgets
+                .stack
+                .ancestor(adw::ToastOverlay::static_type())
+                .and_downcast::<adw::ToastOverlay>()
+        {
+            let reason = super::home::failure_label(failure);
+            overlay.add_toast(adw::Toast::new(&format!(
+                "Не удалось запустить «Мою волну»: {reason}."
+            )));
+        }
         // Current audio is independent. It may finish, pause or resume; failed
         // radio cannot automatically select another unreported occurrence.
+    }
+
+    fn apply_radio_reply_failure(&self, epoch: u64, stage: RadioStage, failure: RadioFailure) {
+        let mut radio = self.radio.borrow_mut();
+        if radio.epoch != epoch
+            && radio.begin.is_some()
+            && radio
+                .retiring
+                .as_ref()
+                .is_some_and(|retiring| retiring.epoch == epoch)
+        {
+            // The report belongs to the previous source. Stop that lane on
+            // rejection without cancelling the newer explicit start.
+            if let Some(retiring) = radio.retiring.take() {
+                retiring.session.cancel();
+            }
+            return;
+        }
+        drop(radio);
+        self.apply_radio_failure(stage, failure);
     }
     fn drive_radio(self: &Rc<Self>) {
         if !self.radio_status().authenticated {
@@ -720,12 +813,12 @@ impl Controller {
                 })
             } else if radio.begin_pending {
                 radio.begin_pending = false;
-                radio.begin.as_ref().map(|cancel| {
+                radio.begin.as_ref().map(|start| {
                     (
                         radio.epoch,
                         false,
                         RadioStage::Session,
-                        Work::Begin(cancel.clone()),
+                        Work::Begin(start.clone()),
                     )
                 })
             } else if let Some(active) = radio.active.as_mut() {
@@ -797,7 +890,11 @@ impl Controller {
             let _hold = hold;
             let work = task.work;
             let result = gio::spawn_blocking(move || match work {
-                Work::Begin(cancel) => ResultValue::Begin(service.begin_wave(&token, &cancel)),
+                Work::Begin(start) => ResultValue::Begin(service.begin_wave_from(
+                    &token,
+                    &start.source,
+                    &start.cancellation,
+                )),
                 Work::Batch(session, queue) => {
                     ResultValue::Batch(service.wave_batch(&token, &session, &queue))
                 }
@@ -887,7 +984,7 @@ impl Controller {
                             origin: task.origin,
                             finish: finish.or(task.finish),
                         });
-                        this.apply_radio_failure(stage, classify(error));
+                        this.apply_radio_reply_failure(task.epoch, stage, classify(error));
                     }
                     Err(_) => {
                         let (phase, finish) = this.diagnostic_phase(Some(task.epoch));
@@ -900,7 +997,11 @@ impl Controller {
                             origin: task.origin,
                             finish: finish.or(task.finish),
                         });
-                        this.apply_radio_failure(task.stage, RadioFailure::Unavailable);
+                        this.apply_radio_reply_failure(
+                            task.epoch,
+                            task.stage,
+                            RadioFailure::Unavailable,
+                        );
                     }
                 }
             } else if let Ok(ResultValue::Begin(Ok((session, _)))) = result {
@@ -1059,6 +1160,7 @@ fn classify(error: WaveError) -> RadioFailure {
     }
     match error.category() {
         "write-outcome-unknown" => RadioFailure::OutcomeUnknown,
+        "source-not-accepted" => RadioFailure::SourceNotAccepted,
         "busy" => RadioFailure::Busy,
         "no-tracks" => RadioFailure::Empty,
         "cancelled" | "session-terminated" | "unknown-session" => RadioFailure::Unavailable,
@@ -1087,6 +1189,7 @@ fn failure_name(failure: RadioFailure) -> &'static str {
         RadioFailure::Timeout => "timeout",
         RadioFailure::Http => "http",
         RadioFailure::Unsupported => "unsupported",
+        RadioFailure::SourceNotAccepted => "source-not-accepted",
         RadioFailure::Empty => "empty",
         RadioFailure::Unavailable => "unavailable",
         RadioFailure::Busy => "busy",

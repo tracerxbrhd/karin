@@ -51,6 +51,12 @@
     <control>pointing</control>
   </supports>
   <releases>
+    <release version="0.8.4" date="2026-11-27" type="stable">
+      <description>
+        <p>Start My Wave from a track or Liked Tracks. The full Liked Tracks collection loads in the background. Discord activity links directly to the current track.</p>
+        <p xml:lang="ru">Запускайте «Мою волну» по треку или по коллекции «Мне нравится». Коллекция полностью загружается в фоне. Название трека в Discord ведёт на его страницу в Яндекс Музыке.</p>
+      </description>
+    </release>
     <release version="0.8.3" date="2026-11-26" type="stable">
       <description>
         <p>Clearer Flatpak update status, more playlist actions and optional Discord Rich Presence.</p>

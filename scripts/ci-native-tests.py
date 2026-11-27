@@ -65,6 +65,7 @@ FUNCTIONAL = [
     "native_v08_footer_lyrics_and_volume_scroll",
     "native_music_resume_expired_source_preserves_occurrence_position_and_cancellation",
     "native_v08_whole_collection_index_search_sort_and_cancellation",
+    "native_liked_index_loads_without_scroll_and_keeps_list_navigation",
     "native_v08_queue_next_drag_keyboard_and_restoration",
     "native_v08_incremental_marker_updates_and_stable_ticks",
     "native_catalog_cache_provenance_interleaving_and_retired_replies",
@@ -103,6 +104,49 @@ GROUPS = {"bus": BUS, "webkit": WEBKIT, "functional": FUNCTIONAL,
           "high-contrast": ["native_system_visual_surfaces", "native_bundled_typography",
                             "native_bundled_symbolic_icons_recolor"]}
 
+INTERACTION_SHARDS = 3
+# Approximate seconds from the GitHub-hosted shard logs. These weights only
+# distribute fixtures. Keep a default so newly registered tests are included.
+INTERACTION_COST = {
+    "native_audio_cache_application_process_restart": 90,
+    "native_v08_lyrics_similar_seek_and_stale_selection": 78,
+    "native_search_retry_normalized_results_and_density": 38,
+    "native_catalog_rows_mouse_keyboard_details_and_delivery": 20,
+    "native_wave_home_experiment_layout_and_controls": 20,
+    "native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup": 19,
+    "native_global_search_measured_slot_and_motion": 18,
+    "native_preferences_persistent_controls_snapshot_updates_and_cleanup": 18,
+    "native_v07_playback_restore_playlist_appearance_process_restart": 16,
+    "native_v08_whole_collection_index_search_sort_and_cancellation": 16,
+    "native_wave_shared_player_feedback_batches_and_cleanup": 13,
+    "native_music_session_catalog_queue_and_logout": 10,
+    "native_music_resume_expired_source_preserves_occurrence_position_and_cancellation": 10,
+}
+HIDPI_COST = {
+    "native_v08_lyrics_similar_seek_and_stale_selection": 100,
+    "native_search_retry_normalized_results_and_density": 42,
+    "native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup": 28,
+    "native_global_search_measured_slot_and_motion": 20,
+}
+
+
+def interaction_shards():
+    cases = [("functional", 1, name) for name in FUNCTIONAL]
+    cases.extend(("hidpi", 2, name) for name in HIDPI)
+
+    def cost(case):
+        group, _, name = case
+        normal = INTERACTION_COST.get(name, 5)
+        return HIDPI_COST.get(name, normal) if group == "hidpi" else normal
+
+    shards = [[] for _ in range(INTERACTION_SHARDS)]
+    weights = [0] * INTERACTION_SHARDS
+    for case in sorted(cases, key=cost, reverse=True):
+        index = min(range(INTERACTION_SHARDS), key=weights.__getitem__)
+        shards[index].append(case)
+        weights[index] += cost(case)
+    return shards
+
 
 def registered(binary):
     output = subprocess.check_output([binary, "--ignored", "--list"], text=True)
@@ -115,18 +159,18 @@ def registered(binary):
     return result
 
 
-def run_group(args):
-    binary = str(Path(args.binary).resolve())
+def run_fixtures(binary, destination, cases):
+    binary = str(Path(binary).resolve())
     tests = registered(binary)
-    root = Path(args.output).resolve() / f"scale-{args.scale}"
-    root.mkdir(parents=True, exist_ok=True)
-    for selector in GROUPS[args.group]:
-        output = root / selector
+    root = Path(destination).resolve()
+    failures = []
+    for group, scale, selector in cases:
+        output = root / f"scale-{scale}" / selector
         output.mkdir(parents=True, exist_ok=True)
-        env = dict(os.environ, GTK_A11Y="none", GDK_SCALE=str(args.scale),
+        env = dict(os.environ, GTK_A11Y="none", GDK_SCALE=str(scale),
                    GDK_DPI_SCALE="1", KARIN_TEST_SECRET_BUS="1",
                    KARIN_V04_ASSERT_DENSITY="1", KARIN_TEST_CAPTURE_DIR=str(output))
-        visual = args.group in {"visual", "lyrics", "high-contrast"}
+        visual = group in {"visual", "lyrics", "high-contrast"}
         env["GSK_RENDERER"] = "ngl" if visual else "cairo"
         env["GSK_DEBUG"] = "full-redraw"
         if visual or selector in {
@@ -140,9 +184,11 @@ def run_group(args):
             "native_music_player_progress_duration_transitions",
         } or selector.startswith(("native_v07_", "native_v08_", "native_music_resume_")):
             env["G_DEBUG"] = "fatal-warnings"
-        if args.group == "high-contrast":
+        if group == "high-contrast":
             env["ADW_DEBUG_HIGH_CONTRAST"] = "1"
-        if selector in {VISUAL[0], VISUAL[2]} or args.group == "lyrics":
+        if selector == "native_music_playback_resolver_queue_controls_and_logout":
+            env["KARIN_AUDIO_CACHE_DIAGNOSTICS"] = "1"
+        if selector in {VISUAL[0], VISUAL[2]} or group == "lyrics":
             env.pop("GSK_DEBUG", None)  # Ordinary damage tracking for motion.
         if selector.startswith(("native_v07_", "native_v08_", "native_music_resume_")) or selector in {
             "native_audio_cache_application_process_restart",
@@ -160,7 +206,7 @@ def run_group(args):
         command = [binary, tests[selector], "--exact", "--ignored", "--test-threads=1", "--nocapture"]
         if selector not in BUS:
             width, height = (2800, 1600) if selector == "native_global_search_measured_slot_and_motion" else (1920, 1080)
-            screen = f"{width * args.scale}x{height * args.scale}x24"
+            screen = f"{width * scale}x{height * scale}x24"
             command = ["xvfb-run", "-a", "-s", f"-screen 0 {screen} -dpi 96", *command]
             if selector in WEBKIT[1:]:
                 # These two tests need a WM before real mouse/keyboard input.
@@ -170,7 +216,7 @@ def run_group(args):
                            '  attempt=$((attempt + 1)); test "$attempt" -lt 50; sleep 0.1\ndone\n"$@"')
                 command = [*command[:4], "bash", "-euc", session, "webkit-session", *command[4:]]
         command = ["dbus-run-session", "--", *command]
-        print(f"::group::{selector} (scale {args.scale})", flush=True)
+        print(f"::group::{selector} (scale {scale})", flush=True)
         start = time.monotonic()
         with (output / "test.log").open("w") as log:
             process = subprocess.Popen(command, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -180,11 +226,13 @@ def run_group(args):
             code = process.wait()
         if cold_profile:
             cold_profile.cleanup()
-        (output / "result.json").write_text(json.dumps({"selector": selector, "scale": args.scale,
+        (output / "result.json").write_text(json.dumps({"selector": selector, "scale": scale,
             "elapsed_seconds": time.monotonic() - start, "exit_code": code}) + "\n")
         print("::endgroup::", flush=True)
         if code:
-            raise SystemExit(f"Native fixture failed ({code}): {selector}; see {output / 'test.log'}")
+            failures.append(f"Native fixture failed ({code}): {selector}; see {output / 'test.log'}")
+    if failures:
+        raise SystemExit("\n".join(failures))
 
 
 def main():
@@ -199,6 +247,10 @@ def main():
     run.add_argument("binary")
     run.add_argument("--scale", type=int, choices=(1, 2), default=1)
     run.add_argument("--output", default="build/native-tests")
+    shard = commands.add_parser("run-shard", help="Run one Ubuntu interaction and HiDPI shard")
+    shard.add_argument("shard", type=int, choices=range(1, INTERACTION_SHARDS + 1))
+    shard.add_argument("binary")
+    shard.add_argument("--output", default="build/native-tests")
     args = parser.parse_args()
     if args.command == "artifact":
         artifacts = [json.loads(line) for line in Path(args.jsonl).read_text().splitlines()]
@@ -214,8 +266,12 @@ def main():
     elif args.command == "verify":
         tests = registered(args.binary)
         print(f"Registered {len(tests)} ignored fixtures: {len(FUNCTIONAL)} functional, {len(BUS)} D-Bus, {len(WEBKIT)} WebKit, {len(VISUAL)} visual")
-    else:
-        run_group(args)
+    elif args.command == "run":
+        cases = [(args.group, args.scale, name) for name in GROUPS[args.group]]
+        run_fixtures(args.binary, args.output, cases)
+    elif args.command == "run-shard":
+        cases = interaction_shards()[args.shard - 1]
+        run_fixtures(args.binary, args.output, cases)
 
 
 if __name__ == "__main__":

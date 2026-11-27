@@ -37,6 +37,7 @@ pub(super) struct Ticket {
 #[derive(Clone, Copy)]
 pub(super) enum RelatedAction {
     Play,
+    Wave,
     Next,
     Enqueue,
     Details,
@@ -1095,6 +1096,7 @@ impl Inner {
             super::super::margins(&actions, 6);
             for (label, action) in [
                 ("Воспроизвести", RelatedAction::Play),
+                (super::radio::TRACK_WAVE_LABEL, RelatedAction::Wave),
                 ("Воспроизвести следующим", RelatedAction::Next),
                 ("Добавить в очередь", RelatedAction::Enqueue),
                 ("Отметить: нравится", RelatedAction::Like),
@@ -1105,6 +1107,10 @@ impl Inner {
                 button.add_css_class("flat");
                 if matches!(action, RelatedAction::Play | RelatedAction::Next) {
                     button.set_sensitive(track.available);
+                }
+                if matches!(action, RelatedAction::Wave) {
+                    button
+                        .set_sensitive(crate::music::wave::WaveSource::from_track(track).is_some());
                 }
                 let weak = Rc::downgrade(self);
                 let track = track.clone();
@@ -1519,6 +1525,11 @@ impl Controller {
                 match action {
                     RelatedAction::Play if track.available => self.play_music_track(track),
                     RelatedAction::Play => {}
+                    RelatedAction::Wave => {
+                        if let Some(source) = crate::music::wave::WaveSource::from_track(&track) {
+                            self.start_wave_from(source);
+                        }
+                    }
                     RelatedAction::Next if track.available => self.enqueue_next(track),
                     RelatedAction::Next => {}
                     RelatedAction::Enqueue => self.enqueue(track),

@@ -695,7 +695,6 @@ fn large_view(ui: &crate::ui::MainWindow, this: &Rc<Controller>, server: &Server
         Command::new("xdotool")
             .args([
                 "mousemove",
-                "--sync",
                 "--window",
                 &id,
                 &x.to_string(),
@@ -884,7 +883,6 @@ fn scroll_to_top(ui: &crate::ui::MainWindow, this: &Rc<Controller>) {
         Command::new("xdotool")
             .args([
                 "mousemove",
-                "--sync",
                 "--window",
                 &id,
                 &x.to_string(),

@@ -1,13 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Owned playlist changes with exact revision/occurrence checks and readback.
 //!
-//! Contract references: MarshalX/yandex-music-api 9ca132e5c18a72aab779c1fc68c169380a9357d0
-//! `_client/playlists.py`, `utils/difference.py`, and Cassette v0.2.4
-//! 9d34251d01bcd414ffbec2bef7931090d33c9124 `client/api/yam-client.vala`.
-//! The published `/change` accepts one revision-bound JSON operation batch;
-//! Cassette's `change-relative` is an unimplemented stub and is not used.
-//! Metadata/delete routes have no documented compare-and-swap revision form.
-//! They use exact fresh preflight plus independent readback, never invented CAS.
+//! The `/change` route accepts one revision-bound JSON operation batch.
+//! Metadata and delete routes use a fresh preflight and independent readback
+//! because they lack a documented revision precondition.
 
 use super::interactions::InteractionError;
 pub use super::playlist_creation::PlaylistVisibility;

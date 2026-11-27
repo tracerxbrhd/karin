@@ -859,12 +859,13 @@ dependencies = [
 
 [[package]]
 name = "karin"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "base64 0.22.1",
  "gstreamer",
  "gtk4",
  "libadwaita",
+ "libc",
  "reqwest",
  "ring",
  "roxmltree",

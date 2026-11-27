@@ -67,12 +67,12 @@ fn request(stream: &mut TcpStream) -> (String, Vec<u8>) {
     (header, body)
 }
 pub(crate) fn fixture(count: usize, malformed: bool) -> Fixture {
-    make_fixture(count, malformed, false)
+    make_fixture(count, malformed, false, false)
 }
 pub(crate) fn fixture_native(count: usize) -> Fixture {
-    make_fixture(count, false, true)
+    make_fixture(count, false, true, false)
 }
-fn make_fixture(count: usize, malformed: bool, native: bool) -> Fixture {
+fn make_fixture(count: usize, malformed: bool, native: bool, first_album: bool) -> Fixture {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
     let origin = format!("http://{}/", listener.local_addr().unwrap());
@@ -129,6 +129,9 @@ fn make_fixture(count: usize, malformed: bool, native: bool) -> Fixture {
                             else {
                                 let mut reference = json!({"id":selector(position),"title":{"unsupported":"display"},"artists":true,
                                     "timestamp":format!("2024-01-{:02}T00:00:00Z", position % 28 + 1)});
+                                if first_album && position == 0 {
+                                    reference["albumId"] = json!(7);
+                                }
                                 if !native { reference["track"] = json!({"title":false}); }
                                 reference
                             }
@@ -153,6 +156,7 @@ fn make_fixture(count: usize, malformed: bool, native: bool) -> Fixture {
                             assert!(released.load(Ordering::Acquire) || stop.load(Ordering::Acquire), "synthetic index response was not released");
                         }
                         json!({"result":ids.iter().rev().map(|id| {
+                            let id = id.split(':').next().unwrap();
                             if id == "100077" { Value::Null } else {
                                 json!({"id":id,"title":format!("Original {id}"),"available":true,"artists":[{"id":11,"name":"Original artist"}],"albums":[{"id":7,"title":"Original collection"}]})
                             }
@@ -196,6 +200,24 @@ fn make_fixture(count: usize, malformed: bool, native: bool) -> Fixture {
 }
 pub(crate) fn token() -> AccessToken {
     AccessToken::for_test("synthetic-library-index-token", Duration::from_secs(3600))
+}
+
+#[test]
+fn displayed_liked_prefix_keeps_bare_track_only_for_the_same_album() {
+    let server = make_fixture(1, false, true, true);
+    let token = token();
+    server.service.account(&token).unwrap();
+    let mut page = server.service.liked_tracks(&token, 0).unwrap();
+    assert_eq!(page.items[0].id, "100000");
+    let snapshot = server
+        .service
+        .collection_snapshot(&token, &CollectionSource::Liked)
+        .unwrap();
+    assert!(snapshot.matches_prefix(&page.items));
+    page.items[0].album_id = Some("8".into());
+    assert!(!snapshot.matches_prefix(&page.items));
+    page.items[0].album_id = None;
+    assert!(!snapshot.matches_prefix(&page.items));
 }
 
 #[test]
@@ -304,10 +326,24 @@ fn playlist_snapshot_ignores_display_garbage_but_checks_ids_binding_and_size() {
     );
     let oversized = fixture(MAX_INDEX_POSITIONS + 1, false);
     oversized.service.account(&token).unwrap();
+    let maximum = oversized
+        .service
+        .collection_snapshot(&token, &CollectionSource::Liked)
+        .unwrap();
+    assert_eq!(maximum.len(), MAX_INDEX_POSITIONS);
+    assert!(maximum.is_truncated());
+    assert!(
+        maximum.same_membership(
+            &oversized
+                .service
+                .collection_snapshot(&token, &CollectionSource::Liked)
+                .unwrap()
+        )
+    );
     assert_eq!(
         oversized
             .service
-            .collection_snapshot(&token, &CollectionSource::Liked)
+            .collection_snapshot(&token, &source)
             .unwrap_err(),
         MusicError::ResponseTooLarge
     );

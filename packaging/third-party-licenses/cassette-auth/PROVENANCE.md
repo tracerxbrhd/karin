@@ -41,15 +41,30 @@ and `player.vala` playbin/EOS handoff (lines 492–520), using the source commit
 above. Existing copyright attribution and the verbatim upstream `COPYING` remain
 packaged. No Cassette audio, artwork, cache or UI resource is copied.
 
-The legacy protocol contract was independently compared with MarshalX
+The legacy endpoints, fields and checksum were compared with MarshalX
 `9ca132e5c18a72aab779c1fc68c169380a9357d0`, yamuse
-`368c74646520e8bcd30c44a9887e1bf99cb58172` and lifeart/ya-namp
+`368c74646520e8bcd30c44a9887e1bf99cb58172` and the 2026-07-16 lifeart/ya-namp
+investigation at
 `49cfee7002ebf816f4144860e67d6fa3be5f5708`. This is not adaptation of yamu's
 modern extracted official-client signer or protected-media/decryption path.
 Protocol/source references and GPL notices do not establish a grant to the
 shared registration, permission to redistribute service music or public release
 approval. The consenting local prototype's technical results are recorded
 separately from those unresolved service/distribution conditions.
+
+## Library, playlist and radio protocol references
+
+Karin implements these adapters in Rust. The references below document the
+service behavior reviewed during implementation. The v0.2.4 references point
+to the source commit at the top of this document.
+
+| Area | References and reviewed behavior |
+| --- | --- |
+| Library reactions | v0.2.4 and yamu 0.1.2 (`9803f319b9ea6f81befbc3117e4592132ed07d0e`) for endpoints and forms. MarshalX/yandex-music-api (`9ca132e5c18a72aab779c1fc68c169380a9357d0`), `_client/likes.py`, for Dislike, readback and mutually exclusive reactions. |
+| Playlist creation | v0.2.4, yamu 0.1.2 and yamuse (`368c74646520e8bcd30c44a9887e1bf99cb58172`) for the endpoint and form. |
+| Playlist edits | v0.2.4 `client/api/yam-client.vala` and MarshalX `_client/playlists.py` and `utils/difference.py` for the revision-bound operation batch. The upstream `change-relative` stub was outside the implementation. |
+| Related tracks and lyrics | MarshalX `tracks_similar` and `track_supplement`, the v0.2.4 related-track envelope and position-based lyric highlighting, and [LRCLIB documentation](https://lrclib.net/docs.md) reviewed on 2026-11-14. Karin uses supplemental text and opt-in LRCLIB lookup. |
+| My Wave | v0.2.4 `api/yam-client.vala`, `api/objects/rotor`, `player/mods/flow.vala` and `client/utils.vala` for endpoints, JSON and events, including empty successful feedback responses. |
 
 ## Independently implemented cache pattern
 

@@ -115,6 +115,60 @@ fn captured_shuffle_plan_forward_history_repeat_and_rng_survive_repeated_cycles(
 }
 
 #[test]
+fn large_collection_restores_exact_selection_and_retained_future_within_old_limit() {
+    let size = MAX_QUEUE * 3;
+    let tracks = (0..size)
+        .map(|index| track(&index.to_string()))
+        .collect::<Vec<_>>();
+    let context = PlaybackContext::with_source_positions(
+        ContextKind::LikedTracks,
+        Some("synthetic-liked-collection".into()),
+        tracks.clone(),
+        550,
+        false,
+        (0..size).collect(),
+    )
+    .unwrap();
+    for shuffle in [false, true] {
+        let mut original = MusicQueue::with_seed(37);
+        original.set_shuffle(shuffle);
+        original.replace_context(context.clone());
+        for _ in 0..75 {
+            original.next_track().unwrap();
+        }
+        let before = original.current_index().unwrap();
+        let future = original.upcoming_indices();
+        let snapshot = QueueSnapshot::capture(&original).unwrap().unwrap();
+        assert_eq!(snapshot.ids.len(), MAX_QUEUE);
+        assert!(snapshot.partial);
+        assert_eq!(snapshot.positions[snapshot.current], Some(before));
+        assert_eq!(original.items().len(), size);
+
+        let selected = snapshot
+            .positions
+            .iter()
+            .map(|position| tracks[position.unwrap()].clone())
+            .collect::<Vec<_>>();
+        let restored = snapshot.restore(&selected).unwrap();
+        let context = restored.queue.context().unwrap();
+        assert!(!restored.current_changed);
+        assert_eq!(
+            context.source_position(context.current_index()),
+            Some(before)
+        );
+        assert!(restored.queue.can_go_previous());
+        let restored_future = restored
+            .queue
+            .upcoming_indices()
+            .into_iter()
+            .map(|position| context.source_position(position).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(restored_future.len(), MAX_QUEUE - RESUME_HISTORY - 1);
+        assert_eq!(restored_future, future[..restored_future.len()]);
+    }
+}
+
+#[test]
 fn interleaved_manual_next_reorder_and_shuffle_history_survive_restart() {
     for shuffle in [false, true] {
         let mut original = queue();

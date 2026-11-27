@@ -10,13 +10,18 @@ fn lifecycle_starts_idle_and_cancel_retires_pending_begin() {
     assert!(radio.active.is_none());
     assert!(radio.retiring.is_none());
     let cancel = WaveCancellation::default();
-    radio.begin = Some(cancel.clone());
+    radio.begin = Some(Start {
+        source: WaveSource::LikedCollection,
+        cancellation: cancel.clone(),
+    });
+    radio.source = WaveSource::LikedCollection;
     radio.begin_pending = true;
     radio.running = Some(7);
     radio.cancel();
     assert!(cancel.is_cancelled());
     assert!(!radio.begin_pending);
     assert!(radio.begin.is_none());
+    assert_eq!(radio.source, WaveSource::Personal);
     assert_eq!(
         radio.running,
         Some(7),

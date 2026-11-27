@@ -100,6 +100,121 @@ fn row_count(rows: &gtk::ListBox) -> usize {
 
 #[test]
 #[ignore = "requires isolated GTK/X11, xdotool and counted local HTTP"]
+fn native_liked_index_loads_without_scroll_and_keeps_list_navigation() {
+    gtk::init().unwrap();
+    adw::init().unwrap();
+    let fixture = crate::music::library_index::tests::fixture_native(2_403);
+    let token = crate::music::library_index::tests::token();
+    fixture.service.account(&token).unwrap();
+    fixture.hold_after.store(100_050, Ordering::Release);
+    let _release_held = ReleaseHeld(fixture.released.clone());
+    let app = adw::Application::builder()
+        .application_id("io.github.tracerxbrhd.Karin.AutoLikedFixture")
+        .flags(gio::ApplicationFlags::NON_UNIQUE)
+        .build();
+    app.register(gio::Cancellable::NONE).unwrap();
+    let ui = crate::ui::build_with_music_pane(
+        &app,
+        crate::application::ConnectionService::new(crate::api::YandexApi::new().unwrap()),
+        |app, window| {
+            MusicPane::with_provider(
+                app,
+                window,
+                Some(fixture.service.clone()),
+                Arc::new(OfflineProvider),
+                launch_system_browser,
+            )
+        },
+    );
+    let window = &ui.window;
+    window.set_title(Some("Karin synthetic automatic liked collection"));
+    window.set_default_size(900, 750);
+    window.present();
+    let this = &ui.music.controller;
+    {
+        let mut model = this.model.borrow_mut();
+        model.token = Some(token);
+        model.account_valid = true;
+    }
+    this.render_controls();
+    this.set_music_shuffle(true);
+    this.widgets.stack.set_visible_child_name("library");
+    this.load_library(0);
+    let feed = this
+        .track_feeds
+        .borrow()
+        .iter()
+        .find(|feed| feed.auto_index.get())
+        .unwrap()
+        .clone();
+    pump_until(|| fixture.held.load(Ordering::Acquire));
+    let first = feed.rows.row_at_index(0).unwrap();
+    assert!(first.is_mapped());
+    assert_eq!(row_count(&feed.rows), 50);
+    assert!(feed.data.borrow().has_more);
+    assert!(feed.filter_ui.as_ref().unwrap().search.text().is_empty());
+    let play = feed.play_button.borrow().upgrade().unwrap();
+    assert!(!play.is_sensitive());
+    play.emit_clicked();
+    assert!(this.model.borrow().queue.items().is_empty());
+    let selected = feed.data.borrow().context(12).unwrap();
+    let single = this.limit_unfinished_liked_shuffle(selected).unwrap();
+    assert_eq!(single.items().len(), 1);
+    assert_eq!(single.source_position(0), Some(12));
+    assert_eq!(single.items()[0].id, "100012");
+    fixture.released.store(true, Ordering::Release);
+    pump_until(|| feed.index.borrow().complete);
+    assert_eq!(feed.index.borrow().cursor, 2_403);
+    assert_eq!(feed.data.borrow().items.len(), 2_402);
+    assert_eq!(row_count(&feed.rows), LIKED_RESULT_WINDOW);
+    assert_eq!(feed.rows.row_at_index(0), Some(first));
+    assert!(play.is_sensitive());
+    assert_eq!(fixture.membership.load(Ordering::Acquire), 3);
+    assert_eq!(fixture.batches.load(Ordering::Acquire), 49);
+    assert_eq!(fixture.offers.load(Ordering::Acquire), 0);
+
+    let scroll = this.content_scroll.borrow().upgrade().unwrap();
+    let adjustment = scroll.vadjustment();
+    pump_until(|| adjustment.upper() > adjustment.page_size());
+    adjustment.set_value(adjustment.upper() - adjustment.page_size());
+    let ids = Command::new("xdotool")
+        .args([
+            "search",
+            "--onlyvisible",
+            "--name",
+            "^Karin synthetic automatic liked collection$",
+        ])
+        .output()
+        .unwrap();
+    assert!(ids.status.success());
+    let ids = String::from_utf8(ids.stdout).unwrap();
+    let id = ids.lines().next().unwrap();
+    let (x, y) = test_input::pointer(window, &scroll, test_input::Target::Center);
+    for (wheel, expected) in [("5", LIKED_RESULT_WINDOW), ("4", 0)] {
+        input(&[
+            "mousemove",
+            "--window",
+            id,
+            &x.to_string(),
+            &y.to_string(),
+            "click",
+            wheel,
+        ]);
+        pump_until(|| feed.window_start.get() == expected && !feed.window_turning.get());
+        assert_eq!(row_count(&feed.rows), LIKED_RESULT_WINDOW);
+    }
+    adjustment.set_value(0.0);
+    query(window, id, &feed, "Original 102402");
+    let position = feed.data.borrow().filter.visible()[0];
+    assert_eq!(feed.data.borrow().items[position].id, "102402");
+    assert_eq!(row_count(&feed.rows), 1);
+    assert_eq!(fixture.batches.load(Ordering::Acquire), 49);
+    window.close();
+    pump_until(|| !window.is_visible());
+}
+
+#[test]
+#[ignore = "requires isolated GTK/X11, xdotool and counted local HTTP"]
 fn native_v08_whole_collection_index_search_sort_and_cancellation() {
     gtk::init().unwrap();
     adw::init().unwrap();
@@ -341,13 +456,12 @@ fn native_v08_whole_collection_index_search_sort_and_cancellation() {
     let expected = feed.rendered_positions.borrow()[0];
     assert_eq!(
         feed.data.borrow().context(expected).unwrap().items().len(),
-        500
+        feed.data.borrow().filter.visible().len()
     );
     let row = feed.rows.row_at_index(0).unwrap();
     let (x, y) = test_input::pointer(window, &row, test_input::Target::Leading);
     input(&[
         "mousemove",
-        "--sync",
         "--window",
         id,
         &x.to_string(),

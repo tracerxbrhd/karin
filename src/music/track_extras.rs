@@ -1,11 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Read-only related tracks and explicitly requested text sources.
 //!
-//! Contracts: MarshalX/yandex-music-api 9ca132e5 (`tracks_similar`,
-//! `track_supplement`), Cassette v0.2.4 9d34251d (related-track envelope and
-//! player-position lyric highlighting), https://lrclib.net/docs.md (2026-11-14).
-//! Cassette/MarshalX's modern lyrics signer is deliberately not implemented.
-//! LRCLIB is an independent, opt-in public-metadata lookup, never a Music grant.
+//! LRCLIB lookup uses public track metadata after opt-in.
 
 use super::*;
 use crate::lyrics::{Lyrics, LyricsError, LyricsSource};

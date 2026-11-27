@@ -46,9 +46,9 @@ impl DiagnosticsPage {
         let AuthenticationCapability::AuthenticationUnavailable(
             AuthenticationUnavailable::MusicGrantNotEstablished,
         ) = service.capabilities().authentication;
-        let (login_title, login_description) = if cfg!(feature = "cassette-auth") {
+        let (login_title, login_description) = if cfg!(feature = "browser-session-auth") {
             (
-                "Вход через Cassette",
+                "Вход через Яндекс",
                 "На стартовом экране нажмите «Войти через Яндекс». Доступ к аккаунту, библиотеке и поиску проверяется после входа. Воспроизведение проверяется отдельно для выбранного трека.",
             )
         } else {

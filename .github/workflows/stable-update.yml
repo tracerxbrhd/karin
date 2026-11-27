@@ -60,10 +60,12 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=master&event=push&head_sha=$GITHUB_SHA&status=success" > "$RUNNER_TEMP/karin-ci.json"
           run_id=$(jq -er --arg sha "$GITHUB_SHA" '.workflow_runs | map(select(.head_sha == $sha and .event == "push" and .head_branch == "master" and .path == ".github/workflows/ci.yml" and .conclusion == "success")) | first | .id' "$RUNNER_TEMP/karin-ci.json")
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs" | jq -e '
-            .total_count == 4 and (.jobs | all(.conclusion == "success")) and
+            .total_count == 8 and (.jobs | all(.conclusion == "success")) and
             (.jobs | map(.name) | sort) == ([
               "Rust stable (stable)", "Rust 1.98.1 (msrv)",
-              "Native UI stable (Debian 13)", "Native UI 1.98.1 (Debian 13)"
+              "Native interaction (1/3)", "Native interaction (2/3)", "Native interaction (3/3)",
+              "Native UI stable (Debian 13)", "Native UI HiDPI stable (Debian 13)",
+              "Native UI 1.98.1 (Debian 13)"
             ] | sort)'
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: Install Native and Flatpak build requirements
@@ -93,7 +95,7 @@ jobs:
           (
             cd build/flatpak-source
             CARGO_TARGET_DIR=../../target cargo build --release --offline --locked \
-              --no-default-features --features cassette-auth
+              --no-default-features --features browser-session-auth
           )
           python3 packaging/release/artifacts.py native --revision "$GITHUB_SHA" \
             --binary target/release/karin --source-dir build/flatpak-source --output build/release

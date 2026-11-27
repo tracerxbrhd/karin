@@ -319,7 +319,7 @@ def installed_licenses(stage: Path, location: Path, version: str) -> dict:
     compiler, target = binary_identity(version)
     runtime = validate_runtime(root / "rust-runtime", compiler, target)
     return {"path_in_application": str(root.relative_to(location)), "crate_notice_directories": len(expected),
-            "project_license_and_cassette_provenance_verified": True,
+            "project_license_and_upstream_notices_verified": True,
             "upstream_notice_directories": upstream_names, "rust_runtime": runtime}
 
 

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Opt-in, local Discord RPC. GTK supplies actual player events and owns no socket.
+//! Local Discord RPC. GTK supplies actual player events and owns no socket.
 
 use std::{
     env, io,
     path::{Path, PathBuf},
-    sync::{Arc, Condvar, Mutex},
+    sync::{Arc, Condvar, Mutex, OnceLock},
     thread::{self, JoinHandle},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -13,16 +13,38 @@ use serde::Serialize;
 
 use crate::music::{Track, public_links};
 
+mod flatpak;
+mod peer;
 mod wire;
+pub use flatpak::run_discord_socket_helper;
 use wire::Connection;
 
 const APPLICATION_ID: &str = "1575553368280137790";
 const DISCORD_FLATPAK: &str = "com.discordapp.Discord";
 const RETRY_DELAY: Duration = Duration::from_secs(5);
 const ACTIVITY_INTERVAL: Duration = Duration::from_secs(4);
-const DOWNLOAD_URL: &str = "https://github.com/tracerxbrhd/karin/releases/latest";
 // Set to Some("karin_logo") when the owner registers that Rich Presence art asset.
 const FALLBACK_IMAGE: Option<&str> = None;
+
+fn diagnostic(
+    event: &'static str,
+    error: Option<&io::Error>,
+    code: Option<i64>,
+    started: Option<Instant>,
+) {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    if !*ENABLED.get_or_init(|| {
+        env::var_os("KARIN_DISCORD_DIAGNOSTICS").as_deref() == Some(std::ffi::OsStr::new("1"))
+    }) {
+        return;
+    }
+    let kind = error.map(io::Error::kind);
+    let errno = error.and_then(io::Error::raw_os_error);
+    let elapsed_ms = started.map(|start| start.elapsed().as_millis());
+    eprintln!(
+        "Karin Discord: event={event} kind={kind:?} errno={errno:?} code={code:?} elapsed_ms={elapsed_ms:?}"
+    );
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum Status {
@@ -60,12 +82,13 @@ pub(crate) struct Activity {
     #[serde(rename = "type")]
     kind: u8,
     details: String,
+    details_url: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
     state: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     timestamps: Option<Timestamps>,
     #[serde(skip_serializing_if = "Option::is_none")]
     assets: Option<Assets>,
-    buttons: Vec<Button>,
     #[serde(skip)]
     paused: bool,
 }
@@ -80,14 +103,6 @@ struct Timestamps {
 #[derive(PartialEq, Eq, Serialize)]
 struct Assets {
     large_image: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    large_text: Option<String>,
-}
-
-#[derive(PartialEq, Eq, Serialize)]
-struct Button {
-    label: &'static str,
-    url: String,
 }
 
 impl Activity {
@@ -95,19 +110,29 @@ impl Activity {
         // A direct numeric track path alone says nothing about whether an
         // account-local upload belongs to the public catalog. Require its
         // canonical album relationship as the admission boundary.
-        let album_id = track.album_id.as_deref()?;
-        public_links::album(album_id)?;
-        let track_link = public_links::track(&track.id, Some(album_id))?;
+        let track_link = track.album_id.as_deref().and_then(|album_id| {
+            public_links::album(album_id)?;
+            public_links::track(&track.id, Some(album_id))
+        });
+        let Some(track_link) = track_link else {
+            diagnostic("activity_skipped_catalog_link", None, None, None);
+            return None;
+        };
         if !track.available {
+            diagnostic("activity_skipped_unavailable", None, None, None);
             return None;
         }
-        let album = track.album_title.as_deref();
         let details = field(&track.title);
-        let artist = track.artists.join(", ");
-        let state = if let Some(album) = album.filter(|title| !title.is_empty()) {
-            format!("{artist} · {album}")
-        } else {
-            artist
+        let artist = field(&track.artists.join(", "));
+        let album = track
+            .album_title
+            .as_deref()
+            .map(field)
+            .filter(|album| !album.is_empty() && album != &details && album != &artist);
+        let state = match album {
+            Some(album) if artist.is_empty() => album,
+            Some(album) => format!("{artist} · {album}"),
+            None => artist,
         };
         let (paused, timestamps) = match progress {
             Progress::Playing { position, duration } => {
@@ -126,37 +151,24 @@ impl Activity {
             }
             Progress::Paused => (true, None),
         };
-        let state = if paused {
-            format!("Пауза · {state}")
-        } else {
-            state
+        let state = match (paused, state.is_empty()) {
+            (true, true) => "Пауза".into(),
+            (true, false) => format!("Пауза · {state}"),
+            (false, _) => state,
         };
         let assets = track
             .cover
             .as_ref()
             .and_then(crate::artwork::CoverArt::public_track_image)
             .or_else(|| FALLBACK_IMAGE.map(str::to_owned))
-            .map(|large_image| Assets {
-                large_image,
-                large_text: album.map(field),
-            });
-        let buttons = vec![
-            Button {
-                label: "Слушать в Яндекс Музыке",
-                url: track_link,
-            },
-            Button {
-                label: "Скачать Karin",
-                url: DOWNLOAD_URL.into(),
-            },
-        ];
+            .map(|large_image| Assets { large_image });
         Some(Self {
             kind: 2,
             details,
+            details_url: track_link,
             state: field(&state),
             timestamps,
             assets,
-            buttons,
             paused,
         })
     }
@@ -237,7 +249,11 @@ impl Presence {
             let shared = self.shared.clone();
             self.worker = thread::Builder::new()
                 .name("karin-discord".into())
-                .spawn(move || run(&shared, &platform_sockets()))
+                .spawn(move || {
+                    let flatpak = is_flatpak();
+                    run(&shared, &platform_sockets(flatpak), flatpak);
+                })
+                .inspect_err(|error| diagnostic("worker_start", Some(error), None, None))
                 .ok();
             if self.worker.is_none() {
                 self.shared.state.lock().unwrap().status = Status::Failed;
@@ -284,10 +300,18 @@ impl Drop for Presence {
     }
 }
 
-fn platform_sockets() -> Vec<PathBuf> {
-    let runtime = env::var_os("XDG_RUNTIME_DIR")
+fn is_flatpak() -> bool {
+    Path::new("/.flatpak-info").is_file()
+}
+
+fn runtime_directory() -> Option<PathBuf> {
+    env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
-        .filter(|p| p.is_absolute());
+        .filter(|path| path.is_absolute())
+}
+
+fn platform_sockets(sandboxed: bool) -> Vec<PathBuf> {
+    let runtime = runtime_directory();
     let temporary = ["TMPDIR", "TMP", "TEMP"]
         .into_iter()
         .find_map(|key| {
@@ -296,7 +320,6 @@ fn platform_sockets() -> Vec<PathBuf> {
                 .filter(|p| p.is_absolute())
         })
         .unwrap_or_else(|| PathBuf::from("/tmp"));
-    let sandboxed = Path::new("/.flatpak-info").is_file();
     socket_paths(runtime.as_deref(), &temporary, sandboxed)
 }
 
@@ -317,30 +340,54 @@ fn socket_paths(runtime: Option<&Path>, temporary: &Path, sandboxed: bool) -> Ve
     sockets
 }
 
-fn connect(sockets: &[PathBuf], shared: &Shared, session: u64) -> Result<Connection, Status> {
+fn socket_unavailable(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
+    )
+}
+
+fn connect(
+    sockets: &[PathBuf],
+    shared: &Shared,
+    session: u64,
+    refresh_native: bool,
+) -> Result<Connection, Status> {
+    let active = || {
+        let state = shared.state.lock().unwrap();
+        state.enabled && state.session == session && !state.closed
+    };
     let mut status = Status::Unavailable;
-    for path in sockets {
-        let active = {
-            let state = shared.state.lock().unwrap();
-            state.enabled && state.session == session && !state.closed
-        };
-        if !active {
-            break;
+    let mut refresh = false;
+    for (index, path) in sockets.iter().enumerate() {
+        if !active() {
+            return Err(status);
         }
         match Connection::open(path) {
             Ok(connection) => return Ok(connection),
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
-                ) => {}
+            // The first Flatpak candidate is the individually mounted native socket.
+            Err(error) if socket_unavailable(&error) => refresh |= refresh_native && index == 0,
+            Err(_) => status = Status::Failed,
+        }
+    }
+    if refresh && active() {
+        let started = Instant::now();
+        let result = flatpak::refresh_native_socket().inspect_err(|error| {
+            diagnostic("socket_refresh", Some(error), None, Some(started));
+        });
+        match result.and_then(Connection::handshake) {
+            Ok(connection) => return Ok(connection),
+            Err(error) if socket_unavailable(&error) => {}
             Err(_) => status = Status::Failed,
         }
     }
     Err(status)
 }
 
-fn run(shared: &Shared, sockets: &[PathBuf]) {
+fn run(shared: &Shared, sockets: &[PathBuf], refresh_native: bool) {
+    if sockets.is_empty() {
+        diagnostic("socket_no_candidates", None, None, None);
+    }
     let mut session = 0;
     let mut connection: Option<Connection> = None;
     let mut sent: Option<Arc<Activity>> = None;
@@ -382,7 +429,7 @@ fn run(shared: &Shared, sockets: &[PathBuf]) {
                 shared.wait(session, delay);
                 continue;
             }
-            match connect(sockets, shared, session) {
+            match connect(sockets, shared, session, refresh_native) {
                 Ok(socket) => {
                     connection = Some(socket);
                     shared.status(session, Status::Connected);

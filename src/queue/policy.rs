@@ -3,6 +3,7 @@
 use super::{MAX_QUEUE, RepeatMode};
 use crate::music::Track;
 use ring::rand::{SecureRandom, SystemRandom};
+use std::collections::HashSet;
 
 #[derive(Clone)]
 pub(super) struct OrderPolicy {
@@ -108,12 +109,12 @@ impl OrderPolicy {
     }
     pub(super) fn replace_future(&mut self, future: Vec<usize>) {
         self.history.truncate(self.cursor + 1);
-        self.remaining.clear();
-        for index in future {
-            if self.history.get(self.cursor) != Some(&index) && !self.remaining.contains(&index) {
-                self.remaining.push(index);
-            }
-        }
+        let current = self.history.get(self.cursor).copied();
+        let mut seen = HashSet::with_capacity(future.len());
+        self.remaining = future
+            .into_iter()
+            .filter(|index| Some(*index) != current && seen.insert(*index))
+            .collect();
     }
     pub(super) fn record(&mut self, index: usize) {
         self.remaining.retain(|candidate| *candidate != index);
@@ -240,18 +241,38 @@ impl OrderPolicy {
             }
             return next;
         }
-        // This is a preview of the exact RNG state and exact indices; it does
-        // not clone Track or mutate what the next command will select.
-        let mut preview = self.clone();
+        // Preview the known forward history and remaining plan in linear
+        // time. Only the start of a repeat cycle needs to copy the RNG state.
+        let mut seen = vec![false; items.len()];
         let mut next = Vec::with_capacity(items.len());
-        for _ in 0..items.len() {
-            let Some(index) = preview.next(items, next.last().copied().unwrap_or(current)) else {
-                break;
-            };
-            if next.contains(&index) {
-                break;
+        for &index in self.history.iter().skip(self.cursor.saturating_add(1)) {
+            if items.get(index).is_some_and(|track| track.available) {
+                if std::mem::replace(&mut seen[index], true) {
+                    return next;
+                }
+                next.push(index);
             }
-            next.push(index);
+        }
+        for &index in &self.remaining {
+            if items.get(index).is_some_and(|track| track.available)
+                && !std::mem::replace(&mut seen[index], true)
+            {
+                next.push(index);
+            }
+        }
+        if self.repeat == RepeatMode::Queue && next.len() < items.len() {
+            let available = items
+                .iter()
+                .enumerate()
+                .filter(|(_, track)| track.available)
+                .map(|(index, _)| index)
+                .collect();
+            let mut cycle = Self::with_seed(self.random).mix(available);
+            let current = next.last().copied().unwrap_or(current);
+            if cycle.len() > 1 && cycle.first() == Some(&current) {
+                cycle.swap(0, 1);
+            }
+            next.extend(cycle.into_iter().take_while(|index| !seen[*index]));
         }
         next
     }

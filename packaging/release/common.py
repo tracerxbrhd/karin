@@ -16,7 +16,7 @@ import tomllib
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 APP_ID = "io.github.tracerxbrhd.Karin"
-BUILD_FEATURES = "cassette-auth"
+BUILD_FEATURES = "browser-session-auth"
 
 
 def sha256(path: Path) -> str:
@@ -242,7 +242,7 @@ def validate_version_output(raw: str, metadata: dict, package: str) -> str:
     lines = raw.splitlines()
     required = {f"Karin {metadata['version']}", f"Source commit: {metadata['revision']}",
                 "Source state: clean", f"Package: {package}", "Profile: release",
-                "Features: auth-webkit,cassette-auth"}
+                f"Features: auth-webkit,{BUILD_FEATURES}"}
     if not required.issubset(lines):
         raise ValueError("Artifact version/source/package/profile does not match the release")
     if not any(line.startswith("Compiler: rustc ") for line in lines) or not any(line.startswith("Target: ") and len(line) > 8 for line in lines):

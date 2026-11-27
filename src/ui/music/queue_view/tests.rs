@@ -211,6 +211,47 @@ fn native_queue_space_mouse_enter_dispatch_exact_occurrence_once() {
     drop(duplicate);
     drop(other);
     drop(first);
+
+    let size = 624;
+    let tracks = (0..size)
+        .map(|index| {
+            let mut item = track(true);
+            item.title = format!("Synthetic collection occurrence {index}");
+            item
+        })
+        .collect();
+    this.model.borrow_mut().queue.replace_context(
+        PlaybackContext::with_source_positions(
+            ContextKind::LikedTracks,
+            None,
+            tracks,
+            0,
+            false,
+            (0..size).collect(),
+        )
+        .unwrap(),
+    );
+    this.render_queue();
+    pump_until(|| this.widgets.queue_paging.is_mapped());
+    assert!(this.widgets.queue_rows.row_at_index(199).is_some());
+    assert!(this.widgets.queue_rows.row_at_index(200).is_none());
+    for start in [200, 400, 600] {
+        let next = this.widgets.queue_paging.last_child().unwrap();
+        click(&next);
+        pump_until(|| this.queue_row_at_physical(start).is_some());
+    }
+    assert!(this.widgets.queue_rows.row_at_index(23).is_some());
+    assert!(this.widgets.queue_rows.row_at_index(24).is_none());
+    let later = this.queue_row_at_physical(601).unwrap();
+    click(later.upcast_ref());
+    pump_until(|| this.model.borrow().queue.current_index() == Some(601));
+    assert_eq!(this.model.borrow().queue.items().len(), size);
+    assert_eq!(
+        this.widgets.current.text(),
+        "Synthetic collection occurrence 601"
+    );
+    drop(later);
+
     let cleanup = ui.close_for_smoke();
     drop(this);
     drop(app);

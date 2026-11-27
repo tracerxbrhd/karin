@@ -476,25 +476,21 @@ fn native_collection_filter_continuation_and_exact_occurrences() {
         model.account_valid = true;
     }
     this.render_controls();
-    gtk::prelude::WidgetExt::activate_action(window, "win.music-library", None).unwrap();
-    pump_until(|| {
-        this.track_feeds.borrow().iter().any(|feed| {
-            feed.rows == this.widgets.library_rows
-                && feed.data.borrow().items.len() == 50
-                && !feed.data.borrow().loading
-        })
-    });
-    let liked = this
-        .track_feeds
-        .borrow()
-        .iter()
-        .find(|feed| feed.rows == this.widgets.library_rows)
-        .unwrap()
-        .clone();
-    // The initial ordinary page is already present. Isolate the search/Retry
-    // fixture from its independent bounded viewport prefill while GTK finishes
-    // the first allocation, as in the seeded whole-collection fixture.
+    this.widgets.stack.set_visible_child_name("library");
+    // Explicit search indexing remains the policy for other collections.
+    // Seed this source without its background liked load to exercise that
+    // lane's debounce and Retry independently of the automatic index test.
+    let liked = this.new_track_feed(
+        continuous_loading::FeedSource::Liked,
+        ContextKind::LikedTracks,
+        None,
+        &this.widgets.library_rows,
+        &this.widgets.library_feedback,
+    );
+    this.install_liked_hero(&liked);
     liked.suppress_prefill_for_test();
+    this.request_track_feed(&liked, false);
+    pump_until(|| liked.data.borrow().items.len() == 50 && !liked.data.borrow().loading);
     pump_until(|| liked.filter_ui.as_ref().unwrap().search.is_mapped());
     let found = std::process::Command::new("xdotool")
         .args([

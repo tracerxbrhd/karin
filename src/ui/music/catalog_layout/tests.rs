@@ -460,6 +460,7 @@ fn native_catalog_native_music_layout() {
                         "music-liked-title",
                         "music-liked-facts",
                         "music-collection-play",
+                        "music-liked-wave",
                     ]
                     .contains(&widget.widget_name().as_str())
                     {
@@ -508,8 +509,16 @@ fn native_catalog_native_music_layout() {
                     .unwrap()
                     .downcast_ref::<gtk::Button>()
                     .unwrap();
+                let wave = hero_widgets
+                    .iter()
+                    .find(|widget| widget.widget_name() == "music-liked-wave")
+                    .unwrap();
+                let play_bounds = play.compute_bounds(window).unwrap();
+                let wave_bounds = wave.compute_bounds(window).unwrap();
+                assert!(play_bounds.x() + play_bounds.width() <= wave_bounds.x());
                 for action in [
                     play.upcast_ref::<gtk::Widget>(),
+                    wave,
                     this.widgets.library_refresh.upcast_ref(),
                     filter.upcast_ref(),
                 ] {

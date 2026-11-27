@@ -43,7 +43,7 @@ fn persistent_preferences_roundtrip_preserves_private_modes_and_all_choices() {
     let store = fixture.store();
     let missing = store.load().unwrap();
     assert_eq!(missing, defaults(LoadStatus::Missing));
-    assert!(!missing.preferences.discord_presence);
+    assert!(missing.preferences.discord_presence);
     assert!(!fixture.file().exists());
     assert!(!fixture.file().parent().unwrap().exists());
     let preferences = Preferences {
@@ -55,12 +55,15 @@ fn persistent_preferences_roundtrip_preserves_private_modes_and_all_choices() {
         cache_limit: CacheLimit::Unlimited,
         track_info_open: false,
         lyrics_external_auto: true,
-        discord_presence: true,
+        discord_presence: false,
     };
     store.save(&preferences).unwrap();
     let reopened = fixture.store().load().unwrap();
     assert_eq!(reopened.preferences, preferences);
     assert_eq!(reopened.status, LoadStatus::Loaded);
+    let saved: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(fixture.file()).unwrap()).unwrap();
+    assert_eq!(saved["preferences"]["discord_presence"], false);
     let file = std::fs::metadata(fixture.file()).unwrap();
     let directory = std::fs::metadata(fixture.file().parent().unwrap()).unwrap();
     assert_eq!(file.permissions().mode() & 0o7777, 0o600);
@@ -92,10 +95,9 @@ fn malformed_oversized_unknown_and_out_of_range_settings_recover_with_defaults()
     ];
     for bytes in invalid {
         fixture.replace(&bytes);
-        assert_eq!(
-            store.load().unwrap(),
-            defaults(LoadStatus::RecoveredCorrupt)
-        );
+        let recovered = store.load().unwrap();
+        assert_eq!(recovered, defaults(LoadStatus::RecoveredCorrupt));
+        assert!(!recovered.preferences.discord_presence);
     }
     store
         .update(|preferences| preferences.appearance = Appearance::Light)
@@ -120,7 +122,37 @@ fn omitted_new_preferences_use_safe_defaults_without_accepting_unknown_fields() 
     assert_eq!(loaded.preferences.appearance, Appearance::Light);
     assert!(loaded.preferences.remember_login && loaded.preferences.cache_enabled);
     assert!(!loaded.preferences.forget_pending);
+    assert!(!loaded.preferences.discord_presence);
     assert_eq!(loaded.preferences.cache_limit, CacheLimit::GiB2);
+}
+
+#[test]
+fn stored_discord_choices_survive_default_change_and_resave() {
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    store.save(&Preferences::default()).unwrap();
+    for version in [2, FORMAT_VERSION] {
+        for (stored, expected) in [
+            (None, false),
+            (Some(serde_json::json!(false)), false),
+            (Some(serde_json::json!(true)), true),
+            (Some(serde_json::json!("true")), false),
+        ] {
+            let mut envelope = serde_json::json!({"version": version, "preferences": {}});
+            if let Some(stored) = stored {
+                envelope["preferences"]["discord_presence"] = stored;
+            }
+            fixture.replace(&serde_json::to_vec(&envelope).unwrap());
+            let loaded = store.load().unwrap();
+            assert_eq!(loaded.status, LoadStatus::Loaded);
+            assert_eq!(loaded.preferences.discord_presence, expected);
+            store.save(&loaded.preferences).unwrap();
+            assert_eq!(
+                fixture.store().load().unwrap().preferences,
+                loaded.preferences
+            );
+        }
+    }
 }
 
 #[test]

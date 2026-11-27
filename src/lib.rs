@@ -34,4 +34,6 @@ pub mod ui;
 pub(crate) mod updates;
 
 #[doc(hidden)]
+pub use discord_presence::run_discord_socket_helper;
+#[doc(hidden)]
 pub use updates::flatpak::{accept_restart, finish_restart};

@@ -36,6 +36,7 @@ struct Counts {
     reject_delivery_track: Option<usize>,
     slow_started: bool,
     wave_sessions: usize,
+    wave_seeds: Vec<String>,
     wave_batches: usize,
     wave_events: Vec<serde_json::Value>,
     wave_hold_feedback: bool,
@@ -209,10 +210,17 @@ fn serve(
     };
     if url.path() == "/rotor/session/new" {
         let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(body["seeds"], json!(["user:onyourwave"]));
+        let seeds = body["seeds"].as_array().unwrap();
+        assert_eq!(seeds.len(), 1);
+        let seed = seeds[0].as_str().unwrap();
+        assert!(matches!(
+            seed,
+            "user:onyourwave" | "track:42" | "playlist:1234_3"
+        ));
         let ids = {
             let mut counts = counts.lock().unwrap();
             counts.wave_sessions += 1;
+            counts.wave_seeds.push(seed.to_owned());
             if counts.wave_hold_begin {
                 counts.slow_started = true;
             }
@@ -224,10 +232,10 @@ fn serve(
         if counts.lock().unwrap().wave_hold_begin {
             wait_wave_fixture(release);
         }
-        json_response(
-            &mut stream,
-            wave_response("synthetic-wave-batch-1", &ids, true),
-        );
+        let mut response = wave_response("synthetic-wave-batch-1", &ids, true);
+        let (kind, tag) = seed.split_once(':').unwrap();
+        response["result"]["acceptedSeeds"] = json!([{"type":kind,"tag":tag}]);
+        json_response(&mut stream, response);
     } else if url.path() == "/rotor/session/synthetic-wave-session/tracks" {
         let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert!(body["queue"].as_array().unwrap().len() <= 100);
@@ -811,21 +819,24 @@ fn native_click(window: &adw::ApplicationWindow, widget: &impl IsA<gtk::Widget>)
     assert!(found.status.success());
     let id = String::from_utf8(found.stdout).unwrap();
     let id = id.lines().next().unwrap();
-    let x = x.to_string();
-    let y = y.to_string();
-    for arguments in [
-        vec!["windowfocus", "--sync", id],
-        vec!["mousemove", "--sync", "--window", id, &x, &y],
-        vec!["click", "1"],
-    ] {
-        assert!(
-            std::process::Command::new("xdotool")
-                .args(arguments)
-                .status()
-                .unwrap()
-                .success()
-        );
-    }
+    assert!(
+        std::process::Command::new("xdotool")
+            .args([
+                "windowfocus",
+                "--sync",
+                id,
+                "mousemove",
+                "--window",
+                id,
+                &x.to_string(),
+                &y.to_string(),
+                "click",
+                "1",
+            ])
+            .status()
+            .unwrap()
+            .success()
+    );
 }
 
 #[test]
@@ -1198,7 +1209,7 @@ fn native_local_first_cached_handoff_retries_online_once() {
 // exists only in cfg(test); its original MP3 cannot establish service rights.
 fn native_granted_audio_cache_fill_reuse_and_retirement() {
     use crate::audio_cache::{
-        AudioCache, CacheError, CachePolicy, OnlineStreamAuthority, ResourceKey,
+        AudioCache, CacheError, CachePolicy, OnlineStreamAuthority, Presence, ResourceKey,
         test_support::SyntheticAuthority,
     };
     let fixture = Fixture::new();
@@ -1360,6 +1371,13 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
         cache.get(&lease, key("42")),
         Err(CacheError::NoGrant)
     ));
+    // Verify the reopened record before dispatching playback. This warms the
+    // presence memo so the periodic indicator cannot race for the cold read
+    // gate while this fixture is checking the successful cache-hit path.
+    assert_eq!(
+        cache.presence(&lease, &[key("42")]).unwrap(),
+        [Presence::Stored]
+    );
 
     fixture.counts.lock().unwrap().reject_delivery_track = Some(42);
     let offers_before_denial = fixture.offers(0);
@@ -1385,6 +1403,9 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
     ));
     assert!(this.player.borrow().controller.is_none());
 
+    // The failed offer returns before its abandoned cache lookup releases the slot.
+    // Let it settle before testing the next successfully authorized cache hit.
+    pump_until(|| cache.lookup_settled_for_test());
     fixture.counts.lock().unwrap().reject_delivery_track = None;
     this.widgets.play.emit_clicked();
     wait_playing(this, 0);
@@ -1419,6 +1440,7 @@ fn native_granted_audio_cache_fill_reuse_and_retirement() {
         Err(CacheError::NoGrant)
     ));
     assert_eq!(cache.stats().unwrap().entries, 1);
+    pump_until(|| cache.lookup_settled_for_test());
     fixture.counts.lock().unwrap().reject_delivery_track = None;
     this.widgets.play.emit_clicked();
     wait_playing(this, 0);
@@ -1778,19 +1800,24 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
         assert!(found.status.success());
         let ids = String::from_utf8(found.stdout).unwrap();
         let id = ids.lines().next().unwrap();
-        for args in [
-            vec!["windowfocus", "--sync", id],
-            vec!["mousemove", "--sync", "--window", id, &x, &y],
-            vec!["click", "1"],
-        ] {
-            assert!(
-                std::process::Command::new("xdotool")
-                    .args(args)
-                    .status()
-                    .unwrap()
-                    .success()
-            );
-        }
+        assert!(
+            std::process::Command::new("xdotool")
+                .args([
+                    "windowfocus",
+                    "--sync",
+                    id,
+                    "mousemove",
+                    "--window",
+                    id,
+                    &x,
+                    &y,
+                    "click",
+                    "1",
+                ])
+                .status()
+                .unwrap()
+                .success()
+        );
         pump_until(|| this.info_is_open());
         assert_pinned_track(this, "42");
     }
@@ -4572,6 +4599,41 @@ fn native_wave_shared_player_feedback_batches_and_cleanup() {
         radio.close();
         refusal_ui.window.close();
     }
+
+    let seeded = Fixture::new();
+    let (_app, seeded_ui) = player_window(&seeded);
+    let radio = &seeded_ui.music.controller;
+    let popover = gtk::Popover::new();
+    let action = radio.track_wave_menu_item(&track("42"), &popover);
+    assert!(action.is_sensitive());
+    action.emit_clicked();
+    wait_playing(radio, 0);
+    pump_until(|| {
+        seeded
+            .counts
+            .lock()
+            .unwrap()
+            .wave_events
+            .iter()
+            .any(|event| event["event"]["type"] == "trackStarted")
+    });
+    let previous = radio.music_serial();
+    {
+        let mut counts = seeded.counts.lock().unwrap();
+        counts.wave_feedback_status = Some(400);
+        counts.wave_reject_event = Some("skip");
+    }
+    radio.start_wave_from(crate::music::wave::WaveSource::LikedCollection);
+    pump_until(|| {
+        radio.music_serial() != previous && radio.radio_status().phase == RadioPhase::Active
+    });
+    wait_playing(radio, 0);
+    assert_eq!(
+        seeded.counts.lock().unwrap().wave_seeds,
+        ["track:42", "playlist:1234_3"]
+    );
+    radio.close();
+    seeded_ui.window.close();
 }
 
 #[test]

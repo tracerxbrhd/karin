@@ -8,9 +8,10 @@ use std::time::Duration;
 mod index;
 
 pub(super) const VIEW_LIMIT: usize = 2_000;
-const CONTEXT_LIMIT: usize = 500;
+const CONTEXT_LIMIT: usize = crate::queue::MAX_QUEUE;
 const PAGE_LIMIT: u32 = 100;
 const RESULT_WINDOW: usize = 200;
+const LIKED_RESULT_WINDOW: usize = 64;
 const COLLECTION_SEARCH_DEBOUNCE: Duration = Duration::from_millis(300);
 
 #[derive(Default)]
@@ -213,8 +214,12 @@ impl LoadedTracks {
     pub(super) fn context(&self, index: usize) -> Option<PlaybackContext> {
         let rank = self.filter.rank(index)?;
         let visible = self.filter.visible();
-        let start = rank / CONTEXT_LIMIT * CONTEXT_LIMIT;
-        let end = (start + CONTEXT_LIMIT).min(visible.len());
+        let (start, end) = if self.kind.uses_collection_projection() {
+            (0, visible.len())
+        } else {
+            let start = rank / CONTEXT_LIMIT * CONTEXT_LIMIT;
+            (start, (start + CONTEXT_LIMIT).min(visible.len()))
+        };
         let partial = visible.len() < self.items.len()
             || start > 0
             || end < visible.len()
@@ -275,7 +280,9 @@ pub(super) struct TrackFeed {
     play_button: RefCell<glib::WeakRef<gtk::Button>>,
     pub filter_ui: Option<collection_filter::FilterBar>,
     pub hero: RefCell<Option<collection_hero::LikedCollectionHero>>,
+    auto_index: Cell<bool>,
     adjustment_guard: Cell<bool>,
+    window_turning: Cell<bool>,
     windowed: Cell<bool>,
     window_start: Cell<usize>,
     rendered_positions: RefCell<Vec<usize>>,
@@ -299,6 +306,14 @@ struct CollectionIndex {
 }
 
 impl TrackFeed {
+    fn result_window(&self) -> usize {
+        if self.auto_index.get() {
+            LIKED_RESULT_WINDOW
+        } else {
+            RESULT_WINDOW
+        }
+    }
+
     #[cfg(test)]
     pub(super) fn suppress_prefill_for_test(&self) {
         self.prefill_remaining.set(0);
@@ -326,14 +341,20 @@ impl MusicPane {
         let previous = Cell::new(scroll.vadjustment().value());
         let scroll_input =
             gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL);
+        scroll_input.set_propagation_phase(gtk::PropagationPhase::Capture);
         let weak_intent = Rc::downgrade(&self.controller);
         let weak_scroll = scroll.downgrade();
         scroll_input.connect_scroll(move |_, _, dy| {
-            if dy > 0.0
+            if dy != 0.0
                 && let (Some(this), Some(scroll)) = (weak_intent.upgrade(), weak_scroll.upgrade())
             {
                 let adjustment = scroll.vadjustment();
-                if adjustment.value() + adjustment.page_size() + 320.0 >= adjustment.upper() {
+                if this.turn_liked_window(&adjustment, dy > 0.0, false) {
+                    return glib::Propagation::Stop;
+                }
+                if dy > 0.0
+                    && adjustment.value() + adjustment.page_size() + 320.0 >= adjustment.upper()
+                {
                     this.load_visible_feed(true);
                 }
             }
@@ -344,11 +365,17 @@ impl MusicPane {
         let weak_keys = Rc::downgrade(&self.controller);
         let weak_scroll = scroll.downgrade();
         keys.connect_key_pressed(move |_, key, _, _| {
-            if matches!(key, gtk::gdk::Key::Page_Down | gtk::gdk::Key::End)
+            let forward = matches!(key, gtk::gdk::Key::Page_Down | gtk::gdk::Key::End);
+            if (forward || matches!(key, gtk::gdk::Key::Page_Up | gtk::gdk::Key::Home))
                 && let (Some(this), Some(scroll)) = (weak_keys.upgrade(), weak_scroll.upgrade())
             {
                 let adjustment = scroll.vadjustment();
-                if adjustment.value() + adjustment.page_size() + 320.0 >= adjustment.upper() {
+                if this.turn_liked_window(&adjustment, forward, true) {
+                    return glib::Propagation::Stop;
+                }
+                if forward
+                    && adjustment.value() + adjustment.page_size() + 320.0 >= adjustment.upper()
+                {
                     this.load_visible_feed(true);
                 }
             }
@@ -400,7 +427,9 @@ impl Controller {
             filter_ui: (!matches!(source, FeedSource::Search(_)))
                 .then(collection_filter::FilterBar::new),
             hero: RefCell::new(None),
+            auto_index: Cell::new(false),
             adjustment_guard: Cell::new(false),
+            window_turning: Cell::new(false),
             windowed: Cell::new(false),
             window_start: Cell::new(0),
             rendered_positions: RefCell::new(Vec::new()),
@@ -431,6 +460,7 @@ impl Controller {
         rows.connect_unmap(move |_| {
             if let (Some(this), Some(feed)) = (weak.upgrade(), weak_feed.upgrade()) {
                 this.retire_collection_index(&feed);
+                feed.window_turning.set(false);
                 if let Some(scroll) = this.content_scroll.borrow().upgrade() {
                     feed.saved_scroll.set(scroll.vadjustment().value());
                 }
@@ -448,6 +478,7 @@ impl Controller {
                     && feed.rows.is_mapped()
                     && this.feed_is_current(&feed)
                 {
+                    this.start_liked_index(&feed);
                     let browsing_index = {
                         let data = feed.data.borrow();
                         data.indexed && !data.filter.active()
@@ -491,6 +522,11 @@ impl Controller {
         feed
     }
 
+    pub(super) fn enable_liked_auto_index(&self, feed: &Feed) {
+        feed.auto_index.set(true);
+        feed.windowed.set(true);
+    }
+
     fn set_liked_markers(feed: &Feed, visible: bool) {
         if !matches!(feed.source, FeedSource::Liked) {
             return;
@@ -523,7 +559,7 @@ impl Controller {
     }
     pub(super) fn reset_collection_filters(&self) {
         // Retain the projection and admitted metadata across ordinary routes.
-        // Mapping a retained view never starts a background search.
+        // Mapping a retained liked view resumes its background index.
         for feed in self.track_feeds.borrow().iter() {
             if !feed.rows.is_mapped() {
                 self.retire_collection_index(feed);
@@ -561,7 +597,9 @@ impl Controller {
                 if !feed.data.borrow_mut().set_filter(&bounded) {
                     return;
                 }
-                if feed.data.borrow().filter.active() {
+                if feed.auto_index.get() {
+                    this.start_liked_index(&feed);
+                } else if feed.data.borrow().filter.active() {
                     this.schedule_collection_index(&feed);
                 } else {
                     this.retire_collection_index(&feed);
@@ -644,11 +682,12 @@ impl Controller {
                     && this.feed_is_current(&feed)
                 {
                     let count = feed.data.borrow().filter.visible().len();
+                    let window = feed.result_window();
                     let next = if forward {
-                        (feed.window_start.get() + RESULT_WINDOW)
-                            .min(count.saturating_sub(1) / RESULT_WINDOW * RESULT_WINDOW)
+                        (feed.window_start.get() + window)
+                            .min(count.saturating_sub(1) / window * window)
                     } else {
-                        feed.window_start.get().saturating_sub(RESULT_WINDOW)
+                        feed.window_start.get().saturating_sub(window)
                     };
                     feed.window_start.set(next);
                     this.render_collection_window(&feed);
@@ -728,7 +767,20 @@ impl Controller {
             .library_hero
             .remove_css_class("music-library-summary");
         let play = self.feed_play_button(feed);
-        let hero = collection_hero::LikedCollectionHero::new(&play, &self.widgets.library_refresh);
+        let wave = gtk::Button::with_label("Моя волна");
+        wave.set_widget_name("music-liked-wave");
+        wave.set_tooltip_text(Some("Моя волна по коллекции «Мне нравится»"));
+        let weak = Rc::downgrade(self);
+        let source_feed = Rc::downgrade(feed);
+        wave.connect_clicked(move |_| {
+            if let (Some(this), Some(feed)) = (weak.upgrade(), source_feed.upgrade())
+                && this.feed_is_current(&feed)
+            {
+                this.start_wave_from(crate::music::wave::WaveSource::LikedCollection);
+            }
+        });
+        let hero =
+            collection_hero::LikedCollectionHero::new(&play, &wave, &self.widgets.library_refresh);
         hero.update(&feed.data.borrow().items, false);
         self.widgets.library_hero.append(hero.widget());
         feed.hero.replace(Some(hero));
@@ -866,6 +918,12 @@ impl Controller {
         }
         self.render_feed_status(feed);
         self.sync_catalog_rows();
+        if feed.auto_index.get() {
+            // Expose the first (possibly cached) page before the worker
+            // continues with the full membership and bounded metadata batches.
+            self.start_liked_index(feed);
+            return;
+        }
         // A sparse normalized page may not create a scrollbar. Fill at most
         // three provider pages per new source, then only real wheel/key intent
         // admits further reads; no empty-page loop or manual pagination button.
@@ -899,8 +957,8 @@ impl Controller {
         let button = gtk::Button::with_label("Слушать");
         button.add_css_class("suggested-action");
         button.set_widget_name("music-collection-play");
-        button.set_sensitive(feed.data.borrow().first_playable().is_some());
         feed.play_button.replace(button.downgrade());
+        self.update_feed_play_button(feed, &feed.data.borrow());
         let weak = Rc::downgrade(self);
         let feed = Rc::downgrade(feed);
         button.connect_clicked(move |_| {
@@ -908,6 +966,9 @@ impl Controller {
                 && this.feed_is_current(&feed)
             {
                 let data = feed.data.borrow();
+                if this.waiting_for_liked_shuffle(&feed, &data) {
+                    return;
+                }
                 if let Some(index) = data.first_playable()
                     && let Some(context) = data.context(index)
                 {
@@ -917,6 +978,63 @@ impl Controller {
             }
         });
         button
+    }
+
+    fn waiting_for_liked_shuffle(&self, feed: &Feed, data: &LoadedTracks) -> bool {
+        feed.auto_index.get()
+            && (data.has_more || feed.restart_required.get())
+            && self.model.borrow().queue.shuffle()
+    }
+
+    pub(super) fn limit_unfinished_liked_shuffle(
+        &self,
+        context: PlaybackContext,
+    ) -> Option<PlaybackContext> {
+        let unfinished = context.source_kind() == ContextKind::LikedTracks
+            && context.is_partial()
+            && self.track_feeds.borrow().iter().any(|feed| {
+                let data = feed.data.borrow();
+                context.source_id() == Some(data.source_key.as_str())
+                    && self.waiting_for_liked_shuffle(feed, &data)
+            });
+        if !unfinished {
+            return Some(context);
+        }
+        // The explicit row may play while loading. Keep its actual identity
+        // for the marker, but never start a shuffle of the growing prefix.
+        let index = context.current_index();
+        PlaybackContext::with_source_positions(
+            context.source_kind(),
+            context.source_id().map(str::to_owned),
+            vec![context.items()[index].clone()],
+            0,
+            true,
+            vec![context.source_position(index)?],
+        )
+        .ok()
+        .map(|single| single.with_origin(context.origin().clone()))
+    }
+
+    fn update_feed_play_button(&self, feed: &Feed, data: &LoadedTracks) {
+        if let Some(play) = feed.play_button.borrow().upgrade() {
+            let waiting = self.waiting_for_liked_shuffle(feed, data);
+            play.set_sensitive(
+                self.feed_is_current(feed) && data.first_playable().is_some() && !waiting,
+            );
+            play.set_tooltip_text(waiting.then_some("Для перемешивания нужна вся коллекция"));
+        }
+    }
+
+    pub(super) fn refresh_liked_header_play(&self) {
+        for feed in self
+            .track_feeds
+            .borrow()
+            .iter()
+            .filter(|feed| feed.auto_index.get())
+        {
+            self.update_feed_play_button(feed, &feed.data.borrow());
+            self.update_filter_bar(feed);
+        }
     }
 
     fn render_feed_status(self: &Rc<Self>, feed: &Feed) {
@@ -935,9 +1053,7 @@ impl Controller {
         clear_box(&feed.status);
         feed.status.set_widget_name("music-feed-status");
         let data = feed.data.borrow();
-        if let Some(play) = feed.play_button.borrow().upgrade() {
-            play.set_sensitive(self.feed_is_current(feed) && data.first_playable().is_some());
-        }
+        self.update_feed_play_button(feed, &data);
         if data.indexed {
             if !data.filter.active() {
                 self.render_index_browsing_footer(feed);
@@ -1004,6 +1120,7 @@ impl Controller {
 
     pub(super) fn refresh_feed_status(self: &Rc<Self>, feed: &Feed) {
         self.render_feed_status(feed);
+        self.start_liked_index(feed);
     }
 
     pub(super) fn show_playlist_sections(self: &Rc<Self>) {
@@ -1444,6 +1561,7 @@ impl Controller {
         for feed in feeds {
             if feed.rows.is_mapped()
                 && feed.status.is_mapped()
+                && !feed.auto_index.get()
                 && feed.data.borrow().can_request()
                 && (explicit
                     || (!feed.adjustment_guard.get() && !feed.data.borrow().filter.active()))
@@ -1592,6 +1710,7 @@ impl Controller {
                             return;
                         }
                         this.render_feed_status(&completed);
+                        this.start_liked_index(&completed);
                     }
                 }
             },

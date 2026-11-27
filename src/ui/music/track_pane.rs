@@ -11,7 +11,7 @@ use gtk::gio;
 
 use crate::{
     artwork::ArtworkLoader,
-    music::{Artist, Track},
+    music::{Artist, Track, wave::WaveSource},
 };
 
 #[derive(Clone)]
@@ -19,6 +19,7 @@ pub(super) enum PaneAction {
     Close,
     BackInfo,
     Play(Track),
+    Wave(Track),
     Enqueue(Track),
     EnqueueNext(Track),
     AddToPlaylist(Track),
@@ -75,6 +76,7 @@ pub(super) struct TrackPane {
     album_title: gtk::Label,
     status: gtk::Label,
     next_action: gio::SimpleAction,
+    wave_action: gio::SimpleAction,
     enqueue_action: gio::SimpleAction,
     playlist_action: gio::SimpleAction,
     copy_link_action: gio::SimpleAction,
@@ -235,6 +237,7 @@ impl TrackPane {
         menu.set_sensitive(false);
         let group = gio::SimpleActionGroup::new();
         let next_action = track_action(&group, &state, "next", PaneAction::EnqueueNext);
+        let wave_action = track_action(&group, &state, "wave", PaneAction::Wave);
         let enqueue_action = track_action(&group, &state, "enqueue", PaneAction::Enqueue);
         let playlist_action = track_action(&group, &state, "playlist", PaneAction::AddToPlaylist);
         let copy_link_action = track_action(&group, &state, "copy-link", PaneAction::CopyLink);
@@ -351,6 +354,7 @@ impl TrackPane {
             album_title,
             status,
             next_action,
+            wave_action,
             enqueue_action,
             playlist_action,
             copy_link_action,
@@ -475,6 +479,9 @@ impl TrackPane {
         self.play.set_sensitive(false);
         self.enqueue.set_sensitive(false);
         self.next_action.set_enabled(false);
+        self.wave_action.set_enabled(
+            self.state.navigation_enabled.get() && track.and_then(WaveSource::from_track).is_some(),
+        );
         self.enqueue_action.set_enabled(false);
         self.playlist_action
             .set_enabled(track.is_some() && self.state.navigation_enabled.get());
@@ -639,6 +646,16 @@ impl TrackPane {
         }
         self.menu
             .set_sensitive(enabled && self.selected().is_some());
+        self.wave_action.set_enabled(
+            enabled
+                && self
+                    .state
+                    .selected
+                    .borrow()
+                    .as_ref()
+                    .and_then(WaveSource::from_track)
+                    .is_some(),
+        );
         self.playlist_action
             .set_enabled(enabled && self.selected().is_some());
         self.copy_link_action.set_enabled(
@@ -743,6 +760,10 @@ fn track_action(
 fn menu_model(delivery: bool) -> gio::Menu {
     let menu = gio::Menu::new();
     let queue = gio::Menu::new();
+    queue.append(
+        Some(super::radio::TRACK_WAVE_LABEL),
+        Some("track-pane.wave"),
+    );
     queue.append(Some("Воспроизвести следующим"), Some("track-pane.next"));
     queue.append(Some("Добавить в очередь"), Some("track-pane.enqueue"));
     queue.append(Some("Добавить в плейлист"), Some("track-pane.playlist"));

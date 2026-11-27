@@ -33,8 +33,8 @@ impl RepeatMode {
     }
 }
 
-const MAX_QUEUE: usize = 500;
-/// Provenance is bounded independently from the small admitted playback window.
+pub(crate) const MAX_QUEUE: usize = 500;
+/// The collection index and its immutable playback projection share one cap.
 pub(crate) const MAX_SOURCE_POSITIONS: usize = 20_000;
 
 /// Internal identity of one admitted queue entry, independent of its position
@@ -85,6 +85,12 @@ pub enum ContextKind {
     Wave,
 }
 
+impl ContextKind {
+    pub(crate) const fn uses_collection_projection(self) -> bool {
+        matches!(self, Self::LikedTracks | Self::Playlist | Self::Album)
+    }
+}
+
 /// An admitted loaded context. Manual additions retain None provenance even
 /// after explicit insertion/reordering among source occurrences.
 /// Track and source identifiers stay private in Debug output.
@@ -128,7 +134,25 @@ impl PlaybackContext {
         current_index: usize,
         partial: bool,
     ) -> Result<Self, ContextError> {
-        if items.len() > MAX_QUEUE {
+        Self::bounded(
+            source_kind,
+            source_id,
+            items,
+            current_index,
+            partial,
+            MAX_QUEUE,
+        )
+    }
+
+    fn bounded(
+        source_kind: ContextKind,
+        source_id: Option<String>,
+        items: Vec<Track>,
+        current_index: usize,
+        partial: bool,
+        limit: usize,
+    ) -> Result<Self, ContextError> {
+        if items.len() > limit {
             return Err(ContextError::TooLarge);
         }
         if items.is_empty() {
@@ -155,9 +179,10 @@ impl PlaybackContext {
         })
     }
 
-    /// Admit a bounded UI projection without renumbering its original source
-    /// occurrences. Filtering/sorting may reorder or omit positions; equal
-    /// track IDs at different positions remain independent occurrences.
+    /// Admit an already-loaded UI projection without renumbering its source
+    /// occurrences. Finite collections use the full indexed projection so
+    /// Shuffle and Next can reach every admitted position. Search and other
+    /// feeds retain their ordinary queue-sized windows.
     pub(crate) fn with_source_positions(
         source_kind: ContextKind,
         source_id: Option<String>,
@@ -178,7 +203,13 @@ impl PlaybackContext {
         {
             return Err(ContextError::InvalidSource);
         }
-        let mut context = Self::new(source_kind, source_id, items, current_index, partial)?;
+        let limit = if source_kind.uses_collection_projection() {
+            MAX_SOURCE_POSITIONS
+        } else {
+            MAX_QUEUE
+        };
+        let mut context =
+            Self::bounded(source_kind, source_id, items, current_index, partial, limit)?;
         context.source_positions = Arc::new(positions.into_iter().map(Some).collect());
         Ok(context)
     }
@@ -1578,6 +1609,63 @@ mod tests {
         .unwrap();
         assert_eq!(source.source_position(0), Some(19_999));
         assert_eq!(source.source_position(1), Some(2_001));
+    }
+
+    #[test]
+    fn large_collection_keeps_every_loaded_occurrence_in_order_and_shuffle() {
+        let tracks = (0..1_024)
+            .map(|index| {
+                let mut item = track("41");
+                item.available = index != 509;
+                item
+            })
+            .collect();
+        let source = PlaybackContext::with_source_positions(
+            ContextKind::LikedTracks,
+            None,
+            tracks,
+            0,
+            false,
+            (0..1_024).collect(),
+        )
+        .unwrap();
+        let mut queue = MusicQueue::with_seed(41);
+        queue.replace_context(source.clone());
+        assert!(queue.append(track("manual")).is_err());
+        assert!(queue.insert_next(track("manual")).is_err());
+        assert_eq!(queue.items().len(), 1_024);
+        assert_eq!(
+            queue.upcoming_indices(),
+            (1..1_024).filter(|index| *index != 509).collect::<Vec<_>>()
+        );
+        for expected in (1..1_024).filter(|index| *index != 509) {
+            queue.advance_eos().unwrap();
+            assert_eq!(queue.current_index(), Some(expected));
+            assert_eq!(
+                queue.context().unwrap().source_position(expected),
+                Some(expected)
+            );
+        }
+        assert!(!queue.can_go_next());
+        queue.previous_track().unwrap();
+        assert_eq!(queue.current_index(), Some(1_022));
+
+        queue.set_shuffle(true);
+        queue.replace_context(source);
+        let preview = queue.upcoming_indices();
+        assert_eq!(preview.len(), 1_022);
+        assert!(preview[..40].iter().any(|index| *index >= 500));
+        let mut unique = preview.clone();
+        unique.sort_unstable();
+        assert_eq!(
+            unique,
+            (1..1_024).filter(|index| *index != 509).collect::<Vec<_>>()
+        );
+        for expected in preview {
+            queue.next_track().unwrap();
+            assert_eq!(queue.current_index(), Some(expected));
+        }
+        assert!(queue.next_track().is_none());
     }
 
     #[test]

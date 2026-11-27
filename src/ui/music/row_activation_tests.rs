@@ -29,15 +29,17 @@ fn input(arguments: &[&str]) {
 
 fn click(window: &adw::ApplicationWindow, id: &str, widget: &impl IsA<gtk::Widget>) {
     let (x, y) = super::test_input::pointer(window, widget, super::test_input::Target::Leading);
+    // Queue movement and the click on one X connection. Waiting for a motion
+    // event stalls when successive controls use the same position.
     input(&[
         "mousemove",
-        "--sync",
         "--window",
         id,
         &x.to_string(),
         &y.to_string(),
+        "click",
+        "1",
     ]);
-    input(&["click", "1"]);
     // XTest completion is not GTK dispatch; observe the actual resulting action.
     settle();
 }

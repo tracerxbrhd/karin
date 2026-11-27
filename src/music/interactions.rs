@@ -1,16 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Explicit account-bound library interactions, independent of authentication UI.
 //!
-//! Endpoint/form knowledge was compared with yamu 0.1.2 at
-//! 9803f319b9ea6f81befbc3117e4592132ed07d0e and Cassette v0.2.4 at
-//! 9d34251d01bcd414ffbec2bef7931090d33c9124. No upstream OAuth or signing code
-//! is used. Writes are never retried automatically, including uncertain outcomes.
-//!
-//! Distinct track Dislike/readback and mutually exclusive reaction semantics were
-//! compared with MarshalX/yandex-music-api at
-//! 9ca132e5c18a72aab779c1fc68c169380a9357d0, `_client/likes.py`. Its account
-//! libraries are separate from recommendation-only radio feedback. No radio
-//! event or playback change follows from a library reaction here.
+//! Each library mutation sends one write and verifies membership with readback.
+//! The caller refreshes uncertain outcomes and handles any playback change.
+//! Radio feedback uses a separate service contract.
 
 use super::{
     Id, MAX_COLLECTION, MusicError, MusicService, Page, Playlist, PlaylistWire, TrackReference,

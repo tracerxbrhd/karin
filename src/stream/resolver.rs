@@ -8,10 +8,7 @@ use gtk::glib::{Checksum, ChecksumType};
 use super::*;
 use crate::playback::{RemotePlaybackSource, permitted_media_host};
 
-// The historical public legacy protocol uses this fixed checksum prefix, not
-// the extracted HMAC/decryption material of modern official-client flows.
-// Compared independently against Cassette v0.2.4 9d34251d and the published
-// 2026-07-16 lifeart investigation at 49cfee7002ebf816f4144860e67d6fa3be5f5708.
+// This fixed checksum prefix is part of the public legacy delivery protocol.
 const LEGACY_CHECKSUM_PREFIX: &[u8] = b"XGRlBW9FXlekgbPrRHuSiA";
 // Local admission freshness, deliberately conservative. It does not interpret
 // XML `ts` or claim an authoritative server expiry / renew playback rights.

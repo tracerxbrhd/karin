@@ -2,117 +2,172 @@
 
 # Architecture
 
-Karin is a native Rust/GTK4/Libadwaita application with one GStreamer player.
-Views express typed user intents; service, session, queue, cache and desktop
-adapters own their respective state. The [ADRs](adr/) describe current decisions.
+Karin uses Rust, GTK4 and Libadwaita for a native Linux interface and GStreamer
+for playback. Keeping one typed service, one queue and one audio engine lets
+the interface, system controls and integrations observe the same session.
+WebKitGTK6 serves the browser-session sign-in.
 
 ```mermaid
-flowchart LR
-    UI[GTK coordinator] --> API[MusicService]
-    API --> Music[Yandex Music API]
+flowchart TD
+    UI[GTK coordinator] --> Service[MusicService]
     UI --> Queue[MusicQueue]
-    UI --> Source[StreamResolver / AudioCache bridge]
-    Source --> Player[PlaybackController]
-    Player --> GST[GStreamer worker]
+    UI --> Source[StreamResolver and cache]
+    Source --> Playback[PlaybackController]
+    Playback --> GStreamer[GStreamer worker]
     MPRIS[MPRIS] <--> UI
+    UI --> Discord[Discord IPC]
 ```
 
 ## Ownership and execution
 
 | Area | Modules | Responsibility |
 | --- | --- | --- |
-| Catalog | `music`, `api`, `application` | Account-bound transport, typed models, search and confirmed writes |
-| Collections/text | `music::library_index`, `music::track_extras`, `lyrics` | Bounded indexing, related reads and literal TEXT/LRC |
-| Sign-in | `auth`, `auth::cassette`, `ui::auth`, `oauth`, `oauth_cli` | Ordinary browser-session sign-in, PKCE diagnostic and isolated independent sign-in |
-| Persistence | `session`, `credentials`, `session_lifecycle`, `settings` | Live token, protected storage, preferences and forgetting barriers |
-| Cache | `cache_budget`, `catalog_cache`, `artwork`, `audio_cache` | Shared budget and distinct metadata/artwork/HTTP-audio policies |
-| Playback | `queue`, `playback_session`, `stream`, `playback` | Occurrence identity, continuation, source admission and one worker |
-| Desktop/UI | `mpris`, `discord_presence`, `ui::music`, `ui::style`, `ui::preferences` | Actual media state, local integrations and native views |
+| Catalog | `music`, `api` | Account-bound transport, search and confirmed writes |
+| Sign-in | `ui::music::login`, `ui::auth`, `auth`, `oauth`, `independent_auth` | Dialog lifecycle, credential admission and provider-specific flows |
+| Private state | `session`, `credentials`, `session_lifecycle`, `settings` | Protected storage, preferences and forgetting |
+| Playback | `queue`, `playback_session`, `stream`, `playback` | Queue occurrences, source admission and one player |
+| Cache | `cache_budget`, `catalog_cache`, `artwork`, `audio_cache` | Shared budget and storage policy |
+| Desktop | `ui`, `mpris`, `discord_presence`, `updates` | Presentation, media controls, presence and release checks |
 
-Blocking I/O and parsing run on bounded workers. Coalesced reads keep one running
-and one latest pending job per lane; playlist edits serialize, and Wave feedback
-uses its own bounded FIFO without replay. Main-context admission checks account,
-request, source and intent generations. Weak UI owners and deferred membership
-reads avoid late/reentrant updates. GTK widgets/textures remain on GTK.
-[Worker boundaries](adr/0002-foundation-boundaries-and-workers.md).
+Widgets send typed intents. HTTP, parsing and file I/O run on bounded workers
+and return results to the GTK main context. Each ordinary read lane holds one
+running request and one latest pending request. Writes and Wave feedback have
+separate serialized lanes. Account, request, source and intent generations
+fence results from retired state. Weak view ownership and deferred membership
+reads prevent late and reentrant GTK updates.
+
+The audio worker owns GStreamer. Shutdown bypasses the command queue and
+transitions to Null without blocking GTK on a join. Application holds let
+admitted durable operations settle before conflicting I/O begins. Native
+plugin calls can delay cooperative shutdown.
 
 ## Sign-in and private state
 
-The attributed Cassette-compatible provider owns an ephemeral WebKitGTK6 dialog,
-exact navigation/callback/state checks and scoped in-memory cookies. No password
-inspection, injected JavaScript, imported profiles or persistent browser cookies
-are used. Music validation admits the session before library access or saving.
-UI and MusicService do not depend on the provider's registration/grant details.
-[Authentication](adr/0011-browser-session-authentication.md).
+The desktop login module owns the dialog, cancellation and Music account
+validation. `KarinProvider` handles supported sign-in modes and delegates the
+browser-session request and token exchange to the existing adapter. The
+embedded browser uses an isolated WebKitGTK session with exact navigation and
+callback checks. Library access and credential storage follow account validation.
+[Provider attribution](LICENSING.md#upstream-components)
 
-The independent opt-in command uses a system browser, a registered IPv4
-loopback callback and Karin's existing OAuth Code/S256 PKCE primitives. It
-validates the Yandex ID registration and Music account through the existing
-service boundary before admitting a token. Remembered independent credentials
-have their own storage scope and lifecycle. The command runs before GTK and
-reports account validation in the terminal. [Independent authentication](adr/0037-independent-authentication.md).
+Independent sign-in uses a system browser, an exact registered IPv4 loopback
+callback, Authorization Code and S256 PKCE. The opt-in terminal path validates
+Yandex ID and Music against the same account. It stores credentials only on
+explicit request, in a separate scope, and repeats validation on restore.
+The earlier own-registration test passed Yandex ID and received HTTP 403 from
+Music. The [earlier test](https://github.com/tracerxbrhd/karin/issues/5#issuecomment-6470853664)
+records the result. [#35](https://github.com/tracerxbrhd/karin/issues/35) covers
+the desktop login changes.
 
-Native uses Secret Service; Flatpak uses a Secret Portal secret and an encrypted
-token envelope. Unavailable storage permits memory-only login, never plaintext
-fallback. Logout/forgetting fence late writes and clear personal state; uncertain
-cleanup retains Retry. Ordinary continuation restores bounded account-bound
-IDs/order/position after fresh access checks without autoplay. Wave never persists.
-[Session lifecycle](adr/0018-persistent-session-and-settings.md).
+Native uses Secret Service. Flatpak stores an encrypted token envelope backed
+by the Secret Portal. Unavailable storage permits memory-only login. Restore
+requires fresh Music validation. Logout fences late work, drops the credential
+and purges retired personal data. An uncertain cleanup keeps a visible Retry
+and prevents restore. Ordinary playback continuation stores bounded,
+account-bound selectors, order and position. It resolves fresh access before
+restoring and waits for Play. Wave sessions are transient.
 
 ## Catalog and queue
 
-Search collects minimal validated identities and normalizes tracks in canonical
-batches, preserving order, duplicates and unavailable positions. Global search
-and collection search have independent request ownership. Eligible collection
-indexing starts from settled search intent, not startup/per-keystroke scans;
-coverage, paging and membership rechecks stay bounded.
-[Catalog/index decisions](adr/0035-incremental-whole-collection-index.md).
+Search hydrates validated selectors in canonical batches of up to 50.
+Navigation and membership reads have independent ownership. Ordinary views
+stop at 2,000 positions or 100 pages. Opening Liked Tracks displays the first
+page and continues through the collection index in batches of up to 50 tracks.
+A search in an eligible playlist can use the same 20,000-position and 4 MiB
+index. The UI mounts a bounded row window and sorts and filters the available
+index. Count and duration reflect the verified coverage. Cached metadata may
+support labelled transport-error fallback. Current account or resource refusal
+takes precedence over saved data.
 
-Queue occurrences are opaque and independent of provider IDs or visible indices.
-Explicit Play snapshots its source context. Filtering, sorting, growing an index
-or editing a server playlist cannot rewrite active playback. Local future-order
-edits preserve current source, history and occurrence identity.
-[Account/queue fences](adr/0026-refusal-fences-and-queue-occurrence-identity.md).
-Writes send one intent, require independent readback and reconcile unknown
-outcomes with GET only. [Playlist/reaction contracts](adr/0032-playlist-management.md).
+Collection playback snapshots the bounded loaded source, including tracks
+beyond position 500. Shuffle draws from the whole admitted source. Manual
+queues and Wave use their existing bounds. Duplicate tracks retain their own
+identity across filtering, sorting and queue edits. Catalog or server playlist
+changes cannot rewrite an admitted playback context. The continuation record
+stores up to 500 occurrences around the current position. MPRIS publishes
+actual player state and addresses the current occurrence.
+
+Library writes serialize under the validated account. Each intent sends one
+write and requires independent readback. Uncertain results reconcile through
+GET. Playlist edits use a complete revisioned snapshot and the exact server
+position of the chosen occurrence. Revisions and ordered sequences are
+checked again before writing. Playlist metadata edits and deletes can race
+with another client between independent reads. Only confirmed Dislike for
+the current occurrence advances to the next track.
 
 ## Playback and cache
 
-StreamResolver admits only reviewed unprotected MP3 HTTPS resources under exact
-origin/path policies. OAuth/cookies stay off CDN transport; media URLs remain
-private and transient. One PlaybackController owns one `playbin`; actual worker
-snapshots drive transport, queue and MPRIS. Explicit Resume can renew once for the
-same occurrence and restore confirmed position without a second player/clock.
-[Source/player contract](adr/0015-guarded-audio-playback.md).
+StreamResolver admits supported, unprotected full MP3 offers over HTTPS under
+exact origin and path checks. Descriptor/XML work is bounded. Music credentials
+stay off CDN requests and signed media URLs stay in memory. PlaybackController
+owns one GStreamer pipeline. An explicit Resume can renew an expired source
+once for the same occurrence and then restore the confirmed position.
 
-My Wave uses that same pipeline and actual listening-time ledger. Only Listen
-starts radio; batches/feedback remain occurrence-bound, serialized and in memory.
-[Wave lifecycle](adr/0027-my-wave-lifecycle.md).
+My Wave starts on request and uses the same player for the personal, track and
+Liked Tracks sources. Rotor receives a typed seed through `POST /rotor/session/new`.
+The liked source uses the authenticated account's kind-3 playlist as a single
+seed. Rotor derives recommendations from that collection without needing a
+local list of track IDs. Its bounded feedback queue uses actual listening
+events. An ambiguous write stops continuation. Retry starts a new session for
+the same source. Manual future-order editing is unavailable during Wave.
 
-Metadata, artwork and policy-admitted audio share one default-on 2 GiB budget.
-AudioCache verifies complete files and fresh account/offer/HTTP reuse evidence
-before local playback. A miss admits online playback immediately; independent
-bounded saving must not delay it. Atomic publication, integrity, LRU, disk
-headroom and Clear/Disable/account fences protect reuse. No cache establishes
-entitlement, and storage failure preserves admitted playback.
-[Cache policy](adr/0029-unified-cache-and-audio-reuse.md).
+[Track seed contract](https://ym.marshal.dev/radio/) · [Yandex's Liked Tracks Wave](https://yandexmusic.userecho.ru/communities/45/topics/10818-filtr-trekov-v-plejliste-mne-nravitsya?page=1)
+
+One default-on 2 GiB budget coordinates metadata, artwork and audio. Private
+staging, atomic publication, integrity checks and shared LRU protect stored
+data. Unlimited retains disk headroom and bounds on work. Clear, Disable,
+logout and account changes fence pending admission. Eligible, selected audio
+can be saved independently after online playback starts. Storage failure
+preserves admitted playback.
+
+Audio reuse requires current Music access, a matching offer, complete MP3
+integrity and a fresh HTTP lease or positive revalidation. Validators apply to
+the exact compatible media URI. `no-store` retires retained data,
+`no-cache` requires validation and an inconclusive comparison plays online.
+A stored file indicates local presence. Offline playback is unavailable.
+[HTTP caching](https://www.rfc-editor.org/rfc/rfc9111.html) · [Licensing](LICENSING.md)
 
 ## Presentation and desktop
 
-One pinned Info/Lyrics/Queue surface preserves user intent across navigation,
-outside clicks and resize. Lyrics follows the actual current occurrence/player
-position; external LRCLIB lookup needs consent and text stays in memory.
-System presentation uses native semantic surfaces, independent color preference,
-High Contrast and Reduced Motion. Karin Style remains unavailable.
-[Presentation/lyrics](adr/0034-bounded-track-lyrics-and-similar.md).
+One pinned Info, Lyrics and Queue panel preserves intent across navigation and
+resize. Lyrics follows the actual position of the current occurrence. Yandex
+plain text requires an explicit rights indication. Synchronized lookup in
+LRCLIB requires consent and sends public track metadata. Lyrics stay in memory.
+Similar tracks and external lyrics load only for the relevant visible view.
+System styling follows Libadwaita, with High Contrast and Reduced Motion.
 
-The in-process GIO MPRIS adapter exports actual transport/position/modes,
-opaque track paths and decoded local covers, without account/media secrets.
-Optional Discord Rich Presence uses the same player snapshots and sends a
-bounded stream of track, transport and seek changes through local IPC. Public
-music links used by Discord and the clipboard derive from catalog IDs.
-[Discord integration](adr/0038-local-discord-rich-presence.md).
+Discord Rich Presence is enabled for new profiles and can be disabled under
+Integrations. Earlier settings files represented an unchecked switch by omitting
+the field. The loader preserves that state and saves both choices explicitly.
+The local IPC worker sends track, transport and seek events without periodic
+position updates. The title links to the track's public page. The artist and
+distinct album share one line, and the cover uses an eligible public image URL.
+Flatpak grants read-only access to `xdg-run/discord-ipc-0` and
+`xdg-run/app/com.discordapp.Discord`.
+When the native Discord socket is missing or stale, the worker uses a short-lived
+instance of the same Flatpak to open the current socket and pass back its file
+descriptor. This refreshes the file mount without new permissions or restarting
+playback. The worker verifies the peer UID before any Discord exchange. A peer
+outside the sandbox's PID namespace can have PID zero.
 
-Flatpak keeps its exact MPRIS name and portal storage. Its two Discord IPC
-grants are read-only. See [BUILDING](BUILDING.md), [LICENSING](LICENSING.md)
-and [LIMITATIONS](LIMITATIONS.md).
+## Application updates
+
+Karin checks the public GitHub release before Music sign-in. Native directs
+users to the release for manual replacement. For Flatpak, the SHA-256 in the
+release notes binds the pinned Pages record to its release, source commit,
+App ID, ref, OSTree commit and signing fingerprint. Flatpak verifies the
+repository signature.
+
+The host UpdateMonitor schedules discovery. Karin requests installation when
+the Portal reports the matching commit, then checks the installed commit
+before offering restart and verifies it after restart. A system update is
+needed when sandbox permissions expand. Production verification of the
+in-app transition after 0.8.3 is tracked in
+[#40](https://github.com/tracerxbrhd/karin/issues/40).
+[Release and update instructions](BUILDING.md#stable-flatpak-channel)
+
+## Decision history
+
+Record changes to these contracts under the relevant heading with the reason
+and a link to the deciding PR. The [original decision records](https://github.com/tracerxbrhd/karin/tree/36ac6820d619fb9aa6c7e235a445ef66f55c610e/docs/adr)
+remain available in the 0.8.3 source tree.
