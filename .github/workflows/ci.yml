@@ -158,7 +158,7 @@ jobs:
       - name: Verify incremental build identity and source snapshot markers
         if: matrix.lane == 'stable'
         run: python3 scripts/test-build-identity.py
-      - name: Verify prototype authentication build policy
+      - name: Verify browser-session authentication build policy
         if: matrix.lane == 'stable'
         run: |
           python3 - <<'PY'
@@ -176,13 +176,13 @@ jobs:
                   seen.add(feature)
                   pending.extend(features.get(feature, []))
           assert "experimental-device-auth" not in seen, "Experimental OAuth must remain opt-in"
-          assert {"cassette-auth", "auth-webkit"} <= seen, "The ordinary prototype must include its WebKit session provider"
+          assert {"browser-session-auth", "auth-webkit"} <= seen, "The standard build must include its WebKit session provider"
           manifest = json.loads(Path("packaging/flatpak/io.github.tracerxbrhd.Karin.json").read_text())
           assert manifest["runtime"] == "org.gnome.Platform" and manifest["runtime-version"] == "50"
           assert manifest["sdk"] == "org.gnome.Sdk"
           assert manifest["sdk-extensions"] == ["org.freedesktop.Sdk.Extension.rust-stable"]
           commands = manifest["modules"][0]["build-commands"]
-          assert "cargo build --release --offline --locked --no-default-features --features cassette-auth" in commands
+          assert "cargo build --release --offline --locked --no-default-features --features browser-session-auth" in commands
           assert all("--all-features" not in command and "experimental-device-auth" not in command for command in commands)
           assert all("--experimental-music" not in command for command in commands)
           finish_args = manifest["finish-args"]
@@ -330,7 +330,7 @@ jobs:
           test "$(cat build/flatpak-source/BUILD-SOURCE-STATUS)" = clean
           git diff --exit-code -- Cargo.lock packaging/flatpak/io.github.tracerxbrhd.Karin.json
           cd build/flatpak-source
-          CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target" cargo build --release --offline --locked --no-default-features --features cassette-auth
+          CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target" cargo build --release --offline --locked --no-default-features --features browser-session-auth
       - name: Release provider, Lyrics/search, OAuth, real playback and GTK startup
         if: matrix.lane == 'msrv'
         env:

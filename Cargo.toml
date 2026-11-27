@@ -10,12 +10,13 @@ license = "GPL-3.0-or-later"
 publish = false
 
 [features]
-default = ["cassette-auth"]
-# Functional prototype: Cassette-compatible, consenting per-window session.
-cassette-auth = ["auth-webkit"]
+default = ["browser-session-auth"]
+browser-session-auth = ["auth-webkit"]
+# Compatibility with existing Cargo build commands.
+cassette-auth = ["browser-session-auth"]
 # Local owner experiments only; default builds contain no Device Flow provider.
 experimental-device-auth = []
-# Isolated login component, also used by the Cassette-compatible provider.
+# Isolated browser component used by the standard sign-in flow.
 auth-webkit = ["dep:webkit6"]
 
 [dependencies]

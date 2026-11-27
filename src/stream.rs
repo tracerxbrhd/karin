@@ -6,9 +6,7 @@
 //! The separate resolver validates an explicit full MP3 offer and constructs a
 //! short-lived legacy source for the existing playback boundary. The legacy
 //! `direct` hint alone never establishes a playable resource.
-//! The endpoint and field names were compared with Cassette v0.2.4, revision
-//! 9d34251d01bcd414ffbec2bef7931090d33c9124. No modern extracted signing key
-//! or protected-media/decryption mechanism is used.
+//! Supported delivery is limited to unprotected MP3 through the legacy protocol.
 
 use std::{
     fmt,

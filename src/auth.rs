@@ -26,6 +26,9 @@ use crate::session::AccessToken;
 mod navigation;
 pub use navigation::{FrameContext, NavigationEvent, RejectionReason, SafeNavigationDiagnostic};
 
+#[cfg(feature = "browser-session-auth")]
+use cassette::CassetteProvider as BrowserSessionAdapter;
+
 const CALLBACK_PATH: &str = "/oauth/callback";
 // Final OAuth returns retain their own small strict grammar and size bound.
 const MAX_RETURN: usize = 4096;
@@ -172,17 +175,17 @@ pub trait AuthProvider: Send + Sync {
 
 /// Standard desktop sign-in. The browser-session adapter owns the wire flow.
 struct KarinProvider {
-    #[cfg(feature = "cassette-auth")]
-    browser_session: cassette::CassetteProvider,
+    #[cfg(feature = "browser-session-auth")]
+    browser_session: BrowserSessionAdapter,
 }
 
 impl AuthProvider for KarinProvider {
     fn begin(&self) -> Result<Arc<AuthAttempt>, AuthError> {
-        #[cfg(feature = "cassette-auth")]
+        #[cfg(feature = "browser-session-auth")]
         {
             self.browser_session.begin()
         }
-        #[cfg(not(feature = "cassette-auth"))]
+        #[cfg(not(feature = "browser-session-auth"))]
         {
             Err(AuthError::MusicPermissionUnavailable)
         }
@@ -190,14 +193,14 @@ impl AuthProvider for KarinProvider {
 
     fn exchange(&self, _: &AuthAttempt, _: AuthorizationCode) -> Result<AccessToken, AuthError> {
         // Authorization code sign-in has a separate, explicitly enabled entry point.
-        if cfg!(feature = "cassette-auth") {
+        if cfg!(feature = "browser-session-auth") {
             Err(AuthError::Configuration)
         } else {
             Err(AuthError::MusicPermissionUnavailable)
         }
     }
 
-    #[cfg(feature = "cassette-auth")]
+    #[cfg(feature = "browser-session-auth")]
     fn exchange_session(
         &self,
         attempt: &AuthAttempt,
@@ -209,19 +212,19 @@ impl AuthProvider for KarinProvider {
 
 pub fn public_provider() -> Arc<dyn AuthProvider> {
     Arc::new(KarinProvider {
-        #[cfg(feature = "cassette-auth")]
-        browser_session: cassette::CassetteProvider::new(),
+        #[cfg(feature = "browser-session-auth")]
+        browser_session: BrowserSessionAdapter::new(),
     })
 }
 
-#[cfg(all(test, feature = "cassette-auth"))]
+#[cfg(all(test, feature = "browser-session-auth"))]
 pub(crate) fn public_provider_for_test(endpoint: &str) -> Arc<dyn AuthProvider> {
     Arc::new(KarinProvider {
-        browser_session: cassette::CassetteProvider::for_test(endpoint),
+        browser_session: BrowserSessionAdapter::for_test(endpoint),
     })
 }
 
-#[cfg(feature = "cassette-auth")]
+#[cfg(feature = "browser-session-auth")]
 pub mod cassette;
 
 /// Cookies from this attempt's ephemeral WebKit session only. No disk store,
@@ -229,7 +232,7 @@ pub mod cassette;
 pub struct SessionCookies(
     // Minimal builds retain the opaque provider boundary but intentionally
     // compile no consumer of browser-session credentials.
-    #[cfg_attr(not(feature = "cassette-auth"), expect(dead_code))] Zeroizing<String>,
+    #[cfg_attr(not(feature = "browser-session-auth"), expect(dead_code))] Zeroizing<String>,
 );
 impl fmt::Debug for SessionCookies {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -315,8 +318,7 @@ impl fmt::Debug for NavigationDecision {
     }
 }
 
-/// A bounded browser attempt. Cassette's implicit/sessionid grant is distinct
-/// from the retained code/PKCE automatic-loopback infrastructure.
+/// A bounded browser attempt for a session grant or code/PKCE loopback.
 /// Loopback ports MUST match a provider-approved registration; random-port
 /// acceptance is not inferred from RFC 8252 or from synthetic tests.
 pub struct AuthAttempt {
@@ -330,7 +332,7 @@ pub struct AuthAttempt {
     created: Instant,
     cancelled: AtomicBool,
     consumed: AtomicBool,
-    #[cfg(feature = "cassette-auth")]
+    #[cfg(feature = "browser-session-auth")]
     exchanged: AtomicBool,
     session_based: bool,
     session_authorized: AtomicBool,
@@ -346,7 +348,7 @@ impl fmt::Debug for AuthAttempt {
 }
 
 impl AuthAttempt {
-    #[cfg(feature = "cassette-auth")]
+    #[cfg(feature = "browser-session-auth")]
     pub(crate) fn session(client_id: &str) -> Result<Arc<Self>, AuthError> {
         Self::prepare_session(
             client_id,
@@ -355,7 +357,7 @@ impl AuthAttempt {
         )
     }
 
-    #[cfg(feature = "cassette-auth")]
+    #[cfg(feature = "browser-session-auth")]
     fn prepare_session(
         client_id: &str,
         endpoint: &str,
@@ -371,7 +373,7 @@ impl AuthAttempt {
             .join("/token")
             .map_err(|_| AuthError::Configuration)?
             .to_string();
-        // Preserve Cassette's registered default redirect; do not substitute an
+        // Preserve the registered default redirect; do not substitute an
         // unregistered Karin loopback or pretend this implicit flow uses PKCE.
         authorization.query_pairs_mut().extend_pairs([
             ("response_type", "token"),
@@ -389,7 +391,7 @@ impl AuthAttempt {
             created: Instant::now(),
             cancelled: AtomicBool::new(false),
             consumed: AtomicBool::new(false),
-            #[cfg(feature = "cassette-auth")]
+            #[cfg(feature = "browser-session-auth")]
             exchanged: AtomicBool::new(false),
             session_based: true,
             session_authorized: AtomicBool::new(false),
@@ -399,7 +401,7 @@ impl AuthAttempt {
         }))
     }
 
-    #[cfg(all(test, feature = "cassette-auth"))]
+    #[cfg(all(test, feature = "browser-session-auth"))]
     pub(crate) fn for_test_session(
         endpoint: &str,
         return_uri: &str,
@@ -508,7 +510,7 @@ impl AuthAttempt {
         Ok(())
     }
 
-    #[cfg(feature = "cassette-auth")]
+    #[cfg(feature = "browser-session-auth")]
     fn check_session_exchange(&self) -> Result<(), AuthError> {
         if self.is_cancelled() {
             Err(AuthError::Cancelled)
@@ -524,7 +526,7 @@ impl AuthAttempt {
         }
     }
 
-    #[cfg(feature = "cassette-auth")]
+    #[cfg(feature = "browser-session-auth")]
     fn claim_session_exchange(&self) -> Result<(), AuthError> {
         self.check_session_exchange()?;
         self.exchanged
@@ -599,7 +601,7 @@ impl AuthAttempt {
             created: Instant::now(),
             cancelled: AtomicBool::new(false),
             consumed: AtomicBool::new(false),
-            #[cfg(feature = "cassette-auth")]
+            #[cfg(feature = "browser-session-auth")]
             exchanged: AtomicBool::new(false),
             session_based: false,
             session_authorized: AtomicBool::new(false),

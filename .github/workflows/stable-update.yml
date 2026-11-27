@@ -93,7 +93,7 @@ jobs:
           (
             cd build/flatpak-source
             CARGO_TARGET_DIR=../../target cargo build --release --offline --locked \
-              --no-default-features --features cassette-auth
+              --no-default-features --features browser-session-auth
           )
           python3 packaging/release/artifacts.py native --revision "$GITHUB_SHA" \
             --binary target/release/karin --source-dir build/flatpak-source --output build/release

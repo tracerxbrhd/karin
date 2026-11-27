@@ -42,7 +42,7 @@ service access require separate evidence.
 | Audio delivery and cache | Karin implements the offer/XML/MP3 flow, shared playback worker and account-scoped cache. Protocol and cache references are recorded in the pinned provenance above. [Local engine](https://github.com/tracerxbrhd/karin/commit/226bf08) · [Playback and cache](ARCHITECTURE.md#playback-and-cache) |
 | Lyrics, related tracks and UI | Karin implements the parser, native frame highlighting and UI. Text, related data and consented LRCLIB requests use reviewed wire formats. [Presentation and desktop](ARCHITECTURE.md#presentation-and-desktop) |
 | Test code and fixtures | Karin uses synthetic wire data, text and artwork, generated WAV and CC0 fixture audio. Legacy sign-in fixtures exercise the attributed provider. [Audio generator](../src/audio.rs) · [Audio cache fixture](../src/ui/music/persistence/tests/app_cache_acceptance.rs) |
-| Build and packaging | `cassette-auth` enables `auth-webkit` and selects the attributed provider. Native, Flatpak and CI carry the corresponding notices. The [pinned 0.8.0 manifest](../packaging/release/0.8.0/io.github.tracerxbrhd.Karin.json) remains available for rebuilding that release. |
+| Build and packaging | `browser-session-auth` enables `auth-webkit` and selects the browser-session provider. Native, Flatpak and CI carry the corresponding notices. The [pinned 0.8.0 manifest](../packaging/release/0.8.0/io.github.tracerxbrhd.Karin.json) remains available for rebuilding that release. |
 
 Git retains the earlier [authentication review](https://github.com/tracerxbrhd/karin/blob/497f9562d2b6f703cf49c873c51abf7e7fa8552d/docs/AUTHENTICATION_REVIEW.md)
 and [stream delivery review](https://github.com/tracerxbrhd/karin/blob/497f9562d2b6f703cf49c873c51abf7e7fa8552d/docs/STREAM_DELIVERY_REVIEW.md).
@@ -91,7 +91,7 @@ GitHub's automatic source downloads contain the tagged repository tree.
 | Area | Established basis and remaining limit |
 | --- | --- |
 | Source code | GPL permits reuse/distribution subject to its conditions and retained notices. |
-| OAuth registration | Karin has its own application registration. Ordinary sign-in still uses the configuration published with Cassette. The registration holder's reuse authorization is unresolved. |
+| OAuth registration | Karin has its own application registration. Ordinary sign-in uses the upstream configuration described above. The registration holder's reuse authorization is unresolved. |
 | Music API | The owner accepted ordinary sign-in and playback in 0.8.2 and 0.8.3. Karin's own-registration token passed Yandex ID checks. In the recorded diagnostic, `/account/status` and `/account/about` returned HTTP 403 with no confirmed cause. |
 | Integrated public distribution/content | No applicable provider/registration-holder approval or other sufficient basis is recorded. A subscription, local playback and HTTP cacheability do not establish it. |
 

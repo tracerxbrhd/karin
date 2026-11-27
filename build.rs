@@ -96,7 +96,7 @@ fn main() {
     );
     let features = [
         ("auth-webkit", "CARGO_FEATURE_AUTH_WEBKIT"),
-        ("cassette-auth", "CARGO_FEATURE_CASSETTE_AUTH"),
+        ("browser-session-auth", "CARGO_FEATURE_BROWSER_SESSION_AUTH"),
         (
             "experimental-device-auth",
             "CARGO_FEATURE_EXPERIMENTAL_DEVICE_AUTH",

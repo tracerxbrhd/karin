@@ -1,11 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Deliberate playlist creation with independent server confirmation.
-//!
-//! The form/endpoint contract is corroborated by Cassette v0.2.4 at
-//! 9d34251d01bcd414ffbec2bef7931090d33c9124, yamu 0.1.2 at
-//! 9803f319b9ea6f81befbc3117e4592132ed07d0e and yamuse at
-//! 368c74646520e8bcd30c44a9887e1bf99cb58172. This is an original adapter;
-//! no upstream OAuth identity, implementation or signing material is imported.
 
 use super::{MusicError, MusicService, Playlist, PlaylistWire, playlist_from_wire, read_body};
 use crate::{music::interactions::InteractionError, session::AccessToken};

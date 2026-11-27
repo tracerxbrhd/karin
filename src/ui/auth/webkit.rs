@@ -618,7 +618,7 @@ impl Drop for AuthWebView {
     }
 }
 
-#[cfg(all(test, feature = "cassette-auth"))]
+#[cfg(all(test, feature = "browser-session-auth"))]
 mod interactive_tests;
 
 #[cfg(test)]
@@ -904,7 +904,7 @@ mod tests {
             [false, false],
             "attempts shared cookies"
         );
-        #[cfg(feature = "cassette-auth")]
+        #[cfg(feature = "browser-session-auth")]
         session_grant_and_music_fixtures();
         active_dialog_geometry();
     }
@@ -1209,7 +1209,7 @@ mod tests {
     /// Real WebKit cookies, the real session-grant adapter and the existing
     /// MusicService use a numeric-loopback server only. This proves plumbing,
     /// never real service authorization or account access.
-    #[cfg(feature = "cassette-auth")]
+    #[cfg(feature = "browser-session-auth")]
     fn session_grant_and_music_fixtures() {
         use crate::{
             auth::public_provider_for_test,

@@ -1,13 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Modern radio-session protocol with explicit start and local retirement.
 //!
-//! Endpoint/JSON/event knowledge was compared with Cassette v0.2.4 at
-//! 9d34251d01bcd414ffbec2bef7931090d33c9124 (api/yam-client.vala,
-//! api/objects/rotor, player/mods/flow.vala and client/utils.vala). This original
-//! adapter imports no upstream implementation, OAuth identity or signing code.
-//! Published protocol, successful HTTP acknowledgement and real service/playing
-//! acceptance are separate facts. Ordinary sign-in admits Music access;
-//! only an explicit user action starts a new in-memory radio session.
+//! An explicit user action starts a new in-memory radio session after sign-in.
+//! Feedback acknowledgement and confirmed playback are tracked separately.
 
 use super::{
     Id, MusicError, MusicService, PAGE_SIZE, SearchBinding, SearchTrackHit, Track,
@@ -440,9 +435,8 @@ impl MusicService {
             .map_err(|error| error.at(WaveStage::Feedback))
             .inspect_err(|_| session.cancel())?;
         self.wave_check(token, session)?;
-        // Cassette's feedback contract acknowledges HTTP200 without a typed
-        // body. Still refuse an explicit error/malformed nonempty JSON instead
-        // of calling it success. No inferred recommendation effect is reported.
+        // A feedback acknowledgement can have an empty body. Validate any
+        // nonempty body before reporting success.
         if !body.is_empty() {
             if body
                 .iter()

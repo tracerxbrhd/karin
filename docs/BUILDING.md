@@ -49,7 +49,7 @@ for toolchain in stable 1.98.1; do
 done
 
 cargo +1.98.1 fetch --locked
-cargo +1.98.1 build --release --offline --locked --no-default-features --features cassette-auth
+cargo +1.98.1 build --release --offline --locked --no-default-features --features browser-session-auth
 ./target/release/karin --audio-self-test
 ./target/release/karin --playback-self-test
 python3 -m unittest discover -s packaging/release -p 'test_*.py'
@@ -125,7 +125,7 @@ RUSTUP_TOOLCHAIN=1.98.1 python3 packaging/flatpak/prepare-source.py
 (
   cd build/flatpak-source
   CARGO_TARGET_DIR=../../target cargo +1.98.1 build --release --offline --locked \
-    --no-default-features --features cassette-auth
+    --no-default-features --features browser-session-auth
 )
 RUSTUP_TOOLCHAIN=1.98.1 python3 packaging/release/artifacts.py native --revision "$karin_release_revision" \
   --binary target/release/karin --source-dir build/flatpak-source --output build/release

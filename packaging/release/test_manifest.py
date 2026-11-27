@@ -15,7 +15,7 @@ import unittest
 from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
-from common import REPOSITORY, copy_tracked, identity, validate_prepared, validate_version_output
+from common import BUILD_FEATURES, REPOSITORY, copy_tracked, identity, validate_prepared, validate_version_output
 from manifest import DEVELOPMENT, PERMISSIONS, make_manifest, verify_archive
 
 
@@ -35,6 +35,10 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(metainfo.findtext("id"), "io.github.tracerxbrhd.Karin")
         manifest = json.loads((REPOSITORY / DEVELOPMENT).read_text())
         self.assertEqual(manifest["finish-args"], PERMISSIONS)
+        self.assertIn(
+            f"cargo build --release --offline --locked --no-default-features --features {BUILD_FEATURES}",
+            manifest["modules"][0]["build-commands"],
+        )
         self.assertTrue(any("share/metainfo/io.github.tracerxbrhd.Karin.metainfo.xml" in c
                             for c in manifest["modules"][0]["build-commands"]))
         license_commands = [c for c in manifest["modules"][0]["build-commands"] if "/share/licenses/" in c]
@@ -117,11 +121,16 @@ class ReleaseTests(unittest.TestCase):
 
     def test_release_rejects_wrong_version_dirty_or_experimental_binary(self):
         metadata = {"version": "0.8.0", "revision": "a" * 40}
-        version = "Karin 0.8.0\nSource commit: " + "a" * 40 + "\nSource state: clean\nPackage: Native\nProfile: release\nCompiler: rustc 1.98.1\nTarget: x86_64-unknown-linux-gnu\nFeatures: auth-webkit,cassette-auth\n"
+        features = "auth-webkit,browser-session-auth"
+        version = (
+            f"Karin 0.8.0\nSource commit: {'a' * 40}\nSource state: clean\nPackage: Native\n"
+            f"Profile: release\nCompiler: rustc 1.98.1\nTarget: x86_64-unknown-linux-gnu\nFeatures: {features}\n"
+        )
         validate_version_output(version, metadata, "Native")
         for old, new in (("0.8.0", "0.0.0"), ("state: clean", "state: modified"),
                          ("Package: Native", "Package: Flatpak"), ("Profile: release", "Profile: debug"),
-                         ("auth-webkit,cassette-auth", "auth-webkit,cassette-auth,experimental-device-auth")):
+                         (features, "auth-webkit,cassette-auth"),
+                         (features, f"{features},experimental-device-auth")):
             with self.assertRaises(ValueError):
                 validate_version_output(version.replace(old, new), metadata, "Native")
 
