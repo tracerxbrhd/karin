@@ -442,10 +442,11 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
         "unlinked credit remains honest display text"
     );
     assert!(!pane.artists.is_visible());
+    let events_before_late_click = events.borrow().len();
     artist.emit_clicked();
     assert_eq!(
         events.borrow().len(),
-        8,
+        events_before_late_click,
         "late old link must not navigate a new selection"
     );
 

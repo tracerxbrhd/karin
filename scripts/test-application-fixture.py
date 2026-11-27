@@ -658,17 +658,17 @@ try:
     click(info)
     click(current_info_menu())
     # GTK model-button menu items expose no Name on these runtime versions.
-    # The ordinary Info menu has three queue actions, Copy Link, then Lyrics.
-    # Prove its five mapped entries, save its actual painted labels, and drive
+    # The Info menu has the Wave action, three queue actions, Copy Link and Lyrics.
+    # Prove its six mapped entries, save its actual painted labels, and drive
     # that native menu with the keyboard as a user does.
     wait(
         lambda: len([x for x in tree() if visible(x) and x["role"] == "menu item"])
-        == 5,
+        == 6,
         "current Info menu",
     )
     capture("04b-info-menu")
     key("Home")
-    for _ in range(4):
+    for _ in range(5):
         key("Down")
     key("Return")
     widget("LRCLIB", "label")
