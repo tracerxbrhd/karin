@@ -4,8 +4,8 @@
 
 Karin is an independent native Linux client for Yandex Music. Preserve the
 working application; add only confirmed behavior within the requested scope.
-Read [ARCHITECTURE](docs/ARCHITECTURE.md) and the relevant [ADRs](docs/adr/)
-before changing a contract.
+Read [ARCHITECTURE](docs/ARCHITECTURE.md) before changing a contract. Record the
+decision and its rationale in the relevant section.
 
 ## Architecture and safety
 
@@ -54,5 +54,5 @@ before changing a contract.
 - UI changes need actual native input, structure and visual inspection at relevant
   sizes, themes, HiDPI and accessibility settings. Ignored registration is no PASS.
 - Verify final-head CI, links, licenses, source/ELF identity and packaging. Report
-  executed checks and [known limits](docs/LIMITATIONS.md); distinguish Cloud
-  fixtures from live-service, installed-package and physical-desktop acceptance.
+  executed checks and relevant limits. Distinguish synthetic fixtures from
+  live-service, installed-package and physical-desktop acceptance.
