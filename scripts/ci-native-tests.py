@@ -121,6 +121,7 @@ def run_group(args):
     tests = registered(binary)
     root = Path(args.output).resolve() / f"scale-{args.scale}"
     root.mkdir(parents=True, exist_ok=True)
+    failures = []
     for selector in GROUPS[args.group]:
         output = root / selector
         output.mkdir(parents=True, exist_ok=True)
@@ -185,7 +186,9 @@ def run_group(args):
             "elapsed_seconds": time.monotonic() - start, "exit_code": code}) + "\n")
         print("::endgroup::", flush=True)
         if code:
-            raise SystemExit(f"Native fixture failed ({code}): {selector}; see {output / 'test.log'}")
+            failures.append(f"Native fixture failed ({code}): {selector}; see {output / 'test.log'}")
+    if failures:
+        raise SystemExit("\n".join(failures))
 
 
 def main():

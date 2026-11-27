@@ -332,6 +332,7 @@ impl MusicPane {
         let previous = Cell::new(scroll.vadjustment().value());
         let scroll_input =
             gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL);
+        scroll_input.set_propagation_phase(gtk::PropagationPhase::Capture);
         let weak_intent = Rc::downgrade(&self.controller);
         let weak_scroll = scroll.downgrade();
         scroll_input.connect_scroll(move |_, _, dy| {

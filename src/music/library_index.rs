@@ -51,7 +51,12 @@ impl CollectionSnapshot {
             && tracks
                 .iter()
                 .zip(self.selectors.iter())
-                .all(|(track, id)| track.id == *id)
+                .all(|(track, selector)| {
+                    track.id == *selector
+                        || selector.split_once(':').is_some_and(|(id, album)| {
+                            track.id == id && track.album_id.as_deref() == Some(album)
+                        })
+                })
     }
     /// The admitted sequence and provider size must agree, including at the limit.
     pub fn same_membership(&self, other: &Self) -> bool {
