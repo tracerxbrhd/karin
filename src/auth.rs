@@ -170,27 +170,55 @@ pub trait AuthProvider: Send + Sync {
     }
 }
 
-#[cfg(not(feature = "cassette-auth"))]
-struct BlockedProvider;
-#[cfg(not(feature = "cassette-auth"))]
-impl AuthProvider for BlockedProvider {
+/// Standard desktop sign-in. The browser-session adapter owns the wire flow.
+struct KarinProvider {
+    #[cfg(feature = "cassette-auth")]
+    browser_session: cassette::CassetteProvider,
+}
+
+impl AuthProvider for KarinProvider {
     fn begin(&self) -> Result<Arc<AuthAttempt>, AuthError> {
-        Err(AuthError::MusicPermissionUnavailable)
+        #[cfg(feature = "cassette-auth")]
+        {
+            self.browser_session.begin()
+        }
+        #[cfg(not(feature = "cassette-auth"))]
+        {
+            Err(AuthError::MusicPermissionUnavailable)
+        }
     }
+
     fn exchange(&self, _: &AuthAttempt, _: AuthorizationCode) -> Result<AccessToken, AuthError> {
-        Err(AuthError::MusicPermissionUnavailable)
+        // Authorization code sign-in has a separate, explicitly enabled entry point.
+        if cfg!(feature = "cassette-auth") {
+            Err(AuthError::Configuration)
+        } else {
+            Err(AuthError::MusicPermissionUnavailable)
+        }
+    }
+
+    #[cfg(feature = "cassette-auth")]
+    fn exchange_session(
+        &self,
+        attempt: &AuthAttempt,
+        cookies: SessionCookies,
+    ) -> Result<AccessToken, AuthError> {
+        self.browser_session.exchange_session(attempt, cookies)
     }
 }
 
 pub fn public_provider() -> Arc<dyn AuthProvider> {
-    #[cfg(feature = "cassette-auth")]
-    {
-        Arc::new(cassette::CassetteProvider::new())
-    }
-    #[cfg(not(feature = "cassette-auth"))]
-    {
-        Arc::new(BlockedProvider)
-    }
+    Arc::new(KarinProvider {
+        #[cfg(feature = "cassette-auth")]
+        browser_session: cassette::CassetteProvider::new(),
+    })
+}
+
+#[cfg(all(test, feature = "cassette-auth"))]
+pub(crate) fn public_provider_for_test(endpoint: &str) -> Arc<dyn AuthProvider> {
+    Arc::new(KarinProvider {
+        browser_session: cassette::CassetteProvider::for_test(endpoint),
+    })
 }
 
 #[cfg(feature = "cassette-auth")]

@@ -44,9 +44,10 @@ plugin calls can delay cooperative shutdown.
 ## Sign-in and private state
 
 The desktop login module owns the dialog, cancellation and Music account
-validation. It invokes the provider through `AuthProvider`. The embedded
-browser uses an isolated WebKitGTK session with exact navigation and callback
-checks. Library access and credential storage follow account validation.
+validation. `KarinProvider` handles supported sign-in modes and delegates the
+browser-session request and token exchange to the existing adapter. The
+embedded browser uses an isolated WebKitGTK session with exact navigation and
+callback checks. Library access and credential storage follow account validation.
 [Provider attribution](LICENSING.md#upstream-components)
 
 Independent sign-in uses a system browser, an exact registered IPv4 loopback

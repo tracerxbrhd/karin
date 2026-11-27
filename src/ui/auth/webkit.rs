@@ -1212,7 +1212,7 @@ mod tests {
     #[cfg(feature = "cassette-auth")]
     fn session_grant_and_music_fixtures() {
         use crate::{
-            auth::{AuthProvider, cassette::CassetteProvider},
+            auth::public_provider_for_test,
             music::{MusicService, SearchKind},
         };
         use std::sync::atomic::AtomicUsize;
@@ -1420,7 +1420,7 @@ mod tests {
                 attempt.clone(),
                 Rc::new(|_| panic!("session flow returned an authorization code")),
                 Rc::new(move |cookies| {
-                    let provider = CassetteProvider::for_test(&token_endpoint);
+                    let provider = public_provider_for_test(&token_endpoint);
                     let attempt = session_attempt.clone();
                     let origin = music_origin.clone();
                     let finished = finished.clone();

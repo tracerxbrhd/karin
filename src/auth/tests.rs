@@ -159,6 +159,20 @@ fn public_provider_stays_blocked_for_begin_and_exchange() {
 }
 
 #[test]
+#[cfg(feature = "cassette-auth")]
+fn public_provider_rejects_code_exchange_in_browser_session_build() {
+    let fixture = SyntheticFixture::new(BrowserMode::System);
+    let code = AuthorizationCode(Zeroizing::new(SYNTHETIC_CODE.to_owned()));
+    assert_eq!(
+        public_provider()
+            .exchange(&fixture.attempt, code)
+            .unwrap_err(),
+        AuthError::Configuration
+    );
+    fixture.assert_no_provider_requests();
+}
+
+#[test]
 fn authorization_uses_independent_random_state_and_s256_pkce() {
     let first = SyntheticFixture::new(BrowserMode::Embedded);
     let second = SyntheticFixture::new(BrowserMode::System);
