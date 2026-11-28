@@ -444,6 +444,42 @@ def exercise_system_preferences():
     assert (after["previous"], after["next"]) == (before["previous"], before["next"])
 
 
+def application_menu_items():
+    menu = widget("Меню приложения", "menu")
+    return [
+        item for item in tree(menu["ref"], depth_first=True)
+        if visible(item) and item["role"] in ("menu item", "check menu item")
+    ]
+
+
+def private_menu_item(items):
+    # The main menu starts with updates and Preferences on every page. GTK
+    # 4.14 can omit the accessible names of native model buttons.
+    private = items[2]
+    # AT-SPI state 41 is CHECKABLE. GTK can export the generic menu-item role
+    # for a checkbox while still providing its checked state to assistive tools.
+    assert private["states"][1] & (1 << 9)
+    assert private["name"] in ("", "Скрывать активность в Discord")
+    return private
+
+
+def focus_menu_item(items, target):
+    # GTK 4.14 exports empty model-button names. Follow native focus, which
+    # skips disabled actions as a keyboard user moves through the menu.
+    def focused_item():
+        return next((item["ref"] for item in items
+                     if call(item["ref"], ACCESS, "GetState")[0][0] & (1 << 12)), None)
+
+    for _ in items:
+        focused = wait(focused_item, "application menu focus")
+        if focused == target:
+            return
+        key("Down")
+        wait(lambda: not call(focused, ACCESS, "GetState")[0][0] & (1 << 12),
+             "next application menu item")
+    raise AssertionError("Application menu target did not receive native focus")
+
+
 def exercise_welcome(window_id):
     heading = "Ваша музыка — в Karin"
     sign_in = "Войти через Яндекс"
@@ -463,9 +499,9 @@ def exercise_welcome(window_id):
     assert not find("Поиск музыки", "search box")
     assert not find("Диагностика", "label")
     click(widget("Меню приложения"))
-    menu = widget("Меню приложения", "menu")
-    items = [item for item in tree(menu["ref"]) if visible(item) and item["role"] == "menu item"]
-    assert len(items) == 5, "Signed-out menu must expose updates, preferences, shortcuts, About and Quit"
+    items = application_menu_items()
+    assert len(items) == 6, "Signed-out menu must include the private listening action"
+    assert not is_checked(private_menu_item(items))
     key("Escape")
 
     login = widget(sign_in, "button")
@@ -529,28 +565,20 @@ try:
     capture("00-startup")
     # Release metadata must reach the actual native About dialog, not just CLI.
     click(widget("Меню приложения"))
-    about_menu = widget("Меню приложения", "menu")
-    # Traverse nested menu sections in native visual order before selecting About.
-    menu_items = [item for item in tree(about_menu["ref"], depth_first=True)
-                  if visible(item) and item["role"] == "menu item"]
-    assert len(menu_items) == 8, "Unexpected application menu structure"
+    menu_items = application_menu_items()
+    assert len(menu_items) == 9, "Unexpected application menu structure"
     assert all(item["name"] != "Диагностика" for item in menu_items)
+    private = private_menu_item(menu_items)
+    assert not is_checked(private)
+    focus_menu_item(menu_items, private["ref"])
+    key("Return")
+    wait(lambda: not find("Меню приложения", "menu"), "application menu closed")
+    click(widget("Меню приложения"))
+    menu_items = application_menu_items()
+    assert is_checked(private_menu_item(menu_items)), "Private listening checkbox did not report checked state"
     target = menu_items[-2]["ref"]  # About precedes Quit in this menu.
     assert all(item["states"][0] & (1 << 24) for item in menu_items[-2:]), "About/Quit unavailable"
-
-    # GTK 4.14 exports empty model-button names. Follow actual native focus;
-    # disabled actions are skipped by GTK rather than counted as key presses.
-    def menu_focus():
-        return next((item["ref"] for item in menu_items
-                     if call(item["ref"], ACCESS, "GetState")[0][0] & (1 << 12)), None)
-
-    for _ in range(len(menu_items)):
-        focused = wait(menu_focus, "application menu focus")
-        if focused == target:
-            break
-        key("Down")
-        wait(lambda: not call(focused, ACCESS, "GetState")[0][0] & (1 << 12), "next application menu item")
-    assert call(target, ACCESS, "GetState")[0][0] & (1 << 12), "About did not receive native focus"
+    focus_menu_item(menu_items, target)
     key("Return")
     application_version = version.splitlines()[0].removeprefix("Karin ")
     widget(application_version)
@@ -786,6 +814,9 @@ try:
         "restart window",
     )[0]
     input_("windowfocus", "--sync", window)
+    click(widget("Меню приложения"))
+    assert not is_checked(private_menu_item(application_menu_items()))
+    key("Escape")
     key("ctrl+comma")
     check_presentation()
     capture("09a-restart-style-preference")
