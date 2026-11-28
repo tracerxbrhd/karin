@@ -3099,8 +3099,20 @@ fn native_now_playing_switches_shared_views_and_restores_workspace() {
     let lyrics = &this.track_pane.extras.lyrics_widget;
     assert!(lyrics.has_css_class("karin-lyrics-expanded"));
     assert!(!part("music-lyrics-title").is_visible());
+    let source = part("music-lyrics-source")
+        .downcast::<gtk::Label>()
+        .unwrap();
+    let lines = part("music-lyrics-lines");
     let external = part("music-lyrics-external");
-    pump(|| external.is_mapped() && external.is_sensitive());
+    // The plain lyric list expands before the external lookup button. Wait
+    // for that result before native_click measures the button's X11 position.
+    pump(|| {
+        source.is_mapped()
+            && source.text() == "Яндекс Музыка"
+            && lines.is_mapped()
+            && external.is_mapped()
+            && external.is_sensitive()
+    });
     native_click(&ui, &external);
     pump(|| ui.window.visible_dialog().is_some());
     let dialog = ui.window.visible_dialog().unwrap();
