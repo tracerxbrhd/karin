@@ -230,6 +230,7 @@ fn native_v07_playback_restore_playlist_appearance_process_restart() {
         "restored_play_offer_delta":resumed.offers-seeded.offers,
         "all_mutations_independent_readback":true,"active_queue_and_engine_preserved":true,
         "no_autoplay_no_wave_no_resolver_before_play":true,"snapshot_has_no_urls_or_credentials":true,
+        "restarted_queue_via_home_continue":true,
         "media_original_bytes":bytes});
     if let Some(captures) = std::env::var_os("KARIN_TEST_CAPTURE_DIR") {
         fs::create_dir_all(&captures).unwrap();
@@ -639,7 +640,10 @@ fn child(input: &Input, phase: &str) {
                     adw::StyleManager::default().color_scheme(),
                     adw::ColorScheme::ForceDark
                 );
-                method("Play", ().to_variant());
+                let continue_button = &this.widgets.home_continue.action;
+                assert!(continue_button.is_mapped() && continue_button.is_sensitive());
+                assert_eq!(continue_button.label().as_deref(), Some("Продолжить"));
+                click(&ui.window, continue_button);
                 wait_source(this, PlaybackSourceKind::CachedFile);
                 pump_until(|| {
                     this.music_snapshot().is_some_and(|snapshot| {

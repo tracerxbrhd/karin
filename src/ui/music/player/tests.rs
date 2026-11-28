@@ -35,6 +35,8 @@ struct Counts {
     cache_hold_started: bool,
     reject_delivery_track: Option<usize>,
     slow_started: bool,
+    wave_settings_reads: usize,
+    wave_hold_settings: bool,
     wave_sessions: usize,
     wave_seeds: Vec<String>,
     wave_batches: usize,
@@ -210,19 +212,45 @@ fn serve(
     } else {
         Vec::new()
     };
-    if url.path() == "/rotor/session/new" {
+    if url.path() == "/rotor/wave/settings" {
+        assert_eq!(first[0], "GET");
+        assert_eq!(url.query(), Some("seeds=user%3Aonyourwave"));
+        let hold = {
+            let mut counts = counts.lock().unwrap();
+            counts.wave_settings_reads += 1;
+            counts.wave_hold_settings
+        };
+        if hold {
+            wait_wave_fixture(release);
+        }
+        json_response(
+            &mut stream,
+            json!({"result": {"settingRestrictions": {
+                "diversity": {"type":"enum","possibleValues":[
+                    {"name":"Любое","value":"default","serializedSeed":"settingDiversity:default","unspecified":true},
+                    {"name":"Незнакомое","value":"discover","serializedSeed":"settingDiversity:discover"}
+                ]}
+            }}}),
+        );
+    } else if url.path() == "/rotor/session/new" {
         let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        let seeds = body["seeds"].as_array().unwrap();
-        assert_eq!(seeds.len(), 1);
-        let seed = seeds[0].as_str().unwrap();
+        let seeds: Vec<_> = body["seeds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|seed| seed.as_str().unwrap())
+            .collect();
         assert!(matches!(
-            seed,
-            "user:onyourwave" | "track:42" | "playlist:1234_3"
+            seeds.as_slice(),
+            ["user:onyourwave" | "track:42" | "playlist:1234_3"]
+                | ["user:onyourwave", "settingDiversity:discover"]
         ));
         let ids = {
             let mut counts = counts.lock().unwrap();
             counts.wave_sessions += 1;
-            counts.wave_seeds.push(seed.to_owned());
+            counts
+                .wave_seeds
+                .extend(seeds.iter().map(|seed| (*seed).to_owned()));
             if counts.wave_hold_begin {
                 counts.slow_started = true;
             }
@@ -235,8 +263,14 @@ fn serve(
             wait_wave_fixture(release);
         }
         let mut response = wave_response("synthetic-wave-batch-1", &ids, true);
-        let (kind, tag) = seed.split_once(':').unwrap();
-        response["result"]["acceptedSeeds"] = json!([{"type":kind,"tag":tag}]);
+        response["result"]["acceptedSeeds"] = seeds
+            .iter()
+            .map(|seed| {
+                let (kind, tag) = seed.split_once(':').unwrap();
+                json!({"type":kind,"tag":tag})
+            })
+            .collect::<Vec<_>>()
+            .into();
         json_response(&mut stream, response);
     } else if url.path() == "/rotor/session/synthetic-wave-session/tracks" {
         let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
@@ -3758,6 +3792,109 @@ fn native_music_shuffle_repeat_mpris_shared_policy_and_eos() {
 }
 
 #[test]
+#[ignore = "requires Xvfb and actual generated MP3 playback"]
+fn native_wave_advertised_setting_starts_on_explicit_listen() {
+    gtk::init().unwrap();
+    adw::init().unwrap();
+    let fixture = Fixture::new();
+    let (_app, ui) = player_window(&fixture);
+    let this = &ui.music.controller;
+    pump_until(|| this.widgets.home_wave.settings.is_mapped());
+    assert_eq!(fixture.counts.lock().unwrap().wave_settings_reads, 0);
+    let wait_tuning = || {
+        pump_until(|| {
+            ui.window.visible_dialog().is_some_and(|dialog| {
+                dialog.widget_name() == "music-wave-settings-dialog"
+                    && contains_text(dialog.upcast_ref(), "Характер")
+            })
+        });
+        let dialog = ui.window.visible_dialog().unwrap();
+        let mut widgets = vec![dialog.upcast::<gtk::Widget>()];
+        let (mut group, mut play) = (None, None);
+        while let Some(widget) = widgets.pop() {
+            if let Some(row) = widget.downcast_ref::<adw::ComboRow>() {
+                group = Some(row.clone());
+            }
+            if widget.widget_name() == "music-wave-settings-play" {
+                play = Some(widget.clone());
+            }
+            let mut child = widget.first_child();
+            while let Some(next) = child {
+                child = next.next_sibling();
+                widgets.push(next);
+            }
+        }
+        (
+            group.expect("advertised familiarity setting"),
+            play.expect("explicit session start"),
+        )
+    };
+    fixture.counts.lock().unwrap().wave_hold_settings = true;
+    native_click(&ui.window, &this.widgets.home_wave.settings);
+    pump_until(|| fixture.counts.lock().unwrap().wave_settings_reads == 1);
+    assert!(ui.window.visible_dialog().unwrap().close());
+    pump_until(|| ui.window.visible_dialog().is_none());
+    native_click(&ui.window, &this.widgets.home_wave.settings);
+    pump_until(|| {
+        ui.window.visible_dialog().is_some_and(|dialog| {
+            dialog.is_mapped() && contains_text(dialog.upcast_ref(), "Загружаем настройки…")
+        })
+    });
+    fixture.counts.lock().unwrap().wave_hold_settings = false;
+    fixture.release_descriptor();
+    let (group, play) = wait_tuning();
+    assert_eq!(fixture.counts.lock().unwrap().wave_settings_reads, 1);
+    assert_eq!(fixture.counts.lock().unwrap().wave_sessions, 0);
+    assert_eq!(group.selected(), 0);
+    native_click(&ui.window, &group);
+    assert!(
+        std::process::Command::new("xdotool")
+            .args(["key", "--clearmodifiers", "Down", "Return"])
+            .status()
+            .unwrap()
+            .success()
+    );
+    pump_until(|| group.selected() == 1);
+    assert_eq!(fixture.counts.lock().unwrap().wave_sessions, 0);
+    capture_native("wave-personal-tuning");
+    native_click(&ui.window, &play);
+    wait_playing(this, 0);
+    let serial = this.music_serial();
+    pump_until(|| ui.window.visible_dialog().is_none());
+    native_click(&ui.window, &this.widgets.home_wave.primary);
+    pump_until(|| {
+        this.music_snapshot()
+            .is_some_and(|state| state.state == PlaybackState::Paused)
+    });
+    native_click(&ui.window, &this.widgets.home_wave.settings);
+    let (group, play) = wait_tuning();
+    assert_eq!(group.selected(), 1);
+    native_click(&ui.window, &play);
+    wait_playing(this, 0);
+    assert_eq!(this.music_serial(), serial);
+    {
+        let counts = fixture.counts.lock().unwrap();
+        assert_eq!(counts.wave_sessions, 1);
+        assert_eq!(
+            counts.wave_seeds,
+            ["user:onyourwave", "settingDiversity:discover"]
+        );
+    }
+    fixture.hold_descriptor();
+    fixture.counts.lock().unwrap().wave_hold_settings = true;
+    pump_until(|| ui.window.visible_dialog().is_none());
+    native_click(&ui.window, &this.widgets.home_wave.settings);
+    pump_until(|| fixture.counts.lock().unwrap().wave_settings_reads == 3);
+    this.logout();
+    fixture.release_descriptor();
+    pump_until(|| ui.window.visible_dialog().is_none());
+    assert_eq!(fixture.counts.lock().unwrap().wave_sessions, 1);
+    let cleanup = ui.close_for_smoke();
+    pump_until(|| cleanup(false));
+    assert!(cleanup(true));
+}
+
+#[test]
 #[ignore = "requires isolated session D-Bus, Xvfb, playerctl and actual generated MP3 playback"]
 fn native_wave_shared_player_feedback_batches_and_cleanup() {
     use super::super::radio::{RadioFailure, RadioPhase, RadioStage};
@@ -4687,7 +4824,9 @@ fn native_wave_shared_player_feedback_batches_and_cleanup() {
         counts.wave_feedback_status = Some(400);
         counts.wave_reject_event = Some("skip");
     }
-    radio.start_wave_from(crate::music::wave::WaveSource::LikedCollection);
+    let liked_wave = &radio.widgets.home_wave.liked;
+    pump_until(|| liked_wave.is_mapped() && liked_wave.is_sensitive());
+    native_click(&seeded_ui.window, liked_wave);
     pump_until(|| {
         radio.music_serial() != previous && radio.radio_status().phase == RadioPhase::Active
     });
@@ -4695,6 +4834,10 @@ fn native_wave_shared_player_feedback_batches_and_cleanup() {
     assert_eq!(
         seeded.counts.lock().unwrap().wave_seeds,
         ["track:42", "playlist:1234_3"]
+    );
+    assert!(
+        !liked_wave.is_sensitive(),
+        "the active collection cannot be restarted accidentally"
     );
     radio.close();
     seeded_ui.window.close();

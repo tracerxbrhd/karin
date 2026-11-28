@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Native music Home: My Wave and the existing library destinations.
+//! Native music Home and its validated shortcuts into the shared player and catalog.
 
+use super::continuous_loading::FeedSource;
 use super::radio::{RadioFailure, RadioPhase, RadioStage, RadioStatus};
 use super::*;
-use crate::playback::PlaybackState;
+use crate::{
+    music::{PlaylistId, SearchPlaylist, wave::WaveSource},
+    playback::PlaybackState,
+};
+use std::{collections::VecDeque, time::Duration};
 
 #[cfg(test)]
 mod tests;
@@ -16,6 +21,8 @@ pub(super) struct HomeParts {
     pub home_playlists: gtk::Button,
     pub home_search: gtk::Button,
     pub home_wave: WaveParts,
+    pub home_continue: ContinuationParts,
+    pub home_recent: RecentParts,
     pub home_queue: gtk::Label,
     pub home_preview: gtk::ListBox,
     pub home_collections: gtk::FlowBox,
@@ -67,6 +74,11 @@ impl HomeParts {
         }
         home_signedin.append(&routes);
 
+        let home_continue = ContinuationParts::new();
+        home_signedin.append(&home_continue.widget);
+        let home_recent = RecentParts::new();
+        home_signedin.append(&home_recent.widget);
+
         let home_queue = text("", "caption");
         home_queue.set_widget_name("music-home-queue-summary");
         home_queue.add_css_class("dim-label");
@@ -91,6 +103,8 @@ impl HomeParts {
             home_playlists,
             home_search,
             home_wave,
+            home_continue,
+            home_recent,
             home_queue,
             home_preview,
             home_collections,
@@ -106,6 +120,9 @@ pub(super) struct WaveParts {
     pub widget: gtk::Box,
     pub primary: gtk::Button,
     pub cancel: gtk::Button,
+    pub settings: gtk::Button,
+    pub liked: gtk::Button,
+    options: gtk::Box,
     primary_content: adw::ButtonContent,
     message: gtk::Label,
     details: gtk::Label,
@@ -115,7 +132,7 @@ pub(super) struct WaveParts {
 
 impl WaveParts {
     fn new() -> Self {
-        let widget = gtk::Box::new(gtk::Orientation::Vertical, 12);
+        let widget = gtk::Box::new(gtk::Orientation::Vertical, 8);
         widget.set_widget_name("music-wave-hero");
         widget.add_css_class("card");
         widget.add_css_class("music-wave-hero");
@@ -158,6 +175,19 @@ impl WaveParts {
         actions.append(&cancel);
         widget.append(&actions);
 
+        let options = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+        let settings = gtk::Button::with_label("Настроить");
+        settings.set_widget_name("music-wave-settings");
+        settings.update_property(&[gtk::accessible::Property::Label("Настроить Мою волну")]);
+        options.append(&settings);
+        let liked = gtk::Button::with_label("По «Мне нравится»");
+        liked.set_widget_name("music-home-liked-wave");
+        liked.update_property(&[gtk::accessible::Property::Label(
+            "Моя волна по коллекции «Мне нравится»",
+        )]);
+        options.append(&liked);
+        widget.append(&options);
+
         let message = text("", "body");
         message.set_widget_name("music-wave-status");
         widget.append(&message);
@@ -171,6 +201,9 @@ impl WaveParts {
             widget,
             primary,
             cancel,
+            settings,
+            liked,
+            options,
             primary_content,
             message,
             details,
@@ -234,6 +267,7 @@ impl WaveParts {
         // Stop affordance: the common player/source change owns that lifecycle.
         self.cancel.set_visible(starting);
         self.cancel.set_sensitive(starting);
+        self.options.set_visible(status.authenticated);
 
         let message = match status.phase {
             RadioPhase::Ready if !status.authenticated => "Войдите в Яндекс, чтобы слушать музыку.",
@@ -265,6 +299,178 @@ impl WaveParts {
     }
 }
 
+#[derive(Clone)]
+pub(super) struct ContinuationParts {
+    widget: gtk::Box,
+    pub action: gtk::Button,
+    track: gtk::Label,
+    status: gtk::Label,
+}
+
+impl ContinuationParts {
+    fn new() -> Self {
+        let widget = gtk::Box::new(gtk::Orientation::Vertical, 8);
+        widget.set_widget_name("music-home-continuation");
+        widget.set_visible(false);
+        widget.append(&text("Продолжить слушать", "title-3"));
+        let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+        let metadata = gtk::Box::new(gtk::Orientation::Vertical, 4);
+        metadata.set_hexpand(true);
+        let track = text("", "heading");
+        track.set_widget_name("music-home-continuation-track");
+        track.set_wrap(false);
+        track.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        metadata.append(&track);
+        let status = text("", "dim-label");
+        status.set_wrap(false);
+        status.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        metadata.append(&status);
+        row.append(&metadata);
+        let action = gtk::Button::new();
+        action.set_widget_name("music-home-continue-playback");
+        action.set_valign(gtk::Align::Center);
+        action.set_sensitive(false);
+        row.append(&action);
+        widget.append(&row);
+        Self {
+            widget,
+            action,
+            track,
+            status,
+        }
+    }
+
+    pub(super) fn render(
+        &self,
+        track: Option<&Track>,
+        state: PlaybackState,
+        available: bool,
+        loading: bool,
+        position: Option<Duration>,
+    ) {
+        let Some(track) = track else {
+            self.clear();
+            return;
+        };
+        self.widget.set_visible(true);
+        if self.track.text() != track.title {
+            self.track.set_text(&track.title);
+        }
+        let status = if loading {
+            "Подготовка аудио…".into()
+        } else {
+            position.map_or_else(String::new, player::music_time)
+        };
+        if self.status.text() != status {
+            self.status.set_text(&status);
+        }
+        self.status.set_visible(!status.is_empty());
+        let action = if state == PlaybackState::Playing {
+            "Пауза"
+        } else {
+            "Продолжить"
+        };
+        if self.action.label().as_deref() != Some(action) {
+            self.action.set_label(action);
+        }
+        self.action.set_sensitive(available);
+    }
+
+    pub(super) fn clear(&self) {
+        if self.widget.is_visible() {
+            self.widget.set_visible(false);
+            self.action.set_sensitive(false);
+            self.track.set_text("");
+            self.status.set_text("");
+        }
+    }
+}
+
+const MAX_RECENT_COLLECTIONS: usize = 4;
+
+#[derive(Clone)]
+enum RecentCollection {
+    Playlist(Playlist),
+    SearchPlaylist(SearchPlaylist),
+    Album { id: String, title: String },
+}
+
+impl RecentCollection {
+    fn playlist_id(&self) -> Option<&PlaylistId> {
+        match self {
+            Self::Playlist(item) => Some(&item.id),
+            Self::SearchPlaylist(item) => Some(&item.id),
+            Self::Album { .. } => None,
+        }
+    }
+
+    fn matches(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Album { id, .. }, Self::Album { id: other, .. }) => id == other,
+            _ => self
+                .playlist_id()
+                .is_some_and(|id| Some(id) == other.playlist_id()),
+        }
+    }
+
+    fn title(&self) -> &str {
+        match self {
+            Self::Playlist(item) => &item.title,
+            Self::SearchPlaylist(item) => &item.title,
+            Self::Album { title, .. } => title,
+        }
+    }
+}
+
+#[derive(Default)]
+struct RecentHistory {
+    generation: Option<u64>,
+    items: VecDeque<RecentCollection>,
+}
+
+impl RecentHistory {
+    fn record(&mut self, generation: u64, collection: RecentCollection) {
+        if self.generation != Some(generation) {
+            self.items.clear();
+            self.generation = Some(generation);
+        }
+        self.items.retain(|recent| !recent.matches(&collection));
+        self.items.push_front(collection);
+        self.items.truncate(MAX_RECENT_COLLECTIONS);
+    }
+}
+
+#[derive(Clone)]
+pub(super) struct RecentParts {
+    widget: gtk::Box,
+    rows: gtk::ListBox,
+    history: Rc<RefCell<RecentHistory>>,
+}
+
+impl RecentParts {
+    fn new() -> Self {
+        let widget = gtk::Box::new(gtk::Orientation::Vertical, 8);
+        widget.set_widget_name("music-home-recent");
+        widget.set_visible(false);
+        widget.append(&text("Недавно открывали", "title-3"));
+        let rows = gtk::ListBox::new();
+        rows.set_selection_mode(gtk::SelectionMode::None);
+        rows.add_css_class("boxed-list");
+        widget.append(&rows);
+        Self {
+            widget,
+            rows,
+            history: Rc::default(),
+        }
+    }
+
+    pub(super) fn clear(&self) {
+        self.history.replace(RecentHistory::default());
+        clear_list(&self.rows);
+        self.widget.set_visible(false);
+    }
+}
+
 /// Original static decoration. It never animates or claims playback activity.
 fn wave_motif() -> gtk::Box {
     let motif = gtk::Box::new(gtk::Orientation::Horizontal, 5);
@@ -284,7 +490,88 @@ fn wave_motif() -> gtk::Box {
 
 impl Controller {
     pub(super) fn render_wave(&self) {
-        self.widgets.home_wave.render(self.radio_status());
+        let status = self.radio_status();
+        self.widgets.home_wave.render(status);
+        self.widgets.home_wave.liked.set_sensitive(
+            status.authenticated
+                && !matches!(status.phase, RadioPhase::Starting | RadioPhase::Finishing)
+                && (matches!(status.phase, RadioPhase::Failed { .. })
+                    || !self.wave_source_in_use(&WaveSource::LikedCollection)),
+        );
+    }
+
+    pub(super) fn start_liked_wave_from_home(self: &Rc<Self>) {
+        if self.widgets.home_wave.liked.is_sensitive() {
+            self.start_wave_from(WaveSource::LikedCollection);
+        }
+    }
+
+    pub(super) fn record_home_collection(self: &Rc<Self>, source: &FeedSource) {
+        if self.widgets.stack.visible_child_name().as_deref() != Some("detail") {
+            return;
+        }
+        let model = self.model.borrow();
+        if !model.account_valid
+            || model.closed
+            || model.token.as_ref().is_none_or(AccessToken::is_expired)
+        {
+            return;
+        }
+        let generation = model.generation;
+        drop(model);
+        let collection = match source {
+            FeedSource::Playlist(item) => RecentCollection::Playlist(item.clone()),
+            FeedSource::SearchPlaylist(item) => RecentCollection::SearchPlaylist(item.clone()),
+            FeedSource::Album(item) => RecentCollection::Album {
+                id: item.id.clone(),
+                title: item.title.clone(),
+            },
+            _ => return,
+        };
+        let recent = &self.widgets.home_recent;
+        recent.history.borrow_mut().record(generation, collection);
+        clear_list(&recent.rows);
+        for item in &recent.history.borrow().items {
+            let row = adw::ActionRow::builder()
+                .title(item.title())
+                .subtitle(if item.playlist_id().is_some() {
+                    "Плейлист"
+                } else {
+                    "Альбом"
+                })
+                .title_lines(1)
+                .use_markup(false)
+                .activatable(true)
+                .focusable(true)
+                .build();
+            row.set_widget_name("music-home-recent-collection");
+            row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
+            let weak = Rc::downgrade(self);
+            let item = item.clone();
+            row.connect_activated(move |_| {
+                let Some(this) = weak.upgrade() else {
+                    return;
+                };
+                let model = this.model.borrow();
+                if !model.account_valid
+                    || model.closed
+                    || model.generation != generation
+                    || model.token.as_ref().is_none_or(AccessToken::is_expired)
+                {
+                    return;
+                }
+                drop(model);
+                match &item {
+                    RecentCollection::Playlist(item) => this.open_playlist(item.clone(), 0),
+                    RecentCollection::SearchPlaylist(item) => {
+                        this.open_search_playlist(item.clone(), 0)
+                    }
+                    RecentCollection::Album { id, .. } => this.open_album(id.clone()),
+                }
+            });
+            recent.rows.append(&row);
+        }
+        recent.widget.set_visible(true);
     }
 }
 

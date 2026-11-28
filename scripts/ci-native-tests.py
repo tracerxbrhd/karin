@@ -46,6 +46,7 @@ FUNCTIONAL = [
     "native_music_session_catalog_queue_and_logout",
     "native_music_context_mpris_shared_player_and_cleanup",
     "native_wave_shared_player_feedback_batches_and_cleanup",
+    "native_wave_advertised_setting_starts_on_explicit_listen",
     "native_wave_retirement_supported_feedback_and_cleanup",
     "native_wave_home_experiment_layout_and_controls",
     "native_music_playback_context_occurrences_and_shared_transport",

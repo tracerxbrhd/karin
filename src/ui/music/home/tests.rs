@@ -90,6 +90,51 @@ fn status(phase: RadioPhase, playback: Option<PlaybackState>) -> RadioStatus {
     }
 }
 
+#[test]
+fn home_recent_collections_preserve_order_and_account_boundary() {
+    let mut history = RecentHistory::default();
+    let album = |id: &str| RecentCollection::Album {
+        id: id.into(),
+        title: id.into(),
+    };
+    for id in ["1", "2", "3", "4", "5", "3"] {
+        history.record(1, album(id));
+    }
+    let titles = |history: &RecentHistory| {
+        history
+            .items
+            .iter()
+            .map(|item| item.title().to_owned())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(titles(&history), ["3", "5", "4", "2"]);
+
+    let id = PlaylistId {
+        owner: "6".into(),
+        kind: "2".into(),
+    };
+    history.record(
+        2,
+        RecentCollection::Playlist(Playlist {
+            id: id.clone(),
+            title: "Library playlist".into(),
+            track_count: 2,
+            cover: None,
+        }),
+    );
+    assert_eq!(titles(&history), ["Library playlist"]);
+    history.record(
+        2,
+        RecentCollection::SearchPlaylist(SearchPlaylist {
+            id,
+            title: "The same playlist after rename".into(),
+            track_count: None,
+            cover: None,
+        }),
+    );
+    assert_eq!(titles(&history), ["The same playlist after rename"]);
+}
+
 fn reveal_wave(ui: &crate::ui::MainWindow, wave: &WaveParts) {
     settle();
     let scroll = wave
@@ -119,6 +164,9 @@ fn assert_structure(ui: &crate::ui::MainWindow, wave: &WaveParts, state: RadioSt
         "Персональная музыка, которая подстраивается под ваш вкус."
     ));
     assert!(wave.primary.is_visible());
+    assert_eq!(wave.options.is_visible(), state.authenticated);
+    assert_eq!(wave.settings.is_mapped(), state.authenticated);
+    assert_eq!(wave.liked.is_mapped(), state.authenticated);
     assert_eq!(
         wave.cancel.is_visible(),
         state.phase == RadioPhase::Starting

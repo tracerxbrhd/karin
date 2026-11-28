@@ -920,6 +920,9 @@ impl Controller {
         if !self.feed_is_current(feed) {
             return;
         }
+        if page == 0 && feed.data.borrow().next_page == 0 {
+            self.record_home_collection(&feed.source);
+        }
         if page == 0
             && feed.data.borrow().next_page == 0
             && matches!(feed.source, FeedSource::Liked)
