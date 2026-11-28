@@ -457,20 +457,13 @@ fn build_shell(
         .can_shrink(true)
         .build();
     brand.set_widget_name("karin-header-icon");
-    let render_brand = |picture: &gtk::Picture| {
-        let theme = gtk::IconTheme::for_display(&picture.display());
-        let paintable = theme.lookup_icon(
-            icons::BRAND_MARK,
-            &[],
-            30,
-            picture.scale_factor(),
-            picture.direction(),
-            gtk::IconLookupFlags::empty(),
-        );
-        picture.set_paintable(Some(&paintable));
-    };
-    render_brand(&brand);
-    brand.connect_scale_factor_notify(render_brand);
+    render_header_brand(&brand, 30);
+    brand.connect_scale_factor_notify(|picture| {
+        let size = picture
+            .paintable()
+            .map_or(30, |mark| mark.intrinsic_width());
+        render_header_brand(picture, size);
+    });
     let brand_home = gtk::Button::builder()
         .child(&brand)
         .action_name("win.music-home")
@@ -581,6 +574,7 @@ fn build_shell(
         let navigation = music_navigation.downgrade();
         let refresh = refresh.downgrade();
         let music_back = music_back.downgrade();
+        let brand = brand.downgrade();
         let diagnostics_title = diagnostics_title.downgrade();
         let back = diagnostics
             .as_ref()
@@ -591,6 +585,17 @@ fn build_shell(
                 return;
             };
             let home_visible = stack.visible_child_name().as_deref() == Some("home");
+            if let Some(brand) = brand.upgrade() {
+                // Diagnostics has its own Back button and must fit its full
+                // heading even at the compact minimum.
+                let size = if home_visible { 30 } else { 20 };
+                if brand
+                    .paintable()
+                    .is_none_or(|mark| mark.intrinsic_width() != size)
+                {
+                    render_header_brand(&brand, size);
+                }
+            }
             // The workspace's own visible property expresses account admission.
             // A hidden window or diagnostics page can mask ancestor visibility.
             let music_visible = home_visible && workspace.get_visible();
@@ -888,6 +893,19 @@ fn build_shell(
         music,
         tray,
     }
+}
+
+fn render_header_brand(picture: &gtk::Picture, size: i32) {
+    let theme = gtk::IconTheme::for_display(&picture.display());
+    let paintable = theme.lookup_icon(
+        icons::BRAND_MARK,
+        &[],
+        size,
+        picture.scale_factor(),
+        picture.direction(),
+        gtk::IconLookupFlags::empty(),
+    );
+    picture.set_paintable(Some(&paintable));
 }
 
 fn bind_window_decoration_layout(titlebar: &impl IsA<gtk::Widget>) {
