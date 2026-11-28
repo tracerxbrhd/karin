@@ -155,7 +155,7 @@ fn original_context_ages_and_mpris() {
             10 => native_click(&ui.window, &this.widgets.play),
             30 => desktop_method("Play", ().to_variant()),
             _ => {
-                native_click(&ui.window, &this.widgets.current_art_button);
+                native_click(&ui.window, &this.widgets.current_info);
                 pump_until(|| this.track_pane.play.is_mapped());
                 native_click(&ui.window, &this.track_pane.play);
             }
