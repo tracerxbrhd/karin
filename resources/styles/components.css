@@ -60,11 +60,6 @@
 .karin-presentation-root .music-row-badge { font-size: .85em; color: @accent_color; }
 .karin-presentation-root .music-collection-title { font-size: 1.65em; font-weight: 700; }
 .karin-presentation-root .music-liked-cover { background: alpha(@accent_bg_color, .14); color: @accent_color; border-radius: 16px; }
-.karin-presentation-root .music-liked-actions > flowboxchild {
-    background: none;
-    box-shadow: none;
-    padding: 0;
-}
 .karin-presentation-root .music-liked-actions button { min-height: 40px; padding: 0 14px; }
 .karin-presentation-root .music-liked-actions #music-liked-refresh {
     min-width: 40px;

@@ -315,6 +315,22 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
             && (first.y() - second.y()).abs() <= 1.0,
         "credits must be directly adjacent on the same line when they fit"
     );
+    let direction = pane.credits.direction();
+    pane.credits.set_direction(gtk::TextDirection::Rtl);
+    settle();
+    let rtl_first = artist.compute_bounds(&pane.credits).unwrap();
+    let rtl_second = guest.compute_bounds(&pane.credits).unwrap();
+    assert!(
+        (rtl_first.x() - rtl_second.x() - rtl_second.width()).abs() <= 1.0
+            && (rtl_first.y() - rtl_second.y()).abs() <= 1.0,
+        "RTL credits must stay adjacent in reverse visual order"
+    );
+    assert!(
+        (first.x() + rtl_first.x() + rtl_first.width() - pane.credits.width() as f32).abs() <= 1.0,
+        "the RTL arrangement must retain the same center"
+    );
+    pane.credits.set_direction(direction);
+    settle();
     let output = Command::new("xdotool")
         .args([
             "search",

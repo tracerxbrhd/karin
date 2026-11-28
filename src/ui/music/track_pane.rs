@@ -9,7 +9,7 @@ use std::{
 use adw::prelude::*;
 use gtk::gio;
 
-mod credit_layout;
+use super::wrap_row::{RowAlignment, WrapRow};
 
 use crate::{
     artwork::ArtworkLoader,
@@ -170,7 +170,7 @@ impl TrackPane {
         metadata.append(&title_line);
         let credits = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         credits.set_widget_name("music-track-pane-artist");
-        credits.set_layout_manager(Some(credit_layout::ArtistCreditLayout::new()));
+        credits.set_layout_manager(Some(WrapRow::new(RowAlignment::Center, 0, 0)));
         credits.set_visible(false);
         metadata.append(&credits);
         let album_title = label("", "caption");

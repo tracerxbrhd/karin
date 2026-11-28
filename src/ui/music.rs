@@ -57,6 +57,7 @@ mod track_pane;
 mod volume_scroll;
 mod welcome;
 mod workspace;
+mod wrap_row;
 pub(super) use mini::{MiniCommand, MiniPlayback, MiniSnapshot};
 pub(super) use player::music_time as mini_time;
 use requests::{Operation, Requests};

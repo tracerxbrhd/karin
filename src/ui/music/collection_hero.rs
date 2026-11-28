@@ -9,6 +9,7 @@ use std::cell::Cell;
 use adw::prelude::*;
 use gtk::glib;
 
+use super::wrap_row::{RowAlignment, WrapRow};
 use crate::music::Track;
 
 #[derive(Clone)]
@@ -67,16 +68,8 @@ impl LikedCollectionHero {
 
         // Wrapping participates in GTK's width measurement, including the
         // first frame of a resize from a wide layout to a compact one.
-        let actions = gtk::FlowBox::builder()
-            .selection_mode(gtk::SelectionMode::None)
-            .activate_on_single_click(false)
-            .focusable(false)
-            .halign(gtk::Align::Start)
-            .min_children_per_line(1)
-            .max_children_per_line(3)
-            .column_spacing(8)
-            .row_spacing(6)
-            .build();
+        let actions = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        actions.set_layout_manager(Some(WrapRow::new(RowAlignment::Start, 8, 6)));
         actions.set_widget_name("music-liked-actions");
         actions.add_css_class("music-liked-actions");
         play.add_css_class("suggested-action");
@@ -84,14 +77,8 @@ impl LikedCollectionHero {
         wave.add_css_class("pill");
         refresh.set_widget_name("music-liked-refresh");
         for button in [play, wave, refresh] {
-            let holder = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-            holder.set_halign(gtk::Align::Start);
             button.set_valign(gtk::Align::Center);
-            holder.append(button);
-            let item = gtk::FlowBoxChild::new();
-            item.set_focusable(false);
-            item.set_child(Some(&holder));
-            actions.append(&item);
+            actions.append(button);
         }
         metadata.append(&actions);
         widget.append(&metadata);
