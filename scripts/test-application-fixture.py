@@ -238,6 +238,14 @@ def open_liked_collection():
     click(widget("Моя коллекция", "toggle button"))
     click(widget("Мне нравится", "button"))
 
+    def full_liked_visible():
+        controls = {(item["name"], item["role"]) for item in tree() if visible(item)}
+        return ("Мне нравится", "label") in controls and (
+            "Мне нравится", "button"
+        ) not in controls
+
+    wait(full_liked_visible, "full liked page replaced the collection overview")
+
 
 def input_(*values):
     subprocess.run(
@@ -561,8 +569,6 @@ try:
     widget("Понравившиеся плейлисты", "label")
     widget(playlist, "button")
     open_liked_collection()
-    widget("Мне нравится", "label")
-    assert not find("Мне нравится", "button"), "overview remained open beside the full liked page"
     # The actual library has arrived from the authenticated loopback request.
     row = track_row("Original river song", "liked page")
     capture("01-library")
