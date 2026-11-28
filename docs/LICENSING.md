@@ -78,6 +78,9 @@ The exact GTK, Libadwaita, GLib/GIO, WebKitGTK, libsoup, GStreamer and codec
 libraries conveyed determine their own source, relinking and notice obligations.
 Native records dependencies on shared system libraries separately. Flatpak
 installs notices in `/app/share/licenses/io.github.tracerxbrhd.Karin`.
+Flatpak also builds [GTK4 Layer Shell](https://github.com/wmww/gtk4-layer-shell/tree/v1.3.0)
+from the pinned archive in its manifest and ships its
+[MIT license](../packaging/third-party-licenses/gtk4-layer-shell/LICENSE).
 
 Before releasing binaries, publish the complete corresponding source, with locked
 vendor inputs, notices and build and installation instructions. Link each Native

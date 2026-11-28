@@ -310,6 +310,11 @@ fn native_v08_queue_next_drag_keyboard_and_restoration() {
     pump_until(|| playing.snapshot().state == PlaybackState::Paused);
     this.toggle_queue_panel();
     pump_until(|| this.widgets.queue_rows.is_mapped());
+    // The expanded player borrows the same native queue. Exercise the drag
+    // there and return to the pinned panel for the keyboard half of the test.
+    this.open_now_playing();
+    this.show_now_playing_section(super::super::now_playing::Section::Queue);
+    pump_until(|| this.now_playing.is_active() && this.widgets.queue_rows.is_mapped());
     let input = |args: &[&str]| {
         assert!(
             Command::new("timeout")
@@ -333,156 +338,127 @@ fn native_v08_queue_next_drag_keyboard_and_restoration() {
     let found = String::from_utf8(found.stdout).unwrap();
     let window = found.lines().next().unwrap();
     input(&["windowfocus", window]);
-    let events = gtk::EventControllerLegacy::new();
-    events.set_propagation_phase(gtk::PropagationPhase::Capture);
-    let observed = Cell::new(0_u8);
-    events.connect_event(move |_, event| {
-        let (bit, stage) = match event.event_type() {
-            gtk::gdk::EventType::DragEnter => (1, "gdk-enter"),
-            gtk::gdk::EventType::DragMotion => (2, "gdk-motion"),
-            gtk::gdk::EventType::DropStart => (4, "gdk-drop"),
-            _ => return glib::Propagation::Proceed,
-        };
-        if observed.get() & bit == 0 {
-            observed.set(observed.get() | bit);
-            eprintln!("Karin synthetic queue drag: stage={stage}");
-        }
-        glib::Propagation::Proceed
-    });
-    ui.window.add_controller(events);
+    use super::super::test_input::{Target, pointer, wait_for_layout};
+
     let selected = this.model.borrow().queue.occurrence_id(3).unwrap().clone();
     let target = this.model.borrow().queue.occurrence_id(1).unwrap().clone();
     let source_row = this.queue_row_at_physical(3).unwrap();
     let target_row = this.queue_row_at_physical(1).unwrap();
-    let (sx, sy) = super::super::test_input::pointer(
-        &ui.window,
-        &source_row,
-        super::super::test_input::Target::Leading,
-    );
-    let (tx, ty) = super::super::test_input::pointer(
-        &ui.window,
-        &target_row,
-        super::super::test_input::Target::Leading,
-    );
-    input(&[
-        "mousemove",
-        "--sync",
-        "--window",
-        window,
-        &sx.to_string(),
-        &sy.to_string(),
-    ]);
-    input(&["mousedown", "1"]);
-    // Cross the native drag threshold while GTK still owns the pressed input.
-    let distance = (gtk::Settings::default()
-        .unwrap()
-        .property::<i32>("gtk-dnd-drag-threshold")
-        + 4)
-        * ui.window.scale_factor();
-    input(&[
-        "mousemove",
-        "--sync",
-        "--window",
-        window,
-        &(sx + distance).to_string(),
-        &(sy - distance).to_string(),
-    ]);
-    let drag = source_row.observe_controllers();
-    // GtkDragSource deliberately ignores threshold crossings during its first
-    // 100 ms (gtkdragsource.c MIN_TIME_TO_DND); its timer does not replay the
-    // last motion. A human drag continues moving while the button is held.
-    // Send that real continuous X11 gesture, rather than one early motion and
-    // an idle wait. The existing eight-second observation bound is unchanged.
-    let moving_window = window.to_owned();
-    let mut step = 0;
-    let movement = glib::timeout_add_local(std::time::Duration::from_millis(25), move || {
-        step += 1;
-        assert!(
-            Command::new("timeout")
-                .args([
-                    "5",
-                    "xdotool",
-                    "mousemove",
-                    "--sync",
-                    "--window",
-                    &moving_window,
-                    &(sx + distance + step % 3).to_string(),
-                    &(sy - distance).to_string()
-                ])
-                .status()
-                .unwrap()
-                .success()
-        );
-        glib::ControlFlow::Continue
-    });
+    let next_row = this.queue_row_at_physical(2).unwrap();
+    let grip = source_row.child().unwrap().first_child().unwrap();
+    assert_eq!(grip.widget_name(), "music-queue-drag-handle");
+    let (sx, sy) = pointer(&ui.window, &grip, Target::Center);
+    let (_, ty) = pointer(&ui.window, &target_row, Target::Center);
+    let (_, middle) = pointer(&ui.window, &next_row, Target::Center);
+    let scale = ui.window.scale_factor();
+    let height = source_row.height();
+    let layer = this
+        .widgets
+        .queue_reorder
+        .widget()
+        .last_child()
+        .and_downcast::<gtk::Fixed>()
+        .expect("queue's clipped card layer");
+    let origin = source_row.compute_bounds(&layer).unwrap();
+    let middle_origin = next_row.compute_bounds(&layer).unwrap();
+    let view = |name: &str| {
+        let mut child = layer.first_child();
+        while let Some(widget) = child {
+            if widget.widget_name() == name || widget.has_css_class(name) {
+                return Some(widget.downcast::<gtk::Picture>().unwrap());
+            }
+            child = widget.next_sibling();
+        }
+        None
+    };
+    let move_to = |x: i32, y: i32| {
+        input(&[
+            "mousemove",
+            "--sync",
+            "--window",
+            window,
+            &x.to_string(),
+            &y.to_string(),
+        ]);
+    };
+    let start_drag = || {
+        move_to(sx, sy);
+        input(&["mousedown", "1"]);
+        move_to(sx, middle);
+        pump_until(|| {
+            view("music-queue-reorder-grabbed")
+                .is_some_and(|preview| preview.is_mapped() && preview.height() > 0)
+        });
+    };
+    let capture = |file: &str| {
+        if let Some(directory) = std::env::var_os("KARIN_TEST_CAPTURE_DIR") {
+            wait_for_layout(&ui.window, &target_row);
+            assert!(
+                Command::new("import")
+                    .args(["-silent", "-screen", "-window", window])
+                    .arg(std::path::Path::new(&directory).join(file))
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+        }
+    };
+
+    let settings = gtk::Settings::default().unwrap();
+    let was_animated = settings.is_gtk_enable_animations();
+    settings.set_gtk_enable_animations(true);
+    start_drag();
+    let preview = view("music-queue-reorder-grabbed").unwrap();
+    let image = preview.paintable().unwrap();
+    assert_eq!(image.intrinsic_width(), source_row.width());
+    assert_eq!(image.intrinsic_height(), height);
+    let snapshot = gtk::Snapshot::new();
+    image.snapshot(&snapshot, f64::from(source_row.width()), f64::from(height));
+    let ink = snapshot
+        .to_node()
+        .expect("the in-queue card paints the track row");
+    assert!(ink.bounds().width() > 100.0 && ink.bounds().height() >= 40.0);
+    assert_eq!(source_row.opacity(), 0.0);
+    let neighbor = view("music-queue-reorder-neighbor").unwrap();
     pump_until(|| {
-        (0..drag.n_items())
-            .filter_map(|index| drag.item(index))
-            .filter_map(|item| item.downcast::<gtk::DragSource>().ok())
-            .any(|source| source.drag().is_some())
+        neighbor.compute_bounds(&layer).unwrap().y() > middle_origin.y() + height as f32 / 2.0
     });
-    movement.remove();
-    let native_drag = (0..drag.n_items())
-        .filter_map(|index| drag.item(index))
-        .filter_map(|item| item.downcast::<gtk::DragSource>().ok())
-        .find_map(|source| source.drag())
-        .expect("observed native drag");
-    eprintln!(
-        "Karin synthetic queue drag: stage=native-source-started typed={} move={}",
-        native_drag
-            .formats()
-            .contains_type(QueueDrag::static_type()),
-        native_drag.actions().contains(gtk::gdk::DragAction::MOVE)
-    );
-    input(&[
-        "mousemove",
-        "--sync",
-        "--window",
-        window,
-        &tx.to_string(),
-        &(ty - target_row.height() / 4).to_string(),
-    ]);
-    let drop = target_row.observe_controllers();
-    // XDND position/status negotiation is asynchronous. Keep delivering real
-    // pointer motion over the destination, as a continuous native drag does,
-    // until GTK observes that particular DropTarget. A single position sent
-    // while X11 is waiting for its preceding status is not a completed gesture.
-    let moving_window = window.to_owned();
-    let destination_y = ty - target_row.height() * ui.window.scale_factor() / 4;
-    let mut step = 0;
-    let movement = glib::timeout_add_local(std::time::Duration::from_millis(25), move || {
-        step += 1;
-        assert!(
-            Command::new("timeout")
-                .args([
-                    "5",
-                    "xdotool",
-                    "mousemove",
-                    "--sync",
-                    "--window",
-                    &moving_window,
-                    &(tx + step % 3).to_string(),
-                    &destination_y.to_string()
-                ])
-                .status()
-                .unwrap()
-                .success()
-        );
-        glib::ControlFlow::Continue
-    });
+    let intermediate = preview.compute_bounds(&layer).unwrap();
+    assert!((intermediate.x() - origin.x()).abs() < 1.0);
+    assert!(intermediate.y() < origin.y() - height as f32 / 2.0);
+    assert_eq!(this.model.borrow().queue.occurrence_id(3), Some(&selected));
+    capture("queue-inline-first-slot.png");
+    move_to(sx + 80 * scale, ty);
     pump_until(|| {
-        (0..drop.n_items())
-            .filter_map(|index| drop.item(index))
-            .filter_map(|item| item.downcast::<gtk::DropTarget>().ok())
-            .any(|target| target.current_drop().is_some())
+        preview.compute_bounds(&layer).unwrap().y() < intermediate.y() - height as f32 / 2.0
     });
-    movement.remove();
-    eprintln!("Karin synthetic queue drag: stage=native-target-entered");
+    assert!((preview.compute_bounds(&layer).unwrap().x() - origin.x()).abs() < 1.0);
+    capture("queue-inline-second-slot.png");
+    // Releasing over the player leaves the exact queue occurrence in place.
+    move_to(120 * scale, ty);
+    input(&["mouseup", "1"]);
+    pump_until(|| layer.first_child().is_none() && source_row.opacity() == 1.0);
+    assert_eq!(this.model.borrow().queue.occurrence_id(3), Some(&selected));
+
+    settings.set_gtk_enable_animations(false);
+    start_drag();
+    input(&["key", "Escape"]);
+    pump_until(|| layer.first_child().is_none() && source_row.opacity() == 1.0);
+    input(&["mouseup", "1"]);
+    assert!(this.now_playing.is_active());
+    assert_eq!(this.model.borrow().queue.occurrence_id(3), Some(&selected));
+    start_drag();
+    move_to(sx, ty);
+    pump_until(|| {
+        (preview.is_mapped() || view("music-queue-reorder-grabbed").is_some())
+            && target_row.opacity() == 0.0
+    });
     input(&["mouseup", "1"]);
     pump_until(|| {
         let model = this.model.borrow();
         model.queue.occurrence_id(model.queue.upcoming_indices()[0]) == Some(&selected)
     });
+    settings.set_gtk_enable_animations(was_animated);
     assert_eq!(
         this.model.borrow().queue.current_occurrence_id(),
         Some(&current)
@@ -494,6 +470,9 @@ fn native_v08_queue_next_drag_keyboard_and_restoration() {
         Some(&artwork)
     );
     assert_eq!(this.model.borrow().queue.occurrence_index(&target), Some(2));
+    assert!(layer.first_child().is_none());
+    assert!(this.close_now_playing(false));
+    pump_until(|| this.widgets.queue_rows.is_mapped());
 
     // Keyboard reorders this exact duplicate, keeps row focus and changes no
     // playing source. An unrelated duplicate ID cannot receive the operation.
@@ -609,6 +588,49 @@ fn native_v08_queue_next_drag_keyboard_and_restoration() {
         this.widgets.current_art.first_child().as_ref(),
         Some(&artwork)
     );
+    // A long queue can scroll under a held card without moving the occurrence
+    // until release. Cancel to leave the queue unchanged for the restart test.
+    let scroll = this
+        .widgets
+        .queue_rows
+        .ancestor(gtk::ScrolledWindow::static_type())
+        .and_downcast::<gtk::ScrolledWindow>()
+        .unwrap();
+    let adjustment = scroll.vadjustment();
+    adjustment.set_value(0.0);
+    let viewport = scroll.child().unwrap();
+    let (_, viewport_center_y) = pointer(&ui.window, &viewport, Target::Center);
+    let edge_y = viewport_center_y + (viewport.height() / 2 - 8) * scale;
+    let source_grip = this
+        .queue_row_at_physical(1)
+        .unwrap()
+        .child()
+        .unwrap()
+        .first_child()
+        .unwrap();
+    let (grip_x, grip_y) = pointer(&ui.window, &source_grip, Target::Center);
+    let untouched = this.model.borrow().queue.occurrence_id(1).unwrap().clone();
+    move_to(grip_x, grip_y);
+    input(&["mousedown", "1"]);
+    move_to(grip_x, edge_y);
+    pump_until(|| adjustment.value() >= 128.0);
+    assert_eq!(this.model.borrow().queue.occurrence_id(1), Some(&untouched));
+    input(&["key", "Escape"]);
+    pump_until(|| layer.first_child().is_none());
+    input(&["mouseup", "1"]);
+    adjustment.set_value(0.0);
+    assert_eq!(this.model.borrow().queue.occurrence_id(1), Some(&untouched));
+
+    wait_for_layout(&ui.window, &source_grip);
+    move_to(grip_x, grip_y);
+    input(&["mousedown", "1"]);
+    move_to(grip_x, grip_y + 64 * scale);
+    pump_until(|| view("music-queue-reorder-grabbed").is_some());
+    this.render_queue();
+    move_to(grip_x, grip_y + 128 * scale);
+    input(&["mouseup", "1"]);
+    pump_until(|| layer.first_child().is_none());
+    assert_eq!(this.model.borrow().queue.occurrence_id(1), Some(&untouched));
     // Retire only the synthetic filler so the existing restart checks stay
     // focused on the earlier edited occurrences plus the accepted new next.
     {
@@ -653,8 +675,8 @@ fn native_v08_queue_next_drag_keyboard_and_restoration() {
             .is_some()
     );
 
-    // An old typed payload is inert after queue replacement, even with all
-    // provider IDs equal. Native DnD above is independently observed.
+    // A retired occurrence is inert after queue replacement, even when every
+    // provider ID is equal.
     let replacement = this.model.borrow().queue.context().unwrap().clone();
     this.model.borrow_mut().queue.replace_context(replacement);
     assert!(!this.promote_queue_occurrence(&restored_selected));

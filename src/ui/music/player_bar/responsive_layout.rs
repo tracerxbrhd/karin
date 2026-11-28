@@ -72,8 +72,8 @@ glib::wrapper! {
     pub struct FooterLayout(ObjectSubclass<imp::FooterLayout>) @extends gtk::LayoutManager;
 }
 
-pub(super) fn install(footer: &gtk::Box) {
-    footer.set_layout_manager(Some(glib::Object::new::<FooterLayout>()));
+pub(in crate::ui::music) fn allow_child_to_shrink(container: &gtk::Box) {
+    container.set_layout_manager(Some(glib::Object::new::<FooterLayout>()));
 }
 
 /// Libadwaita 1.5 measures native bottom bars at width -1, even during

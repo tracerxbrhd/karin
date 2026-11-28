@@ -117,7 +117,12 @@ impl Drop for Server {
 fn track(id: &str, available: bool) -> serde_json::Value {
     let bare = id.split(':').next().unwrap();
     let album = id.split(':').nth(1).unwrap_or("7");
-    json!({"id":bare,"title":format!("Original audio {bare}"),"artists":[{"id":7,"name":"Karin original fixture"}],"albums":[{"id":album,"title":"Original CC0 collection"}],"durationMs":30000,"available":available})
+    let title = if album == "8" {
+        format!("Original audio {bare} · alternate album")
+    } else {
+        format!("Original audio {bare}")
+    };
+    json!({"id":bare,"title":title,"artists":[{"id":7,"name":"Karin original fixture"}],"albums":[{"id":album,"title":"Original CC0 collection"}],"durationMs":30000,"available":available})
 }
 fn playlist(mode: &Mode, partial: bool, rich: bool) -> serde_json::Value {
     let entries = if partial {
@@ -130,11 +135,11 @@ fn playlist(mode: &Mode, partial: bool, rich: bool) -> serde_json::Value {
     let tracks = entries
         .iter()
         .map(|(id, album)| {
-            let mut value = json!({"id":id,"albumId":album});
             if rich {
-                value["track"] = track(&format!("{id}:{album}"), !(mode.unavailable && id == "42"));
+                json!({"id":id,"track":track(&format!("{id}:{album}"), !(mode.unavailable && id == "42"))})
+            } else {
+                json!({"id":id,"albumId":album})
             }
-            value
         })
         .collect::<Vec<_>>();
     json!({"owner":{"uid":1234},"kind":if partial {78}else{77},"title":mode.title,"revision":mode.revision,"visibility":mode.visibility,"trackCount":tracks.len(),"tracks":tracks})
@@ -292,7 +297,12 @@ fn serve(
                 write_response(&mut stream, "404 Not Found", "application/json", b"{}");
                 return;
             }
-            json!({"result":playlist(&current,path.ends_with("/78"),true)})
+            let rich = match url.query_pairs().find(|(key, _)| key == "richTracks") {
+                Some((_, value)) if value == "true" => true,
+                Some((_, value)) if value == "false" => false,
+                _ => panic!("playlist GET must request its display or edit representation"),
+            };
+            json!({"result":playlist(&current,path.ends_with("/78"),rich)})
         }
         "/users/1234/playlists/77/change" => {
             assert_eq!(method, "POST");

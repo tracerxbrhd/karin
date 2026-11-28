@@ -43,6 +43,19 @@ fn visible_state(revision: u64, entries: &[(&str, &str)]) -> String {
     }
     body.to_string()
 }
+
+fn rich_entries_without_album_ids(body: String) -> String {
+    let mut body: Value = serde_json::from_str(&body).unwrap();
+    for entry in body["result"]["tracks"].as_array_mut().unwrap() {
+        let id = entry["id"].as_str().unwrap().to_owned();
+        entry.as_object_mut().unwrap().remove("albumId");
+        entry["track"] = json!({
+            "id": id, "title": format!("Original fixture track {id}"), "available": true,
+            "albums": [{"id": "100", "title": "Other catalog edition"}]
+        });
+    }
+    body.to_string()
+}
 fn modified_state(revision: u64, entries: &[(&str, &str)], key: &str, value: Value) -> String {
     let mut body: Value = serde_json::from_str(&state(revision, entries)).unwrap();
     body["result"][key] = value;
@@ -59,6 +72,13 @@ fn track(selector: &str, album: &str) -> Track {
 fn fixture(
     responses: Vec<(u16, String)>,
     clear_after: Option<usize>,
+) -> (MusicService, JoinHandle<Vec<String>>, TcpListener) {
+    fixture_with_response(responses, clear_after, |_, body| body)
+}
+fn fixture_with_response(
+    responses: Vec<(u16, String)>,
+    clear_after: Option<usize>,
+    respond: impl Fn(&str, String) -> String + Send + 'static,
 ) -> (MusicService, JoinHandle<Vec<String>>, TcpListener) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let service = MusicService::for_test(&format!("http://{}/", listener.local_addr().unwrap()));
@@ -79,6 +99,7 @@ fn fixture(
         if clear_after == Some(index) { invalidator.clear_session(); }
         // Status zero models an accepted write whose response was lost.
         if status != 0 {
+            let body = respond(&request, body);
             write!(stream,"HTTP/1.1 {status} Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).unwrap();
         }
         request
@@ -144,11 +165,12 @@ fn authenticated_snapshot(service: &MusicService, token: &AccessToken) -> Editab
 
 #[test]
 fn displayed_playlist_occurrence_uses_its_original_revision_and_absolute_position() {
-    let before = visible_state(7, &[("42", "9"), ("99", "8"), ("42", "9"), ("56", "7")]);
+    let before = state(7, &[("42", "9"), ("99", "8"), ("42", "9"), ("56", "7")]);
     let after = state(8, &[("42", "9"), ("99", "8"), ("56", "7")]);
     let (service, server, listener) = fixture(
         vec![
             (200, ACCOUNT.into()),
+            (200, rich_entries_without_album_ids(before.clone())),
             (200, before.clone()),
             (200, before),
             (200, after.clone()),
@@ -180,8 +202,10 @@ fn displayed_playlist_occurrence_uses_its_original_revision_and_absolute_positio
         ["42:9", "99:8", "56:7"]
     );
     let requests = complete(server, listener);
+    assert!(requests[1].starts_with("GET /users/1234/playlists/17?richTracks=true HTTP/1.1"));
+    assert!(requests[2].starts_with("GET /users/1234/playlists/17?richTracks=false HTTP/1.1"));
     assert_eq!(
-        form(&requests[3]),
+        form(&requests[4]),
         [
             ("kind".into(), "17".into()),
             ("revision".into(), "7".into()),
@@ -191,7 +215,40 @@ fn displayed_playlist_occurrence_uses_its_original_revision_and_absolute_positio
             ),
         ],
     );
-    assert!(requests[4].starts_with("GET "));
+    assert!(requests[5].starts_with("GET "));
+}
+
+#[test]
+fn paged_display_keeps_rich_rows_but_never_proves_a_changed_compact_revision_or_order() {
+    let before = state(7, &[("42", "9"), ("99", "8")]);
+    for compact in [
+        state(8, &[("42", "9"), ("99", "8")]),
+        state(7, &[("99", "8"), ("42", "9")]),
+    ] {
+        let (service, server, listener) = fixture(
+            vec![
+                (200, ACCOUNT.into()),
+                (200, rich_entries_without_album_ids(before.clone())),
+                (200, compact),
+            ],
+            None,
+        );
+        let token = token();
+        service.account(&token).unwrap();
+        let (page, receipt) = service
+            .playlist_tracks_for_view(&token, &id(), 0, true)
+            .unwrap();
+        assert_eq!(
+            page.items
+                .iter()
+                .map(|track| track.id.as_str())
+                .collect::<Vec<_>>(),
+            ["42", "99"]
+        );
+        assert!(page.items.iter().all(|track| track.available));
+        assert!(receipt.is_none());
+        assert_eq!(complete(server, listener).len(), 3);
+    }
 }
 
 #[test]
@@ -274,7 +331,7 @@ fn read_snapshot_preserves_duplicate_composite_server_positions_and_redacts_debu
     }
     let requests = complete(server, listener);
     assert_eq!(requests.len(), 2);
-    assert!(requests[1].starts_with("GET /users/1234/playlists/17?richTracks=true HTTP/1.1"));
+    assert!(requests[1].starts_with("GET /users/1234/playlists/17?richTracks=false HTTP/1.1"));
 }
 
 #[test]
@@ -373,15 +430,24 @@ fn foreign_unvalidated_expired_and_stale_accounts_never_issue_an_edit_request() 
 fn insert_uses_one_revision_bound_post_then_independent_exact_readback() {
     let before = state(7, &[("42", "9"), ("42", "9")]);
     let after = state(8, &[("42", "9"), ("99", "8"), ("42", "9")]);
-    let (service, server, listener) = fixture(
+    let (service, server, listener) = fixture_with_response(
         vec![
             (200, ACCOUNT.into()),
             (200, before.clone()),
             (200, before),
-            (200, after.clone()),
+            (200, rich_entries_without_album_ids(after.clone())),
             (200, after),
         ],
         None,
+        |request, body| {
+            // Mirror the provider: rich GETs suppress occurrence album IDs,
+            // even when the nested catalog Track has an album of its own.
+            if request.starts_with("GET /users/1234/playlists/17?richTracks=true ") {
+                rich_entries_without_album_ids(body)
+            } else {
+                body
+            }
+        },
     );
     let token = token();
     let snapshot = authenticated_snapshot(&service, &token);
@@ -408,7 +474,9 @@ fn insert_uses_one_revision_bound_post_then_independent_exact_readback() {
     );
     let requests = complete(server, listener);
     assert_eq!(requests.len(), 5);
-    assert!(requests[2].starts_with("GET "));
+    for index in [1, 2, 4] {
+        assert!(requests[index].starts_with("GET /users/1234/playlists/17?richTracks=false "));
+    }
     assert!(requests[3].starts_with("POST /users/1234/playlists/17/change HTTP/1.1"));
     let fields = form(&requests[3]);
     assert_eq!(fields[0], ("kind".into(), "17".into()));
@@ -417,7 +485,74 @@ fn insert_uses_one_revision_bound_post_then_independent_exact_readback() {
         serde_json::from_str::<Value>(&fields[2].1).unwrap(),
         json!([{"op":"insert","at":1,"tracks":[{"id":"99","albumId":"8"}]}])
     );
-    assert!(requests[4].starts_with("GET "));
+}
+
+#[test]
+fn insert_prefers_the_selected_composite_album_to_other_display_editions() {
+    let binding = SearchBinding {
+        epoch: 0,
+        token_key: [0; 32],
+        uid: "1234".into(),
+    };
+    let before = decode_state(state(7, &[]).as_bytes(), &id(), binding).unwrap();
+    let intended = Intended::new(
+        &before,
+        PlaylistChange::Insert {
+            track: track("99:8", "100"),
+            at: 0,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&intended.form[2].1).unwrap(),
+        json!([{"op":"insert","at":0,"tracks":[{"id":"99","albumId":"8"}]}])
+    );
+}
+
+#[test]
+fn editor_keeps_track_names_and_canonical_albums_after_compact_move_readback() {
+    let before = state(7, &[("42", "9"), ("99", "8")]);
+    let after = state(8, &[("99", "8"), ("42", "9")]);
+    let (service, server, listener) = fixture(
+        vec![
+            (200, ACCOUNT.into()),
+            (200, before.clone()),
+            (200, rich_entries_without_album_ids(before.clone())),
+            (200, before),
+            (200, rich_entries_without_album_ids(after.clone())),
+            (200, after),
+        ],
+        None,
+    );
+    let token = token();
+    service.account(&token).unwrap();
+    let snapshot = service
+        .playlist_editor_state(&token, &id(), false)
+        .unwrap()
+        .unwrap();
+    let PlaylistMutationOutcome::Confirmed(after) = service
+        .edit_playlist(&token, &snapshot, PlaylistChange::Move { from: 1, to: 0 })
+        .unwrap()
+    else {
+        panic!("expected confirmed move")
+    };
+    for (entry, (selector, album, title)) in after.entries.iter().zip([
+        ("99:8", "8", "Original fixture track 99"),
+        ("42:9", "9", "Original fixture track 42"),
+    ]) {
+        let track = entry.track.as_ref().unwrap();
+        assert_eq!(track.title, title);
+        assert_eq!(track.id, selector);
+        assert_eq!(track.album_id.as_deref(), Some(album));
+        assert!(track.album_title.is_none());
+    }
+    let requests = complete(server, listener);
+    assert_eq!(requests.len(), 6);
+    assert!(requests[2].starts_with("GET /users/1234/playlists/17?richTracks=true "));
+    assert_eq!(
+        requests.iter().filter(|r| r.starts_with("POST ")).count(),
+        1
+    );
 }
 
 #[test]

@@ -4,18 +4,10 @@
 use super::*;
 use crate::queue::MAX_QUEUE;
 
-const LARGE_QUEUE_PAGE_SIZE: usize = 200;
+mod reorder;
+pub(super) use reorder::QueueReorder;
 
-/// An in-process GTK value, with no serializer or textual MIME representation.
-/// A second window/account or retired presentation cannot consume the gesture.
-#[derive(Clone, glib::Boxed)]
-#[boxed_type(name = "KarinQueueOccurrenceDrag")]
-struct QueueDrag {
-    owner: glib::WeakRef<gtk::ListBox>,
-    generation: u64,
-    context: Option<PlaybackContext>,
-    occurrence: crate::queue::OccurrenceId,
-}
+const LARGE_QUEUE_PAGE_SIZE: usize = 200;
 
 impl Controller {
     pub(super) fn render_queue(self: &Rc<Self>) {
@@ -25,6 +17,7 @@ impl Controller {
 
     fn render_queue_page(self: &Rc<Self>, page: usize) {
         self.guard_music_binding();
+        self.widgets.queue_reorder.clear_rows();
         clear_list(&self.widgets.queue_rows);
         self.widgets.queue_rows.remove_css_class("boxed-list");
         self.widgets.queue_rows.add_css_class("music-track-list");
@@ -101,18 +94,27 @@ impl Controller {
             .map(|track| {
                 let artists = track.artists.join(", ");
                 if artists.is_empty() {
-                    format!("Сведения о треке: {}", track.title)
+                    format!("Сейчас играет: {}", track.title)
                 } else {
-                    format!("Сведения о треке: {} · {artists}", track.title)
+                    format!("Сейчас играет: {} · {artists}", track.title)
                 }
             })
-            .unwrap_or_else(|| "Показать сведения о текущем треке".into());
+            .unwrap_or_else(|| "Открыть «Сейчас играет»".into());
         self.widgets
             .current_art_button
             .set_tooltip_text(Some(&information));
         self.widgets
             .current_art_button
             .update_property(&[gtk::accessible::Property::Label(&information)]);
+        let info_label = selected
+            .map(|track| format!("Сведения о треке: {}", track.title))
+            .unwrap_or_else(|| "Показать сведения о текущем треке".into());
+        self.widgets
+            .current_info
+            .set_tooltip_text(Some(&info_label));
+        self.widgets
+            .current_info
+            .update_property(&[gtk::accessible::Property::Label(&info_label)]);
         self.widgets.position.set_text(
             &selected
                 .and_then(|track| track.duration_ms)
@@ -246,9 +248,14 @@ impl Controller {
                 let handle = gtk::Image::from_icon_name("karin-grip-vertical-symbolic");
                 handle.set_widget_name("music-queue-drag-handle");
                 handle.add_css_class("dim-label");
-                handle.set_tooltip_text(Some("Перетащите трек; с клавиатуры — Alt+↑ или Alt+↓"));
+                handle.set_tooltip_text(Some(
+                    "Перетащите трек вверх или вниз. Alt+↑ или Alt+↓ с клавиатуры",
+                ));
                 handle.set_cursor_from_name(Some("grab"));
                 body.prepend(&handle);
+                self.widgets
+                    .queue_reorder
+                    .add_row(&row, &handle, occurrence.clone());
             }
             let caption = queue_badge(index, current_index, next_index)
                 .map(|caption| {
@@ -416,54 +423,6 @@ impl Controller {
                 });
             }
             body.append(&menu);
-            if ordinary && upcoming_slot.is_some() {
-                let source = gtk::DragSource::new();
-                source.set_actions(gtk::gdk::DragAction::MOVE);
-                let payload = QueueDrag {
-                    owner: self.widgets.queue_rows.downgrade(),
-                    generation,
-                    context: queue_snapshot.clone(),
-                    occurrence: occurrence.clone(),
-                };
-                let weak = Rc::downgrade(self);
-                let anchor = row.downgrade();
-                source.connect_prepare(move |_, _, _| {
-                    let this = weak.upgrade()?;
-                    if !anchor.upgrade().is_some_and(|row| row.is_mapped())
-                        || !queue_action_is_current(&this, payload.generation, &payload.context)
-                    {
-                        return None;
-                    }
-                    Some(gtk::gdk::ContentProvider::for_value(&payload.to_value()))
-                });
-                row.add_controller(source);
-                let target =
-                    gtk::DropTarget::new(QueueDrag::static_type(), gtk::gdk::DragAction::MOVE);
-                let weak = Rc::downgrade(self);
-                let selected = occurrence.clone();
-                let expected = queue_snapshot.clone();
-                let anchor = row.downgrade();
-                target.connect_drop(move |_, value, _, y| {
-                    let (Some(this), Some(row), Ok(payload)) =
-                        (weak.upgrade(), anchor.upgrade(), value.get::<QueueDrag>())
-                    else {
-                        return false;
-                    };
-                    if !row.is_mapped()
-                        || payload.owner.upgrade().as_ref() != Some(&this.widgets.queue_rows)
-                        || !queue_action_is_current(&this, generation, &expected)
-                        || !queue_action_is_current(&this, payload.generation, &payload.context)
-                    {
-                        return false;
-                    }
-                    this.move_queue_occurrence(
-                        &payload.occurrence,
-                        &selected,
-                        y >= f64::from(row.height()) / 2.0,
-                    )
-                });
-                row.add_controller(target);
-            }
             let keys = gtk::EventControllerKey::new();
             let weak = Rc::downgrade(self);
             let expected = queue_snapshot.clone();

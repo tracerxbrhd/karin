@@ -131,10 +131,10 @@ pub(super) fn section_button(
     icon.set_pixel_size(16);
     let label = gtk::Label::new(Some(text));
     label.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    let content = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+    let content = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     content.set_halign(gtk::Align::Center);
     content.append(&icon);
-    content.append(&label);
+    content.append(&optional_label(&label));
     let button = gtk::ToggleButton::builder()
         .child(&content)
         .action_name(action)
@@ -147,4 +147,28 @@ pub(super) fn section_button(
     button.add_css_class("music-header-tab");
     button.update_property(&[gtk::accessible::Property::Label(text)]);
     (button, label)
+}
+
+pub(in crate::ui) fn back_button_content() -> (gtk::Box, gtk::Label) {
+    let icon = gtk::Image::from_icon_name("karin-chevron-left-symbolic");
+    icon.set_pixel_size(18);
+    let label = gtk::Label::new(Some("Назад"));
+    label.set_widget_name("music-back-label");
+    label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    let content = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    content.set_halign(gtk::Align::Center);
+    content.append(&icon);
+    content.append(&optional_label(&label));
+    (content, label)
+}
+
+fn optional_label(label: &gtk::Label) -> gtk::Box {
+    // Keep the natural text width while allowing the initial resize to the
+    // compact layout before its breakpoint takes effect.
+    label.set_margin_start(4);
+    let container = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    container.set_overflow(gtk::Overflow::Hidden);
+    super::player_bar::allow_child_to_shrink(&container);
+    container.append(label);
+    container
 }

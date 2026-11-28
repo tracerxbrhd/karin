@@ -495,7 +495,10 @@ impl Fixture {
                         "/account/status" => json!({"result":{"account":{"uid":1234,"displayName":"Synthetic artwork account"}}}),
                         "/users/1234/likes/tracks" => json!({"result":{"library":{"uid":1234,"revision":1,"tracks":[{"id":42,"track":track}]}}}),
                         "/users/1234/dislikes/tracks" => json!({"result":{"library":{"uid":1234,"revision":1,"tracks":[]}}}),
-                        "/users/1234/playlists/list" => json!({"result":[{"owner":{"uid":1234},"kind":3,"title":"Synthetic green playlist","trackCount":1,"cover":{"itemsUri":[PLAYLIST_COVER]}}]}),
+                        "/users/1234/playlists/list" => json!({"result":[
+                            {"owner":{"uid":1234},"kind":3,"title":"Synthetic green playlist","trackCount":1,"cover":{"itemsUri":[PLAYLIST_COVER]}},
+                            {"owner":{"uid":1234},"kind":4,"title":"Synthetic playlist without art","trackCount":0}
+                        ]}),
                         "/users/1234/likes/playlists" => json!({"result":[]}),
                         "/albums/7/with-tracks" => json!({"result":{"id":7,"title":"Synthetic blue album","coverUri":ALBUM_COVER,"artists":[],"volumes":[[track]]}}),
                         "/albums/8/with-tracks" => {
@@ -745,6 +748,51 @@ fn native_cover_metadata_http_cache_and_render_lifecycle() {
     ui.window.unmaximize();
     pump(|| !ui.window.is_maximized());
     resize_cover_window(&ui, 1440, 900);
+
+    // Open the picker through the catalog menu and load its owned-playlist
+    // covers before showing the playlist grid.
+    this.set_info_open(false);
+    pump(|| !this.info_is_open());
+    let window_id = Command::new("xdotool")
+        .args([
+            "search",
+            "--onlyvisible",
+            "--name",
+            "^Karin synthetic HTTP fixture$",
+        ])
+        .output()
+        .unwrap();
+    assert!(window_id.status.success());
+    let window_id = std::str::from_utf8(&window_id.stdout).unwrap();
+    let window_id = window_id.lines().next().unwrap();
+    let menu = descendants(this.widgets.library_rows.upcast_ref())
+        .into_iter()
+        .find_map(|widget| widget.downcast::<gtk::MenuButton>().ok())
+        .unwrap();
+    crate::ui::preferences::click_native_for_test(&ui.window, window_id, &menu);
+    let add = descendants(menu.popover().unwrap().upcast_ref())
+        .into_iter()
+        .find(|widget| widget.widget_name() == "music-track-add-playlist")
+        .unwrap();
+    crate::ui::preferences::click_native_for_test(&ui.window, window_id, &add);
+    let picker = this.playlist_management_dialog_for_test().unwrap();
+    pump(|| rendered_covers(&picker).len() == 1);
+    assert_native_cover(&rendered_covers(&picker)[0]);
+    let picker_widgets = descendants(picker.upcast_ref());
+    let placeholder = picker_widgets
+        .iter()
+        .filter(|widget| widget.widget_name() == "music-playlist-manage-cover")
+        .filter_map(|widget| widget.downcast_ref::<gtk::Overlay>())
+        .find_map(|cover| cover.child().filter(|child| child.is_visible()))
+        .expect("a playlist without artwork keeps its thumbnail fallback");
+    assert!(placeholder.is_mapped());
+    capture_native("cover-http-playlist-picker");
+    let close = picker_widgets
+        .iter()
+        .find(|widget| widget.widget_name() == "music-playlist-manage-close")
+        .unwrap();
+    crate::ui::preferences::click_native_for_test(&ui.window, window_id, close);
+    pump(|| this.playlist_management_dialog_for_test().is_none());
 
     // Exercise the section handler and its actual mapped combined page. It may
     // reuse the admitted owned snapshot while fetching only missing liked data.

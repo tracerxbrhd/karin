@@ -934,7 +934,8 @@ fn application_child(input: &Input, phase: &str) {
         &input.origin,
         &input.origin,
     ));
-    pointer(&ui.window, &this.widgets.nav_liked);
+    key(&ui.window, "ctrl+l");
+    pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("library"));
     pump_until(|| {
         this.model
             .borrow()

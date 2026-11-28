@@ -691,17 +691,25 @@ fn native_collection_filter_continuation_and_exact_occurrences() {
             counts.likes.load(Ordering::Acquire),
             counts.dislikes.load(Ordering::Acquire),
         );
-        this.current_like_key.replace(None);
+        let mini_slot = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        let mini_window = gtk::Window::builder().child(&mini_slot).build();
+        this.set_mini_reactions_host(Some(&mini_slot));
+        this.current_reactions.take();
         this.sync_current_like();
-        assert!(
-            !find_button(
-                this.widgets.current_like_slot.upcast_ref(),
-                "music-current-like"
-            )
-            .unwrap()
-            .is_sensitive()
-        );
+        mini_window.present();
+        let footer_like = find_button(
+            this.widgets.current_like_slot.upcast_ref(),
+            "music-current-like",
+        )
+        .unwrap();
+        let mini_like = find_button(mini_slot.upcast_ref(), "music-current-like").unwrap();
+        assert!(!footer_like.is_sensitive());
+        assert!(!mini_like.is_sensitive());
+        pump_until(|| mini_like.is_mapped() && mini_like.is_sensitive());
         drain(this);
+        assert!(footer_like.is_sensitive());
+        this.set_mini_reactions_host(None);
+        mini_window.close();
         assert_eq!(
             counts.all.load(Ordering::Acquire),
             before_pending_reactions + 2,
@@ -713,7 +721,7 @@ fn native_collection_filter_continuation_and_exact_occurrences() {
                 counts.dislikes.load(Ordering::Acquire),
             ),
             (before_membership_pair.0 + 1, before_membership_pair.1 + 1),
-            "one independent read of each membership confirms the footer pair"
+            "the footer and Mini share one independent read of each membership"
         );
         request_snapshot(this, &counts, "before-query");
         let before = counts.all.load(Ordering::Acquire);

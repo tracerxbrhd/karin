@@ -317,7 +317,7 @@ impl Controller {
         let cached = self.model.borrow().liked.clone();
         if let Some(result) = cached {
             self.render_liked_page(result, 0, true);
-        } else {
+        } else if !self.requests.borrow().occupied(Operation::InitialLibrary) {
             self.load_library(0);
         }
     }
@@ -364,6 +364,7 @@ impl Controller {
         clear_box(&self.widgets.home_hero);
         clear_list(&self.widgets.home_preview);
         self.render_home_collections();
+        self.render_collection_overview();
     }
 
     #[cfg(test)]
@@ -576,7 +577,13 @@ impl Controller {
                         this.show_error(error);
                     }
                 }
-                Err(error) => this.show_error(error),
+                Err(error) => {
+                    let mut model = this.model.borrow_mut();
+                    model.liked.get_or_insert(Err(error));
+                    model.playlists.get_or_insert(Err(error));
+                    drop(model);
+                    this.show_error(error);
+                }
             },
         );
     }
@@ -598,6 +605,14 @@ impl Controller {
             self.load_playlist_sections(force);
             return;
         }
+        self.load_liked_tracks(force);
+    }
+
+    pub(super) fn load_liked_tracks(self: &Rc<Self>, force: bool) {
+        if !self.model.borrow().account_valid || self.model.borrow().closed {
+            return;
+        }
+        self.model.borrow_mut().library_touched = true;
         self.widgets.library_rows.set_visible(true);
         let feed = self.new_track_feed(
             continuous_loading::FeedSource::Liked,
@@ -717,8 +732,8 @@ impl Controller {
         list: &gtk::ListBox,
         track: Track,
         context: Rc<dyn Fn() -> Option<PlaybackContext>>,
-    ) {
-        self.track_row_bound(list, track, context, None, None);
+    ) -> gtk::ListBoxRow {
+        self.track_row_bound(list, track, context, None, None)
     }
 
     pub(super) fn track_row_bound(
@@ -728,7 +743,7 @@ impl Controller {
         context: Rc<dyn Fn() -> Option<PlaybackContext>>,
         marker: Option<CatalogMarker>,
         removal: Option<playlist_management::RowRemoval>,
-    ) {
+    ) -> gtk::ListBoxRow {
         song_list(list);
         let subtitle = track.artists.join(", ");
         let (row, body) = catalog_item(&track.title, &subtitle);
@@ -820,6 +835,7 @@ impl Controller {
         // every old row for each insertion made a page append quadratic.
         binding.sync(self.catalog_selection().context.as_ref());
         self.catalog_rows.borrow_mut().bindings.push(binding);
+        row
     }
 
     pub(super) fn row_action(self: &Rc<Self>, row: &gtk::ListBoxRow, action: RowAction) {
@@ -881,6 +897,9 @@ impl Controller {
             && origin != "detail"
         {
             self.model.borrow_mut().detail_origin = origin.to_string();
+            self.navigation_history
+                .detail_origin_scroll
+                .set(self.music_scroll());
         }
         if !self.refreshing_detail.get() {
             self.cancel_delivery();
@@ -904,6 +923,7 @@ impl Controller {
             "search" => "Назад к поиску",
             "queue" => "Назад к очереди",
             "home" => "На главную",
+            "collection" => "Назад в мою коллекцию",
             "playlists" => "Назад к плейлистам",
             _ => "Назад в библиотеку",
         };
@@ -946,11 +966,18 @@ impl Controller {
         self.interrupt_feed_reads(Operation::Detail);
         self.requests.borrow_mut().invalidate(Operation::Detail);
         self.model.borrow_mut().view_generation += 1;
+        if self.reopen_previous_detail() {
+            return;
+        }
         let origin = self.model.borrow().detail_origin.clone();
+        let scroll = self.navigation_history.detail_origin_scroll.get();
         self.widgets.stack.set_visible_child_name(&origin);
         match origin.as_str() {
             "search" => {
                 self.widgets.search.grab_focus();
+            }
+            "collection" => {
+                self.collection_overview.open_playlists.grab_focus();
             }
             "playlists" => {
                 self.widgets.nav_playlists.grab_focus();
@@ -967,6 +994,7 @@ impl Controller {
                 self.widgets.nav_liked.grab_focus();
             }
         }
+        self.restore_music_scroll(scroll);
     }
 
     pub(super) fn detail_cover(&self, cover: Option<&CoverArt>) {
@@ -1190,6 +1218,7 @@ impl Controller {
     }
 
     pub(super) fn open_album(self: &Rc<Self>, id: String) {
+        self.remember_detail();
         self.open_album_policy(id, false, 0);
     }
 
@@ -1249,6 +1278,7 @@ impl Controller {
     }
 
     pub(super) fn open_playlist(self: &Rc<Self>, playlist: Playlist, page: u32) {
+        self.remember_detail();
         self.open_playlist_policy(playlist, page, false);
     }
 
@@ -1288,6 +1318,7 @@ impl Controller {
     }
 
     pub(super) fn open_artist(self: &Rc<Self>, artist: Artist, page: u32) {
+        self.remember_detail();
         self.open_artist_policy(artist, page, false);
     }
 

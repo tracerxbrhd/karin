@@ -16,6 +16,7 @@ import time
 
 BUS = [
     "native_mpris_session_bus_methods_properties_signals_and_shutdown",
+    "native_tray_registration_menu_and_host_lifecycle",
     "native_secure_storage_secret_service_and_portal_protocol",
     "native_flatpak_update_portal_monitor_and_transaction_protocol",
 ]
@@ -33,6 +34,7 @@ FUNCTIONAL = [
     "native_cover_metadata_http_cache_and_render_lifecycle",
     "native_visible_cover_retries_after_worker_queue_saturation_without_remap",
     "native_workspace_track_pane_actions_state_and_cleanup",
+    "native_now_playing_switches_shared_views_and_restores_workspace",
     "native_catalog_native_music_layout",
     "native_catalog_navigation_latest_actions",
     "native_content_refresh_routes_and_coalescing",
@@ -82,6 +84,7 @@ HIDPI = [
     "native_bundled_typography",
     "native_bundled_symbolic_icons_recolor",
     "native_update_dialog_adaptive_status_and_notes",
+    "native_now_playing_switches_shared_views_and_restores_workspace",
     "native_music_player_progress_duration_transitions",
     "native_music_playback_context_occurrences_and_shared_transport",
     "native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup",

@@ -4,7 +4,7 @@
 use super::*;
 
 mod responsive_layout;
-pub(super) use responsive_layout::toolbar_frame;
+pub(super) use responsive_layout::{allow_child_to_shrink, toolbar_frame};
 
 pub(super) struct PlayerBarParts {
     pub player_bar: gtk::Box,
@@ -16,6 +16,7 @@ pub(super) struct PlayerBarParts {
     pub current_cache: gtk::Box,
     pub current_art: gtk::Box,
     pub current_art_button: gtk::Button,
+    pub current_info: gtk::Button,
     pub current_like_slot: gtk::Box,
     pub position: gtk::Label,
     pub player_status: gtk::Label,
@@ -88,7 +89,7 @@ impl PlayerBarParts {
         let current_art_button = gtk::Button::builder()
             .has_frame(false)
             .child(&current_track)
-            .tooltip_text("Показать сведения о текущем треке")
+            .tooltip_text("Открыть «Сейчас играет»")
             .sensitive(false)
             .build();
         current_art_button.add_css_class("flat");
@@ -97,10 +98,9 @@ impl PlayerBarParts {
         // whitespace after short titles. Reactions remain separate siblings.
         current_art_button.set_halign(gtk::Align::Fill);
         current_art_button.set_hexpand(true);
-        current_art_button.set_widget_name("music-current-info");
-        current_art_button.update_property(&[gtk::accessible::Property::Label(
-            "Показать сведения о текущем треке",
-        )]);
+        current_art_button.set_widget_name("music-now-playing-open");
+        current_art_button
+            .update_property(&[gtk::accessible::Property::Label("Открыть «Сейчас играет»")]);
         metadata.append(&current_art_button);
         let labels = gtk::Box::new(gtk::Orientation::Vertical, 2);
         labels.set_valign(gtk::Align::Center);
@@ -127,7 +127,7 @@ impl PlayerBarParts {
         player_status.set_margin_bottom(4);
         player_status.set_visible(false);
         // The metadata group uses its natural text width inside the expanded
-        // Info button. Extra clickable space stays after the group, rather
+        // track button. Extra clickable space stays after the group, rather
         // than separating the cache mark from its two text lines.
         let text_and_cache = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         text_and_cache.set_widget_name("music-current-metadata-group");
@@ -189,24 +189,8 @@ impl PlayerBarParts {
         play.set_size_request(48, 48);
         let next = icon_button("karin-player-skip-forward-symbolic", "Следующий трек");
         next.set_widget_name("music-next");
-        let repeat = gtk::Button::new();
+        let repeat = repeat_button();
         repeat.set_valign(gtk::Align::Center);
-        let repeat_surface = gtk::Overlay::new();
-        let repeat_icon = gtk::Image::from_icon_name("karin-repeat-symbolic");
-        repeat_icon.set_pixel_size(16);
-        repeat_surface.set_child(Some(&repeat_icon));
-        let repeat_one = gtk::Label::new(Some("1"));
-        repeat_one.set_widget_name("music-repeat-one-badge");
-        repeat_one.add_css_class("music-repeat-one-badge");
-        repeat_one.set_halign(gtk::Align::End);
-        repeat_one.set_valign(gtk::Align::Start);
-        repeat_one.set_can_target(false);
-        repeat_one.set_visible(false);
-        repeat_surface.add_overlay(&repeat_one);
-        repeat_surface.set_measure_overlay(&repeat_one, false);
-        repeat.set_child(Some(&repeat_surface));
-        repeat.set_tooltip_text(Some("Повтор выключен"));
-        repeat.update_property(&[gtk::accessible::Property::Label("Повтор выключен")]);
         repeat.set_widget_name("music-repeat");
         repeat.add_css_class("flat");
         for control in [&previous, &next, &repeat] {
@@ -248,6 +232,15 @@ impl PlayerBarParts {
         utilities.set_widget_name("music-player-utilities");
         utilities.set_halign(gtk::Align::End);
         utilities.set_valign(gtk::Align::Center);
+        let current_info = icon_button(
+            "karin-info-circle-symbolic",
+            "Показать сведения о текущем треке",
+        );
+        current_info.set_widget_name("music-current-info");
+        current_info.add_css_class("flat");
+        current_info.set_sensitive(false);
+        current_info.set_size_request(44, 44);
+        utilities.append(&current_info);
         let lyrics = gtk::ToggleButton::new();
         lyrics.set_icon_name("karin-file-text-symbolic");
         lyrics.set_widget_name("music-lyrics-toggle");
@@ -286,8 +279,13 @@ impl PlayerBarParts {
         volume.update_property(&[gtk::accessible::Property::Label(
             "Громкость воспроизведения",
         )]);
-        super::super::margins(&volume, 12);
-        volume_popover.set_child(Some(&volume));
+        volume.set_hexpand(true);
+        let volume_readout = crate::ui::volume_readout::new(&volume);
+        let volume_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        super::super::margins(&volume_row, 12);
+        volume_row.append(&volume);
+        volume_row.append(&volume_readout);
+        volume_popover.set_child(Some(&volume_row));
         utilities.append(&volume_menu);
         columns.attach(&utilities, 2, 0, 1, 1);
         let layout = columns.layout_manager().expect("native player grid layout");
@@ -359,7 +357,7 @@ impl PlayerBarParts {
                 bar.remove_css_class("music-player-compact");
             }
         });
-        responsive_layout::install(&footer);
+        allow_child_to_shrink(&footer);
 
         // No queue selection or placeholder makes a player appear. The
         // existing controller reveals this one native surface only for an
@@ -408,6 +406,7 @@ impl PlayerBarParts {
             current_cache,
             current_art,
             current_art_button,
+            current_info,
             current_like_slot,
             position,
             player_status,
@@ -422,6 +421,67 @@ impl PlayerBarParts {
             progress,
             volume,
             volume_menu,
+        }
+    }
+}
+
+pub(in crate::ui) fn repeat_button() -> gtk::Button {
+    let button = gtk::Button::new();
+    let surface = gtk::Overlay::new();
+    let icon = gtk::Image::from_icon_name("karin-repeat-symbolic");
+    icon.set_pixel_size(16);
+    surface.set_child(Some(&icon));
+    let one = gtk::Label::new(Some("1"));
+    one.set_widget_name("music-repeat-one-badge");
+    one.add_css_class("music-repeat-one-badge");
+    one.set_halign(gtk::Align::End);
+    one.set_valign(gtk::Align::Start);
+    one.set_can_target(false);
+    one.set_visible(false);
+    surface.add_overlay(&one);
+    surface.set_measure_overlay(&one, false);
+    button.set_child(Some(&surface));
+    button.add_css_class("music-repeat-control");
+    button.set_tooltip_text(Some("Повтор выключен"));
+    button.update_property(&[gtk::accessible::Property::Label("Повтор выключен")]);
+    button
+}
+
+pub(in crate::ui) fn set_order_presentation(
+    shuffle: &gtk::ToggleButton,
+    repeat: &gtk::Button,
+    shuffle_active: bool,
+    repeat_mode: crate::queue::RepeatMode,
+    can_change_order: bool,
+) {
+    use crate::queue::RepeatMode;
+
+    shuffle.set_active(shuffle_active);
+    shuffle.set_sensitive(can_change_order);
+    repeat.set_sensitive(can_change_order);
+    set_repeat_one_badge(repeat, repeat_mode == RepeatMode::One);
+    if repeat_mode == RepeatMode::Off {
+        repeat.remove_css_class("active");
+    } else {
+        repeat.add_css_class("active");
+    }
+    let shuffle_label = if shuffle_active {
+        "Перемешивание включено"
+    } else {
+        "Перемешивание выключено"
+    };
+    let repeat_label = match repeat_mode {
+        RepeatMode::Off => "Повтор выключен",
+        RepeatMode::Queue => "Повтор очереди",
+        RepeatMode::One => "Повтор одного трека",
+    };
+    for (control, label) in [
+        (shuffle.upcast_ref::<gtk::Widget>(), shuffle_label),
+        (repeat.upcast_ref(), repeat_label),
+    ] {
+        if control.tooltip_text().as_deref() != Some(label) {
+            control.set_tooltip_text(Some(label));
+            control.update_property(&[gtk::accessible::Property::Label(label)]);
         }
     }
 }

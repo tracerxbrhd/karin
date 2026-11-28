@@ -75,7 +75,7 @@ class SignedMigrationTests(unittest.TestCase):
         key.write_bytes(trusted_key(home, pin))
         return home, pin, key
 
-    def publish(self, version, *, discord=False, signing=None):
+    def publish(self, version, *, discord=False, tray=False, signing=None):
         home, pin = signing or (self.home, self.pin)
         tree = self.work / f"tree-{version}"
         (tree / "files/bin").mkdir(parents=True)
@@ -91,6 +91,8 @@ class SignedMigrationTests(unittest.TestCase):
         if discord:
             metadata += f"filesystems={';'.join(DISCORD_FILESYSTEMS)};\n"
         metadata += f"[Session Bus Policy]\norg.mpris.MediaPlayer2.{APP_ID}=own\n"
+        if tray:
+            metadata += "org.kde.StatusNotifierWatcher=talk\norg.kde.plasmashell=see\n"
         (tree / "metadata").write_text(metadata, encoding="utf-8")
         commit = self.run_tool(ostree(
             self.repo, "commit", f"--branch={APP_REF}", f"--tree=dir={tree}",
@@ -104,7 +106,7 @@ class SignedMigrationTests(unittest.TestCase):
         return commit
 
     def install_old(self, commit):
-        bundle = self.work / "original-0.8.2-metadata.flatpak"
+        bundle = self.work / "original-metadata.flatpak"
         self.run_tool([
             "flatpak", "build-bundle", "--arch=x86_64", f"--repo-url={self.repo.as_uri()}",
             f"--gpg-keys={self.key}", str(self.repo), str(bundle), APP_ID, "master",
@@ -129,17 +131,17 @@ class SignedMigrationTests(unittest.TestCase):
     def info(self, option):
         return self.flatpak("info", "--user", option, APP_ID).stdout.strip()
 
-    def migrate(self, *, discord):
-        self.assertEqual(release_assets("0.8.3"), {
-            "karin-0.8.3-x86_64.flatpak", "karin-0.8.3-linux-x86_64.tar.gz",
+    def migrate(self, old_version, new_version, *, old_discord=False, discord=False, tray=False):
+        self.assertEqual(release_assets(new_version), {
+            f"karin-{new_version}-x86_64.flatpak", f"karin-{new_version}-linux-x86_64.tar.gz",
         })
-        original = self.publish("0.8.2")
+        original = self.publish(old_version, discord=old_discord)
         self.install_old(original)
         origin = self.info("--show-origin")
         data = Path(self.env["HOME"]) / ".var/app" / APP_ID / "data/original-test-user-data"
         data.parent.mkdir(parents=True)
         data.write_text("Preserve original isolated data\n", encoding="utf-8")
-        target = self.publish("0.8.3", discord=discord)
+        target = self.publish(new_version, discord=discord, tray=tray)
         self.flatpak("update", "--user", "--noninteractive", "--no-deps", "--no-related", APP_ID)
         self.assertEqual(self.info("--show-commit"), target)
         self.assertEqual(self.info("--show-ref"), APP_REF)
@@ -147,29 +149,33 @@ class SignedMigrationTests(unittest.TestCase):
         self.assertEqual(self.info("--show-origin"), origin)
         self.assertEqual(data.read_text(), "Preserve original isolated data\n")
         location = Path(self.info("--show-location"))
-        self.assertEqual((location / "files/fixture-version").read_text(), "0.8.3")
+        self.assertEqual((location / "files/fixture-version").read_text(), new_version)
         permissions = configparser.ConfigParser(interpolation=None)
         installed_permissions = self.info("--show-permissions")
-        if discord:
+        if tray:
             validate_permissions(installed_permissions)
         else:
-            # The legacy-permission control proves channel compatibility,
-            # but intentionally is not the reviewed 0.8.3 package policy.
-            with self.assertRaisesRegex(ValueError, "Discord permissions"):
+            # Historical deployments do not match the current release policy.
+            with self.assertRaisesRegex(ValueError, "bus permissions" if discord else "Discord permissions"):
                 validate_permissions(installed_permissions)
         permissions.read_string(installed_permissions)
         paths = permissions.get("Context", "filesystems", fallback="").strip(";").split(";")
         self.assertEqual(set(filter(None, paths)), set(DISCORD_FILESYSTEMS) if discord else set())
-        self.assertEqual(dict(permissions["Session Bus Policy"]), {
-            f"org.mpris.mediaplayer2.{APP_ID.lower()}": "own",
-        })
+        expected_bus = {f"org.mpris.mediaplayer2.{APP_ID.lower()}": "own"}
+        if tray:
+            expected_bus["org.kde.statusnotifierwatcher"] = "talk"
+            expected_bus["org.kde.plasmashell"] = "see"
+        self.assertEqual(dict(permissions["Session Bus Policy"]), expected_bus)
 
     def test_same_permission_signed_082_to_083_migration(self):
-        self.migrate(discord=False)
+        self.migrate("0.8.2", "0.8.3")
 
     def test_system_manager_can_authorize_082_to_083_added_ipc_permissions(self):
         # The user-authorized system transaction is a distinct path from Portal.
-        self.migrate(discord=True)
+        self.migrate("0.8.2", "0.8.3", discord=True)
+
+    def test_system_manager_can_authorize_085_to_086_added_tray_permissions(self):
+        self.migrate("0.8.5", "0.9.0", old_discord=True, discord=True, tray=True)
 
     def test_untrusted_new_channel_signature_cannot_replace_the_old_deployment(self):
         original = self.publish("0.8.2")

@@ -11,3 +11,14 @@
   padding: 12px 4px;
   line-height: 1.5;
 }
+.karin-presentation-root .karin-lyrics-expanded .karin-lyrics-lines { padding: 48px 0; }
+.karin-presentation-root .karin-lyrics-expanded .karin-lyrics-line {
+  font-size: 1.66em;
+  font-weight: 600;
+  padding: 10px 6px;
+}
+.karin-presentation-root .karin-lyrics-expanded .karin-lyrics-stanza {
+  font-size: 1.38em;
+  font-weight: 550;
+  padding: 14px 8px;
+}

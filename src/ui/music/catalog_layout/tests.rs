@@ -109,6 +109,181 @@ fn children(widget: &impl IsA<gtk::Widget>) -> Vec<gtk::Widget> {
     result
 }
 
+fn assert_liked_action_geometry(window: &adw::ApplicationWindow, hero: &gtk::Box, one_row: bool) {
+    let widgets = children(hero);
+    let named = |name: &str| {
+        widgets
+            .iter()
+            .find(|widget| widget.widget_name() == name)
+            .unwrap()
+    };
+    let title = named("music-liked-title").compute_bounds(window).unwrap();
+    let actions = named("music-liked-actions").compute_bounds(window).unwrap();
+    let buttons = [
+        "music-collection-play",
+        "music-liked-wave",
+        "music-liked-refresh",
+    ]
+    .map(|name| {
+        let button = named(name);
+        let bounds = button.compute_bounds(window).unwrap();
+        let (_, natural, _, _) = button.measure(gtk::Orientation::Horizontal, -1);
+        assert!(
+            button.is_mapped()
+                && (bounds.width() - natural as f32).abs() <= 1.0
+                && bounds.x() >= actions.x() - 1.0
+                && bounds.x() + bounds.width() <= actions.x() + actions.width() + 1.0,
+            "each collection action keeps its native width and fits the group: {name} {bounds:?}"
+        );
+        bounds
+    });
+    assert!((buttons[0].x() - title.x()).abs() <= 1.0);
+    for pair in buttons.windows(2) {
+        let a = pair[0];
+        let b = pair[1];
+        let mid_a = a.y() + a.height() / 2.0;
+        let mid_b = b.y() + b.height() / 2.0;
+        if one_row || (mid_a - mid_b).abs() <= 1.0 {
+            let gap = b.x() - a.x() - a.width();
+            assert!(
+                (7.0..=9.0).contains(&gap) && (mid_a - mid_b).abs() <= 1.0,
+                "collection actions form an aligned group with no stretched gap: {a:?}, {b:?}"
+            );
+        } else {
+            assert!(
+                (b.x() - title.x()).abs() <= 1.0 && b.y() >= a.y() + a.height(),
+                "wrapped actions start below the prior row at the heading edge: {a:?}, {b:?}"
+            );
+        }
+    }
+}
+
+fn assert_collection_preview(window: &adw::ApplicationWindow, this: &Rc<Controller>, xid: &str) {
+    use super::super::test_input::{Target, pointer, wait_for_layout};
+
+    this.widgets.stack.set_visible_child_name("collection");
+    let overview = &this.collection_overview.widget;
+    let named = |name: &str| {
+        children(overview)
+            .into_iter()
+            .find(|widget| widget.widget_name() == name)
+            .unwrap()
+    };
+    let columns = [
+        "music-collection-liked-first-column",
+        "music-collection-liked-second-column",
+    ]
+    .map(|name| named(name).downcast::<gtk::ListBox>().unwrap());
+    let scroll = named("music-collection-liked-scroll")
+        .downcast::<gtk::ScrolledWindow>()
+        .unwrap();
+    let left = named("music-collection-liked-arrow-left");
+    let right = named("music-collection-liked-arrow-right");
+    let adjustment = scroll.hadjustment();
+    let end = || adjustment.upper() - adjustment.page_size();
+    let resize = |width| {
+        window.set_default_size(width, 720);
+        pump_until(|| {
+            window
+                .surface()
+                .is_some_and(|surface| surface.width() == width)
+        });
+        wait_for_layout(window, &scroll);
+    };
+    let input = |widget: &gtk::Widget, click| {
+        let (x, y) = pointer(window, widget, Target::Center);
+        let mut command = std::process::Command::new("xdotool");
+        command.args(["mousemove", "--window", xid, &x.to_string(), &y.to_string()]);
+        if click {
+            command.args(["click", "1"]);
+        }
+        assert!(command.status().unwrap().success());
+    };
+
+    resize(1440);
+    assert!(!left.is_mapped() && !right.is_mapped());
+    assert!(end() <= 1.0);
+    assert!((columns[0].width() - columns[1].width()).abs() <= 1);
+    for column in &columns {
+        assert!(column.row_at_index(2).is_some());
+        assert!(column.row_at_index(3).is_none());
+    }
+    let a = columns[0]
+        .row_at_index(0)
+        .unwrap()
+        .compute_bounds(window)
+        .unwrap();
+    let b = columns[1]
+        .row_at_index(0)
+        .unwrap()
+        .compute_bounds(window)
+        .unwrap();
+    assert!((a.y() - b.y()).abs() <= 1.0 && a.x() + a.width() < b.x());
+    capture_native("native-collection-preview-two-columns");
+
+    resize(900);
+    this.set_info_open(true);
+    pump_until(|| this.track_pane.widget.is_mapped() && right.is_mapped());
+    assert!(end() > 1.0 && right.is_sensitive());
+    this.set_info_open(false);
+    pump_until(|| !this.track_pane.widget.is_mapped());
+    resize(420);
+    assert!(end() > 1.0 && !left.is_sensitive() && right.is_sensitive());
+    input(&right, true);
+    pump_until(|| (adjustment.value() - end()).abs() <= 1.0);
+    assert!(left.is_sensitive() && !right.is_sensitive());
+
+    let row = columns[1].row_at_index(1).unwrap();
+    let preview = children(&row);
+    let title = preview
+        .iter()
+        .find(|widget| widget.has_css_class("music-track-title") && widget.is_mapped())
+        .unwrap()
+        .downcast_ref::<gtk::Label>()
+        .unwrap();
+    assert!(title.text().contains("Очень длинное русское название"));
+    assert!(title.layout().is_ellipsized());
+    let runners: Vec<_> = preview
+        .iter()
+        .filter(|widget| widget.widget_name() == "music-collection-marquee-runner")
+        .map(|widget| widget.downcast_ref::<gtk::Fixed>().unwrap())
+        .collect();
+    assert_eq!(runners.len(), 2);
+    input(title.upcast_ref(), false);
+    let deadline = std::time::Instant::now() + Duration::from_millis(400);
+    pump_until(|| std::time::Instant::now() >= deadline);
+    assert!(runners.iter().all(|runner| !runner.is_mapped()));
+    input(&left, false);
+    let settings = window.settings();
+    settings.set_gtk_enable_animations(true);
+    input(title.upcast_ref(), false);
+    pump_until(|| {
+        runners.iter().all(|runner| {
+            runner.is_mapped() && runner.child_position(&runner.first_child().unwrap()).0 < -1.0
+        })
+    });
+    input(&left, false);
+    pump_until(|| runners.iter().all(|runner| !runner.is_mapped()));
+    assert_eq!(title.opacity(), 1.0);
+    settings.set_gtk_enable_animations(false);
+    capture_native("native-collection-preview-compact");
+
+    // The second visible column still starts the exact original occurrence.
+    let play = preview
+        .iter()
+        .find(|widget| widget.widget_name() == "music-track-play")
+        .unwrap();
+    input(play, true);
+    pump_until(|| {
+        this.model.borrow().queue.context().is_some_and(|context| {
+            context.source_kind() == ContextKind::LikedTracks && context.current_index() == 4
+        })
+    });
+    input(&left, true);
+    pump_until(|| adjustment.value() <= 1.0);
+    assert!(!left.is_sensitive() && right.is_sensitive());
+}
+
 #[test]
 #[ignore = "isolated Xvfb native allocation fixture; synthetic data, no account or service"]
 fn native_catalog_native_music_layout() {
@@ -149,6 +324,10 @@ fn native_catalog_native_music_layout() {
     tracks[0].duration_ms = Some(65_000);
     tracks[1].duration_ms = Some(605_000);
     tracks[4].title = "Очень длинное русское название / a deliberately long English title with mixed symbols — 2026".into();
+    tracks[4].artists = vec![
+        "Synthetic artist whose deliberately long multilingual credit … 2026".into(),
+        "Второй исполнитель".into(),
+    ];
     tracks[5].duration_ms = None;
     let playlist = Playlist {
         id: crate::music::PlaylistId {
@@ -172,6 +351,10 @@ fn native_catalog_native_music_layout() {
         }));
         model.playlists = Some(Ok(Page {
             items: vec![playlist],
+            has_more: false,
+        }));
+        model.liked_playlists = Some(Ok(Page {
+            items: Vec::new(),
             has_more: false,
         }));
     }
@@ -284,13 +467,56 @@ fn native_catalog_native_music_layout() {
         .unwrap()
         .downcast::<gtk::Button>()
         .unwrap();
-    play_liked.emit_clicked();
+    super::super::test_input::wait_for_layout(window, &play_liked);
+    assert_liked_action_geometry(window, &this.widgets.library_hero, true);
+    let native_window = std::process::Command::new("xdotool")
+        .args([
+            "search",
+            "--onlyvisible",
+            "--name",
+            "^Karin synthetic HTTP fixture$",
+        ])
+        .output()
+        .unwrap();
+    assert!(native_window.status.success());
+    let native_window = String::from_utf8(native_window.stdout).unwrap();
+    let (x, y) = super::super::test_input::pointer(
+        window,
+        &play_liked,
+        super::super::test_input::Target::Center,
+    );
+    assert!(
+        std::process::Command::new("xdotool")
+            .args([
+                "mousemove",
+                "--window",
+                native_window.trim(),
+                &x.to_string(),
+                &y.to_string(),
+                "click",
+                "1",
+            ])
+            .status()
+            .unwrap()
+            .success()
+    );
+    pump_until(|| this.model.borrow().queue.context().is_some());
     assert_eq!(
         this.model.borrow().queue.context().unwrap().source_kind(),
         ContextKind::LikedTracks
     );
     assert_eq!(this.model.borrow().queue.items().len(), 12);
     capture_native("native-liked-real-collection-first");
+    window.set_default_size(420, 720);
+    pump_until(|| {
+        window
+            .surface()
+            .is_some_and(|surface| surface.width() == 420)
+    });
+    super::super::test_input::wait_for_layout(window, &play_liked);
+    assert_liked_action_geometry(window, &this.widgets.library_hero, false);
+    capture_native("native-liked-real-collection-compact");
+    assert_collection_preview(window, this, native_window.trim());
     this.widgets.stack.set_visible_child_name("search");
     this.clear_search_feedback();
     this.tracks_from(
@@ -516,6 +742,7 @@ fn native_catalog_native_music_layout() {
                 let play_bounds = play.compute_bounds(window).unwrap();
                 let wave_bounds = wave.compute_bounds(window).unwrap();
                 assert!(play_bounds.x() + play_bounds.width() <= wave_bounds.x());
+                assert_liked_action_geometry(window, &this.widgets.library_hero, true);
                 for action in [
                     play.upcast_ref::<gtk::Widget>(),
                     wave,

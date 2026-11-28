@@ -170,7 +170,7 @@ fn gap_and_replaced_tab(window: &adw::ApplicationWindow, id: &str, this: &Contro
     pump_until(|| !widgets.search.is_mapped() && widgets.nav_liked.is_mapped());
     click(window, id, &widgets.nav_liked);
     pump_until(|| {
-        widgets.stack.visible_child_name().as_deref() == Some("library")
+        widgets.stack.visible_child_name().as_deref() == Some("collection")
             && !this.model.borrow().busy
     });
     input(&["key", "--clearmodifiers", "ctrl+f"]);

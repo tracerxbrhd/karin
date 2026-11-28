@@ -66,7 +66,7 @@ enum Phase {
     InstallFailed(PortalError),
     InstallTimeout,
     OpeningLink,
-    LinkFailed,
+    LinkFailed(LinkTarget),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -86,6 +86,7 @@ enum Monitor {
 enum Primary {
     Check,
     OpenRelease,
+    OpenSystemManager,
     Install,
     Restart,
 }
@@ -95,10 +96,32 @@ impl Primary {
         match self {
             Self::Check => "Проверить снова",
             Self::OpenRelease => "Открыть страницу выпуска",
+            Self::OpenSystemManager => "Открыть в менеджере приложений",
             Self::Install => "Обновить и перезапустить",
             Self::Restart => "Перезапустить",
         }
     }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Secondary {
+    Dismiss(&'static str),
+    OpenRelease,
+}
+
+impl Secondary {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Dismiss(label) => label,
+            Self::OpenRelease => "Страница выпуска",
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum LinkTarget {
+    Release,
+    SystemManager,
 }
 
 #[derive(Clone)]
@@ -121,7 +144,7 @@ struct Presentation {
     available: String,
     notes: String,
     primary: Option<Primary>,
-    secondary: Option<&'static str>,
+    secondary: Option<Secondary>,
     busy: bool,
     progress: Option<f64>,
     can_close: bool,
@@ -135,7 +158,7 @@ impl Presentation {
             available: "Не определена".into(),
             notes: String::new(),
             primary: None,
-            secondary: Some("Закрыть"),
+            secondary: Some(Secondary::Dismiss("Закрыть")),
             busy: false,
             progress: None,
             can_close: true,
@@ -144,6 +167,12 @@ impl Presentation {
 
     fn with_action(mut self, action: Primary) -> Self {
         self.primary = Some(action);
+        self
+    }
+
+    fn with_system_manager(mut self) -> Self {
+        self.primary = Some(Primary::OpenSystemManager);
+        self.secondary = Some(Secondary::OpenRelease);
         self
     }
 }
@@ -163,7 +192,11 @@ impl UpdateController {
     }
 
     fn show(self: &Rc<Self>) {
-        let Some(window) = self.app.upgrade().and_then(|app| app.active_window()) else {
+        let Some(window) = self
+            .app
+            .upgrade()
+            .and_then(|app| super::main_application_window(&app))
+        else {
             return;
         };
         if self.dialog.borrow().is_some() || matches!(*self.phase.borrow(), Phase::Restarting) {
@@ -171,6 +204,7 @@ impl UpdateController {
         }
         self.release.borrow_mut().take();
         self.set_phase(Phase::Checking { retry: false });
+        super::present_main_window(&window);
         self.present_dialog(&window);
         self.begin_check(false);
     }
@@ -200,7 +234,14 @@ impl UpdateController {
         let weak_dialog = dialog.dialog.downgrade();
         let weak = Rc::downgrade(self);
         dialog.secondary.connect_clicked(move |_| {
-            let cancelled_installation = weak.upgrade().is_some_and(|this| this.cancel_install());
+            let Some(this) = weak.upgrade() else {
+                return;
+            };
+            if this.presentation().secondary == Some(Secondary::OpenRelease) {
+                this.open_link(LinkTarget::Release);
+                return;
+            }
+            let cancelled_installation = this.cancel_install();
             if let Some(dialog) = weak_dialog.upgrade() {
                 if cancelled_installation {
                     dialog.force_close();
@@ -377,16 +418,8 @@ impl UpdateController {
     fn activate_primary(self: &Rc<Self>) {
         match self.presentation().primary {
             Some(Primary::Check) => self.begin_check(true),
-            Some(Primary::OpenRelease) => {
-                let page = self
-                    .release
-                    .borrow()
-                    .as_ref()
-                    .map(|release| release.page.clone());
-                if let Some(page) = page {
-                    self.open_release(page);
-                }
-            }
+            Some(Primary::OpenRelease) => self.open_link(LinkTarget::Release),
+            Some(Primary::OpenSystemManager) => self.open_link(LinkTarget::SystemManager),
             Some(Primary::Install | Primary::Restart) => {
                 let deployment = self
                     .release
@@ -408,8 +441,18 @@ impl UpdateController {
         }
     }
 
-    fn open_release(self: &Rc<Self>, page: String) {
-        let Some(window) = self.app.upgrade().and_then(|app| app.active_window()) else {
+    fn open_link(self: &Rc<Self>, target: LinkTarget) {
+        let Some(window) = self
+            .app
+            .upgrade()
+            .and_then(|app| super::main_application_window(&app))
+        else {
+            return;
+        };
+        let Some(uri) = self.release.borrow().as_ref().map(|release| match target {
+            LinkTarget::Release => release.page.clone(),
+            LinkTarget::SystemManager => format!("appstream:{}", config::APP_ID),
+        }) else {
             return;
         };
         let owned_dialog = self
@@ -420,10 +463,9 @@ impl UpdateController {
         self.set_phase(Phase::OpeningLink);
         let weak = Rc::downgrade(self);
         glib::spawn_future_local(async move {
-            let opened = gtk::UriLauncher::new(&page)
+            let result = gtk::UriLauncher::new(&uri)
                 .launch_future(Some(&window))
-                .await
-                .is_ok();
+                .await;
             if let Some(this) = weak.upgrade() {
                 let dialog = owned_dialog.and_then(|dialog| dialog.upgrade());
                 let current = matches!(*this.phase.borrow(), Phase::OpeningLink)
@@ -433,10 +475,16 @@ impl UpdateController {
                         .as_ref()
                         .is_some_and(|view| Some(&view.dialog) == dialog.as_ref());
                 if current {
-                    this.set_phase(if opened {
-                        Phase::Offer
-                    } else {
-                        Phase::LinkFailed
+                    this.set_phase(match result {
+                        Ok(()) => Phase::Offer,
+                        Err(error)
+                            if error.matches(gtk::DialogError::Dismissed)
+                                || error.matches(gtk::DialogError::Cancelled)
+                                || error.matches(gio::IOErrorEnum::Cancelled) =>
+                        {
+                            Phase::Offer
+                        }
+                        Err(_) => Phase::LinkFailed(target),
                     });
                 }
             }
@@ -632,7 +680,7 @@ impl UpdateController {
                 let heading = if *retry { "Повторная проверка" } else { "Проверка обновлений" };
                 let mut view = Presentation::message(heading, "Получаем сведения о последнем стабильном выпуске…");
                 view.busy = true;
-                view.secondary = Some("Отменить");
+                view.secondary = Some(Secondary::Dismiss("Отменить"));
                 view
             }
             Phase::Latest => {
@@ -641,16 +689,28 @@ impl UpdateController {
                 view
             }
             Phase::CheckFailed(error) => Presentation::message("Не удалось проверить обновления", error_text(*error)).with_action(Primary::Check),
-            Phase::Offer | Phase::OpeningLink | Phase::LinkFailed => {
+            Phase::Offer | Phase::OpeningLink | Phase::LinkFailed(_) => {
                 let Some(release) = release.as_ref() else {
                     return Presentation::message("Не удалось проверить обновления", error_text(CheckError::Internal)).with_action(Primary::Check);
                 };
                 let mut view = self.present_release(release);
-                if matches!(*phase, Phase::OpeningLink) {
-                    view.primary = None;
-                    view.busy = true;
-                } else if matches!(*phase, Phase::LinkFailed) {
-                    view.body.push_str("\nНе удалось открыть страницу в браузере.");
+                match *phase {
+                    Phase::OpeningLink => {
+                        view.primary = None;
+                        view.secondary = Some(Secondary::Dismiss("Позже"));
+                        view.busy = true;
+                    }
+                    Phase::LinkFailed(LinkTarget::SystemManager)
+                        if view.primary == Some(Primary::OpenSystemManager) =>
+                    {
+                        view.body = "Не удалось открыть менеджер приложений. Пакет доступен на странице выпуска.".into();
+                        view.primary = Some(Primary::OpenRelease);
+                        view.secondary = Some(Secondary::Dismiss("Позже"));
+                    }
+                    Phase::LinkFailed(LinkTarget::Release) => {
+                        view.body.push_str("\nНе удалось открыть страницу выпуска в браузере.");
+                    }
+                    _ => {}
                 }
                 view
             }
@@ -658,7 +718,7 @@ impl UpdateController {
                 let mut view = Presentation::message("Загрузка и установка", "Flatpak обновляет Karin. Вы можете отменить операцию.");
                 view.progress = progress.filter(|value| (0.0..=1.0).contains(value));
                 view.busy = view.progress.is_none();
-                view.secondary = Some("Отменить");
+                view.secondary = Some(Secondary::Dismiss("Отменить"));
                 view.can_close = false;
                 view
             }
@@ -697,16 +757,19 @@ impl UpdateController {
             DeploymentStatus::NotPublished => Presentation::message("Выпуск готовится для Flatpak", "Подписанный канал Flatpak пока не подтвердил этот выпуск. Проверьте снова после публикации в канале.").with_action(Primary::Check),
             DeploymentStatus::Unverified(error) => Presentation::message("Не удалось подтвердить сборку", error_text(*error)).with_action(Primary::Check),
             DeploymentStatus::Verified(target) => match &*self.monitor.borrow() {
-                Monitor::Idle | Monitor::Connecting => {
-                    let mut view = Presentation::message("Подключение к Flatpak", "Подключаемся к системной службе обновлений…");
+                Monitor::Idle => flatpak_offer(Availability::Waiting(WaitReason::AwaitingOffer)),
+                Monitor::Connecting => {
+                    let mut view = flatpak_offer(Availability::Waiting(WaitReason::AwaitingOffer));
                     view.busy = true;
                     view
                 }
-                Monitor::Failed(error) => portal_failure(*error),
+                Monitor::Failed(error) => portal_failure(*error).with_system_manager(),
                 Monitor::Ready(monitor) => flatpak_offer(monitor.availability(target)),
             },
         };
-        view.secondary = Some("Позже");
+        if view.secondary != Some(Secondary::OpenRelease) {
+            view.secondary = Some(Secondary::Dismiss("Позже"));
+        }
         view
     }
 }
@@ -734,19 +797,23 @@ fn flatpak_offer(availability: Availability) -> Presentation {
             "Перед перезапуском Karin сверит установленную сборку с выпуском.",
         ).with_action(Primary::Restart),
         Availability::Waiting(WaitReason::AwaitingOffer) => Presentation::message(
-            "Ожидаем подтверждения Flatpak",
-            "Flatpak проверяет обновления по своему расписанию. Кнопка установки появится, когда система подтвердит эту сборку.",
-        ).with_action(Primary::Check),
+            "Доступно обновление Karin",
+            "Flatpak ещё проверяет эту сборку для установки из Karin. Обновление можно открыть в системном менеджере приложений.",
+        ).with_system_manager(),
         Availability::Waiting(WaitReason::DifferentDeployment) => Presentation::message(
-            "Ожидаем подтверждения Flatpak",
-            "Flatpak сообщил о другой сборке. Установка станет доступна, когда система подтвердит сборку этого выпуска.",
-        ).with_action(Primary::Check),
+            "Доступно обновление Karin",
+            "Flatpak сообщил о другой сборке. Доступные обновления можно проверить в системном менеджере приложений.",
+        ).with_system_manager(),
         Availability::Waiting(WaitReason::InvalidIdentity) => Presentation::message(
             "Установка недоступна",
             "Не удалось сопоставить установленный пакет с подписанным каналом Karin. Проверьте источник в системном менеджере приложений.",
-        ).with_action(Primary::Check),
-        Availability::Waiting(WaitReason::Unavailable) => portal_failure(PortalError::Unavailable),
-        Availability::Waiting(WaitReason::SystemManagerRequired) => portal_failure(PortalError::ManagerRequired),
+        ).with_system_manager(),
+        Availability::Waiting(WaitReason::Unavailable) => {
+            portal_failure(PortalError::Unavailable).with_system_manager()
+        }
+        Availability::Waiting(WaitReason::SystemManagerRequired) => {
+            portal_failure(PortalError::ManagerRequired).with_system_manager()
+        }
     }
 }
 
@@ -754,7 +821,7 @@ fn portal_failure(error: PortalError) -> Presentation {
     match error {
         PortalError::Unavailable => Presentation::message(
             "Портал Flatpak недоступен",
-            "Karin не может получить подтверждение установки. Проверьте снова или обновите приложение в системном менеджере.",
+            "Karin не может получить подтверждение установки. Обновление можно открыть в системном менеджере приложений.",
         ).with_action(Primary::Check),
         PortalError::ManagerRequired => Presentation::message(
             "Требуется системное обновление",
@@ -769,6 +836,9 @@ impl UpdateDialog {
         let dialog = adw::Dialog::builder()
             .title("Обновления Karin")
             .content_width(540)
+            // The dialog opens before release notes and actions are known.
+            // Reserve room for the footer in both the dialog and sheet layouts.
+            .content_height(440)
             .width_request(300)
             .height_request(310)
             .build();
@@ -811,14 +881,14 @@ impl UpdateDialog {
         content.append(&status);
 
         let notes_block = gtk::Box::new(gtk::Orientation::Vertical, 7);
+        notes_block.set_vexpand(true);
         let notes_title = wrapped_label();
         notes_title.set_text("Что нового");
         notes_title.add_css_class("heading");
         let notes = wrapped_label();
         notes.set_selectable(true);
         let notes_scroll = gtk::ScrolledWindow::builder()
-            .propagate_natural_height(true)
-            .max_content_height(246)
+            .vexpand(true)
             .hscrollbar_policy(gtk::PolicyType::Never)
             .child(&notes)
             .build();
@@ -889,7 +959,7 @@ impl UpdateDialog {
         }
         self.secondary.set_visible(view.secondary.is_some());
         if let Some(secondary) = view.secondary {
-            self.secondary.set_label(secondary);
+            self.secondary.set_label(secondary.label());
         }
         self.dialog.set_can_close(view.can_close);
     }
@@ -943,18 +1013,20 @@ mod tests {
 
     use super::*;
 
+    #[track_caller]
     fn pump_until(mut ready: impl FnMut() -> bool) {
         let deadline = Instant::now() + Duration::from_secs(4);
         let context = glib::MainContext::default();
         while !ready() {
-            while context.pending() {
-                context.iteration(false);
-            }
             assert!(
                 Instant::now() < deadline,
                 "update dialog layout or input did not settle"
             );
-            std::thread::sleep(Duration::from_millis(8));
+            // The spinner and a HiDPI redraw can keep the frame clock ready.
+            // Recheck the predicate and deadline after each dispatch.
+            if !context.iteration(false) {
+                std::thread::sleep(Duration::from_millis(8));
+            }
         }
     }
 
@@ -1013,11 +1085,49 @@ mod tests {
         );
     }
 
+    fn click_action(button: &gtk::Button, window: &adw::ApplicationWindow, xid: &str) {
+        assert_in_window(button, window);
+        let bounds = button.compute_bounds(window).unwrap();
+        let scale = window.scale_factor() as f32;
+        let x = ((bounds.x() + bounds.width() / 2.0) * scale).round();
+        let y = ((bounds.y() + bounds.height() / 2.0) * scale).round();
+        let clicked = Rc::new(Cell::new(false));
+        let observed = clicked.clone();
+        let handler = button.connect_clicked(move |_| observed.set(true));
+        assert!(
+            Command::new("xdotool")
+                .args([
+                    "mousemove",
+                    "--window",
+                    xid,
+                    &x.to_string(),
+                    &y.to_string(),
+                    "click",
+                    "1",
+                ])
+                .status()
+                .unwrap()
+                .success()
+        );
+        pump_until(|| clicked.get());
+        button.disconnect(handler);
+    }
+
     fn note_fixture() -> String {
         notes::excerpt(&format!(
             "## Изменения\n\n- **Плейлисты** можно редактировать из контекстного меню.\n- Уточнён статус обновления [Flatpak](https://example.test/guide).\n- Очередь и просмотр альбомов используют привычную навигацию.\n\n{}\n<!-- karin-flatpak-update-sha256: fixture -->",
             "Проверяем перенос длинного текста и работу прокрутки в узком окне.\n\n".repeat(16),
         ))
+    }
+
+    #[test]
+    fn flatpak_portal_failure_offers_fallback_before_install_and_retry_after_failure() {
+        let offer = flatpak_offer(Availability::Waiting(WaitReason::Unavailable));
+        assert_eq!(offer.primary, Some(Primary::OpenSystemManager));
+        assert!(offer.secondary == Some(Secondary::OpenRelease));
+
+        let failure = portal_failure(PortalError::Unavailable);
+        assert_eq!(failure.primary, Some(Primary::Check));
     }
 
     #[test]
@@ -1030,6 +1140,7 @@ mod tests {
         let fixture_notes = note_fixture();
         assert!(!fixture_notes.contains("example.test") && !fixture_notes.contains("**"));
         assert!(!fixture_notes.contains("sha256"));
+        let short_notes = "Исправлено отображение текущего трека в Discord Rich Presence при воспроизведении напрямую из «Мне нравится». Название трека в карточке открывает его публичную страницу в Яндекс Музыке.";
         let expected_scale =
             std::env::var("GDK_SCALE").map_or(1, |value| value.parse::<i32>().unwrap());
         for (scheme, theme) in [
@@ -1049,13 +1160,56 @@ mod tests {
                 window.present();
                 pump_until(|| window.is_mapped() && window.width() > 0);
                 let dialog = UpdateDialog::new();
-                let view = |availability| Presentation {
-                    available: "0.8.4".into(),
-                    notes: fixture_notes.clone(),
+                let view = |availability, notes: &str| Presentation {
+                    available: "0.8.6".into(),
+                    notes: notes.to_owned(),
                     ..flatpak_offer(availability)
                 };
-                dialog.render(view(Availability::Waiting(WaitReason::AwaitingOffer)));
+                let mut checking = Presentation::message(
+                    "Проверка обновлений",
+                    "Получаем сведения о последнем стабильном выпуске…",
+                );
+                checking.busy = true;
+                checking.secondary = Some(Secondary::Dismiss("Отменить"));
+                dialog.render(checking);
                 dialog.dialog.present(Some(&window));
+                settle_frames(&window);
+                let xid = Command::new("xdotool")
+                    .args(["search", "--onlyvisible", "--name", &title])
+                    .output()
+                    .unwrap();
+                let xid = String::from_utf8(xid.stdout).unwrap();
+                let xid = xid.lines().last().expect("native window found");
+
+                dialog.render(view(
+                    Availability::Waiting(WaitReason::AwaitingOffer),
+                    short_notes,
+                ));
+                settle_frames(&window);
+                assert_eq!(
+                    dialog.primary.label().as_deref(),
+                    Some("Открыть в менеджере приложений")
+                );
+                assert_eq!(
+                    dialog.secondary.label().as_deref(),
+                    Some("Страница выпуска")
+                );
+                click_action(&dialog.primary, &window, xid);
+                click_action(&dialog.secondary, &window, xid);
+
+                dialog.render(view(Availability::Install, short_notes));
+                settle_frames(&window);
+                assert_eq!(
+                    dialog.primary.label().as_deref(),
+                    Some("Обновить и перезапустить")
+                );
+                click_action(&dialog.primary, &window, xid);
+                capture(&format!("update-confirmed-short-{size}-{theme}"), xid);
+
+                dialog.render(view(
+                    Availability::Waiting(WaitReason::AwaitingOffer),
+                    &fixture_notes,
+                ));
                 pump_until(|| {
                     dialog.notes.is_mapped()
                         && dialog.primary.is_mapped()
@@ -1072,9 +1226,12 @@ mod tests {
                 .downcast::<gtk::Label>()
                 .unwrap();
                 assert_eq!(installed.text(), config::VERSION);
-                assert_eq!(dialog.available_version.text(), "0.8.4");
-                assert_eq!(dialog.primary.label().as_deref(), Some("Проверить снова"));
-                assert!(dialog.body.text().contains("по своему расписанию"));
+                assert_eq!(dialog.available_version.text(), "0.8.6");
+                assert_eq!(
+                    dialog.primary.label().as_deref(),
+                    Some("Открыть в менеджере приложений")
+                );
+                assert!(dialog.body.text().contains("Flatpak ещё проверяет"));
                 assert_in_window(&installed, &window);
                 assert_in_window(&dialog.available_version, &window);
                 assert_in_window(&dialog.heading, &window);
@@ -1101,15 +1258,9 @@ mod tests {
                         .and_then(|parent| parent.ancestor(gtk::ScrolledWindow::static_type()))
                         .is_none()
                 );
-                let xid = Command::new("xdotool")
-                    .args(["search", "--onlyvisible", "--name", &title])
-                    .output()
-                    .unwrap();
-                let xid = String::from_utf8(xid.stdout).unwrap();
-                let xid = xid.lines().last().expect("native window found");
                 capture(&format!("update-waiting-{size}-{theme}"), xid);
 
-                dialog.render(view(Availability::Install));
+                dialog.render(view(Availability::Install, &fixture_notes));
                 pump_until(|| {
                     dialog.primary.width() > 10
                         && dialog.primary.label().as_deref() == Some("Обновить и перезапустить")
@@ -1134,10 +1285,16 @@ mod tests {
                     );
                     pump_until(|| activations.get() == 1);
                 }
-                let unavailable = view(Availability::Waiting(WaitReason::SystemManagerRequired));
+                let unavailable = view(
+                    Availability::Waiting(WaitReason::SystemManagerRequired),
+                    &fixture_notes,
+                );
                 dialog.render(unavailable);
                 assert_eq!(dialog.heading.text(), "Требуется системное обновление");
-                assert_eq!(dialog.primary.label().as_deref(), Some("Проверить снова"));
+                assert_eq!(
+                    dialog.primary.label().as_deref(),
+                    Some("Открыть в менеджере приложений")
+                );
                 let mut installing =
                     Presentation::message("Загрузка и установка", "Установка продолжается…");
                 installing.busy = true;

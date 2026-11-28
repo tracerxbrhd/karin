@@ -14,12 +14,16 @@ mod auth;
 mod diagnostics;
 mod fonts;
 mod icons;
+mod mini_player;
 mod music;
 mod playback;
 mod preferences;
 mod shortcuts;
 mod style;
+mod tray;
+mod tray_window;
 mod updates;
+mod volume_readout;
 
 pub use fonts::FontError;
 pub use icons::APP_ICON;
@@ -42,9 +46,31 @@ pub struct MainWindow {
     lifetime_refs: Vec<glib::WeakRef<gtk::Widget>>,
     diagnostics: Option<diagnostics::DiagnosticsPage>,
     music: music::MusicPane,
+    tray: Rc<tray_window::WindowTray>,
+}
+
+pub fn main_application_window(app: &adw::Application) -> Option<adw::ApplicationWindow> {
+    app.windows()
+        .into_iter()
+        .filter_map(|window| window.downcast::<adw::ApplicationWindow>().ok())
+        .find(|window| window.has_css_class("music-shell"))
+}
+
+pub fn present_main_window(window: &adw::ApplicationWindow) {
+    if let Some(show) = window.lookup_action("show-main") {
+        show.activate(None);
+    } else {
+        window.present();
+    }
 }
 
 impl MainWindow {
+    /// Connect the normal preference owner to the optional desktop integration.
+    pub fn enable_tray_preferences(&self) {
+        self.tray.attach_playback(self.music.mini_playback());
+        self.music.attach_tray(&self.tray);
+    }
+
     /// Enable the explicitly requested metadata-only delivery experiment.
     pub fn enable_delivery_diagnostic(&self) {
         self.music.enable_delivery_diagnostic();
@@ -74,7 +100,8 @@ impl MainWindow {
 
     pub fn show_page(&self, name: &str) {
         match name {
-            "music-home" | "music-search" | "music-queue" | "music-library" | "music-playlists" => {
+            "music-home" | "music-search" | "music-queue" | "music-collection"
+            | "music-library" | "music-playlists" => {
                 self.stack.set_visible_child_name("home");
                 let _ = gtk::prelude::WidgetExt::activate_action(
                     &self.window,
@@ -116,6 +143,7 @@ impl MainWindow {
             return Err("Diagnostics did not expose Back and focus its local controls".into());
         }
         for name in [
+            "music-collection",
             "music-library",
             "music-playlists",
             "music-search",
@@ -372,37 +400,20 @@ fn build_shell(
         .width_request(360)
         .height_request(480)
         .build();
+    let tray = tray_window::WindowTray::attach(&window);
     window.add_css_class("music-shell");
     style::attach(&window);
     let toolbar = adw::ToolbarView::new();
     toolbar.add_css_class("music-toolbar-surface");
     // The native CenterBox centers in the full window when space allows,
     // then yields to the side controls without increasing the window minimum.
-    let header = adw::HeaderBar::builder().height_request(48).build();
+    let header = adw::HeaderBar::builder().height_request(52).build();
     header.set_widget_name("music-header");
     header.add_css_class("music-header");
     // GTK can add its own app icon through the desktop's CSD layout. The
     // Home button supplies the brand here, so keep the other native controls
     // in their configured order and omit only the duplicate app icon.
-    window
-        .settings()
-        .bind_property("gtk-decoration-layout", &header, "decoration-layout")
-        .transform_to(|_, layout: Option<String>| {
-            Some(layout.map(|layout| {
-                layout
-                    .split(':')
-                    .map(|side| {
-                        side.split(',')
-                            .filter(|token| *token != "icon")
-                            .collect::<Vec<_>>()
-                            .join(",")
-                    })
-                    .collect::<Vec<_>>()
-                    .join(":")
-            }))
-        })
-        .sync_create()
-        .build();
+    bind_window_decoration_layout(&header);
     let stack = adw::ViewStack::new();
     stack.set_hhomogeneous(false);
     stack.set_vhomogeneous(false);
@@ -417,7 +428,7 @@ fn build_shell(
         menu.append(Some("Диагностика"), Some("win.diagnostics"));
     }
     menu.append(Some("О Karin"), Some("app.about"));
-    menu.append(Some("Закрыть Karin"), Some("app.quit"));
+    menu.append(Some("Выйти из Karin"), Some("app.quit"));
     let menu_button = gtk::MenuButton::builder()
         .icon_name("karin-menu-2-symbolic")
         .tooltip_text("Меню приложения")
@@ -441,9 +452,13 @@ fn build_shell(
     home.set_margin_top(16);
     home.set_margin_bottom(16);
     let music = make_music(app, &window);
-    let brand = gtk::Image::from_icon_name(icons::BRAND_MARK);
+    let brand = gtk::Picture::builder()
+        .content_fit(gtk::ContentFit::Contain)
+        .can_shrink(true)
+        .build();
     brand.set_widget_name("karin-header-icon");
-    brand.set_pixel_size(20);
+    render_header_brand(&brand);
+    brand.connect_scale_factor_notify(render_header_brand);
     let brand_home = gtk::Button::builder()
         .child(&brand)
         .action_name("win.music-home")
@@ -455,9 +470,24 @@ fn build_shell(
     brand_home.add_css_class("music-header-control");
     brand_home.update_property(&[gtk::accessible::Property::Label("На главную")]);
     let refresh = header_refresh_button(&window);
+    let (back_content, back_label) = music::back_button_content();
+    let music_back = gtk::Button::builder()
+        .child(&back_content)
+        .action_name("win.music-back")
+        .tooltip_text("Назад")
+        .focus_on_click(false)
+        .has_frame(false)
+        .valign(gtk::Align::Center)
+        .build();
+    music_back.set_widget_name("music-header-back");
+    music_back.add_css_class("music-header-control");
+    music_back.add_css_class("music-back-button");
+    music_back.update_property(&[gtk::accessible::Property::Label("Назад")]);
     let music_navigation = music.header_navigation();
     let start_group = gtk::Box::new(gtk::Orientation::Horizontal, 2);
+    start_group.add_css_class("karin-font-primary");
     start_group.append(&brand_home);
+    start_group.append(&music_back);
     start_group.append(&refresh);
     header.pack_start(&start_group);
     let header_center = gtk::Box::new(gtk::Orientation::Horizontal, 0);
@@ -466,8 +496,8 @@ fn build_shell(
     diagnostics_title.set_visible(false);
     header_center.append(&diagnostics_title);
     header.set_title_widget(Some(&header_center));
-    // Keep one information widget mounted. Unlike a collapsed split sidebar,
-    // this native revealer has no modal backdrop or outside-dismiss policy.
+    // The side panel hosts the shared information widget without a modal
+    // backdrop or outside-dismiss policy.
     let track_info = gtk::Overlay::new();
     track_info.set_child(Some(&stack));
     track_info.set_widget_name("music-track-info-host");
@@ -491,7 +521,11 @@ fn build_shell(
     workspace_bin.set_child(Some(&track_info));
     toolbar.set_content(Some(&workspace_bin));
     let toasts = adw::ToastOverlay::new();
-    toasts.set_child(Some(&music.toolbar_with_player(&toolbar)));
+    let shell = gtk::Stack::new();
+    shell.set_hhomogeneous(false);
+    shell.set_vhomogeneous(false);
+    shell.add_named(&music.toolbar_with_player(&toolbar), Some("workspace"));
+    toasts.set_child(Some(&shell));
     window.set_content(Some(&toasts));
     {
         let saved_focus: Rc<RefCell<Option<glib::WeakRef<gtk::Widget>>>> = Rc::default();
@@ -526,6 +560,7 @@ fn build_shell(
         });
     }
     music.attach_track_info(&track_info, &information_view, stack.upcast_ref());
+    music.attach_now_playing(&shell);
     let music_visibility = music.visibility_callback();
     let workspace_surface = music.workspace_surface();
     let sync_shell = {
@@ -533,6 +568,8 @@ fn build_shell(
         let workspace_surface = workspace_surface.downgrade();
         let navigation = music_navigation.downgrade();
         let refresh = refresh.downgrade();
+        let music_back = music_back.downgrade();
+        let brand_home = brand_home.downgrade();
         let diagnostics_title = diagnostics_title.downgrade();
         let back = diagnostics
             .as_ref()
@@ -543,6 +580,10 @@ fn build_shell(
                 return;
             };
             let home_visible = stack.visible_child_name().as_deref() == Some("home");
+            if let Some(brand_home) = brand_home.upgrade() {
+                // Diagnostics supplies its own Back button.
+                brand_home.set_visible(home_visible);
+            }
             // The workspace's own visible property expresses account admission.
             // A hidden window or diagnostics page can mask ancestor visibility.
             let music_visible = home_visible && workspace.get_visible();
@@ -551,6 +592,9 @@ fn build_shell(
             }
             if let Some(refresh) = refresh.upgrade() {
                 refresh.set_visible(music_visible);
+            }
+            if let Some(back) = music_back.upgrade() {
+                back.set_visible(music_visible);
             }
             if let Some(title) = diagnostics_title.upgrade() {
                 title.set_visible(!home_visible);
@@ -635,6 +679,10 @@ fn build_shell(
         adw::BreakpointCondition::parse("max-width: 719sp").expect("constant breakpoint"),
     );
     music.add_compact_navigation_setters(&compact_navigation);
+    compact_navigation.add_setter(&back_label, "visible", Some(&false.to_value()));
+    compact_navigation.add_setter(&start_group, "spacing", Some(&0.to_value()));
+    compact_navigation.add_setter(&refresh, "width-request", Some(&20_i32.to_value()));
+    compact_navigation.add_setter(&refresh, "margin-start", Some(&2_i32.to_value()));
     compact_navigation.add_setter(
         &information_view,
         "width-request",
@@ -686,6 +734,7 @@ fn build_shell(
     let sections = music.section_stack();
     for name in [
         "music-home",
+        "music-collection",
         "music-library",
         "music-playlists",
         "music-search",
@@ -736,6 +785,7 @@ fn build_shell(
                     let epoch = Rc::clone(&epoch);
                     let expected_section = match name {
                         "music-home" => Some("home"),
+                        "music-collection" => Some("collection"),
                         "music-library" => Some("library"),
                         "music-playlists" => Some("playlists"),
                         "music-queue" => None,
@@ -809,6 +859,7 @@ fn build_shell(
     .collect();
     let mut header_items = vec![
         brand_home.upcast(),
+        music_back.upcast(),
         refresh.upcast(),
         diagnostics_title.upcast(),
         music_navigation.clone().upcast(),
@@ -830,11 +881,48 @@ fn build_shell(
         lifetime_refs,
         diagnostics,
         music,
+        tray,
     }
+}
+
+fn render_header_brand(picture: &gtk::Picture) {
+    let theme = gtk::IconTheme::for_display(&picture.display());
+    let paintable = theme.lookup_icon(
+        icons::BRAND_MARK,
+        &[],
+        30,
+        picture.scale_factor(),
+        picture.direction(),
+        gtk::IconLookupFlags::empty(),
+    );
+    picture.set_paintable(Some(&paintable));
+}
+
+fn bind_window_decoration_layout(titlebar: &impl IsA<gtk::Widget>) {
+    titlebar
+        .settings()
+        .bind_property("gtk-decoration-layout", titlebar, "decoration-layout")
+        .transform_to(|_, layout: Option<String>| {
+            Some(layout.map(|layout| {
+                layout
+                    .split(':')
+                    .map(|side| {
+                        side.split(',')
+                            .filter(|token| *token != "icon")
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    })
+                    .collect::<Vec<_>>()
+                    .join(":")
+            }))
+        })
+        .sync_create()
+        .build();
 }
 
 fn header_refresh_button(window: &adw::ApplicationWindow) -> gtk::Button {
     let icon = gtk::Image::from_icon_name("karin-refresh-symbolic");
+    icon.set_pixel_size(16);
     let spinner = gtk::Spinner::new();
     for widget in [icon.upcast_ref::<gtk::Widget>(), spinner.upcast_ref()] {
         widget.set_size_request(16, 16);
@@ -850,6 +938,9 @@ fn header_refresh_button(window: &adw::ApplicationWindow) -> gtk::Button {
         .tooltip_text("Обновить")
         .focus_on_click(false)
         .has_frame(false)
+        .margin_start(4)
+        .width_request(36)
+        .height_request(40)
         .valign(gtk::Align::Center)
         .build();
     refresh.set_widget_name("music-header-refresh");

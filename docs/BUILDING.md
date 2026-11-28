@@ -25,6 +25,9 @@ rustup toolchain install 1.98.1 --profile minimal --component rustfmt --componen
 
 Install [rustup](https://rustup.rs/) first. Generated MP3 fixtures also need `lamemp3enc`
 and `xingmux`. Fedora KDE Plasma on Wayland with PipeWire is the reference desktop.
+For native Wayland tray placement, install `gtk4-layer-shell-devel` (1.3+) before
+building. The linked library is then required at runtime. A native build with
+X11 support can also place Karin Mini on X11 or Xwayland, when available.
 
 ## Native build and launch
 
@@ -114,6 +117,11 @@ Platform 50. The candidate uses a local origin and shares the stable App ID.
 PR CI also uploads `karin-native-acceptance-<commit>`. For either package, confirm the tested
 revision with `--version` and record live desktop or service checks separately from CI.
 
+For the tray check, use a desktop with a StatusNotifier host such as KDE Plasma.
+Enable closing to the tray in Karin's settings and close the main window. Click the tray icon to
+open and hide Karin Mini. Verify its transport, seek and volume against the same playback session.
+Use Open Karin to restore the main window and Quit from the tray menu to exit.
+
 ### Pinned release sources
 
 For a pushed, reviewed commit, generate the standalone manifest and corresponding packages.
@@ -200,8 +208,10 @@ flatpak update --user io.github.tracerxbrhd.Karin
 Use `--system` for a system installation. Keep the App ID, installation scope and user data.
 For an older bundle without the signed origin, follow the [0.8.1 migration instructions](https://github.com/tracerxbrhd/karin/releases/tag/v0.8.1).
 Karin 0.8.1 reads the record attached to 0.8.2. For 0.8.2 → 0.8.3, use the system manager or
-Flatpak CLI to confirm the new read-only Discord IPC permissions. Use the same route if a later
-built-in update cannot confirm or install the deployment.
+Flatpak CLI to confirm the new read-only Discord IPC permissions. For 0.8.5 → 0.9.0, use the same
+route to grant Karin access to the desktop's status notifier watcher and see-only access to the
+Plasma shell's bus name. Update through your system manager if a later built-in update cannot
+confirm or install the deployment.
 
 ### Bounded cold-render diagnostic
 

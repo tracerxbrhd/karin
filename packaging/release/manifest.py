@@ -23,8 +23,12 @@ from common import APP_ID, REPOSITORY, git, identity, locked_crates, write_json
 
 DEVELOPMENT = "packaging/flatpak/io.github.tracerxbrhd.Karin.json"
 DISCORD_FILESYSTEMS = ("xdg-run/discord-ipc-0:ro", "xdg-run/app/com.discordapp.Discord:ro")
+STATUS_NOTIFIER_WATCHER = "org.kde.StatusNotifierWatcher"
+PLASMA_SHELL = "org.kde.plasmashell"
 PERMISSIONS = ["--share=network", "--share=ipc", "--socket=wayland", "--socket=fallback-x11",
                "--socket=pulseaudio", "--device=dri", f"--own-name=org.mpris.MediaPlayer2.{APP_ID}",
+               f"--talk-name={STATUS_NOTIFIER_WATCHER}",
+               f"--metadata=Session Bus Policy={PLASMA_SHELL}=see",
                *(f"--filesystem={path}" for path in DISCORD_FILESYSTEMS)]
 
 

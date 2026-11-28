@@ -3,7 +3,7 @@
 
 use super::*;
 
-const VOLUME_STEP: f64 = 0.05;
+pub(super) const VOLUME_STEP: f64 = 0.05;
 const SURFACE_PIXELS_PER_STEP: f64 = 40.0;
 
 /// Gesture remainder only, never a second volume value. High-resolution wheel

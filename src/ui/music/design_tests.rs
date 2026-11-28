@@ -360,6 +360,20 @@ impl Fixture {
                         );
                         continue;
                     }
+                    if url.path() == "/external-lyrics" {
+                        assert!(!lower.contains("authorization:") && !lower.contains("cookie:"));
+                        let lyrics = json!({
+                            "trackName": TITLES[0], "artistName": ARTISTS[0], "duration": 217.0,
+                            "syncedLyrics": "[00:00.00]Большие окна ловят свет\n[00:01.00]Над крышей слышен тихий шаг\n[00:02.00]Кораблик ждёт у берега\n[00:03.00]И огни отражены в воде\n[00:04.00]Город снова дышит ровно\n[00:05.00]За рекой встаёт рассвет"
+                        });
+                        reply(
+                            &mut stream,
+                            200,
+                            "application/json",
+                            lyrics.to_string().as_bytes(),
+                        );
+                        continue;
+                    }
                     assert!(lower.contains(&format!("authorization: oauth {TOKEN}")));
                     assert!(
                         !lower.contains("cookie:") && !lower.contains("x-yandex-music-client:")
@@ -607,7 +621,21 @@ fn primary_destination(ui: &crate::ui::MainWindow, route: &str) {
 }
 fn resize(ui: &crate::ui::MainWindow, width: i32, height: i32) {
     ui.window.set_default_size(width, height);
-    pump(|| (ui.window.width() - width).abs() <= 32 && (ui.window.height() - height).abs() <= 32);
+    let matches =
+        || (ui.window.width() - width).abs() <= 32 && (ui.window.height() - height).abs() <= 32;
+    let deadline = Instant::now() + Duration::from_secs(4);
+    pump(|| matches() || Instant::now() >= deadline);
+    assert!(
+        matches(),
+        "requested {width}x{height}, GTK allocated {}x{} (minimum {}x{}, header minimum width {})",
+        ui.window.width(),
+        ui.window.height(),
+        ui.window.measure(gtk::Orientation::Horizontal, -1).0,
+        ui.window
+            .measure(gtk::Orientation::Vertical, ui.window.width())
+            .0,
+        ui.header.measure(gtk::Orientation::Horizontal, -1).0,
+    );
     settle_geometry(ui, &format!("resize-{width}x{height}"));
     settle();
 }
@@ -725,6 +753,7 @@ fn assert_footer_geometry(ui: &crate::ui::MainWindow) {
     let footer = ui.music.player_bar.compute_bounds(&ui.window).unwrap();
     safe_footer_geometry(ui);
     for name in [
+        "music-now-playing-open",
         "music-current-info",
         "music-current-like",
         "music-current-dislike",
@@ -743,7 +772,10 @@ fn assert_footer_geometry(ui: &crate::ui::MainWindow) {
         assert!(rect.width() > 10.0 && rect.height() > 10.0);
         if matches!(
             name,
-            "music-current-info" | "music-current-like" | "music-current-dislike"
+            "music-now-playing-open"
+                | "music-current-info"
+                | "music-current-like"
+                | "music-current-dislike"
         ) {
             assert!(
                 rect.width() >= 44.0 && rect.height() >= 44.0,
@@ -849,6 +881,7 @@ fn safe_footer_geometry(ui: &crate::ui::MainWindow) -> serde_json::Value {
     assert!(ui.music.player_bar.has_css_class("music-player-surface"));
     let mut controls = BTreeMap::new();
     for name in [
+        "music-now-playing-open",
         "music-current-info",
         "music-current-like",
         "music-current-dislike",
@@ -2442,6 +2475,76 @@ fn native_click(ui: &crate::ui::MainWindow, widget: &impl IsA<gtk::Widget>) {
     );
 }
 
+fn assert_window_header_drag(ui: &crate::ui::MainWindow, handle: &gtk::WindowHandle) -> String {
+    let find = Command::new("xdotool")
+        .args([
+            "search",
+            "--onlyvisible",
+            "--name",
+            "^Karin synthetic HTTP fixture$",
+        ])
+        .output()
+        .unwrap();
+    assert!(find.status.success());
+    let windows = String::from_utf8(find.stdout).unwrap();
+    let id = windows.lines().next().unwrap();
+    let position = || {
+        let geometry = Command::new("xdotool")
+            .args(["getwindowgeometry", "--shell", id])
+            .output()
+            .unwrap();
+        assert!(geometry.status.success());
+        let geometry = String::from_utf8(geometry.stdout).unwrap();
+        ["X=", "Y="].map(|key| {
+            geometry
+                .lines()
+                .find_map(|line| line.strip_prefix(key))
+                .unwrap()
+                .parse::<i32>()
+                .unwrap()
+        })
+    };
+    let before = position();
+    let (x, y) = super::test_input::pointer(&ui.window, handle, super::test_input::Target::Center);
+    let mut drag = Command::new("xdotool")
+        .args([
+            "mousemove",
+            "--window",
+            id,
+            &x.to_string(),
+            &y.to_string(),
+            "mousedown",
+            "1",
+            "sleep",
+            "0.08",
+            "mousemove_relative",
+            "--",
+            "24",
+            "16",
+            "sleep",
+            "0.12",
+            "mousemove_relative",
+            "--",
+            "52",
+            "36",
+            "sleep",
+            "0.12",
+            "mouseup",
+            "1",
+        ])
+        .spawn()
+        .unwrap();
+    pump(|| drag.try_wait().unwrap().is_some());
+    assert!(drag.wait().unwrap().success());
+    settle();
+    let after = position();
+    assert!(
+        after[0] - before[0] >= 20 && after[1] - before[1] >= 20,
+        "dragging the Now Playing heading should move the real window: {before:?} -> {after:?}"
+    );
+    id.to_owned()
+}
+
 fn snapshot_motion_frame(
     window: &adw::ApplicationWindow,
     panel: &super::sliding_panel::SlidingPanel,
@@ -2965,11 +3068,295 @@ fn record_motion(
 fn native_open_panel_mode(ui: &crate::ui::MainWindow, mode: workspace::PanelMode) {
     let this = &ui.music.controller;
     match mode {
-        workspace::PanelMode::TrackInfo => native_click(ui, &this.widgets.current_art_button),
+        workspace::PanelMode::TrackInfo => native_click(ui, &this.widgets.current_info),
         workspace::PanelMode::Lyrics => native_click(ui, &this.widgets.lyrics),
         workspace::PanelMode::Queue => native_click(ui, &this.widgets.queue),
         workspace::PanelMode::Closed => panic!("this native action opens a panel mode"),
     }
+}
+
+#[test]
+#[ignore = "requires real Gtk/X11 input and a local playback fixture"]
+fn native_now_playing_switches_shared_views_and_restores_workspace() {
+    use crate::{playback::PlaybackState, queue::RepeatMode};
+    use workspace::PanelMode;
+
+    gtk::init().unwrap();
+    adw::init().unwrap();
+    gtk::Settings::default()
+        .unwrap()
+        .set_property("gtk-decoration-layout", ":minimize,maximize,close");
+    let _manager = WindowManager::start();
+    let (fixture, _app, ui, liked, _album) = populated_window(true);
+    let this = &ui.music.controller;
+    resize(&ui, 1080, 720);
+    this.select_track_info(liked.items[1].clone(), None, false);
+    this.set_panel_mode(PanelMode::TrackInfo);
+    pump(|| this.info_is_open());
+    settle();
+    let scroll = this
+        .content_scroll
+        .borrow()
+        .upgrade()
+        .unwrap()
+        .vadjustment();
+    let wanted = (scroll.upper() - scroll.page_size()).clamp(0.0, 100.0);
+    assert!(wanted > 0.0, "the existing library can actually scroll");
+    scroll.set_value(wanted);
+    let occurrence = this.model.borrow().queue.current_occurrence_id().cloned();
+    let serial = this.music_serial();
+    let media_requests = fixture.media_requests.load(Ordering::Acquire);
+    let nav = &this.widgets.primary_navigation;
+    let now = named_widget(&ui.window, "music-now-playing");
+    let part = |name| named_widget(&now, name);
+    let click = |name| native_click(&ui, &part(name));
+
+    assert!(nav.is_mapped());
+    adw::StyleManager::default().set_color_scheme(adw::ColorScheme::ForceDark);
+    native_click(&ui, &this.widgets.current_art_button);
+    pump(|| now.is_mapped() && !nav.is_mapped());
+    let back = part("music-now-playing-back");
+    assert!(back.has_focus());
+    let back_label = part("music-back-label").downcast::<gtk::Label>().unwrap();
+    assert!(back_label.is_mapped());
+    crate::ui::fonts::assert_label_font(&back_label, "Montserrat", gtk::pango::Weight::Semibold);
+    let handle = part("music-now-playing-window-handle")
+        .downcast::<gtk::WindowHandle>()
+        .unwrap();
+    assert!(back.is_ancestor(&handle));
+    assert!(back.compute_bounds(&handle).unwrap().y() >= 6.0);
+    let window_id = assert_window_header_drag(&ui, &handle);
+    let window_control = |class| {
+        descendants(handle.upcast_ref())
+            .into_iter()
+            .find(|widget| widget.is::<gtk::Button>() && widget.has_css_class(class))
+            .unwrap_or_else(|| panic!("missing native window control: {class}"))
+    };
+    for class in ["minimize", "maximize", "close"] {
+        assert!(window_control(class).is_mapped());
+    }
+    let cover = part("music-now-playing-artwork")
+        .downcast::<gtk::Picture>()
+        .unwrap();
+    pump(|| cover.paintable().is_some());
+    assert!(cover.width() >= 220 && cover.height() >= 220);
+    assert!(now.width() >= ui.window.width() - 4);
+    assert_eq!(
+        part("music-now-playing-title")
+            .downcast::<gtk::Label>()
+            .unwrap()
+            .text(),
+        liked.items[0].title
+    );
+    if std::env::var_os("KARIN_TEST_CAPTURE_DIR").is_some() {
+        compare_render_readback(&ui, "now-playing-wide");
+    }
+    let shuffle = part("music-now-playing-shuffle")
+        .downcast::<gtk::ToggleButton>()
+        .unwrap();
+    click("music-now-playing-shuffle");
+    pump(|| this.model.borrow().queue.shuffle() && shuffle.is_active());
+    click("music-now-playing-shuffle");
+    pump(|| !this.model.borrow().queue.shuffle() && !shuffle.is_active());
+    for expected in [RepeatMode::Queue, RepeatMode::One, RepeatMode::Off] {
+        click("music-now-playing-repeat");
+        pump(|| this.model.borrow().queue.repeat_mode() == expected);
+    }
+    let volume = part("music-now-playing-volume")
+        .downcast::<gtk::Scale>()
+        .unwrap();
+    let volume_readout = part("music-now-playing-volume-percent")
+        .downcast::<gtk::Label>()
+        .unwrap();
+    this.set_music_volume(0.423);
+    pump(|| volume_readout.is_mapped() && volume_readout.text() == "42%");
+    assert!((this.music_volume() - 0.423).abs() < f64::EPSILON);
+    assert!((volume.value() - 0.423).abs() < f64::EPSILON);
+    let font = volume_readout
+        .layout()
+        .iter()
+        .run_readonly()
+        .unwrap()
+        .item()
+        .analysis()
+        .font();
+    assert_eq!(font.describe().family().as_deref(), Some("Inter Variable"));
+    assert!(volume.grab_focus());
+    assert!(
+        Command::new("xdotool")
+            .args(["key", "End"])
+            .status()
+            .unwrap()
+            .success()
+    );
+    pump(|| (this.music_volume() - 1.0).abs() < 0.005);
+    assert_eq!(volume_readout.text(), "100%");
+    assert!(part("music-now-playing-reactions").first_child().is_some());
+    click("music-now-playing-info");
+    pump(|| {
+        this.effective_panel_mode() == PanelMode::TrackInfo && this.track_pane.widget.is_mapped()
+    });
+    assert!(
+        this.track_pane
+            .widget
+            .is_ancestor(&part("music-now-playing-panel"))
+    );
+    assert_eq!(this.track_pane.selected().unwrap().id, liked.items[0].id);
+    assert!(cover.is_mapped());
+    click("music-now-playing-lyrics");
+    pump(|| this.track_pane.extras.lyrics_widget.is_mapped());
+    assert!(this.information_follows_current_playback());
+    let lyrics = &this.track_pane.extras.lyrics_widget;
+    assert!(lyrics.has_css_class("karin-lyrics-expanded"));
+    assert!(!part("music-lyrics-title").is_visible());
+    let source = part("music-lyrics-source")
+        .downcast::<gtk::Label>()
+        .unwrap();
+    let lines = part("music-lyrics-lines");
+    let external = part("music-lyrics-external");
+    // The plain lyric list expands before the external lookup button. Wait
+    // for that result before native_click measures the button's X11 position.
+    pump(|| {
+        source.is_mapped()
+            && source.text() == "Яндекс Музыка"
+            && lines.is_mapped()
+            && external.is_mapped()
+            && external.is_sensitive()
+    });
+    native_click(&ui, &external);
+    pump(|| ui.window.visible_dialog().is_some());
+    let dialog = ui.window.visible_dialog().unwrap();
+    let accept = descendants(dialog.upcast_ref())
+        .into_iter()
+        .filter_map(|widget| widget.downcast::<gtk::Button>().ok())
+        .find(|button| button.label().as_deref() == Some("Искать"))
+        .unwrap();
+    native_click(&ui, &accept);
+    pump(|| ui.window.visible_dialog().is_none());
+    let visible_lines = |class| {
+        descendants(lyrics.upcast_ref())
+            .into_iter()
+            .filter_map(|widget| widget.downcast::<gtk::Label>().ok())
+            .filter(|label| label.is_mapped() && label.has_css_class(class))
+            .collect::<Vec<_>>()
+    };
+    pump(|| {
+        !visible_lines("lyrics-active").is_empty() && !visible_lines("lyrics-future").is_empty()
+    });
+    let active = visible_lines("lyrics-active").pop().unwrap();
+    let next = visible_lines("lyrics-future").pop().unwrap();
+    assert_eq!(active.justify(), gtk::Justification::Center);
+    assert_eq!(next.justify(), gtk::Justification::Center);
+    assert!((active.xalign() - 0.5).abs() < f32::EPSILON);
+    assert!(active.layout().pixel_size().1 >= 20);
+    if !adw::StyleManager::default().is_high_contrast() {
+        assert!(active.opacity() - next.opacity() >= 0.25);
+    }
+    if std::env::var_os("KARIN_TEST_CAPTURE_DIR").is_some() {
+        settle();
+        compare_render_readback(&ui, "now-playing-lyrics");
+    }
+    click("music-now-playing-queue");
+    pump(|| this.widgets.queue_rows.is_mapped());
+    assert_eq!(this.track_pane.selected().unwrap().id, liked.items[0].id);
+    assert_eq!(
+        this.model.borrow().queue.current_occurrence_id().cloned(),
+        occurrence
+    );
+    assert_eq!(this.music_serial(), serial);
+    assert_eq!(
+        fixture.media_requests.load(Ordering::Acquire),
+        media_requests
+    );
+    click("music-now-playing-player");
+    click("music-now-playing-play");
+    pump(|| {
+        this.music_snapshot()
+            .is_some_and(|state| state.state == PlaybackState::Playing)
+    });
+    click("music-now-playing-play");
+    pump(|| {
+        this.music_snapshot()
+            .is_some_and(|state| state.state == PlaybackState::Paused)
+    });
+
+    assert!(
+        Command::new("xdotool")
+            .args(["key", "Escape"])
+            .status()
+            .unwrap()
+            .success()
+    );
+    pump(|| !now.is_mapped() && nav.is_mapped());
+    assert!(!lyrics.has_css_class("karin-lyrics-expanded"));
+    assert_eq!(
+        this.widgets.stack.visible_child_name().as_deref(),
+        Some("library")
+    );
+    assert!((scroll.value() - wanted).abs() < 1.0);
+    assert!(this.widgets.current_art_button.has_focus());
+    assert_eq!(this.panel_mode.get(), PanelMode::TrackInfo);
+    assert_eq!(this.track_pane.selected().unwrap().id, liked.items[1].id);
+
+    native_click(&ui, &this.widgets.current_info);
+    pump(|| {
+        this.track_pane
+            .selected()
+            .is_some_and(|track| track.id == liked.items[0].id)
+    });
+    assert!(!now.is_mapped());
+    this.set_panel_mode(PanelMode::Closed);
+    resize(&ui, 420, 520);
+    adw::StyleManager::default().set_color_scheme(adw::ColorScheme::ForceLight);
+    native_click(&ui, &this.widgets.current_art_button);
+    pump(|| now.is_mapped() && part("music-now-playing-play").is_mapped());
+    assert!(back.compute_bounds(&handle).unwrap().y() >= 6.0);
+    let play_bounds = part("music-now-playing-play").compute_bounds(&now).unwrap();
+    assert!(play_bounds.y() + play_bounds.height() <= now.height() as f32);
+    let volume_bounds = part("music-now-playing-volume")
+        .compute_bounds(&now)
+        .unwrap();
+    assert!(volume_bounds.y() + volume_bounds.height() <= now.height() as f32);
+    let readout_bounds = volume_readout.compute_bounds(&now).unwrap();
+    assert!(volume_readout.is_mapped());
+    assert!(readout_bounds.x() + readout_bounds.width() <= now.width() as f32);
+    assert!(readout_bounds.y() + readout_bounds.height() <= now.height() as f32);
+    if std::env::var_os("KARIN_TEST_CAPTURE_DIR").is_some() {
+        compare_render_readback(&ui, "now-playing-compact");
+    }
+    click("music-now-playing-lyrics");
+    pump(|| lyrics.is_mapped() && !cover.is_mapped());
+    assert!(part("music-lyrics-title").is_visible());
+    click("music-now-playing-queue");
+    pump(|| this.widgets.queue_rows.is_mapped() && !cover.is_mapped());
+    click("music-now-playing-back");
+    pump(|| !now.is_mapped() && nav.is_mapped() && this.widgets.current_art_button.is_mapped());
+    assert_eq!(this.panel_mode.get(), PanelMode::Closed);
+    native_click(&ui, &this.widgets.current_art_button);
+    pump(|| window_control("close").is_mapped());
+    native_click(&ui, &window_control("maximize"));
+    pump(|| ui.window.is_maximized());
+    native_click(&ui, &window_control("maximize"));
+    pump(|| !ui.window.is_maximized());
+    let minimized = || {
+        ui.window
+            .surface()
+            .and_downcast::<gdk::Toplevel>()
+            .is_some_and(|surface| surface.state().contains(gdk::ToplevelState::MINIMIZED))
+    };
+    native_click(&ui, &window_control("minimize"));
+    pump(minimized);
+    let mut restore = Command::new("xdotool")
+        .args(["windowactivate", "--sync", &window_id])
+        .spawn()
+        .unwrap();
+    pump(|| restore.try_wait().unwrap().is_some());
+    assert!(restore.wait().unwrap().success());
+    pump(|| !minimized() && now.is_mapped() && ui.window.is_active());
+    native_click(&ui, &window_control("close"));
+    pump(|| !ui.window.is_visible());
+    ui.music.close();
+    settle();
 }
 
 #[test]
@@ -3026,13 +3413,9 @@ fn native_universal_panel_whole_surface_motion_and_mode_switch() {
                         ]
                         .map(|name| named_widget(&surface, name)),
                     );
-                    if this.track_pane.artists.is_visible() {
-                        children.push(this.track_pane.artists.clone().upcast());
-                    } else {
-                        let credits = named_widget(&surface, "music-track-pane-artist");
-                        if credits.is_visible() {
-                            children.push(credits);
-                        }
+                    let credits = named_widget(&surface, "music-track-pane-artist");
+                    if credits.is_visible() {
+                        children.push(credits);
                     }
                     if this.track_pane.album.is_visible() {
                         children.push(this.track_pane.album.clone().upcast());
@@ -3122,7 +3505,7 @@ fn native_universal_panel_whole_surface_motion_and_mode_switch() {
                 close,
                 this.track_pane.close.compute_bounds(&ui.window).unwrap()
             );
-            native_click(&ui, &this.widgets.current_art_button);
+            native_click(&ui, &this.widgets.current_info);
             pump(|| this.panel_mode.get() == workspace::PanelMode::TrackInfo);
             assert!(panel.is_child_revealed());
             assert_eq!(surface, panel.surface().unwrap());

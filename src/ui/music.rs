@@ -3,7 +3,7 @@
 
 use std::{
     cell::{Cell, RefCell},
-    rc::Rc,
+    rc::{Rc, Weak},
     sync::Arc,
 };
 
@@ -18,6 +18,7 @@ mod catalog_layout;
 mod catalog_view;
 mod collection_filter;
 mod collection_hero;
+mod collection_overview;
 mod continuous_loading;
 #[cfg(test)]
 mod design_tests;
@@ -26,8 +27,12 @@ mod diagnostic_tests;
 mod home;
 mod interactions;
 mod login;
+mod mini;
+mod navigation;
 #[cfg(test)]
 mod navigation_tests;
+mod now_playing;
+mod now_playing_host;
 mod persistence;
 mod playback_restore;
 mod player;
@@ -56,7 +61,12 @@ mod track_pane;
 mod volume_scroll;
 mod welcome;
 mod workspace;
+mod wrap_row;
+pub(super) use mini::{MiniCommand, MiniPlayback, MiniSnapshot};
+pub(super) use player::music_time as mini_time;
+pub(super) use player_bar::{repeat_button, set_order_presentation};
 use requests::{Operation, Requests};
+pub(super) use search_header::back_button_content;
 type PendingJob = Box<dyn FnOnce(&Rc<Controller>, u64)>;
 
 /// The row owns its typed action; removing/replacing it also removes the
@@ -69,7 +79,7 @@ enum RowAction {
     Queue(usize),
 }
 
-use super::auth::LoginDialog;
+use super::{auth::LoginDialog, tray_window::WindowTray};
 use crate::auth::AuthorizationCode;
 #[cfg(test)]
 use crate::auth::BrowserMode;
@@ -161,6 +171,7 @@ struct Widgets {
     search_next: gtk::Button,
     detail: gtk::Box,
     queue_rows: gtk::ListBox,
+    queue_reorder: Rc<queue_view::QueueReorder>,
     queue_count: gtk::Label,
     queue_paging: gtk::Box,
     player_surface: gtk::Box,
@@ -169,6 +180,7 @@ struct Widgets {
     current_cache: gtk::Box,
     current_art: gtk::Box,
     current_art_button: gtk::Button,
+    current_info: gtk::Button,
     current_like_slot: gtk::Box,
     player_main: gtk::Box,
     player_revealer: gtk::Revealer,
@@ -209,9 +221,13 @@ struct Controller {
     player: RefCell<player::MusicPlayback>,
     radio: RefCell<radio::RadioLifecycle>,
     system_media: RefCell<system_media::SystemMedia>,
+    tray: RefCell<Weak<WindowTray>>,
     persistence: RefCell<persistence::State>,
+    collection_overview: collection_overview::CollectionOverview,
     playlist_grid: playlist_grid::PlaylistGrid,
     track_pane: track_pane::TrackPane,
+    now_playing: now_playing_host::Host,
+    navigation_history: navigation::History,
     info_selection: RefCell<Option<workspace::InfoSelection>>,
     info_host: RefCell<Option<workspace::InfoHost>>,
     info_observed: RefCell<Option<workspace::CurrentOccurrence>>,
@@ -219,7 +235,8 @@ struct Controller {
     panel_mode: Cell<workspace::PanelMode>,
     catalog_rows: RefCell<catalog_layout::CatalogRows>,
     current_art_cover: RefCell<Option<Option<CoverArt>>>,
-    current_like_key: RefCell<Option<(u64, String)>>,
+    current_reactions: RefCell<Option<Rc<reactions::ReactionControls>>>,
+    mini_reactions_host: glib::WeakRef<gtk::Box>,
     detail_like_controls: RefCell<Vec<interactions::DetailLike>>,
     catalog: RefCell<Option<crate::catalog_cache::CachedCatalog>>,
     playlist_dialog: RefCell<Option<adw::Dialog>>,
@@ -360,6 +377,14 @@ impl MusicPane {
                 }
             })
         });
+        let now_playing = now_playing_host::Host::new({
+            let link = controller_link.clone();
+            move |action| {
+                if let Some(this) = link.borrow().upgrade() {
+                    this.handle_now_playing_action(action);
+                }
+            }
+        });
         let playlist_grid = playlist_grid::PlaylistGrid::new(artwork.clone(), {
             let link = controller_link.clone();
             Rc::new(move |action| {
@@ -411,8 +436,8 @@ impl MusicPane {
         let (nav_liked, label_liked) = search_header::section_button(
             "music-tab-liked",
             "karin-heart-symbolic",
-            "Нравится",
-            "win.music-library",
+            "Моя коллекция",
+            "win.music-collection",
         );
         let (nav_playlists, label_playlists) = search_header::section_button(
             "music-tab-playlists",
@@ -458,6 +483,20 @@ impl MusicPane {
         } = home::HomeParts::new();
         stack.add_titled(&home, Some("home"), "Главная");
         stack.set_visible_child_name("home");
+
+        let collection_overview = collection_overview::CollectionOverview::new(artwork.clone(), {
+            let link = controller_link.clone();
+            Rc::new(move |action| {
+                if let Some(this) = link.borrow().upgrade() {
+                    this.handle_collection_playlist_action(action);
+                }
+            })
+        });
+        stack.add_titled(
+            &collection_overview.widget,
+            Some("collection"),
+            "Моя коллекция",
+        );
 
         let library = gtk::Box::new(gtk::Orientation::Vertical, 10);
         let library_mode = gtk::SingleSelection::new(Some(gtk::StringList::new(&[
@@ -572,10 +611,11 @@ impl MusicPane {
         queue_paging.set_visible(false);
         queue_page.append(&queue_paging);
         let queue_rows = list();
+        let queue_reorder = Rc::new(queue_view::QueueReorder::new(&queue_rows));
         super::margins(&queue_page, 12);
         queue_page.set_margin_top(8);
         let queue_viewport = gtk::Viewport::builder()
-            .child(&queue_rows)
+            .child(queue_reorder.widget())
             .scroll_to_focus(true)
             .build();
         let queue_scroll = gtk::ScrolledWindow::builder()
@@ -600,6 +640,7 @@ impl MusicPane {
             current_cache,
             current_art,
             current_art_button,
+            current_info,
             current_like_slot,
             position,
             player_status,
@@ -681,6 +722,7 @@ impl MusicPane {
             search_next,
             detail,
             queue_rows,
+            queue_reorder,
             queue_count,
             queue_paging,
             player_surface: player_bar.clone(),
@@ -689,6 +731,7 @@ impl MusicPane {
             current_cache,
             current_art,
             current_art_button,
+            current_info,
             current_like_slot,
             player_main,
             player_revealer,
@@ -748,9 +791,13 @@ impl MusicPane {
             player: RefCell::new(player::MusicPlayback::default()),
             radio: RefCell::new(radio::RadioLifecycle::default()),
             system_media: RefCell::new(system_media::SystemMedia::default()),
+            tray: RefCell::default(),
             persistence: RefCell::new(persistence_state),
+            collection_overview,
             playlist_grid,
             track_pane,
+            now_playing,
+            navigation_history: navigation::History::default(),
             info_selection: RefCell::new(None),
             info_host: RefCell::new(None),
             info_observed: RefCell::new(None),
@@ -758,7 +805,8 @@ impl MusicPane {
             panel_mode: Cell::new(workspace::PanelMode::Closed),
             catalog_rows: RefCell::new(catalog_layout::CatalogRows::default()),
             current_art_cover: RefCell::new(None),
-            current_like_key: RefCell::new(None),
+            current_reactions: RefCell::new(None),
+            mini_reactions_host: glib::WeakRef::new(),
             detail_like_controls: RefCell::new(Vec::new()),
             catalog: RefCell::new(None),
             playlist_dialog: RefCell::new(None),
@@ -782,6 +830,7 @@ impl MusicPane {
             artwork.set_persistent_cache(Some(cache));
         }
         controller.connect(window);
+        controller.connect_collection_overview();
         controller.connect_workspace();
         controller.connect_music_player();
         controller.connect_footer_extras();
@@ -815,7 +864,9 @@ impl MusicPane {
     pub fn navigation_target(&self, action: &str) -> gtk::Widget {
         match action {
             "music-search" => self.controller.widgets.search.clone().upcast(),
-            "music-library" => self.controller.widgets.nav_liked.clone().upcast(),
+            "music-collection" | "music-library" => {
+                self.controller.widgets.nav_liked.clone().upcast()
+            }
             "music-playlists" => self.controller.widgets.nav_playlists.clone().upcast(),
             "music-home" => self.controller.widgets.nav_wave.clone().upcast(),
             "music-queue" => self.controller.widgets.queue_rows.clone().upcast(),
@@ -849,6 +900,16 @@ impl MusicPane {
 
     pub fn close(&self) {
         self.controller.close();
+    }
+
+    pub(super) fn attach_tray(&self, tray: &Rc<WindowTray>) {
+        self.controller.tray.replace(Rc::downgrade(tray));
+        let enabled = self.controller.persistence.borrow().close_to_tray_enabled();
+        tray.set_enabled(enabled);
+    }
+
+    pub(super) fn mini_playback(&self) -> MiniPlayback {
+        MiniPlayback::new(&self.controller)
     }
 
     pub async fn exercise_login_for_smoke(&self) -> Result<(), String> {
@@ -1000,6 +1061,7 @@ impl Controller {
     }
 
     fn connect(self: &Rc<Self>, window: &adw::ApplicationWindow) {
+        self.connect_queue_reorder(window);
         let weak = Rc::downgrade(self);
         window.connect_close_request(move |_| {
             if let Some(this) = weak.upgrade() {
@@ -1014,24 +1076,14 @@ impl Controller {
             }
         });
         self.connect_account_menu();
-        for (button, mode) in [
-            (&self.widgets.home_liked, 0),
-            (&self.widgets.home_playlists, 1),
+        for (button, page) in [
+            (&self.widgets.home_liked, "library"),
+            (&self.widgets.home_playlists, "playlists"),
         ] {
             let weak = Rc::downgrade(self);
             button.connect_clicked(move |_| {
                 if let Some(this) = weak.upgrade() {
-                    this.close_global_search(false);
-                    this.widgets.stack.set_visible_child_name(if mode == 0 {
-                        "library"
-                    } else {
-                        "playlists"
-                    });
-                    let changed = this.widgets.library_mode.selected() != mode;
-                    this.widgets.library_mode.set_selected(mode);
-                    if !changed {
-                        this.show_library();
-                    }
+                    this.navigate_music_section(page);
                 }
             });
         }
@@ -1111,6 +1163,9 @@ impl Controller {
             .connect_visible_child_name_notify(move |_| {
                 if let Some(this) = weak.upgrade() {
                     let route = this.widgets.stack.visible_child_name();
+                    if route.as_deref() != Some("detail") {
+                        this.retire_detail_history();
+                    }
                     this.reset_collection_filters();
                     if this.widgets.search_header.is_open()
                         && !this.widgets.search.text().is_empty()
@@ -1123,7 +1178,7 @@ impl Controller {
                         .set_active(route.as_deref() == Some("home"));
                     this.widgets
                         .nav_liked
-                        .set_active(route.as_deref() == Some("library"));
+                        .set_active(matches!(route.as_deref(), Some("collection" | "library")));
                     this.widgets
                         .nav_playlists
                         .set_active(route.as_deref() == Some("playlists"));
@@ -1132,6 +1187,10 @@ impl Controller {
                     this.requests.borrow_mut().invalidate(Operation::Detail);
                     this.requests.borrow_mut().invalidate(Operation::Delivery);
                     this.cancel_delivery();
+                    this.sync_music_back();
+                    if route.as_deref() == Some("collection") {
+                        this.show_collection_overview();
+                    }
                 }
             });
         let weak = Rc::downgrade(self);
@@ -1166,11 +1225,16 @@ impl Controller {
                 this.skip_music(true, false);
             }
         });
+        let weak = Rc::downgrade(self);
         super::shortcuts::install_transport(
             window,
             &self.widgets.play,
             &self.widgets.previous,
             &self.widgets.next,
+            move || {
+                weak.upgrade()
+                    .is_some_and(|this| this.now_playing.is_active())
+            },
         );
         for (name, page, accelerators) in [
             (
@@ -1178,11 +1242,8 @@ impl Controller {
                 "home",
                 &["<Primary>1", "<Alt>Home", "<Primary>h"][..],
             ),
-            (
-                "music-library",
-                "library",
-                &["<Primary>2", "<Primary>l"][..],
-            ),
+            ("music-collection", "collection", &["<Primary>2"][..]),
+            ("music-library", "library", &["<Primary>l"][..]),
             (
                 "music-playlists",
                 "playlists",
@@ -1194,20 +1255,12 @@ impl Controller {
             let weak = Rc::downgrade(self);
             action.connect_activate(move |_, _| {
                 if let Some(this) = weak.upgrade() {
+                    this.close_now_playing(false);
                     if page == "search" {
                         this.open_global_search();
                         return;
                     }
-                    this.close_global_search(false);
-                    this.widgets.stack.set_visible_child_name(page);
-                    if page == "library" || page == "playlists" {
-                        let mode = u32::from(page == "playlists");
-                        let changed = this.widgets.library_mode.selected() != mode;
-                        this.widgets.library_mode.set_selected(mode);
-                        if !changed {
-                            this.show_library();
-                        }
-                    }
+                    this.navigate_music_section(page);
                 }
             });
             window.add_action(&action);
@@ -1227,10 +1280,11 @@ impl Controller {
             app.set_accels_for_action("win.music-queue", &["<Primary>j"]);
         }
         let back = gio::SimpleAction::new("music-back", None);
+        back.set_enabled(false);
         let weak = Rc::downgrade(self);
         back.connect_activate(move |_, _| {
             if let Some(this) = weak.upgrade() {
-                this.back_from_detail();
+                this.music_back();
             }
         });
         window.add_action(&back);
@@ -1273,11 +1327,11 @@ impl Controller {
         self.widgets.search_previous.set_sensitive(ready);
         if let Some(window) = self.window.upgrade() {
             for name in [
+                "music-collection",
                 "music-library",
                 "music-playlists",
                 "music-search",
                 "music-queue",
-                "music-back",
             ] {
                 if let Some(action) = window
                     .lookup_action(name)
@@ -1305,6 +1359,7 @@ impl Controller {
         self.widgets.status_revealer.set_visible(show_status);
         self.widgets.status_revealer.set_reveal_child(show_status);
         drop(model);
+        self.sync_music_back();
         self.render_catalog_refresh();
         // The shell's visibility handler may synchronously reconcile Music
         // routes and panel focus. Release the controller borrow first.
@@ -1571,6 +1626,7 @@ impl Controller {
         if let Some((serial, job)) = next {
             job(self, serial);
         }
+        self.collection_read_completed(operation);
     }
 
     fn show_error(self: &Rc<Self>, error: MusicError) {
@@ -2281,6 +2337,7 @@ mod tests {
         assert!(!this.widgets.player_surface.is_mapped());
         assert!(!this.widgets.account_menu.is_mapped());
         for name in [
+            "music-collection",
             "music-library",
             "music-playlists",
             "music-search",
@@ -2347,7 +2404,29 @@ mod tests {
             this.playlist_grid.widget.upcast_ref(),
             "Synthetic independent playlist"
         ));
+        window
+            .lookup_action("music-collection")
+            .unwrap()
+            .activate(None);
+        let overview = this.collection_overview.widget.upcast_ref();
+        assert_eq!(
+            this.widgets.stack.visible_child_name().as_deref(),
+            Some("collection")
+        );
+        assert!(contains_text(
+            overview,
+            "Не удалось загрузить избранные треки"
+        ));
+        assert!(contains_text(overview, "Synthetic independent playlist"));
+        button_with_label(overview, "Понравившиеся")
+            .unwrap()
+            .downcast::<gtk::ToggleButton>()
+            .unwrap()
+            .set_active(true);
+        assert!(contains_text(overview, "Не удалось загрузить плейлисты"));
+        assert_eq!(requested.load(Ordering::Acquire), 6);
         this.logout();
+        assert!(!contains_text(overview, "Synthetic independent playlist"));
         assert!(
             this.widgets
                 .status

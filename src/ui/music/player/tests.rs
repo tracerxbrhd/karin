@@ -182,6 +182,8 @@ fn serve(
             | "/tracks"
             | "/users/1234/likes/tracks"
             | "/users/1234/dislikes/tracks"
+            | "/users/1234/playlists/list"
+            | "/users/1234/likes/playlists"
     ) || url.path().starts_with("/users/1234/dislikes/tracks/")
         || url.path().starts_with("/tracks/")
         || url.path().starts_with("/rotor/");
@@ -322,6 +324,12 @@ fn serve(
             &mut stream,
             json!({"result":{"library":{"uid":1234,"revision":state.reaction_posts + 1,"tracks":tracks}}}),
         );
+    } else if matches!(
+        url.path(),
+        "/users/1234/playlists/list" | "/users/1234/likes/playlists"
+    ) {
+        assert_eq!(first[0], "GET");
+        json_response(&mut stream, json!({"result":[]}));
     } else if matches!(
         url.path(),
         "/users/1234/dislikes/tracks/add-multiple" | "/users/1234/dislikes/tracks/remove"
@@ -1657,9 +1665,24 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
         .snapshot()
         .generation;
     let input_offers = fixture.counts.lock().unwrap().offers;
+    let leave_now_playing = || {
+        pump_until(|| this.now_playing.is_active());
+        assert!(
+            std::process::Command::new("xdotool")
+                .args(["key", "--clearmodifiers", "Escape"])
+                .status()
+                .unwrap()
+                .success()
+        );
+        pump_until(|| !this.now_playing.is_active());
+    };
     // Click the actual title and artist regions, not just the small cover.
     this.set_info_open(false);
     native_click(&ui.window, &this.widgets.current);
+    leave_now_playing();
+    assert!(!this.info_is_open());
+    assert_eq!(this.track_pane.selected().unwrap().id, "43");
+    native_click(&ui.window, &this.widgets.current_info);
     pump_until(|| this.info_is_open());
     assert_pinned_track(this, "42");
     this.toggle_queue_panel();
@@ -1668,6 +1691,12 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
         super::super::workspace::PanelMode::Queue
     );
     native_click(&ui.window, &this.widgets.current_artist);
+    leave_now_playing();
+    assert_eq!(
+        this.panel_mode.get(),
+        super::super::workspace::PanelMode::Queue
+    );
+    native_click(&ui.window, &this.widgets.current_info);
     pump_until(|| this.panel_mode.get() == super::super::workspace::PanelMode::TrackInfo);
     assert_pinned_track(this, "42");
     for key in ["Return", "space"] {
@@ -1680,11 +1709,11 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
                 .unwrap()
                 .success()
         );
-        pump_until(|| this.info_is_open());
-        assert_pinned_track(this, "42");
+        leave_now_playing();
+        assert!(!this.info_is_open());
+        assert_eq!(this.track_pane.selected().unwrap().id, "42");
     }
-    // The native info button must own the complete metadata wing, not only
-    // the cover/text's natural request. Exercise the actual extra allocation
+    // Now Playing owns the complete metadata wing. Exercise the extra allocation
     // and mapped children at both footer arrangements, with XTest input.
     for width in [420, 1440] {
         this.set_info_open(false);
@@ -1695,16 +1724,21 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
         assert_eq!(metadata.widget_name(), "music-player-metadata");
         assert_eq!(button.halign(), gtk::Align::Fill);
         assert!(button.hexpands());
-        assert!(
-            (button.width() + this.widgets.current_like_slot.width() + metadata.spacing()
-                - metadata.width())
-            .abs()
-                <= 1,
-            "the whole available metadata allocation belongs to Info, excluding sibling reactions"
-        );
         let info = button.compute_bounds(&ui.window).unwrap();
+        let reactions = this
+            .widgets
+            .current_like_slot
+            .compute_bounds(&ui.window)
+            .unwrap();
+        let wing = metadata.compute_bounds(&ui.window).unwrap();
+        assert!(
+            (info.width() + reactions.width() + metadata.spacing() as f32 - wing.width()).abs()
+                <= 1.0,
+            "the Now Playing and reaction hit boxes must fill the metadata allocation: {info:?}, {reactions:?}, {wing:?}"
+        );
         for control in [
             this.widgets.current_like_slot.upcast_ref::<gtk::Widget>(),
+            this.widgets.current_info.upcast_ref(),
             this.widgets.play.upcast_ref(),
             this.widgets.previous.upcast_ref(),
             this.widgets.next.upcast_ref(),
@@ -1716,7 +1750,7 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
             assert!(control.is_mapped());
             assert!(
                 !control.is_ancestor(button),
-                "independent controls must not become children of the Info button"
+                "independent controls must not become children of the Now Playing button"
             );
             let bounds = control.compute_bounds(&ui.window).unwrap();
             let overlap_x = (info.x() + info.width()).min(bounds.x() + bounds.width())
@@ -1725,7 +1759,7 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
                 - info.y().max(bounds.y());
             assert!(
                 overlap_x <= 1.0 || overlap_y <= 1.0,
-                "expanded Info must not cover an independent target: {} {bounds:?}/{info:?}",
+                "the Now Playing target must not cover an independent target: {} {bounds:?}/{info:?}",
                 control.widget_name()
             );
         }
@@ -1736,8 +1770,9 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
         ] {
             this.set_info_open(false);
             native_click(&ui.window, target);
-            pump_until(|| this.info_is_open());
-            assert_pinned_track(this, "42");
+            leave_now_playing();
+            assert!(!this.info_is_open());
+            assert_eq!(this.track_pane.selected().unwrap().id, "42");
         }
         this.set_info_open(false);
         super::super::test_input::wait_for_layout(&ui.window, button);
@@ -1782,7 +1817,7 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
                 && blank_x < info.x() + info.width()
                 && blank_y > info.y()
                 && blank_y < info.y() + info.height(),
-            "blank input is inside the Info allocation"
+            "blank input is inside the Now Playing allocation"
         );
         let (dx, dy) = ui.window.surface_transform();
         let scale = f64::from(ui.window.scale_factor());
@@ -1818,8 +1853,9 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
                 .unwrap()
                 .success()
         );
-        pump_until(|| this.info_is_open());
-        assert_pinned_track(this, "42");
+        leave_now_playing();
+        assert!(!this.info_is_open());
+        assert_eq!(this.track_pane.selected().unwrap().id, "42");
     }
     this.set_info_open(false);
     resize_player_window(&ui, 900, 650);
@@ -2925,13 +2961,21 @@ fn native_music_context_mpris_shared_player_and_cleanup() {
     assert_eq!(desktop_property("PlaybackStatus").str(), Some("Paused"));
     assert_pinned_track(this, "44");
 
+    let mini = ui.music.mini_playback();
+    pump_until(|| mini.snapshot().is_some_and(|view| view.can_seek));
+    let view = mini.snapshot().unwrap();
+    assert_eq!(view.title.as_deref(), Some("Synthetic remote player track"));
+    assert_eq!(view.artist.as_deref(), Some("Synthetic artist"));
+    assert_eq!(view.duration.map(|duration| duration.as_secs()), Some(4));
+    assert!(!view.playing && !view.can_previous && view.can_next);
+
     // Exercise the real mounted pane while a real HTTP/MP3 worker is paused.
     // Changing presentation cannot resolve again or replace/restart its source.
     let presentation_serial = this.player.borrow().serial;
     let source_generation = original.snapshot().generation;
     let presentation_offers = fixture.offers(0);
     this.set_info_open(false);
-    native_click(&ui.window, &this.widgets.current_art_button);
+    native_click(&ui.window, &this.widgets.current_info);
     // Intent changes at the start of the slide. Wait for actual completed
     // native allocation before targeting the close button with the mouse.
     pump_until(|| {
@@ -2944,11 +2988,11 @@ fn native_music_context_mpris_shared_player_and_cleanup() {
                 .is_some_and(|view| view.is_child_revealed())
     });
     assert_pinned_track(this, "42");
-    // Unlike Ctrl+I, the footer cover only opens/shows current information.
+    // Repeating the dedicated Info action keeps the current panel open.
     // Finish actual GTK input frames before checking a repeated click: simply
     // waiting for an already-true intent would miss the old toggle regression.
-    native_click(&ui.window, &this.widgets.current_art_button);
-    super::super::test_input::wait_for_layout(&ui.window, &this.widgets.current_art_button);
+    native_click(&ui.window, &this.widgets.current_info);
+    super::super::test_input::wait_for_layout(&ui.window, &this.widgets.current_info);
     assert_pinned_track(this, "42");
     assert_eq!(this.player.borrow().serial, presentation_serial);
     assert_eq!(fixture.offers(0), presentation_offers);
@@ -2956,8 +3000,8 @@ fn native_music_context_mpris_shared_player_and_cleanup() {
     assert_eq!(original.snapshot().state, PlaybackState::Paused);
     this.select_track_info(track("44"), None, false);
     assert_pinned_track(this, "44");
-    native_click(&ui.window, &this.widgets.current_art_button);
-    super::super::test_input::wait_for_layout(&ui.window, &this.widgets.current_art_button);
+    native_click(&ui.window, &this.widgets.current_info);
+    super::super::test_input::wait_for_layout(&ui.window, &this.widgets.current_info);
     assert_pinned_track(this, "42");
     assert_eq!(this.model.borrow().queue.current().unwrap().id, "42");
     assert_eq!(this.player.borrow().serial, presentation_serial);
@@ -2966,7 +3010,7 @@ fn native_music_context_mpris_shared_player_and_cleanup() {
     assert_eq!(original.snapshot().state, PlaybackState::Paused);
     native_click(&ui.window, &this.track_pane.close);
     pump_until(|| !this.info_is_open());
-    native_click(&ui.window, &this.widgets.current_art_button);
+    native_click(&ui.window, &this.widgets.current_info);
     pump_until(|| {
         this.info_is_open()
             && this
@@ -3183,6 +3227,17 @@ fn native_music_context_mpris_shared_player_and_cleanup() {
             && this.widgets.player_status.text() == "Пауза"
     });
 
+    mini.command(MiniCommand::Volume(0.41));
+    pump_until(|| (original.snapshot().volume - 0.41).abs() < 0.001);
+    mini.command(MiniCommand::Seek(Duration::from_millis(500)));
+    pump_until(|| original.snapshot().seek_position == Some(Duration::from_millis(500)));
+    pump_until(|| seeks.borrow().contains(&500_000));
+    mini.command(MiniCommand::PlayPause);
+    pump_until(|| original.snapshot().state == PlaybackState::Playing);
+    assert!(mini.snapshot().unwrap().playing);
+    mini.command(MiniCommand::PlayPause);
+    pump_until(|| original.snapshot().state == PlaybackState::Paused);
+
     desktop_cli("playerctl", &["--player", PLAYER, "next"]);
     pump_until(|| {
         this.model.borrow().queue.current_index() == Some(1)
@@ -3259,6 +3314,12 @@ fn native_music_context_mpris_shared_player_and_cleanup() {
     desktop_cli("playerctl", &["--player", PLAYER, "stop"]);
     pump_until(|| this.music_snapshot().is_none());
     let offers = fixture.offers(1);
+    mini.command(MiniCommand::Next);
+    assert_eq!(this.model.borrow().queue.current_index(), Some(1));
+    assert!(this.music_snapshot().is_none());
+    mini.command(MiniCommand::Previous);
+    assert_eq!(this.model.borrow().queue.current_index(), Some(0));
+    assert!(this.music_snapshot().is_none());
     desktop_cli("playerctl", &["--player", PLAYER, "next"]);
     assert_eq!(this.model.borrow().queue.current_index(), Some(1));
     assert!(this.music_snapshot().is_none());
@@ -3312,6 +3373,9 @@ fn native_music_context_mpris_shared_player_and_cleanup() {
     // the server method directly to prove it cannot revive the signed-out
     // session, while preserving the explicit false-capability assertions.
     desktop_method("Play", ().to_variant());
+    let cleared = mini.snapshot().unwrap();
+    assert!(cleared.title.is_none() && cleared.cover.is_none() && !cleared.can_play_pause);
+    mini.command(MiniCommand::PlayPause);
     assert!(this.music_snapshot().is_none());
     assert!(this.model.borrow().queue.items().is_empty());
     drop(subscription);
@@ -3946,7 +4010,7 @@ fn native_wave_shared_player_feedback_batches_and_cleanup() {
     let home_serial = this.music_serial();
     let home_sessions = fixture.counts.lock().unwrap().wave_sessions;
     native_click(&ui.window, &this.widgets.nav_liked);
-    pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("library"));
+    pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("collection"));
     native_click(&ui.window, &this.widgets.nav_wave);
     pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("home"));
     assert_eq!(this.music_serial(), home_serial);

@@ -1232,6 +1232,7 @@ fn exercise_mutations(window: &adw::ApplicationWindow, this: &Rc<Controller>, in
             })
     });
     let picker = this.playlist_management_dialog_for_test().unwrap();
+    let before_add = remote_counts(input);
     click(window, &named(&picker, "music-playlist-manage-pick"));
     pump_until(|| {
         !this.mutation_busy.get()
@@ -1241,10 +1242,31 @@ fn exercise_mutations(window: &adw::ApplicationWindow, this: &Rc<Controller>, in
                 .text()
                 .contains("Трек добавлен")
     });
+    let after_add = remote_counts(input);
+    assert_eq!(after_add.changes, before_add.changes + 1);
+    assert!(
+        after_add.playlist_reads >= before_add.playlist_reads + 3,
+        "the add must read, recheck and independently confirm the playlist"
+    );
     assert_player_unchanged(this, &queue, serial, generation);
     close_editor(window, this);
     this.present_playlist_editor(playlist(false));
     let dialog = editor_ready(this, 5);
+    let titles = named_all(dialog.upcast_ref(), "music-playlist-manage-occurrence")
+        .into_iter()
+        .map(|row| row.downcast::<adw::ActionRow>().unwrap().title())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        titles,
+        [
+            "Original audio 42",
+            "Original audio 43",
+            "Original audio 42 · alternate album",
+            "Original audio 44",
+            "Original audio 43",
+        ],
+        "the add appends one duplicate without changing the existing occurrence order"
+    );
     let metadata_group = named(&dialog, "music-playlist-manage-visibility")
         .ancestor(adw::PreferencesGroup::static_type())
         .expect("mounted native metadata group")

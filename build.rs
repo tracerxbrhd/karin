@@ -3,6 +3,7 @@
 use std::{env, fs, path::Path, process::Command};
 
 fn main() {
+    configure_tray_positioning();
     let resource =
         Path::new(&env::var_os("OUT_DIR").expect("Cargo supplies OUT_DIR")).join("karin.gresource");
     let status = Command::new("glib-compile-resources")
@@ -114,4 +115,44 @@ fn main() {
             &features
         }
     );
+}
+
+fn configure_tray_positioning() {
+    println!("cargo:rustc-check-cfg=cfg(karin_layer_shell)");
+    println!("cargo:rustc-check-cfg=cfg(karin_x11)");
+    for name in [
+        "KARIN_REQUIRE_LAYER_SHELL",
+        "PKG_CONFIG_PATH",
+        "PKG_CONFIG_LIBDIR",
+        "PKG_CONFIG_SYSROOT_DIR",
+    ] {
+        println!("cargo:rerun-if-env-changed={name}");
+    }
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("linux")
+        || env::var_os("HOST") != env::var_os("TARGET")
+    {
+        return;
+    }
+    let pkg_config = |args: &[&str]| {
+        Command::new("pkg-config")
+            .args(args)
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+    };
+    if pkg_config(&["--exists", "gtk4-x11", "x11"]).is_some() {
+        println!("cargo:rustc-cfg=karin_x11");
+    }
+    if pkg_config(&["--atleast-version=1.3.0", "gtk4-layer-shell-0"]).is_some()
+        && let Some(libdir) = pkg_config(&["--variable=libdir", "gtk4-layer-shell-0"])
+    {
+        println!("cargo:rustc-link-search=native={}", libdir.trim());
+        println!("cargo:rustc-cfg=karin_layer_shell");
+    } else {
+        assert!(
+            env::var_os("KARIN_REQUIRE_LAYER_SHELL").is_none(),
+            "GTK4 Layer Shell 1.3 or later is required by this package"
+        );
+    }
 }

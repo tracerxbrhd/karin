@@ -208,6 +208,12 @@ fn native_v08_footer_lyrics_and_volume_scroll() {
     this.set_music_volume(0.5);
     pump_until(|| (playing.snapshot().volume - 0.5).abs() < 0.001);
     let popup = this.widgets.volume_menu.popover().unwrap();
+    let percentage = this
+        .widgets
+        .volume
+        .next_sibling()
+        .and_downcast::<gtk::Label>()
+        .unwrap();
     let bus = desktop_background(|| {
         gio::bus_get_sync(gio::BusType::Session, gio::Cancellable::NONE).unwrap()
     });
@@ -241,6 +247,7 @@ fn native_v08_footer_lyrics_and_volume_scroll() {
     );
     pump_until(|| (playing.snapshot().volume - 0.55).abs() < 0.001);
     assert!((this.widgets.volume.value() - 0.55).abs() < 0.001);
+    assert_eq!(percentage.text(), "55%");
     assert_desktop_volume(&observed_volume, 0.55);
     assert!(!popup.is_mapped(), "wheel must not open the volume popup");
     assert_eq!(
@@ -279,6 +286,7 @@ fn native_v08_footer_lyrics_and_volume_scroll() {
     desktop_volume(Some("0.35"));
     pump_until(|| (playing.snapshot().volume - 0.35).abs() < 0.001);
     assert!((this.widgets.volume.value() - 0.35).abs() < 0.001);
+    assert_eq!(percentage.text(), "35%");
     wheel(
         &ui.window,
         window,
@@ -291,10 +299,26 @@ fn native_v08_footer_lyrics_and_volume_scroll() {
 
     click(&ui.window, window, &this.widgets.volume_menu);
     pump_until(|| popup.is_mapped() && this.widgets.volume.is_mapped());
+    assert!(percentage.is_mapped());
+    assert_eq!(percentage.text(), "40%");
+    assert_eq!(
+        percentage.accessible_role(),
+        gtk::AccessibleRole::Presentation
+    );
+    let font = percentage
+        .layout()
+        .iter()
+        .run_readonly()
+        .unwrap()
+        .item()
+        .analysis()
+        .font();
+    assert_eq!(font.describe().family().as_deref(), Some("Inter Variable"));
     assert!(this.widgets.volume.grab_focus());
     input(&["key", "--clearmodifiers", "Right"]);
     pump_until(|| (playing.snapshot().volume - 0.41).abs() < 0.001);
     assert_desktop_volume(&observed_volume, 0.41);
+    assert_eq!(percentage.text(), "41%");
     input(&["key", "--clearmodifiers", "Escape"]);
     pump_until(|| !popup.is_mapped());
     assert_eq!(this.panel_mode.get(), PanelMode::TrackInfo);
@@ -390,13 +414,13 @@ fn native_v08_footer_lyrics_and_volume_scroll() {
 
     click(&ui.window, window, &this.widgets.queue);
     pump_until(|| this.panel_mode.get() == PanelMode::Queue && !this.widgets.lyrics.is_active());
-    click(&ui.window, window, &this.widgets.current_art_button);
+    click(&ui.window, window, &this.widgets.current_info);
     pump_until(|| this.panel_mode.get() == PanelMode::TrackInfo);
     assert_eq!(this.track_pane.widget, host);
     click(&ui.window, window, &this.track_pane.close);
     pump_until(|| !this.info_is_open() && !reveal.reveals_child());
     assert_eq!(this.panel_mode.get(), PanelMode::Closed);
-    click(&ui.window, window, &this.widgets.current_art_button);
+    click(&ui.window, window, &this.widgets.current_info);
     pump_until(|| this.panel_mode.get() == PanelMode::TrackInfo && reveal.is_child_revealed());
 
     for (width, height, label) in [
@@ -408,6 +432,7 @@ fn native_v08_footer_lyrics_and_volume_scroll() {
         pump_until(|| this.widgets.lyrics.is_mapped() && this.widgets.volume_menu.is_mapped());
         let footer = ui.music.player_bar.compute_bounds(&ui.window).unwrap();
         for control in [
+            this.widgets.current_info.upcast_ref::<gtk::Widget>(),
             this.widgets.lyrics.upcast_ref::<gtk::Widget>(),
             this.widgets.queue.upcast_ref(),
             this.widgets.volume_menu.upcast_ref(),

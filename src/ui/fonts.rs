@@ -182,7 +182,7 @@ fn font_source(font: &gtk::pango::Font) -> Result<(String, String), FontError> {
     Ok((get(c"family")?, get(c"file")?))
 }
 
-const GLYPHS: &str = "АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдеёжзийклмнопрстуфхцчшщъыьэюяABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789№…";
+const GLYPHS: &str = "АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдеёжзийклмнопрстуфхцчшщъыьэюяABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789№%…";
 
 /// Existing smoke tests call this on the actual packaged application's Pango
 /// context. A CSS family declaration or an OS-installed substitute cannot pass.
@@ -223,6 +223,33 @@ pub(super) fn verify(context: &gtk::pango::Context) -> Result<(), FontError> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+pub(super) fn assert_label_font(label: &gtk::Label, family: &str, weight: gtk::pango::Weight) {
+    let bundled = &REGISTERED.get().unwrap().as_ref().unwrap().files;
+    let mut runs = label.layout().iter();
+    let mut count = 0;
+    loop {
+        if let Some(run) = runs.run_readonly() {
+            let font = run.item().analysis().font();
+            let (actual_family, source) = font_source(&font).unwrap();
+            assert_eq!(actual_family, family, "{}", label.widget_name());
+            assert_eq!(font.describe().weight(), weight, "{}", label.widget_name());
+            assert!(
+                bundled
+                    .iter()
+                    .any(|file| source == format!("/proc/self/fd/{}", file.as_raw_fd())),
+                "{} uses a system font",
+                label.widget_name()
+            );
+            count += 1;
+        }
+        if !runs.next_run() {
+            break;
+        }
+    }
+    assert!(count > 0, "{} has no shaped text", label.widget_name());
 }
 
 #[cfg(test)]

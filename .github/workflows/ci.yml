@@ -214,7 +214,14 @@ jobs:
               "--own-name=org.mpris.MediaPlayer2.io.github.tracerxbrhd.Karin"
           ], "Expose only Karin's exact MPRIS name"
           assert "--socket=session-bus" not in finish_args
-          assert not any(arg.startswith("--talk-name=") or arg.startswith("--system-talk-name=") for arg in finish_args)
+          assert [arg for arg in finish_args if arg.startswith("--talk-name=")] == [
+              "--talk-name=org.kde.StatusNotifierWatcher"
+          ], "Expose only the desktop status notifier watcher"
+          assert [arg for arg in finish_args if arg.startswith("--metadata")] == [
+              "--metadata=Session Bus Policy=org.kde.plasmashell=see"
+          ], "Observe only the Plasma shell's presence"
+          assert not any(arg.startswith(("--system-talk-name=", "--system-see-name=", "--system-own-name="))
+                         for arg in finish_args)
           PY
       - name: Validate release metadata and pinned-source packaging contracts
         if: matrix.lane == 'stable'

@@ -12,6 +12,7 @@
 .karin-presentation-root .music-workspace button,
 .karin-presentation-root .music-information-view button,
 .karin-presentation-root .music-player button,
+.karin-presentation-root button.karin-font-primary,
 .karin-presentation-root .karin-font-primary button {
     font-weight: 600;
 }
@@ -35,8 +36,6 @@
 .karin-presentation-root .music-information-view .description,
 .karin-presentation-root .karin-font-primary .subtitle,
 .karin-presentation-root .karin-font-primary .description,
-.karin-presentation-root #music-track-pane-artist-links button,
-.karin-presentation-root #music-track-pane-artist-links label,
 .karin-presentation-root #music-status .title,
 .karin-presentation-root #music-status .subtitle,
 .karin-presentation-root .karin-font-secondary {

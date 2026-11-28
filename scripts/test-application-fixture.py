@@ -20,6 +20,7 @@ from gi.repository import Gio, GLib
 
 ACCESS = "org.a11y.atspi.Accessible"
 COMPONENT = "org.a11y.atspi.Component"
+NAVIGATION_TABS = ("Главная", "Моя коллекция", "Плейлисты")
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("binary", type=Path)
 parser.add_argument("--out", required=True, type=Path)
@@ -215,6 +216,35 @@ def find(name, role=None):
 
 def widget(name, role=None):
     return wait(lambda: find(name, role), name)
+
+
+def track_row(title, location):
+    return wait(
+        lambda: next(
+            (
+                item
+                for item in tree()
+                if visible(item)
+                and title in item["name"]
+                and item["role"] in ("list item", "list box row", "button")
+            ),
+            None,
+        ),
+        f"track {title} in {location}",
+    )
+
+
+def open_liked_collection():
+    click(widget("Моя коллекция", "toggle button"))
+    click(widget("Мне нравится", "button"))
+
+    def full_liked_visible():
+        controls = {(item["name"], item["role"]) for item in tree() if visible(item)}
+        return ("Мне нравится", "label") in controls and (
+            "Мне нравится", "button"
+        ) not in controls
+
+    wait(full_liked_visible, "full liked page replaced the collection overview")
 
 
 def input_(*values):
@@ -423,7 +453,7 @@ def exercise_welcome(window_id):
         widget(heading, "label")
         widget("Войдите в аккаунт Яндекса, чтобы открыть свою музыкальную библиотеку")
         widget(sign_in, "button")
-        assert not any(find(name, "toggle button") for name in ("Главная", "Нравится", "Плейлисты"))
+        assert not any(find(name, "toggle button") for name in NAVIGATION_TABS)
         assert not find("Поиск музыки", "search box")
         capture(f"welcome-{name}")
 
@@ -495,7 +525,7 @@ try:
         (out / "receipt.json").write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n")
         print(json.dumps(record, ensure_ascii=False))
         raise SystemExit(0)
-    widget("Нравится", "toggle button")
+    widget("Моя коллекция", "toggle button")
     capture("00-startup")
     # Release metadata must reach the actual native About dialog, not just CLI.
     click(widget("Меню приложения"))
@@ -528,21 +558,19 @@ try:
     capture("00b-about")
     key("Escape")
     wait(lambda: not find(application_version), "native About closed")
-    click(widget("Нравится", "toggle button"))
+    click(widget("Моя коллекция", "toggle button"))
+    widget("Моя коллекция", "label")
+    widget("Мне нравится", "button")
+    track_row("Original river song", "collection overview")
+    playlist = "Открыть плейлист: Original fixture playlist · 2 трека"
+    widget(playlist, "button")
+    capture("01a-collection")
+    click(widget("Мои плейлисты", "button"))
+    widget("Понравившиеся плейлисты", "label")
+    widget(playlist, "button")
+    open_liked_collection()
     # The actual library has arrived from the authenticated loopback request.
-    row = wait(
-        lambda: next(
-            (
-                x
-                for x in tree()
-                if visible(x)
-                and "Original river song" in x["name"]
-                and x["role"] in ["list item", "list box row", "button"]
-            ),
-            None,
-        ),
-        "library track",
-    )
+    row = track_row("Original river song", "liked page")
     capture("01-library")
     click(row)
     wait(
@@ -688,7 +716,7 @@ try:
         for x in tree()
         if visible(x)
         and x["role"] == "toggle button"
-        and x["name"] in ["Главная", "Нравится", "Плейлисты"]
+        and x["name"] in NAVIGATION_TABS
     ]
     assert not tabs, "navigation tabs remained visible beside the field"
     assert search["bounds"][2] < 500, "search expanded over header"
@@ -705,7 +733,7 @@ try:
     click(widget("Поиск музыки", "search box"))
     assert find("Закрыть поиск", "button"), "empty field unexpectedly closed"
     key("Escape")
-    widget("Нравится", "toggle button")
+    widget("Моя коллекция", "toggle button")
     assert not find("Поиск музыки", "search box"), "Escape retained entry"
     capture("07-search-closed")
     key("ctrl+f")
@@ -721,7 +749,7 @@ try:
         "click",
         "1",
     )
-    widget("Нравится", "toggle button")
+    widget("Моя коллекция", "toggle button")
     capture("08-search-outside-closed")
     key("ctrl+q")
     assert app.wait(timeout=12) == 0, "ordinary close failed"
@@ -762,20 +790,8 @@ try:
     check_presentation()
     capture("09a-restart-style-preference")
     close_preferences()
-    click(widget("Нравится", "toggle button"))
-    row = wait(
-        lambda: next(
-            (
-                x
-                for x in tree()
-                if visible(x)
-                and "Original river song" in x["name"]
-                and x["role"] in ["list item", "list box row", "button"]
-            ),
-            None,
-        ),
-        "restart library track",
-    )
+    open_liked_collection()
+    row = track_row("Original river song", "liked page after restart")
     click(row)
     click(widget("Текст песни", "toggle button"))
     wait(

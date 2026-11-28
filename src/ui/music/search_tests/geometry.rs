@@ -144,18 +144,35 @@ fn rendered_png(window: &adw::ApplicationWindow, node: &gtk::gsk::RenderNode) ->
         .save_to_png_bytes()
 }
 
-fn header_actions(ui: &crate::ui::MainWindow) -> (Rect, Rect) {
+fn header_actions(ui: &crate::ui::MainWindow) -> [Rect; 3] {
     let children = descendants(ui.header.upcast_ref());
     let marks: Vec<_> = children
         .iter()
-        .filter_map(|w| w.downcast_ref::<gtk::Image>())
-        .filter(|w| w.is_mapped() && w.icon_name().as_deref() == Some("karin-brand-mark"))
+        .filter_map(|w| w.downcast_ref::<gtk::Picture>())
+        .filter(|w| w.is_mapped() && w.widget_name() == "karin-header-icon")
         .collect();
     assert_eq!(
         marks.len(),
         1,
         "the HeaderBar must paint one transparent Karin mark"
     );
+    let mark = marks[0];
+    let paintable = mark
+        .paintable()
+        .unwrap()
+        .downcast::<gtk::IconPaintable>()
+        .unwrap();
+    assert_eq!(
+        paintable.icon_name().as_deref(),
+        Some(std::path::Path::new("karin-brand-mark"))
+    );
+    assert_eq!(paintable.intrinsic_width(), 30);
+    if ui.window.width() >= 720 {
+        assert!(
+            mark.width() >= 28,
+            "the larger brand should get its natural width"
+        );
+    }
     let home = marks[0]
         .ancestor(gtk::Button::static_type())
         .unwrap()
@@ -170,16 +187,57 @@ fn header_actions(ui: &crate::ui::MainWindow) -> (Rect, Rect) {
         .unwrap();
     assert!(refresh.is_mapped() && refresh.is_focusable());
     assert_eq!(refresh.tooltip_text().as_deref(), Some("Обновить"));
+    let indicator = descendants(refresh)
+        .into_iter()
+        .find_map(|w| w.downcast::<gtk::Image>().ok())
+        .unwrap();
+    assert_eq!(indicator.pixel_size(), 16);
+    assert_eq!((indicator.width(), indicator.height()), (16, 16));
+    let back = children
+        .iter()
+        .find(|w| w.widget_name() == "music-header-back")
+        .unwrap();
+    let back_label = descendants(back)
+        .into_iter()
+        .find(|w| w.widget_name() == "music-back-label")
+        .unwrap()
+        .downcast::<gtk::Label>()
+        .unwrap();
+    assert_eq!(back_label.text(), "Назад");
+    assert_eq!(back_label.is_mapped(), ui.window.width() >= 720);
+    if back_label.is_mapped() {
+        assert!(!back_label.layout().is_ellipsized());
+        crate::ui::fonts::assert_label_font(
+            &back_label,
+            "Montserrat",
+            gtk::pango::Weight::Semibold,
+        );
+    }
     let bounds = |w: &gtk::Widget| w.compute_bounds(&ui.window).unwrap();
     let home = bounds(home.upcast_ref());
-    let refresh = bounds(refresh);
-    assert!(home.x() + home.width() <= refresh.x());
-    assert!((home.center().y() - refresh.center().y()).abs() <= 1.0);
+    let back = bounds(back);
+    let refresh_bounds = bounds(refresh);
+    assert!(back.height() >= 40.0);
+    assert!(home.x() + home.width() <= back.x());
+    let (refresh_width, refresh_gap) = if back_label.is_mapped() {
+        (36.0, 4.0)
+    } else {
+        (20.0, 2.0)
+    };
+    assert!(refresh_bounds.width() >= refresh_width && refresh_bounds.height() >= 40.0);
+    assert!(refresh_bounds.x() - (back.x() + back.width()) >= refresh_gap);
+    assert!((home.center().y() - refresh_bounds.center().y()).abs() <= 1.0);
+    let edge = ui.window.pick(
+        f64::from(refresh_bounds.x() + 3.0),
+        f64::from(refresh_bounds.center().y()),
+        gtk::PickFlags::DEFAULT,
+    );
+    assert!(edge.is_some_and(|widget| widget == *refresh || widget.is_ancestor(refresh)));
     assert_eq!(
         ui.header.decoration_layout().as_deref(),
         Some(":minimize,maximize,close")
     );
-    (home, refresh)
+    [home, back, refresh_bounds]
 }
 
 fn measure_state(ui: &crate::ui::MainWindow, id: &str, tag: &str, motion: bool) {
@@ -225,8 +283,8 @@ fn measure_state(ui: &crate::ui::MainWindow, id: &str, tag: &str, motion: bool) 
     );
     assert_eq!(group.x(), tabs_bounds.x());
     assert_eq!(group.x() + group.width(), button.x() + button.width());
-    let (home, refresh) = header_actions(ui);
-    for control in [home, refresh] {
+    let [home, back, refresh] = header_actions(ui);
+    for control in [home, back, refresh] {
         assert!(
             control.x() + control.width() <= group.x(),
             "{tag}: navigation overlaps a leading action"
@@ -352,6 +410,7 @@ fn measure_state(ui: &crate::ui::MainWindow, id: &str, tag: &str, motion: bool) 
             "group_open": rect(open_group),
             "header_bar_height": header_height,
             "home": rect(home),
+            "back": rect(back),
             "refresh": rect(refresh),
             "navigation_row_height": row_height,
             "distinct_intermediate_painted_frames": distinct_frames,

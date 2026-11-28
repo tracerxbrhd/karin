@@ -10,6 +10,7 @@ use gtk::{glib, graphene, pango, subclass::prelude::*};
 
 const ACTIVE_SCALE: f64 = 1.28;
 const RESTING_OPACITY: f64 = 0.76;
+const EXPANDED_RESTING_OPACITY: f64 = 0.60;
 
 #[derive(Debug)]
 struct Labels {
@@ -25,6 +26,7 @@ mod imp {
         pub(super) labels: OnceCell<Labels>,
         pub(super) strength: Cell<f64>,
         pub(super) synchronized: Cell<bool>,
+        pub(super) expanded: Cell<bool>,
         pub(super) painted_phase: Cell<Option<diagnostics::Paint>>,
         pub(super) variable_face: Cell<Option<(u32, bool)>>,
     }
@@ -132,7 +134,7 @@ impl LyricRow {
             label.set_text(value);
         }
         if synchronized {
-            measure.set_attributes(Some(&typography(1.0, true)));
+            measure.set_attributes(Some(&typography(1.0, true, self.imp().expanded.get())));
             emphasize(text, strength);
         } else {
             self.imp().strength.set(0.);
@@ -141,6 +143,25 @@ impl LyricRow {
             text.set_opacity(1.);
         }
         text.clone()
+    }
+
+    pub(super) fn set_expanded(&self, expanded: bool) {
+        if self.imp().expanded.replace(expanded) == expanded {
+            return;
+        }
+        let Labels { measure, text } = self.imp().labels.get().unwrap();
+        for label in [measure, text] {
+            label.set_xalign(if expanded { 0.5 } else { 0.0 });
+            label.set_justify(if expanded {
+                gtk::Justification::Center
+            } else {
+                gtk::Justification::Left
+            });
+        }
+        if self.imp().synchronized.get() {
+            measure.set_attributes(Some(&typography(1.0, true, expanded)));
+            emphasize(text, self.imp().strength.get());
+        }
     }
 
     pub(super) fn unbind(&self) -> gtk::Label {
@@ -152,11 +173,16 @@ impl LyricRow {
     }
 }
 
-fn typography(strength: f64, set_weight_axis: bool) -> pango::AttrList {
+fn typography(strength: f64, set_weight_axis: bool, expanded: bool) -> pango::AttrList {
     let scale = 1.0 + (ACTIVE_SCALE - 1.0) * strength;
     let attrs = pango::AttrList::new();
     if set_weight_axis {
-        let weight = (400.0 + 300.0 * strength).round() as u16;
+        let (resting_weight, active_weight) = if expanded {
+            (600.0, 840.0)
+        } else {
+            (400.0, 700.0)
+        };
+        let weight = (resting_weight + (active_weight - resting_weight) * strength).round() as u16;
         let mut font = pango::FontDescription::new();
         font.set_variations(Some(&format!("wght={weight}")));
         attrs.insert(pango::AttrFontDesc::new(&font));
@@ -252,19 +278,23 @@ pub(super) fn emphasize(label: &gtk::Label, strength: f64) {
     // Keep the resting and active endpoints valid across live font changes.
     // Static-only fonts need no new variation description on each frame.
     let axis = strength == 1.0 || (strength > 0.0 && slot.has_variable_face(label));
-    label.set_attributes(Some(&typography(strength, axis)));
+    label.set_attributes(Some(&typography(strength, axis, slot.imp().expanded.get())));
     update_contrast(label, strength);
 }
 
 pub(super) fn update_contrast(label: &gtk::Label, strength: f64) {
+    let row = label.parent().and_downcast::<LyricRow>().unwrap();
+    let resting = if row.imp().expanded.get() {
+        EXPANDED_RESTING_OPACITY
+    } else {
+        RESTING_OPACITY
+    };
     let opacity = if adw::StyleManager::default().is_high_contrast() {
         1.0
     } else {
-        RESTING_OPACITY + (1.0 - RESTING_OPACITY) * strength
+        resting + (1.0 - resting) * strength
     };
     label.set_opacity(opacity);
     // The static font's shaped ink is owned by the row's own render node.
-    if let Some(row) = label.parent() {
-        row.queue_draw();
-    }
+    row.queue_draw();
 }

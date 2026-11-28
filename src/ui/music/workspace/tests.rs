@@ -718,6 +718,8 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
     assert_eq!(content.margin_end(), 328);
     super::super::design_tests::assert_information_spacing(&ui);
     click(&ui.window, id, &this.widgets.nav_liked);
+    pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("collection"));
+    click(&ui.window, id, &this.collection_overview.open_liked);
     pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("library"));
     assert!(this.info_is_open());
     let (x, y) = test_input::pointer(
@@ -783,6 +785,8 @@ fn native_workspace_full_shell_adaptive_pane_selection_navigation_and_cleanup() 
     // Keep real central actions readable and hit-testable even at the exact
     // 720px medium boundary, rather than merely reporting mapped widgets.
     click(&ui.window, id, &this.widgets.nav_liked);
+    pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("collection"));
+    click(&ui.window, id, &this.collection_overview.open_liked);
     pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("library"));
     for width in [720, 900] {
         resize_logical(&ui, width, 650);

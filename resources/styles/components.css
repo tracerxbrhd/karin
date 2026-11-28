@@ -7,15 +7,17 @@
 .karin-presentation-root .music-wave-primary { min-width: 128px; min-height: 40px; border-radius: 999px; }
 .karin-presentation-root .music-wave-motif > box { background: @accent_bg_color; border-radius: 999px; }
 .karin-presentation-root .music-workspace { background: @window_bg_color; }
-.karin-presentation-root .music-header { min-height: 48px; }
+.karin-presentation-root .music-header { min-height: 52px; }
+/* Keep the icon inset fixed while GTK reallocates the header at the breakpoint. */
 .karin-presentation-root .music-header-control {
     min-width: 20px;
-    min-height: 32px;
-    padding: 0 3px;
+    min-height: 36px;
+    padding: 0;
 }
+.karin-presentation-root .music-back-button { min-height: 40px; border-radius: 8px; }
 .karin-presentation-root .music-header-tab {
     min-width: 18px;
-    min-height: 32px;
+    min-height: 36px;
     padding: 0 3px;
     border-radius: 8px;
 }
@@ -53,6 +55,14 @@
 .karin-presentation-root .music-track-row.music-current, .karin-presentation-root .music-queue-row.music-current-row {
     background: alpha(@accent_bg_color, .16);
 }
+.karin-presentation-root .music-queue-reorder-grabbed {
+    background-color: mix(@window_bg_color, @theme_fg_color, .07);
+    border-radius: 10px;
+    box-shadow: inset 0 0 0 1px alpha(@accent_color, .65), 0 3px 8px alpha(black, .18);
+}
+.karin-presentation-root.karin-high-contrast .music-queue-reorder-grabbed {
+    box-shadow: inset 0 0 0 1px @theme_fg_color;
+}
 .karin-presentation-root .music-track-title { font-weight: 600; }
 .karin-presentation-root .music-track-artist, .karin-presentation-root .music-track-duration { font-size: .92em; }
 .karin-presentation-root .music-track-duration { color: alpha(@theme_fg_color, .65); }
@@ -60,6 +70,12 @@
 .karin-presentation-root .music-row-badge { font-size: .85em; color: @accent_color; }
 .karin-presentation-root .music-collection-title { font-size: 1.65em; font-weight: 700; }
 .karin-presentation-root .music-liked-cover { background: alpha(@accent_bg_color, .14); color: @accent_color; border-radius: 16px; }
+.karin-presentation-root .music-liked-actions button { min-height: 40px; padding: 0 14px; }
+.karin-presentation-root .music-liked-actions #music-liked-refresh {
+    min-width: 40px;
+    padding: 0;
+    border-radius: 999px;
+}
 .karin-presentation-root .music-collection-facts { font-size: .92em; }
 .karin-presentation-root .music-catalog-tile, .karin-presentation-root .karin-playlist-tile { padding: 8px; border-radius: 12px; }
 .karin-presentation-root .music-catalog-tile:hover, .karin-presentation-root .karin-playlist-tile:hover { background: alpha(@theme_fg_color, .055); }
@@ -75,6 +91,13 @@
 .karin-presentation-root .karin-track-pane-header { min-height: 44px; }
 .karin-presentation-root .karin-track-pane-cover { border-radius: 12px; }
 .karin-presentation-root .karin-track-pane-link { min-height: 24px; padding: 2px 0; font-weight: normal; }
+.karin-presentation-root button.karin-track-pane-artist-link {
+    min-height: 0;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+}
 .karin-presentation-root .karin-track-pane-actions button { min-width: 30px; min-height: 30px; }
 .karin-presentation-root .music-player { background: @window_bg_color; }
 .karin-presentation-root .music-player-main { min-height: 64px; }
@@ -86,7 +109,7 @@
 .karin-presentation-root .music-player-timeline scale { padding-top: 0; padding-bottom: 0; }
 .karin-presentation-root .music-player-timeline label { font-size: .85em; color: alpha(@theme_fg_color, .7); }
 .karin-presentation-root .music-transport button { border-radius: 999px; }
-.karin-presentation-root .music-transport button:checked, .karin-presentation-root #music-repeat.active { color: @accent_color; background: alpha(@accent_bg_color, .12); }
+.karin-presentation-root .music-transport button:checked, .karin-presentation-root .music-transport button.music-repeat-control.active { color: @accent_color; background: alpha(@accent_bg_color, .12); }
 .karin-presentation-root .music-player-compact .music-player-main { min-height: 60px; }
 .karin-presentation-root .music-repeat-one-badge { font-size: .75em; font-weight: 800; color: @accent_color; background: @window_bg_color; border-radius: 3px; padding: 0 1px; }
 .karin-presentation-root #music-current-info { padding: 0; }
@@ -98,4 +121,50 @@
 .karin-presentation-root.karin-high-contrast .music-queue-row.music-current-row {
     outline: 2px solid @theme_fg_color;
     outline-offset: -2px;
+}
+
+.karin-presentation-root .music-now-playing {
+    background-color: @window_bg_color;
+    background-image: linear-gradient(to bottom, alpha(@accent_bg_color, .14), transparent 72%);
+}
+.karin-presentation-root .music-now-playing-header { min-height: 42px; }
+.karin-presentation-root .music-now-playing-tabs {
+    background: alpha(@theme_fg_color, .07);
+    border-radius: 999px;
+    margin: 0 8px 10px;
+    padding: 2px;
+}
+.karin-presentation-root .music-now-playing-tabs button {
+    border-radius: 999px;
+    min-height: 30px;
+    padding: 0 10px;
+}
+.karin-presentation-root .music-now-playing-tabs button:checked {
+    background: alpha(@theme_fg_color, .13);
+}
+.karin-presentation-root .music-now-playing-cover {
+    background: alpha(@accent_bg_color, .16);
+    border-radius: 16px;
+    color: @accent_color;
+}
+.karin-presentation-root .music-now-playing-cover picture { border-radius: 16px; }
+.karin-presentation-root .music-now-playing-title { font-size: 1.9em; font-weight: 750; }
+.karin-presentation-root .music-now-playing-timeline scale { padding-top: 0; padding-bottom: 0; }
+.karin-presentation-root .music-now-playing-additional-controls scale { padding: 0 4px; }
+.karin-presentation-root .music-now-playing-panel { margin: 0 12px 12px; }
+.karin-presentation-root .music-now-playing-panel .music-information-view,
+.karin-presentation-root.karin-high-contrast .music-now-playing-panel .music-information-view {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+}
+.karin-presentation-root.karin-high-contrast .music-now-playing { background-image: none; }
+.karin-presentation-root.karin-high-contrast .music-now-playing-tabs button:checked {
+    box-shadow: inset 0 0 0 1px @theme_fg_color;
+}
+
+window.karin-mini-popup {
+    background-color: @window_bg_color;
+    border-radius: 16px;
+    border: 1px solid alpha(@theme_fg_color, .16);
 }

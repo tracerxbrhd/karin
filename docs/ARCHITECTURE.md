@@ -27,7 +27,7 @@ flowchart TD
 | Private state | `session`, `credentials`, `session_lifecycle`, `settings` | Protected storage, preferences and forgetting |
 | Playback | `queue`, `playback_session`, `stream`, `playback` | Queue occurrences, source admission and one player |
 | Cache | `cache_budget`, `catalog_cache`, `artwork`, `audio_cache` | Shared budget and storage policy |
-| Desktop | `ui`, `mpris`, `discord_presence`, `updates` | Presentation, media controls, presence and release checks |
+| Desktop | `ui`, `mpris`, `discord_presence`, `updates` | Presentation, tray, media controls, presence and release checks |
 
 Widgets send typed intents. HTTP, parsing and file I/O run on bounded workers
 and return results to the GTK main context. Each ordinary read lane holds one
@@ -87,13 +87,20 @@ changes cannot rewrite an admitted playback context. The continuation record
 stores up to 500 occurrences around the current position. MPRIS publishes
 actual player state and addresses the current occurrence.
 
+The queue grip moves its rendered track vertically inside the queue viewport.
+Adjacent tracks make room as it crosses their slots. Releasing inside that
+viewport moves the exact upcoming occurrence in the current queue.
+
 Library writes serialize under the validated account. Each intent sends one
 write and requires independent readback. Uncertain results reconcile through
 GET. Playlist edits use a complete revisioned snapshot and the exact server
-position of the chosen occurrence. Revisions and ordered sequences are
-checked again before writing. Playlist metadata edits and deletes can race
-with another client between independent reads. Only confirmed Dislike for
-the current occurrence advances to the next track.
+position of the chosen occurrence. Compact playlist responses supply album
+selectors and revisions for edit checks and readback. The editor attaches rich
+track metadata only after matching the playlist revision and ordered positions.
+Revisions and ordered sequences are checked again before writing. Playlist
+metadata edits and deletes can race with another client between independent
+reads. Only confirmed Dislike for the current occurrence advances to the next
+track.
 
 ## Playback and cache
 
@@ -135,6 +142,32 @@ plain text requires an explicit rights indication. Synchronized lookup in
 LRCLIB requires consent and sends public track metadata. Lyrics stay in memory.
 Similar tracks and external lyrics load only for the relevant visible view.
 System styling follows Libadwaita, with High Contrast and Reduced Motion.
+Karin's navigation, controls and titles use bundled Montserrat. Secondary
+metadata, lyrics and numeric readouts use bundled Inter Variable. Test the
+fonts used for actual Cyrillic glyphs and digits at normal and HiDPI scales.
+Native window chrome and embedded sign-in keep the platform typography.
+
+The collection overview reads the account-scoped liked and playlist feeds
+used by the full sections. Preview playback uses the same loaded occurrence
+and queue context as the full liked list. Two preview columns share a
+horizontal viewport with arrow navigation when the window is narrow. Playable
+rows retain their accessible full text and scroll overflowing titles and artist
+credits on hover or focus when animations are enabled.
+
+The header Back action unwinds the current overlay or nested catalog route
+before restoring the previous primary section and scroll position. The
+navigation history is bounded and cleared on account teardown. The main header
+keeps its Back icon at compact widths and includes the label when space allows.
+
+The footer track opens Now Playing inside the same window. Its heading uses a
+native window handle and the desktop's window controls. Closing follows the
+existing window lifecycle, including the opt-in tray behavior. The regular
+workspace keeps its widgets in the navigation stack, preserving page, scroll and
+side panel intent. Now Playing borrows the existing Info, Lyrics and Queue
+surface in the expanded layout and follows the active synchronized lyric line.
+Now Playing, Mini and the footer share the player's transport, queue order,
+volume and verified reaction state. Opening another surface reuses the current
+reaction state. Now Playing preserves the saved regular side panel preference.
 
 Discord Rich Presence is enabled for new profiles and can be disabled under
 Integrations. Earlier settings files represented an unchecked switch by omitting
@@ -152,6 +185,23 @@ descriptor. This refreshes the file mount without new permissions or restarting
 playback. The worker verifies the peer UID before any Discord exchange. A peer
 outside the sandbox's PID namespace can have PID zero.
 
+Close to tray is opt-in. Karin hides the existing window only after its
+StatusNotifierItem is registered with a host. A hidden window holds the
+application open so playback and media controls keep using the same controller.
+The tray icon toggles Karin Mini. Middle-click toggles playback and vertical
+scroll adjusts the shared volume. Mini hides when focus leaves it, allowing its
+native popovers to finish first. While mapped, Mini reads the same player's
+state and sends commands to that player. When the tray supplies screen
+coordinates, Mini opens inward from the nearest edge of that output, using
+Wayland Layer Shell where available or placement through an X11 window
+manager. Without a usable position and backend, the window manager places
+Mini as an ordinary window. The tray menu, ordinary application activation
+and Mini's Open Karin button present the main window. Losing the
+host closes Mini and restores a hidden main window. On Plasma the panel's D-Bus
+name also tracks host availability because the watcher can outlive the panel.
+Explicit quit and update restart follow the normal window and persistence
+shutdown.
+
 ## Application updates
 
 Karin checks the public GitHub release before Music sign-in. Native directs
@@ -160,11 +210,13 @@ release notes binds the pinned Pages record to its release, source commit,
 App ID, ref, OSTree commit and signing fingerprint. Flatpak verifies the
 repository signature.
 
-The host UpdateMonitor schedules discovery. Karin requests installation when
-the Portal reports the matching commit, then checks the installed commit
-before offering restart and verifies it after restart. A system update is
-needed when sandbox permissions expand. Production verification of the
-in-app transition after 0.8.3 is tracked in
+The host UpdateMonitor schedules discovery. While the Portal checks a verified
+release, the dialog can open Karin in the system software manager or open the
+release page. Versions and actions sit outside the scrolling release notes.
+Karin requests in-app installation when the Portal reports the matching commit,
+then checks the installed commit before offering restart and verifies it after
+restart. A system update is needed when sandbox permissions expand. Production
+verification of the in-app transition after 0.8.3 is tracked in
 [#40](https://github.com/tracerxbrhd/karin/issues/40).
 [Release and update instructions](BUILDING.md#stable-flatpak-channel)
 

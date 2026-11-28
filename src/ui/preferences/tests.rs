@@ -83,6 +83,7 @@ fn preference_edits_preserve_nonvisible_lifecycle_and_pane_fields() {
         track_info_open: false,
         lyrics_external_auto: true,
         discord_presence: true,
+        close_to_tray: false,
     };
     let state = State {
         values: RefCell::new(values.clone()),
@@ -626,6 +627,12 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
         changes.borrow().last().unwrap().appearance,
         Appearance::Dark
     );
+    assert!(!view.close_to_tray.is_active());
+    let tray_switch = view.close_to_tray.activatable_widget().unwrap();
+    click(&window, id, &tray_switch);
+    pump_until(|| changes.borrow().last().unwrap().close_to_tray);
+    click(&window, id, &tray_switch);
+    pump_until(|| !changes.borrow().last().unwrap().close_to_tray);
     assert!(view.discord.is_active());
     assert_eq!(
         view.discord_status.subtitle().as_deref(),
@@ -767,6 +774,7 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
     view.update(&snapshot.borrow());
     assert!(!view.scheme.is_sensitive());
     assert!(!view.style_system.is_sensitive());
+    assert!(!view.close_to_tray.is_sensitive());
     assert!(!view.remember.is_sensitive());
     assert!(!view.cache_clear.is_sensitive());
     view.session_retry.emit_clicked();
