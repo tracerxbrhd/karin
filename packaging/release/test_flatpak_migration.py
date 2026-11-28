@@ -175,7 +175,7 @@ class SignedMigrationTests(unittest.TestCase):
         self.migrate("0.8.2", "0.8.3", discord=True)
 
     def test_system_manager_can_authorize_085_to_086_added_tray_permissions(self):
-        self.migrate("0.8.5", "0.8.6", old_discord=True, discord=True, tray=True)
+        self.migrate("0.8.5", "0.9.0", old_discord=True, discord=True, tray=True)
 
     def test_untrusted_new_channel_signature_cannot_replace_the_old_deployment(self):
         original = self.publish("0.8.2")

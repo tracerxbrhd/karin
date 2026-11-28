@@ -51,6 +51,14 @@
     <control>pointing</control>
   </supports>
   <releases>
+    <release version="0.9.0" date="2026-11-28" type="stable">
+      <description>
+        <p>My Collection brings liked tracks and playlists together. Now Playing gives lyrics, the queue and track details more room.</p>
+        <p xml:lang="ru">«Моя коллекция» объединяет любимые треки и плейлисты. В «Сейчас играет» больше места для текста, очереди и сведений о треке.</p>
+        <p>Karin Mini opens from the system tray. Queue tracks move directly within the list. Flatpak update buttons stay visible, and Karin confirms playlist additions and shows playlist covers.</p>
+        <p xml:lang="ru">Мини-плеер открывается из системного трея, а треки перемещаются прямо в очереди. Кнопки обновления Flatpak остаются видимыми. Karin подтверждает добавление треков и показывает обложки при выборе плейлиста.</p>
+      </description>
+    </release>
     <release version="0.8.5" date="2026-11-28" type="stable">
       <description>
         <p>Discord Rich Presence now shows tracks played directly from Liked Tracks.</p>
