@@ -155,9 +155,13 @@ outside the sandbox's PID namespace can have PID zero.
 Close to tray is opt-in. Karin hides the existing window only after its
 StatusNotifierItem is registered with a host. A hidden window holds the
 application open so playback and media controls keep using the same controller.
-Losing the host restores that window. On Plasma the panel's D-Bus name also
-tracks host availability because the watcher can outlive the panel. Explicit
-quit and update restart follow the normal window and persistence shutdown.
+The tray icon toggles Karin Mini, which reads the same player's state while
+mapped and sends commands to that player. The tray menu, ordinary application
+activation and Mini's Open Karin button present the main window. Losing the
+host closes Mini and restores a hidden main window. On Plasma the panel's D-Bus
+name also tracks host availability because the watcher can outlive the panel.
+Explicit quit and update restart follow the normal window and persistence
+shutdown.
 
 ## Application updates
 

@@ -115,8 +115,9 @@ PR CI also uploads `karin-native-acceptance-<commit>`. For either package, confi
 revision with `--version` and record live desktop or service checks separately from CI.
 
 For the tray check, use a desktop with a StatusNotifier host such as KDE Plasma.
-Enable closing to the tray in Karin's settings, close the window, restore it with the tray icon
-and choose Quit from the tray menu.
+Enable closing to the tray in Karin's settings and close the main window. Click the tray icon to
+open and hide Karin Mini. Verify its transport, seek and volume against the same playback session.
+Use Open Karin to restore the main window and Quit from the tray menu to exit.
 
 ### Pinned release sources
 

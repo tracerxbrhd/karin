@@ -7,7 +7,10 @@ use crate::{
     mpris::{Command, LocalArtwork, Metadata, Mpris, Snapshot, Status},
     playback::PlaybackState,
 };
-use gtk::gdk_pixbuf::{Colorspace, Pixbuf};
+use gtk::{
+    gdk,
+    gdk_pixbuf::{Colorspace, Pixbuf},
+};
 use ring::rand::{SecureRandom, SystemRandom};
 use std::{
     path::PathBuf,
@@ -28,7 +31,26 @@ pub(super) struct SystemMedia {
     cover_admission: Option<(CoverArt, u8, Instant)>,
     cover_encoding: Option<Receiver<Option<PrivateCover>>>,
     cover: Option<PrivateCover>,
+    mini_cover: Option<MiniCover>,
     seek: Option<(u64, u64, i64)>,
+}
+
+enum MiniCover {
+    Decoded(Arc<CoverPixels>),
+    Texture(gdk::Texture),
+}
+
+impl MiniCover {
+    fn texture(&mut self) -> gdk::Texture {
+        match self {
+            Self::Decoded(pixels) => {
+                let texture = super::super::artwork::texture(Arc::clone(pixels));
+                *self = Self::Texture(texture.clone());
+                texture
+            }
+            Self::Texture(texture) => texture.clone(),
+        }
+    }
 }
 
 /// Position ticks keep the existing event while a state, source or seek
@@ -199,7 +221,7 @@ impl Controller {
         match command {
             Command::Raise => {
                 if let Some(window) = self.window.upgrade() {
-                    window.present();
+                    crate::ui::present_main_window(&window);
                 }
             }
             Command::Quit => {
@@ -267,6 +289,24 @@ impl Controller {
         self.system_media.borrow_mut().repeat_restart = Some(serial);
     }
 
+    pub(super) fn mini_cover(
+        &self,
+        generation: u64,
+        occurrence: &crate::queue::OccurrenceId,
+    ) -> Option<gdk::Texture> {
+        let mut media = self.system_media.borrow_mut();
+        if !media
+            .binding
+            .as_ref()
+            .is_some_and(|(current_generation, current)| {
+                generation == *current_generation && occurrence == current
+            })
+        {
+            return None;
+        }
+        media.mini_cover.as_mut().map(MiniCover::texture)
+    }
+
     pub(super) fn clear_system_media(&self) {
         let mut media = self.system_media.borrow_mut();
         media.discord_event = None;
@@ -277,6 +317,7 @@ impl Controller {
         media.cover_admission = None;
         media.cover_encoding = None;
         media.cover = None;
+        media.mini_cover = None;
         media.seek = None;
         media.snapshot = Snapshot::default();
         if let Some(bus) = &media.bus {
@@ -320,6 +361,7 @@ impl Controller {
             media.cover_request = None;
             media.cover_encoding = None;
             media.cover = None;
+            media.mini_cover = None;
             media.seek = None;
             media.cover_admission = selected
                 .and_then(|track| track.cover.clone())
@@ -352,6 +394,9 @@ impl Controller {
         {
             media.cover_request = None;
             if let Ok(pixels) = result {
+                // Mini reuses the already-decoded current cover. Convert it
+                // into a GTK texture only when that view asks for the image.
+                media.mini_cover = Some(MiniCover::Decoded(Arc::clone(&pixels)));
                 let (tx, rx) = mpsc::sync_channel(1);
                 media.cover_encoding = Some(rx);
                 let app = self.app.upgrade();

@@ -192,7 +192,11 @@ impl UpdateController {
     }
 
     fn show(self: &Rc<Self>) {
-        let Some(window) = self.app.upgrade().and_then(|app| app.active_window()) else {
+        let Some(window) = self
+            .app
+            .upgrade()
+            .and_then(|app| super::main_application_window(&app))
+        else {
             return;
         };
         if self.dialog.borrow().is_some() || matches!(*self.phase.borrow(), Phase::Restarting) {
@@ -200,6 +204,7 @@ impl UpdateController {
         }
         self.release.borrow_mut().take();
         self.set_phase(Phase::Checking { retry: false });
+        super::present_main_window(&window);
         self.present_dialog(&window);
         self.begin_check(false);
     }
@@ -437,7 +442,11 @@ impl UpdateController {
     }
 
     fn open_link(self: &Rc<Self>, target: LinkTarget) {
-        let Some(window) = self.app.upgrade().and_then(|app| app.active_window()) else {
+        let Some(window) = self
+            .app
+            .upgrade()
+            .and_then(|app| super::main_application_window(&app))
+        else {
             return;
         };
         let Some(uri) = self.release.borrow().as_ref().map(|release| match target {

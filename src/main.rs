@@ -220,12 +220,12 @@ fn main() -> glib::ExitCode {
     let weak_app = app.downgrade();
     quit.connect_activate(move |_, _| {
         if let Some(app) = weak_app.upgrade() {
-            for window in app.windows() {
-                if let Some(main_window) = window.downcast_ref::<adw::ApplicationWindow>()
-                    && let Some(quit) = main_window.lookup_action("quit")
-                {
-                    quit.activate(None);
-                } else {
+            if let Some(quit) =
+                ui::main_application_window(&app).and_then(|window| window.lookup_action("quit"))
+            {
+                quit.activate(None);
+            } else {
+                for window in app.windows() {
                     window.close();
                 }
             }
@@ -237,7 +237,10 @@ fn main() -> glib::ExitCode {
     let about = gio::SimpleAction::new("about", None);
     let weak_app = app.downgrade();
     about.connect_activate(move |_, _| {
-        if let Some(app) = weak_app.upgrade() {
+        if let Some(window) = weak_app
+            .upgrade()
+            .and_then(|app| ui::main_application_window(&app))
+        {
             let dialog = adw::AboutDialog::builder()
                 .application_name("Karin")
                 .application_icon(ui::APP_ICON)
@@ -250,7 +253,8 @@ fn main() -> glib::ExitCode {
                 .build();
             dialog.set_debug_info(&config::build_identity());
             dialog.set_debug_info_filename("karin-build.txt");
-            dialog.present(app.active_window().as_ref());
+            ui::present_main_window(&window);
+            dialog.present(Some(&window));
         }
     });
     app.add_action(&about);
@@ -262,8 +266,12 @@ fn main() -> glib::ExitCode {
     // window/controller until close, just as the smoke future retains its UI.
     let normal_window = Rc::new(RefCell::new(None::<ui::MainWindow>));
     app.connect_activate(move |app| {
-        if let Some(window) = app.active_window().or_else(|| app.windows().into_iter().next()) {
-            window.present();
+        if let Some(ui) = normal_window
+            .borrow()
+            .as_ref()
+            .filter(|ui| ui.window.application().is_some())
+        {
+            ui::present_main_window(&ui.window);
             return;
         }
         let ui = if let Some(fixture) = &fixture {

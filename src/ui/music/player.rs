@@ -70,6 +70,16 @@ impl ProgressPresentation {
     }
 }
 
+struct TransportControls {
+    ready: bool,
+    loading: bool,
+    play_pause: bool,
+    previous: bool,
+    next: bool,
+    seek: bool,
+    volume: bool,
+}
+
 struct Intent {
     serial: u64,
     session: u64,
@@ -1411,6 +1421,82 @@ impl Controller {
         }
     }
 
+    fn transport_controls(
+        &self,
+        model: &Model,
+        player: &MusicPlayback,
+        snapshot: Option<&PlaybackSnapshot>,
+    ) -> TransportControls {
+        let state = snapshot.map_or(PlaybackState::Idle, |snapshot| snapshot.state);
+        let ready = model.account_valid
+            && !model.closed
+            && model
+                .token
+                .as_ref()
+                .is_some_and(|token| !token.is_expired());
+        let loading =
+            player.requested || player.preparing.is_some() || state == PlaybackState::Loading;
+        let can_navigate = self.wave_current_allowed();
+        let playable_state = matches!(
+            state,
+            PlaybackState::Ready | PlaybackState::Playing | PlaybackState::Paused
+        );
+        TransportControls {
+            ready,
+            loading,
+            play_pause: ready
+                && model.queue.current().is_some_and(|track| track.available)
+                && (!loading || self.source_renewal_active())
+                && (can_navigate || playable_state),
+            previous: ready && can_navigate && model.queue.can_go_previous(),
+            next: ready && can_navigate && (model.queue.can_go_next() || self.is_wave_queue()),
+            seek: ready && playable_state && snapshot.is_some_and(|snapshot| snapshot.seekable),
+            volume: ready && player.controller.is_some() && state != PlaybackState::Error,
+        }
+    }
+
+    pub(super) fn mini_snapshot(&self) -> Option<MiniSnapshot> {
+        let model = self.model.borrow();
+        if model.closed {
+            return None;
+        }
+        let player = self.player.borrow();
+        let occurrence = model.queue.current_occurrence_id();
+        let playback = occurrence
+            .filter(|occurrence| player.source_occurrence.as_ref() == Some(*occurrence))
+            .and_then(|_| self.music_snapshot());
+        let controls = self.transport_controls(&model, &player, playback.as_ref());
+        let selected = model.queue.current().filter(|_| controls.ready);
+        let restored_position = occurrence
+            .filter(|occurrence| player.restored_occurrence.as_ref() == Some(*occurrence))
+            .and(player.restored_position);
+        let progress = ProgressPresentation::new(
+            playback.as_ref().filter(|_| selected.is_some()),
+            selected.and_then(|track| track.duration_ms),
+            restored_position.filter(|_| selected.is_some()),
+        );
+        Some(MiniSnapshot {
+            title: selected.map(|track| track.title.clone()),
+            artist: selected
+                .filter(|track| !track.artists.is_empty())
+                .map(|track| track.artists.join(", ")),
+            cover: selected
+                .and(occurrence)
+                .and_then(|occurrence| self.mini_cover(model.generation, occurrence)),
+            position: progress.position,
+            duration: progress.duration,
+            volume: player.volume,
+            playing: selected.is_some()
+                && playback.is_some_and(|snapshot| snapshot.state == PlaybackState::Playing),
+            loading: selected.is_some() && controls.loading && player.failure.is_none(),
+            can_previous: controls.previous,
+            can_play_pause: controls.play_pause,
+            can_next: controls.next,
+            can_seek: controls.seek && progress.duration.is_some(),
+            can_volume: controls.volume,
+        })
+    }
+
     pub(super) fn render_music_player(&self) {
         let model = self.model.borrow();
         let player = self.player.borrow();
@@ -1420,14 +1506,7 @@ impl Controller {
             .as_ref()
             .map_or(PlaybackState::Idle, |snapshot| snapshot.state);
         let selected = model.queue.current();
-        let ready = model.account_valid
-            && !model.closed
-            && model
-                .token
-                .as_ref()
-                .is_some_and(|token| !token.is_expired());
-        let loading =
-            player.requested || player.preparing.is_some() || state == PlaybackState::Loading;
+        let controls = self.transport_controls(&model, &player, snapshot.as_ref());
         // Presentation follows an actual playback attempt/owned pipeline, not
         // the presence of a selected queue entry or a retired/cancelled job.
         // Errors remain reachable for Retry; pause/ready keep the same footer.
@@ -1484,7 +1563,7 @@ impl Controller {
         // Loading has the stable native Play-button surface: removing a text
         // row at the end of resolution must not move the footer mid-reveal.
         // Errors retain their full-width readable feedback and real Retry.
-        let spinner_loading = loading
+        let spinner_loading = controls.loading
             && active_footer
             && player.failure.is_none()
             && (self.source_renewal_active()
@@ -1508,27 +1587,16 @@ impl Controller {
         self.widgets
             .play
             .update_property(&[gtk::accessible::Property::Label(play_label)]);
-        self.widgets.play.set_sensitive(
-            ready
-                && selected.is_some_and(|track| track.available)
-                && (!loading || self.source_renewal_active())
-                && (self.wave_current_allowed()
-                    || matches!(
-                        state,
-                        PlaybackState::Ready | PlaybackState::Playing | PlaybackState::Paused
-                    )),
-        );
+        self.widgets.play.set_sensitive(controls.play_pause);
         self.widgets.stop.set_sensitive(
             player.requested || player.controller.is_some() || player.restored_position.is_some(),
         );
-        self.widgets
-            .volume
-            .set_sensitive(ready && player.controller.is_some() && state != PlaybackState::Error);
+        self.widgets.volume.set_sensitive(controls.volume);
         self.widgets.volume.set_value(player.volume);
         self.widgets.shuffle.set_active(model.queue.shuffle());
         self.widgets
             .shuffle
-            .set_sensitive(ready && !self.is_wave_queue());
+            .set_sensitive(controls.ready && !self.is_wave_queue());
         let shuffle_label = if model.queue.shuffle() {
             "Перемешивание включено"
         } else {
@@ -1555,7 +1623,7 @@ impl Controller {
         );
         self.widgets
             .repeat
-            .set_sensitive(ready && !self.is_wave_queue());
+            .set_sensitive(controls.ready && !self.is_wave_queue());
         self.widgets
             .repeat
             .set_tooltip_text(Some(if self.is_wave_queue() {
@@ -1571,20 +1639,8 @@ impl Controller {
         } else {
             self.widgets.repeat.add_css_class("active");
         }
-        self.widgets
-            .previous
-            .set_sensitive(ready && self.wave_current_allowed() && model.queue.can_go_previous());
-        self.widgets.next.set_sensitive(
-            ready
-                && self.wave_current_allowed()
-                && (model.queue.can_go_next() || self.is_wave_queue()),
-        );
-        let seekable = ready
-            && snapshot.as_ref().is_some_and(|snapshot| snapshot.seekable)
-            && matches!(
-                state,
-                PlaybackState::Ready | PlaybackState::Playing | PlaybackState::Paused
-            );
+        self.widgets.previous.set_sensitive(controls.previous);
+        self.widgets.next.set_sensitive(controls.next);
         ProgressPresentation::new(
             snapshot.as_ref(),
             selected.and_then(|track| track.duration_ms),
@@ -1596,7 +1652,11 @@ impl Controller {
                     .map(|_| Duration::ZERO)
             }),
         )
-        .apply(&self.widgets.progress, &self.widgets.position, seekable);
+        .apply(
+            &self.widgets.progress,
+            &self.widgets.position,
+            controls.seek,
+        );
         drop(player);
         drop(model);
         self.publish_mpris();
@@ -1623,7 +1683,7 @@ fn wait_for_music_cleanup(controllers: &[PlaybackController]) -> bool {
         .all(|controller| !controller.snapshot().worker_running)
 }
 
-fn music_time(value: Duration) -> String {
+pub(in crate::ui) fn music_time(value: Duration) -> String {
     format!("{}:{:02}", value.as_secs() / 60, value.as_secs() % 60)
 }
 

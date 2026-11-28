@@ -26,6 +26,7 @@ mod diagnostic_tests;
 mod home;
 mod interactions;
 mod login;
+mod mini;
 #[cfg(test)]
 mod navigation_tests;
 mod persistence;
@@ -56,6 +57,8 @@ mod track_pane;
 mod volume_scroll;
 mod welcome;
 mod workspace;
+pub(super) use mini::{MiniCommand, MiniPlayback, MiniSnapshot};
+pub(super) use player::music_time as mini_time;
 use requests::{Operation, Requests};
 type PendingJob = Box<dyn FnOnce(&Rc<Controller>, u64)>;
 
@@ -857,6 +860,10 @@ impl MusicPane {
         self.controller.tray.replace(Rc::downgrade(tray));
         let enabled = self.controller.persistence.borrow().close_to_tray_enabled();
         tray.set_enabled(enabled);
+    }
+
+    pub(super) fn mini_playback(&self) -> MiniPlayback {
+        MiniPlayback::new(&self.controller)
     }
 
     pub async fn exercise_login_for_smoke(&self) -> Result<(), String> {

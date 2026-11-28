@@ -4,13 +4,35 @@
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
+    sync::Arc,
 };
 
 use adw::prelude::*;
 use gtk::{gdk, glib};
 
 use crate::artwork::diagnostics::{self, Event};
-use crate::artwork::{ArtworkCancellation, ArtworkError, ArtworkLoader, CoverArt};
+use crate::artwork::{ArtworkCancellation, ArtworkError, ArtworkLoader, CoverArt, CoverPixels};
+
+struct TextureBytes(Arc<CoverPixels>);
+
+impl AsRef<[u8]> for TextureBytes {
+    fn as_ref(&self) -> &[u8] {
+        &self.0.bytes
+    }
+}
+
+pub(super) fn texture(image: Arc<CoverPixels>) -> gdk::Texture {
+    let width = image.width;
+    let height = image.height;
+    let rowstride = image.rowstride;
+    let format = if image.alpha {
+        gdk::MemoryFormat::R8g8b8a8
+    } else {
+        gdk::MemoryFormat::R8g8b8
+    };
+    let bytes = glib::Bytes::from_owned(TextureBytes(image));
+    gdk::MemoryTexture::new(width, height, format, &bytes, rowstride).upcast()
+}
 
 /// A scale-aware thumbnail with a native symbolic fallback. The loader belongs
 /// to the session controller and must be cleared on logout/close.
@@ -147,19 +169,7 @@ pub(super) fn thumbnail(
                     diagnostics::emit(Event::WidgetUnavailable);
                     return;
                 };
-                let bytes = glib::Bytes::from_owned(image.bytes.clone());
-                let texture = gdk::MemoryTexture::new(
-                    image.width,
-                    image.height,
-                    if image.alpha {
-                        gdk::MemoryFormat::R8g8b8a8
-                    } else {
-                        gdk::MemoryFormat::R8g8b8
-                    },
-                    &bytes,
-                    image.rowstride,
-                );
-                picture.set_paintable(Some(&texture));
+                picture.set_paintable(Some(&texture(image)));
                 picture.set_visible(true);
                 fallback.set_visible(false);
                 diagnostics::emit(Event::Displayed);

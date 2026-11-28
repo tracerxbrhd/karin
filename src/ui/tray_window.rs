@@ -8,13 +8,20 @@ use std::{
 };
 
 use adw::prelude::*;
-use gtk::{gio, glib};
+use gtk::{gdk, gio, glib};
 
-use super::tray::Tray;
+use super::{
+    mini_player::{Action, MiniPlayer},
+    music::MiniPlayback,
+    tray::Tray,
+};
 
 pub(super) struct WindowTray {
     window: glib::WeakRef<adw::ApplicationWindow>,
     tray: RefCell<Option<Tray>>,
+    playback: RefCell<Option<MiniPlayback>>,
+    mini: RefCell<Option<MiniPlayer>>,
+    mini_refresh: RefCell<Option<glib::SourceId>>,
     hidden_hold: RefCell<Option<gio::ApplicationHoldGuard>>,
     quitting: Cell<bool>,
 }
@@ -24,6 +31,9 @@ impl WindowTray {
         let owner = Rc::new(Self {
             window: window.downgrade(),
             tray: RefCell::new(None),
+            playback: RefCell::new(None),
+            mini: RefCell::new(None),
+            mini_refresh: RefCell::new(None),
             hidden_hold: RefCell::new(None),
             quitting: Cell::new(false),
         });
@@ -35,6 +45,7 @@ impl WindowTray {
                     return glib::Propagation::Stop;
                 }
                 if window.dialogs().n_items() == 0 {
+                    owner.discard_mini();
                     owner.hidden_hold.borrow_mut().take();
                 }
             }
@@ -48,6 +59,14 @@ impl WindowTray {
                 owner.hidden_hold.borrow_mut().take();
             }
         });
+        let show = gio::SimpleAction::new("show-main", None);
+        let weak = Rc::downgrade(&owner);
+        show.connect_activate(move |_, _| {
+            if let Some(owner) = weak.upgrade() {
+                owner.present_main(None);
+            }
+        });
+        window.add_action(&show);
         let quit = gio::SimpleAction::new("quit", None);
         let weak = Rc::downgrade(&owner);
         quit.connect_activate(move |_, _| {
@@ -59,11 +78,16 @@ impl WindowTray {
         owner
     }
 
+    pub(super) fn attach_playback(&self, playback: MiniPlayback) {
+        self.playback.replace(Some(playback));
+    }
+
     pub(super) fn set_enabled(self: &Rc<Self>, enabled: bool) {
         if enabled == self.tray.borrow().is_some() {
             return;
         }
         if !enabled {
+            self.discard_mini();
             self.restore_if_hidden();
             let tray = self.tray.borrow_mut().take();
             drop(tray);
@@ -76,16 +100,13 @@ impl WindowTray {
         let availability = activate.clone();
         self.tray.replace(Some(Tray::new(
             move |token| {
-                if let Some(owner) = activate.upgrade()
-                    && let Some(window) = owner.window.upgrade()
-                    && (!window.is_active() || !owner.hide(&window))
-                {
-                    owner.present(token);
+                if let Some(owner) = activate.upgrade() {
+                    owner.toggle_mini(token);
                 }
             },
             move |token| {
                 if let Some(owner) = show.upgrade() {
-                    owner.present(token);
+                    owner.present_main(token);
                 }
             },
             move || {
@@ -95,6 +116,7 @@ impl WindowTray {
             },
             move |available| {
                 if !available && let Some(owner) = availability.upgrade() {
+                    owner.discard_mini();
                     owner.restore_if_hidden();
                 }
             },
@@ -117,21 +139,124 @@ impl WindowTray {
         true
     }
 
-    fn present(&self, token: Option<&str>) {
+    fn present_main(&self, token: Option<&str>) {
         if !self.quitting.get()
             && let Some(window) = self.window.upgrade()
         {
-            if let Some(token) = token {
-                window.set_startup_id(token);
-            }
-            window.present();
+            present(&window, token);
+            self.hide_mini();
         }
     }
 
     fn restore_if_hidden(&self) {
         let hidden = self.hidden_hold.borrow().is_some();
         if hidden {
-            self.present(None);
+            self.present_main(None);
+        }
+    }
+
+    fn toggle_mini(self: &Rc<Self>, token: Option<&str>) {
+        if self.quitting.get() {
+            return;
+        }
+        if let Some(window) = self.mini_window() {
+            let minimized = window
+                .surface()
+                .and_downcast::<gdk::Toplevel>()
+                .is_some_and(|surface| surface.state().contains(gdk::ToplevelState::MINIMIZED));
+            if window.is_visible() && !minimized {
+                window.set_visible(false);
+            } else {
+                present(&window, token);
+            }
+            return;
+        }
+        let Some(app) = self
+            .window
+            .upgrade()
+            .and_then(|window| window.application())
+            .and_downcast::<adw::Application>()
+        else {
+            return;
+        };
+        let Some(playback) = self.playback.borrow().clone() else {
+            return;
+        };
+        let weak = Rc::downgrade(self);
+        let mini = MiniPlayer::new(&app, move |action| match action {
+            Action::Playback(command) => playback.command(command),
+            Action::OpenMain => {
+                if let Some(owner) = weak.upgrade() {
+                    owner.present_main(None);
+                }
+            }
+        });
+        let window = mini.window.clone();
+        window.set_hide_on_close(true);
+        let weak = Rc::downgrade(self);
+        window.connect_map(move |_| {
+            if let Some(owner) = weak.upgrade() {
+                owner.start_mini_refresh();
+            }
+        });
+        let weak = Rc::downgrade(self);
+        window.connect_unmap(move |_| {
+            if let Some(owner) = weak.upgrade() {
+                owner.stop_mini_refresh();
+            }
+        });
+        self.mini.replace(Some(mini));
+        present(&window, token);
+    }
+
+    fn mini_window(&self) -> Option<adw::ApplicationWindow> {
+        self.mini.borrow().as_ref().map(|mini| mini.window.clone())
+    }
+
+    fn hide_mini(&self) {
+        if let Some(window) = self.mini_window() {
+            window.set_visible(false);
+        }
+    }
+
+    fn discard_mini(&self) {
+        self.stop_mini_refresh();
+        if let Some(mini) = self.mini.take() {
+            mini.window.destroy();
+        }
+    }
+
+    fn start_mini_refresh(self: &Rc<Self>) {
+        self.stop_mini_refresh();
+        self.render_mini();
+        let weak = Rc::downgrade(self);
+        self.mini_refresh.replace(Some(glib::timeout_add_local(
+            Duration::from_millis(150),
+            move || {
+                let Some(owner) = weak.upgrade() else {
+                    return glib::ControlFlow::Break;
+                };
+                owner.render_mini();
+                glib::ControlFlow::Continue
+            },
+        )));
+    }
+
+    fn stop_mini_refresh(&self) {
+        if let Some(source) = self.mini_refresh.take() {
+            source.remove();
+        }
+    }
+
+    fn render_mini(&self) {
+        if let Some(snapshot) = self
+            .playback
+            .borrow()
+            .as_ref()
+            .and_then(MiniPlayback::snapshot)
+            && let Some(mini) = self.mini.borrow().as_ref()
+        {
+            mini.render(&snapshot);
         }
     }
 
@@ -142,6 +267,7 @@ impl WindowTray {
         if self.quitting.replace(true) {
             return;
         }
+        self.hide_mini();
         if window.dialogs().n_items() == 0 {
             window.close();
             self.quitting.set(false);
@@ -171,4 +297,17 @@ impl WindowTray {
             }
         });
     }
+}
+
+impl Drop for WindowTray {
+    fn drop(&mut self) {
+        self.discard_mini();
+    }
+}
+
+fn present(window: &adw::ApplicationWindow, token: Option<&str>) {
+    if let Some(token) = token {
+        window.set_startup_id(token);
+    }
+    window.present();
 }

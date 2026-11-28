@@ -14,6 +14,7 @@ mod auth;
 mod diagnostics;
 mod fonts;
 mod icons;
+mod mini_player;
 mod music;
 mod playback;
 mod preferences;
@@ -47,9 +48,25 @@ pub struct MainWindow {
     tray: Rc<tray_window::WindowTray>,
 }
 
+pub fn main_application_window(app: &adw::Application) -> Option<adw::ApplicationWindow> {
+    app.windows()
+        .into_iter()
+        .filter_map(|window| window.downcast::<adw::ApplicationWindow>().ok())
+        .find(|window| window.has_css_class("music-shell"))
+}
+
+pub fn present_main_window(window: &adw::ApplicationWindow) {
+    if let Some(show) = window.lookup_action("show-main") {
+        show.activate(None);
+    } else {
+        window.present();
+    }
+}
+
 impl MainWindow {
     /// Connect the normal preference owner to the optional desktop integration.
     pub fn enable_tray_preferences(&self) {
+        self.tray.attach_playback(self.music.mini_playback());
         self.music.attach_tray(&self.tray);
     }
 

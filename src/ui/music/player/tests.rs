@@ -2925,6 +2925,14 @@ fn native_music_context_mpris_shared_player_and_cleanup() {
     assert_eq!(desktop_property("PlaybackStatus").str(), Some("Paused"));
     assert_pinned_track(this, "44");
 
+    let mini = ui.music.mini_playback();
+    pump_until(|| mini.snapshot().is_some_and(|view| view.can_seek));
+    let view = mini.snapshot().unwrap();
+    assert_eq!(view.title.as_deref(), Some("Synthetic remote player track"));
+    assert_eq!(view.artist.as_deref(), Some("Synthetic artist"));
+    assert_eq!(view.duration.map(|duration| duration.as_secs()), Some(4));
+    assert!(!view.playing && !view.can_previous && view.can_next);
+
     // Exercise the real mounted pane while a real HTTP/MP3 worker is paused.
     // Changing presentation cannot resolve again or replace/restart its source.
     let presentation_serial = this.player.borrow().serial;
@@ -3183,6 +3191,17 @@ fn native_music_context_mpris_shared_player_and_cleanup() {
             && this.widgets.player_status.text() == "Пауза"
     });
 
+    mini.command(MiniCommand::Volume(0.41));
+    pump_until(|| (original.snapshot().volume - 0.41).abs() < 0.001);
+    mini.command(MiniCommand::Seek(Duration::from_millis(500)));
+    pump_until(|| original.snapshot().seek_position == Some(Duration::from_millis(500)));
+    pump_until(|| seeks.borrow().contains(&500_000));
+    mini.command(MiniCommand::PlayPause);
+    pump_until(|| original.snapshot().state == PlaybackState::Playing);
+    assert!(mini.snapshot().unwrap().playing);
+    mini.command(MiniCommand::PlayPause);
+    pump_until(|| original.snapshot().state == PlaybackState::Paused);
+
     desktop_cli("playerctl", &["--player", PLAYER, "next"]);
     pump_until(|| {
         this.model.borrow().queue.current_index() == Some(1)
@@ -3259,6 +3278,12 @@ fn native_music_context_mpris_shared_player_and_cleanup() {
     desktop_cli("playerctl", &["--player", PLAYER, "stop"]);
     pump_until(|| this.music_snapshot().is_none());
     let offers = fixture.offers(1);
+    mini.command(MiniCommand::Next);
+    assert_eq!(this.model.borrow().queue.current_index(), Some(1));
+    assert!(this.music_snapshot().is_none());
+    mini.command(MiniCommand::Previous);
+    assert_eq!(this.model.borrow().queue.current_index(), Some(0));
+    assert!(this.music_snapshot().is_none());
     desktop_cli("playerctl", &["--player", PLAYER, "next"]);
     assert_eq!(this.model.borrow().queue.current_index(), Some(1));
     assert!(this.music_snapshot().is_none());
@@ -3312,6 +3337,9 @@ fn native_music_context_mpris_shared_player_and_cleanup() {
     // the server method directly to prove it cannot revive the signed-out
     // session, while preserving the explicit false-capability assertions.
     desktop_method("Play", ().to_variant());
+    let cleared = mini.snapshot().unwrap();
+    assert!(cleared.title.is_none() && cleared.cover.is_none() && !cleared.can_play_pause);
+    mini.command(MiniCommand::PlayPause);
     assert!(this.music_snapshot().is_none());
     assert!(this.model.borrow().queue.items().is_empty());
     drop(subscription);
