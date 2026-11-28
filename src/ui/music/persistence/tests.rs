@@ -438,6 +438,136 @@ fn track() -> Track {
     }
 }
 
+fn assert_private_discord_menu(
+    ui: &crate::ui::MainWindow,
+    settings: &SettingsStore,
+    fixture: &Path,
+) {
+    use crate::discord_presence::Status;
+
+    let this = &ui.music.controller;
+    let original = this.music_snapshot().unwrap();
+    let serial = this.music_serial();
+    let menu = ui
+        .header_items
+        .iter()
+        .filter_map(gtk::Widget::downcast_ref::<gtk::MenuButton>)
+        .find(|menu| menu.icon_name().as_deref() == Some("karin-menu-2-symbolic"))
+        .unwrap();
+    let window_id = std::process::Command::new("xdotool")
+        .args([
+            "search",
+            "--onlyvisible",
+            "--name",
+            "^Karin synthetic HTTP fixture$",
+        ])
+        .output()
+        .unwrap();
+    assert!(window_id.status.success());
+    let window_id = std::str::from_utf8(&window_id.stdout)
+        .unwrap()
+        .lines()
+        .next()
+        .unwrap();
+    let input = |args: &[&str]| {
+        assert!(
+            std::process::Command::new("xdotool")
+                .args(args)
+                .status()
+                .unwrap()
+                .success()
+        );
+    };
+    input(&["windowfocus", "--sync", window_id]);
+    let action = ui
+        .window
+        .application()
+        .unwrap()
+        .lookup_action("private-listening")
+        .unwrap();
+    let private = || {
+        action
+            .state()
+            .and_then(|state| state.get::<bool>())
+            .unwrap()
+    };
+    let toggle = |capture| {
+        let before = private();
+        menu.popup();
+        let popover = menu.popover().unwrap();
+        let mut target = None;
+        pump_until(|| {
+            target =
+                super::super::test_input::menu_action_widget(&popover, "app.private-listening");
+            target.is_some()
+        });
+        let target = target.unwrap();
+        let role = target.property_value("role");
+        assert_eq!(
+            glib::EnumValue::from_value(&role).unwrap().1.nick(),
+            "check"
+        );
+        assert_eq!(target.property::<bool>("active"), before);
+        if capture && let Some(directory) = std::env::var_os("KARIN_TEST_CAPTURE_DIR") {
+            assert!(before);
+            let directory = PathBuf::from(directory);
+            std::fs::create_dir_all(&directory).unwrap();
+            super::super::test_input::wait_for_layout(&ui.window, &target);
+            assert!(
+                std::process::Command::new("import")
+                    .args(["-silent", "-window", "root"])
+                    .arg(directory.join("private-discord-menu-checked.png"))
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+        }
+        assert!(target.grab_focus());
+        input(&["key", "--clearmodifiers", "space"]);
+        pump_until(|| private() != before);
+        menu.popdown();
+        pump_until(|| !popover.is_mapped());
+    };
+
+    // The worker receives a socket path in this fixture's private directory.
+    this.use_test_discord_socket(fixture.join("not-a-discord-peer.sock"));
+    this.persistence.borrow_mut().discord_allowed = true;
+    this.sync_discord_presence_preference();
+    pump_until(|| this.discord_status() == Status::Unavailable);
+    assert!(!private());
+    let settings_operation = this.persistence.borrow().settings_operation;
+    toggle(false);
+    assert_eq!(this.discord_status(), Status::PrivateListening);
+    assert!(!this.discord_enabled_for_test());
+    this.render_persistence();
+    assert_eq!(this.discord_status(), Status::PrivateListening);
+    assert!(!this.discord_enabled_for_test());
+    assert_eq!(
+        this.persistence.borrow().settings_operation,
+        settings_operation
+    );
+    assert!(settings.load().unwrap().preferences.discord_presence);
+    toggle(true);
+    pump_until(|| this.discord_status() == Status::Unavailable);
+    assert!(this.discord_enabled_for_test());
+
+    toggle(false);
+    let mut changed = this.persistence.borrow().values.clone();
+    changed.discord_presence = false;
+    this.preferences_changed(changed);
+    pump_until(|| settled(this));
+    assert!(!settings.load().unwrap().preferences.discord_presence);
+    assert_eq!(this.discord_status(), Status::PrivateListening);
+    assert!(!this.discord_enabled_for_test());
+    toggle(false);
+    assert_eq!(this.discord_status(), Status::Disabled);
+    assert_eq!(this.music_serial(), serial);
+    let playing = this.music_snapshot().unwrap();
+    assert_eq!(playing.state, PlaybackState::Playing);
+    assert_eq!(playing.generation, original.generation);
+    assert_eq!(this.model.borrow().queue.current().unwrap().id, "42");
+}
+
 /// A different fixture may leave an ordinary, same-account continuation in
 /// shared XDG application data. This fixture must neither read nor mutate it.
 /// Require an explicitly isolated data home before writing the synthetic seed,
@@ -630,6 +760,7 @@ fn native_persistent_session_restore_settings_forget_and_close() {
         this.music_snapshot()
             .is_some_and(|s| s.state == PlaybackState::Playing)
     });
+    assert_private_discord_menu(&ui, &settings, &directory.0);
     let original = this.music_snapshot().unwrap();
     let original_serial = this.music_serial();
     // Appearance is applied through AdwStyleManager at runtime. In System mode

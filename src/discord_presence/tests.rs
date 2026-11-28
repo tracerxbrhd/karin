@@ -239,9 +239,7 @@ fn local_rpc_resumes_after_late_start_and_restart_then_clears() {
     let mut presence = Presence::default();
     assert_eq!(presence.status(), Status::Disabled);
     assert!(presence.worker.is_none());
-    let shared = presence.shared.clone();
-    let path = fixture.path();
-    presence.worker = Some(thread::spawn(move || run(&shared, &[path], false)));
+    presence.use_test_socket(fixture.path());
 
     assert!(presence.enable(true));
     until(|| (presence.status() == Status::Unavailable).then_some(()));
@@ -291,11 +289,23 @@ fn local_rpc_resumes_after_late_start_and_restart_then_clears() {
     assert_eq!(presence.status(), Status::Disabled);
     assert_eq!(take_activity(&mut stream), Value::Null);
     assert_eq!(stream.read(&mut [0; 1]).unwrap(), 0);
+    presence.update(Some(activity(77)));
+    assert!(presence.shared.state.lock().unwrap().activity.is_none());
     assert!(listener.accept().is_err());
 
     assert!(presence.enable(true));
     let mut stream = accept(&listener);
     ready(&mut stream);
+    stream
+        .set_read_timeout(Some(Duration::from_millis(250)))
+        .unwrap();
+    assert_eq!(
+        stream.read(&mut [0; 1]).unwrap_err().kind(),
+        io::ErrorKind::WouldBlock
+    );
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
     presence.update(Some(activity(3)));
     assert_eq!(take_activity(&mut stream)["timestamps"]["start"], 997);
     presence.update(None);

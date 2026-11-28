@@ -1331,22 +1331,29 @@ impl Controller {
             .set_visible(p.retry != Retry::None || p.playback.retry);
         p.retry_button
             .set_sensitive(p.phase == Phase::Idle && !p.critical && !p.playback.loading());
-        let discord_changed = self.enable_discord_presence(
-            p.discord_allowed && p.ready && !p.closed && p.values.discord_presence,
-        );
         if let Some(view) = &p.view {
             view.update(&p.snapshot());
-            view.set_discord_status(self.discord_status());
         }
         let lyrics_external_auto = p.values.lyrics_external_auto;
         drop(p);
-        if discord_changed {
-            self.publish_mpris();
-        }
+        self.sync_discord_presence_preference();
         self.track_pane
             .extras
             .set_external_preference(lyrics_external_auto);
         self.render_controls();
+    }
+    pub(super) fn sync_discord_presence_preference(&self) {
+        let p = self.persistence.borrow();
+        let changed = self.apply_discord_presence_preference(
+            p.discord_allowed && p.ready && !p.closed && p.values.discord_presence,
+        );
+        if let Some(view) = &p.view {
+            view.set_discord_status(self.discord_status());
+        }
+        drop(p);
+        if changed {
+            self.publish_mpris();
+        }
     }
     pub(super) fn present_preferences(self: &Rc<Self>) {
         let Some(window) = self.window.upgrade() else {

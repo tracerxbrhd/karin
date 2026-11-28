@@ -50,6 +50,7 @@ fn diagnostic(
 pub(crate) enum Status {
     #[default]
     Disabled,
+    PrivateListening,
     Waiting,
     Connected,
     Unavailable,
@@ -60,6 +61,7 @@ impl Status {
     pub(crate) const fn label(self) -> &'static str {
         match self {
             Self::Disabled => "Отключено",
+            Self::PrivateListening => "Активность скрыта в текущем сеансе Karin",
             Self::Waiting => "Ожидание Discord",
             Self::Connected => "Подключено",
             Self::Unavailable => "Discord недоступен",
@@ -222,6 +224,13 @@ pub(crate) struct Presence {
 }
 
 impl Presence {
+    #[cfg(test)]
+    pub(crate) fn use_test_socket(&mut self, path: PathBuf) {
+        assert!(self.worker.is_none());
+        let shared = self.shared.clone();
+        self.worker = Some(thread::spawn(move || run(&shared, &[path], false)));
+    }
+
     pub(crate) fn status(&self) -> Status {
         self.shared.state.lock().unwrap().status
     }

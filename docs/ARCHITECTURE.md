@@ -172,6 +172,11 @@ reaction state. Now Playing preserves the saved regular side panel preference.
 Discord Rich Presence is enabled for new profiles and can be disabled under
 Integrations. Earlier settings files represented an unchecked switch by omitting
 the field. The loader preserves that state and saves both choices explicitly.
+The app menu can temporarily hide Discord activity for the current Karin
+process. It retires the current IPC session and suppresses updates until the
+toggle is switched off or Karin exits. Switching it off resumes Discord only
+when the saved integration preference is enabled. Playback, MPRIS and Music
+service events use their normal paths.
 The local IPC worker sends track, transport and seek events without periodic
 position updates. The title links to the public album-track page. Collection
 selectors that include an album suffix must match the track's catalog album

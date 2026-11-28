@@ -23,6 +23,7 @@ pub(super) struct SystemMedia {
     bus: Option<Mpris>,
     discord: Presence,
     discord_event: Option<DiscordEvent>,
+    private_listening_watch: Option<(gio::Action, glib::SignalHandlerId)>,
     binding: Option<(u64, crate::queue::OccurrenceId)>,
     serial: u64,
     repeat_restart: Option<u64>,
@@ -108,6 +109,14 @@ impl SystemMedia {
     }
 }
 
+impl Drop for SystemMedia {
+    fn drop(&mut self) {
+        if let Some((action, handler)) = self.private_listening_watch.take() {
+            action.disconnect(handler);
+        }
+    }
+}
+
 /// Only a decoded, public cover is written, never media or a provider address.
 /// The app cache path is shared with the host in Flatpak without filesystem
 /// grants; both file and directory are removed on replacement/logout/close.
@@ -160,7 +169,8 @@ impl Drop for PrivateCover {
 }
 
 impl Controller {
-    pub(super) fn enable_discord_presence(&self, enabled: bool) -> bool {
+    pub(super) fn apply_discord_presence_preference(&self, enabled: bool) -> bool {
+        let enabled = enabled && !self.private_listening();
         let mut media = self.system_media.borrow_mut();
         let changed = media.discord.enable(enabled);
         if changed {
@@ -169,11 +179,50 @@ impl Controller {
         changed
     }
 
+    fn private_listening(&self) -> bool {
+        self.app
+            .upgrade()
+            .and_then(|app| app.action_state("private-listening"))
+            .and_then(|state| state.get::<bool>())
+            .unwrap_or(false)
+    }
+
     pub(super) fn discord_status(&self) -> DiscordStatus {
-        self.system_media.borrow().discord.status()
+        if self.private_listening() {
+            DiscordStatus::PrivateListening
+        } else {
+            self.system_media.borrow().discord.status()
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn use_test_discord_socket(&self, path: PathBuf) {
+        self.system_media.borrow_mut().discord.use_test_socket(path);
+    }
+
+    #[cfg(test)]
+    pub(super) fn discord_enabled_for_test(&self) -> bool {
+        self.system_media.borrow().discord.is_enabled()
     }
 
     pub(super) fn connect_system_media(self: &Rc<Self>) {
+        if let Some(app) = self.app.upgrade() {
+            // Keep the toggle on the application so closing and recreating a
+            // window during a protected worker hold cannot restore publishing.
+            let action = app.lookup_action("private-listening").unwrap_or_else(|| {
+                let action =
+                    gio::SimpleAction::new_stateful("private-listening", None, &false.to_variant());
+                app.add_action(&action);
+                action.upcast()
+            });
+            let weak = Rc::downgrade(self);
+            let handler = action.connect_state_notify(move |_| {
+                if let Some(this) = weak.upgrade() {
+                    this.sync_discord_presence_preference();
+                }
+            });
+            self.system_media.borrow_mut().private_listening_watch = Some((action, handler));
+        }
         let weak = Rc::downgrade(self);
         let bus = Mpris::new(Rc::new(move |command| {
             if let Some(this) = weak.upgrade() {
