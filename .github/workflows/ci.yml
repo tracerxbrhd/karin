@@ -374,6 +374,7 @@ jobs:
           python3 scripts/test-oauth-terminal.py ./target/release/karin
           ./target/release/karin --audio-self-test
           ./target/release/karin --playback-self-test
+          ./target/release/karin --transition-diagnostic
           GTK_A11Y=none dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24 -dpi 96' ./target/release/karin --smoke-test
       - name: Package and verify the Native acceptance archive
         if: matrix.lane == 'msrv' && github.event_name == 'pull_request'

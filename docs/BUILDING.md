@@ -64,6 +64,19 @@ CI distributes the Ubuntu functional and HiDPI fixtures across three independent
 Debian visual and Lyrics fixtures use separate runners at 1× and 2×. High Contrast runs with
 the 1× lane. All fixtures at their original scales are required for release.
 
+To measure transition timing on a candidate Native or Flatpak build, confirm
+its revision with `--version` and run the local probe:
+
+```sh
+./target/release/karin --transition-diagnostic
+flatpak run --user io.github.tracerxbrhd.Karin --transition-diagnostic
+```
+
+The probe reports decoded and original frame counts separately from gaps
+and overlaps at the sink. It uses original local WAV and MP3 signals and
+a silent, clocked sink. Regenerate the two tagged MP3 fixtures with
+`python3 scripts/generate-transition-fixtures.py` and LAME 3.100.
+
 ### Native interaction fixtures
 
 ```sh

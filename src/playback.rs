@@ -32,10 +32,14 @@ mod cache_tests;
 mod remote;
 #[cfg(test)]
 mod remote_tests;
+mod transitions;
+
+pub use transitions::{TransitionDiagnosticError, TransitionReport, run_transition_diagnostic};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 const TRANSITION_TIMEOUT: Duration = Duration::from_secs(5);
 const QUEUE_CAPACITY: usize = 32;
+const DIAGNOSTIC_WAV_RATE: u32 = 22_050;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlaybackOutput {
@@ -1498,7 +1502,7 @@ impl DiagnosticMedia {
             cache_fallback: None,
         };
         let guard = Self { source };
-        let sample_rate = 22_050_u32;
+        let sample_rate = DIAGNOSTIC_WAV_RATE;
         let samples = (duration.as_nanos() * sample_rate as u128 / 1_000_000_000) as u32;
         let data_len = samples * 2;
         let write = (|| -> std::io::Result<()> {
