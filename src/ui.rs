@@ -23,6 +23,7 @@ mod style;
 mod tray;
 mod tray_window;
 mod updates;
+mod volume_readout;
 
 pub use fonts::FontError;
 pub use icons::APP_ICON;
@@ -412,25 +413,7 @@ fn build_shell(
     // GTK can add its own app icon through the desktop's CSD layout. The
     // Home button supplies the brand here, so keep the other native controls
     // in their configured order and omit only the duplicate app icon.
-    window
-        .settings()
-        .bind_property("gtk-decoration-layout", &header, "decoration-layout")
-        .transform_to(|_, layout: Option<String>| {
-            Some(layout.map(|layout| {
-                layout
-                    .split(':')
-                    .map(|side| {
-                        side.split(',')
-                            .filter(|token| *token != "icon")
-                            .collect::<Vec<_>>()
-                            .join(",")
-                    })
-                    .collect::<Vec<_>>()
-                    .join(":")
-            }))
-        })
-        .sync_create()
-        .build();
+    bind_window_decoration_layout(&header);
     let stack = adw::ViewStack::new();
     stack.set_hhomogeneous(false);
     stack.set_vhomogeneous(false);
@@ -469,9 +452,25 @@ fn build_shell(
     home.set_margin_top(16);
     home.set_margin_bottom(16);
     let music = make_music(app, &window);
-    let brand = gtk::Image::from_icon_name(icons::BRAND_MARK);
+    let brand = gtk::Picture::builder()
+        .content_fit(gtk::ContentFit::Contain)
+        .can_shrink(true)
+        .build();
     brand.set_widget_name("karin-header-icon");
-    brand.set_pixel_size(20);
+    let render_brand = |picture: &gtk::Picture| {
+        let theme = gtk::IconTheme::for_display(&picture.display());
+        let paintable = theme.lookup_icon(
+            icons::BRAND_MARK,
+            &[],
+            30,
+            picture.scale_factor(),
+            picture.direction(),
+            gtk::IconLookupFlags::empty(),
+        );
+        picture.set_paintable(Some(&paintable));
+    };
+    render_brand(&brand);
+    brand.connect_scale_factor_notify(render_brand);
     let brand_home = gtk::Button::builder()
         .child(&brand)
         .action_name("win.music-home")
@@ -483,8 +482,9 @@ fn build_shell(
     brand_home.add_css_class("music-header-control");
     brand_home.update_property(&[gtk::accessible::Property::Label("На главную")]);
     let refresh = header_refresh_button(&window);
+    let (back_content, back_label) = music::back_button_content();
     let music_back = gtk::Button::builder()
-        .icon_name("karin-chevron-left-symbolic")
+        .child(&back_content)
         .action_name("win.music-back")
         .tooltip_text("Назад")
         .focus_on_click(false)
@@ -493,9 +493,11 @@ fn build_shell(
         .build();
     music_back.set_widget_name("music-header-back");
     music_back.add_css_class("music-header-control");
+    music_back.add_css_class("music-back-button");
     music_back.update_property(&[gtk::accessible::Property::Label("Назад")]);
     let music_navigation = music.header_navigation();
     let start_group = gtk::Box::new(gtk::Orientation::Horizontal, 2);
+    start_group.add_css_class("karin-font-primary");
     start_group.append(&brand_home);
     start_group.append(&music_back);
     start_group.append(&refresh);
@@ -684,6 +686,7 @@ fn build_shell(
         adw::BreakpointCondition::parse("max-width: 719sp").expect("constant breakpoint"),
     );
     music.add_compact_navigation_setters(&compact_navigation);
+    compact_navigation.add_setter(&back_label, "visible", Some(&false.to_value()));
     compact_navigation.add_setter(&start_group, "spacing", Some(&0.to_value()));
     compact_navigation.add_setter(
         &information_view,
@@ -885,6 +888,28 @@ fn build_shell(
         music,
         tray,
     }
+}
+
+fn bind_window_decoration_layout(titlebar: &impl IsA<gtk::Widget>) {
+    titlebar
+        .settings()
+        .bind_property("gtk-decoration-layout", titlebar, "decoration-layout")
+        .transform_to(|_, layout: Option<String>| {
+            Some(layout.map(|layout| {
+                layout
+                    .split(':')
+                    .map(|side| {
+                        side.split(',')
+                            .filter(|token| *token != "icon")
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    })
+                    .collect::<Vec<_>>()
+                    .join(":")
+            }))
+        })
+        .sync_create()
+        .build();
 }
 
 fn header_refresh_button(window: &adw::ApplicationWindow) -> gtk::Button {

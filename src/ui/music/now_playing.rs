@@ -80,15 +80,34 @@ impl NowPlaying {
         header.add_css_class("music-now-playing-header");
         header.set_margin_start(12);
         header.set_margin_end(12);
-        let back = icon_button("karin-chevron-left-symbolic", "Вернуться к музыке");
+        let (back_content, _) = super::search_header::back_button_content();
+        let back = gtk::Button::builder()
+            .child(&back_content)
+            .tooltip_text("Вернуться к музыке")
+            .has_frame(false)
+            .build();
         back.set_widget_name("music-now-playing-back");
         back.add_css_class("flat");
-        back.add_css_class("circular");
-        header.set_start_widget(Some(&back));
+        back.add_css_class("music-back-button");
+        back.update_property(&[gtk::accessible::Property::Label("Назад")]);
+        let start_controls = gtk::WindowControls::new(gtk::PackType::Start);
+        start_controls.set_widget_name("music-now-playing-window-controls-start");
+        super::super::bind_window_decoration_layout(&start_controls);
+        let start = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        start.append(&start_controls);
+        start.append(&back);
+        header.set_start_widget(Some(&start));
         let heading = gtk::Label::new(Some("Сейчас играет"));
         heading.add_css_class("heading");
         header.set_center_widget(Some(&heading));
-        widget.append(&header);
+        let end_controls = gtk::WindowControls::new(gtk::PackType::End);
+        end_controls.set_widget_name("music-now-playing-window-controls-end");
+        super::super::bind_window_decoration_layout(&end_controls);
+        header.set_end_widget(Some(&end_controls));
+        let handle = gtk::WindowHandle::new();
+        handle.set_widget_name("music-now-playing-window-handle");
+        handle.set_child(Some(&header));
+        widget.append(&handle);
 
         let tab_row = gtk::Box::new(gtk::Orientation::Horizontal, 2);
         tab_row.set_halign(gtk::Align::Center);
@@ -233,15 +252,19 @@ impl NowPlaying {
         volume.set_hexpand(true);
         volume.set_tooltip_text(Some("Громкость"));
         volume.update_property(&[gtk::accessible::Property::Label("Громкость")]);
+        let volume_readout = crate::ui::volume_readout::new(&volume);
         let speaker = gtk::Image::from_icon_name("karin-volume-symbolic");
         speaker.set_pixel_size(16);
         speaker.add_css_class("dim-label");
+        let loudness = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        loudness.append(&speaker);
+        loudness.append(&volume);
+        loudness.append(&volume_readout);
         let additional = gtk::Box::new(gtk::Orientation::Horizontal, 12);
         additional.add_css_class("music-now-playing-additional-controls");
         additional.set_halign(gtk::Align::Center);
         additional.append(&reactions_slot);
-        additional.append(&speaker);
-        additional.append(&volume);
+        additional.append(&loudness);
 
         let status = track_label("music-now-playing-status", "dim-label", 2);
         status.add_css_class("caption");

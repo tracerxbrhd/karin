@@ -18,9 +18,11 @@ use position::Positioning;
 
 use super::{
     mini_player::{Action, MiniPlayer},
-    music::MiniPlayback,
-    tray::Tray,
+    music::{MiniCommand, MiniPlayback},
+    tray::{Interaction, Tray},
 };
+
+const SCROLL_UNITS_PER_STEP: f64 = 120.0;
 
 pub(super) struct WindowTray {
     window: glib::WeakRef<adw::ApplicationWindow>,
@@ -107,9 +109,9 @@ impl WindowTray {
         let quit = activate.clone();
         let availability = activate.clone();
         self.tray.replace(Some(Tray::new(
-            move |point, token| {
+            move |interaction| {
                 if let Some(owner) = activate.upgrade() {
-                    owner.toggle_mini(point, token);
+                    owner.handle_tray_interaction(interaction);
                 }
             },
             move |token| {
@@ -129,6 +131,21 @@ impl WindowTray {
                 }
             },
         )));
+    }
+
+    fn handle_tray_interaction(self: &Rc<Self>, interaction: Interaction<'_>) {
+        let command = match interaction {
+            Interaction::Activate(point, token) => return self.toggle_mini(point, token),
+            Interaction::PlayPause => MiniCommand::PlayPause,
+            Interaction::Scroll(delta) => {
+                MiniCommand::VolumeSteps(f64::from(delta) / SCROLL_UNITS_PER_STEP)
+            }
+        };
+        let playback = self.playback.borrow().clone();
+        if let Some(playback) = playback {
+            playback.command(command);
+            self.render_mini();
+        }
     }
 
     fn hide(&self, window: &adw::ApplicationWindow) -> bool {

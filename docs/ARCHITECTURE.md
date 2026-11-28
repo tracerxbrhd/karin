@@ -87,6 +87,10 @@ changes cannot rewrite an admitted playback context. The continuation record
 stores up to 500 occurrences around the current position. MPRIS publishes
 actual player state and addresses the current occurrence.
 
+Queue dragging uses a native snapshot of the grabbed row and marks the
+insertion edge without rearranging the live list. A valid drop moves the
+exact upcoming occurrence from the same rendered queue.
+
 Library writes serialize under the validated account. Each intent sends one
 write and requires independent readback. Uncertain results reconcile through
 GET. Playlist edits use a complete revisioned snapshot and the exact server
@@ -135,6 +139,10 @@ plain text requires an explicit rights indication. Synchronized lookup in
 LRCLIB requires consent and sends public track metadata. Lyrics stay in memory.
 Similar tracks and external lyrics load only for the relevant visible view.
 System styling follows Libadwaita, with High Contrast and Reduced Motion.
+Karin's navigation, controls and titles use bundled Montserrat. Secondary
+metadata, lyrics and numeric readouts use bundled Inter Variable. Test the
+fonts used for actual Cyrillic glyphs and digits at normal and HiDPI scales.
+Native window chrome and embedded sign-in keep the platform typography.
 
 The collection overview reads the account-scoped liked and playlist feeds
 used by the full sections. Preview playback uses the same loaded occurrence
@@ -145,9 +153,12 @@ credits on hover or focus when animations are enabled.
 
 The header Back action unwinds the current overlay or nested catalog route
 before restoring the previous primary section and scroll position. The
-navigation history is bounded and cleared on account teardown.
+navigation history is bounded and cleared on account teardown. The main header
+keeps its Back icon at compact widths and includes the label when space allows.
 
-The footer track opens Now Playing inside the same window. The regular
+The footer track opens Now Playing inside the same window. Its heading uses a
+native window handle and the desktop's window controls. Closing follows the
+existing window lifecycle, including the opt-in tray behavior. The regular
 workspace keeps its widgets in the navigation stack, preserving page, scroll and
 side panel intent. Now Playing borrows the existing Info, Lyrics and Queue
 surface in the expanded layout and follows the active synchronized lyric line.
@@ -174,8 +185,10 @@ outside the sandbox's PID namespace can have PID zero.
 Close to tray is opt-in. Karin hides the existing window only after its
 StatusNotifierItem is registered with a host. A hidden window holds the
 application open so playback and media controls keep using the same controller.
-The tray icon toggles Karin Mini, which reads the same player's state while
-mapped and sends commands to that player. When the tray supplies screen
+The tray icon toggles Karin Mini. Middle-click toggles playback and vertical
+scroll adjusts the shared volume. Mini hides when focus leaves it, allowing its
+native popovers to finish first. While mapped, Mini reads the same player's
+state and sends commands to that player. When the tray supplies screen
 coordinates, Mini opens inward from the nearest edge of that output, using
 Wayland Layer Shell where available or placement through an X11 window
 manager. Without a usable position and backend, the window manager places

@@ -130,18 +130,24 @@ fn native_tray_registration_menu_and_host_lifecycle() {
                 let availability = Rc::new(RefCell::new(Vec::new()));
                 let activations = Rc::new(RefCell::new(Vec::new()));
                 let clicked_position = Rc::new(Cell::new(None));
+                let scrolling = Rc::new(RefCell::new(Vec::new()));
                 let seen = availability.clone();
                 let clicked = activations.clone();
                 let opened = activations.clone();
                 let quit = activations.clone();
                 let position = clicked_position.clone();
+                let scroll_events = scrolling.clone();
                 let tray = Tray::start(
                     true,
-                    move |coordinates, token| {
-                        position.set(Some(coordinates));
-                        clicked
-                            .borrow_mut()
-                            .push(("activate", token.map(str::to_owned)))
+                    move |interaction| match interaction {
+                        Interaction::Activate(coordinates, token) => {
+                            position.set(Some(coordinates));
+                            clicked
+                                .borrow_mut()
+                                .push(("activate", token.map(str::to_owned)));
+                        }
+                        Interaction::PlayPause => clicked.borrow_mut().push(("play-pause", None)),
+                        Interaction::Scroll(delta) => scroll_events.borrow_mut().push(delta),
                     },
                     move |token| opened.borrow_mut().push(("open", token.map(str::to_owned))),
                     move || quit.borrow_mut().push(("quit", None)),
@@ -181,6 +187,23 @@ fn native_tray_registration_menu_and_host_lifecycle() {
                 .await;
                 call(&panel, icon, "Activate", (10i32, 20i32).to_variant()).await;
                 assert_eq!(clicked_position.get(), Some((10, 20)));
+                call(
+                    &panel,
+                    icon,
+                    "ProvideXdgActivationToken",
+                    ("playback-token",).to_variant(),
+                )
+                .await;
+                call(&panel, icon, "SecondaryActivate", (1i32, 2i32).to_variant()).await;
+                for (delta, direction) in [
+                    (120i32, "vertical"),
+                    (-30, "vertical"),
+                    (120, "horizontal"),
+                    (0, "vertical"),
+                ] {
+                    call(&panel, icon, "Scroll", (delta, direction).to_variant()).await;
+                }
+                assert_eq!(*scrolling.borrow(), [120, -30]);
                 for id in [OPEN, QUIT] {
                     call(
                         &panel,
@@ -194,6 +217,7 @@ fn native_tray_registration_menu_and_host_lifecycle() {
                     *activations.borrow(),
                     [
                         ("activate", Some("test-token".into())),
+                        ("play-pause", None),
                         ("open", None),
                         ("quit", None)
                     ]

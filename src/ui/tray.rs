@@ -39,6 +39,12 @@ const ITEM_XML: &str = r#"
     <method name="Activate">
       <arg type="i" direction="in"/><arg type="i" direction="in"/>
     </method>
+    <method name="SecondaryActivate">
+      <arg type="i" direction="in"/><arg type="i" direction="in"/>
+    </method>
+    <method name="Scroll">
+      <arg type="i" direction="in"/><arg type="s" direction="in"/>
+    </method>
     <method name="ProvideXdgActivationToken"><arg type="s" direction="in"/></method>
   </interface>
 </node>
@@ -85,7 +91,12 @@ const MENU_XML: &str = r#"
 type Properties = BTreeMap<&'static str, glib::Variant>;
 type MenuEvent = (i32, String, glib::Variant, u32);
 type WindowAction = Box<dyn Fn(Option<&str>)>;
-type ActivateAction = Box<dyn Fn((i32, i32), Option<&str>)>;
+
+pub(super) enum Interaction<'a> {
+    Activate((i32, i32), Option<&'a str>),
+    PlayPause,
+    Scroll(i32),
+}
 
 const ROOT: i32 = 0;
 const OPEN: i32 = 1;
@@ -105,7 +116,7 @@ struct Inner {
     watcher_confirmed: Cell<bool>,
     available: Cell<bool>,
     activation_token: RefCell<Option<(String, String)>>,
-    on_activate: ActivateAction,
+    on_interaction: Box<dyn Fn(Interaction<'_>)>,
     on_show: WindowAction,
     on_quit: Box<dyn Fn()>,
     on_availability_changed: Box<dyn Fn(bool)>,
@@ -132,7 +143,7 @@ impl Drop for Watcher {
 
 impl Tray {
     pub(super) fn new(
-        on_activate: impl Fn((i32, i32), Option<&str>) + 'static,
+        on_interaction: impl Fn(Interaction<'_>) + 'static,
         on_show: impl Fn(Option<&str>) + 'static,
         on_quit: impl Fn() + 'static,
         on_availability_changed: impl Fn(bool) + 'static,
@@ -140,7 +151,7 @@ impl Tray {
         let desktops = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default();
         Self::start(
             is_plasma(&desktops),
-            on_activate,
+            on_interaction,
             on_show,
             on_quit,
             on_availability_changed,
@@ -149,7 +160,7 @@ impl Tray {
 
     fn start(
         watch_plasma: bool,
-        on_activate: impl Fn((i32, i32), Option<&str>) + 'static,
+        on_interaction: impl Fn(Interaction<'_>) + 'static,
         on_show: impl Fn(Option<&str>) + 'static,
         on_quit: impl Fn() + 'static,
         on_availability_changed: impl Fn(bool) + 'static,
@@ -163,7 +174,7 @@ impl Tray {
             watcher_confirmed: Cell::new(false),
             available: Cell::new(false),
             activation_token: RefCell::new(None),
-            on_activate: Box::new(on_activate),
+            on_interaction: Box::new(on_interaction),
             on_show: Box::new(on_show),
             on_quit: Box::new(on_quit),
             on_availability_changed: Box::new(on_availability_changed),
@@ -264,7 +275,24 @@ impl Inner {
                     "Activate" => {
                         let token = inner.take_token(sender);
                         if let Some(position) = args.get::<(i32, i32)>() {
-                            (inner.on_activate)(position, token.as_deref());
+                            (inner.on_interaction)(Interaction::Activate(
+                                position,
+                                token.as_deref(),
+                            ));
+                        }
+                    }
+                    "SecondaryActivate" => {
+                        // Plasma supplies a token even when the interaction
+                        // just sends a playback command and opens no window.
+                        inner.take_token(sender);
+                        (inner.on_interaction)(Interaction::PlayPause);
+                    }
+                    "Scroll" => {
+                        if let Some((delta, direction)) = args.get::<(i32, String)>()
+                            && direction == "vertical"
+                            && delta != 0
+                        {
+                            (inner.on_interaction)(Interaction::Scroll(delta));
                         }
                     }
                     "ProvideXdgActivationToken" => {

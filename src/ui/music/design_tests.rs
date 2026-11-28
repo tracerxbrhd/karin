@@ -2475,6 +2475,76 @@ fn native_click(ui: &crate::ui::MainWindow, widget: &impl IsA<gtk::Widget>) {
     );
 }
 
+fn assert_window_header_drag(ui: &crate::ui::MainWindow, handle: &gtk::WindowHandle) -> String {
+    let find = Command::new("xdotool")
+        .args([
+            "search",
+            "--onlyvisible",
+            "--name",
+            "^Karin synthetic HTTP fixture$",
+        ])
+        .output()
+        .unwrap();
+    assert!(find.status.success());
+    let windows = String::from_utf8(find.stdout).unwrap();
+    let id = windows.lines().next().unwrap();
+    let position = || {
+        let geometry = Command::new("xdotool")
+            .args(["getwindowgeometry", "--shell", id])
+            .output()
+            .unwrap();
+        assert!(geometry.status.success());
+        let geometry = String::from_utf8(geometry.stdout).unwrap();
+        ["X=", "Y="].map(|key| {
+            geometry
+                .lines()
+                .find_map(|line| line.strip_prefix(key))
+                .unwrap()
+                .parse::<i32>()
+                .unwrap()
+        })
+    };
+    let before = position();
+    let (x, y) = super::test_input::pointer(&ui.window, handle, super::test_input::Target::Center);
+    let mut drag = Command::new("xdotool")
+        .args([
+            "mousemove",
+            "--window",
+            id,
+            &x.to_string(),
+            &y.to_string(),
+            "mousedown",
+            "1",
+            "sleep",
+            "0.08",
+            "mousemove_relative",
+            "--",
+            "24",
+            "16",
+            "sleep",
+            "0.12",
+            "mousemove_relative",
+            "--",
+            "52",
+            "36",
+            "sleep",
+            "0.12",
+            "mouseup",
+            "1",
+        ])
+        .spawn()
+        .unwrap();
+    pump(|| drag.try_wait().unwrap().is_some());
+    assert!(drag.wait().unwrap().success());
+    settle();
+    let after = position();
+    assert!(
+        after[0] - before[0] >= 20 && after[1] - before[1] >= 20,
+        "dragging the Now Playing heading should move the real window: {before:?} -> {after:?}"
+    );
+    id.to_owned()
+}
+
 fn snapshot_motion_frame(
     window: &adw::ApplicationWindow,
     panel: &super::sliding_panel::SlidingPanel,
@@ -3013,6 +3083,9 @@ fn native_now_playing_switches_shared_views_and_restores_workspace() {
 
     gtk::init().unwrap();
     adw::init().unwrap();
+    gtk::Settings::default()
+        .unwrap()
+        .set_property("gtk-decoration-layout", ":minimize,maximize,close");
     let _manager = WindowManager::start();
     let (fixture, _app, ui, liked, _album) = populated_window(true);
     let this = &ui.music.controller;
@@ -3044,6 +3117,23 @@ fn native_now_playing_switches_shared_views_and_restores_workspace() {
     pump(|| now.is_mapped() && !nav.is_mapped());
     let back = part("music-now-playing-back");
     assert!(back.has_focus());
+    let back_label = part("music-back-label").downcast::<gtk::Label>().unwrap();
+    assert!(back_label.is_mapped());
+    crate::ui::fonts::assert_label_font(&back_label, "Montserrat", gtk::pango::Weight::Semibold);
+    let handle = part("music-now-playing-window-handle")
+        .downcast::<gtk::WindowHandle>()
+        .unwrap();
+    assert!(back.is_ancestor(&handle));
+    let window_id = assert_window_header_drag(&ui, &handle);
+    let window_control = |class| {
+        descendants(handle.upcast_ref())
+            .into_iter()
+            .find(|widget| widget.is::<gtk::Button>() && widget.has_css_class(class))
+            .unwrap_or_else(|| panic!("missing native window control: {class}"))
+    };
+    for class in ["minimize", "maximize", "close"] {
+        assert!(window_control(class).is_mapped());
+    }
     let cover = part("music-now-playing-artwork")
         .downcast::<gtk::Picture>()
         .unwrap();
@@ -3071,7 +3161,25 @@ fn native_now_playing_switches_shared_views_and_restores_workspace() {
         click("music-now-playing-repeat");
         pump(|| this.model.borrow().queue.repeat_mode() == expected);
     }
-    let volume = part("music-now-playing-volume");
+    let volume = part("music-now-playing-volume")
+        .downcast::<gtk::Scale>()
+        .unwrap();
+    let volume_readout = part("music-now-playing-volume-percent")
+        .downcast::<gtk::Label>()
+        .unwrap();
+    this.set_music_volume(0.423);
+    pump(|| volume_readout.is_mapped() && volume_readout.text() == "42%");
+    assert!((this.music_volume() - 0.423).abs() < f64::EPSILON);
+    assert!((volume.value() - 0.423).abs() < f64::EPSILON);
+    let font = volume_readout
+        .layout()
+        .iter()
+        .run_readonly()
+        .unwrap()
+        .item()
+        .analysis()
+        .font();
+    assert_eq!(font.describe().family().as_deref(), Some("Inter Variable"));
     assert!(volume.grab_focus());
     assert!(
         Command::new("xdotool")
@@ -3081,6 +3189,7 @@ fn native_now_playing_switches_shared_views_and_restores_workspace() {
             .success()
     );
     pump(|| (this.music_volume() - 1.0).abs() < 0.005);
+    assert_eq!(volume_readout.text(), "100%");
     assert!(part("music-now-playing-reactions").first_child().is_some());
     click("music-now-playing-info");
     pump(|| {
@@ -3206,6 +3315,10 @@ fn native_now_playing_switches_shared_views_and_restores_workspace() {
         .compute_bounds(&now)
         .unwrap();
     assert!(volume_bounds.y() + volume_bounds.height() <= now.height() as f32);
+    let readout_bounds = volume_readout.compute_bounds(&now).unwrap();
+    assert!(volume_readout.is_mapped());
+    assert!(readout_bounds.x() + readout_bounds.width() <= now.width() as f32);
+    assert!(readout_bounds.y() + readout_bounds.height() <= now.height() as f32);
     if std::env::var_os("KARIN_TEST_CAPTURE_DIR").is_some() {
         compare_render_readback(&ui, "now-playing-compact");
     }
@@ -3217,8 +3330,30 @@ fn native_now_playing_switches_shared_views_and_restores_workspace() {
     click("music-now-playing-back");
     pump(|| !now.is_mapped() && nav.is_mapped() && this.widgets.current_art_button.is_mapped());
     assert_eq!(this.panel_mode.get(), PanelMode::Closed);
+    native_click(&ui, &this.widgets.current_art_button);
+    pump(|| window_control("close").is_mapped());
+    native_click(&ui, &window_control("maximize"));
+    pump(|| ui.window.is_maximized());
+    native_click(&ui, &window_control("maximize"));
+    pump(|| !ui.window.is_maximized());
+    let minimized = || {
+        ui.window
+            .surface()
+            .and_downcast::<gdk::Toplevel>()
+            .is_some_and(|surface| surface.state().contains(gdk::ToplevelState::MINIMIZED))
+    };
+    native_click(&ui, &window_control("minimize"));
+    pump(minimized);
+    let mut restore = Command::new("xdotool")
+        .args(["windowactivate", "--sync", &window_id])
+        .spawn()
+        .unwrap();
+    pump(|| restore.try_wait().unwrap().is_some());
+    assert!(restore.wait().unwrap().success());
+    pump(|| !minimized() && now.is_mapped() && ui.window.is_active());
+    native_click(&ui, &window_control("close"));
+    pump(|| !ui.window.is_visible());
     ui.music.close();
-    ui.window.close();
     settle();
 }
 

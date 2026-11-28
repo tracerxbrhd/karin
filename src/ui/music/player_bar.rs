@@ -279,8 +279,13 @@ impl PlayerBarParts {
         volume.update_property(&[gtk::accessible::Property::Label(
             "Громкость воспроизведения",
         )]);
-        super::super::margins(&volume, 12);
-        volume_popover.set_child(Some(&volume));
+        volume.set_hexpand(true);
+        let volume_readout = crate::ui::volume_readout::new(&volume);
+        let volume_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        super::super::margins(&volume_row, 12);
+        volume_row.append(&volume);
+        volume_row.append(&volume_readout);
+        volume_popover.set_child(Some(&volume_row));
         utilities.append(&volume_menu);
         columns.attach(&utilities, 2, 0, 1, 1);
         let layout = columns.layout_manager().expect("native player grid layout");

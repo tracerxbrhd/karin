@@ -90,12 +90,14 @@ impl DeveloperPlayback {
         let volume_row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
         let volume_label = gtk::Label::new(Some("Громкость"));
         let volume = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 1.0, 0.05);
+        volume.set_widget_name("playback-volume");
         volume.set_hexpand(true);
         volume.set_draw_value(false);
         volume.set_value(0.5);
         volume.update_property(&[gtk::accessible::Property::Label("Громкость")]);
         volume_row.append(&volume_label);
         volume_row.append(&volume);
+        volume_row.append(&super::volume_readout::new(&volume));
         content.append(&volume_row);
 
         let widgets = Widgets {

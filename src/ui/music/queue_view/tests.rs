@@ -310,6 +310,11 @@ fn native_v08_queue_next_drag_keyboard_and_restoration() {
     pump_until(|| playing.snapshot().state == PlaybackState::Paused);
     this.toggle_queue_panel();
     pump_until(|| this.widgets.queue_rows.is_mapped());
+    // The expanded player borrows the same native queue. Exercise the drag
+    // there and return to the pinned panel for the keyboard half of the test.
+    this.open_now_playing();
+    this.show_now_playing_section(super::super::now_playing::Section::Queue);
+    pump_until(|| this.now_playing.is_active() && this.widgets.queue_rows.is_mapped());
     let input = |args: &[&str]| {
         assert!(
             Command::new("timeout")
@@ -434,50 +439,82 @@ fn native_v08_queue_next_drag_keyboard_and_restoration() {
             .contains_type(QueueDrag::static_type()),
         native_drag.actions().contains(gtk::gdk::DragAction::MOVE)
     );
-    input(&[
-        "mousemove",
-        "--sync",
-        "--window",
-        window,
-        &tx.to_string(),
-        &(ty - target_row.height() / 4).to_string(),
-    ]);
-    let drop = target_row.observe_controllers();
+    let icon = gtk::DragIcon::for_drag(&native_drag);
+    let preview = icon
+        .child()
+        .expect("mounted GTK drag icon")
+        .downcast::<gtk::Picture>()
+        .expect("track-row snapshot instead of the default file icon");
+    let image = preview.paintable().unwrap();
+    assert_eq!(image.intrinsic_width(), source_row.width());
+    assert_eq!(image.intrinsic_height(), source_row.height());
+    let snapshot = gtk::Snapshot::new();
+    image.snapshot(
+        &snapshot,
+        f64::from(source_row.width()),
+        f64::from(source_row.height()),
+    );
+    let ink = snapshot
+        .to_node()
+        .expect("the queue row paints into the drag icon");
+    assert!(ink.bounds().width() > 100.0 && ink.bounds().height() >= 40.0);
+    assert!(source_row.has_css_class("music-queue-dragging"));
+
     // XDND position/status negotiation is asynchronous. Keep delivering real
     // pointer motion over the destination, as a continuous native drag does,
-    // until GTK observes that particular DropTarget. A single position sent
-    // while X11 is waiting for its preceding status is not a completed gesture.
-    let moving_window = window.to_owned();
-    let destination_y = ty - target_row.height() * ui.window.scale_factor() / 4;
-    let mut step = 0;
-    let movement = glib::timeout_add_local(std::time::Duration::from_millis(25), move || {
-        step += 1;
-        assert!(
-            Command::new("timeout")
-                .args([
-                    "5",
-                    "xdotool",
-                    "mousemove",
-                    "--sync",
-                    "--window",
-                    &moving_window,
-                    &(tx + step % 3).to_string(),
-                    &destination_y.to_string()
-                ])
-                .status()
-                .unwrap()
-                .success()
-        );
-        glib::ControlFlow::Continue
-    });
-    pump_until(|| {
-        (0..drop.n_items())
-            .filter_map(|index| drop.item(index))
-            .filter_map(|item| item.downcast::<gtk::DropTarget>().ok())
-            .any(|target| target.current_drop().is_some())
-    });
-    movement.remove();
+    // until the edge cue follows both halves of the same target row.
+    let move_to_half = |after: bool| {
+        let moving_window = window.to_owned();
+        let quarter = target_row.height() * ui.window.scale_factor() / 4;
+        let destination_y = if after { ty + quarter } else { ty - quarter };
+        let mut step = 0;
+        let movement = glib::timeout_add_local(std::time::Duration::from_millis(25), move || {
+            step += 1;
+            assert!(
+                Command::new("timeout")
+                    .args([
+                        "5",
+                        "xdotool",
+                        "mousemove",
+                        "--sync",
+                        "--window",
+                        &moving_window,
+                        &(tx + step % 3).to_string(),
+                        &destination_y.to_string()
+                    ])
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+            glib::ControlFlow::Continue
+        });
+        pump_until(|| {
+            target_row.has_css_class("music-queue-drop-before") != after
+                && target_row.has_css_class("music-queue-drop-after") == after
+                && icon.is_mapped()
+        });
+        movement.remove();
+    };
+    let capture_drag = |name: &str| {
+        if let Some(directory) = std::env::var_os("KARIN_TEST_CAPTURE_DIR") {
+            super::super::test_input::wait_for_layout(&ui.window, &target_row);
+            assert!(
+                Command::new("import")
+                    .args(["-silent", "-screen", "-window", window])
+                    .arg(std::path::Path::new(&directory).join(name))
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+        }
+    };
+    move_to_half(false);
+    move_to_half(true);
+    capture_drag("queue-drag-after.png");
+    move_to_half(false);
     eprintln!("Karin synthetic queue drag: stage=native-target-entered");
+    assert_eq!(this.model.borrow().queue.occurrence_id(3), Some(&selected));
+    capture_drag("queue-drag-before.png");
     input(&["mouseup", "1"]);
     pump_until(|| {
         let model = this.model.borrow();
@@ -494,6 +531,11 @@ fn native_v08_queue_next_drag_keyboard_and_restoration() {
         Some(&artwork)
     );
     assert_eq!(this.model.borrow().queue.occurrence_index(&target), Some(2));
+    pump_until(|| !source_row.has_css_class("music-queue-dragging"));
+    assert!(!target_row.has_css_class("music-queue-drop-before"));
+    assert!(!target_row.has_css_class("music-queue-drop-after"));
+    assert!(this.close_now_playing(false));
+    pump_until(|| this.widgets.queue_rows.is_mapped());
 
     // Keyboard reorders this exact duplicate, keeps row focus and changes no
     // playing source. An unrelated duplicate ID cannot receive the operation.

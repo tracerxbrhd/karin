@@ -12,6 +12,7 @@
 .karin-presentation-root .music-workspace button,
 .karin-presentation-root .music-information-view button,
 .karin-presentation-root .music-player button,
+.karin-presentation-root button.karin-font-primary,
 .karin-presentation-root .karin-font-primary button {
     font-weight: 600;
 }

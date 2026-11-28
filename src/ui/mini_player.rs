@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Compact presentation of the application's existing music session.
 
-use std::{rc::Rc, time::Duration};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+    time::Duration,
+};
 
 use adw::prelude::*;
 use gtk::{gdk, glib};
@@ -55,9 +59,11 @@ impl MiniPlayer {
 
         let toolbar = adw::ToolbarView::new();
         let header = adw::HeaderBar::new();
+        header.set_show_title(false);
         let open = gtk::Button::with_label("Открыть Karin");
         open.set_widget_name("karin-mini-open-main");
         open.add_css_class("flat");
+        open.add_css_class("karin-font-primary");
         describe(&open, "Открыть основное окно Karin");
         header.pack_start(&open);
         if is_anchored {
@@ -189,8 +195,10 @@ impl MiniPlayer {
         speaker.add_css_class("dim-label");
         speaker.set_pixel_size(16);
         let volume = scale("karin-mini-volume", "Громкость");
+        let volume_readout = super::volume_readout::new(&volume);
         loudness.append(&speaker);
         loudness.append(&volume);
+        loudness.append(&volume_readout);
         extra.append(&loudness);
         content.append(&extra);
         toolbar.set_content(Some(&content));
@@ -246,6 +254,7 @@ impl MiniPlayer {
             })),
         ));
         window.add_controller(shortcuts);
+        hide_after_focus_loss(&window);
 
         let view = Self {
             window,
@@ -339,15 +348,63 @@ impl MiniPlayer {
         self.volume.set_sensitive(snapshot.can_volume);
         if (0.0..=1.0).contains(&snapshot.volume) {
             self.volume.set_value(snapshot.volume);
-            let value = format!("{:.0}%", snapshot.volume * 100.0);
-            let tooltip = format!("Громкость: {value}");
-            if self.volume.tooltip_text().as_deref() != Some(tooltip.as_str()) {
-                self.volume.set_tooltip_text(Some(&tooltip));
-                self.volume
-                    .update_property(&[gtk::accessible::Property::ValueText(&value)]);
-            }
         }
     }
+}
+
+fn hide_after_focus_loss(window: &adw::ApplicationWindow) {
+    let had_focus = Rc::new(Cell::new(false));
+    let pending = Rc::new(RefCell::new(None::<glib::SourceId>));
+    let focus_on_unmap = Rc::clone(&had_focus);
+    let pending_on_unmap = Rc::clone(&pending);
+    window.connect_unmap(move |_| {
+        focus_on_unmap.set(false);
+        if let Some(task) = pending_on_unmap.take() {
+            task.remove();
+        }
+    });
+    window.connect_is_active_notify(move |window| {
+        if window.is_active() {
+            had_focus.set(true);
+            if let Some(task) = pending.take() {
+                task.remove();
+            }
+            return;
+        }
+        // Layer surfaces receive focus on demand. A freshly mapped Mini may
+        // still be inactive while the compositor sends the actual focus event.
+        if !had_focus.get() || !window.is_mapped() || pending.borrow().is_some() {
+            return;
+        }
+        let window = window.downgrade();
+        let pending_for_timer = Rc::clone(&pending);
+        // The tray activation or a native popover can take focus momentarily.
+        // Let the activation hide Mini explicitly, and let its popovers finish.
+        let task = glib::timeout_add_local(Duration::from_millis(120), move || {
+            let Some(window) = window.upgrade().filter(|window| window.is_mapped()) else {
+                pending_for_timer.take();
+                return glib::ControlFlow::Break;
+            };
+            if window.is_active() {
+                pending_for_timer.take();
+                return glib::ControlFlow::Break;
+            }
+            if has_mapped_popover(window.upcast_ref()) {
+                return glib::ControlFlow::Continue;
+            }
+            pending_for_timer.take();
+            window.set_visible(false);
+            glib::ControlFlow::Break
+        });
+        pending.replace(Some(task));
+    });
+}
+
+fn has_mapped_popover(widget: &gtk::Widget) -> bool {
+    widget.is_mapped()
+        && (widget.is::<gtk::Popover>()
+            || std::iter::successors(widget.first_child(), gtk::prelude::WidgetExt::next_sibling)
+                .any(|child| has_mapped_popover(&child)))
 }
 
 fn describe(widget: &impl IsA<gtk::Widget>, label: &str) {

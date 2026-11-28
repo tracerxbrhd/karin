@@ -18,6 +18,7 @@ pub(in crate::ui) enum MiniCommand {
     Next,
     Seek(Duration),
     Volume(f64),
+    VolumeSteps(f64),
     Shuffle(bool),
     Repeat,
 }
@@ -81,6 +82,13 @@ impl MiniPlayback {
             }
             MiniCommand::Volume(volume) if snapshot.can_volume => {
                 controller.set_music_volume(volume)
+            }
+            MiniCommand::VolumeSteps(steps) if snapshot.can_volume => {
+                let volume =
+                    (snapshot.volume + steps * super::volume_scroll::VOLUME_STEP).clamp(0.0, 1.0);
+                if volume != snapshot.volume {
+                    controller.set_music_volume(volume);
+                }
             }
             MiniCommand::Shuffle(enabled) if snapshot.can_change_order => {
                 controller.set_music_shuffle(enabled);

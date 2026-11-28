@@ -12,9 +12,27 @@ const LARGE_QUEUE_PAGE_SIZE: usize = 200;
 #[boxed_type(name = "KarinQueueOccurrenceDrag")]
 struct QueueDrag {
     owner: glib::WeakRef<gtk::ListBox>,
+    row: glib::WeakRef<gtk::ListBoxRow>,
     generation: u64,
     context: Option<PlaybackContext>,
     occurrence: crate::queue::OccurrenceId,
+    slot: usize,
+}
+
+impl QueueDrag {
+    fn is_current(&self, this: &Controller) -> bool {
+        self.owner.upgrade().as_ref() == Some(&this.widgets.queue_rows)
+            && self.row.upgrade().is_some_and(|row| row.is_mapped())
+            && queue_action_is_current(this, self.generation, &self.context)
+    }
+
+    fn accepts(&self, this: &Controller, source: &Self, after: bool) -> bool {
+        let insertion = self.slot + usize::from(after);
+        self.occurrence != source.occurrence
+            && !(source.slot..=source.slot + 1).contains(&insertion)
+            && self.is_current(this)
+            && source.is_current(this)
+    }
 }
 
 impl Controller {
@@ -425,53 +443,18 @@ impl Controller {
                 });
             }
             body.append(&menu);
-            if ordinary && upcoming_slot.is_some() {
-                let source = gtk::DragSource::new();
-                source.set_actions(gtk::gdk::DragAction::MOVE);
-                let payload = QueueDrag {
-                    owner: self.widgets.queue_rows.downgrade(),
-                    generation,
-                    context: queue_snapshot.clone(),
-                    occurrence: occurrence.clone(),
-                };
-                let weak = Rc::downgrade(self);
-                let anchor = row.downgrade();
-                source.connect_prepare(move |_, _, _| {
-                    let this = weak.upgrade()?;
-                    if !anchor.upgrade().is_some_and(|row| row.is_mapped())
-                        || !queue_action_is_current(&this, payload.generation, &payload.context)
-                    {
-                        return None;
-                    }
-                    Some(gtk::gdk::ContentProvider::for_value(&payload.to_value()))
-                });
-                row.add_controller(source);
-                let target =
-                    gtk::DropTarget::new(QueueDrag::static_type(), gtk::gdk::DragAction::MOVE);
-                let weak = Rc::downgrade(self);
-                let selected = occurrence.clone();
-                let expected = queue_snapshot.clone();
-                let anchor = row.downgrade();
-                target.connect_drop(move |_, value, _, y| {
-                    let (Some(this), Some(row), Ok(payload)) =
-                        (weak.upgrade(), anchor.upgrade(), value.get::<QueueDrag>())
-                    else {
-                        return false;
-                    };
-                    if !row.is_mapped()
-                        || payload.owner.upgrade().as_ref() != Some(&this.widgets.queue_rows)
-                        || !queue_action_is_current(&this, generation, &expected)
-                        || !queue_action_is_current(&this, payload.generation, &payload.context)
-                    {
-                        return false;
-                    }
-                    this.move_queue_occurrence(
-                        &payload.occurrence,
-                        &selected,
-                        y >= f64::from(row.height()) / 2.0,
-                    )
-                });
-                row.add_controller(target);
+            if ordinary && let Some(slot) = upcoming_slot {
+                self.attach_queue_drag(
+                    &row,
+                    QueueDrag {
+                        owner: self.widgets.queue_rows.downgrade(),
+                        row: row.downgrade(),
+                        generation,
+                        context: queue_snapshot.clone(),
+                        occurrence: occurrence.clone(),
+                        slot,
+                    },
+                );
             }
             let keys = gtk::EventControllerKey::new();
             let weak = Rc::downgrade(self);
@@ -532,6 +515,103 @@ impl Controller {
         drop(model);
         self.sync_current_like();
         self.render_music_player();
+    }
+
+    fn attach_queue_drag(self: &Rc<Self>, row: &gtk::ListBoxRow, entry: QueueDrag) {
+        use gtk::gdk::{ContentProvider, DragAction};
+
+        let source = gtk::DragSource::new();
+        source.set_actions(DragAction::MOVE);
+        let hotspot = Rc::new(Cell::new((0, 0)));
+        let weak = Rc::downgrade(self);
+        let origin = entry.clone();
+        let start = hotspot.clone();
+        source.connect_prepare(move |_, x, y| {
+            let this = weak.upgrade()?;
+            if !origin.is_current(&this) {
+                return None;
+            }
+            start.set((x.round() as i32, y.round() as i32));
+            Some(ContentProvider::for_value(&origin.to_value()))
+        });
+        let anchor = row.downgrade();
+        source.connect_drag_begin(move |_, drag| {
+            let Some(row) = anchor.upgrade() else { return };
+            // Freeze the rendered card before dimming its original row. The
+            // native drag icon follows the pointer over either queue surface.
+            let image = gtk::WidgetPaintable::new(Some(&row)).current_image();
+            let preview = gtk::Picture::for_paintable(&image);
+            preview.set_can_shrink(false);
+            preview.set_widget_name("music-queue-drag-preview");
+            preview.add_css_class("music-queue-drag-preview");
+            if adw::StyleManager::for_display(&row.display()).is_high_contrast() {
+                preview.add_css_class("karin-high-contrast");
+            }
+            let (x, y) = hotspot.get();
+            gtk::DragIcon::for_drag(drag).set_child(Some(&preview));
+            // Leave the insertion line exposed at the leading edge during
+            // a straight drag while preserving the pointer's vertical grip.
+            let inset = if row.direction() == gtk::TextDirection::Rtl {
+                -16
+            } else {
+                16
+            };
+            drag.set_hotspot(x - inset, y);
+            row.add_css_class("music-queue-dragging");
+        });
+        let anchor = row.downgrade();
+        source.connect_drag_end(move |_, _, _| {
+            if let Some(row) = anchor.upgrade() {
+                row.remove_css_class("music-queue-dragging");
+            }
+        });
+        row.add_controller(source);
+
+        let target = gtk::DropTarget::new(QueueDrag::static_type(), DragAction::MOVE);
+        target.set_preload(true);
+        let weak = Rc::downgrade(self);
+        let destination = entry.clone();
+        let cue = move |target: &gtk::DropTarget, _: f64, y: f64| {
+            let Some(row) = destination.row.upgrade() else {
+                return DragAction::empty();
+            };
+            let after = y >= f64::from(row.height()) / 2.0;
+            let allowed = weak.upgrade().is_some_and(|this| {
+                target
+                    .value()
+                    .and_then(|value| value.get::<QueueDrag>().ok())
+                    .is_some_and(|source| destination.accepts(&this, &source, after))
+            });
+            set_queue_drop_marker(&row, allowed.then_some(after));
+            if allowed {
+                DragAction::MOVE
+            } else {
+                DragAction::empty()
+            }
+        };
+        target.connect_enter(cue.clone());
+        target.connect_motion(cue);
+        let anchor = row.downgrade();
+        target.connect_leave(move |_| {
+            if let Some(row) = anchor.upgrade() {
+                set_queue_drop_marker(&row, None);
+            }
+        });
+        let weak = Rc::downgrade(self);
+        target.connect_drop(move |_, value, _, y| {
+            let (Some(this), Some(row), Ok(payload)) = (
+                weak.upgrade(),
+                entry.row.upgrade(),
+                value.get::<QueueDrag>(),
+            ) else {
+                return false;
+            };
+            set_queue_drop_marker(&row, None);
+            let after = y >= f64::from(row.height()) / 2.0;
+            entry.accepts(&this, &payload, after)
+                && this.move_queue_occurrence(&payload.occurrence, &entry.occurrence, after)
+        });
+        row.add_controller(target);
     }
 
     fn render_queue_paging(self: &Rc<Self>, page: usize, pages: usize) {
@@ -727,6 +807,19 @@ impl Controller {
             }
         }
         None
+    }
+}
+
+fn set_queue_drop_marker(row: &gtk::ListBoxRow, after: Option<bool>) {
+    for (class, visible) in [
+        ("music-queue-drop-before", after == Some(false)),
+        ("music-queue-drop-after", after == Some(true)),
+    ] {
+        if visible {
+            row.add_css_class(class);
+        } else {
+            row.remove_css_class(class);
+        }
     }
 }
 

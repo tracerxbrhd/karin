@@ -14,6 +14,7 @@
     min-height: 36px;
     padding: 0;
 }
+.karin-presentation-root .music-back-button { min-height: 40px; border-radius: 8px; }
 .karin-presentation-root .music-header-tab {
     min-width: 18px;
     min-height: 36px;
@@ -54,6 +55,23 @@
 .karin-presentation-root .music-track-row.music-current, .karin-presentation-root .music-queue-row.music-current-row {
     background: alpha(@accent_bg_color, .16);
 }
+.karin-presentation-root .music-queue-row.music-queue-dragging { opacity: .45; }
+.karin-presentation-root .music-queue-row.music-queue-drop-before,
+.karin-presentation-root .music-queue-row.music-queue-drop-after {
+    background-color: alpha(@accent_bg_color, .14);
+    background-image: linear-gradient(@accent_color, @accent_color);
+    background-repeat: no-repeat;
+    background-size: 100% 3px;
+    box-shadow: none;
+}
+.karin-presentation-root .music-queue-row.music-queue-drop-before { background-position: center top; }
+.karin-presentation-root .music-queue-row.music-queue-drop-after { background-position: center bottom; }
+.music-queue-drag-preview {
+    background-color: mix(@window_bg_color, @theme_fg_color, .07);
+    border-radius: 10px;
+    box-shadow: inset 0 0 0 1px @borders;
+}
+.music-queue-drag-preview.karin-high-contrast { box-shadow: inset 0 0 0 1px @theme_fg_color; }
 .karin-presentation-root .music-track-title { font-weight: 600; }
 .karin-presentation-root .music-track-artist, .karin-presentation-root .music-track-duration { font-size: .92em; }
 .karin-presentation-root .music-track-duration { color: alpha(@theme_fg_color, .65); }

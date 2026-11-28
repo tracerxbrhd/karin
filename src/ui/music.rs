@@ -66,6 +66,7 @@ pub(super) use mini::{MiniCommand, MiniPlayback, MiniSnapshot};
 pub(super) use player::music_time as mini_time;
 pub(super) use player_bar::{repeat_button, set_order_presentation};
 use requests::{Operation, Requests};
+pub(super) use search_header::back_button_content;
 type PendingJob = Box<dyn FnOnce(&Rc<Controller>, u64)>;
 
 /// The row owns its typed action; removing/replacing it also removes the
