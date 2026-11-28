@@ -648,9 +648,11 @@ fn native_preferences_persistent_controls_snapshot_updates_and_cleanup() {
         DiscordStatus::Connected,
         DiscordStatus::Unavailable,
         DiscordStatus::Failed,
+        DiscordStatus::PrivateListening,
     ] {
         discord_status.set(status);
         pump_until(|| view.discord_status.subtitle().as_deref() == Some(status.label()));
+        assert!(view.discord.is_active());
     }
     discord_status.set(DiscordStatus::Connected);
     pump_until(|| {

@@ -422,6 +422,10 @@ fn build_shell(
     let music_menu = gio::Menu::new();
     menu.append(Some("Проверить обновления"), Some("app.check-updates"));
     menu.append(Some("Настройки"), Some("win.preferences"));
+    menu.append(
+        Some("Скрывать активность в Discord"),
+        Some("app.private-listening"),
+    );
     menu.append(Some("Сочетания клавиш"), Some("win.shortcuts"));
     menu.append_section(None, &music_menu);
     if diagnostics_service.is_some() {
