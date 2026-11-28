@@ -109,6 +109,55 @@ fn children(widget: &impl IsA<gtk::Widget>) -> Vec<gtk::Widget> {
     result
 }
 
+fn assert_liked_action_geometry(window: &adw::ApplicationWindow, hero: &gtk::Box, one_row: bool) {
+    let widgets = children(hero);
+    let named = |name: &str| {
+        widgets
+            .iter()
+            .find(|widget| widget.widget_name() == name)
+            .unwrap()
+    };
+    let title = named("music-liked-title").compute_bounds(window).unwrap();
+    let actions = named("music-liked-actions").compute_bounds(window).unwrap();
+    let buttons = [
+        "music-collection-play",
+        "music-liked-wave",
+        "music-liked-refresh",
+    ]
+    .map(|name| {
+        let button = named(name);
+        let bounds = button.compute_bounds(window).unwrap();
+        let (_, natural, _, _) = button.measure(gtk::Orientation::Horizontal, -1);
+        assert!(
+            button.is_mapped()
+                && (bounds.width() - natural as f32).abs() <= 1.0
+                && bounds.x() >= actions.x() - 1.0
+                && bounds.x() + bounds.width() <= actions.x() + actions.width() + 1.0,
+            "each collection action keeps its native width and fits the group: {name} {bounds:?}"
+        );
+        bounds
+    });
+    assert!((buttons[0].x() - title.x()).abs() <= 1.0);
+    for pair in buttons.windows(2) {
+        let a = pair[0];
+        let b = pair[1];
+        let mid_a = a.y() + a.height() / 2.0;
+        let mid_b = b.y() + b.height() / 2.0;
+        if one_row || (mid_a - mid_b).abs() <= 1.0 {
+            let gap = b.x() - a.x() - a.width();
+            assert!(
+                (7.0..=9.0).contains(&gap) && (mid_a - mid_b).abs() <= 1.0,
+                "collection actions form an aligned group with no stretched gap: {a:?}, {b:?}"
+            );
+        } else {
+            assert!(
+                (b.x() - title.x()).abs() <= 1.0 && b.y() >= a.y() + a.height(),
+                "wrapped actions start below the prior row at the heading edge: {a:?}, {b:?}"
+            );
+        }
+    }
+}
+
 #[test]
 #[ignore = "isolated Xvfb native allocation fixture; synthetic data, no account or service"]
 fn native_catalog_native_music_layout() {
@@ -284,13 +333,55 @@ fn native_catalog_native_music_layout() {
         .unwrap()
         .downcast::<gtk::Button>()
         .unwrap();
-    play_liked.emit_clicked();
+    super::super::test_input::wait_for_layout(window, &play_liked);
+    assert_liked_action_geometry(window, &this.widgets.library_hero, true);
+    let native_window = std::process::Command::new("xdotool")
+        .args([
+            "search",
+            "--onlyvisible",
+            "--name",
+            "^Karin synthetic HTTP fixture$",
+        ])
+        .output()
+        .unwrap();
+    assert!(native_window.status.success());
+    let native_window = String::from_utf8(native_window.stdout).unwrap();
+    let (x, y) = super::super::test_input::pointer(
+        window,
+        &play_liked,
+        super::super::test_input::Target::Center,
+    );
+    assert!(
+        std::process::Command::new("xdotool")
+            .args([
+                "mousemove",
+                "--window",
+                native_window.trim(),
+                &x.to_string(),
+                &y.to_string(),
+                "click",
+                "1",
+            ])
+            .status()
+            .unwrap()
+            .success()
+    );
+    pump_until(|| this.model.borrow().queue.context().is_some());
     assert_eq!(
         this.model.borrow().queue.context().unwrap().source_kind(),
         ContextKind::LikedTracks
     );
     assert_eq!(this.model.borrow().queue.items().len(), 12);
     capture_native("native-liked-real-collection-first");
+    window.set_default_size(420, 720);
+    pump_until(|| {
+        window
+            .surface()
+            .is_some_and(|surface| surface.width() == 420)
+    });
+    super::super::test_input::wait_for_layout(window, &play_liked);
+    assert_liked_action_geometry(window, &this.widgets.library_hero, false);
+    capture_native("native-liked-real-collection-compact");
     this.widgets.stack.set_visible_child_name("search");
     this.clear_search_feedback();
     this.tracks_from(
@@ -516,6 +607,7 @@ fn native_catalog_native_music_layout() {
                 let play_bounds = play.compute_bounds(window).unwrap();
                 let wave_bounds = wave.compute_bounds(window).unwrap();
                 assert!(play_bounds.x() + play_bounds.width() <= wave_bounds.x());
+                assert_liked_action_geometry(window, &this.widgets.library_hero, true);
                 for action in [
                     play.upcast_ref::<gtk::Widget>(),
                     wave,

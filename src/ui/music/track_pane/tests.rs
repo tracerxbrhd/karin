@@ -110,6 +110,20 @@ fn click_menu_action(window: &adw::ApplicationWindow, id: &str, pane: &TrackPane
     click(window, id, &item);
 }
 
+fn assert_centered_heading(pane: &TrackPane) {
+    let bounds = pane.heading.compute_bounds(&pane.widget).unwrap();
+    let (offset, _) = pane.heading.layout_offsets();
+    let layout = pane.heading.layout();
+    assert_eq!(layout.line_count(), 1, "the pane heading stays on one line");
+    let (_, text) = layout.pixel_extents();
+    let visual_center = bounds.x() + (offset + text.x()) as f32 + text.width() as f32 / 2.0;
+    assert!(
+        (visual_center - pane.widget.width() as f32 / 2.0).abs() <= 1.0,
+        "the heading's text must be centered on the pane: center={visual_center} pane={}",
+        pane.widget.width()
+    );
+}
+
 fn assert_centered_music_cluster(pane: &TrackPane) {
     let cover = pane.cover.compute_bounds(&pane.widget).unwrap();
     let expected = cover.x() + cover.width() / 2.0;
@@ -117,7 +131,7 @@ fn assert_centered_music_cluster(pane: &TrackPane) {
         pane.title.clone().upcast::<gtk::Widget>(),
         pane.play.parent().unwrap(),
         pane.album.clone().upcast(),
-        pane.artists.first_child().unwrap(),
+        pane.credits.clone().upcast(),
     ] {
         let bounds = widget.compute_bounds(&pane.widget).unwrap();
         assert!(
@@ -192,8 +206,12 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
                     "album"
                 }
                 PaneAction::Artist(artist) => {
-                    assert_eq!(artist.id, "11");
-                    "artist"
+                    if artist.id == "11" {
+                        "artist"
+                    } else {
+                        assert_eq!(artist.id, "12");
+                        "second_artist"
+                    }
                 }
                 PaneAction::Extras(_) => return,
             });
@@ -207,10 +225,18 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
         }
     })));
     *weak.borrow_mut() = Rc::downgrade(&pane);
-    let selected = track(
+    let mut selected = track(
         "42",
         "Synthetic selected track with a long but readable title",
     );
+    selected
+        .artists
+        .extend(["Unlinked & <guest>".into(), "River Echo".into()]);
+    selected.artist_links.push(Artist {
+        id: "12".into(),
+        name: "River Echo".into(),
+        cover: None,
+    });
     pane.set_track(Some(&selected), None);
     pane.set_playback("Приостановлено", true, true);
     pane.set_navigation_enabled(true);
@@ -223,10 +249,30 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
         !pane.album_title.is_visible(),
         "verified album is shown once as a link"
     );
-    assert!(
-        !pane.credits.is_visible(),
-        "verified artist is shown once as a link"
+    assert!(pane.credits.is_visible());
+    let artist = pane
+        .credits
+        .first_child()
+        .and_downcast::<gtk::Button>()
+        .unwrap();
+    let guest = artist.next_sibling().and_downcast::<gtk::Label>().unwrap();
+    let second_artist = guest.next_sibling().and_downcast::<gtk::Button>().unwrap();
+    assert_eq!(artist.accessible_role(), gtk::AccessibleRole::Button);
+    assert_eq!(second_artist.accessible_role(), gtk::AccessibleRole::Button);
+    assert_eq!(
+        artist.child().and_downcast::<gtk::Label>().unwrap().text(),
+        "Synthetic artist, "
     );
+    assert_eq!(guest.text(), "Unlinked & <guest>, ");
+    assert_eq!(
+        second_artist
+            .child()
+            .and_downcast::<gtk::Label>()
+            .unwrap()
+            .text(),
+        "River Echo"
+    );
+    assert!(second_artist.next_sibling().is_none());
     assert!(pane.play.label().is_none());
     assert!(pane.menu.label().is_none());
     assert_eq!(pane.play.parent(), pane.enqueue.parent());
@@ -261,6 +307,14 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
     pump_until(|| pane.play.is_mapped() && pane.play.width() > 0);
     settle();
     assert_centered_music_cluster(&pane);
+    assert_centered_heading(&pane);
+    let first = artist.compute_bounds(&pane.credits).unwrap();
+    let second = guest.compute_bounds(&pane.credits).unwrap();
+    assert!(
+        (first.x() + first.width() - second.x()).abs() <= 1.0
+            && (first.y() - second.y()).abs() <= 1.0,
+        "credits must be directly adjacent on the same line when they fit"
+    );
     let output = Command::new("xdotool")
         .args([
             "search",
@@ -295,15 +349,12 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
     pane.album.grab_focus();
     settle();
     click(&window, id, &pane.album);
-    let artist = pane
-        .artists
-        .first_child()
-        .unwrap()
-        .downcast::<gtk::Button>()
-        .unwrap();
     artist.grab_focus();
     settle();
     click(&window, id, &artist);
+    second_artist.grab_focus();
+    input(&["key", "Return"]);
+    pump_until(|| events.borrow().last() == Some(&"second_artist"));
     click_menu_action(&window, id, &pane, "track-pane.copy-link");
     pump_until(|| events.borrow().last() == Some(&"copy_link"));
     click_menu_action(&window, id, &pane, "track-pane.wave");
@@ -318,6 +369,7 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
             "lyrics",
             "album",
             "artist",
+            "second_artist",
             "copy_link",
             "wave",
         ]
@@ -335,7 +387,12 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
     capture_native("workspace-track-info");
     resize(&window, &pane, 420, 720);
     pane.set_compact(true);
-    assert_eq!(pane.header.first_child(), Some(pane.close.clone().upcast()));
+    assert_eq!(
+        pane.header.start_widget(),
+        Some(pane.close.clone().upcast())
+    );
+    assert!(pane.header.end_widget().is_none());
+    assert!(!pane.heading.is_visible());
     assert_eq!(
         pane.close.icon_name().as_deref(),
         Some("karin-chevron-left-symbolic")
@@ -363,6 +420,16 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
         "compact pane must not force a wider window"
     );
     capture_native("workspace-track-info-compact");
+    pane.set_mode(super::super::workspace::PanelMode::Lyrics);
+    assert_eq!(
+        pane.header.start_widget(),
+        Some(pane.back_info.clone().upcast())
+    );
+    assert_eq!(pane.header.end_widget(), Some(pane.close.clone().upcast()));
+    assert!(!pane.heading.is_visible());
+    click(&window, id, &pane.back_info);
+    assert_eq!(events.borrow().last(), Some(&"back_info"));
+    pane.set_mode(super::super::workspace::PanelMode::TrackInfo);
 
     // AdwApplicationWindow itself has a native minimum outer width near 360 px.
     // Exercise the actual 300 px sidebar inside a valid window, rather than
@@ -379,7 +446,7 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
     resize(&window, &pane, 420, 650);
     pump_until(|| pane.widget.width() == 300);
     pane.set_compact(false);
-    assert_eq!(pane.header.last_child(), Some(pane.close.clone().upcast()));
+    assert_eq!(pane.header.end_widget(), Some(pane.close.clone().upcast()));
     settle();
     assert!(
         pane.widget.width() == 300,
@@ -391,6 +458,7 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
     assert!(cover_bounds.x() >= 0.0);
     assert!(cover_bounds.x() + cover_bounds.width() <= pane.widget.width() as f32);
     assert_centered_music_cluster(&pane);
+    assert_centered_heading(&pane);
     assert_eq!(pane.close.icon_name().as_deref(), Some("karin-x-symbolic"));
     pane.menu.grab_focus();
     settle();
@@ -400,6 +468,29 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
                 || focus.is_ancestor(&pane.menu))
     );
     capture_native("native-music-track-info-sidebar");
+    let mut many_credits = selected.clone();
+    many_credits
+        .artists
+        .push("Northern Signals Collective".into());
+    pane.set_track(Some(&many_credits), None);
+    test_input::wait_for_layout(&window, &pane.credits);
+    let first = pane
+        .credits
+        .first_child()
+        .unwrap()
+        .compute_bounds(&pane.credits)
+        .unwrap();
+    let last = pane
+        .credits
+        .last_child()
+        .unwrap()
+        .compute_bounds(&pane.credits)
+        .unwrap();
+    assert!(
+        last.y() > first.y(),
+        "long credits must wrap on a 300 px sidebar"
+    );
+    capture_native("native-music-track-info-wrapped-artist-credits");
 
     // A short ordinary track must expose primary actions even in the smaller
     // viewport left by a visible player. Resize the existing art in place;
@@ -441,7 +532,14 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
         pane.credits.is_visible(),
         "unlinked credit remains honest display text"
     );
-    assert!(!pane.artists.is_visible());
+    assert_eq!(
+        pane.credits
+            .first_child()
+            .and_downcast::<gtk::Label>()
+            .unwrap()
+            .text(),
+        "Synthetic artist"
+    );
     let events_before_late_click = events.borrow().len();
     artist.emit_clicked();
     assert_eq!(
@@ -480,6 +578,8 @@ fn native_workspace_track_pane_actions_state_and_cleanup() {
     drop(host);
     drop(spacer);
     drop(artist);
+    drop(second_artist);
+    drop(guest);
     drop(window);
     let widget = pane.widget.downgrade();
     drop(pane);

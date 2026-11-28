@@ -9,6 +9,8 @@ use std::{
 use adw::prelude::*;
 use gtk::gio;
 
+mod credit_layout;
+
 use crate::{
     artwork::ArtworkLoader,
     music::{Artist, Track, wave::WaveSource},
@@ -34,7 +36,6 @@ pub(super) enum PaneAction {
 
 struct State {
     selected: RefCell<Option<Track>>,
-    artists: RefCell<Vec<Artist>>,
     playback_status: RefCell<String>,
     context: RefCell<Option<String>>,
     compact: Cell<bool>,
@@ -54,12 +55,10 @@ pub(super) struct TrackPane {
     pub enqueue: gtk::Button,
     pub menu: gtk::MenuButton,
     pub album: gtk::Button,
-    pub artists: gtk::Box,
     pub cache_indicator: gtk::Box,
     pub(super) extras: super::track_extras::ExtrasView,
-    header: gtk::Box,
+    header: gtk::CenterBox,
     pub(super) heading: gtk::Label,
-    compact_lyrics_spacer: gtk::Box,
     pages: gtk::Stack,
     state: Rc<State>,
     empty: gtk::Box,
@@ -72,7 +71,7 @@ pub(super) struct TrackPane {
     scroll: gtk::ScrolledWindow,
     art_size: Cell<i32>,
     title: gtk::Label,
-    credits: gtk::Label,
+    credits: gtk::Box,
     album_title: gtk::Label,
     status: gtk::Label,
     next_action: gio::SimpleAction,
@@ -90,7 +89,6 @@ impl TrackPane {
     pub fn new(action: Rc<dyn Fn(PaneAction)>) -> Self {
         let state = Rc::new(State {
             selected: RefCell::new(None),
-            artists: RefCell::new(Vec::new()),
             playback_status: RefCell::new(String::new()),
             context: RefCell::new(None),
             compact: Cell::new(false),
@@ -103,7 +101,7 @@ impl TrackPane {
         widget.set_widget_name("music-side-panel-surface");
         widget.add_css_class("karin-track-pane");
         widget.set_vexpand(true);
-        let header = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        let header = gtk::CenterBox::new();
         super::super::margins(&header, 6);
         header.set_margin_start(12);
         header.set_margin_end(12);
@@ -117,17 +115,14 @@ impl TrackPane {
             let state = Rc::clone(&state);
             move |_| (state.action)(PaneAction::BackInfo)
         });
-        header.append(&back_info);
-        let heading = label("О треке", "heading");
+        header.set_start_widget(Some(&back_info));
+        let heading = gtk::Label::new(Some("О треке"));
         heading.set_widget_name("music-panel-heading");
+        heading.add_css_class("heading");
         heading.set_xalign(0.5);
-        heading.set_hexpand(true);
-        header.append(&heading);
-        let compact_lyrics_spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-        compact_lyrics_spacer.set_widget_name("music-lyrics-header-spacer");
-        compact_lyrics_spacer.set_hexpand(true);
-        compact_lyrics_spacer.set_visible(false);
-        header.append(&compact_lyrics_spacer);
+        heading.set_margin_start(8);
+        heading.set_margin_end(8);
+        header.set_center_widget(Some(&heading));
         let close = button("karin-x-symbolic", "Закрыть сведения о треке");
         close.set_widget_name("music-panel-close");
         close.add_css_class("flat");
@@ -136,7 +131,7 @@ impl TrackPane {
             let state = Rc::clone(&state);
             move |_| (state.action)(PaneAction::Close)
         });
-        header.append(&close);
+        header.set_end_widget(Some(&close));
         widget.append(&header);
 
         let body = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -173,11 +168,10 @@ impl TrackPane {
         title_line.append(&title);
         title_line.append(&cache_indicator);
         metadata.append(&title_line);
-        let credits = label("", "dim-label");
-        credits.set_xalign(0.5);
-        credits.set_justify(gtk::Justification::Center);
-        credits.set_selectable(true);
+        let credits = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         credits.set_widget_name("music-track-pane-artist");
+        credits.set_layout_manager(Some(credit_layout::ArtistCreditLayout::new()));
+        credits.set_visible(false);
         metadata.append(&credits);
         let album_title = label("", "caption");
         album_title.set_xalign(0.5);
@@ -279,10 +273,6 @@ impl TrackPane {
             }
         });
         metadata.append(&album);
-        let artists = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        artists.set_widget_name("music-track-pane-artist-links");
-        artists.set_visible(false);
-        metadata.insert_child_after(&artists, Some(&title_line));
         content.append(&transport);
         content.append(&status);
         let extras = super::track_extras::ExtrasView::new(Rc::new({
@@ -332,12 +322,10 @@ impl TrackPane {
             enqueue,
             menu,
             album,
-            artists,
             cache_indicator,
             extras,
             header,
             heading,
-            compact_lyrics_spacer,
             pages,
             state,
             empty,
@@ -422,26 +410,30 @@ impl TrackPane {
     fn update_header(&self) {
         let compact = self.state.compact.get();
         let lyrics = self.state.mode.get() == super::workspace::PanelMode::Lyrics;
-        // Compact Lyrics has its own Back-to-Info action at the leading edge.
-        // The outer HeaderBar already supplies its title; an empty expanding
-        // slot keeps the distinct panel Close at the trailing edge.
-        self.compact_lyrics_spacer.set_visible(compact && lyrics);
-        if compact && !lyrics {
-            self.header
-                .reorder_child_after(&self.close, gtk::Widget::NONE);
-        } else {
-            self.header
-                .reorder_child_after(&self.close, Some(&self.compact_lyrics_spacer));
+        let use_back = compact && !lyrics;
+        let close_at_end = !use_back;
+        if self.header.end_widget().is_some() != close_at_end {
+            let close_focused = self.close.has_focus();
+            if use_back {
+                self.header.set_end_widget(gtk::Widget::NONE);
+                self.header.set_start_widget(Some(&self.close));
+            } else {
+                self.header.set_start_widget(Some(&self.back_info));
+                self.header.set_end_widget(Some(&self.close));
+            }
+            if close_focused {
+                self.close.grab_focus();
+            }
         }
         // The compact native HeaderBar names this explicit subview. Keep one
         // moving Back control here, without repeating its title below it.
         self.heading.set_visible(!compact);
-        self.close.set_icon_name(if compact && !lyrics {
+        self.close.set_icon_name(if use_back {
             "karin-chevron-left-symbolic"
         } else {
             "karin-x-symbolic"
         });
-        let label = if compact && !lyrics {
+        let label = if use_back {
             "Назад к музыке"
         } else {
             "Закрыть правую панель"
@@ -458,22 +450,17 @@ impl TrackPane {
         }
         self.menu.popdown();
         clear(&self.reactions);
-        self.state
-            .serial
-            .set(self.state.serial.get().wrapping_add(1));
         let cache_track_changed = self.state.selected.borrow().as_ref().map(|track| &track.id)
             != track.map(|track| &track.id);
         self.state.selected.replace(track.cloned());
+        self.update_credits();
         self.menu
             .set_sensitive(track.is_some() && self.state.navigation_enabled.get());
         self.extras.set_track(track, loader);
         if cache_track_changed {
             self.cache_indicator.set_visible(false);
         }
-        self.state.artists.borrow_mut().clear();
         clear(&self.cover);
-        clear(&self.artists);
-        self.artists.set_visible(false);
         self.empty.set_visible(track.is_none());
         self.content.set_visible(track.is_some());
         self.play.set_sensitive(false);
@@ -501,7 +488,6 @@ impl TrackPane {
         let Some(track) = track else {
             self.title.set_text("");
             self.title.set_tooltip_text(None);
-            self.credits.set_text("");
             self.album_title.set_text("");
             self.album.set_child(gtk::Widget::NONE);
             self.album.set_visible(false);
@@ -516,8 +502,6 @@ impl TrackPane {
         self.resize_existing_art();
         self.title.set_text(&track.title);
         self.title.set_tooltip_text(Some(&track.title));
-        self.credits.set_text(&track.artists.join(", "));
-        self.credits.set_visible(!track.artists.is_empty());
         self.album_title
             .set_text(track.album_title.as_deref().unwrap_or(""));
         // The album appears once: a verified link when an ID is available,
@@ -535,7 +519,6 @@ impl TrackPane {
                     "Открыть альбом: {title}"
                 ))]);
         }
-        self.set_artists(&track.artist_links);
     }
 
     /// Budget artwork against the actual panel viewport, retaining natural
@@ -673,67 +656,97 @@ impl TrackPane {
         self.delivery_action
             .set_enabled(enabled && self.delivery_enabled.get() && self.selected().is_some());
         self.album.set_sensitive(enabled);
-        self.artists.set_sensitive(enabled);
+        let mut child = self.credits.first_child();
+        while let Some(credit) = child {
+            child = credit.next_sibling();
+            if let Some(button) = credit.downcast_ref::<gtk::Button>() {
+                button.set_sensitive(enabled);
+            }
+        }
     }
 
-    /// Caller must supply verified catalog identities; names alone never link.
-    pub fn set_artists(&self, artists: &[Artist]) {
-        let artists = &artists[..artists.len().min(32)];
-        if self.state.artists.borrow().as_slice() == artists {
-            return;
-        }
-        self.state.artists.replace(artists.to_vec());
-        self.state
-            .serial
-            .set(self.state.serial.get().wrapping_add(1));
-        clear(&self.artists);
-        let serial = self.state.serial.get();
-        if self.state.selected.borrow().is_none() {
-            self.artists.set_visible(false);
-            return;
-        }
-        for artist in artists.iter().take(32) {
-            let button = gtk::Button::new();
-            button.add_css_class("flat");
-            button.add_css_class("karin-track-pane-link");
-            button.set_halign(gtk::Align::Center);
-            button.set_widget_name("music-track-pane-artist-link");
-            let name = label(&artist.name, "body");
-            name.set_xalign(0.5);
-            name.set_justify(gtk::Justification::Center);
-            button.set_child(Some(&name));
-            button.set_tooltip_text(Some("Открыть исполнителя"));
-            button.update_property(&[gtk::accessible::Property::Label(&format!(
-                "Открыть исполнителя: {}",
-                artist.name
-            ))]);
-            let artist = artist.clone();
-            let state = Rc::clone(&self.state);
-            button.connect_clicked(move |_| {
-                if state.serial.get() == serial {
-                    (state.action)(PaneAction::Artist(artist.clone()));
-                }
-            });
-            self.artists.append(&button);
-        }
-        let unlinked = self
+    fn update_credits(&self) {
+        let serial = self.state.serial.get().wrapping_add(1);
+        self.state.serial.set(serial);
+        clear(&self.credits);
+        let credits = self
             .state
             .selected
             .borrow()
             .as_ref()
-            .map(|track| {
-                track
-                    .artists
-                    .iter()
-                    .filter(|name| !artists.iter().any(|artist| &artist.name == *name))
-                    .cloned()
-                    .collect::<Vec<_>>()
-            })
+            .map(artist_credits)
             .unwrap_or_default();
-        self.credits.set_text(&unlinked.join(", "));
-        self.credits.set_visible(!unlinked.is_empty());
-        self.artists.set_visible(!artists.is_empty());
+        self.credits.set_visible(!credits.is_empty());
+        let count = credits.len();
+        for (index, (name, artist)) in credits.into_iter().enumerate() {
+            let display = if index + 1 == count {
+                name.clone()
+            } else {
+                format!("{name}, ")
+            };
+            let credit = label(&display, "karin-font-secondary");
+            credit.set_valign(gtk::Align::Center);
+            if let Some(artist) = artist {
+                let attributes = gtk::pango::AttrList::new();
+                let mut underline =
+                    gtk::pango::AttrInt::new_underline(gtk::pango::Underline::Single);
+                underline.set_end_index(u32::try_from(name.len()).unwrap_or(u32::MAX));
+                attributes.insert(underline);
+                credit.set_attributes(Some(&attributes));
+                let button = gtk::Button::new();
+                button.set_child(Some(&credit));
+                button.set_widget_name("music-track-pane-artist-link");
+                button.add_css_class("flat");
+                button.add_css_class("karin-track-pane-artist-link");
+                button.set_valign(gtk::Align::Center);
+                button.set_tooltip_text(Some("Открыть исполнителя"));
+                button.update_property(&[gtk::accessible::Property::Label(&format!(
+                    "Открыть исполнителя: {name}"
+                ))]);
+                button.set_sensitive(self.state.navigation_enabled.get());
+                let state = Rc::clone(&self.state);
+                button.connect_clicked(move |_| {
+                    if state.serial.get() == serial && state.navigation_enabled.get() {
+                        (state.action)(PaneAction::Artist(artist.clone()));
+                    }
+                });
+                self.credits.append(&button);
+            } else {
+                credit.add_css_class("dim-label");
+                credit.set_selectable(true);
+                self.credits.append(&credit);
+            }
+        }
     }
+}
+
+const ARTIST_LINK_LIMIT: usize = 32;
+
+fn artist_credits(track: &Track) -> Vec<(String, Option<Artist>)> {
+    let verified = track.artist_links.iter().take(ARTIST_LINK_LIMIT);
+    let mut included = [false; ARTIST_LINK_LIMIT];
+    let mut credits = Vec::with_capacity(track.artists.len());
+    for name in &track.artists {
+        // The service's display credits supply the order. Consume each
+        // verified identity once, even when a name occurs more than once.
+        let artist = verified
+            .clone()
+            .enumerate()
+            .find(|(index, artist)| !included[*index] && artist.name == *name);
+        if let Some((index, _)) = artist {
+            included[index] = true;
+        }
+        credits.push((name.clone(), artist.map(|(_, artist)| artist.clone())));
+    }
+    // Older cached tracks can carry a verified artist without its display
+    // credit. Keep that identity browsable after the ordered credits.
+    credits.extend(
+        verified
+            .enumerate()
+            .filter(|(index, _)| !included[*index])
+            .map(|(_, artist)| (artist.name.clone(), Some(artist.clone()))),
+    );
+    credits
 }
 
 fn track_action(

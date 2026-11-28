@@ -3026,13 +3026,9 @@ fn native_universal_panel_whole_surface_motion_and_mode_switch() {
                         ]
                         .map(|name| named_widget(&surface, name)),
                     );
-                    if this.track_pane.artists.is_visible() {
-                        children.push(this.track_pane.artists.clone().upcast());
-                    } else {
-                        let credits = named_widget(&surface, "music-track-pane-artist");
-                        if credits.is_visible() {
-                            children.push(credits);
-                        }
+                    let credits = named_widget(&surface, "music-track-pane-artist");
+                    if credits.is_visible() {
+                        children.push(credits);
                     }
                     if this.track_pane.album.is_visible() {
                         children.push(this.track_pane.album.clone().upcast());
