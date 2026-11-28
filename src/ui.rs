@@ -684,6 +684,19 @@ fn build_shell(
         adw::BreakpointCondition::parse("max-width: 719sp").expect("constant breakpoint"),
     );
     music.add_compact_navigation_setters(&compact_navigation);
+    compact_navigation.add_setter(&start_group, "spacing", Some(&0.to_value()));
+    let adaptive_header = header.downgrade();
+    compact_navigation.connect_apply(move |_| {
+        if let Some(header) = adaptive_header.upgrade() {
+            header.add_css_class("music-header-compact");
+        }
+    });
+    let adaptive_header = header.downgrade();
+    compact_navigation.connect_unapply(move |_| {
+        if let Some(header) = adaptive_header.upgrade() {
+            header.remove_css_class("music-header-compact");
+        }
+    });
     compact_navigation.add_setter(
         &information_view,
         "width-request",

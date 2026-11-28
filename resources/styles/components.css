@@ -19,6 +19,7 @@
     padding: 0 3px;
     border-radius: 8px;
 }
+.karin-presentation-root .music-header-compact .music-header-control { padding: 0; }
 .karin-presentation-root .music-header-tab:checked {
     background: alpha(@theme_fg_color, .10);
     box-shadow: inset 0 0 0 1px alpha(@theme_fg_color, .14);
