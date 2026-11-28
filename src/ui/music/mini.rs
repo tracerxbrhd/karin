@@ -9,6 +9,7 @@ use std::{
 use gtk::gdk;
 
 use super::Controller;
+use crate::queue::RepeatMode;
 
 #[derive(Clone, Copy)]
 pub(in crate::ui) enum MiniCommand {
@@ -17,6 +18,8 @@ pub(in crate::ui) enum MiniCommand {
     Next,
     Seek(Duration),
     Volume(f64),
+    Shuffle(bool),
+    Repeat,
 }
 
 #[derive(Clone, Default)]
@@ -34,6 +37,9 @@ pub(in crate::ui) struct MiniSnapshot {
     pub can_next: bool,
     pub can_seek: bool,
     pub can_volume: bool,
+    pub shuffle: bool,
+    pub repeat: RepeatMode,
+    pub can_change_order: bool,
 }
 
 #[derive(Clone)]
@@ -46,6 +52,12 @@ impl MiniPlayback {
 
     pub(in crate::ui) fn snapshot(&self) -> Option<MiniSnapshot> {
         self.0.upgrade()?.mini_snapshot()
+    }
+
+    pub(in crate::ui) fn set_reactions_host(&self, host: Option<&gtk::Box>) {
+        if let Some(controller) = self.0.upgrade() {
+            controller.set_mini_reactions_host(host);
+        }
     }
 
     pub(in crate::ui) fn command(&self, command: MiniCommand) {
@@ -69,6 +81,12 @@ impl MiniPlayback {
             }
             MiniCommand::Volume(volume) if snapshot.can_volume => {
                 controller.set_music_volume(volume)
+            }
+            MiniCommand::Shuffle(enabled) if snapshot.can_change_order => {
+                controller.set_music_shuffle(enabled);
+            }
+            MiniCommand::Repeat if snapshot.can_change_order => {
+                controller.set_music_repeat(snapshot.repeat.next_mode());
             }
             _ => {}
         }

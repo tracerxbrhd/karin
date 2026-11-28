@@ -43,6 +43,7 @@ pub(super) enum Action {
 pub(super) struct NowPlaying {
     pub(super) widget: gtk::Box,
     pub(super) panel_host: gtk::Box,
+    pub(super) reactions_slot: gtk::Box,
     back: gtk::Button,
     tabs: [gtk::ToggleButton; 4],
     player: gtk::ScrolledWindow,
@@ -58,6 +59,9 @@ pub(super) struct NowPlaying {
     previous: gtk::Button,
     play: gtk::Button,
     next: gtk::Button,
+    shuffle: gtk::ToggleButton,
+    repeat: gtk::Button,
+    volume: gtk::Scale,
 }
 
 impl NowPlaying {
@@ -198,11 +202,46 @@ impl NowPlaying {
             "karin-player-skip-forward-symbolic",
             "Следующий трек",
         );
-        let controls = gtk::Box::new(gtk::Orientation::Horizontal, 20);
+        let shuffle = gtk::ToggleButton::new();
+        shuffle.set_widget_name("music-now-playing-shuffle");
+        shuffle.set_icon_name("karin-arrows-shuffle-symbolic");
+        shuffle.set_size_request(44, 44);
+        shuffle.set_valign(gtk::Align::Center);
+        shuffle.add_css_class("flat");
+        shuffle.add_css_class("circular");
+        let repeat = player_bar::repeat_button();
+        repeat.set_widget_name("music-now-playing-repeat");
+        repeat.set_size_request(44, 44);
+        repeat.set_valign(gtk::Align::Center);
+        repeat.add_css_class("flat");
+        repeat.add_css_class("circular");
+        let controls = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         controls.set_halign(gtk::Align::Center);
+        controls.add_css_class("music-transport");
+        controls.append(&shuffle);
         controls.append(&previous);
         controls.append(&play);
         controls.append(&next);
+        controls.append(&repeat);
+
+        let reactions_slot = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        reactions_slot.set_widget_name("music-now-playing-reactions");
+        let volume = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 1.0, 0.01);
+        volume.set_widget_name("music-now-playing-volume");
+        volume.set_draw_value(false);
+        volume.set_width_request(96);
+        volume.set_hexpand(true);
+        volume.set_tooltip_text(Some("Громкость"));
+        volume.update_property(&[gtk::accessible::Property::Label("Громкость")]);
+        let speaker = gtk::Image::from_icon_name("karin-volume-symbolic");
+        speaker.set_pixel_size(16);
+        speaker.add_css_class("dim-label");
+        let additional = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+        additional.add_css_class("music-now-playing-additional-controls");
+        additional.set_halign(gtk::Align::Center);
+        additional.append(&reactions_slot);
+        additional.append(&speaker);
+        additional.append(&volume);
 
         let status = track_label("music-now-playing-status", "dim-label", 2);
         status.add_css_class("caption");
@@ -216,6 +255,7 @@ impl NowPlaying {
         column.append(&metadata);
         column.append(&timeline);
         column.append(&controls);
+        column.append(&additional);
         column.append(&status);
         let clamp = adw::Clamp::builder()
             .maximum_size(456)
@@ -271,7 +311,7 @@ impl NowPlaying {
         width_layout.add_breakpoint(narrow);
         // Install the tighter rules last, giving the playback buttons room
         // even when the track title and artist each wrap onto two lines.
-        for (height, artwork) in [(625.0, 300_i32), (525.0, 235), (460.0, 180)] {
+        for (height, artwork) in [(625.0, 272_i32), (525.0, 202), (460.0, 144)] {
             let short = breakpoint(adw::BreakpointConditionLengthType::MaxHeight, height);
             short.add_setter(&cover_frame, "height-request", Some(&artwork.to_value()));
             height_layout.add_breakpoint(short);
@@ -281,6 +321,7 @@ impl NowPlaying {
             (&previous, MiniCommand::Previous),
             (&play, MiniCommand::PlayPause),
             (&next, MiniCommand::Next),
+            (&repeat, MiniCommand::Repeat),
         ] {
             let action = Rc::clone(&on_action);
             button.connect_clicked(move |_| action(Action::Playback(command)));
@@ -296,11 +337,23 @@ impl NowPlaying {
             }
             glib::Propagation::Proceed
         });
+        let shuffle_action = Rc::clone(&on_action);
+        shuffle.connect_clicked(move |button| {
+            shuffle_action(Action::Playback(MiniCommand::Shuffle(button.is_active())));
+        });
+        let volume_action = Rc::clone(&on_action);
+        volume.connect_change_value(move |slider, _, value| {
+            if slider.is_sensitive() && value.is_finite() {
+                volume_action(Action::Playback(MiniCommand::Volume(value.clamp(0.0, 1.0))));
+            }
+            glib::Propagation::Proceed
+        });
         back.connect_clicked(move |_| on_action(Action::Back));
 
         let view = Self {
             widget,
             panel_host,
+            reactions_slot,
             back,
             tabs,
             player,
@@ -316,6 +369,9 @@ impl NowPlaying {
             previous,
             play,
             next,
+            shuffle,
+            repeat,
+            volume,
         };
         view.set_section(Section::Player);
         view.render(&MiniSnapshot::default(), None);
@@ -337,6 +393,10 @@ impl NowPlaying {
 
     pub(super) fn focus_back(&self) {
         self.back.grab_focus();
+    }
+
+    pub(super) fn is_compact(&self) -> bool {
+        self.compact.get()
     }
 
     pub(super) fn render(&self, snapshot: &MiniSnapshot, status: Option<&str>) {
@@ -379,6 +439,15 @@ impl NowPlaying {
         self.previous.set_sensitive(snapshot.can_previous);
         self.play.set_sensitive(snapshot.can_play_pause);
         self.next.set_sensitive(snapshot.can_next);
+        player_bar::set_order_presentation(
+            &self.shuffle,
+            &self.repeat,
+            snapshot.shuffle,
+            snapshot.repeat,
+            snapshot.can_change_order,
+        );
+        self.volume.set_sensitive(snapshot.can_volume);
+        self.volume.set_value(snapshot.volume);
 
         let duration = snapshot.duration.filter(|duration| !duration.is_zero());
         let position = snapshot
@@ -442,7 +511,7 @@ fn show_section(
         tab.grab_focus();
     }
     panel.set_width_request(if compact { -1 } else { 350 });
-    panel.set_hexpand(compact);
+    panel.set_hexpand(compact || section == Section::Lyrics);
     panel.set_visible(detail);
     player.set_visible(player_visible);
 }

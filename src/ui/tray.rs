@@ -85,6 +85,7 @@ const MENU_XML: &str = r#"
 type Properties = BTreeMap<&'static str, glib::Variant>;
 type MenuEvent = (i32, String, glib::Variant, u32);
 type WindowAction = Box<dyn Fn(Option<&str>)>;
+type ActivateAction = Box<dyn Fn((i32, i32), Option<&str>)>;
 
 const ROOT: i32 = 0;
 const OPEN: i32 = 1;
@@ -104,7 +105,7 @@ struct Inner {
     watcher_confirmed: Cell<bool>,
     available: Cell<bool>,
     activation_token: RefCell<Option<(String, String)>>,
-    on_activate: WindowAction,
+    on_activate: ActivateAction,
     on_show: WindowAction,
     on_quit: Box<dyn Fn()>,
     on_availability_changed: Box<dyn Fn(bool)>,
@@ -131,7 +132,7 @@ impl Drop for Watcher {
 
 impl Tray {
     pub(super) fn new(
-        on_activate: impl Fn(Option<&str>) + 'static,
+        on_activate: impl Fn((i32, i32), Option<&str>) + 'static,
         on_show: impl Fn(Option<&str>) + 'static,
         on_quit: impl Fn() + 'static,
         on_availability_changed: impl Fn(bool) + 'static,
@@ -148,7 +149,7 @@ impl Tray {
 
     fn start(
         watch_plasma: bool,
-        on_activate: impl Fn(Option<&str>) + 'static,
+        on_activate: impl Fn((i32, i32), Option<&str>) + 'static,
         on_show: impl Fn(Option<&str>) + 'static,
         on_quit: impl Fn() + 'static,
         on_availability_changed: impl Fn(bool) + 'static,
@@ -262,7 +263,9 @@ impl Inner {
                 match method {
                     "Activate" => {
                         let token = inner.take_token(sender);
-                        (inner.on_activate)(token.as_deref());
+                        if let Some(position) = args.get::<(i32, i32)>() {
+                            (inner.on_activate)(position, token.as_deref());
+                        }
                     }
                     "ProvideXdgActivationToken" => {
                         if let Some(sender) = sender

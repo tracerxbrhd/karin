@@ -26,7 +26,7 @@ pub(super) fn attach(window: &adw::ApplicationWindow) {
     window.add_css_class("karin-presentation-root");
     window.add_css_class("karin-style-system");
     window.remove_css_class("karin-style-custom");
-    let manager = adw::StyleManager::default();
+    let manager = adw::StyleManager::for_display(&gtk::prelude::WidgetExt::display(window));
     refresh(window, &manager);
     if !attached {
         let weak = window.downgrade();
@@ -77,15 +77,29 @@ pub(super) fn install() {
     if let Err(error) = super::fonts::install() {
         eprintln!("Karin typography: {error}");
     }
-    super::icons::install();
-    thread_local! { static INSTALLED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
-    let Some(display) = gtk::gdk::Display::default() else {
-        return;
-    };
+    if let Some(display) = gtk::gdk::Display::default() {
+        install_for_display(&display);
+    }
+}
+
+pub(super) fn install_for_display(display: &gtk::gdk::Display) {
+    use gtk::{gdk, glib};
+
+    super::icons::install_for_display(display);
+    thread_local! {
+        static INSTALLED: std::cell::RefCell<Vec<glib::WeakRef<gdk::Display>>> =
+            const { std::cell::RefCell::new(Vec::new()) };
+    }
     INSTALLED.with(|installed| {
-        if installed.replace(true) {
+        let mut installed = installed.borrow_mut();
+        if installed
+            .iter()
+            .any(|weak| weak.upgrade().as_ref() == Some(display))
+        {
             return;
         }
+        installed.retain(|weak| weak.upgrade().is_some());
+        installed.push(display.downgrade());
         let provider = gtk::CssProvider::new();
         // A single provider preserves native components and Lyrics geometry
         // across independent color-scheme changes.
@@ -93,7 +107,7 @@ pub(super) fn install() {
             "{COMPONENT_CSS}\n{SYSTEM_CSS}\n{LYRICS_CSS}\n{TYPOGRAPHY_CSS}"
         ));
         gtk::style_context_add_provider_for_display(
-            &display,
+            display,
             &provider,
             gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
         );

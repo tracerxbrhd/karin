@@ -25,6 +25,9 @@ rustup toolchain install 1.98.1 --profile minimal --component rustfmt --componen
 
 Install [rustup](https://rustup.rs/) first. Generated MP3 fixtures also need `lamemp3enc`
 and `xingmux`. Fedora KDE Plasma on Wayland with PipeWire is the reference desktop.
+For native Wayland tray placement, install `gtk4-layer-shell-devel` (1.3+) before
+building. The linked library is then required at runtime. A native build with
+X11 support can also place Karin Mini on X11 or Xwayland, when available.
 
 ## Native build and launch
 

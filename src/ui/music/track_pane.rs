@@ -409,6 +409,7 @@ impl TrackPane {
 
     pub(super) fn set_embedded(&self, embedded: bool) {
         self.header.set_visible(!embedded);
+        self.extras.set_embedded(embedded);
     }
 
     fn update_header(&self) {

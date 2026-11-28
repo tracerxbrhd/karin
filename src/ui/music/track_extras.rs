@@ -74,6 +74,7 @@ struct Inner {
     epoch: Cell<u64>,
     info_active: Cell<bool>,
     lyrics_active: Cell<bool>,
+    expanded: Cell<bool>,
     visible_scheduled: Cell<bool>,
     lyrics_serial: Cell<u64>,
     similar_serial: Cell<u64>,
@@ -292,6 +293,7 @@ impl ExtrasView {
             epoch: Cell::new(0),
             info_active: Cell::new(false),
             lyrics_active: Cell::new(false),
+            expanded: Cell::new(false),
             visible_scheduled: Cell::new(false),
             lyrics_serial: Cell::new(0),
             similar_serial: Cell::new(0),
@@ -360,6 +362,7 @@ impl ExtrasView {
                     return;
                 };
                 let position = item.position();
+                row.set_expanded(this.expanded.get());
                 let label = row.bind(
                     &value.string(),
                     this.synchronized.get(),
@@ -403,6 +406,42 @@ impl ExtrasView {
             // Start the visible request only after that GTK dispatch returns.
             schedule_visible(&self.inner);
         }
+    }
+
+    pub(super) fn set_embedded(&self, expanded: bool) {
+        let this = &self.inner;
+        if this.expanded.replace(expanded) == expanded {
+            return;
+        }
+        if expanded {
+            this.lyrics_widget.add_css_class("karin-lyrics-expanded");
+        } else {
+            this.lyrics_widget.remove_css_class("karin-lyrics-expanded");
+            self.set_lyrics_metadata_visible(true);
+        }
+        for label in [&this.lyrics_title, &this.lyrics_artist, &this.lyrics_status] {
+            label.set_xalign(if expanded { 0.5 } else { 0.0 });
+            label.set_justify(if expanded {
+                gtk::Justification::Center
+            } else {
+                gtk::Justification::Left
+            });
+        }
+        for label in this
+            .visible_lines
+            .borrow()
+            .values()
+            .filter_map(glib::WeakRef::upgrade)
+        {
+            if let Some(row) = label.parent().and_downcast::<lyric_row::LyricRow>() {
+                row.set_expanded(expanded);
+            }
+        }
+    }
+
+    pub(super) fn set_lyrics_metadata_visible(&self, visible: bool) {
+        self.inner.lyrics_title.set_visible(visible);
+        self.inner.lyrics_artist.set_visible(visible);
     }
 
     pub(super) fn set_modes(&self, info_visible: bool, lyrics_visible: bool) {
@@ -1572,6 +1611,7 @@ impl Controller {
         }
         self.invalidate_liked_feeds();
         let cache = self.persistent_cache();
+        let changed_id = id.clone();
         self.run(Operation::Mutation, move |service, token| {
             let result = service.set_track_reaction(&token, &id, kind, true);
             if !token.is_expired() && service.cache_scope(&token).is_ok()
@@ -1581,8 +1621,7 @@ impl Controller {
             this.mutation_busy.set(false);
             let result = result.unwrap_or_else(|error| Err(InteractionError::Music(error)));
             views.finish(result.map(|state| state.liked), true);
-            this.current_like_key.borrow_mut().take();
-            this.sync_current_like();
+            this.refresh_current_reactions_after_like(&changed_id);
             this.model.borrow_mut().liked = None;
             this.render_home_preview();
             if let Err(InteractionError::Music(error @ (MusicError::AccessDenied | MusicError::Unauthenticated))) = result {

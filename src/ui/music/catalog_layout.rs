@@ -732,8 +732,8 @@ impl Controller {
         list: &gtk::ListBox,
         track: Track,
         context: Rc<dyn Fn() -> Option<PlaybackContext>>,
-    ) {
-        self.track_row_bound(list, track, context, None, None);
+    ) -> gtk::ListBoxRow {
+        self.track_row_bound(list, track, context, None, None)
     }
 
     pub(super) fn track_row_bound(
@@ -743,7 +743,7 @@ impl Controller {
         context: Rc<dyn Fn() -> Option<PlaybackContext>>,
         marker: Option<CatalogMarker>,
         removal: Option<playlist_management::RowRemoval>,
-    ) {
+    ) -> gtk::ListBoxRow {
         song_list(list);
         let subtitle = track.artists.join(", ");
         let (row, body) = catalog_item(&track.title, &subtitle);
@@ -835,6 +835,7 @@ impl Controller {
         // every old row for each insertion made a page append quadratic.
         binding.sync(self.catalog_selection().context.as_ref());
         self.catalog_rows.borrow_mut().bindings.push(binding);
+        row
     }
 
     pub(super) fn row_action(self: &Rc<Self>, row: &gtk::ListBoxRow, action: RowAction) {
@@ -896,6 +897,9 @@ impl Controller {
             && origin != "detail"
         {
             self.model.borrow_mut().detail_origin = origin.to_string();
+            self.navigation_history
+                .detail_origin_scroll
+                .set(self.music_scroll());
         }
         if !self.refreshing_detail.get() {
             self.cancel_delivery();
@@ -962,7 +966,11 @@ impl Controller {
         self.interrupt_feed_reads(Operation::Detail);
         self.requests.borrow_mut().invalidate(Operation::Detail);
         self.model.borrow_mut().view_generation += 1;
+        if self.reopen_previous_detail() {
+            return;
+        }
         let origin = self.model.borrow().detail_origin.clone();
+        let scroll = self.navigation_history.detail_origin_scroll.get();
         self.widgets.stack.set_visible_child_name(&origin);
         match origin.as_str() {
             "search" => {
@@ -986,6 +994,7 @@ impl Controller {
                 self.widgets.nav_liked.grab_focus();
             }
         }
+        self.restore_music_scroll(scroll);
     }
 
     pub(super) fn detail_cover(&self, cover: Option<&CoverArt>) {
@@ -1209,6 +1218,7 @@ impl Controller {
     }
 
     pub(super) fn open_album(self: &Rc<Self>, id: String) {
+        self.remember_detail();
         self.open_album_policy(id, false, 0);
     }
 
@@ -1268,6 +1278,7 @@ impl Controller {
     }
 
     pub(super) fn open_playlist(self: &Rc<Self>, playlist: Playlist, page: u32) {
+        self.remember_detail();
         self.open_playlist_policy(playlist, page, false);
     }
 
@@ -1307,6 +1318,7 @@ impl Controller {
     }
 
     pub(super) fn open_artist(self: &Rc<Self>, artist: Artist, page: u32) {
+        self.remember_detail();
         self.open_artist_policy(artist, page, false);
     }
 

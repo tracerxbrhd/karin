@@ -30,6 +30,9 @@
     {
       "name": "karin",
       "buildsystem": "simple",
+      "build-options": {
+        "env": {"KARIN_REQUIRE_LAYER_SHELL": "1"}
+      },
       "build-commands": [
         "cargo build --release --offline --locked --no-default-features --features browser-session-auth",
         "install -Dm755 target/release/karin /app/bin/karin",
@@ -43,6 +46,29 @@
         "install -d /app/share/licenses/io.github.tracerxbrhd.Karin/third-party",
         "cp -a third-party-notices/. /app/share/licenses/io.github.tracerxbrhd.Karin/third-party/",
         "cp -a packaging/third-party-licenses/. /app/share/licenses/io.github.tracerxbrhd.Karin/"
+      ],
+      "modules": [
+        {
+          "name": "gtk4-layer-shell",
+          "buildsystem": "meson",
+          "config-opts": [
+            "-Dexamples=false",
+            "-Ddocs=false",
+            "-Dtests=false",
+            "-Dsmoke-tests=false",
+            "-Dintrospection=false",
+            "-Dvapi=false"
+          ],
+          "cleanup": ["/include", "/lib/pkgconfig", "/lib/liblayer-shell-preload.so"],
+          "sources": [
+            {
+              "type": "archive",
+              "archive-type": "tar-gzip",
+              "url": "https://codeload.github.com/wmww/gtk4-layer-shell/tar.gz/1c963c51514581c41b9bdae08cdf69171265cdda",
+              "sha256": "22be5f5edf487cfb87266f0e71c400b11322082a4dc99832e5a54a4fca3d5a7c"
+            }
+          ]
+        }
       ],
       "sources": [
         {

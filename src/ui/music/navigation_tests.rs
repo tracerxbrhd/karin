@@ -110,6 +110,7 @@ fn native_catalog_navigation_latest_actions() {
                         (200, json!({"result":{"library":{"tracks":[]}}}))
                     }
                     "/users/1234/dislikes/tracks" => (200, json!({"result":{"library":{"uid":1234,"revision":1,"tracks":[]}}})),
+                    "/users/1234/playlists/list" | "/users/1234/likes/playlists" => (200, json!({"result":[]})),
                     "/search" => {
                         assert!(url.query_pairs().any(|(name,value)|name=="type"&&value=="track"),"this coalescing fixture explicitly requests the track scope");
                         let query = url.query_pairs().find(|(name, _)| name == "text").unwrap().1.into_owned();
@@ -322,7 +323,7 @@ fn native_catalog_navigation_latest_actions() {
             owner: "1234".into(),
             kind: "4".into(),
         },
-        ..playlist
+        ..playlist.clone()
     };
     this.open_playlist(failed, 0);
     pump_until(|| !this.model.borrow().busy);
@@ -430,6 +431,58 @@ fn native_catalog_navigation_latest_actions() {
     assert_eq!(failed_feed.data.borrow().error, Some(MusicError::Http(404)));
     assert!(!mapped_loading_spinner(failed_feed.status.upcast_ref()));
     assert!(contains_text(this.widgets.detail.upcast_ref(), "Повторить"));
+    fn back_button(widget: &gtk::Widget) -> Option<gtk::Button> {
+        if widget.widget_name() == "music-header-back" {
+            return widget.clone().downcast().ok();
+        }
+        std::iter::successors(widget.first_child(), WidgetExt::next_sibling)
+            .find_map(|child| back_button(&child))
+    }
+    let top_back = back_button(window.upcast_ref()).expect("Back in the native header");
+    let back = || {
+        pump_until(|| top_back.is_mapped() && top_back.is_sensitive());
+        if let Some(id) = &keyboard_window {
+            let (x, y) =
+                super::test_input::pointer(&window, &top_back, super::test_input::Target::Center);
+            assert!(
+                std::process::Command::new("xdotool")
+                    .args([
+                        "mousemove",
+                        "--window",
+                        id,
+                        &x.to_string(),
+                        &y.to_string(),
+                        "click",
+                        "1"
+                    ])
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+        } else {
+            top_back.emit_clicked();
+        }
+    };
+    this.open_playlist(playlist, 0);
+    pump_until(|| contains_text(this.widgets.detail.upcast_ref(), "Треков пока нет"));
+    back();
+    pump_until(|| contains_text(this.widgets.detail.upcast_ref(), "Повторить"));
+    back();
+    pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("search"));
+    back();
+    pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("library"));
+    ui.show_page("music-home");
+    ui.show_page("music-collection");
+    assert_eq!(
+        this.widgets.stack.visible_child_name().as_deref(),
+        Some("collection")
+    );
+    back();
+    pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("home"));
+    back();
+    pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("library"));
+    assert!(!top_back.is_sensitive());
+
     this.logout();
     assert!(this.track_feeds.borrow().is_empty());
     assert!(this.widgets.library_hero.first_child().is_none());

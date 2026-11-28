@@ -1494,6 +1494,9 @@ impl Controller {
             can_next: controls.next,
             can_seek: controls.seek && progress.duration.is_some(),
             can_volume: controls.volume,
+            shuffle: model.queue.shuffle(),
+            repeat: model.queue.repeat_mode(),
+            can_change_order: selected.is_some() && !self.is_wave_queue(),
         })
     }
 

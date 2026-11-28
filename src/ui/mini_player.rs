@@ -6,7 +6,7 @@ use std::{rc::Rc, time::Duration};
 use adw::prelude::*;
 use gtk::{gdk, glib};
 
-use super::music::{MiniCommand, MiniSnapshot, mini_time};
+use super::music::{MiniCommand, MiniSnapshot, mini_time, repeat_button, set_order_presentation};
 
 pub(super) enum Action {
     Playback(MiniCommand),
@@ -15,6 +15,8 @@ pub(super) enum Action {
 
 pub(super) struct MiniPlayer {
     pub(super) window: adw::ApplicationWindow,
+    pub(super) reactions_slot: gtk::Box,
+    pub(super) is_anchored: bool,
     artwork: gtk::Picture,
     title: gtk::Label,
     artist: gtk::Label,
@@ -23,20 +25,29 @@ pub(super) struct MiniPlayer {
     play_icon: gtk::Image,
     loading: gtk::Spinner,
     next: gtk::Button,
+    shuffle: gtk::ToggleButton,
+    repeat: gtk::Button,
     progress: gtk::Scale,
     time: gtk::Label,
     volume: gtk::Scale,
 }
 
 impl MiniPlayer {
-    pub(super) fn new(app: &adw::Application, on_action: impl Fn(Action) + 'static) -> Self {
-        super::style::install();
+    pub(super) fn new(
+        app: &adw::Application,
+        display: &gdk::Display,
+        is_anchored: bool,
+        on_action: impl Fn(Action) + 'static,
+    ) -> Self {
+        super::style::install_for_display(display);
         let on_action = Rc::new(on_action);
         let window = adw::ApplicationWindow::builder()
             .application(app)
+            .display(display)
+            .decorated(!is_anchored)
             .title("Karin Mini")
             .icon_name(super::APP_ICON)
-            .default_width(360)
+            .default_width(super::tray_window::MINI_WIDTH)
             .resizable(false)
             .build();
         window.set_widget_name("karin-mini-player");
@@ -49,6 +60,22 @@ impl MiniPlayer {
         open.add_css_class("flat");
         describe(&open, "Открыть основное окно Karin");
         header.pack_start(&open);
+        if is_anchored {
+            window.add_css_class("karin-mini-popup");
+            header.set_show_start_title_buttons(false);
+            header.set_show_end_title_buttons(false);
+            let close = gtk::Button::from_icon_name("window-close-symbolic");
+            close.set_widget_name("karin-mini-close");
+            close.add_css_class("flat");
+            describe(&close, "Закрыть мини-плеер");
+            let weak = window.downgrade();
+            close.connect_clicked(move |_| {
+                if let Some(window) = weak.upgrade() {
+                    window.set_visible(false);
+                }
+            });
+            header.pack_end(&close);
+        }
         toolbar.add_top_bar(&header);
         window.set_content(Some(&toolbar));
 
@@ -97,8 +124,15 @@ impl MiniPlayer {
         timeline.append(&time);
         content.append(&timeline);
 
-        let controls = gtk::Box::new(gtk::Orientation::Horizontal, 12);
         let transport = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+        transport.add_css_class("music-transport");
+        transport.set_halign(gtk::Align::Center);
+        let shuffle = gtk::ToggleButton::new();
+        shuffle.set_widget_name("karin-mini-shuffle");
+        shuffle.set_icon_name("karin-arrows-shuffle-symbolic");
+        shuffle.set_size_request(38, 38);
+        shuffle.set_valign(gtk::Align::Center);
+        shuffle.add_css_class("flat");
         let previous = transport_button(
             "karin-mini-previous",
             "karin-player-skip-back-symbolic",
@@ -130,11 +164,23 @@ impl MiniPlayer {
             "karin-player-skip-forward-symbolic",
             "Следующий трек",
         );
+        let repeat = repeat_button();
+        repeat.set_widget_name("karin-mini-repeat");
+        repeat.set_size_request(38, 38);
+        repeat.set_valign(gtk::Align::Center);
+        repeat.add_css_class("flat");
+        transport.append(&shuffle);
         transport.append(&previous);
         transport.append(&play);
         transport.append(&next);
-        controls.append(&transport);
+        transport.append(&repeat);
+        content.append(&transport);
 
+        let extra = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+        let reactions_slot = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+        reactions_slot.set_widget_name("karin-mini-reactions");
+        reactions_slot.set_visible(false);
+        extra.append(&reactions_slot);
         let loudness = gtk::Box::new(gtk::Orientation::Horizontal, 4);
         loudness.set_width_request(120);
         loudness.set_hexpand(true);
@@ -145,18 +191,23 @@ impl MiniPlayer {
         let volume = scale("karin-mini-volume", "Громкость");
         loudness.append(&speaker);
         loudness.append(&volume);
-        controls.append(&loudness);
-        content.append(&controls);
+        extra.append(&loudness);
+        content.append(&extra);
         toolbar.set_content(Some(&content));
 
         for (button, command) in [
             (&previous, MiniCommand::Previous),
             (&play, MiniCommand::PlayPause),
             (&next, MiniCommand::Next),
+            (&repeat, MiniCommand::Repeat),
         ] {
             let on_action = Rc::clone(&on_action);
             button.connect_clicked(move |_| on_action(Action::Playback(command)));
         }
+        let action = Rc::clone(&on_action);
+        shuffle.connect_clicked(move |button| {
+            action(Action::Playback(MiniCommand::Shuffle(button.is_active())));
+        });
         let action = Rc::clone(&on_action);
         progress.connect_change_value(move |slider, _, value| {
             // GTK's native range handles pointer and keyboard input. Rendering
@@ -198,6 +249,8 @@ impl MiniPlayer {
 
         let view = Self {
             window,
+            reactions_slot,
+            is_anchored,
             artwork,
             title,
             artist,
@@ -206,6 +259,8 @@ impl MiniPlayer {
             play_icon,
             loading,
             next,
+            shuffle,
+            repeat,
             progress,
             time,
             volume,
@@ -250,6 +305,13 @@ impl MiniPlayer {
         self.previous.set_sensitive(snapshot.can_previous);
         self.play.set_sensitive(snapshot.can_play_pause);
         self.next.set_sensitive(snapshot.can_next);
+        set_order_presentation(
+            &self.shuffle,
+            &self.repeat,
+            snapshot.shuffle,
+            snapshot.repeat,
+            snapshot.can_change_order,
+        );
 
         let duration = snapshot.duration.filter(|duration| !duration.is_zero());
         let position = snapshot

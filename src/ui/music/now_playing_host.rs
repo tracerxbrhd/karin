@@ -33,6 +33,10 @@ impl Host {
         self.section.get().is_some()
     }
 
+    pub(super) fn reactions_host(&self) -> &gtk::Box {
+        &self.view.reactions_slot
+    }
+
     pub(super) fn inspects_current(&self) -> bool {
         self.is_active() && self.inspected_current.get()
     }
@@ -126,6 +130,7 @@ impl Controller {
             .render(&snapshot, self.now_playing_status().as_deref());
         self.sync_now_playing_panel();
         shell.set_visible_child_name("now-playing");
+        self.sync_music_back();
         host.view.focus_back();
     }
 
@@ -153,6 +158,7 @@ impl Controller {
             shell.set_visible_child_name("workspace");
         }
         host.view.render(&Default::default(), None);
+        self.sync_music_back();
         if return_focus && self.widgets.current_art_button.is_mapped() {
             self.widgets.current_art_button.grab_focus();
         }
@@ -210,6 +216,9 @@ impl Controller {
         self.track_pane
             .extras
             .set_modes(mode == PanelMode::TrackInfo, mode == PanelMode::Lyrics);
+        self.track_pane
+            .extras
+            .set_lyrics_metadata_visible(self.now_playing.view.is_compact());
     }
 
     pub(super) fn handle_now_playing_action(self: &Rc<Self>, action: Action) {

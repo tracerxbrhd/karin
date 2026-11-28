@@ -130,6 +130,7 @@ fn show_help(window: &adw::ApplicationWindow) {
                 ("Открыть поиск", "win.music-search"),
                 ("Закрыть поиск", "Escape"),
                 ("Вернуться из «Сейчас играет»", "Escape"),
+                ("Назад", "win.music-back"),
                 ("Обновить раздел", "win.music-refresh"),
                 ("Очередь", "win.music-queue"),
                 ("Сведения о треке", "win.music-info"),

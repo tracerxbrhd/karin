@@ -21,8 +21,11 @@ pub(super) struct SearchInput {
 #[derive(Clone)]
 struct SearchOrigin {
     page: String,
+    scroll: f64,
     detail: Option<DetailRefresh>,
     detail_parent: String,
+    detail_parent_scroll: f64,
+    detail_history: navigation::DetailHistory,
     detail_loading: bool,
 }
 
@@ -155,13 +158,30 @@ impl Controller {
             .visible_child_name()
             .unwrap_or_else(|| "home".into());
         SearchOrigin {
+            scroll: self.music_scroll(),
             detail: (page == "detail")
                 .then(|| self.detail_refresh.borrow().clone())
                 .flatten(),
             detail_parent: self.model.borrow().detail_origin.clone(),
+            detail_parent_scroll: self.navigation_history.detail_origin_scroll.get(),
+            detail_history: if page == "detail" {
+                self.navigation_history.details.borrow().clone()
+            } else {
+                Vec::new()
+            },
             detail_loading: page == "detail" && self.requests.borrow().active(Operation::Detail),
             page: page.to_string(),
         }
+    }
+
+    pub(super) fn search_return_section(&self) -> Option<(String, f64)> {
+        self.search_input.origin.borrow().as_ref().map(|origin| {
+            if origin.page == "detail" {
+                (origin.detail_parent.clone(), origin.detail_parent_scroll)
+            } else {
+                (origin.page.clone(), origin.scroll)
+            }
+        })
     }
 
     pub(super) fn open_global_search(self: &Rc<Self>) {
@@ -172,6 +192,7 @@ impl Controller {
             self.search_input.origin.replace(Some(self.search_origin()));
             self.widgets.search.set_can_focus(true);
             self.widgets.search_header.set_open(true);
+            self.sync_music_back();
         }
         self.widgets.search.grab_focus();
     }
@@ -197,12 +218,19 @@ impl Controller {
                 .borrow_mut()
                 .detail_origin
                 .clone_from(&origin.detail_parent);
+            self.navigation_history
+                .detail_origin_scroll
+                .set(origin.detail_parent_scroll);
+            self.navigation_history
+                .details
+                .replace(origin.detail_history.clone());
             if displaced || origin.detail_loading {
                 self.search_input.restoring_detail.set(true);
                 detail(self, false);
                 self.search_input.restoring_detail.set(false);
             }
         }
+        self.restore_music_scroll(origin.scroll);
     }
 
     pub(super) fn entering_collection_detail(self: &Rc<Self>) {
@@ -232,6 +260,7 @@ impl Controller {
         }
         self.widgets.search.set_can_focus(false);
         self.widgets.search_header.set_open(false);
+        self.sync_music_back();
     }
 
     pub(super) fn close_global_search(self: &Rc<Self>, restore: bool) {
@@ -714,6 +743,7 @@ impl Controller {
     }
 
     pub(super) fn open_search_playlist(self: &Rc<Self>, playlist: SearchPlaylist, _page: u32) {
+        self.remember_detail();
         self.open_search_playlist_policy(playlist, false);
     }
 

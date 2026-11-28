@@ -10,6 +10,12 @@ use std::{
 use adw::prelude::*;
 use gtk::{gdk, gio, glib};
 
+#[path = "tray_window/position.rs"]
+mod position;
+
+pub(super) use position::MINI_WIDTH;
+use position::Positioning;
+
 use super::{
     mini_player::{Action, MiniPlayer},
     music::MiniPlayback,
@@ -21,6 +27,7 @@ pub(super) struct WindowTray {
     tray: RefCell<Option<Tray>>,
     playback: RefCell<Option<MiniPlayback>>,
     mini: RefCell<Option<MiniPlayer>>,
+    positioning: Positioning,
     mini_refresh: RefCell<Option<glib::SourceId>>,
     hidden_hold: RefCell<Option<gio::ApplicationHoldGuard>>,
     quitting: Cell<bool>,
@@ -33,6 +40,7 @@ impl WindowTray {
             tray: RefCell::new(None),
             playback: RefCell::new(None),
             mini: RefCell::new(None),
+            positioning: Positioning::new(),
             mini_refresh: RefCell::new(None),
             hidden_hold: RefCell::new(None),
             quitting: Cell::new(false),
@@ -99,9 +107,9 @@ impl WindowTray {
         let quit = activate.clone();
         let availability = activate.clone();
         self.tray.replace(Some(Tray::new(
-            move |token| {
+            move |point, token| {
                 if let Some(owner) = activate.upgrade() {
-                    owner.toggle_mini(token);
+                    owner.toggle_mini(point, token);
                 }
             },
             move |token| {
@@ -155,10 +163,16 @@ impl WindowTray {
         }
     }
 
-    fn toggle_mini(self: &Rc<Self>, token: Option<&str>) {
+    fn toggle_mini(self: &Rc<Self>, point: (i32, i32), token: Option<&str>) {
         if self.quitting.get() {
             return;
         }
+        let Some(main) = self.window.upgrade() else {
+            return;
+        };
+        let display = gtk::prelude::WidgetExt::display(&main);
+        let placement = self.positioning.placement(&display, point);
+        let target_display = placement.display().unwrap_or(display);
         if let Some(window) = self.mini_window() {
             let minimized = window
                 .surface()
@@ -166,32 +180,40 @@ impl WindowTray {
                 .is_some_and(|surface| surface.state().contains(gdk::ToplevelState::MINIMIZED));
             if window.is_visible() && !minimized {
                 window.set_visible(false);
-            } else {
-                present(&window, token);
+                return;
             }
-            return;
+            let same_role = self.mini.borrow().as_ref().is_some_and(|mini| {
+                mini.is_anchored == placement.is_anchored()
+                    && gtk::prelude::WidgetExt::display(&window) == target_display
+            });
+            if same_role {
+                placement.present(&window, token);
+                return;
+            }
+            self.discard_mini();
         }
-        let Some(app) = self
-            .window
-            .upgrade()
-            .and_then(|window| window.application())
-            .and_downcast::<adw::Application>()
-        else {
+        let Some(app) = main.application().and_downcast::<adw::Application>() else {
             return;
         };
         let Some(playback) = self.playback.borrow().clone() else {
             return;
         };
         let weak = Rc::downgrade(self);
-        let mini = MiniPlayer::new(&app, move |action| match action {
-            Action::Playback(command) => playback.command(command),
-            Action::OpenMain => {
-                if let Some(owner) = weak.upgrade() {
-                    owner.present_main(None);
+        let mini = MiniPlayer::new(
+            &app,
+            &target_display,
+            placement.is_anchored(),
+            move |action| match action {
+                Action::Playback(command) => playback.command(command),
+                Action::OpenMain => {
+                    if let Some(owner) = weak.upgrade() {
+                        owner.present_main(None);
+                    }
                 }
-            }
-        });
+            },
+        );
         let window = mini.window.clone();
+        placement.initialize(&window);
         window.set_hide_on_close(true);
         let weak = Rc::downgrade(self);
         window.connect_map(move |_| {
@@ -206,7 +228,7 @@ impl WindowTray {
             }
         });
         self.mini.replace(Some(mini));
-        present(&window, token);
+        placement.present(&window, token);
     }
 
     fn mini_window(&self) -> Option<adw::ApplicationWindow> {
@@ -228,6 +250,11 @@ impl WindowTray {
 
     fn start_mini_refresh(self: &Rc<Self>) {
         self.stop_mini_refresh();
+        if let Some(playback) = self.playback.borrow().as_ref()
+            && let Some(mini) = self.mini.borrow().as_ref()
+        {
+            playback.set_reactions_host(Some(&mini.reactions_slot));
+        }
         self.render_mini();
         let weak = Rc::downgrade(self);
         self.mini_refresh.replace(Some(glib::timeout_add_local(
@@ -243,6 +270,9 @@ impl WindowTray {
     }
 
     fn stop_mini_refresh(&self) {
+        if let Some(playback) = self.playback.borrow().as_ref() {
+            playback.set_reactions_host(None);
+        }
         if let Some(source) = self.mini_refresh.take() {
             source.remove();
         }

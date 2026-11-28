@@ -3,8 +3,12 @@
 
 use super::*;
 
+mod marquee;
+
 const TRACK_PREVIEW: usize = 6;
 const PLAYLIST_PREVIEW: usize = 8;
+const COLUMN_MIN_WIDTH: i32 = 304;
+const COLUMN_GAP: i32 = 12;
 
 #[derive(PartialEq, Eq)]
 enum Section<T> {
@@ -18,7 +22,9 @@ pub(super) struct CollectionOverview {
     pub widget: gtk::Box,
     pub open_liked: gtk::Button,
     pub open_playlists: gtk::Button,
-    liked_rows: gtk::ListBox,
+    liked_rows: gtk::Box,
+    liked_columns: [gtk::ListBox; 2],
+    liked_scroll: gtk::ScrolledWindow,
     liked_status: gtk::Label,
     liked_spinner: gtk::Spinner,
     liked_retry: gtk::Button,
@@ -47,11 +53,34 @@ impl CollectionOverview {
             "music-collection-open-liked",
             "win.music-library",
         );
-        liked.append(&open_liked);
-        let liked_rows = list();
+        let liked_header = gtk::CenterBox::new();
+        liked_header.set_start_widget(Some(&open_liked));
+        let liked_rows = gtk::Box::new(gtk::Orientation::Horizontal, COLUMN_GAP);
         liked_rows.set_widget_name("music-collection-liked-rows");
-        liked_rows.set_visible(false);
-        liked.append(&liked_rows);
+        liked_rows.set_homogeneous(true);
+        let liked_columns = [list(), list()];
+        for (index, column) in liked_columns.iter().enumerate() {
+            column.set_widget_name(if index == 0 {
+                "music-collection-liked-first-column"
+            } else {
+                "music-collection-liked-second-column"
+            });
+            liked_rows.append(column);
+        }
+        let viewport = gtk::Viewport::new(None::<&gtk::Adjustment>, None::<&gtk::Adjustment>);
+        viewport.set_scroll_to_focus(true);
+        viewport.set_child(Some(&liked_rows));
+        let liked_scroll = gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::External)
+            .vscrollbar_policy(gtk::PolicyType::Never)
+            .propagate_natural_height(true)
+            .child(&viewport)
+            .build();
+        liked_scroll.set_widget_name("music-collection-liked-scroll");
+        liked_scroll.set_visible(false);
+        liked_header.set_end_widget(Some(&preview_arrows(&liked_scroll)));
+        liked.append(&liked_header);
+        liked.append(&liked_scroll);
         let liked_feedback = gtk::Box::new(gtk::Orientation::Vertical, 8);
         let liked_status = text("", "dim-label");
         liked_status.set_widget_name("music-collection-liked-status");
@@ -101,6 +130,8 @@ impl CollectionOverview {
             open_liked,
             open_playlists,
             liked_rows,
+            liked_columns,
+            liked_scroll,
             liked_status,
             liked_spinner,
             liked_retry,
@@ -115,6 +146,64 @@ impl CollectionOverview {
     pub(super) fn is_showing_liked_playlists(&self) -> bool {
         self.playlist_liked.is_active()
     }
+}
+
+fn preview_arrows(scroll: &gtk::ScrolledWindow) -> gtk::Box {
+    let controls = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    controls.set_widget_name("music-collection-liked-arrows");
+    controls.set_valign(gtk::Align::Center);
+    controls.set_visible(false);
+    let left = preview_arrow("‹", "Прокрутить избранное влево", "left");
+    let right = preview_arrow("›", "Прокрутить избранное вправо", "right");
+    controls.append(&left);
+    controls.append(&right);
+    let adjustment = scroll.hadjustment();
+    for (button, forward) in [(&left, false), (&right, true)] {
+        let adjustment = adjustment.clone();
+        button.connect_clicked(move |_| {
+            let endpoint = if forward {
+                adjustment.upper() - adjustment.page_size()
+            } else {
+                adjustment.lower()
+            };
+            adjustment.set_value(endpoint);
+        });
+    }
+    let update = {
+        let (controls, left, right) = (controls.downgrade(), left.downgrade(), right.downgrade());
+        let scroll = scroll.downgrade();
+        move |adjustment: &gtk::Adjustment| {
+            if let (Some(controls), Some(left), Some(right), Some(scroll)) = (
+                controls.upgrade(),
+                left.upgrade(),
+                right.upgrade(),
+                scroll.upgrade(),
+            ) {
+                let lower = adjustment.lower();
+                let upper = adjustment.upper() - adjustment.page_size();
+                controls.set_visible(scroll.is_visible() && upper - lower > 1.0);
+                left.set_sensitive(adjustment.value() - lower > 1.0);
+                right.set_sensitive(upper - adjustment.value() > 1.0);
+            }
+        }
+    };
+    adjustment.connect_changed(update.clone());
+    adjustment.connect_value_changed(update.clone());
+    scroll.connect_visible_notify(move |scroll| update(&scroll.hadjustment()));
+    controls
+}
+
+fn preview_arrow(glyph: &str, description: &str, direction: &str) -> gtk::Button {
+    let button = gtk::Button::new();
+    button.set_widget_name(&format!("music-collection-liked-arrow-{direction}"));
+    button.set_size_request(36, 36);
+    button.add_css_class("circular");
+    let label = gtk::Label::new(Some(glyph));
+    label.add_css_class("title-3");
+    button.set_child(Some(&label));
+    button.set_tooltip_text(Some(description));
+    button.update_property(&[gtk::accessible::Property::Label(description)]);
+    button
 }
 
 fn section_link(title: &str, icon: &str, name: &str, action: &str) -> gtk::Button {
@@ -315,8 +404,11 @@ impl Controller {
             };
             overview.liked_status.set_text(status);
             overview.liked_status.set_visible(!status.is_empty());
-            overview.liked_rows.set_visible(false);
-            clear_list(&overview.liked_rows);
+            overview.liked_scroll.set_visible(false);
+            for column in &overview.liked_columns {
+                clear_list(column);
+            }
+            overview.liked_scroll.hadjustment().set_value(0.0);
             if let Section::Ready(page) = &tracks
                 && let Ok(snapshot) = PlaybackContext::new(
                     ContextKind::LikedTracks,
@@ -327,6 +419,15 @@ impl Controller {
                 )
             {
                 let generation = self.model.borrow().generation;
+                let preview_len = page.items.len().min(TRACK_PREVIEW);
+                let column_len = preview_len.div_ceil(2);
+                let two_columns = preview_len > 1;
+                overview.liked_columns[1].set_visible(two_columns);
+                overview.liked_rows.set_width_request(if two_columns {
+                    COLUMN_MIN_WIDTH * 2 + COLUMN_GAP
+                } else {
+                    -1
+                });
                 for (index, track) in page.items.iter().take(TRACK_PREVIEW).enumerate() {
                     let weak = Rc::downgrade(self);
                     let snapshot = snapshot.clone();
@@ -338,9 +439,14 @@ impl Controller {
                         this.liked_overview_context(snapshot.items(), index)
                             .or_else(|| snapshot.with_current_index(index))
                     });
-                    self.track_row_source(&overview.liked_rows, track.clone(), resolve);
+                    let row = self.track_row_source(
+                        &overview.liked_columns[index / column_len],
+                        track.clone(),
+                        resolve,
+                    );
+                    marquee::install(&row);
                 }
-                overview.liked_rows.set_visible(true);
+                overview.liked_scroll.set_visible(true);
             }
             overview.track_state.replace(tracks);
         }

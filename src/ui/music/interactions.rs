@@ -208,33 +208,6 @@ impl Controller {
         RetiredDetailLikes(views)
     }
 
-    /// A direct confirmed action, looked up once only when the active footer
-    /// maps. Queue selection alone leaves the hidden footer and network idle.
-    /// Identity is account generation + track, not a duplicate queue occurrence.
-    pub(super) fn sync_current_like(self: &Rc<Self>) {
-        let key = {
-            let model = self.model.borrow();
-            if model.account_valid && !model.closed {
-                model
-                    .queue
-                    .current()
-                    .map(|track| (model.generation, track.id.clone()))
-            } else {
-                None
-            }
-        };
-        if *self.current_like_key.borrow() == key {
-            return;
-        }
-        self.current_like_key.replace(key.clone());
-        super::clear_box(&self.widgets.current_like_slot);
-        self.widgets.current_like_slot.set_visible(key.is_some());
-        let Some((generation, id)) = key else { return };
-        let container = self.footer_reaction_controls(id, generation);
-        // Connect map before parenting: a visible footer can map synchronously.
-        self.widgets.current_like_slot.append(&container);
-    }
-
     /// Full-size presentation retained by native confirmation/retirement
     /// fixtures; the ordinary selected-track menu uses the compact wrapper.
     #[cfg(test)]
@@ -433,17 +406,8 @@ impl Controller {
                 // account-global mark. Retire the footer's old membership and
                 // let its visible replacement read current state, without ever
                 // repeating a write or borrowing detail display fields.
-                if !widgets.compact
-                    && this
-                        .current_like_key
-                        .borrow()
-                        .as_ref()
-                        .is_some_and(|(_, current)| {
-                            current.split(':').next() == changed_id.split(':').next()
-                        })
-                {
-                    this.current_like_key.replace(None);
-                    this.sync_current_like();
+                if !widgets.compact {
+                    this.refresh_current_reactions_after_like(&changed_id);
                 }
                 if !widgets.alive() {
                     detail_views.finish(result.map(|state| state.liked), true);

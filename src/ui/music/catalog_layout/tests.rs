@@ -158,6 +158,132 @@ fn assert_liked_action_geometry(window: &adw::ApplicationWindow, hero: &gtk::Box
     }
 }
 
+fn assert_collection_preview(window: &adw::ApplicationWindow, this: &Rc<Controller>, xid: &str) {
+    use super::super::test_input::{Target, pointer, wait_for_layout};
+
+    this.widgets.stack.set_visible_child_name("collection");
+    let overview = &this.collection_overview.widget;
+    let named = |name: &str| {
+        children(overview)
+            .into_iter()
+            .find(|widget| widget.widget_name() == name)
+            .unwrap()
+    };
+    let columns = [
+        "music-collection-liked-first-column",
+        "music-collection-liked-second-column",
+    ]
+    .map(|name| named(name).downcast::<gtk::ListBox>().unwrap());
+    let scroll = named("music-collection-liked-scroll")
+        .downcast::<gtk::ScrolledWindow>()
+        .unwrap();
+    let left = named("music-collection-liked-arrow-left");
+    let right = named("music-collection-liked-arrow-right");
+    let adjustment = scroll.hadjustment();
+    let end = || adjustment.upper() - adjustment.page_size();
+    let resize = |width| {
+        window.set_default_size(width, 720);
+        pump_until(|| {
+            window
+                .surface()
+                .is_some_and(|surface| surface.width() == width)
+        });
+        wait_for_layout(window, &scroll);
+    };
+    let input = |widget: &gtk::Widget, click| {
+        let (x, y) = pointer(window, widget, Target::Center);
+        let mut command = std::process::Command::new("xdotool");
+        command.args(["mousemove", "--window", xid, &x.to_string(), &y.to_string()]);
+        if click {
+            command.args(["click", "1"]);
+        }
+        assert!(command.status().unwrap().success());
+    };
+
+    resize(1440);
+    assert!(!left.is_mapped() && !right.is_mapped());
+    assert!(end() <= 1.0);
+    assert!((columns[0].width() - columns[1].width()).abs() <= 1);
+    for column in &columns {
+        assert!(column.row_at_index(2).is_some());
+        assert!(column.row_at_index(3).is_none());
+    }
+    let a = columns[0]
+        .row_at_index(0)
+        .unwrap()
+        .compute_bounds(window)
+        .unwrap();
+    let b = columns[1]
+        .row_at_index(0)
+        .unwrap()
+        .compute_bounds(window)
+        .unwrap();
+    assert!((a.y() - b.y()).abs() <= 1.0 && a.x() + a.width() < b.x());
+    capture_native("native-collection-preview-two-columns");
+
+    resize(900);
+    this.set_info_open(true);
+    pump_until(|| this.track_pane.widget.is_mapped() && right.is_mapped());
+    assert!(end() > 1.0 && right.is_sensitive());
+    this.set_info_open(false);
+    pump_until(|| !this.track_pane.widget.is_mapped());
+    resize(420);
+    assert!(end() > 1.0 && !left.is_sensitive() && right.is_sensitive());
+    input(&right, true);
+    pump_until(|| (adjustment.value() - end()).abs() <= 1.0);
+    assert!(left.is_sensitive() && !right.is_sensitive());
+
+    let row = columns[1].row_at_index(1).unwrap();
+    let preview = children(&row);
+    let title = preview
+        .iter()
+        .find(|widget| widget.has_css_class("music-track-title") && widget.is_mapped())
+        .unwrap()
+        .downcast_ref::<gtk::Label>()
+        .unwrap();
+    assert!(title.text().contains("Очень длинное русское название"));
+    assert!(title.layout().is_ellipsized());
+    let runners: Vec<_> = preview
+        .iter()
+        .filter(|widget| widget.widget_name() == "music-collection-marquee-runner")
+        .map(|widget| widget.downcast_ref::<gtk::Fixed>().unwrap())
+        .collect();
+    assert_eq!(runners.len(), 2);
+    input(title.upcast_ref(), false);
+    let deadline = std::time::Instant::now() + Duration::from_millis(400);
+    pump_until(|| std::time::Instant::now() >= deadline);
+    assert!(runners.iter().all(|runner| !runner.is_mapped()));
+    input(&left, false);
+    let settings = window.settings();
+    settings.set_gtk_enable_animations(true);
+    input(title.upcast_ref(), false);
+    pump_until(|| {
+        runners.iter().all(|runner| {
+            runner.is_mapped() && runner.child_position(&runner.first_child().unwrap()).0 < -1.0
+        })
+    });
+    input(&left, false);
+    pump_until(|| runners.iter().all(|runner| !runner.is_mapped()));
+    assert_eq!(title.opacity(), 1.0);
+    settings.set_gtk_enable_animations(false);
+    capture_native("native-collection-preview-compact");
+
+    // The second visible column still starts the exact original occurrence.
+    let play = preview
+        .iter()
+        .find(|widget| widget.widget_name() == "music-track-play")
+        .unwrap();
+    input(play, true);
+    pump_until(|| {
+        this.model.borrow().queue.context().is_some_and(|context| {
+            context.source_kind() == ContextKind::LikedTracks && context.current_index() == 4
+        })
+    });
+    input(&left, true);
+    pump_until(|| adjustment.value() <= 1.0);
+    assert!(!left.is_sensitive() && right.is_sensitive());
+}
+
 #[test]
 #[ignore = "isolated Xvfb native allocation fixture; synthetic data, no account or service"]
 fn native_catalog_native_music_layout() {
@@ -198,6 +324,10 @@ fn native_catalog_native_music_layout() {
     tracks[0].duration_ms = Some(65_000);
     tracks[1].duration_ms = Some(605_000);
     tracks[4].title = "Очень длинное русское название / a deliberately long English title with mixed symbols — 2026".into();
+    tracks[4].artists = vec![
+        "Synthetic artist whose deliberately long multilingual credit … 2026".into(),
+        "Второй исполнитель".into(),
+    ];
     tracks[5].duration_ms = None;
     let playlist = Playlist {
         id: crate::music::PlaylistId {
@@ -221,6 +351,10 @@ fn native_catalog_native_music_layout() {
         }));
         model.playlists = Some(Ok(Page {
             items: vec![playlist],
+            has_more: false,
+        }));
+        model.liked_playlists = Some(Ok(Page {
+            items: Vec::new(),
             has_more: false,
         }));
     }
@@ -382,6 +516,7 @@ fn native_catalog_native_music_layout() {
     super::super::test_input::wait_for_layout(window, &play_liked);
     assert_liked_action_geometry(window, &this.widgets.library_hero, false);
     capture_native("native-liked-real-collection-compact");
+    assert_collection_preview(window, this, native_window.trim());
     this.widgets.stack.set_visible_child_name("search");
     this.clear_search_feedback();
     this.tracks_from(

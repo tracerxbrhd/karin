@@ -131,10 +131,18 @@ pub(super) fn section_button(
     icon.set_pixel_size(16);
     let label = gtk::Label::new(Some(text));
     label.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    let content = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+    label.set_margin_start(4);
+    let content = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     content.set_halign(gtk::Align::Center);
     content.append(&icon);
-    content.append(&label);
+    // Keep the full label's natural size while letting GTK request the compact
+    // width in one resize. The breakpoint may still show the wide labels
+    // while the window manager applies the first size request.
+    let optional_label = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    optional_label.set_overflow(gtk::Overflow::Hidden);
+    super::player_bar::allow_child_to_shrink(&optional_label);
+    optional_label.append(&label);
+    content.append(&optional_label);
     let button = gtk::ToggleButton::builder()
         .child(&content)
         .action_name(action)

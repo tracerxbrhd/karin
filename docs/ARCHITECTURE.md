@@ -138,13 +138,22 @@ System styling follows Libadwaita, with High Contrast and Reduced Motion.
 
 The collection overview reads the account-scoped liked and playlist feeds
 used by the full sections. Preview playback uses the same loaded occurrence
-and queue context as the full liked list.
+and queue context as the full liked list. Two preview columns share a
+horizontal viewport with arrow navigation when the window is narrow. Playable
+rows retain their accessible full text and scroll overflowing titles and artist
+credits on hover or focus when animations are enabled.
+
+The header Back action unwinds the current overlay or nested catalog route
+before restoring the previous primary section and scroll position. The
+navigation history is bounded and cleared on account teardown.
 
 The footer track opens Now Playing inside the same window. The regular
 workspace keeps its widgets in the navigation stack, preserving page, scroll and
 side panel intent. Now Playing borrows the existing Info, Lyrics and Queue
-surface, and uses the same transport commands, progress and decoded artwork
-as the mini player. Its sections never change the saved side panel preference.
+surface in the expanded layout and follows the active synchronized lyric line.
+Now Playing, Mini and the footer share the player's transport, queue order,
+volume and verified reaction state. Opening another surface reuses the current
+reaction state. Now Playing preserves the saved regular side panel preference.
 
 Discord Rich Presence is enabled for new profiles and can be disabled under
 Integrations. Earlier settings files represented an unchecked switch by omitting
@@ -166,8 +175,12 @@ Close to tray is opt-in. Karin hides the existing window only after its
 StatusNotifierItem is registered with a host. A hidden window holds the
 application open so playback and media controls keep using the same controller.
 The tray icon toggles Karin Mini, which reads the same player's state while
-mapped and sends commands to that player. The tray menu, ordinary application
-activation and Mini's Open Karin button present the main window. Losing the
+mapped and sends commands to that player. When the tray supplies screen
+coordinates, Mini opens inward from the nearest edge of that output, using
+Wayland Layer Shell where available or placement through an X11 window
+manager. Without a usable position and backend, the window manager places
+Mini as an ordinary window. The tray menu, ordinary application activation
+and Mini's Open Karin button present the main window. Losing the
 host closes Mini and restores a hidden main window. On Plasma the panel's D-Bus
 name also tracks host availability because the watcher can outlive the panel.
 Explicit quit and update restart follow the normal window and persistence

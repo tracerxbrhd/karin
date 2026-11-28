@@ -574,6 +574,7 @@ impl Controller {
         if focus_compact {
             self.focus_compact_information(&reveal, &content);
         }
+        self.sync_music_back();
     }
 
     fn focus_compact_information(&self, reveal: &SlidingPanel, content: &gtk::Widget) {
@@ -842,7 +843,7 @@ impl Controller {
         }
     }
 
-    fn return_information_focus(&self) {
+    pub(super) fn return_information_focus(&self) {
         if self.widgets.current_art_button.is_mapped()
             && self.widgets.current_art_button.grab_focus()
         {
@@ -990,6 +991,7 @@ impl Controller {
 
     pub(super) fn clear_workspace(&self) {
         self.close_now_playing(false);
+        self.retire_navigation_history();
         self.retire_catalog_rows();
         self.retire_playlist_management();
         let dialog = self.playlist_dialog.borrow_mut().take();

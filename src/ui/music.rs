@@ -28,6 +28,7 @@ mod home;
 mod interactions;
 mod login;
 mod mini;
+mod navigation;
 #[cfg(test)]
 mod navigation_tests;
 mod now_playing;
@@ -63,6 +64,7 @@ mod workspace;
 mod wrap_row;
 pub(super) use mini::{MiniCommand, MiniPlayback, MiniSnapshot};
 pub(super) use player::music_time as mini_time;
+pub(super) use player_bar::{repeat_button, set_order_presentation};
 use requests::{Operation, Requests};
 type PendingJob = Box<dyn FnOnce(&Rc<Controller>, u64)>;
 
@@ -223,6 +225,7 @@ struct Controller {
     playlist_grid: playlist_grid::PlaylistGrid,
     track_pane: track_pane::TrackPane,
     now_playing: now_playing_host::Host,
+    navigation_history: navigation::History,
     info_selection: RefCell<Option<workspace::InfoSelection>>,
     info_host: RefCell<Option<workspace::InfoHost>>,
     info_observed: RefCell<Option<workspace::CurrentOccurrence>>,
@@ -230,7 +233,8 @@ struct Controller {
     panel_mode: Cell<workspace::PanelMode>,
     catalog_rows: RefCell<catalog_layout::CatalogRows>,
     current_art_cover: RefCell<Option<Option<CoverArt>>>,
-    current_like_key: RefCell<Option<(u64, String)>>,
+    current_reactions: RefCell<Option<Rc<reactions::ReactionControls>>>,
+    mini_reactions_host: glib::WeakRef<gtk::Box>,
     detail_like_controls: RefCell<Vec<interactions::DetailLike>>,
     catalog: RefCell<Option<crate::catalog_cache::CachedCatalog>>,
     playlist_dialog: RefCell<Option<adw::Dialog>>,
@@ -789,6 +793,7 @@ impl MusicPane {
             playlist_grid,
             track_pane,
             now_playing,
+            navigation_history: navigation::History::default(),
             info_selection: RefCell::new(None),
             info_host: RefCell::new(None),
             info_observed: RefCell::new(None),
@@ -796,7 +801,8 @@ impl MusicPane {
             panel_mode: Cell::new(workspace::PanelMode::Closed),
             catalog_rows: RefCell::new(catalog_layout::CatalogRows::default()),
             current_art_cover: RefCell::new(None),
-            current_like_key: RefCell::new(None),
+            current_reactions: RefCell::new(None),
+            mini_reactions_host: glib::WeakRef::new(),
             detail_like_controls: RefCell::new(Vec::new()),
             catalog: RefCell::new(None),
             playlist_dialog: RefCell::new(None),
@@ -1065,24 +1071,14 @@ impl Controller {
             }
         });
         self.connect_account_menu();
-        for (button, mode) in [
-            (&self.widgets.home_liked, 0),
-            (&self.widgets.home_playlists, 1),
+        for (button, page) in [
+            (&self.widgets.home_liked, "library"),
+            (&self.widgets.home_playlists, "playlists"),
         ] {
             let weak = Rc::downgrade(self);
             button.connect_clicked(move |_| {
                 if let Some(this) = weak.upgrade() {
-                    this.close_global_search(false);
-                    this.widgets.stack.set_visible_child_name(if mode == 0 {
-                        "library"
-                    } else {
-                        "playlists"
-                    });
-                    let changed = this.widgets.library_mode.selected() != mode;
-                    this.widgets.library_mode.set_selected(mode);
-                    if !changed {
-                        this.show_library();
-                    }
+                    this.navigate_music_section(page);
                 }
             });
         }
@@ -1162,6 +1158,9 @@ impl Controller {
             .connect_visible_child_name_notify(move |_| {
                 if let Some(this) = weak.upgrade() {
                     let route = this.widgets.stack.visible_child_name();
+                    if route.as_deref() != Some("detail") {
+                        this.retire_detail_history();
+                    }
                     this.reset_collection_filters();
                     if this.widgets.search_header.is_open()
                         && !this.widgets.search.text().is_empty()
@@ -1183,6 +1182,7 @@ impl Controller {
                     this.requests.borrow_mut().invalidate(Operation::Detail);
                     this.requests.borrow_mut().invalidate(Operation::Delivery);
                     this.cancel_delivery();
+                    this.sync_music_back();
                     if route.as_deref() == Some("collection") {
                         this.show_collection_overview();
                     }
@@ -1255,16 +1255,7 @@ impl Controller {
                         this.open_global_search();
                         return;
                     }
-                    this.close_global_search(false);
-                    this.widgets.stack.set_visible_child_name(page);
-                    if page == "library" || page == "playlists" {
-                        let mode = u32::from(page == "playlists");
-                        let changed = this.widgets.library_mode.selected() != mode;
-                        this.widgets.library_mode.set_selected(mode);
-                        if !changed {
-                            this.show_library();
-                        }
-                    }
+                    this.navigate_music_section(page);
                 }
             });
             window.add_action(&action);
@@ -1284,12 +1275,11 @@ impl Controller {
             app.set_accels_for_action("win.music-queue", &["<Primary>j"]);
         }
         let back = gio::SimpleAction::new("music-back", None);
+        back.set_enabled(false);
         let weak = Rc::downgrade(self);
         back.connect_activate(move |_, _| {
-            if let Some(this) = weak.upgrade()
-                && !this.close_now_playing(true)
-            {
-                this.back_from_detail();
+            if let Some(this) = weak.upgrade() {
+                this.music_back();
             }
         });
         window.add_action(&back);
@@ -1337,7 +1327,6 @@ impl Controller {
                 "music-playlists",
                 "music-search",
                 "music-queue",
-                "music-back",
             ] {
                 if let Some(action) = window
                     .lookup_action(name)
@@ -1365,6 +1354,7 @@ impl Controller {
         self.widgets.status_revealer.set_visible(show_status);
         self.widgets.status_revealer.set_reveal_child(show_status);
         drop(model);
+        self.sync_music_back();
         self.render_catalog_refresh();
         // The shell's visibility handler may synchronously reconcile Music
         // routes and panel focus. Release the controller borrow first.

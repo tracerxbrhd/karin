@@ -36,18 +36,35 @@ pub(super) fn confirmed_dislike_advances(
         && submitted == current
 }
 
-#[derive(Clone)]
-struct ReactionControls {
+struct ReactionView {
     buttons: [glib::WeakRef<gtk::Button>; 2],
     icons: [glib::WeakRef<gtk::Image>; 2],
     spinners: [glib::WeakRef<gtk::Spinner>; 2],
     feedback: glib::WeakRef<gtk::MenuButton>,
     refresh: glib::WeakRef<gtk::Button>,
     message: glib::WeakRef<gtk::Label>,
-    state: Rc<Cell<Option<TrackReactions>>>,
-    supported: Rc<Cell<bool>>,
-    like_only: Rc<Cell<Option<bool>>>,
-    fallback_reason: Rc<Cell<Option<InteractionError>>>,
+}
+
+pub(super) struct ReactionControls {
+    generation: u64,
+    id: String,
+    views: RefCell<Vec<ReactionView>>,
+    initialized: Cell<bool>,
+    supported: Cell<bool>,
+    presentation: Cell<ReactionPresentation>,
+}
+
+#[derive(Clone, Copy)]
+enum ReactionPresentation {
+    Unknown {
+        message: &'static str,
+        retry: bool,
+        animate: bool,
+    },
+    Confirmed {
+        state: ReactionRead,
+        mutable: bool,
+    },
 }
 
 #[derive(Clone, Copy)]
@@ -69,20 +86,26 @@ fn dislike_icon_name() -> &'static str {
     "karin-thumb-down-symbolic"
 }
 
-impl ReactionControls {
-    fn alive(&self) -> bool {
-        self.buttons[0]
-            .upgrade()
-            .is_some_and(|button| button.root().is_some())
+impl ReactionView {
+    fn apply(&self, presentation: ReactionPresentation, supported: bool) {
+        match presentation {
+            ReactionPresentation::Unknown {
+                message,
+                retry,
+                animate,
+            } => {
+                self.unknown(message, retry, animate, supported);
+            }
+            ReactionPresentation::Confirmed { state, mutable } => match state {
+                ReactionRead::Both(state) => {
+                    self.render(state.liked, Some(state.disliked), mutable)
+                }
+                ReactionRead::LikeOnly(liked, _) => self.like_confirmed(liked, mutable),
+            },
+        }
     }
 
-    fn unknown(&self, message: &str, retry: bool) {
-        self.unknown_state(message, retry, !retry);
-    }
-
-    fn unknown_state(&self, message: &str, retry: bool, animate: bool) {
-        self.state.set(None);
-        self.like_only.set(None);
+    fn unknown(&self, message: &str, retry: bool, animate: bool, supported: bool) {
         for index in 0..2 {
             if let Some(button) = self.buttons[index].upgrade() {
                 button.set_sensitive(false);
@@ -100,7 +123,7 @@ impl ReactionControls {
                     // An unknown/refused Dislike contract never becomes an
                     // apparently functional control. Previously confirmed
                     // controls stay stable but disabled during their mutation.
-                    button.set_visible(self.supported.get());
+                    button.set_visible(supported);
                 }
             }
             if let Some(icon) = self.icons[index].upgrade() {
@@ -129,19 +152,7 @@ impl ReactionControls {
         }
     }
 
-    fn confirmed(&self, state: TrackReactions, mutable: bool) {
-        self.supported.set(true);
-        self.state.set(Some(state));
-        self.like_only.set(Some(state.liked));
-        self.fallback_reason.set(None);
-        self.render(state.liked, Some(state.disliked), mutable);
-    }
-
-    fn like_confirmed(&self, liked: bool, reason: InteractionError, mutable: bool) {
-        self.supported.set(false);
-        self.state.set(None);
-        self.like_only.set(Some(liked));
-        self.fallback_reason.set(Some(reason));
+    fn like_confirmed(&self, liked: bool, mutable: bool) {
         self.render(liked, None, mutable);
         if let Some(feedback) = self.feedback.upgrade() {
             feedback.set_visible(true);
@@ -212,12 +223,150 @@ impl ReactionControls {
     }
 }
 
+impl ReactionControls {
+    fn new(generation: u64, id: String) -> Self {
+        Self {
+            generation,
+            id,
+            views: RefCell::new(Vec::new()),
+            initialized: Cell::new(false),
+            supported: Cell::new(false),
+            presentation: Cell::new(ReactionPresentation::Unknown {
+                message: "Проверяем отметки в вашей библиотеке…",
+                retry: false,
+                animate: false,
+            }),
+        }
+    }
+
+    fn has_mapped_view(&self) -> bool {
+        self.views.borrow().iter().any(|view| {
+            view.buttons[0]
+                .upgrade()
+                .is_some_and(|button| button.is_mapped())
+        })
+    }
+
+    fn update(&self, presentation: ReactionPresentation) {
+        self.presentation.set(presentation);
+        self.views.borrow_mut().retain(|view| {
+            if view.buttons[0].upgrade().is_none() {
+                return false;
+            }
+            view.apply(presentation, self.supported.get());
+            true
+        });
+    }
+
+    fn unknown(&self, message: &'static str, retry: bool) {
+        self.update(ReactionPresentation::Unknown {
+            message,
+            retry,
+            animate: !retry,
+        });
+    }
+
+    fn finish(&self, result: Result<ReactionRead, InteractionError>, mutable: bool) {
+        match result {
+            Ok(state) => {
+                self.supported.set(matches!(state, ReactionRead::Both(_)));
+                self.update(ReactionPresentation::Confirmed { state, mutable });
+            }
+            Err(error) => self.unknown(interaction_message(error), true),
+        }
+    }
+}
+
 impl Controller {
-    pub(super) fn footer_reaction_controls(
+    pub(super) fn sync_current_like(self: &Rc<Self>) {
+        let selection = {
+            let model = self.model.borrow();
+            let track = model
+                .queue
+                .current()
+                .filter(|_| model.account_valid && !model.closed);
+            track.map(|track| (model.generation, track.id.clone()))
+        };
+        if self
+            .current_reactions
+            .borrow()
+            .as_ref()
+            .map(|group| (group.generation, &group.id))
+            == selection.as_ref().map(|(generation, id)| (*generation, id))
+        {
+            return;
+        }
+        let group =
+            selection.map(|(generation, id)| Rc::new(ReactionControls::new(generation, id)));
+        self.current_reactions.replace(group.clone());
+        let mini = self.mini_reactions_host.upgrade();
+        for host in [
+            &self.widgets.current_like_slot,
+            self.now_playing.reactions_host(),
+        ]
+        .into_iter()
+        .chain(mini.as_ref())
+        {
+            self.render_current_reactions_host(host, group.as_ref());
+        }
+    }
+
+    pub(super) fn set_mini_reactions_host(self: &Rc<Self>, host: Option<&gtk::Box>) {
+        let previous = self.mini_reactions_host.upgrade();
+        if previous.as_ref() == host {
+            return;
+        }
+        if let Some(previous) = previous {
+            clear_box(&previous);
+        }
+        self.mini_reactions_host.set(host);
+        if let Some(host) = host {
+            let group = self.current_reactions.borrow().clone();
+            self.render_current_reactions_host(host, group.as_ref());
+        }
+    }
+
+    pub(super) fn refresh_current_reactions_after_like(self: &Rc<Self>, id: &str) {
+        let matches = self
+            .current_reactions
+            .borrow()
+            .as_ref()
+            .is_some_and(|group| group.id.split(':').next() == id.split(':').next());
+        if matches {
+            self.current_reactions.take();
+            self.sync_current_like();
+        }
+    }
+
+    fn render_current_reactions_host(
         self: &Rc<Self>,
-        id: String,
-        generation: u64,
-    ) -> gtk::Box {
+        host: &gtk::Box,
+        group: Option<&Rc<ReactionControls>>,
+    ) {
+        clear_box(host);
+        host.set_visible(group.is_some());
+        if let Some(group) = group {
+            host.append(&self.footer_reaction_controls(group));
+        }
+    }
+
+    fn current_reaction_group(&self, group: &Rc<ReactionControls>) -> bool {
+        let model = self.model.borrow();
+        !model.closed
+            && model.account_valid
+            && model.generation == group.generation
+            && model
+                .queue
+                .current()
+                .is_some_and(|track| track.id == group.id)
+            && self
+                .current_reactions
+                .borrow()
+                .as_ref()
+                .is_some_and(|current| Rc::ptr_eq(current, group))
+    }
+
+    fn footer_reaction_controls(self: &Rc<Self>, widgets: &Rc<ReactionControls>) -> gtk::Box {
         let container = gtk::Box::new(gtk::Orientation::Horizontal, 2);
         container.set_widget_name("music-current-like-controls");
         container.set_valign(gtk::Align::Center);
@@ -274,63 +423,44 @@ impl Controller {
         popover.set_child(Some(&content));
         feedback.set_popover(Some(&popover));
         container.append(&feedback);
-        let widgets = ReactionControls {
+        let view = ReactionView {
             buttons: [buttons[0].downgrade(), buttons[1].downgrade()],
             icons: icons.try_into().expect("two reaction icons"),
             spinners: spinners.try_into().expect("two reaction spinners"),
             feedback: feedback.downgrade(),
             refresh: refresh.downgrade(),
             message: message.downgrade(),
-            state: Rc::new(Cell::new(None)),
-            supported: Rc::new(Cell::new(false)),
-            like_only: Rc::new(Cell::new(None)),
-            fallback_reason: Rc::new(Cell::new(None)),
         };
-        // Mapping defers the bounded read until render-time borrows unwind.
-        // Do not animate before that idle callback: continuous HiDPI redraws
-        // must not become a prerequisite for admitting the first request.
-        widgets.unknown_state("Проверяем отметки в вашей библиотеке…", false, false);
-        let initialized = Rc::new(Cell::new(false));
+        view.apply(widgets.presentation.get(), widgets.supported.get());
+        let mut views = widgets.views.borrow_mut();
+        views.retain(|view| view.buttons[0].upgrade().is_some());
+        views.push(view);
+        drop(views);
+
+        // The first mapped view admits the shared read after render-time
+        // borrows unwind. Opening another surface uses its verified result.
         let weak = Rc::downgrade(self);
         let read = widgets.clone();
-        let read_id = id.clone();
         buttons[0].connect_map(move |_| {
-            if initialized.replace(true) {
+            if read.initialized.get() {
                 return;
             }
-            let (weak, widgets, id, initialized) = (
-                weak.clone(),
-                read.clone(),
-                read_id.clone(),
-                initialized.clone(),
-            );
+            let (weak, widgets) = (weak.clone(), read.clone());
             glib::idle_add_local_once(move || {
                 let Some(this) = weak.upgrade() else { return };
-                let current = {
-                    let model = this.model.borrow();
-                    !model.closed
-                        && model.account_valid
-                        && model.generation == generation
-                        && model.queue.current().is_some_and(|track| track.id == id)
-                };
-                if current
-                    && widgets.alive()
-                    && widgets.buttons[0]
-                        .upgrade()
-                        .is_some_and(|button| button.is_mapped())
+                if this.current_reaction_group(&widgets)
+                    && widgets.has_mapped_view()
+                    && !widgets.initialized.replace(true)
                 {
-                    this.read_footer_reactions(id, widgets);
-                } else {
-                    initialized.set(false);
+                    this.read_footer_reactions(widgets);
                 }
             });
         });
         let weak = Rc::downgrade(self);
         let read = widgets.clone();
-        let read_id = id.clone();
         refresh.connect_clicked(move |_| {
             if let Some(this) = weak.upgrade() {
-                this.read_footer_reactions(read_id.clone(), read.clone());
+                this.read_footer_reactions(read.clone());
             }
         });
         for (button, kind) in buttons
@@ -339,18 +469,17 @@ impl Controller {
         {
             let weak = Rc::downgrade(self);
             let widgets = widgets.clone();
-            let id = id.clone();
             button.connect_clicked(move |_| {
                 if let Some(this) = weak.upgrade() {
-                    this.change_footer_reaction(id.clone(), generation, kind, widgets.clone());
+                    this.change_footer_reaction(kind, widgets.clone());
                 }
             });
         }
         container
     }
 
-    fn read_footer_reactions(self: &Rc<Self>, id: String, widgets: ReactionControls) {
-        if !widgets.alive() || !self.model.borrow().account_valid || self.model.borrow().closed {
+    fn read_footer_reactions(self: &Rc<Self>, widgets: Rc<ReactionControls>) {
+        if !self.current_reaction_group(&widgets) {
             return;
         }
         if self.mutation_busy.get() {
@@ -361,6 +490,7 @@ impl Controller {
             return;
         }
         widgets.unknown("Проверяем отметки в вашей библиотеке…", false);
+        let id = widgets.id.clone();
         self.run(
             Operation::CurrentLikeRead,
             move |service, token| {
@@ -390,45 +520,41 @@ impl Controller {
                     this.show_error(error);
                     return;
                 }
-                if widgets.alive() {
-                    match result {
-                        Ok(ReactionRead::Both(state)) => {
-                            widgets.confirmed(state, !this.mutation_busy.get())
-                        }
-                        Ok(ReactionRead::LikeOnly(liked, reason)) => {
-                            widgets.like_confirmed(liked, reason, !this.mutation_busy.get())
-                        }
-                        Err(error) => widgets.unknown(interaction_message(error), true),
-                    }
+                if this.current_reaction_group(&widgets) {
+                    widgets.finish(result, !this.mutation_busy.get());
                 }
             },
         );
     }
 
-    fn change_footer_reaction(
-        self: &Rc<Self>,
-        id: String,
-        generation: u64,
-        kind: TrackReaction,
-        widgets: ReactionControls,
-    ) {
-        let admitted = {
-            let model = self.model.borrow();
-            !model.closed
-                && model.account_valid
-                && model.generation == generation
-                && model.queue.current().is_some_and(|track| track.id == id)
-        };
-        if !widgets.alive() || !admitted {
+    fn change_footer_reaction(self: &Rc<Self>, kind: TrackReaction, widgets: Rc<ReactionControls>) {
+        if !self.current_reaction_group(&widgets) {
             return;
         }
-        let state = widgets.state.get();
-        let marked = match kind {
-            TrackReaction::Like => widgets.like_only.get(),
-            TrackReaction::Dislike => state.map(|state| state.disliked),
+        let (marked, fallback) = match (widgets.presentation.get(), kind) {
+            (
+                ReactionPresentation::Confirmed {
+                    state: ReactionRead::Both(state),
+                    mutable: true,
+                },
+                TrackReaction::Like,
+            ) => (state.liked, None),
+            (
+                ReactionPresentation::Confirmed {
+                    state: ReactionRead::Both(state),
+                    mutable: true,
+                },
+                TrackReaction::Dislike,
+            ) => (state.disliked, None),
+            (
+                ReactionPresentation::Confirmed {
+                    state: ReactionRead::LikeOnly(liked, reason),
+                    mutable: true,
+                },
+                TrackReaction::Like,
+            ) => (liked, Some(reason)),
+            _ => return,
         };
-        let Some(marked) = marked else { return };
-        let fallback = widgets.fallback_reason.get();
         if self.mutation_busy.replace(true) {
             widgets.unknown(
                 "Другая правка ещё выполняется. Обновите отметки позже.",
@@ -437,6 +563,7 @@ impl Controller {
             return;
         }
         let enabled = !marked;
+        let id = widgets.id.clone();
         let playback_target = self.reaction_playback_target();
         let detail_views = self.retire_detail_likes(&id);
         widgets.unknown("Сохраняем и проверяем отметки…", false);
@@ -499,14 +626,8 @@ impl Controller {
                     }),
                     true,
                 );
-                if widgets.alive() {
-                    match result {
-                        Ok(ReactionRead::Both(state)) => widgets.confirmed(state, true),
-                        Ok(ReactionRead::LikeOnly(liked, reason)) => {
-                            widgets.like_confirmed(liked, reason, true)
-                        }
-                        Err(error) => widgets.unknown(interaction_message(error), true),
-                    }
+                if this.current_reaction_group(&widgets) {
+                    widgets.finish(result, true);
                 }
                 // `run` admits this FnOnce completion only for the original
                 // session and live Mutation ticket. Confirm presentation before

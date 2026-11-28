@@ -17,11 +17,14 @@ fn register() {
 }
 
 pub(super) fn install() {
+    if let Some(display) = gtk::gdk::Display::default() {
+        install_for_display(&display);
+    }
+}
+
+pub(super) fn install_for_display(display: &gtk::gdk::Display) {
     register();
-    let Some(display) = gtk::gdk::Display::default() else {
-        return;
-    };
-    let theme = gtk::IconTheme::for_display(&display);
+    let theme = gtk::IconTheme::for_display(display);
     if !theme
         .resource_path()
         .iter()

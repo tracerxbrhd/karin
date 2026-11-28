@@ -406,7 +406,7 @@ fn build_shell(
     toolbar.add_css_class("music-toolbar-surface");
     // The native CenterBox centers in the full window when space allows,
     // then yields to the side controls without increasing the window minimum.
-    let header = adw::HeaderBar::builder().height_request(48).build();
+    let header = adw::HeaderBar::builder().height_request(52).build();
     header.set_widget_name("music-header");
     header.add_css_class("music-header");
     // GTK can add its own app icon through the desktop's CSD layout. The
@@ -483,9 +483,21 @@ fn build_shell(
     brand_home.add_css_class("music-header-control");
     brand_home.update_property(&[gtk::accessible::Property::Label("На главную")]);
     let refresh = header_refresh_button(&window);
+    let music_back = gtk::Button::builder()
+        .icon_name("karin-chevron-left-symbolic")
+        .action_name("win.music-back")
+        .tooltip_text("Назад")
+        .focus_on_click(false)
+        .has_frame(false)
+        .valign(gtk::Align::Center)
+        .build();
+    music_back.set_widget_name("music-header-back");
+    music_back.add_css_class("music-header-control");
+    music_back.update_property(&[gtk::accessible::Property::Label("Назад")]);
     let music_navigation = music.header_navigation();
     let start_group = gtk::Box::new(gtk::Orientation::Horizontal, 2);
     start_group.append(&brand_home);
+    start_group.append(&music_back);
     start_group.append(&refresh);
     header.pack_start(&start_group);
     let header_center = gtk::Box::new(gtk::Orientation::Horizontal, 0);
@@ -566,6 +578,7 @@ fn build_shell(
         let workspace_surface = workspace_surface.downgrade();
         let navigation = music_navigation.downgrade();
         let refresh = refresh.downgrade();
+        let music_back = music_back.downgrade();
         let diagnostics_title = diagnostics_title.downgrade();
         let back = diagnostics
             .as_ref()
@@ -584,6 +597,9 @@ fn build_shell(
             }
             if let Some(refresh) = refresh.upgrade() {
                 refresh.set_visible(music_visible);
+            }
+            if let Some(back) = music_back.upgrade() {
+                back.set_visible(music_visible);
             }
             if let Some(title) = diagnostics_title.upgrade() {
                 title.set_visible(!home_visible);
@@ -844,6 +860,7 @@ fn build_shell(
     .collect();
     let mut header_items = vec![
         brand_home.upcast(),
+        music_back.upcast(),
         refresh.upcast(),
         diagnostics_title.upcast(),
         music_navigation.clone().upcast(),

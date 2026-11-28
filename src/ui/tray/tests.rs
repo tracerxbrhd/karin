@@ -129,13 +129,16 @@ fn native_tray_registration_menu_and_host_lifecycle() {
                     .unwrap();
                 let availability = Rc::new(RefCell::new(Vec::new()));
                 let activations = Rc::new(RefCell::new(Vec::new()));
+                let clicked_position = Rc::new(Cell::new(None));
                 let seen = availability.clone();
                 let clicked = activations.clone();
                 let opened = activations.clone();
                 let quit = activations.clone();
+                let position = clicked_position.clone();
                 let tray = Tray::start(
                     true,
-                    move |token| {
+                    move |coordinates, token| {
+                        position.set(Some(coordinates));
                         clicked
                             .borrow_mut()
                             .push(("activate", token.map(str::to_owned)))
@@ -177,6 +180,7 @@ fn native_tray_registration_menu_and_host_lifecycle() {
                 )
                 .await;
                 call(&panel, icon, "Activate", (10i32, 20i32).to_variant()).await;
+                assert_eq!(clicked_position.get(), Some((10, 20)));
                 for id in [OPEN, QUIT] {
                     call(
                         &panel,
