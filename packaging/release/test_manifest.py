@@ -73,6 +73,18 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             make_manifest(base, lock, "master", checksum)
 
+    def test_pinned_manifest_keeps_layer_shell_in_flatpak_library_directory(self):
+        base = json.loads((REPOSITORY / DEVELOPMENT).read_text())
+        lock = tomllib.loads((REPOSITORY / "Cargo.lock").read_text())
+        pinned = make_manifest(base, lock, "a" * 40, "b" * 64)
+        development_dependencies = base["modules"][0]["modules"]
+        release_dependencies = pinned["modules"][0]["modules"]
+        self.assertEqual(release_dependencies, development_dependencies)
+        layer_shell = next(module for module in release_dependencies if module["name"] == "gtk4-layer-shell")
+        self.assertIn("--libdir=lib", layer_shell["config-opts"])
+        self.assertIn("/lib/pkgconfig", layer_shell["cleanup"])
+        self.assertIn("/lib/liblayer-shell-preload.so", layer_shell["cleanup"])
+
     def test_source_snapshot_never_copies_ignored_private_data(self):
         with tempfile.TemporaryDirectory() as temporary:
             repo = Path(temporary) / "repo"
