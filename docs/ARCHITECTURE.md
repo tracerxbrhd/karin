@@ -27,7 +27,7 @@ flowchart TD
 | Private state | `session`, `credentials`, `session_lifecycle`, `settings` | Protected storage, preferences and forgetting |
 | Playback | `queue`, `playback_session`, `stream`, `playback` | Queue occurrences, source admission and one player |
 | Cache | `cache_budget`, `catalog_cache`, `artwork`, `audio_cache` | Shared budget and storage policy |
-| Desktop | `ui`, `mpris`, `discord_presence`, `updates` | Presentation, media controls, presence and release checks |
+| Desktop | `ui`, `mpris`, `discord_presence`, `updates` | Presentation, tray, media controls, presence and release checks |
 
 Widgets send typed intents. HTTP, parsing and file I/O run on bounded workers
 and return results to the GTK main context. Each ordinary read lane holds one
@@ -151,6 +151,13 @@ instance of the same Flatpak to open the current socket and pass back its file
 descriptor. This refreshes the file mount without new permissions or restarting
 playback. The worker verifies the peer UID before any Discord exchange. A peer
 outside the sandbox's PID namespace can have PID zero.
+
+Close to tray is opt-in. Karin hides the existing window only after its
+StatusNotifierItem is registered with a host. A hidden window holds the
+application open so playback and media controls keep using the same controller.
+Losing the host restores that window. On Plasma the panel's D-Bus name also
+tracks host availability because the watcher can outlive the panel. Explicit
+quit and update restart follow the normal window and persistence shutdown.
 
 ## Application updates
 

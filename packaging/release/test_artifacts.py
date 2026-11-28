@@ -24,6 +24,8 @@ devices=dri;
 filesystems=xdg-run/discord-ipc-0:ro;xdg-run/app/com.discordapp.Discord:ro;
 [Session Bus Policy]
 org.mpris.MediaPlayer2.io.github.tracerxbrhd.Karin=own
+org.kde.StatusNotifierWatcher=talk
+org.kde.plasmashell=see
 """
 
 
@@ -220,6 +222,11 @@ class ArtifactTests(unittest.TestCase):
                         PERMISSIONS.replace("filesystems=", "filesystems=home;"),
                         PERMISSIONS.replace("xdg-run/discord-ipc-0:ro;", ""),
                         PERMISSIONS.replace("xdg-run/app/com.discordapp.Discord:ro;", "xdg-run/app/com.discordapp.Discord:create;"),
+                        PERMISSIONS.replace("org.kde.StatusNotifierWatcher=talk\n", ""),
+                        PERMISSIONS.replace("org.kde.StatusNotifierWatcher=talk", "org.kde.StatusNotifierWatcher=own"),
+                        PERMISSIONS.replace("org.kde.StatusNotifierWatcher=talk", "org.kde.*=talk"),
+                        PERMISSIONS.replace("org.kde.plasmashell=see\n", ""),
+                        PERMISSIONS.replace("org.kde.plasmashell=see", "org.kde.plasmashell=talk"),
                         PERMISSIONS + "org.freedesktop.secrets=talk\n",
                         PERMISSIONS + "[System Bus Policy]\n*=talk\n",
                         PERMISSIONS + "[Environment]\nWEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1\n"):

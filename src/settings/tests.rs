@@ -44,6 +44,7 @@ fn persistent_preferences_roundtrip_preserves_private_modes_and_all_choices() {
     let missing = store.load().unwrap();
     assert_eq!(missing, defaults(LoadStatus::Missing));
     assert!(missing.preferences.discord_presence);
+    assert!(!missing.preferences.close_to_tray);
     assert!(!fixture.file().exists());
     assert!(!fixture.file().parent().unwrap().exists());
     let preferences = Preferences {
@@ -56,6 +57,7 @@ fn persistent_preferences_roundtrip_preserves_private_modes_and_all_choices() {
         track_info_open: false,
         lyrics_external_auto: true,
         discord_presence: false,
+        close_to_tray: true,
     };
     store.save(&preferences).unwrap();
     let reopened = fixture.store().load().unwrap();
@@ -64,6 +66,7 @@ fn persistent_preferences_roundtrip_preserves_private_modes_and_all_choices() {
     let saved: serde_json::Value =
         serde_json::from_slice(&std::fs::read(fixture.file()).unwrap()).unwrap();
     assert_eq!(saved["preferences"]["discord_presence"], false);
+    assert_eq!(saved["preferences"]["close_to_tray"], true);
     let file = std::fs::metadata(fixture.file()).unwrap();
     let directory = std::fs::metadata(fixture.file().parent().unwrap()).unwrap();
     assert_eq!(file.permissions().mode() & 0o7777, 0o600);
@@ -123,6 +126,7 @@ fn omitted_new_preferences_use_safe_defaults_without_accepting_unknown_fields() 
     assert!(loaded.preferences.remember_login && loaded.preferences.cache_enabled);
     assert!(!loaded.preferences.forget_pending);
     assert!(!loaded.preferences.discord_presence);
+    assert!(!loaded.preferences.close_to_tray);
     assert_eq!(loaded.preferences.cache_limit, CacheLimit::GiB2);
 }
 
@@ -198,6 +202,7 @@ fn adding_ui_style_migrates_both_old_schemas_without_losing_color_or_private_cho
                     track_info_open: false,
                     lyrics_external_auto: false,
                     discord_presence: false,
+                    close_to_tray: false,
                 }
             );
             // Ordinary save upgrades the envelope, not another store or cache.
@@ -229,6 +234,7 @@ fn retired_style_migrates_to_system_and_roundtrips_every_independent_preference(
                         track_info_open: private_choices,
                         lyrics_external_auto: !private_choices,
                         discord_presence: false,
+                        close_to_tray: false,
                     };
                     let mut values = serde_json::to_value(&expected).unwrap();
                     values["ui_style"] = serde_json::json!("liquid-glass");
@@ -274,6 +280,7 @@ fn unknown_or_malformed_style_never_resets_session_deletion_barrier_or_cache_pol
         track_info_open: false,
         lyrics_external_auto: true,
         discord_presence: true,
+        close_to_tray: false,
     };
     store.save(&expected).unwrap();
     for style in [
@@ -322,6 +329,7 @@ fn all_styles_and_color_schemes_roundtrip_independently_without_schema_change() 
                 track_info_open: false,
                 lyrics_external_auto: true,
                 discord_presence: true,
+                close_to_tray: false,
             };
             store.save(&values).unwrap();
             assert_eq!(fixture.store().load().unwrap().preferences, values);
@@ -641,7 +649,7 @@ fn external_lyrics_permission_defaults_off_and_survives_an_explicit_saved_choice
 }
 
 #[test]
-fn malformed_external_lyrics_permission_grants_nothing_and_preserves_barriers() {
+fn malformed_optional_flags_stay_disabled_and_preserve_barriers() {
     let fixture = Fixture::new();
     let store = fixture.store();
     let original = Preferences {
@@ -657,7 +665,8 @@ fn malformed_external_lyrics_permission_grants_nothing_and_preserves_barriers() 
         serde_json::json!(null),
     ] {
         let mut values = serde_json::to_value(&original).unwrap();
-        values["lyrics_external_auto"] = untrusted;
+        values["lyrics_external_auto"] = untrusted.clone();
+        values["close_to_tray"] = untrusted;
         fixture.replace(
             &serde_json::to_vec(&serde_json::json!({"version":3,"preferences":values})).unwrap(),
         );

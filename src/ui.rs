@@ -19,6 +19,8 @@ mod playback;
 mod preferences;
 mod shortcuts;
 mod style;
+mod tray;
+mod tray_window;
 mod updates;
 
 pub use fonts::FontError;
@@ -42,9 +44,15 @@ pub struct MainWindow {
     lifetime_refs: Vec<glib::WeakRef<gtk::Widget>>,
     diagnostics: Option<diagnostics::DiagnosticsPage>,
     music: music::MusicPane,
+    tray: Rc<tray_window::WindowTray>,
 }
 
 impl MainWindow {
+    /// Connect the normal preference owner to the optional desktop integration.
+    pub fn enable_tray_preferences(&self) {
+        self.music.attach_tray(&self.tray);
+    }
+
     /// Enable the explicitly requested metadata-only delivery experiment.
     pub fn enable_delivery_diagnostic(&self) {
         self.music.enable_delivery_diagnostic();
@@ -372,6 +380,7 @@ fn build_shell(
         .width_request(360)
         .height_request(480)
         .build();
+    let tray = tray_window::WindowTray::attach(&window);
     window.add_css_class("music-shell");
     style::attach(&window);
     let toolbar = adw::ToolbarView::new();
@@ -417,7 +426,7 @@ fn build_shell(
         menu.append(Some("Диагностика"), Some("win.diagnostics"));
     }
     menu.append(Some("О Karin"), Some("app.about"));
-    menu.append(Some("Закрыть Karin"), Some("app.quit"));
+    menu.append(Some("Выйти из Karin"), Some("app.quit"));
     let menu_button = gtk::MenuButton::builder()
         .icon_name("karin-menu-2-symbolic")
         .tooltip_text("Меню приложения")
@@ -830,6 +839,7 @@ fn build_shell(
         lifetime_refs,
         diagnostics,
         music,
+        tray,
     }
 }
 

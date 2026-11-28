@@ -221,7 +221,13 @@ fn main() -> glib::ExitCode {
     quit.connect_activate(move |_, _| {
         if let Some(app) = weak_app.upgrade() {
             for window in app.windows() {
-                window.close();
+                if let Some(main_window) = window.downcast_ref::<adw::ApplicationWindow>()
+                    && let Some(quit) = main_window.lookup_action("quit")
+                {
+                    quit.activate(None);
+                } else {
+                    window.close();
+                }
             }
         }
     });
@@ -256,7 +262,7 @@ fn main() -> glib::ExitCode {
     // window/controller until close, just as the smoke future retains its UI.
     let normal_window = Rc::new(RefCell::new(None::<ui::MainWindow>));
     app.connect_activate(move |app| {
-        if let Some(window) = app.active_window() {
+        if let Some(window) = app.active_window().or_else(|| app.windows().into_iter().next()) {
             window.present();
             return;
         }
@@ -277,6 +283,9 @@ fn main() -> glib::ExitCode {
         }
         if delivery_diagnostic {
             ui.enable_delivery_diagnostic();
+        }
+        if !offline_auth {
+            ui.enable_tray_preferences();
         }
         ui.window.present();
         if diagnostics {

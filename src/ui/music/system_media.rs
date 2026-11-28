@@ -204,7 +204,11 @@ impl Controller {
             }
             Command::Quit => {
                 if let Some(window) = self.window.upgrade() {
-                    window.close();
+                    if let Some(quit) = window.lookup_action("quit") {
+                        quit.activate(None);
+                    } else {
+                        window.close();
+                    }
                 }
             }
             Command::Play => self.play_music(),

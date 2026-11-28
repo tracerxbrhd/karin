@@ -161,6 +161,8 @@ pub struct Preferences {
     pub lyrics_external_auto: bool,
     /// Whether to send public playing-track metadata to the local Discord client.
     pub discord_presence: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub close_to_tray: bool,
 }
 
 impl Default for Preferences {
@@ -175,6 +177,7 @@ impl Default for Preferences {
             track_info_open: true,
             lyrics_external_auto: false,
             discord_presence: true,
+            close_to_tray: false,
         }
     }
 }
@@ -279,6 +282,7 @@ fn decode_preferences(bytes: &[u8]) -> Option<Preferences> {
                 track_info_open: legacy.track_info_open,
                 lyrics_external_auto: false,
                 discord_presence: false,
+                close_to_tray: false,
             })
         }
         2 | FORMAT_VERSION => {
@@ -303,8 +307,8 @@ fn decode_preferences(bytes: &[u8]) -> Option<Preferences> {
                 .unwrap_or(true);
             object.insert("cache_enabled".into(), serde_json::Value::Bool(enabled));
             // Older Karin releases omitted the Discord field when it was off.
-            // Missing or malformed stored sharing flags keep their disabled state.
-            for key in ["lyrics_external_auto", "discord_presence"] {
+            // Missing or malformed optional flags keep their disabled state.
+            for key in ["lyrics_external_auto", "discord_presence", "close_to_tray"] {
                 let enabled = object
                     .get(key)
                     .and_then(serde_json::Value::as_bool)

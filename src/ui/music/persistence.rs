@@ -142,6 +142,10 @@ pub(super) struct State {
 }
 
 impl State {
+    pub(super) fn close_to_tray_enabled(&self) -> bool {
+        self.ready && !self.closed && self.values.close_to_tray
+    }
+
     pub(super) fn system() -> Self {
         let mut state = Self::new(true);
         state.discord_allowed = true;
@@ -558,7 +562,7 @@ impl Controller {
                             }
                         }
                         this.apply_persistence_policy();
-                        this.apply_appearance();
+                        this.apply_window_preferences();
                         this.sync_info_visibility();
                         if !this.persistence.borrow().ready {
                             this.render_persistence();
@@ -1283,10 +1287,17 @@ impl Controller {
             }
         }
     }
-    fn apply_appearance(&self) {
-        let values = self.persistence.borrow().values.clone();
+    fn apply_window_preferences(&self) {
+        let (values, close_to_tray) = {
+            let state = self.persistence.borrow();
+            (state.values.clone(), state.close_to_tray_enabled())
+        };
         if let Some(window) = self.window.upgrade() {
             super::super::style::apply(&values, &window);
+        }
+        let tray = self.tray.borrow().upgrade();
+        if let Some(tray) = tray {
+            tray.set_enabled(close_to_tray);
         }
     }
     pub(super) fn render_persistence(&self) {
@@ -1410,6 +1421,7 @@ impl Controller {
             p.values.track_info_open = values.track_info_open;
             p.values.lyrics_external_auto = values.lyrics_external_auto;
             p.values.discord_presence = values.discord_presence;
+            p.values.close_to_tray = values.close_to_tray;
             p.values.cache_enabled = values.cache_enabled;
             p.values.cache_limit = values.cache_limit;
             if !values.remember_login || (p.supported && !p.values.forget_pending) {
@@ -1425,7 +1437,8 @@ impl Controller {
                 && previous.remember_login == p.values.remember_login
                 && previous.track_info_open == p.values.track_info_open
                 && previous.lyrics_external_auto == p.values.lyrics_external_auto
-                && previous.discord_presence == p.values.discord_presence;
+                && previous.discord_presence == p.values.discord_presence
+                && previous.close_to_tray == p.values.close_to_tray;
             if cache_changed {
                 if let Some(budget) = &p.cache_budget {
                     let _ =
@@ -1457,7 +1470,7 @@ impl Controller {
             self.clear_cache_presence();
             self.cancel_music_cache(crate::audio_cache::diagnostic::Cause::CacheDisabled);
         }
-        self.apply_appearance();
+        self.apply_window_preferences();
         // Admission changes are memory-only and immediate; no in-flight writer
         // may bypass Disable while the latest disk maintenance is debounced.
         self.apply_persistence_policy();

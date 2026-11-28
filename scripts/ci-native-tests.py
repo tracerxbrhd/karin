@@ -16,6 +16,7 @@ import time
 
 BUS = [
     "native_mpris_session_bus_methods_properties_signals_and_shutdown",
+    "native_tray_registration_menu_and_host_lifecycle",
     "native_secure_storage_secret_service_and_portal_protocol",
     "native_flatpak_update_portal_monitor_and_transaction_protocol",
 ]

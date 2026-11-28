@@ -3,7 +3,7 @@
 
 use std::{
     cell::{Cell, RefCell},
-    rc::Rc,
+    rc::{Rc, Weak},
     sync::Arc,
 };
 
@@ -69,7 +69,7 @@ enum RowAction {
     Queue(usize),
 }
 
-use super::auth::LoginDialog;
+use super::{auth::LoginDialog, tray_window::WindowTray};
 use crate::auth::AuthorizationCode;
 #[cfg(test)]
 use crate::auth::BrowserMode;
@@ -209,6 +209,7 @@ struct Controller {
     player: RefCell<player::MusicPlayback>,
     radio: RefCell<radio::RadioLifecycle>,
     system_media: RefCell<system_media::SystemMedia>,
+    tray: RefCell<Weak<WindowTray>>,
     persistence: RefCell<persistence::State>,
     playlist_grid: playlist_grid::PlaylistGrid,
     track_pane: track_pane::TrackPane,
@@ -748,6 +749,7 @@ impl MusicPane {
             player: RefCell::new(player::MusicPlayback::default()),
             radio: RefCell::new(radio::RadioLifecycle::default()),
             system_media: RefCell::new(system_media::SystemMedia::default()),
+            tray: RefCell::default(),
             persistence: RefCell::new(persistence_state),
             playlist_grid,
             track_pane,
@@ -849,6 +851,12 @@ impl MusicPane {
 
     pub fn close(&self) {
         self.controller.close();
+    }
+
+    pub(super) fn attach_tray(&self, tray: &Rc<WindowTray>) {
+        self.controller.tray.replace(Rc::downgrade(tray));
+        let enabled = self.controller.persistence.borrow().close_to_tray_enabled();
+        tray.set_enabled(enabled);
     }
 
     pub async fn exercise_login_for_smoke(&self) -> Result<(), String> {

@@ -18,7 +18,7 @@ import tomllib
 from common import (APP_ID, BUILD_FEATURES, REPOSITORY, identity, locked_crates, sha256,
                     committed_files, validate_prepared, validate_version_output,
                     verify_binary, write_json)
-from manifest import DISCORD_FILESYSTEMS, provenance
+from manifest import DISCORD_FILESYSTEMS, PLASMA_SHELL, STATUS_NOTIFIER_WATCHER, provenance
 from rust_runtime import binary_identity, runtime_entries, validate_runtime
 
 APP_ICON_SIZES = (16, 24, 32, 48, 64, 128, 256)
@@ -248,8 +248,9 @@ def validate_permissions(raw: str) -> None:
     if filesystems != allowed["filesystems"]:
         raise ValueError("Installed Flatpak Discord permissions differ from the scoped runtime paths")
     bus = dict(config.items("Session Bus Policy")) if config.has_section("Session Bus Policy") else {}
-    if bus != {f"org.mpris.MediaPlayer2.{APP_ID}".lower(): "own"}:
-        raise ValueError("Installed Flatpak bus permissions differ from scoped MPRIS ownership")
+    if bus != {f"org.mpris.MediaPlayer2.{APP_ID}".lower(): "own",
+               STATUS_NOTIFIER_WATCHER.lower(): "talk", PLASMA_SHELL: "see"}:
+        raise ValueError("Installed Flatpak bus permissions differ from scoped MPRIS and status notifier access")
     if config.has_section("System Bus Policy") and dict(config.items("System Bus Policy")):
         raise ValueError("Unexpected system bus permission")
     if config.has_option("Environment", "WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS"):

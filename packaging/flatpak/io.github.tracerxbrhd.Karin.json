@@ -15,6 +15,8 @@
     "--socket=pulseaudio",
     "--device=dri",
     "--own-name=org.mpris.MediaPlayer2.io.github.tracerxbrhd.Karin",
+    "--talk-name=org.kde.StatusNotifierWatcher",
+    "--metadata=Session Bus Policy=org.kde.plasmashell=see",
     "--filesystem=xdg-run/discord-ipc-0:ro",
     "--filesystem=xdg-run/app/com.discordapp.Discord:ro"
   ],

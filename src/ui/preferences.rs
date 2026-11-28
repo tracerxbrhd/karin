@@ -85,6 +85,7 @@ pub(super) struct PreferencesView {
     style_karin: gtk::CheckButton,
     system_style_row: adw::ActionRow,
     scheme: adw::ComboRow,
+    close_to_tray: adw::SwitchRow,
     remember: adw::SwitchRow,
     external_lyrics: adw::SwitchRow,
     discord: adw::SwitchRow,
@@ -201,6 +202,22 @@ impl PreferencesView {
         });
         appearance.add(&scheme);
         page.add(&appearance);
+
+        let window = adw::PreferencesGroup::builder().title("Окно").build();
+        let close_to_tray = adw::SwitchRow::builder()
+            .title("Сворачивать в системный трей при закрытии")
+            .subtitle("Воспроизведение продолжится в фоне. Если трей недоступен, Karin закроется.")
+            .title_lines(0)
+            .subtitle_lines(0)
+            .use_markup(false)
+            .build();
+        close_to_tray.set_widget_name("preferences-close-to-tray");
+        close_to_tray.connect_active_notify({
+            let state = Rc::clone(&state);
+            move |row| state.change(|values| values.close_to_tray = row.is_active())
+        });
+        window.add(&close_to_tray);
+        page.add(&window);
 
         let lyrics = adw::PreferencesGroup::builder()
             .title("Тексты песен")
@@ -477,6 +494,7 @@ impl PreferencesView {
             style_karin,
             system_style_row,
             scheme,
+            close_to_tray,
             remember,
             external_lyrics,
             discord,
@@ -526,6 +544,8 @@ impl PreferencesView {
         self.scheme
             .set_selected(appearance_index(snapshot.values.appearance));
         self.scheme.set_sensitive(ready);
+        self.close_to_tray.set_active(snapshot.values.close_to_tray);
+        self.close_to_tray.set_sensitive(ready);
         self.external_lyrics
             .set_active(snapshot.values.lyrics_external_auto);
         self.external_lyrics.set_sensitive(ready);

@@ -114,6 +114,10 @@ Platform 50. The candidate uses a local origin and shares the stable App ID.
 PR CI also uploads `karin-native-acceptance-<commit>`. For either package, confirm the tested
 revision with `--version` and record live desktop or service checks separately from CI.
 
+For the tray check, use a desktop with a StatusNotifier host such as KDE Plasma.
+Enable closing to the tray in Karin's settings, close the window, restore it with the tray icon
+and choose Quit from the tray menu.
+
 ### Pinned release sources
 
 For a pushed, reviewed commit, generate the standalone manifest and corresponding packages.
@@ -200,8 +204,10 @@ flatpak update --user io.github.tracerxbrhd.Karin
 Use `--system` for a system installation. Keep the App ID, installation scope and user data.
 For an older bundle without the signed origin, follow the [0.8.1 migration instructions](https://github.com/tracerxbrhd/karin/releases/tag/v0.8.1).
 Karin 0.8.1 reads the record attached to 0.8.2. For 0.8.2 → 0.8.3, use the system manager or
-Flatpak CLI to confirm the new read-only Discord IPC permissions. Use the same route if a later
-built-in update cannot confirm or install the deployment.
+Flatpak CLI to confirm the new read-only Discord IPC permissions. For 0.8.5 → 0.8.6, use the same
+route to grant Karin access to the desktop's status notifier watcher and see-only access to the
+Plasma shell's bus name. Update through your system manager if a later built-in update cannot
+confirm or install the deployment.
 
 ### Bounded cold-render diagnostic
 
