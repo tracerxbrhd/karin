@@ -110,10 +110,10 @@ impl Activity {
         // A direct numeric track path alone says nothing about whether an
         // account-local upload belongs to the public catalog. Require its
         // canonical album relationship as the admission boundary.
-        let track_link = track.album_id.as_deref().and_then(|album_id| {
-            public_links::album(album_id)?;
-            public_links::track(&track.id, Some(album_id))
-        });
+        let track_link = track
+            .album_id
+            .as_deref()
+            .and_then(|album_id| public_links::catalog_track(&track.id, album_id));
         let Some(track_link) = track_link else {
             diagnostic("activity_skipped_catalog_link", None, None, None);
             return None;

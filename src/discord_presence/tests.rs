@@ -89,9 +89,27 @@ fn listening_activity_contains_only_public_catalog_fields() {
     );
     incomplete.album_id = None;
     assert!(Activity::new(&incomplete, Progress::Paused, UNIX_EPOCH).is_none());
-    incomplete.album_id = Some("19".into());
-    incomplete.id = "82:19".into();
-    assert!(Activity::new(&incomplete, Progress::Paused, UNIX_EPOCH).is_none());
+}
+
+#[test]
+fn compound_track_selectors_require_matching_catalog_album_metadata() {
+    let mut track = track();
+    track.id = "82:19".into();
+    let activity = Activity::new(&track, Progress::Paused, UNIX_EPOCH).unwrap();
+    assert_eq!(
+        activity.details_url,
+        "https://music.yandex.ru/album/19/track/82"
+    );
+
+    for album in [None, Some("20"), Some("19?private=true")] {
+        track.album_id = album.map(str::to_owned);
+        assert!(Activity::new(&track, Progress::Paused, UNIX_EPOCH).is_none());
+    }
+    track.album_id = Some("19".into());
+    for selector in ["0:19", "upload:19", "82:19:20", "82:19?private=true"] {
+        track.id = selector.into();
+        assert!(Activity::new(&track, Progress::Paused, UNIX_EPOCH).is_none());
+    }
 }
 
 #[test]

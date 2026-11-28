@@ -221,6 +221,32 @@ fn displayed_liked_prefix_keeps_bare_track_only_for_the_same_album() {
 }
 
 #[test]
+fn indexed_liked_track_can_publish_its_canonical_album_link() {
+    use crate::discord_presence::{Activity, Progress};
+
+    let server = make_fixture(1, false, true, true);
+    let token = token();
+    server.service.account(&token).unwrap();
+    let snapshot = server
+        .service
+        .collection_snapshot(&token, &CollectionSource::Liked)
+        .unwrap();
+    let batch = server
+        .service
+        .collection_index_batch(&token, &snapshot, 0)
+        .unwrap();
+    let (_, track) = &batch.tracks[0];
+    assert_eq!(track.id, "100000:7");
+    assert_eq!(track.album_id.as_deref(), Some("7"));
+
+    let activity = Activity::new(track, Progress::Paused, std::time::UNIX_EPOCH).unwrap();
+    assert_eq!(
+        serde_json::to_value(activity).unwrap()["details_url"],
+        "https://music.yandex.ru/album/7/track/100000"
+    );
+}
+
+#[test]
 fn optional_rfc3339_dates_are_validated_and_normalized_without_guessing_order() {
     assert_eq!(added_timestamp("1970-01-01T00:00:00Z"), Some(0));
     assert_eq!(added_timestamp("1970-01-01T03:00:00+03:00"), Some(0));

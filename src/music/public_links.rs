@@ -20,6 +20,21 @@ pub fn track(track_id: &str, album_id: Option<&str>) -> Option<String> {
     })
 }
 
+/// Build a link for external presence only when catalog album metadata is
+/// present. A collection selector may qualify the track with that same album.
+pub(crate) fn catalog_track(track_id: &str, album_id: &str) -> Option<String> {
+    let album_id = public_id(album_id)?;
+    let track_id = match track_id.split_once(':') {
+        Some((track, album)) if public_id(album) == Some(album_id) => track,
+        Some(_) => return None,
+        None => track_id,
+    };
+    Some(format!(
+        "{ORIGIN}/album/{album_id}/track/{}",
+        public_id(track_id)?
+    ))
+}
+
 pub fn album(album_id: &str) -> Option<String> {
     Some(format!("{ORIGIN}/album/{}", public_id(album_id)?))
 }
