@@ -160,11 +160,13 @@ release notes binds the pinned Pages record to its release, source commit,
 App ID, ref, OSTree commit and signing fingerprint. Flatpak verifies the
 repository signature.
 
-The host UpdateMonitor schedules discovery. Karin requests installation when
-the Portal reports the matching commit, then checks the installed commit
-before offering restart and verifies it after restart. A system update is
-needed when sandbox permissions expand. Production verification of the
-in-app transition after 0.8.3 is tracked in
+The host UpdateMonitor schedules discovery. While the Portal checks a verified
+release, the dialog can open Karin in the system software manager or open the
+release page. Versions and actions sit outside the scrolling release notes.
+Karin requests in-app installation when the Portal reports the matching commit,
+then checks the installed commit before offering restart and verifies it after
+restart. A system update is needed when sandbox permissions expand. Production
+verification of the in-app transition after 0.8.3 is tracked in
 [#40](https://github.com/tracerxbrhd/karin/issues/40).
 [Release and update instructions](BUILDING.md#stable-flatpak-channel)
 
