@@ -692,7 +692,7 @@ impl Controller {
             let result = gio::spawn_blocking(move || {
                 if let Some(id) = reconciliation {
                     return service
-                        .reconcile_playlist(&token, &id)
+                        .playlist_editor_state(&token, &id, true)
                         .map(ReadResult::Snapshot);
                 }
                 match mode {
@@ -700,17 +700,9 @@ impl Controller {
                         .playlist_edit_choices(&token)
                         .map(ReadResult::Playlists)
                         .map_err(Into::into),
-                    Mode::Editor(id) => {
-                        if reconcile {
-                            service
-                                .reconcile_playlist(&token, &id)
-                                .map(ReadResult::Snapshot)
-                        } else {
-                            service
-                                .playlist_edit_state(&token, &id)
-                                .map(|state| ReadResult::Snapshot(Some(state)))
-                        }
-                    }
+                    Mode::Editor(id) => service
+                        .playlist_editor_state(&token, &id, reconcile)
+                        .map(ReadResult::Snapshot),
                 }
             })
             .await
@@ -830,11 +822,23 @@ impl Controller {
             let button = gtk::Button::new();
             button.set_widget_name("music-playlist-manage-pick");
             button.add_css_class("flat");
+            let count = track_count_text(playlist.track_count);
+            button.update_property(&[gtk::accessible::Property::Label(&format!(
+                "{} · {count}",
+                playlist.title
+            ))]);
+            let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+            super::super::margins(&row, 8);
+            let cover = cover_widget(self.artwork.as_ref(), playlist.cover.as_ref(), 44);
+            cover.set_widget_name("music-playlist-manage-cover");
+            cover.update_state(&[gtk::accessible::State::Hidden(true)]);
+            row.append(&cover);
             let labels = gtk::Box::new(gtk::Orientation::Vertical, 4);
+            labels.set_valign(gtk::Align::Center);
             labels.append(&text(&playlist.title, "heading"));
-            labels.append(&text(&track_count_text(playlist.track_count), "dim-label"));
-            super::super::margins(&labels, 8);
-            button.set_child(Some(&labels));
+            labels.append(&text(&count, "dim-label"));
+            row.append(&labels);
+            button.set_child(Some(&row));
             let weak = Rc::downgrade(self);
             let form = form.clone();
             button.connect_clicked(move |_| {

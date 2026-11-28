@@ -651,7 +651,9 @@ impl MusicService {
         let visible = self.expand_page(token, references, page)?;
         let receipt = if let Some(binding) = binding {
             self.check_search_binding(token, &binding)?;
-            playlist_management::view_receipt(&body, id, binding)
+            let receipt = self.rich_playlist_view_receipt(token, &body, id, binding.clone());
+            self.check_search_binding(token, &binding)?;
+            receipt
         } else {
             None
         };

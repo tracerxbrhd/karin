@@ -4,36 +4,10 @@
 use super::*;
 use crate::queue::MAX_QUEUE;
 
+mod reorder;
+pub(super) use reorder::QueueReorder;
+
 const LARGE_QUEUE_PAGE_SIZE: usize = 200;
-
-/// An in-process GTK value, with no serializer or textual MIME representation.
-/// A second window/account or retired presentation cannot consume the gesture.
-#[derive(Clone, glib::Boxed)]
-#[boxed_type(name = "KarinQueueOccurrenceDrag")]
-struct QueueDrag {
-    owner: glib::WeakRef<gtk::ListBox>,
-    row: glib::WeakRef<gtk::ListBoxRow>,
-    generation: u64,
-    context: Option<PlaybackContext>,
-    occurrence: crate::queue::OccurrenceId,
-    slot: usize,
-}
-
-impl QueueDrag {
-    fn is_current(&self, this: &Controller) -> bool {
-        self.owner.upgrade().as_ref() == Some(&this.widgets.queue_rows)
-            && self.row.upgrade().is_some_and(|row| row.is_mapped())
-            && queue_action_is_current(this, self.generation, &self.context)
-    }
-
-    fn accepts(&self, this: &Controller, source: &Self, after: bool) -> bool {
-        let insertion = self.slot + usize::from(after);
-        self.occurrence != source.occurrence
-            && !(source.slot..=source.slot + 1).contains(&insertion)
-            && self.is_current(this)
-            && source.is_current(this)
-    }
-}
 
 impl Controller {
     pub(super) fn render_queue(self: &Rc<Self>) {
@@ -43,6 +17,7 @@ impl Controller {
 
     fn render_queue_page(self: &Rc<Self>, page: usize) {
         self.guard_music_binding();
+        self.widgets.queue_reorder.clear_rows();
         clear_list(&self.widgets.queue_rows);
         self.widgets.queue_rows.remove_css_class("boxed-list");
         self.widgets.queue_rows.add_css_class("music-track-list");
@@ -273,9 +248,14 @@ impl Controller {
                 let handle = gtk::Image::from_icon_name("karin-grip-vertical-symbolic");
                 handle.set_widget_name("music-queue-drag-handle");
                 handle.add_css_class("dim-label");
-                handle.set_tooltip_text(Some("Перетащите трек; с клавиатуры — Alt+↑ или Alt+↓"));
+                handle.set_tooltip_text(Some(
+                    "Перетащите трек вверх или вниз. Alt+↑ или Alt+↓ с клавиатуры",
+                ));
                 handle.set_cursor_from_name(Some("grab"));
                 body.prepend(&handle);
+                self.widgets
+                    .queue_reorder
+                    .add_row(&row, &handle, occurrence.clone());
             }
             let caption = queue_badge(index, current_index, next_index)
                 .map(|caption| {
@@ -443,19 +423,6 @@ impl Controller {
                 });
             }
             body.append(&menu);
-            if ordinary && let Some(slot) = upcoming_slot {
-                self.attach_queue_drag(
-                    &row,
-                    QueueDrag {
-                        owner: self.widgets.queue_rows.downgrade(),
-                        row: row.downgrade(),
-                        generation,
-                        context: queue_snapshot.clone(),
-                        occurrence: occurrence.clone(),
-                        slot,
-                    },
-                );
-            }
             let keys = gtk::EventControllerKey::new();
             let weak = Rc::downgrade(self);
             let expected = queue_snapshot.clone();
@@ -515,103 +482,6 @@ impl Controller {
         drop(model);
         self.sync_current_like();
         self.render_music_player();
-    }
-
-    fn attach_queue_drag(self: &Rc<Self>, row: &gtk::ListBoxRow, entry: QueueDrag) {
-        use gtk::gdk::{ContentProvider, DragAction};
-
-        let source = gtk::DragSource::new();
-        source.set_actions(DragAction::MOVE);
-        let hotspot = Rc::new(Cell::new((0, 0)));
-        let weak = Rc::downgrade(self);
-        let origin = entry.clone();
-        let start = hotspot.clone();
-        source.connect_prepare(move |_, x, y| {
-            let this = weak.upgrade()?;
-            if !origin.is_current(&this) {
-                return None;
-            }
-            start.set((x.round() as i32, y.round() as i32));
-            Some(ContentProvider::for_value(&origin.to_value()))
-        });
-        let anchor = row.downgrade();
-        source.connect_drag_begin(move |_, drag| {
-            let Some(row) = anchor.upgrade() else { return };
-            // Freeze the rendered card before dimming its original row. The
-            // native drag icon follows the pointer over either queue surface.
-            let image = gtk::WidgetPaintable::new(Some(&row)).current_image();
-            let preview = gtk::Picture::for_paintable(&image);
-            preview.set_can_shrink(false);
-            preview.set_widget_name("music-queue-drag-preview");
-            preview.add_css_class("music-queue-drag-preview");
-            if adw::StyleManager::for_display(&row.display()).is_high_contrast() {
-                preview.add_css_class("karin-high-contrast");
-            }
-            let (x, y) = hotspot.get();
-            gtk::DragIcon::for_drag(drag).set_child(Some(&preview));
-            // Leave the insertion line exposed at the leading edge during
-            // a straight drag while preserving the pointer's vertical grip.
-            let inset = if row.direction() == gtk::TextDirection::Rtl {
-                -16
-            } else {
-                16
-            };
-            drag.set_hotspot(x - inset, y);
-            row.add_css_class("music-queue-dragging");
-        });
-        let anchor = row.downgrade();
-        source.connect_drag_end(move |_, _, _| {
-            if let Some(row) = anchor.upgrade() {
-                row.remove_css_class("music-queue-dragging");
-            }
-        });
-        row.add_controller(source);
-
-        let target = gtk::DropTarget::new(QueueDrag::static_type(), DragAction::MOVE);
-        target.set_preload(true);
-        let weak = Rc::downgrade(self);
-        let destination = entry.clone();
-        let cue = move |target: &gtk::DropTarget, _: f64, y: f64| {
-            let Some(row) = destination.row.upgrade() else {
-                return DragAction::empty();
-            };
-            let after = y >= f64::from(row.height()) / 2.0;
-            let allowed = weak.upgrade().is_some_and(|this| {
-                target
-                    .value()
-                    .and_then(|value| value.get::<QueueDrag>().ok())
-                    .is_some_and(|source| destination.accepts(&this, &source, after))
-            });
-            set_queue_drop_marker(&row, allowed.then_some(after));
-            if allowed {
-                DragAction::MOVE
-            } else {
-                DragAction::empty()
-            }
-        };
-        target.connect_enter(cue.clone());
-        target.connect_motion(cue);
-        let anchor = row.downgrade();
-        target.connect_leave(move |_| {
-            if let Some(row) = anchor.upgrade() {
-                set_queue_drop_marker(&row, None);
-            }
-        });
-        let weak = Rc::downgrade(self);
-        target.connect_drop(move |_, value, _, y| {
-            let (Some(this), Some(row), Ok(payload)) = (
-                weak.upgrade(),
-                entry.row.upgrade(),
-                value.get::<QueueDrag>(),
-            ) else {
-                return false;
-            };
-            set_queue_drop_marker(&row, None);
-            let after = y >= f64::from(row.height()) / 2.0;
-            entry.accepts(&this, &payload, after)
-                && this.move_queue_occurrence(&payload.occurrence, &entry.occurrence, after)
-        });
-        row.add_controller(target);
     }
 
     fn render_queue_paging(self: &Rc<Self>, page: usize, pages: usize) {
@@ -807,19 +677,6 @@ impl Controller {
             }
         }
         None
-    }
-}
-
-fn set_queue_drop_marker(row: &gtk::ListBoxRow, after: Option<bool>) {
-    for (class, visible) in [
-        ("music-queue-drop-before", after == Some(false)),
-        ("music-queue-drop-after", after == Some(true)),
-    ] {
-        if visible {
-            row.add_css_class(class);
-        } else {
-            row.remove_css_class(class);
-        }
     }
 }
 

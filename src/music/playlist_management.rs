@@ -44,6 +44,17 @@ impl PlaylistOccurrence {
             .as_ref()
             .map_or_else(|| self.id.clone(), |album| format!("{}:{album}", self.id))
     }
+
+    fn attach_track(&mut self, track: Option<Track>) {
+        self.track = track.map(|mut track| {
+            track.id = self.selector();
+            if self.album_id.is_some() && track.album_id != self.album_id {
+                track.album_id.clone_from(&self.album_id);
+                track.album_title = None;
+            }
+            track
+        });
+    }
 }
 impl fmt::Debug for PlaylistOccurrence {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -165,7 +176,10 @@ pub(super) fn view_receipt(
     binding: SearchBinding,
 ) -> Option<PlaylistViewReceipt> {
     validate_owned(id, &binding).ok()?;
-    let state = decode_state(body, id, binding).ok()?;
+    edit_receipt(decode_state(body, id, binding).ok()?)
+}
+
+fn edit_receipt(state: EditablePlaylist) -> Option<PlaylistViewReceipt> {
     state.user_editable.then(|| {
         PlaylistViewReceipt(Arc::new(ViewState {
             id: state.playlist.id,
@@ -270,6 +284,58 @@ impl MusicService {
         self.reconcile_bound(token, id, &binding)
     }
 
+    /// Load the compact edit state and attach display metadata from the same
+    /// revision and positions. Rich responses can omit the entry album ID.
+    pub(crate) fn playlist_editor_state(
+        &self,
+        token: &AccessToken,
+        id: &PlaylistId,
+        reconcile: bool,
+    ) -> Result<Option<EditablePlaylist>, InteractionError> {
+        let binding = self.search_binding(token)?;
+        let state = if reconcile {
+            self.reconcile_bound(token, id, &binding)?
+        } else {
+            Some(self.edit_state_bound(token, id, &binding)?)
+        };
+        let Some(mut state) = state else {
+            return Ok(None);
+        };
+        if state.entries.iter().any(|entry| entry.track.is_none()) {
+            let rich = self.read_edit_state(token, id, &binding, true)?;
+            if !same_rich_positions(&state, &rich) {
+                return Err(InteractionError::Conflict);
+            }
+            for (entry, display) in state.entries.iter_mut().zip(rich.entries) {
+                if entry.track.is_none() {
+                    entry.attach_track(display.track);
+                }
+            }
+        }
+        Ok(Some(state))
+    }
+
+    /// The ordinary paged view keeps its rich rows for display. When they
+    /// omit album IDs, use the matching compact revision for a removal proof.
+    pub(super) fn rich_playlist_view_receipt(
+        &self,
+        token: &AccessToken,
+        body: &[u8],
+        id: &PlaylistId,
+        binding: SearchBinding,
+    ) -> Option<PlaylistViewReceipt> {
+        validate_owned(id, &binding).ok()?;
+        let rich = decode_state(body, id, binding.clone()).ok()?;
+        if !rich.user_editable || rich.entries.iter().all(|entry| entry.album_id.is_some()) {
+            return edit_receipt(rich);
+        }
+        let state = self.edit_state_bound(token, id, &binding).ok()?;
+        if !same_rich_positions(&state, &rich) {
+            return None;
+        }
+        edit_receipt(state)
+    }
+
     /// One user intent, at most one write. The source snapshot is re-read
     /// immediately before sending; no positions come from a partial GTK view.
     /// Ambiguous acknowledgment causes read-only reconciliation and stays
@@ -282,9 +348,14 @@ impl MusicService {
     ) -> Result<PlaylistMutationOutcome, InteractionError> {
         self.check_search_binding(token, &snapshot.binding)?;
         let _write = self.claim_playlist_write(token, &snapshot.binding)?;
-        let current = self.edit_state_bound(token, &snapshot.playlist.id, &snapshot.binding)?;
+        let mut current = self.edit_state_bound(token, &snapshot.playlist.id, &snapshot.binding)?;
         if !same_state(&current, snapshot) {
             return Err(InteractionError::Conflict);
+        }
+        for (entry, displayed) in current.entries.iter_mut().zip(&snapshot.entries) {
+            if entry.track.is_none() {
+                entry.track.clone_from(&displayed.track);
+            }
         }
         self.send_playlist_change(token, &current, change)
     }
@@ -359,7 +430,7 @@ impl MusicService {
         match (intended.deleted, observed) {
             (true, None) => Ok(PlaylistMutationOutcome::Deleted),
             (true, Some(_)) | (false, None) => Err(InteractionError::ConfirmationMismatch),
-            (false, Some(observed)) => {
+            (false, Some(mut observed)) => {
                 if !intended.matches(&observed)
                     || acknowledged_revision.is_some_and(|revision| observed.revision < revision)
                 {
@@ -372,6 +443,13 @@ impl MusicService {
                             InteractionError::ConfirmationMismatch
                         },
                     );
+                }
+                // The compact readback confirmed the exact sequence, so
+                // presentation metadata can follow each verified occurrence.
+                for (entry, expected) in observed.entries.iter_mut().zip(intended.entries) {
+                    if entry.track.is_none() {
+                        entry.track = expected.track;
+                    }
                 }
                 Ok(PlaylistMutationOutcome::Confirmed(Box::new(observed)))
             }
@@ -407,12 +485,22 @@ impl MusicService {
         id: &PlaylistId,
         binding: &SearchBinding,
     ) -> Result<EditablePlaylist, InteractionError> {
+        self.read_edit_state(token, id, binding, false)
+    }
+
+    fn read_edit_state(
+        &self,
+        token: &AccessToken,
+        id: &PlaylistId,
+        binding: &SearchBinding,
+        rich_tracks: bool,
+    ) -> Result<EditablePlaylist, InteractionError> {
         validate_owned(id, binding)?;
         self.check_search_binding(token, binding)?;
         let response = self.request_response(
             token,
             &["users", &id.owner, "playlists", &id.kind],
-            &[("richTracks", "true")],
+            &[("richTracks", if rich_tracks { "true" } else { "false" })],
             None,
         )?;
         let body = read_body(response)?;
@@ -457,12 +545,24 @@ fn same_entries(a: &[PlaylistOccurrence], b: &[PlaylistOccurrence]) -> bool {
             .zip(b)
             .all(|(a, b)| a.position == b.position && a.id == b.id && a.album_id == b.album_id)
 }
-fn same_state(a: &EditablePlaylist, b: &EditablePlaylist) -> bool {
+fn same_playlist_version(a: &EditablePlaylist, b: &EditablePlaylist) -> bool {
     a.playlist.id == b.playlist.id
         && a.revision == b.revision
         && a.playlist.title == b.playlist.title
         && a.visibility == b.visibility
-        && same_entries(&a.entries, &b.entries)
+}
+fn same_state(a: &EditablePlaylist, b: &EditablePlaylist) -> bool {
+    same_playlist_version(a, b) && same_entries(&a.entries, &b.entries)
+}
+
+fn same_rich_positions(state: &EditablePlaylist, rich: &EditablePlaylist) -> bool {
+    same_playlist_version(state, rich)
+        && state.entries.len() == rich.entries.len()
+        && state
+            .entries
+            .iter()
+            .zip(&rich.entries)
+            .all(|(a, b)| a.id == b.id && (b.album_id.is_none() || a.album_id == b.album_id))
 }
 
 #[derive(Deserialize)]
@@ -560,16 +660,19 @@ fn decode_state(
         .map(|(position, entry)| {
             let (id, album_id) = reference(&entry.id.0, entry.album_id.map(|id| id.0).as_deref())
                 .map_err(|_| MusicError::InvalidResponse)?;
-            let selector = album_id
-                .as_ref()
-                .map_or_else(|| id.clone(), |album| format!("{id}:{album}"));
-            let track = optional_rich_track(entry.track.as_deref(), &id, &selector)?;
-            Ok(PlaylistOccurrence {
+            let mut occurrence = PlaylistOccurrence {
                 position,
                 id,
                 album_id,
-                track,
-            })
+                track: None,
+            };
+            let track = optional_rich_track(
+                entry.track.as_deref(),
+                &occurrence.id,
+                &occurrence.selector(),
+            )?;
+            occurrence.attach_track(track);
+            Ok(occurrence)
         })
         .collect::<Result<Vec<_>, MusicError>>()?;
     Ok(EditablePlaylist {
@@ -610,11 +713,7 @@ fn optional_rich_track(
     }
     Ok(serde_json::from_str::<TrackWire>(raw.get())
         .ok()
-        .and_then(|wire| track_from_wire(wire).ok())
-        .map(|mut track| {
-            track.id = selector.into();
-            track
-        }))
+        .and_then(|wire| track_from_wire(wire).ok()))
 }
 fn reference(id: &str, album: Option<&str>) -> Result<(String, Option<String>), MusicError> {
     validate_id(id)?;
@@ -667,17 +766,22 @@ impl Intended {
                 if at > target.entries.len() || target.entries.len() >= MAX_EDIT_POSITIONS {
                     return Err(MusicError::InvalidInput.into());
                 }
-                let (id, album_id) = reference(&track.id, track.album_id.as_deref())?;
+                // Indexed and search rows can carry a composite selector
+                // whose album differs from the first descriptive catalog album.
+                let (id, album_id) = if track.id.contains(':') {
+                    reference(&track.id, None)?
+                } else {
+                    reference(&track.id, track.album_id.as_deref())?
+                };
                 let album = album_id.clone().ok_or(MusicError::InvalidInput)?;
-                target.entries.insert(
-                    at,
-                    PlaylistOccurrence {
-                        position: at,
-                        id: id.clone(),
-                        album_id,
-                        track: Some(track),
-                    },
-                );
+                let mut occurrence = PlaylistOccurrence {
+                    position: at,
+                    id: id.clone(),
+                    album_id,
+                    track: None,
+                };
+                occurrence.attach_track(Some(track));
+                target.entries.insert(at, occurrence);
                 Some(json!([{"op":"insert","at":at,"tracks":[{"id":id,"albumId":album}]}]))
             }
             PlaylistChange::Remove { position } => {

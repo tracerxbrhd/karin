@@ -87,17 +87,20 @@ changes cannot rewrite an admitted playback context. The continuation record
 stores up to 500 occurrences around the current position. MPRIS publishes
 actual player state and addresses the current occurrence.
 
-Queue dragging uses a native snapshot of the grabbed row and marks the
-insertion edge without rearranging the live list. A valid drop moves the
-exact upcoming occurrence from the same rendered queue.
+The queue grip moves its rendered track vertically inside the queue viewport.
+Adjacent tracks make room as it crosses their slots. Releasing inside that
+viewport moves the exact upcoming occurrence in the current queue.
 
 Library writes serialize under the validated account. Each intent sends one
 write and requires independent readback. Uncertain results reconcile through
 GET. Playlist edits use a complete revisioned snapshot and the exact server
-position of the chosen occurrence. Revisions and ordered sequences are
-checked again before writing. Playlist metadata edits and deletes can race
-with another client between independent reads. Only confirmed Dislike for
-the current occurrence advances to the next track.
+position of the chosen occurrence. Compact playlist responses supply album
+selectors and revisions for edit checks and readback. The editor attaches rich
+track metadata only after matching the playlist revision and ordered positions.
+Revisions and ordered sequences are checked again before writing. Playlist
+metadata edits and deletes can race with another client between independent
+reads. Only confirmed Dislike for the current occurrence advances to the next
+track.
 
 ## Playback and cache
 

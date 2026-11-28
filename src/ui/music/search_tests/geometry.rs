@@ -187,6 +187,12 @@ fn header_actions(ui: &crate::ui::MainWindow) -> [Rect; 3] {
         .unwrap();
     assert!(refresh.is_mapped() && refresh.is_focusable());
     assert_eq!(refresh.tooltip_text().as_deref(), Some("Обновить"));
+    let indicator = descendants(refresh)
+        .into_iter()
+        .find_map(|w| w.downcast::<gtk::Image>().ok())
+        .unwrap();
+    assert_eq!(indicator.pixel_size(), 16);
+    assert_eq!((indicator.width(), indicator.height()), (16, 16));
     let back = children
         .iter()
         .find(|w| w.widget_name() == "music-header-back")
@@ -210,16 +216,28 @@ fn header_actions(ui: &crate::ui::MainWindow) -> [Rect; 3] {
     let bounds = |w: &gtk::Widget| w.compute_bounds(&ui.window).unwrap();
     let home = bounds(home.upcast_ref());
     let back = bounds(back);
-    let refresh = bounds(refresh);
+    let refresh_bounds = bounds(refresh);
     assert!(back.height() >= 40.0);
     assert!(home.x() + home.width() <= back.x());
-    assert!(back.x() + back.width() <= refresh.x());
-    assert!((home.center().y() - refresh.center().y()).abs() <= 1.0);
+    let (refresh_width, refresh_gap) = if back_label.is_mapped() {
+        (36.0, 4.0)
+    } else {
+        (20.0, 2.0)
+    };
+    assert!(refresh_bounds.width() >= refresh_width && refresh_bounds.height() >= 40.0);
+    assert!(refresh_bounds.x() - (back.x() + back.width()) >= refresh_gap);
+    assert!((home.center().y() - refresh_bounds.center().y()).abs() <= 1.0);
+    let edge = ui.window.pick(
+        f64::from(refresh_bounds.x() + 3.0),
+        f64::from(refresh_bounds.center().y()),
+        gtk::PickFlags::DEFAULT,
+    );
+    assert!(edge.is_some_and(|widget| widget == *refresh || widget.is_ancestor(refresh)));
     assert_eq!(
         ui.header.decoration_layout().as_deref(),
         Some(":minimize,maximize,close")
     );
-    [home, back, refresh]
+    [home, back, refresh_bounds]
 }
 
 fn measure_state(ui: &crate::ui::MainWindow, id: &str, tag: &str, motion: bool) {

@@ -1004,6 +1004,7 @@ impl Controller {
         self.info_target_epoch
             .set(self.info_target_epoch.get().wrapping_add(1));
         self.track_pane.set_track(None, self.artwork.as_ref());
+        self.widgets.queue_reorder.clear_rows();
         clear_list(&self.widgets.queue_rows);
         self.widgets.queue_paging.set_visible(false);
         self.widgets.queue_count.set_text("Очередь пуста");

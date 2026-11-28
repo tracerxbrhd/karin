@@ -681,6 +681,8 @@ fn build_shell(
     music.add_compact_navigation_setters(&compact_navigation);
     compact_navigation.add_setter(&back_label, "visible", Some(&false.to_value()));
     compact_navigation.add_setter(&start_group, "spacing", Some(&0.to_value()));
+    compact_navigation.add_setter(&refresh, "width-request", Some(&20_i32.to_value()));
+    compact_navigation.add_setter(&refresh, "margin-start", Some(&2_i32.to_value()));
     compact_navigation.add_setter(
         &information_view,
         "width-request",
@@ -920,6 +922,7 @@ fn bind_window_decoration_layout(titlebar: &impl IsA<gtk::Widget>) {
 
 fn header_refresh_button(window: &adw::ApplicationWindow) -> gtk::Button {
     let icon = gtk::Image::from_icon_name("karin-refresh-symbolic");
+    icon.set_pixel_size(16);
     let spinner = gtk::Spinner::new();
     for widget in [icon.upcast_ref::<gtk::Widget>(), spinner.upcast_ref()] {
         widget.set_size_request(16, 16);
@@ -935,6 +938,9 @@ fn header_refresh_button(window: &adw::ApplicationWindow) -> gtk::Button {
         .tooltip_text("Обновить")
         .focus_on_click(false)
         .has_frame(false)
+        .margin_start(4)
+        .width_request(36)
+        .height_request(40)
         .valign(gtk::Align::Center)
         .build();
     refresh.set_widget_name("music-header-refresh");

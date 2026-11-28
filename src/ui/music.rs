@@ -171,6 +171,7 @@ struct Widgets {
     search_next: gtk::Button,
     detail: gtk::Box,
     queue_rows: gtk::ListBox,
+    queue_reorder: Rc<queue_view::QueueReorder>,
     queue_count: gtk::Label,
     queue_paging: gtk::Box,
     player_surface: gtk::Box,
@@ -610,10 +611,11 @@ impl MusicPane {
         queue_paging.set_visible(false);
         queue_page.append(&queue_paging);
         let queue_rows = list();
+        let queue_reorder = Rc::new(queue_view::QueueReorder::new(&queue_rows));
         super::margins(&queue_page, 12);
         queue_page.set_margin_top(8);
         let queue_viewport = gtk::Viewport::builder()
-            .child(&queue_rows)
+            .child(queue_reorder.widget())
             .scroll_to_focus(true)
             .build();
         let queue_scroll = gtk::ScrolledWindow::builder()
@@ -720,6 +722,7 @@ impl MusicPane {
             search_next,
             detail,
             queue_rows,
+            queue_reorder,
             queue_count,
             queue_paging,
             player_surface: player_bar.clone(),
@@ -1058,6 +1061,7 @@ impl Controller {
     }
 
     fn connect(self: &Rc<Self>, window: &adw::ApplicationWindow) {
+        self.connect_queue_reorder(window);
         let weak = Rc::downgrade(self);
         window.connect_close_request(move |_| {
             if let Some(this) = weak.upgrade() {

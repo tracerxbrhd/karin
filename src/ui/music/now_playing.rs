@@ -80,6 +80,7 @@ impl NowPlaying {
         header.add_css_class("music-now-playing-header");
         header.set_margin_start(12);
         header.set_margin_end(12);
+        header.set_margin_top(6);
         let (back_content, _) = super::search_header::back_button_content();
         let back = gtk::Button::builder()
             .child(&back_content)

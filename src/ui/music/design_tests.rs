@@ -3124,6 +3124,7 @@ fn native_now_playing_switches_shared_views_and_restores_workspace() {
         .downcast::<gtk::WindowHandle>()
         .unwrap();
     assert!(back.is_ancestor(&handle));
+    assert!(back.compute_bounds(&handle).unwrap().y() >= 6.0);
     let window_id = assert_window_header_drag(&ui, &handle);
     let window_control = |class| {
         descendants(handle.upcast_ref())
@@ -3309,6 +3310,7 @@ fn native_now_playing_switches_shared_views_and_restores_workspace() {
     adw::StyleManager::default().set_color_scheme(adw::ColorScheme::ForceLight);
     native_click(&ui, &this.widgets.current_art_button);
     pump(|| now.is_mapped() && part("music-now-playing-play").is_mapped());
+    assert!(back.compute_bounds(&handle).unwrap().y() >= 6.0);
     let play_bounds = part("music-now-playing-play").compute_bounds(&now).unwrap();
     assert!(play_bounds.y() + play_bounds.height() <= now.height() as f32);
     let volume_bounds = part("music-now-playing-volume")
