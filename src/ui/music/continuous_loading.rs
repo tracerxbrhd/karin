@@ -797,6 +797,30 @@ impl Controller {
                 .any(|current| Rc::ptr_eq(current, feed))
     }
 
+    pub(super) fn liked_overview_context(
+        &self,
+        preview: &[Track],
+        index: usize,
+    ) -> Option<PlaybackContext> {
+        let generation = self.model.borrow().generation;
+        let feeds = self.track_feeds.borrow();
+        let feed = feeds.iter().find(|feed| {
+            feed.generation == generation
+                && !feed.restart_required.get()
+                && matches!(feed.source, FeedSource::Liked)
+        })?;
+        let data = feed.data.borrow();
+        // The preview is ordered by the provider. Reuse the larger admitted
+        // source only when the dedicated page still has the same prefix and order.
+        if data.filter.active()
+            || data.filter.sort() != collection_filter::CollectionSort::Provider
+            || !data.items.starts_with(preview)
+        {
+            return None;
+        }
+        data.context(index)
+    }
+
     pub(super) fn visible_feed_cache_state(
         &self,
     ) -> Option<Option<(crate::catalog_cache::Provenance, bool)>> {
@@ -1130,8 +1154,16 @@ impl Controller {
             let model = self.model.borrow();
             (model.playlists.clone(), model.liked_playlists.clone())
         };
+        let read_pending = {
+            let requests = self.requests.borrow();
+            requests.occupied(Operation::InitialLibrary)
+                || requests.occupied(Operation::PlaylistSections)
+        };
         if let (Some(owned), Some(liked)) = cached {
             self.apply_playlist_sections(owned, liked);
+        } else if read_pending {
+            self.render_playlist_section(false);
+            self.render_playlist_section(true);
         } else {
             self.load_playlist_sections(false);
         }
@@ -1325,7 +1357,11 @@ impl Controller {
         self.load_playlist_sections_mask(force, None);
     }
 
-    fn load_playlist_sections_mask(self: &Rc<Self>, force: bool, mask: Option<(bool, bool)>) {
+    pub(super) fn load_playlist_sections_mask(
+        self: &Rc<Self>,
+        force: bool,
+        mask: Option<(bool, bool)>,
+    ) {
         if !self.model.borrow().account_valid || self.model.borrow().closed {
             return;
         }
@@ -1381,6 +1417,7 @@ impl Controller {
         if !need_owned && !need_liked {
             return;
         }
+        self.render_collection_overview();
         let catalog = self.cached_catalog();
         self.run(
             Operation::PlaylistSections,
@@ -1708,6 +1745,12 @@ impl Controller {
                         ) {
                             this.show_error(error);
                             return;
+                        }
+                        if page == 0 && matches!(completed.source, FeedSource::Liked) {
+                            let mut model = this.model.borrow_mut();
+                            if !model.liked.as_ref().is_some_and(Result::is_ok) {
+                                model.liked = Some(Err(error));
+                            }
                         }
                         this.render_feed_status(&completed);
                         this.start_liked_index(&completed);

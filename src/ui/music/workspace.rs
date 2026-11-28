@@ -134,6 +134,9 @@ impl MusicPane {
         Rc::new(move |visible| {
             if let Some(this) = weak.upgrade() {
                 this.music_surface_visible.set(visible);
+                if !visible {
+                    this.close_now_playing(false);
+                }
                 this.sync_search_debounce_route();
                 this.sync_track_pane();
             }
@@ -160,6 +163,12 @@ impl Controller {
         });
         let weak = Rc::downgrade(self);
         self.widgets.current_art_button.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.open_now_playing();
+            }
+        });
+        let weak = Rc::downgrade(self);
+        self.widgets.current_info.connect_clicked(move |_| {
             if let Some(this) = weak.upgrade() {
                 this.show_current_track_info();
             }
@@ -220,6 +229,9 @@ impl Controller {
 
     pub(super) fn information_follows_current_playback(&self) -> bool {
         let current = CurrentOccurrence::from_queue(&self.model.borrow().queue);
+        if let Some(mode) = self.now_playing.panel_mode() {
+            return current.is_some() && matches!(mode, PanelMode::TrackInfo | PanelMode::Lyrics);
+        }
         current.is_some()
             && self
                 .info_selection
@@ -302,18 +314,30 @@ impl Controller {
                 self.info_selection
                     .replace(current.clone().map(|track| InfoSelection {
                         track,
-                        context,
+                        context: context.clone(),
                         target: InfoTarget::FollowingCurrent,
                     }));
             }
         }
-        let selected = self.info_selection.borrow();
-        let track = selected.as_ref().map(|selection| &selection.track);
+        let now_playing_selection = if self.now_playing.inspects_current() {
+            current.as_ref().map(|track| InfoSelection {
+                track: track.clone(),
+                context,
+                target: InfoTarget::FollowingCurrent,
+            })
+        } else {
+            None
+        };
+        let regular_selection = self.info_selection.borrow();
+        let selected = now_playing_selection
+            .as_ref()
+            .or(regular_selection.as_ref());
+        let track = selected.map(|selection| &selection.track);
         self.track_pane.set_track(track, self.artwork.as_ref());
         self.track_pane.set_navigation_enabled(ready);
         self.track_pane
             .set_delivery_enabled(ready && self.model.borrow().delivery_diagnostic);
-        let is_current = selected.as_ref().is_some_and(|selection| {
+        let is_current = selected.is_some_and(|selection| {
             selection.target == InfoTarget::FollowingCurrent
                 && current
                     .as_ref()
@@ -337,7 +361,6 @@ impl Controller {
             ready && track.is_some() && !queue_full && !self.is_wave_queue(),
         );
         let context_label = selected
-            .as_ref()
             .and_then(|selection| selection.context.as_ref())
             .map(|context| {
                 let source = match context.source_kind() {
@@ -366,6 +389,9 @@ impl Controller {
         self.widgets
             .current_art_button
             .set_sensitive(ready && current.is_some());
+        self.widgets
+            .current_info
+            .set_sensitive(ready && current.is_some());
         if let Some(action) = self
             .window
             .upgrade()
@@ -374,11 +400,15 @@ impl Controller {
         {
             action.set_enabled(available);
         }
-        drop(selected);
+        drop(regular_selection);
         self.sync_info_visibility();
     }
 
     pub(super) fn sync_info_visibility(&self) {
+        if self.now_playing.is_active() {
+            self.sync_now_playing_panel();
+            return;
+        }
         let host = self.info_host.borrow();
         let Some(host) = host.as_ref() else {
             return;
@@ -653,6 +683,14 @@ impl Controller {
         if !self.model.borrow().account_valid {
             return;
         }
+        if let Some(mode) = self.now_playing.panel_mode() {
+            self.show_now_playing_section(if mode == PanelMode::Queue {
+                super::now_playing::Section::Player
+            } else {
+                super::now_playing::Section::Queue
+            });
+            return;
+        }
         let mode = if self.panel_mode.get() == PanelMode::Queue {
             PanelMode::Closed
         } else {
@@ -678,6 +716,7 @@ impl Controller {
             return;
         }
         drop(model);
+        self.close_now_playing(false);
         self.info_target_epoch
             .set(self.info_target_epoch.get().wrapping_add(1));
         self.select_track_info(track, context, false);
@@ -760,8 +799,7 @@ impl Controller {
             .is_some_and(InfoHost::is_open)
     }
 
-    /// The footer cover shows current information; it is not an outside-click
-    /// dismissal or a second close control. Ctrl+I retains the explicit toggle.
+    /// The footer's Info action opens the regular panel for the current track.
     fn show_current_track_info(self: &Rc<Self>) {
         if !self.music_surface_visible.get() || self.model.borrow().queue.current().is_none() {
             return;
@@ -777,6 +815,14 @@ impl Controller {
 
     fn toggle_track_info(self: &Rc<Self>) {
         if !self.music_surface_visible.get() {
+            return;
+        }
+        if let Some(mode) = self.now_playing.panel_mode() {
+            self.show_now_playing_section(if mode == PanelMode::TrackInfo {
+                super::now_playing::Section::Player
+            } else {
+                super::now_playing::Section::Info
+            });
             return;
         }
         self.sync_track_pane();
@@ -830,7 +876,7 @@ impl Controller {
         }
         if !self.model.borrow().account_valid
             || self.model.borrow().closed
-            || self.panel_mode.get() == PanelMode::Closed
+            || self.effective_panel_mode() == PanelMode::Closed
         {
             return;
         }
@@ -849,13 +895,19 @@ impl Controller {
         if action_track.is_some_and(|track| self.track_pane.selected().as_ref() != Some(track)) {
             return;
         }
-        let context = self
-            .info_selection
-            .borrow()
-            .as_ref()
-            .and_then(|selection| selection.context.clone());
+        let context = if self.now_playing.is_active() {
+            self.model.borrow().queue.context().cloned()
+        } else {
+            self.info_selection
+                .borrow()
+                .as_ref()
+                .and_then(|selection| selection.context.clone())
+        };
         match action {
             PaneAction::Close => {}
+            PaneAction::BackInfo if self.now_playing.is_active() => {
+                self.show_now_playing_section(super::now_playing::Section::Info);
+            }
             PaneAction::BackInfo => {
                 self.set_panel_mode(PanelMode::TrackInfo);
                 self.track_pane.menu.grab_focus();
@@ -893,6 +945,9 @@ impl Controller {
                     sharing::copy_link(&self.track_pane.widget, &link);
                 }
             }
+            PaneAction::Lyrics(_) if self.now_playing.is_active() => {
+                self.show_now_playing_section(super::now_playing::Section::Lyrics);
+            }
             PaneAction::Lyrics(track) => self.show_track_lyrics(track, context),
             PaneAction::OpenMenu(track) => {
                 let controls = self.selected_like_controls(track.id);
@@ -902,8 +957,14 @@ impl Controller {
                 self.present_delivery_probe(track.id);
             }
             PaneAction::DeliveryProbe(_) => {}
-            PaneAction::Album(id) => self.open_album(id),
-            PaneAction::Artist(artist) => self.open_artist(artist, 0),
+            PaneAction::Album(id) => {
+                self.close_now_playing(false);
+                self.open_album(id);
+            }
+            PaneAction::Artist(artist) => {
+                self.close_now_playing(false);
+                self.open_artist(artist, 0);
+            }
             PaneAction::Extras(action) => self.handle_track_extras_action(action),
         }
     }
@@ -928,6 +989,7 @@ impl Controller {
     }
 
     pub(super) fn clear_workspace(&self) {
+        self.close_now_playing(false);
         self.retire_catalog_rows();
         self.retire_playlist_management();
         let dialog = self.playlist_dialog.borrow_mut().take();

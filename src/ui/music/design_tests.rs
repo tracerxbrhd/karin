@@ -725,6 +725,7 @@ fn assert_footer_geometry(ui: &crate::ui::MainWindow) {
     let footer = ui.music.player_bar.compute_bounds(&ui.window).unwrap();
     safe_footer_geometry(ui);
     for name in [
+        "music-now-playing-open",
         "music-current-info",
         "music-current-like",
         "music-current-dislike",
@@ -743,7 +744,10 @@ fn assert_footer_geometry(ui: &crate::ui::MainWindow) {
         assert!(rect.width() > 10.0 && rect.height() > 10.0);
         if matches!(
             name,
-            "music-current-info" | "music-current-like" | "music-current-dislike"
+            "music-now-playing-open"
+                | "music-current-info"
+                | "music-current-like"
+                | "music-current-dislike"
         ) {
             assert!(
                 rect.width() >= 44.0 && rect.height() >= 44.0,
@@ -849,6 +853,7 @@ fn safe_footer_geometry(ui: &crate::ui::MainWindow) -> serde_json::Value {
     assert!(ui.music.player_bar.has_css_class("music-player-surface"));
     let mut controls = BTreeMap::new();
     for name in [
+        "music-now-playing-open",
         "music-current-info",
         "music-current-like",
         "music-current-dislike",
@@ -2965,11 +2970,148 @@ fn record_motion(
 fn native_open_panel_mode(ui: &crate::ui::MainWindow, mode: workspace::PanelMode) {
     let this = &ui.music.controller;
     match mode {
-        workspace::PanelMode::TrackInfo => native_click(ui, &this.widgets.current_art_button),
+        workspace::PanelMode::TrackInfo => native_click(ui, &this.widgets.current_info),
         workspace::PanelMode::Lyrics => native_click(ui, &this.widgets.lyrics),
         workspace::PanelMode::Queue => native_click(ui, &this.widgets.queue),
         workspace::PanelMode::Closed => panic!("this native action opens a panel mode"),
     }
+}
+
+#[test]
+#[ignore = "requires real Gtk/X11 input and a local playback fixture"]
+fn native_now_playing_switches_shared_views_and_restores_workspace() {
+    use crate::playback::PlaybackState;
+    use workspace::PanelMode;
+
+    gtk::init().unwrap();
+    adw::init().unwrap();
+    let _manager = WindowManager::start();
+    let (fixture, _app, ui, liked, _album) = populated_window(true);
+    let this = &ui.music.controller;
+    resize(&ui, 1080, 720);
+    this.select_track_info(liked.items[1].clone(), None, false);
+    this.set_panel_mode(PanelMode::TrackInfo);
+    pump(|| this.info_is_open());
+    settle();
+    let scroll = this
+        .content_scroll
+        .borrow()
+        .upgrade()
+        .unwrap()
+        .vadjustment();
+    let wanted = (scroll.upper() - scroll.page_size()).clamp(0.0, 100.0);
+    assert!(wanted > 0.0, "the existing library can actually scroll");
+    scroll.set_value(wanted);
+    let occurrence = this.model.borrow().queue.current_occurrence_id().cloned();
+    let serial = this.music_serial();
+    let media_requests = fixture.media_requests.load(Ordering::Acquire);
+    let nav = &this.widgets.primary_navigation;
+    let now = named_widget(&ui.window, "music-now-playing");
+    let part = |name| named_widget(&now, name);
+    let click = |name| native_click(&ui, &part(name));
+
+    assert!(nav.is_mapped());
+    adw::StyleManager::default().set_color_scheme(adw::ColorScheme::ForceDark);
+    native_click(&ui, &this.widgets.current_art_button);
+    pump(|| now.is_mapped() && !nav.is_mapped());
+    let back = part("music-now-playing-back");
+    assert!(back.has_focus());
+    let cover = part("music-now-playing-artwork")
+        .downcast::<gtk::Picture>()
+        .unwrap();
+    pump(|| cover.paintable().is_some());
+    assert!(cover.width() >= 220 && cover.height() >= 220);
+    assert!(now.width() >= ui.window.width() - 4);
+    assert_eq!(
+        part("music-now-playing-title")
+            .downcast::<gtk::Label>()
+            .unwrap()
+            .text(),
+        liked.items[0].title
+    );
+    if std::env::var_os("KARIN_TEST_CAPTURE_DIR").is_some() {
+        compare_render_readback(&ui, "now-playing-wide");
+    }
+    click("music-now-playing-info");
+    pump(|| {
+        this.effective_panel_mode() == PanelMode::TrackInfo && this.track_pane.widget.is_mapped()
+    });
+    assert!(
+        this.track_pane
+            .widget
+            .is_ancestor(&part("music-now-playing-panel"))
+    );
+    assert_eq!(this.track_pane.selected().unwrap().id, liked.items[0].id);
+    assert!(cover.is_mapped());
+    click("music-now-playing-lyrics");
+    pump(|| this.track_pane.extras.lyrics_widget.is_mapped());
+    assert!(this.information_follows_current_playback());
+    click("music-now-playing-queue");
+    pump(|| this.widgets.queue_rows.is_mapped());
+    assert_eq!(this.track_pane.selected().unwrap().id, liked.items[0].id);
+    assert_eq!(
+        this.model.borrow().queue.current_occurrence_id().cloned(),
+        occurrence
+    );
+    assert_eq!(this.music_serial(), serial);
+    assert_eq!(
+        fixture.media_requests.load(Ordering::Acquire),
+        media_requests
+    );
+    click("music-now-playing-player");
+    click("music-now-playing-play");
+    pump(|| {
+        this.music_snapshot()
+            .is_some_and(|state| state.state == PlaybackState::Playing)
+    });
+    click("music-now-playing-play");
+    pump(|| {
+        this.music_snapshot()
+            .is_some_and(|state| state.state == PlaybackState::Paused)
+    });
+
+    assert!(
+        Command::new("xdotool")
+            .args(["key", "Escape"])
+            .status()
+            .unwrap()
+            .success()
+    );
+    pump(|| !now.is_mapped() && nav.is_mapped());
+    assert_eq!(
+        this.widgets.stack.visible_child_name().as_deref(),
+        Some("library")
+    );
+    assert!((scroll.value() - wanted).abs() < 1.0);
+    assert!(this.widgets.current_art_button.has_focus());
+    assert_eq!(this.panel_mode.get(), PanelMode::TrackInfo);
+    assert_eq!(this.track_pane.selected().unwrap().id, liked.items[1].id);
+
+    native_click(&ui, &this.widgets.current_info);
+    pump(|| {
+        this.track_pane
+            .selected()
+            .is_some_and(|track| track.id == liked.items[0].id)
+    });
+    assert!(!now.is_mapped());
+    this.set_panel_mode(PanelMode::Closed);
+    resize(&ui, 420, 520);
+    adw::StyleManager::default().set_color_scheme(adw::ColorScheme::ForceLight);
+    native_click(&ui, &this.widgets.current_art_button);
+    pump(|| now.is_mapped() && part("music-now-playing-play").is_mapped());
+    let play_bounds = part("music-now-playing-play").compute_bounds(&now).unwrap();
+    assert!(play_bounds.y() + play_bounds.height() <= now.height() as f32);
+    if std::env::var_os("KARIN_TEST_CAPTURE_DIR").is_some() {
+        compare_render_readback(&ui, "now-playing-compact");
+    }
+    click("music-now-playing-queue");
+    pump(|| this.widgets.queue_rows.is_mapped() && !cover.is_mapped());
+    click("music-now-playing-back");
+    pump(|| !now.is_mapped() && nav.is_mapped() && this.widgets.current_art_button.is_mapped());
+    assert_eq!(this.panel_mode.get(), PanelMode::Closed);
+    ui.music.close();
+    ui.window.close();
+    settle();
 }
 
 #[test]
@@ -3118,7 +3260,7 @@ fn native_universal_panel_whole_surface_motion_and_mode_switch() {
                 close,
                 this.track_pane.close.compute_bounds(&ui.window).unwrap()
             );
-            native_click(&ui, &this.widgets.current_art_button);
+            native_click(&ui, &this.widgets.current_info);
             pump(|| this.panel_mode.get() == workspace::PanelMode::TrackInfo);
             assert!(panel.is_child_revealed());
             assert_eq!(surface, panel.surface().unwrap());

@@ -168,14 +168,24 @@ impl Controller {
         let model = self.model.borrow();
         let key = match self.widgets.stack.visible_child_name().as_deref() {
             Some("library") => model.library_displaying,
-            Some("playlists") => {
+            Some(route @ ("playlists" | "collection")) => {
+                let overview = route == "collection";
+                let liked_playlists =
+                    overview && self.collection_overview.is_showing_liked_playlists();
                 let source = continuous_loading::aggregate_origins(
                     model
                         .library_origins
                         .iter()
-                        .filter(|(section, _, _, _)| match section {
-                            1 => model.playlists.as_ref().is_some_and(Result::is_ok),
-                            2 => model.liked_playlists.as_ref().is_some_and(Result::is_ok),
+                        .filter(|(section, page, _, _)| match section {
+                            0 if overview && *page == 0 => {
+                                model.liked.as_ref().is_some_and(Result::is_ok)
+                            }
+                            1 if !overview || !liked_playlists && *page == 0 => {
+                                model.playlists.as_ref().is_some_and(Result::is_ok)
+                            }
+                            2 if !overview || liked_playlists && *page == 0 => {
+                                model.liked_playlists.as_ref().is_some_and(Result::is_ok)
+                            }
                             _ => false,
                         })
                         .map(|(_, _, origin, error)| (*origin, *error)),
@@ -220,7 +230,7 @@ impl Controller {
 
     fn refresh_operation(&self) -> Option<Operation> {
         match self.widgets.stack.visible_child_name().as_deref() {
-            Some("home") => Some(Operation::InitialLibrary),
+            Some("home" | "collection") => Some(Operation::InitialLibrary),
             Some("library") => Some(Operation::Library),
             Some("playlists") => Some(Operation::PlaylistSections),
             Some("detail") if self.detail_refresh.borrow().is_some() => Some(Operation::Detail),
@@ -235,7 +245,7 @@ impl Controller {
     /// existing bounded request lanes. Its boolean state is presentation only.
     pub(super) fn render_catalog_refresh(&self) {
         let operation = self.refresh_operation();
-        let busy = operation.is_some_and(|operation| self.requests.borrow().occupied(operation));
+        let busy = self.catalog_refresh_busy(operation);
         let ready = {
             let model = self.model.borrow();
             model.account_valid && !model.closed
@@ -258,7 +268,7 @@ impl Controller {
         };
         let Some(operation) = self
             .refresh_operation()
-            .filter(|operation| ready && !self.requests.borrow().occupied(*operation))
+            .filter(|operation| ready && !self.catalog_refresh_busy(Some(*operation)))
         else {
             return;
         };
@@ -283,9 +293,30 @@ impl Controller {
                 let page = self.model.borrow().search_page;
                 self.search(page);
             }
+            Operation::InitialLibrary
+                if self.widgets.stack.visible_child_name().as_deref() == Some("collection") =>
+            {
+                self.refresh_collection();
+            }
             Operation::InitialLibrary => self.load_initial_library_policy(true),
             _ => unreachable!("only a current catalog route can be refreshed"),
         }
         self.render_catalog_refresh();
+    }
+
+    fn catalog_refresh_busy(&self, operation: Option<Operation>) -> bool {
+        let requests = self.requests.borrow();
+        if self.widgets.stack.visible_child_name().as_deref() == Some("collection") {
+            return [
+                Operation::InitialLibrary,
+                Operation::Library,
+                Operation::PlaylistSections,
+                Operation::Mutation,
+                Operation::PlaylistMutation,
+            ]
+            .into_iter()
+            .any(|operation| requests.occupied(operation));
+        }
+        operation.is_some_and(|operation| requests.occupied(operation))
     }
 }

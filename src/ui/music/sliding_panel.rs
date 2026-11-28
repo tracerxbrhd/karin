@@ -130,9 +130,7 @@ impl SlidingPanel {
     pub(in crate::ui) fn new(child: &impl IsA<gtk::Widget>) -> Self {
         let panel: Self = glib::Object::new();
         panel.set_overflow(gtk::Overflow::Hidden);
-        child.set_parent(&panel);
-        child.set_child_visible(false);
-        panel.imp().child.replace(Some(child.clone().upcast()));
+        panel.set_surface(Some(child.upcast_ref()));
         let weak = panel.downgrade();
         let target = adw::CallbackAnimationTarget::new(move |progress| {
             if let Some(panel) = weak.upgrade() {
@@ -149,6 +147,20 @@ impl SlidingPanel {
         animation.set_easing(adw::Easing::EaseOutCubic);
         panel.imp().animation.replace(Some(animation));
         panel
+    }
+
+    pub(in crate::ui) fn set_surface(&self, child: Option<&gtk::Widget>) {
+        let old = self.imp().child.replace(child.cloned());
+        if let Some(old) = old {
+            old.unparent();
+            old.set_child_visible(true);
+        }
+        if let Some(child) = child {
+            child.set_parent(self);
+            child.set_child_visible(self.reveals_child() || self.progress() > 0.0);
+        }
+        self.queue_allocate();
+        self.queue_draw();
     }
 
     #[cfg(test)]

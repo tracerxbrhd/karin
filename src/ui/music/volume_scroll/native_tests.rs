@@ -390,13 +390,13 @@ fn native_v08_footer_lyrics_and_volume_scroll() {
 
     click(&ui.window, window, &this.widgets.queue);
     pump_until(|| this.panel_mode.get() == PanelMode::Queue && !this.widgets.lyrics.is_active());
-    click(&ui.window, window, &this.widgets.current_art_button);
+    click(&ui.window, window, &this.widgets.current_info);
     pump_until(|| this.panel_mode.get() == PanelMode::TrackInfo);
     assert_eq!(this.track_pane.widget, host);
     click(&ui.window, window, &this.track_pane.close);
     pump_until(|| !this.info_is_open() && !reveal.reveals_child());
     assert_eq!(this.panel_mode.get(), PanelMode::Closed);
-    click(&ui.window, window, &this.widgets.current_art_button);
+    click(&ui.window, window, &this.widgets.current_info);
     pump_until(|| this.panel_mode.get() == PanelMode::TrackInfo && reveal.is_child_revealed());
 
     for (width, height, label) in [
@@ -408,6 +408,7 @@ fn native_v08_footer_lyrics_and_volume_scroll() {
         pump_until(|| this.widgets.lyrics.is_mapped() && this.widgets.volume_menu.is_mapped());
         let footer = ui.music.player_bar.compute_bounds(&ui.window).unwrap();
         for control in [
+            this.widgets.current_info.upcast_ref::<gtk::Widget>(),
             this.widgets.lyrics.upcast_ref::<gtk::Widget>(),
             this.widgets.queue.upcast_ref(),
             this.widgets.volume_menu.upcast_ref(),

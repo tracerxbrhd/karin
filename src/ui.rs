@@ -99,7 +99,8 @@ impl MainWindow {
 
     pub fn show_page(&self, name: &str) {
         match name {
-            "music-home" | "music-search" | "music-queue" | "music-library" | "music-playlists" => {
+            "music-home" | "music-search" | "music-queue" | "music-collection"
+            | "music-library" | "music-playlists" => {
                 self.stack.set_visible_child_name("home");
                 let _ = gtk::prelude::WidgetExt::activate_action(
                     &self.window,
@@ -141,6 +142,7 @@ impl MainWindow {
             return Err("Diagnostics did not expose Back and focus its local controls".into());
         }
         for name in [
+            "music-collection",
             "music-library",
             "music-playlists",
             "music-search",
@@ -492,8 +494,8 @@ fn build_shell(
     diagnostics_title.set_visible(false);
     header_center.append(&diagnostics_title);
     header.set_title_widget(Some(&header_center));
-    // Keep one information widget mounted. Unlike a collapsed split sidebar,
-    // this native revealer has no modal backdrop or outside-dismiss policy.
+    // The side panel hosts the shared information widget without a modal
+    // backdrop or outside-dismiss policy.
     let track_info = gtk::Overlay::new();
     track_info.set_child(Some(&stack));
     track_info.set_widget_name("music-track-info-host");
@@ -517,7 +519,11 @@ fn build_shell(
     workspace_bin.set_child(Some(&track_info));
     toolbar.set_content(Some(&workspace_bin));
     let toasts = adw::ToastOverlay::new();
-    toasts.set_child(Some(&music.toolbar_with_player(&toolbar)));
+    let shell = gtk::Stack::new();
+    shell.set_hhomogeneous(false);
+    shell.set_vhomogeneous(false);
+    shell.add_named(&music.toolbar_with_player(&toolbar), Some("workspace"));
+    toasts.set_child(Some(&shell));
     window.set_content(Some(&toasts));
     {
         let saved_focus: Rc<RefCell<Option<glib::WeakRef<gtk::Widget>>>> = Rc::default();
@@ -552,6 +558,7 @@ fn build_shell(
         });
     }
     music.attach_track_info(&track_info, &information_view, stack.upcast_ref());
+    music.attach_now_playing(&shell);
     let music_visibility = music.visibility_callback();
     let workspace_surface = music.workspace_surface();
     let sync_shell = {
@@ -712,6 +719,7 @@ fn build_shell(
     let sections = music.section_stack();
     for name in [
         "music-home",
+        "music-collection",
         "music-library",
         "music-playlists",
         "music-search",
@@ -762,6 +770,7 @@ fn build_shell(
                     let epoch = Rc::clone(&epoch);
                     let expected_section = match name {
                         "music-home" => Some("home"),
+                        "music-collection" => Some("collection"),
                         "music-library" => Some("library"),
                         "music-playlists" => Some("playlists"),
                         "music-queue" => None,

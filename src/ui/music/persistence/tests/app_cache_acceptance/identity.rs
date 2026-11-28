@@ -1037,6 +1037,8 @@ fn application(input: &Input) -> (adw::Application, crate::ui::MainWindow) {
         &input.origin,
     ));
     pointer(&ui.window, &this.widgets.nav_liked);
+    pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("collection"));
+    pointer(&ui.window, &this.collection_overview.open_liked);
     pump_until(|| {
         this.model
             .borrow()

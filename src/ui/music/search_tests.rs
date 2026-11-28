@@ -492,6 +492,10 @@ fn native_search_retry_normalized_results_and_density() {
                         200,
                         json!({"result":{"library":{"uid":1234,"revision":1,"tracks":[]}}}),
                     ),
+                    "/users/1234/playlists/list" | "/users/1234/likes/playlists" => {
+                        assert!(request.starts_with("GET "));
+                        (200, json!({"result":[]}))
+                    }
                     "/users/1234/playlists/3" => (
                         200,
                         json!({"result":{"kind":3,"trackCount":1,"tracks":[{"id":50,"track":normalized_track("50")}]}}),
@@ -1323,6 +1327,8 @@ fn native_search_retry_normalized_results_and_density() {
             click(window, id, &this.widgets.nav_search);
             pump_until(|| !this.widgets.search.is_mapped());
             click(window, id, &this.widgets.nav_liked);
+            pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("collection"));
+            click(window, id, &this.collection_overview.open_liked);
             pump_until(|| {
                 this.widgets.stack.visible_child_name().as_deref() == Some("library")
                     && !this.widgets.search.is_mapped()

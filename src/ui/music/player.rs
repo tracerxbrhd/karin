@@ -1660,6 +1660,7 @@ impl Controller {
         drop(player);
         drop(model);
         self.publish_mpris();
+        self.render_now_playing();
         self.sync_track_pane();
         self.sync_track_extras_position();
         self.sync_cache_presence_targets();

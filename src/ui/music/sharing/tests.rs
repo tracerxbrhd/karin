@@ -108,7 +108,8 @@ fn native_shortcuts_dispatch_and_preserve_widget_input() {
     });
 
     for (keyboard, page) in [
-        ("ctrl+2", "library"),
+        ("ctrl+2", "collection"),
+        ("ctrl+l", "library"),
         ("ctrl+3", "playlists"),
         ("ctrl+1", "home"),
     ] {
@@ -156,7 +157,7 @@ fn native_shortcuts_dispatch_and_preserve_widget_input() {
         .title("Karin synthetic shortcut transport")
         .content(&controls)
         .build();
-    crate::ui::shortcuts::install_transport(&transport, &play, &previous, &next);
+    crate::ui::shortcuts::install_transport(&transport, &play, &previous, &next, || false);
     let clicks = Rc::new(RefCell::new(Vec::new()));
     for (button, name) in [(&play, "play"), (&previous, "previous"), (&next, "next")] {
         let clicks = Rc::clone(&clicks);

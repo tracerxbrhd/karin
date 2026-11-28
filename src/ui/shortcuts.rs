@@ -8,7 +8,9 @@ pub(super) fn install_transport(
     play: &gtk::Button,
     previous: &gtk::Button,
     next: &gtk::Button,
+    alternate_visible: impl Fn() -> bool + 'static,
 ) {
+    let alternate_visible = std::rc::Rc::new(alternate_visible);
     for (name, button, accelerators) in [
         ("music-play-pause", play, &[][..]),
         ("music-previous", previous, &["<Primary><Shift>p"][..]),
@@ -21,11 +23,12 @@ pub(super) fn install_transport(
             .build();
         let button = button.downgrade();
         let window_ref = window.downgrade();
+        let alternate_visible = alternate_visible.clone();
         action.connect_activate(move |_, _| {
             if let (Some(window), Some(button)) = (window_ref.upgrade(), button.upgrade())
                 && window.visible_dialog().is_none()
                 && button.is_sensitive()
-                && button.is_mapped()
+                && (button.is_mapped() || alternate_visible())
             {
                 button.emit_clicked();
             }
@@ -48,9 +51,9 @@ pub(super) fn install_transport(
             && let Some(window) = window_ref.upgrade()
             && window.visible_dialog().is_none()
             && !gtk::prelude::GtkWindowExt::focus(&window).is_some_and(uses_space)
-            && play
-                .upgrade()
-                .is_some_and(|play| play.is_mapped() && play.is_sensitive())
+            && play.upgrade().is_some_and(|play| {
+                (play.is_mapped() || alternate_visible()) && play.is_sensitive()
+            })
             && gtk::prelude::WidgetExt::activate_action(&window, "win.music-play-pause", None)
                 .is_ok()
         {
@@ -121,10 +124,12 @@ fn show_help(window: &adw::ApplicationWindow) {
             "Навигация и поиск",
             &[
                 ("Главная", "win.music-home"),
-                ("Нравится", "win.music-library"),
+                ("Моя коллекция", "win.music-collection"),
+                ("Мне нравится", "win.music-library"),
                 ("Плейлисты", "win.music-playlists"),
                 ("Открыть поиск", "win.music-search"),
                 ("Закрыть поиск", "Escape"),
+                ("Вернуться из «Сейчас играет»", "Escape"),
                 ("Обновить раздел", "win.music-refresh"),
                 ("Очередь", "win.music-queue"),
                 ("Сведения о треке", "win.music-info"),

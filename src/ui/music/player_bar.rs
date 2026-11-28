@@ -16,6 +16,7 @@ pub(super) struct PlayerBarParts {
     pub current_cache: gtk::Box,
     pub current_art: gtk::Box,
     pub current_art_button: gtk::Button,
+    pub current_info: gtk::Button,
     pub current_like_slot: gtk::Box,
     pub position: gtk::Label,
     pub player_status: gtk::Label,
@@ -88,7 +89,7 @@ impl PlayerBarParts {
         let current_art_button = gtk::Button::builder()
             .has_frame(false)
             .child(&current_track)
-            .tooltip_text("Показать сведения о текущем треке")
+            .tooltip_text("Открыть «Сейчас играет»")
             .sensitive(false)
             .build();
         current_art_button.add_css_class("flat");
@@ -97,10 +98,9 @@ impl PlayerBarParts {
         // whitespace after short titles. Reactions remain separate siblings.
         current_art_button.set_halign(gtk::Align::Fill);
         current_art_button.set_hexpand(true);
-        current_art_button.set_widget_name("music-current-info");
-        current_art_button.update_property(&[gtk::accessible::Property::Label(
-            "Показать сведения о текущем треке",
-        )]);
+        current_art_button.set_widget_name("music-now-playing-open");
+        current_art_button
+            .update_property(&[gtk::accessible::Property::Label("Открыть «Сейчас играет»")]);
         metadata.append(&current_art_button);
         let labels = gtk::Box::new(gtk::Orientation::Vertical, 2);
         labels.set_valign(gtk::Align::Center);
@@ -127,7 +127,7 @@ impl PlayerBarParts {
         player_status.set_margin_bottom(4);
         player_status.set_visible(false);
         // The metadata group uses its natural text width inside the expanded
-        // Info button. Extra clickable space stays after the group, rather
+        // track button. Extra clickable space stays after the group, rather
         // than separating the cache mark from its two text lines.
         let text_and_cache = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         text_and_cache.set_widget_name("music-current-metadata-group");
@@ -248,6 +248,15 @@ impl PlayerBarParts {
         utilities.set_widget_name("music-player-utilities");
         utilities.set_halign(gtk::Align::End);
         utilities.set_valign(gtk::Align::Center);
+        let current_info = icon_button(
+            "karin-info-circle-symbolic",
+            "Показать сведения о текущем треке",
+        );
+        current_info.set_widget_name("music-current-info");
+        current_info.add_css_class("flat");
+        current_info.set_sensitive(false);
+        current_info.set_size_request(44, 44);
+        utilities.append(&current_info);
         let lyrics = gtk::ToggleButton::new();
         lyrics.set_icon_name("karin-file-text-symbolic");
         lyrics.set_widget_name("music-lyrics-toggle");
@@ -408,6 +417,7 @@ impl PlayerBarParts {
             current_cache,
             current_art,
             current_art_button,
+            current_info,
             current_like_slot,
             position,
             player_status,

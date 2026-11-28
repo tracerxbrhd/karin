@@ -244,6 +244,8 @@ pub(super) fn run_child(original: &Input, phase: &str) {
         pointer(&ui.window, &this.widgets.nav_search);
         pump_until(|| this.widgets.nav_liked.is_mapped() && !this.widgets.search.is_mapped());
         pointer(&ui.window, &this.widgets.nav_liked);
+        pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("collection"));
+        pointer(&ui.window, &this.collection_overview.open_liked);
         pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("library"));
         this.toggle_queue_panel();
         pump_until(|| this.panel_mode.get() == PanelMode::Queue);
@@ -388,6 +390,8 @@ pub(super) fn run_child(original: &Input, phase: &str) {
         ));
         pump_until(|| this.model.borrow().account_valid && settled(this));
         pointer(&ui.window, &this.widgets.nav_liked);
+        pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("collection"));
+        pointer(&ui.window, &this.collection_overview.open_liked);
         pump_until(|| this.widgets.library_rows.row_at_index(0).is_some());
         wait_presence(this, "42", Presence::Missing);
         this.logout();

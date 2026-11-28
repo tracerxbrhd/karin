@@ -1445,7 +1445,7 @@ impl Controller {
             let model = self.model.borrow();
             model.account_valid && !model.closed
         };
-        let mode = self.panel_mode.get();
+        let mode = self.effective_panel_mode();
         let appropriate = match &action {
             ExtrasAction::Lyrics { .. } | ExtrasAction::RememberExternal(_) => {
                 mode == super::workspace::PanelMode::Lyrics

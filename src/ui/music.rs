@@ -18,6 +18,7 @@ mod catalog_layout;
 mod catalog_view;
 mod collection_filter;
 mod collection_hero;
+mod collection_overview;
 mod continuous_loading;
 #[cfg(test)]
 mod design_tests;
@@ -29,6 +30,8 @@ mod login;
 mod mini;
 #[cfg(test)]
 mod navigation_tests;
+mod now_playing;
+mod now_playing_host;
 mod persistence;
 mod playback_restore;
 mod player;
@@ -173,6 +176,7 @@ struct Widgets {
     current_cache: gtk::Box,
     current_art: gtk::Box,
     current_art_button: gtk::Button,
+    current_info: gtk::Button,
     current_like_slot: gtk::Box,
     player_main: gtk::Box,
     player_revealer: gtk::Revealer,
@@ -215,8 +219,10 @@ struct Controller {
     system_media: RefCell<system_media::SystemMedia>,
     tray: RefCell<Weak<WindowTray>>,
     persistence: RefCell<persistence::State>,
+    collection_overview: collection_overview::CollectionOverview,
     playlist_grid: playlist_grid::PlaylistGrid,
     track_pane: track_pane::TrackPane,
+    now_playing: now_playing_host::Host,
     info_selection: RefCell<Option<workspace::InfoSelection>>,
     info_host: RefCell<Option<workspace::InfoHost>>,
     info_observed: RefCell<Option<workspace::CurrentOccurrence>>,
@@ -365,6 +371,14 @@ impl MusicPane {
                 }
             })
         });
+        let now_playing = now_playing_host::Host::new({
+            let link = controller_link.clone();
+            move |action| {
+                if let Some(this) = link.borrow().upgrade() {
+                    this.handle_now_playing_action(action);
+                }
+            }
+        });
         let playlist_grid = playlist_grid::PlaylistGrid::new(artwork.clone(), {
             let link = controller_link.clone();
             Rc::new(move |action| {
@@ -416,8 +430,8 @@ impl MusicPane {
         let (nav_liked, label_liked) = search_header::section_button(
             "music-tab-liked",
             "karin-heart-symbolic",
-            "Нравится",
-            "win.music-library",
+            "Моя коллекция",
+            "win.music-collection",
         );
         let (nav_playlists, label_playlists) = search_header::section_button(
             "music-tab-playlists",
@@ -463,6 +477,20 @@ impl MusicPane {
         } = home::HomeParts::new();
         stack.add_titled(&home, Some("home"), "Главная");
         stack.set_visible_child_name("home");
+
+        let collection_overview = collection_overview::CollectionOverview::new(artwork.clone(), {
+            let link = controller_link.clone();
+            Rc::new(move |action| {
+                if let Some(this) = link.borrow().upgrade() {
+                    this.handle_collection_playlist_action(action);
+                }
+            })
+        });
+        stack.add_titled(
+            &collection_overview.widget,
+            Some("collection"),
+            "Моя коллекция",
+        );
 
         let library = gtk::Box::new(gtk::Orientation::Vertical, 10);
         let library_mode = gtk::SingleSelection::new(Some(gtk::StringList::new(&[
@@ -605,6 +633,7 @@ impl MusicPane {
             current_cache,
             current_art,
             current_art_button,
+            current_info,
             current_like_slot,
             position,
             player_status,
@@ -694,6 +723,7 @@ impl MusicPane {
             current_cache,
             current_art,
             current_art_button,
+            current_info,
             current_like_slot,
             player_main,
             player_revealer,
@@ -755,8 +785,10 @@ impl MusicPane {
             system_media: RefCell::new(system_media::SystemMedia::default()),
             tray: RefCell::default(),
             persistence: RefCell::new(persistence_state),
+            collection_overview,
             playlist_grid,
             track_pane,
+            now_playing,
             info_selection: RefCell::new(None),
             info_host: RefCell::new(None),
             info_observed: RefCell::new(None),
@@ -788,6 +820,7 @@ impl MusicPane {
             artwork.set_persistent_cache(Some(cache));
         }
         controller.connect(window);
+        controller.connect_collection_overview();
         controller.connect_workspace();
         controller.connect_music_player();
         controller.connect_footer_extras();
@@ -821,7 +854,9 @@ impl MusicPane {
     pub fn navigation_target(&self, action: &str) -> gtk::Widget {
         match action {
             "music-search" => self.controller.widgets.search.clone().upcast(),
-            "music-library" => self.controller.widgets.nav_liked.clone().upcast(),
+            "music-collection" | "music-library" => {
+                self.controller.widgets.nav_liked.clone().upcast()
+            }
             "music-playlists" => self.controller.widgets.nav_playlists.clone().upcast(),
             "music-home" => self.controller.widgets.nav_wave.clone().upcast(),
             "music-queue" => self.controller.widgets.queue_rows.clone().upcast(),
@@ -1139,7 +1174,7 @@ impl Controller {
                         .set_active(route.as_deref() == Some("home"));
                     this.widgets
                         .nav_liked
-                        .set_active(route.as_deref() == Some("library"));
+                        .set_active(matches!(route.as_deref(), Some("collection" | "library")));
                     this.widgets
                         .nav_playlists
                         .set_active(route.as_deref() == Some("playlists"));
@@ -1148,6 +1183,9 @@ impl Controller {
                     this.requests.borrow_mut().invalidate(Operation::Detail);
                     this.requests.borrow_mut().invalidate(Operation::Delivery);
                     this.cancel_delivery();
+                    if route.as_deref() == Some("collection") {
+                        this.show_collection_overview();
+                    }
                 }
             });
         let weak = Rc::downgrade(self);
@@ -1182,11 +1220,16 @@ impl Controller {
                 this.skip_music(true, false);
             }
         });
+        let weak = Rc::downgrade(self);
         super::shortcuts::install_transport(
             window,
             &self.widgets.play,
             &self.widgets.previous,
             &self.widgets.next,
+            move || {
+                weak.upgrade()
+                    .is_some_and(|this| this.now_playing.is_active())
+            },
         );
         for (name, page, accelerators) in [
             (
@@ -1194,11 +1237,8 @@ impl Controller {
                 "home",
                 &["<Primary>1", "<Alt>Home", "<Primary>h"][..],
             ),
-            (
-                "music-library",
-                "library",
-                &["<Primary>2", "<Primary>l"][..],
-            ),
+            ("music-collection", "collection", &["<Primary>2"][..]),
+            ("music-library", "library", &["<Primary>l"][..]),
             (
                 "music-playlists",
                 "playlists",
@@ -1210,6 +1250,7 @@ impl Controller {
             let weak = Rc::downgrade(self);
             action.connect_activate(move |_, _| {
                 if let Some(this) = weak.upgrade() {
+                    this.close_now_playing(false);
                     if page == "search" {
                         this.open_global_search();
                         return;
@@ -1245,7 +1286,9 @@ impl Controller {
         let back = gio::SimpleAction::new("music-back", None);
         let weak = Rc::downgrade(self);
         back.connect_activate(move |_, _| {
-            if let Some(this) = weak.upgrade() {
+            if let Some(this) = weak.upgrade()
+                && !this.close_now_playing(true)
+            {
                 this.back_from_detail();
             }
         });
@@ -1289,6 +1332,7 @@ impl Controller {
         self.widgets.search_previous.set_sensitive(ready);
         if let Some(window) = self.window.upgrade() {
             for name in [
+                "music-collection",
                 "music-library",
                 "music-playlists",
                 "music-search",
@@ -1587,6 +1631,7 @@ impl Controller {
         if let Some((serial, job)) = next {
             job(self, serial);
         }
+        self.collection_read_completed(operation);
     }
 
     fn show_error(self: &Rc<Self>, error: MusicError) {
@@ -2297,6 +2342,7 @@ mod tests {
         assert!(!this.widgets.player_surface.is_mapped());
         assert!(!this.widgets.account_menu.is_mapped());
         for name in [
+            "music-collection",
             "music-library",
             "music-playlists",
             "music-search",
@@ -2363,7 +2409,29 @@ mod tests {
             this.playlist_grid.widget.upcast_ref(),
             "Synthetic independent playlist"
         ));
+        window
+            .lookup_action("music-collection")
+            .unwrap()
+            .activate(None);
+        let overview = this.collection_overview.widget.upcast_ref();
+        assert_eq!(
+            this.widgets.stack.visible_child_name().as_deref(),
+            Some("collection")
+        );
+        assert!(contains_text(
+            overview,
+            "Не удалось загрузить избранные треки"
+        ));
+        assert!(contains_text(overview, "Synthetic independent playlist"));
+        button_with_label(overview, "Понравившиеся")
+            .unwrap()
+            .downcast::<gtk::ToggleButton>()
+            .unwrap()
+            .set_active(true);
+        assert!(contains_text(overview, "Не удалось загрузить плейлисты"));
+        assert_eq!(requested.load(Ordering::Acquire), 6);
         this.logout();
+        assert!(!contains_text(overview, "Synthetic independent playlist"));
         assert!(
             this.widgets
                 .status

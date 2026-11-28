@@ -317,7 +317,7 @@ impl Controller {
         let cached = self.model.borrow().liked.clone();
         if let Some(result) = cached {
             self.render_liked_page(result, 0, true);
-        } else {
+        } else if !self.requests.borrow().occupied(Operation::InitialLibrary) {
             self.load_library(0);
         }
     }
@@ -364,6 +364,7 @@ impl Controller {
         clear_box(&self.widgets.home_hero);
         clear_list(&self.widgets.home_preview);
         self.render_home_collections();
+        self.render_collection_overview();
     }
 
     #[cfg(test)]
@@ -576,7 +577,13 @@ impl Controller {
                         this.show_error(error);
                     }
                 }
-                Err(error) => this.show_error(error),
+                Err(error) => {
+                    let mut model = this.model.borrow_mut();
+                    model.liked.get_or_insert(Err(error));
+                    model.playlists.get_or_insert(Err(error));
+                    drop(model);
+                    this.show_error(error);
+                }
             },
         );
     }
@@ -598,6 +605,14 @@ impl Controller {
             self.load_playlist_sections(force);
             return;
         }
+        self.load_liked_tracks(force);
+    }
+
+    pub(super) fn load_liked_tracks(self: &Rc<Self>, force: bool) {
+        if !self.model.borrow().account_valid || self.model.borrow().closed {
+            return;
+        }
+        self.model.borrow_mut().library_touched = true;
         self.widgets.library_rows.set_visible(true);
         let feed = self.new_track_feed(
             continuous_loading::FeedSource::Liked,
@@ -904,6 +919,7 @@ impl Controller {
             "search" => "Назад к поиску",
             "queue" => "Назад к очереди",
             "home" => "На главную",
+            "collection" => "Назад в мою коллекцию",
             "playlists" => "Назад к плейлистам",
             _ => "Назад в библиотеку",
         };
@@ -951,6 +967,9 @@ impl Controller {
         match origin.as_str() {
             "search" => {
                 self.widgets.search.grab_focus();
+            }
+            "collection" => {
+                self.collection_overview.open_playlists.grab_focus();
             }
             "playlists" => {
                 self.widgets.nav_playlists.grab_focus();

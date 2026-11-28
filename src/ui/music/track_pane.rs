@@ -407,6 +407,10 @@ impl TrackPane {
         self.update_header();
     }
 
+    pub(super) fn set_embedded(&self, embedded: bool) {
+        self.header.set_visible(!embedded);
+    }
+
     fn update_header(&self) {
         let compact = self.state.compact.get();
         let lyrics = self.state.mode.get() == super::workspace::PanelMode::Lyrics;

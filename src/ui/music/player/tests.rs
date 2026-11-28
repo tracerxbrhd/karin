@@ -182,6 +182,8 @@ fn serve(
             | "/tracks"
             | "/users/1234/likes/tracks"
             | "/users/1234/dislikes/tracks"
+            | "/users/1234/playlists/list"
+            | "/users/1234/likes/playlists"
     ) || url.path().starts_with("/users/1234/dislikes/tracks/")
         || url.path().starts_with("/tracks/")
         || url.path().starts_with("/rotor/");
@@ -322,6 +324,12 @@ fn serve(
             &mut stream,
             json!({"result":{"library":{"uid":1234,"revision":state.reaction_posts + 1,"tracks":tracks}}}),
         );
+    } else if matches!(
+        url.path(),
+        "/users/1234/playlists/list" | "/users/1234/likes/playlists"
+    ) {
+        assert_eq!(first[0], "GET");
+        json_response(&mut stream, json!({"result":[]}));
     } else if matches!(
         url.path(),
         "/users/1234/dislikes/tracks/add-multiple" | "/users/1234/dislikes/tracks/remove"
@@ -2939,7 +2947,7 @@ fn native_music_context_mpris_shared_player_and_cleanup() {
     let source_generation = original.snapshot().generation;
     let presentation_offers = fixture.offers(0);
     this.set_info_open(false);
-    native_click(&ui.window, &this.widgets.current_art_button);
+    native_click(&ui.window, &this.widgets.current_info);
     // Intent changes at the start of the slide. Wait for actual completed
     // native allocation before targeting the close button with the mouse.
     pump_until(|| {
@@ -2952,11 +2960,11 @@ fn native_music_context_mpris_shared_player_and_cleanup() {
                 .is_some_and(|view| view.is_child_revealed())
     });
     assert_pinned_track(this, "42");
-    // Unlike Ctrl+I, the footer cover only opens/shows current information.
+    // Repeating the dedicated Info action keeps the current panel open.
     // Finish actual GTK input frames before checking a repeated click: simply
     // waiting for an already-true intent would miss the old toggle regression.
-    native_click(&ui.window, &this.widgets.current_art_button);
-    super::super::test_input::wait_for_layout(&ui.window, &this.widgets.current_art_button);
+    native_click(&ui.window, &this.widgets.current_info);
+    super::super::test_input::wait_for_layout(&ui.window, &this.widgets.current_info);
     assert_pinned_track(this, "42");
     assert_eq!(this.player.borrow().serial, presentation_serial);
     assert_eq!(fixture.offers(0), presentation_offers);
@@ -2964,8 +2972,8 @@ fn native_music_context_mpris_shared_player_and_cleanup() {
     assert_eq!(original.snapshot().state, PlaybackState::Paused);
     this.select_track_info(track("44"), None, false);
     assert_pinned_track(this, "44");
-    native_click(&ui.window, &this.widgets.current_art_button);
-    super::super::test_input::wait_for_layout(&ui.window, &this.widgets.current_art_button);
+    native_click(&ui.window, &this.widgets.current_info);
+    super::super::test_input::wait_for_layout(&ui.window, &this.widgets.current_info);
     assert_pinned_track(this, "42");
     assert_eq!(this.model.borrow().queue.current().unwrap().id, "42");
     assert_eq!(this.player.borrow().serial, presentation_serial);
@@ -2974,7 +2982,7 @@ fn native_music_context_mpris_shared_player_and_cleanup() {
     assert_eq!(original.snapshot().state, PlaybackState::Paused);
     native_click(&ui.window, &this.track_pane.close);
     pump_until(|| !this.info_is_open());
-    native_click(&ui.window, &this.widgets.current_art_button);
+    native_click(&ui.window, &this.widgets.current_info);
     pump_until(|| {
         this.info_is_open()
             && this
@@ -3974,7 +3982,7 @@ fn native_wave_shared_player_feedback_batches_and_cleanup() {
     let home_serial = this.music_serial();
     let home_sessions = fixture.counts.lock().unwrap().wave_sessions;
     native_click(&ui.window, &this.widgets.nav_liked);
-    pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("library"));
+    pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("collection"));
     native_click(&ui.window, &this.widgets.nav_wave);
     pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("home"));
     assert_eq!(this.music_serial(), home_serial);

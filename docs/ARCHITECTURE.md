@@ -136,6 +136,16 @@ LRCLIB requires consent and sends public track metadata. Lyrics stay in memory.
 Similar tracks and external lyrics load only for the relevant visible view.
 System styling follows Libadwaita, with High Contrast and Reduced Motion.
 
+The collection overview reads the account-scoped liked and playlist feeds
+used by the full sections. Preview playback uses the same loaded occurrence
+and queue context as the full liked list.
+
+The footer track opens Now Playing inside the same window. The regular
+workspace keeps its widgets in the navigation stack, preserving page, scroll and
+side panel intent. Now Playing borrows the existing Info, Lyrics and Queue
+surface, and uses the same transport commands, progress and decoded artwork
+as the mini player. Its sections never change the saved side panel preference.
+
 Discord Rich Presence is enabled for new profiles and can be disabled under
 Integrations. Earlier settings files represented an unchecked switch by omitting
 the field. The loader preserves that state and saves both choices explicitly.

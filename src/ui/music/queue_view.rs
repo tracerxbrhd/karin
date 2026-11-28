@@ -101,18 +101,27 @@ impl Controller {
             .map(|track| {
                 let artists = track.artists.join(", ");
                 if artists.is_empty() {
-                    format!("Сведения о треке: {}", track.title)
+                    format!("Сейчас играет: {}", track.title)
                 } else {
-                    format!("Сведения о треке: {} · {artists}", track.title)
+                    format!("Сейчас играет: {} · {artists}", track.title)
                 }
             })
-            .unwrap_or_else(|| "Показать сведения о текущем треке".into());
+            .unwrap_or_else(|| "Открыть «Сейчас играет»".into());
         self.widgets
             .current_art_button
             .set_tooltip_text(Some(&information));
         self.widgets
             .current_art_button
             .update_property(&[gtk::accessible::Property::Label(&information)]);
+        let info_label = selected
+            .map(|track| format!("Сведения о треке: {}", track.title))
+            .unwrap_or_else(|| "Показать сведения о текущем треке".into());
+        self.widgets
+            .current_info
+            .set_tooltip_text(Some(&info_label));
+        self.widgets
+            .current_info
+            .update_property(&[gtk::accessible::Property::Label(&info_label)]);
         self.widgets.position.set_text(
             &selected
                 .and_then(|track| track.duration_ms)
