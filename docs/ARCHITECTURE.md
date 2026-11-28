@@ -140,8 +140,10 @@ Discord Rich Presence is enabled for new profiles and can be disabled under
 Integrations. Earlier settings files represented an unchecked switch by omitting
 the field. The loader preserves that state and saves both choices explicitly.
 The local IPC worker sends track, transport and seek events without periodic
-position updates. The title links to the track's public page. The artist and
-distinct album share one line, and the cover uses an eligible public image URL.
+position updates. The title links to the public album-track page. Collection
+selectors that include an album suffix must match the track's catalog album
+metadata. The artist and distinct album share one line, and the cover uses an
+eligible public image URL.
 Flatpak grants read-only access to `xdg-run/discord-ipc-0` and
 `xdg-run/app/com.discordapp.Discord`.
 When the native Discord socket is missing or stale, the worker uses a short-lived

@@ -51,6 +51,12 @@
     <control>pointing</control>
   </supports>
   <releases>
+    <release version="0.8.5" date="2026-11-28" type="stable">
+      <description>
+        <p>Discord Rich Presence now shows tracks played directly from Liked Tracks.</p>
+        <p xml:lang="ru">Discord Rich Presence теперь показывает треки, запущенные напрямую из коллекции «Мне нравится».</p>
+      </description>
+    </release>
     <release version="0.8.4" date="2026-11-27" type="stable">
       <description>
         <p>Start My Wave from a track or Liked Tracks. The full Liked Tracks collection loads in the background. Discord activity links directly to the current track.</p>
