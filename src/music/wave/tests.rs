@@ -307,6 +307,103 @@ fn track_source_uses_the_documented_catalog_seed_and_shared_session_protocol() {
 }
 
 #[test]
+fn personal_tuning_uses_only_advertised_seeds_and_requires_their_confirmation() {
+    let settings = serde_json::json!({
+        "result": {
+            "settingRestrictions": {
+                "diversity": {"type":"enum","possibleValues":[
+                    {"name":"Все","value":"default","serializedSeed":"settingDiversity:default","unspecified":true},
+                    {"name":"Незнакомые","value":"discover","serializedSeed":"settingDiversity:discover"},
+                    {"name":"Дубликат","value":"discover","serializedSeed":"settingDiversity:discover"},
+                    {"name":"Ложная категория","value":"favorite","serializedSeed":"settingLanguage:favorite"}
+                ]},
+                "moodEnergy": {"type":"enum","possibleValues":[
+                    {"name":"Спокойная","value":"calm","serializedSeed":"settingMoodEnergy:calm"},
+                    {"name":"Неверное значение","value":"fun","serializedSeed":"settingMoodEnergy:active"}
+                ]},
+                "language": {"type":"discrete-scale","possibleValues":[
+                    {"name":"Русский","value":"russian","serializedSeed":"settingLanguage:russian"}
+                ]}
+            }
+        }
+    });
+    for (confirmed, contradictory) in [(true, false), (false, false), (false, true)] {
+        let mut reply: serde_json::Value =
+            serde_json::from_str(&session_body("batch-1", &[43], Some("radio-1"))).unwrap();
+        let mut tags = if confirmed || contradictory {
+            serde_json::json!([
+                {"type":"user","tag":"onyourwave"},
+                {"type":"settingDiversity","tag":"discover"},
+                {"type":"settingMoodEnergy","tag":"calm"}
+            ])
+        } else {
+            serde_json::json!([
+                {"type":"user","tag":"onyourwave"},
+                {"type":"settingDiversity","tag":"discover"},
+                {"type":"settingMoodEnergy","tag":"fun"}
+            ])
+        };
+        if contradictory {
+            tags.as_array_mut()
+                .unwrap()
+                .push(serde_json::json!({"type":"settingMoodEnergy","tag":"fun"}));
+        }
+        reply["result"]["acceptedSeeds"] = tags;
+        let mut responses = vec![
+            (200, ACCOUNT.into()),
+            (200, settings.to_string()),
+            (200, reply.to_string()),
+        ];
+        if confirmed {
+            responses.push((200, track_body(&[43])));
+        }
+        let (service, server, listener) = fixture(responses, None);
+        let token = token();
+        service.account(&token).unwrap();
+        let settings = service.personal_wave_settings(&token).unwrap();
+        assert_eq!(settings.len(), 2);
+        assert_eq!(
+            settings[0].labels().collect::<Vec<_>>(),
+            ["Все", "Незнакомые"]
+        );
+        assert_eq!(
+            settings[1].labels().collect::<Vec<_>>(),
+            ["Без настройки", "Спокойная"]
+        );
+        let mut tuning = WaveTuning::default();
+        assert_eq!(tuning.selection(&settings[0]), 0);
+        tuning.choose(&settings[0], 1);
+        tuning.choose(&settings[1], 1);
+        assert_eq!(tuning.selection(&settings[0]), 1);
+        let cancellation = WaveCancellation::default();
+        let result = service.begin_wave_from(&token, &tuning.into_source(), &cancellation);
+        if confirmed {
+            assert_eq!(result.unwrap().1.tracks[0].id, "43");
+        } else {
+            assert_eq!(
+                result.unwrap_err(),
+                WaveError::SourceNotAccepted.after_response(WaveStage::Session, 200)
+            );
+            assert!(cancellation.is_cancelled());
+        }
+        let requests = complete(server, listener);
+        assert!(
+            requests[1].starts_with("GET /rotor/wave/settings?seeds=user%3Aonyourwave HTTP/1.1")
+        );
+        assert!(requests[2].starts_with("POST /rotor/session/new HTTP/1.1"));
+        assert_eq!(
+            json_body(&requests[2]),
+            serde_json::json!({
+                "seeds":["user:onyourwave","settingDiversity:discover","settingMoodEnergy:calm"],
+                "includeTracksInResponse":true,
+                "includeWaveModel":true
+            })
+        );
+    }
+    assert_eq!(WaveTuning::default().into_source(), WaveSource::Personal);
+}
+
+#[test]
 fn track_source_rejects_an_explicitly_different_seed_without_normalizing_or_retrying() {
     for (field, evidence) in [
         (

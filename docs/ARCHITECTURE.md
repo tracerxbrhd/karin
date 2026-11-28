@@ -112,6 +112,10 @@ once for the same occurrence and then restore the confirmed position.
 
 My Wave starts on request and uses the same player for the personal, track and
 Liked Tracks sources. Rotor receives a typed seed through `POST /rotor/session/new`.
+The personal tuning dialog reads `GET /rotor/wave/settings` for the personal
+seed. It offers supported enum choices with matching server-provided seeds.
+The same start operation sends the selected seeds and admits the first batch
+only when the response confirms the requested source and settings.
 The liked source uses the authenticated account's kind-3 playlist as a single
 seed. Rotor derives recommendations from that collection without needing a
 local list of track IDs. Its bounded feedback queue uses actual listening
@@ -153,6 +157,13 @@ and queue context as the full liked list. Two preview columns share a
 horizontal viewport with arrow navigation when the window is narrow. Playable
 rows retain their accessible full text and scroll overflowing titles and artist
 credits on hover or focus when animations are enabled.
+
+Home continuation projects the currently owned ordinary queue occurrence and
+calls the same transport action as the footer. A restored continuation waits
+for Play. The Liked Tracks Wave shortcut uses the existing collection seed.
+Home keeps four successfully opened album or playlist routes in memory. They
+are current-account shortcuts, cleared at account teardown, and reopen through
+the ordinary catalog checks.
 
 The header Back action unwinds the current overlay or nested catalog route
 before restoring the previous primary section and scroll position. The

@@ -431,14 +431,16 @@ fn native_catalog_navigation_latest_actions() {
     assert_eq!(failed_feed.data.borrow().error, Some(MusicError::Http(404)));
     assert!(!mapped_loading_spinner(failed_feed.status.upcast_ref()));
     assert!(contains_text(this.widgets.detail.upcast_ref(), "Повторить"));
-    fn back_button(widget: &gtk::Widget) -> Option<gtk::Button> {
-        if widget.widget_name() == "music-header-back" {
-            return widget.clone().downcast().ok();
+    fn named_widget(widget: &gtk::Widget, name: &str) -> Option<gtk::Widget> {
+        if widget.widget_name() == name {
+            return Some(widget.clone());
         }
         std::iter::successors(widget.first_child(), WidgetExt::next_sibling)
-            .find_map(|child| back_button(&child))
+            .find_map(|child| named_widget(&child, name))
     }
-    let top_back = back_button(window.upcast_ref()).expect("Back in the native header");
+    let top_back = named_widget(window.upcast_ref(), "music-header-back")
+        .and_downcast::<gtk::Button>()
+        .expect("Back in the native header");
     let back = || {
         pump_until(|| top_back.is_mapped() && top_back.is_sensitive());
         if let Some(id) = &keyboard_window {
@@ -483,8 +485,35 @@ fn native_catalog_navigation_latest_actions() {
     pump_until(|| this.widgets.stack.visible_child_name().as_deref() == Some("library"));
     assert!(!top_back.is_sensitive());
 
+    ui.show_page("music-home");
+    let recent = named_widget(this.widgets.home_signedin.upcast_ref(), "music-home-recent")
+        .expect("Home recent collections");
+    let row = named_widget(&recent, "music-home-recent-collection")
+        .and_downcast::<adw::ActionRow>()
+        .expect("opened playlist on Home");
+    assert_eq!(row.title(), "Synthetic empty playlist");
+    assert!(!contains_text(&recent, "Synthetic failed playlist"));
+    pump_until(|| row.is_mapped());
+    if keyboard_window.is_some() {
+        assert!(row.grab_focus());
+        assert!(
+            std::process::Command::new("xdotool")
+                .args(["key", "--clearmodifiers", "Return"])
+                .status()
+                .unwrap()
+                .success()
+        );
+    } else {
+        adw::prelude::ActionRowExt::activate(&row);
+    }
+    pump_until(|| {
+        this.widgets.stack.visible_child_name().as_deref() == Some("detail")
+            && contains_text(this.widgets.detail.upcast_ref(), "Треков пока нет")
+    });
     this.logout();
     assert!(this.track_feeds.borrow().is_empty());
+    assert!(!recent.is_visible() && recent.first_child().is_some());
+    assert!(named_widget(&recent, "music-home-recent-collection").is_none());
     assert!(this.widgets.library_hero.first_child().is_none());
     assert!(!contains_text(
         pane.widget.upcast_ref(),

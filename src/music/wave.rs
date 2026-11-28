@@ -32,14 +32,19 @@ const MAX_QUEUE: usize = 500;
 const MAX_HEARD: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 const FROM: &str = "unofficial-client-own";
 
+mod settings;
+pub(crate) use settings::WaveSettingGroup;
+pub use settings::WaveTuning;
+
 /// A supported Rotor recommendation source. Seeds are encoded only at the
 /// session boundary, independently of the selected track's queue occurrence.
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Default, PartialEq, Eq)]
 pub enum WaveSource {
     #[default]
     Personal,
     Track(NonZeroU64),
     LikedCollection,
+    TunedPersonal(WaveTuning),
 }
 impl WaveSource {
     pub fn from_track(track: &Track) -> Option<Self> {
@@ -51,9 +56,9 @@ impl WaveSource {
         catalog_id(id).map(Self::Track)
     }
 
-    fn seed(self, binding: &SearchBinding) -> (&'static str, String) {
+    fn seed(&self, binding: &SearchBinding) -> (&'static str, String) {
         match self {
-            Self::Personal => ("user", "onyourwave".into()),
+            Self::Personal | Self::TunedPersonal(_) => ("user", "onyourwave".into()),
             Self::Track(id) => ("track", id.to_string()),
             // The first-party favorites page resolves its own kind-3 playlist.
             // Its seed is account-bound and needs no local track snapshot.
@@ -67,6 +72,7 @@ impl fmt::Debug for WaveSource {
             Self::Personal => "WaveSource::Personal",
             Self::Track(_) => "WaveSource::Track([redacted])",
             Self::LikedCollection => "WaveSource::LikedCollection",
+            Self::TunedPersonal(_) => "WaveSource::TunedPersonal([redacted])",
         })
     }
 }
@@ -366,8 +372,20 @@ impl MusicService {
         cancellation.check()?;
         let binding = self.search_binding(token)?;
         let (seed_kind, seed_tag) = source.seed(&binding);
+        let tuning = match source {
+            WaveSource::TunedPersonal(tuning) => Some(tuning),
+            _ => None,
+        };
+        let mut seeds = vec![format!("{seed_kind}:{seed_tag}")];
+        if let Some(tuning) = tuning {
+            seeds.extend(
+                tuning
+                    .seed_pairs()
+                    .map(|(kind, tag)| format!("{kind}:{tag}")),
+            );
+        }
         let body = serde_json::json!({
-            "seeds": [format!("{seed_kind}:{seed_tag}")],
+            "seeds": seeds,
             "includeTracksInResponse": true,
             "includeWaveModel": true,
         });
@@ -389,9 +407,10 @@ impl MusicService {
             .inspect_err(|_| cancellation.cancel())?;
         // The track seed is an explicit Rotor contract with optional echo.
         // Favorites must confirm the playlist source before admitting a batch.
-        if *source != WaveSource::Personal
-            && !wire.matches_seed(seed_kind, &seed_tag, matches!(source, WaveSource::Track(_)))
-        {
+        let base_accepted = matches!(source, WaveSource::Personal)
+            || wire.matches_seed(seed_kind, &seed_tag, matches!(source, WaveSource::Track(_)));
+        let tuning_accepted = tuning.is_none_or(|tuning| wire.matches_tuning(tuning));
+        if !base_accepted || !tuning_accepted {
             cancellation.cancel();
             return Err(WaveError::SourceNotAccepted.after_response(WaveStage::Session, http));
         }
@@ -699,6 +718,41 @@ struct SessionWire {
     terminated: bool,
 }
 impl SessionWire {
+    fn matches_tuning(&self, tuning: &WaveTuning) -> bool {
+        let seeds = if let Some(seeds) = &self.accepted_seeds {
+            serde_json::from_str::<Vec<SeedWire>>(seeds.get()).ok()
+        } else {
+            self.wave
+                .as_ref()
+                .and_then(|wave| serde_json::from_str::<WaveModelWire>(wave.get()).ok())
+                .and_then(|wave| wave.seeds)
+                .map(|seeds| {
+                    seeds
+                        .into_iter()
+                        .map(|seed| {
+                            let (kind, tag) = seed.split_once(':').unwrap_or((&seed, ""));
+                            SeedWire {
+                                kind: Some(kind.into()),
+                                tag: Some(tag.into()),
+                            }
+                        })
+                        .collect()
+                })
+        };
+        let Some(seeds) = seeds else {
+            return false;
+        };
+        tuning.seed_pairs().all(|(kind, tag)| {
+            let mut reported = seeds.iter().filter(|seed| {
+                seed.kind
+                    .as_deref()
+                    .is_some_and(|value| value.eq_ignore_ascii_case(kind))
+            });
+            let matches = |seed: &SeedWire| seed.tag.as_deref() == Some(tag);
+            reported.next().is_some_and(matches) && reported.all(matches)
+        })
+    }
+
     fn matches_seed(&self, kind: &str, tag: &str, allow_missing: bool) -> bool {
         let matches = |wire_kind: &str, wire_tag: &str| {
             wire_kind.eq_ignore_ascii_case(kind) && seed_tag_matches(kind, tag, wire_tag)

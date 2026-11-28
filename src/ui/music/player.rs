@@ -1644,7 +1644,7 @@ impl Controller {
         }
         self.widgets.previous.set_sensitive(controls.previous);
         self.widgets.next.set_sensitive(controls.next);
-        ProgressPresentation::new(
+        let progress = ProgressPresentation::new(
             snapshot.as_ref(),
             selected.and_then(|track| track.duration_ms),
             player.restored_position.or_else(|| {
@@ -1654,11 +1654,33 @@ impl Controller {
                     .filter(|_| player.failure.is_none() && state != PlaybackState::Error)
                     .map(|_| Duration::ZERO)
             }),
-        )
-        .apply(
+        );
+        progress.apply(
             &self.widgets.progress,
             &self.widgets.position,
             controls.seek,
+        );
+        let continuation = selected.filter(|track| {
+            controls.ready
+                && active_footer
+                && track.available
+                && player.failure.is_none()
+                && !matches!(state, PlaybackState::Error | PlaybackState::Ended)
+                && !self.is_wave_queue()
+                && model
+                    .queue
+                    .current_occurrence_id()
+                    .is_some_and(|occurrence| {
+                        player.source_occurrence.as_ref() == Some(occurrence)
+                            || player.restored_occurrence.as_ref() == Some(occurrence)
+                    })
+        });
+        self.widgets.home_continue.render(
+            continuation,
+            state,
+            controls.play_pause && !controls.loading,
+            controls.loading,
+            progress.position,
         );
         drop(player);
         drop(model);

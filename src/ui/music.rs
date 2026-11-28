@@ -59,6 +59,7 @@ mod test_input;
 mod track_extras;
 mod track_pane;
 mod volume_scroll;
+mod wave_settings;
 mod welcome;
 mod workspace;
 mod wrap_row;
@@ -141,6 +142,8 @@ struct Widgets {
     home_playlists: gtk::Button,
     home_search: gtk::Button,
     home_wave: home::WaveParts,
+    home_continue: home::ContinuationParts,
+    home_recent: home::RecentParts,
     home_queue: gtk::Label,
     home_preview: gtk::ListBox,
     home_collections: gtk::FlowBox,
@@ -220,6 +223,7 @@ struct Controller {
     artwork: Option<ArtworkLoader>,
     player: RefCell<player::MusicPlayback>,
     radio: RefCell<radio::RadioLifecycle>,
+    wave_settings_read: RefCell<Option<wave_settings::PendingRead>>,
     system_media: RefCell<system_media::SystemMedia>,
     tray: RefCell<Weak<WindowTray>>,
     persistence: RefCell<persistence::State>,
@@ -477,6 +481,8 @@ impl MusicPane {
             home_playlists,
             home_search,
             home_wave,
+            home_continue,
+            home_recent,
             home_queue,
             home_preview,
             home_collections,
@@ -692,6 +698,8 @@ impl MusicPane {
             home_playlists,
             home_search,
             home_wave,
+            home_continue,
+            home_recent,
             home_queue,
             home_preview,
             home_collections,
@@ -790,6 +798,7 @@ impl MusicPane {
             artwork,
             player: RefCell::new(player::MusicPlayback::default()),
             radio: RefCell::new(radio::RadioLifecycle::default()),
+            wave_settings_read: RefCell::new(None),
             system_media: RefCell::new(system_media::SystemMedia::default()),
             tray: RefCell::default(),
             persistence: RefCell::new(persistence_state),
@@ -1205,6 +1214,25 @@ impl Controller {
                 this.cancel_wave_start();
             }
         });
+        self.connect_wave_settings();
+        let weak = Rc::downgrade(self);
+        self.widgets.home_wave.liked.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.start_liked_wave_from_home();
+            }
+        });
+        let weak = Rc::downgrade(self);
+        self.widgets
+            .home_continue
+            .action
+            .connect_clicked(move |button| {
+                if button.is_mapped()
+                    && button.is_sensitive()
+                    && let Some(this) = weak.upgrade()
+                {
+                    this.toggle_music();
+                }
+            });
         let weak = Rc::downgrade(self);
         self.widgets.clear_queue.connect_clicked(move |_| {
             if let Some(this) = weak.upgrade() {
@@ -1305,6 +1333,10 @@ impl Controller {
             !ready && !signing_in && !model.closed && !self.persistence_blocks_login(),
         );
         self.widgets.home_signedin.set_visible(ready);
+        if !ready {
+            self.widgets.home_recent.clear();
+            self.widgets.home_continue.clear();
+        }
         self.widgets.player_surface.set_visible(ready);
         self.widgets.home_liked.set_sensitive(ready);
         self.widgets.home_playlists.set_sensitive(ready);

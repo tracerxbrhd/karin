@@ -992,6 +992,9 @@ impl Controller {
     pub(super) fn clear_workspace(&self) {
         self.close_now_playing(false);
         self.retire_navigation_history();
+        self.retire_wave_settings();
+        self.widgets.home_recent.clear();
+        self.widgets.home_continue.clear();
         self.retire_catalog_rows();
         self.retire_playlist_management();
         let dialog = self.playlist_dialog.borrow_mut().take();

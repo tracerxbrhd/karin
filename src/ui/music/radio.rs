@@ -6,7 +6,7 @@ use super::*;
 use crate::{
     music::wave::{
         WaveBatch, WaveBatchMarker, WaveCancellation, WaveCoordinator, WaveError, WaveEvent,
-        WaveSession, WaveSource, WaveStage,
+        WaveSession, WaveSource, WaveStage, WaveTuning,
     },
     playback::{PlaybackSnapshot, PlaybackState},
     queue::{OccurrenceId, RepeatMode},
@@ -292,6 +292,36 @@ impl Controller {
         self.start_wave_from(WaveSource::Personal);
     }
 
+    pub(super) fn wave_source_in_use(&self, source: &WaveSource) -> bool {
+        let radio = self.radio.borrow();
+        radio
+            .begin
+            .as_ref()
+            .is_some_and(|begin| &begin.source == source)
+            || (radio.active.is_some() && &radio.source == source)
+    }
+
+    pub(super) fn personal_wave_tuning(&self) -> WaveTuning {
+        match &self.radio.borrow().source {
+            WaveSource::TunedPersonal(tuning) => tuning.clone(),
+            _ => WaveTuning::default(),
+        }
+    }
+
+    pub(super) fn listen_to_configured_wave(self: &Rc<Self>, source: WaveSource) {
+        let status = self.radio_status();
+        if matches!(status.phase, RadioPhase::Failed { .. }) || !self.wave_source_in_use(&source) {
+            self.start_wave_from(source);
+        } else if matches!(status.phase, RadioPhase::Active | RadioPhase::LoadingNext)
+            && matches!(
+                status.playback,
+                Some(PlaybackState::Paused | PlaybackState::Ready)
+            )
+        {
+            self.play_music();
+        }
+    }
+
     pub(super) fn start_wave_from(self: &Rc<Self>, source: WaveSource) {
         if !self.radio_status().authenticated {
             return;
@@ -313,7 +343,7 @@ impl Controller {
         {
             let mut radio = self.radio.borrow_mut();
             radio.epoch = radio.epoch.wrapping_add(1);
-            radio.source = source;
+            radio.source = source.clone();
             radio.begin = Some(Start {
                 source,
                 cancellation: WaveCancellation::default(),
@@ -346,7 +376,7 @@ impl Controller {
             let current = weak
                 .upgrade()
                 .filter(|this| this.model.borrow().generation == generation);
-            if let (Some(this), Some(source)) = (current, source) {
+            if let (Some(this), Some(source)) = (current, source.clone()) {
                 this.start_wave_from(source);
             }
         });
@@ -359,7 +389,7 @@ impl Controller {
         match status.phase {
             RadioPhase::Ready => self.start_wave(),
             RadioPhase::Failed { .. } => {
-                let source = self.radio.borrow().source;
+                let source = self.radio.borrow().source.clone();
                 self.start_wave_from(source);
             }
             RadioPhase::Active | RadioPhase::LoadingNext => match status.playback {
