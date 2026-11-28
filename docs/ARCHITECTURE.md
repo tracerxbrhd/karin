@@ -110,6 +110,22 @@ stay off CDN requests and signed media URLs stay in memory. PlaybackController
 owns one GStreamer pipeline. An explicit Resume can renew an expired source
 once for the same occurrence and then restore the confirmed position.
 
+The local transition diagnostic stages an original second input through
+GStreamer's `about-to-finish` callback and measures PCM frames and sink
+running time. An uninterrupted timeline alone can keep MP3 encoder delay
+and padding. The diagnostic compares LAME-tagged fixtures with the same
+encoded audio after removing the trim metadata.
+
+A production handoff needs separate, current access admission for the next
+occurrence before the streaming-thread callback. The current transport guard
+owns one admission per pipeline and the worker retires that pipeline at end
+of stream. Committing the next occurrence requires a native stream-start
+acknowledgement. Wave successors depend on settled feedback. Crossfade
+requires separately admitted overlapping inputs on one clock, gain bounds
+that avoid clipping, and listening attribution during the overlap.
+
+[GStreamer gapless playback](https://gstreamer.freedesktop.org/documentation/playback/streamsynchronizer.html) · [MP3 trim support](https://gstreamer.freedesktop.org/releases/1.22/) · [GStreamer mixer](https://gstreamer.freedesktop.org/documentation/audiomixer/audiomixer.html)
+
 My Wave starts on request and uses the same player for the personal, track and
 Liked Tracks sources. Rotor receives a typed seed through `POST /rotor/session/new`.
 The liked source uses the authenticated account's kind-3 playlist as a single

@@ -169,6 +169,7 @@ jobs:
           flatpak run --user io.github.tracerxbrhd.Karin --version | grep -Fx "Source commit: $GITHUB_SHA"
           GTK_A11Y=none GSK_RENDERER=cairo dbus-run-session -- xvfb-run -a \
             flatpak run --user io.github.tracerxbrhd.Karin --smoke-test
+          flatpak run --user io.github.tracerxbrhd.Karin --transition-diagnostic
           sha256sum "$acceptance" karin-*-source.tar.gz > SHA256SUMS
           sha256sum -c SHA256SUMS
       - name: Check both Discord IPC locations inside the installed sandbox

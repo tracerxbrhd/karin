@@ -101,7 +101,10 @@ fn main() -> glib::ExitCode {
     match args.as_slice() {
         [flag] if flag == "--help" || flag == "-h" => {
             println!(
-                "Karin\n\nUsage: karin [--smoke-test | --ui-fixture | --application-fixture | --audio-self-test | --playback-self-test | --probe-service | --diagnostics | --oauth-diagnostic | --delivery-diagnostic | --artwork-diagnostic | --experimental-wave | --version]\n       karin --independent-auth login [--remember] | restore | logout\n\n--smoke-test          Verify GTK and local playback cleanup without network or sound\n--ui-fixture          Offline sign-in fixture for automated UI captures; never contacts OAuth\n--application-fixture Original local account/audio fixture; requires private XDG profile\n--audio-self-test     Process a synthetic signal through GStreamer fakesink\n--playback-self-test  Decode a generated local WAV through playbin; test controls and cleanup\n--probe-service       Make an anonymous availability request (network required)\n--diagnostics         Open developer diagnostics in a new Karin session (combine with --ui-fixture for offline developer captures)\n--oauth-diagnostic    Opt-in local PKCE experiment; private terminal and system browser required\n--independent-auth    Owner-local sign-in with a separate account store; terminal required\n--delivery-diagnostic Opt-in local delivery-info probe using this window's ordinary sign-in; no media request\n--artwork-diagnostic  Opt-in bounded image-stage categories in the ordinary app; no URLs or personal fields\n--experimental-wave   Deprecated no-op alias; My Wave is available in normal startup"
+                "Karin\n\nUsage: karin [--smoke-test | --ui-fixture | --application-fixture | --audio-self-test | --playback-self-test | --transition-diagnostic | --probe-service | --diagnostics | --oauth-diagnostic | --delivery-diagnostic | --artwork-diagnostic | --experimental-wave | --version]\n       karin --independent-auth login [--remember] | restore | logout\n\n--smoke-test          Verify GTK and local playback cleanup without network or sound\n--ui-fixture          Offline sign-in fixture for automated UI captures; never contacts OAuth\n--application-fixture Original local account/audio fixture; requires private XDG profile\n--audio-self-test     Process a synthetic signal through GStreamer fakesink\n--playback-self-test  Decode a generated local WAV through playbin; test controls and cleanup\n--probe-service       Make an anonymous availability request (network required)\n--diagnostics         Open developer diagnostics in a new Karin session (combine with --ui-fixture for offline developer captures)\n--oauth-diagnostic    Opt-in local PKCE experiment; private terminal and system browser required\n--independent-auth    Owner-local sign-in with a separate account store; terminal required\n--delivery-diagnostic Opt-in local delivery-info probe using this window's ordinary sign-in; no media request\n--artwork-diagnostic  Opt-in bounded image-stage categories in the ordinary app; no URLs or personal fields\n--experimental-wave   Deprecated no-op alias; My Wave is available in normal startup"
+            );
+            println!(
+                "--transition-diagnostic Measure two original tracks through local playbin/fakesink"
             );
             if cfg!(feature = "experimental-device-auth") {
                 println!(
@@ -138,6 +141,18 @@ fn main() -> glib::ExitCode {
         }
         [flag] if flag == "--playback-self-test" => {
             return match playback::run_self_test() {
+                Ok(report) => {
+                    println!("{report}");
+                    glib::ExitCode::SUCCESS
+                }
+                Err(error) => {
+                    eprintln!("{error}");
+                    glib::ExitCode::FAILURE
+                }
+            };
+        }
+        [flag] if flag == "--transition-diagnostic" => {
+            return match playback::run_transition_diagnostic() {
                 Ok(report) => {
                     println!("{report}");
                     glib::ExitCode::SUCCESS
