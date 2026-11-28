@@ -1013,18 +1013,20 @@ mod tests {
 
     use super::*;
 
+    #[track_caller]
     fn pump_until(mut ready: impl FnMut() -> bool) {
         let deadline = Instant::now() + Duration::from_secs(4);
         let context = glib::MainContext::default();
         while !ready() {
-            while context.pending() {
-                context.iteration(false);
-            }
             assert!(
                 Instant::now() < deadline,
                 "update dialog layout or input did not settle"
             );
-            std::thread::sleep(Duration::from_millis(8));
+            // The spinner and a HiDPI redraw can keep the frame clock ready.
+            // Recheck the predicate and deadline after each dispatch.
+            if !context.iteration(false) {
+                std::thread::sleep(Duration::from_millis(8));
+            }
         }
     }
 

@@ -1665,9 +1665,24 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
         .snapshot()
         .generation;
     let input_offers = fixture.counts.lock().unwrap().offers;
+    let leave_now_playing = || {
+        pump_until(|| this.now_playing.is_active());
+        assert!(
+            std::process::Command::new("xdotool")
+                .args(["key", "--clearmodifiers", "Escape"])
+                .status()
+                .unwrap()
+                .success()
+        );
+        pump_until(|| !this.now_playing.is_active());
+    };
     // Click the actual title and artist regions, not just the small cover.
     this.set_info_open(false);
     native_click(&ui.window, &this.widgets.current);
+    leave_now_playing();
+    assert!(!this.info_is_open());
+    assert_eq!(this.track_pane.selected().unwrap().id, "43");
+    native_click(&ui.window, &this.widgets.current_info);
     pump_until(|| this.info_is_open());
     assert_pinned_track(this, "42");
     this.toggle_queue_panel();
@@ -1676,6 +1691,12 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
         super::super::workspace::PanelMode::Queue
     );
     native_click(&ui.window, &this.widgets.current_artist);
+    leave_now_playing();
+    assert_eq!(
+        this.panel_mode.get(),
+        super::super::workspace::PanelMode::Queue
+    );
+    native_click(&ui.window, &this.widgets.current_info);
     pump_until(|| this.panel_mode.get() == super::super::workspace::PanelMode::TrackInfo);
     assert_pinned_track(this, "42");
     for key in ["Return", "space"] {
@@ -1688,11 +1709,11 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
                 .unwrap()
                 .success()
         );
-        pump_until(|| this.info_is_open());
-        assert_pinned_track(this, "42");
+        leave_now_playing();
+        assert!(!this.info_is_open());
+        assert_eq!(this.track_pane.selected().unwrap().id, "42");
     }
-    // The native info button must own the complete metadata wing, not only
-    // the cover/text's natural request. Exercise the actual extra allocation
+    // Now Playing owns the complete metadata wing. Exercise the extra allocation
     // and mapped children at both footer arrangements, with XTest input.
     for width in [420, 1440] {
         this.set_info_open(false);
@@ -1703,16 +1724,21 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
         assert_eq!(metadata.widget_name(), "music-player-metadata");
         assert_eq!(button.halign(), gtk::Align::Fill);
         assert!(button.hexpands());
-        assert!(
-            (button.width() + this.widgets.current_like_slot.width() + metadata.spacing()
-                - metadata.width())
-            .abs()
-                <= 1,
-            "the whole available metadata allocation belongs to Info, excluding sibling reactions"
-        );
         let info = button.compute_bounds(&ui.window).unwrap();
+        let reactions = this
+            .widgets
+            .current_like_slot
+            .compute_bounds(&ui.window)
+            .unwrap();
+        let wing = metadata.compute_bounds(&ui.window).unwrap();
+        assert!(
+            (info.width() + reactions.width() + metadata.spacing() as f32 - wing.width()).abs()
+                <= 1.0,
+            "the Now Playing and reaction hit boxes must fill the metadata allocation: {info:?}, {reactions:?}, {wing:?}"
+        );
         for control in [
             this.widgets.current_like_slot.upcast_ref::<gtk::Widget>(),
+            this.widgets.current_info.upcast_ref(),
             this.widgets.play.upcast_ref(),
             this.widgets.previous.upcast_ref(),
             this.widgets.next.upcast_ref(),
@@ -1724,7 +1750,7 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
             assert!(control.is_mapped());
             assert!(
                 !control.is_ancestor(button),
-                "independent controls must not become children of the Info button"
+                "independent controls must not become children of the Now Playing button"
             );
             let bounds = control.compute_bounds(&ui.window).unwrap();
             let overlap_x = (info.x() + info.width()).min(bounds.x() + bounds.width())
@@ -1733,7 +1759,7 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
                 - info.y().max(bounds.y());
             assert!(
                 overlap_x <= 1.0 || overlap_y <= 1.0,
-                "expanded Info must not cover an independent target: {} {bounds:?}/{info:?}",
+                "the Now Playing target must not cover an independent target: {} {bounds:?}/{info:?}",
                 control.widget_name()
             );
         }
@@ -1744,8 +1770,9 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
         ] {
             this.set_info_open(false);
             native_click(&ui.window, target);
-            pump_until(|| this.info_is_open());
-            assert_pinned_track(this, "42");
+            leave_now_playing();
+            assert!(!this.info_is_open());
+            assert_eq!(this.track_pane.selected().unwrap().id, "42");
         }
         this.set_info_open(false);
         super::super::test_input::wait_for_layout(&ui.window, button);
@@ -1790,7 +1817,7 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
                 && blank_x < info.x() + info.width()
                 && blank_y > info.y()
                 && blank_y < info.y() + info.height(),
-            "blank input is inside the Info allocation"
+            "blank input is inside the Now Playing allocation"
         );
         let (dx, dy) = ui.window.surface_transform();
         let scale = f64::from(ui.window.scale_factor());
@@ -1826,8 +1853,9 @@ fn native_music_playback_context_occurrences_and_shared_transport() {
                 .unwrap()
                 .success()
         );
-        pump_until(|| this.info_is_open());
-        assert_pinned_track(this, "42");
+        leave_now_playing();
+        assert!(!this.info_is_open());
+        assert_eq!(this.track_pane.selected().unwrap().id, "42");
     }
     this.set_info_open(false);
     resize_player_window(&ui, 900, 650);
